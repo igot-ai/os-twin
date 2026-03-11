@@ -76,30 +76,11 @@ else:
 # Read role prompt
 ROLE_PROMPT=$(cat "$SCRIPT_DIR/ROLE.md" 2>/dev/null || echo "")
 
-# Build the prompt
-PROMPT="$ROLE_PROMPT
+# Build instructions based on Epic vs Task
+ROOM_NAME=$(basename "$ROOM_DIR")
 
----
-
-## Your Task
-
-$TASK_DESC
-
-## Latest Instruction
-
-$LATEST_BODY
-
-## War-Room
-
-Room: $(basename "$ROOM_DIR")
-Task Ref: $TASK_REF
-Working Directory: $WORKING_DIR
-
-## Instructions
-
-$(if [[ "$IS_EPIC" == "true" ]]; then
-cat << EPICINST
-You are working on an EPIC — a high-level feature that you must plan and implement yourself.
+if [[ "$IS_EPIC" == "true" ]]; then
+  ENG_INSTRUCTIONS="You are working on an EPIC — a high-level feature that you must plan and implement yourself.
 
 ### Phase 1 — Planning
 1. Analyze the brief above and break it into concrete sub-tasks
@@ -120,15 +101,35 @@ You are working on an EPIC — a high-level feature that you must plan and imple
    - Epic overview: what was delivered
    - Sub-tasks completed (include the final TASKS.md checklist)
    - Files modified/created
-   - How to test the full epic
-EPICINST
+   - How to test the full epic"
 else
-cat << 'TASKINST'
-1. Implement the task described above
+  ENG_INSTRUCTIONS="1. Implement the task described above
 2. When done, summarize your changes clearly
-3. Format your summary with: Changes Made, Files Modified, How to Test
-TASKINST
-fi)
+3. Format your summary with: Changes Made, Files Modified, How to Test"
+fi
+
+# Build the prompt
+PROMPT="$ROLE_PROMPT
+
+---
+
+## Your Task
+
+$TASK_DESC
+
+## Latest Instruction
+
+$LATEST_BODY
+
+## War-Room
+
+Room: $ROOM_NAME
+Task Ref: $TASK_REF
+Working Directory: $WORKING_DIR
+
+## Instructions
+
+$ENG_INSTRUCTIONS
 "
 
 # Prompt size guard — truncate if exceeds max

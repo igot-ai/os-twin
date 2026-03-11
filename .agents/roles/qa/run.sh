@@ -66,6 +66,32 @@ fi
 # Read role prompt
 ROLE_PROMPT=$(cat "$SCRIPT_DIR/ROLE.md" 2>/dev/null || echo "")
 
+# Build Epic-specific prompt sections
+TASKS_SECTION=""
+if [[ "$IS_EPIC" == "true" ]] && [[ -n "$TASKS_MD" ]]; then
+  TASKS_SECTION="
+## Engineer's Task Breakdown (TASKS.md)
+
+$TASKS_MD
+"
+fi
+
+if [[ "$IS_EPIC" == "true" ]]; then
+  REVIEW_INSTRUCTIONS="You are reviewing an EPIC — a complete feature delivered by the engineer.
+
+1. Review ALL code changes holistically across the full epic
+2. Verify the TASKS.md checklist is complete — all sub-tasks must be checked off
+3. Verify each sub-task was actually implemented (not just checked off)
+4. Run the project test suite
+5. Validate the epic delivers the feature described in the brief
+6. Provide your verdict"
+else
+  REVIEW_INSTRUCTIONS="1. Review the code changes described in the engineer's report
+2. Verify the implementation meets the task requirements
+3. Run tests if applicable
+4. Provide your verdict"
+fi
+
 # Build the prompt
 PROMPT="$ROLE_PROMPT
 
@@ -78,36 +104,10 @@ $TASK_DESC
 ## Engineer's Report
 
 $ENGINEER_REPORT
-$(if [[ "$IS_EPIC" == "true" ]] && [[ -n "$TASKS_MD" ]]; then
-cat << TASKSECTION
-
-## Engineer's Task Breakdown (TASKS.md)
-
-$TASKS_MD
-TASKSECTION
-fi)
-
+$TASKS_SECTION
 ## Instructions
 
-$(if [[ "\$IS_EPIC" == "true" ]]; then
-cat << EPICQA
-You are reviewing an EPIC — a complete feature delivered by the engineer.
-
-1. Review ALL code changes holistically across the full epic
-2. Verify the TASKS.md checklist is complete — all sub-tasks must be checked off
-3. Verify each sub-task was actually implemented (not just checked off)
-4. Run the project test suite
-5. Validate the epic delivers the feature described in the brief
-6. Provide your verdict
-EPICQA
-else
-cat << TASKQA
-1. Review the code changes described in the engineer report
-2. Verify the implementation meets the task requirements
-3. Run tests if applicable
-4. Provide your verdict
-TASKQA
-fi)
+$REVIEW_INSTRUCTIONS
 
 IMPORTANT: Your response MUST include exactly one of these lines:
   VERDICT: PASS
