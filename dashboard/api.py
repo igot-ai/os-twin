@@ -28,9 +28,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # === Paths ===
+# PROJECT_DIR is set via --project-dir flag (from dashboard.sh) or defaults to parent of dashboard/
 PROJECT_ROOT = Path(__file__).parent.parent
 AGENTS_DIR = PROJECT_ROOT / ".agents"
-WARROOMS_DIR = AGENTS_DIR / "war-rooms"
+# Default war-rooms location — overridden by --project-dir in __main__
+WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 DEMO_DIR = Path(__file__).parent
 
 app = FastAPI(title="Agent OS Command Center", version="0.1.0")
@@ -334,8 +336,20 @@ async def sse_events():
 
 
 if __name__ == "__main__":
+    import argparse as _ap
+
+    _parser = _ap.ArgumentParser(description="Ostwin Dashboard")
+    _parser.add_argument("--port", type=int, default=8000, help="Port to listen on")
+    _parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    _parser.add_argument("--project-dir", default=None, help="Project directory to monitor")
+    _args = _parser.parse_args()
+
+    # Override global WARROOMS_DIR if project-dir provided
+    if _args.project_dir:
+        WARROOMS_DIR = Path(_args.project_dir) / ".war-rooms"
+
     print("⬡ Agent OS Command Center")
-    print(f"  Project: {PROJECT_ROOT}")
-    print(f"  Agents:  {AGENTS_DIR}")
-    print(f"  URL:     http://localhost:8000")
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True, app_dir=str(DEMO_DIR))
+    print(f"  Project:   {_args.project_dir or PROJECT_ROOT}")
+    print(f"  War-rooms: {WARROOMS_DIR}")
+    print(f"  URL:       http://localhost:{_args.port}")
+    uvicorn.run(app, host=_args.host, port=_args.port)

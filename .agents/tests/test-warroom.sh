@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WARROOMS="$AGENTS_DIR/war-rooms"
 
+# Export WARROOMS_DIR so war-room scripts use this location for data
+export WARROOMS_DIR="$WARROOMS"
+
 # Save and restore any existing rooms
 BACKUP_DIR=$(mktemp -d)
 if ls "$WARROOMS"/room-* 1>/dev/null 2>&1; then

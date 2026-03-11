@@ -11,6 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# War-room data location (project-scoped via WARROOMS_DIR, fallback to script dir)
+WARROOMS_DATA="${WARROOMS_DIR:-$SCRIPT_DIR}"
 JSON_MODE=false
 WATCH_MODE=false
 
@@ -18,6 +20,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --json)  JSON_MODE=true; shift ;;
     --watch) WATCH_MODE=true; shift ;;
+    --project-dir) WARROOMS_DATA="$2/.war-rooms"; shift 2 ;;
     *)       shift ;;
   esac
 done
@@ -26,7 +29,7 @@ print_status() {
   local rooms=()
   local total=0 pending=0 engineering=0 qa_review=0 fixing=0 passed=0 failed=0
 
-  for room_dir in "$SCRIPT_DIR"/room-*/; do
+  for room_dir in "$WARROOMS_DATA"/room-*/; do
     [[ -d "$room_dir" ]] || continue
     total=$((total + 1))
 

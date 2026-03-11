@@ -93,7 +93,18 @@ done
 find "$TARGET_AGENTS" -name "*.sh" -exec chmod +x {} \;
 chmod +x "$TARGET_AGENTS/bin/ostwin" 2>/dev/null || true
 
+# Add .war-rooms to .gitignore (project-scoped runtime data)
+if [[ -f "$TARGET_DIR/.gitignore" ]]; then
+  if ! grep -q "^\.war-rooms" "$TARGET_DIR/.gitignore" 2>/dev/null; then
+    echo ".war-rooms/" >> "$TARGET_DIR/.gitignore"
+  fi
+else
+  echo ".war-rooms/" > "$TARGET_DIR/.gitignore"
+fi
+
 echo "  [OK] Ostwin initialized in $TARGET_DIR/.agents/"
+echo ""
+echo "  War-rooms will be created at: $TARGET_DIR/.war-rooms/ (project-scoped)"
 echo ""
 echo "  Next steps:"
 echo "    1. Edit your plan:  cp .agents/plans/PLAN.template.md .agents/plans/my-plan.md"

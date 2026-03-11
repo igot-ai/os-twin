@@ -17,7 +17,10 @@ TASK_REF="$2"
 TASK_DESC="$3"
 WORKING_DIR="${4:-.}"
 
-ROOM_DIR="$SCRIPT_DIR/$ROOM_ID"
+# War-room data location (project-scoped via WARROOMS_DIR, fallback to script dir)
+WARROOMS_DATA="${WARROOMS_DIR:-$SCRIPT_DIR}"
+mkdir -p "$WARROOMS_DATA"
+ROOM_DIR="$WARROOMS_DATA/$ROOM_ID"
 
 # Prevent overwriting existing room
 if [[ -d "$ROOM_DIR" ]]; then

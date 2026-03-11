@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# QA Runner: wraps gemini CLI for war-room code review
+# QA Runner: wraps deepagents CLI for war-room code review
 #
 # Usage: run.sh <war-room-dir> [--timeout SECONDS]
 #
-# Reads the engineer's "done" message, runs gemini in non-interactive
+# Reads the engineer's "done" message, runs deepagents in non-interactive
 # mode to review, and posts pass/fail back to the channel.
 #
 # Override the QA command with QA_CMD env var (for testing with mocks).
@@ -24,7 +24,7 @@ shift
 # Config
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
 TIMEOUT=$(python3 -c "import json; print(json.load(open('$CONFIG'))['qa']['timeout_seconds'])")
-QA_CMD="${QA_CMD:-gemini}"
+QA_CMD="${QA_CMD:-deepagents}"
 
 # Parse optional args
 while [[ $# -gt 0 ]]; do
@@ -129,8 +129,9 @@ log INFO "Starting review of $TASK_REF in $(basename "$ROOM_DIR")..." 2>/dev/nul
 
 # Execute with timeout
 EXIT_CODE=0
-if timeout "$TIMEOUT" $QA_CMD -p "$PROMPT" \
-    --yolo \
+if timeout "$TIMEOUT" $QA_CMD -n "$PROMPT" \
+    --auto-approve \
+    -q \
     > "$OUTPUT_FILE" 2>&1; then
   EXIT_CODE=0
 else

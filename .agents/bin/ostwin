@@ -39,7 +39,7 @@ Commands:
   stop              Graceful shutdown of running manager
                     Options: --force
   dashboard         Launch web dashboard
-                    Options: --port PORT (default: 8000)
+                    Options: --port PORT, --project-dir PATH
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
   health            Check system health
@@ -55,12 +55,17 @@ Examples:
   ostwin stop
 
 Environment:
-  ENGINEER_CMD      Override engineer CLI (default: deepagents)
-  QA_CMD            Override QA CLI (default: gemini)
-  MOCK_SIGNOFF      Set to "true" for auto-signoff (testing)
+  ENGINEER_CMD        Override engineer CLI (default: deepagents)
+  QA_CMD              Override QA CLI (default: deepagents)
+  MOCK_SIGNOFF        Set to "true" for auto-signoff (testing)
   AGENT_OS_LOG_LEVEL  Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
+  WARROOMS_DIR        Override war-rooms data directory
+                      (default: <project>/.war-rooms)
 HELP
 }
+
+# Default WARROOMS_DIR to cwd/.war-rooms for project-scoped commands
+export WARROOMS_DIR="${WARROOMS_DIR:-$(pwd)/.war-rooms}"
 
 case "${1:-}" in
   run)
@@ -89,7 +94,12 @@ case "${1:-}" in
     ;;
   dashboard)
     shift
-    exec "$AGENTS_DIR/dashboard.sh" "$@"
+    # Default project-dir to cwd if not specified
+    if ! echo "$*" | grep -q -- "--project-dir"; then
+      exec "$AGENTS_DIR/dashboard.sh" --project-dir "$(pwd)" "$@"
+    else
+      exec "$AGENTS_DIR/dashboard.sh" "$@"
+    fi
     ;;
   config)
     shift

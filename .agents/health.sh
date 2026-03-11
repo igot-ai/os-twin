@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
-WARROOMS="$AGENTS_DIR/war-rooms"
+WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
@@ -75,7 +75,7 @@ done
 
 # Check agent CLI availability
 ENGINEER_CMD="${ENGINEER_CMD:-deepagents}"
-QA_CMD="${QA_CMD:-gemini}"
+QA_CMD="${QA_CMD:-deepagents}"
 ENGINEER_AVAILABLE=$(command -v "$ENGINEER_CMD" &>/dev/null && echo "available" || echo "not found")
 QA_AVAILABLE=$(command -v "$QA_CMD" &>/dev/null && echo "available" || echo "not found")
 PYTHON_AVAILABLE=$(command -v python3 &>/dev/null && echo "available" || echo "not found")

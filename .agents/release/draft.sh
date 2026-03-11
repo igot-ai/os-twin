@@ -9,7 +9,7 @@ set -euo pipefail
 
 AGENTS_DIR="${1:-.agents}"
 CHANNEL="$AGENTS_DIR/channel"
-WARROOMS="$AGENTS_DIR/war-rooms"
+WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 TEMPLATE="$AGENTS_DIR/release/RELEASE.template.md"
 OUTPUT="$AGENTS_DIR/RELEASE.md"
 

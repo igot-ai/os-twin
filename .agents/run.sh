@@ -20,7 +20,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
-WARROOMS="$AGENTS_DIR/war-rooms"
+WARROOM_TOOLS="$AGENTS_DIR/war-rooms"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
 # Ensure logs directory exists before sourcing log.sh
@@ -213,6 +213,17 @@ if $DRY_RUN; then
   exit 0
 fi
 
+# Resolve project-scoped war-rooms directory
+PROJECT_DIR=$(echo "$TASKS" | python3 -c "
+import json, sys, os
+tasks = json.load(sys.stdin)
+wd = tasks[0]['working_dir'] if tasks else '.'
+print(os.path.abspath(wd))
+" 2>/dev/null || echo "$(pwd)")
+export WARROOMS_DIR="${WARROOMS_DIR:-$PROJECT_DIR/.war-rooms}"
+mkdir -p "$WARROOMS_DIR"
+echo "[SETUP] War-rooms directory: $WARROOMS_DIR"
+
 # Kill any running manager loop
 if [[ -f "$MANAGER_PID_FILE" ]]; then
   old_pid=$(cat "$MANAGER_PID_FILE")
@@ -226,10 +237,10 @@ if [[ -f "$MANAGER_PID_FILE" ]]; then
 fi
 
 # Clean up any previous rooms
-if ls "$WARROOMS"/room-* 1>/dev/null 2>&1; then
+if ls "$WARROOMS_DIR"/room-* 1>/dev/null 2>&1; then
   echo "[SETUP] Cleaning previous war-rooms..."
-  for old_room in "$WARROOMS"/room-*/; do
-    [[ -d "$old_room" ]] && "$WARROOMS/teardown.sh" "$(basename "$old_room")" --force 2>/dev/null || true
+  for old_room in "$WARROOMS_DIR"/room-*/; do
+    [[ -d "$old_room" ]] && "$WARROOM_TOOLS/teardown.sh" "$(basename "$old_room")" --force 2>/dev/null || true
   done
 fi
 
@@ -245,7 +256,7 @@ tasks = json.load(sys.stdin)
 for t in tasks:
     full_desc = f\"{t['title']}\n\n{t['body']}\"
     subprocess.run([
-        '$WARROOMS/create.sh',
+        '$WARROOM_TOOLS/create.sh',
         t['room_id'],
         t['task_ref'],
         full_desc,
@@ -255,7 +266,7 @@ for t in tasks:
 
 echo ""
 echo "[LAUNCH] Starting manager loop..."
-echo "  Monitor with: $WARROOMS/status.sh --watch"
+echo "  Monitor with: ostwin status --watch"
 echo "  Stop with: Ctrl+C"
 echo ""
 

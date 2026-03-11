@@ -10,16 +10,16 @@
   },
   "engineer": {
     "cli": "deepagents",
-    "default_model": "gemini-2.5-pro",
+    "default_model": "gemini-3.1-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 600,
     "max_prompt_bytes": 102400
   },
   "qa": {
-    "cli": "gemini",
-    "default_model": "gemini-2.5-pro",
-    "approval_mode": "yolo",
+    "cli": "deepagents",
+    "default_model": "gemini-3.1-flash-preview",
+    "approval_mode": "auto-approve",
     "timeout_seconds": 300
   },
   "channel": {

@@ -10,6 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WARROOMS="$AGENTS_DIR/war-rooms"
 
+# Export WARROOMS_DIR so war-room scripts use this location for data
+export WARROOMS_DIR="$WARROOMS"
+
 # Use mock agents
 export ENGINEER_CMD="$SCRIPT_DIR/mock-engineer.sh"
 export QA_CMD="$SCRIPT_DIR/mock-qa.sh"

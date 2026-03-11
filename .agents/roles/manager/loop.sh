@@ -8,7 +8,7 @@
 #
 # Environment:
 #   ENGINEER_CMD  Override engineer command (default: deepagents)
-#   QA_CMD        Override QA command (default: gemini)
+#   QA_CMD        Override QA command (default: deepagents)
 #
 # Portable: works with bash 3.2+ (no associative arrays).
 # State is read from war-room files each iteration (crash-resilient).
@@ -18,7 +18,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CHANNEL="$AGENTS_DIR/channel"
-WARROOMS="$AGENTS_DIR/war-rooms"
+# War-room data from env (set by run.sh), fallback to $AGENTS_DIR/war-rooms
+WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 RELEASE_DIR="$AGENTS_DIR/release"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
