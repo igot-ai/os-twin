@@ -20,11 +20,16 @@ AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CHANNEL="$AGENTS_DIR/channel"
 WARROOMS="$AGENTS_DIR/war-rooms"
 RELEASE_DIR="$AGENTS_DIR/release"
+MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
+
+# Write our PID so run.sh / api.py can kill us cleanly
+echo $$ > "$MANAGER_PID_FILE"
 
 # === BASH POWER: Graceful shutdown via trap ===
 SHUTTING_DOWN=false
 cleanup() {
   SHUTTING_DOWN=true
+  rm -f "$MANAGER_PID_FILE"
   echo ""
   echo "[MANAGER] Shutting down all war-rooms..."
   for pid_file in "$WARROOMS"/room-*/pids/*.pid; do
@@ -221,6 +226,7 @@ while true; do
       echo "[MANAGER] RELEASE COMPLETE!"
       echo "  Release notes: $AGENTS_DIR/RELEASE.md"
       echo "============================================"
+      rm -f "$MANAGER_PID_FILE"
       break
     else
       echo "[MANAGER] Signoff failed. Continuing loop..." >&2

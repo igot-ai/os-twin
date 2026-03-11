@@ -21,6 +21,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
 WARROOMS="$AGENTS_DIR/war-rooms"
+MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
 # Parse args
 PLAN_FILE=""
@@ -148,6 +149,18 @@ if $DRY_RUN; then
   exit 0
 fi
 
+# Kill any running manager loop
+if [[ -f "$MANAGER_PID_FILE" ]]; then
+  old_pid=$(cat "$MANAGER_PID_FILE")
+  if kill -0 "$old_pid" 2>/dev/null; then
+    echo "[SETUP] Stopping running manager (PID $old_pid)..."
+    kill "$old_pid" 2>/dev/null || true
+    sleep 1
+    kill -0 "$old_pid" 2>/dev/null && kill -9 "$old_pid" 2>/dev/null || true
+  fi
+  rm -f "$MANAGER_PID_FILE"
+fi
+
 # Clean up any previous rooms
 if ls "$WARROOMS"/room-* 1>/dev/null 2>&1; then
   echo "[SETUP] Cleaning previous war-rooms..."
@@ -155,6 +168,9 @@ if ls "$WARROOMS"/room-* 1>/dev/null 2>&1; then
     [[ -d "$old_room" ]] && "$WARROOMS/teardown.sh" "$(basename "$old_room")" --force 2>/dev/null || true
   done
 fi
+
+# Clean previous release artifacts
+rm -f "$AGENTS_DIR/RELEASE.md" "$AGENTS_DIR/release/signoffs.json" 2>/dev/null || true
 
 # Create war-rooms for each task
 echo "[SETUP] Creating war-rooms..."

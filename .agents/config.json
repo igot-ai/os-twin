@@ -2,9 +2,9 @@
   "version": "0.1.0",
   "project_name": "agent-os",
   "manager": {
-    "poll_interval_seconds": 5,
-    "max_concurrent_rooms": 50,
-    "max_engineer_retries": 3,
+    "poll_interval_seconds": 2,
+    "max_concurrent_rooms": 4,
+    "max_engineer_retries": 2,
     "auto_approve_tools": true
   },
   "engineer": {

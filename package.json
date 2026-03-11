@@ -1,0 +1,20 @@
+{
+  "name": "agent-os",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "cy:open": "cypress open",
+    "cy:run": "cypress run",
+    "cy:run:api": "cypress run --spec 'cypress/e2e/03-api.cy.js'",
+    "cy:run:dashboard": "cypress run --spec 'cypress/e2e/01-dashboard.cy.js'",
+    "cy:run:lifecycle": "cypress run --spec 'cypress/e2e/05-lifecycle.cy.js'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "cypress": "^15.11.0"
+  }
+}
