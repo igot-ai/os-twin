@@ -14,13 +14,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CHANNEL="$AGENTS_DIR/channel"
 
+# Source shared utilities
+source "$AGENTS_DIR/lib/utils.sh" 2>/dev/null || true
+source "$AGENTS_DIR/lib/log.sh" 2>/dev/null || true
+
 ROOM_DIR="$1"
 shift
 
 # Config
-CONFIG="$AGENTS_DIR/config.json"
+CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
 MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG'))['engineer']['default_model'])")
 TIMEOUT=$(python3 -c "import json; print(json.load(open('$CONFIG'))['engineer']['timeout_seconds'])")
+MAX_PROMPT_BYTES=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c['engineer'].get('max_prompt_bytes', 102400))")
 ENGINEER_CMD="${ENGINEER_CMD:-deepagents}"
 
 # Parse optional args
@@ -50,6 +55,18 @@ else:
 # Read full task description
 TASK_DESC=$(cat "$ROOM_DIR/task.md" 2>/dev/null || echo "No task description found.")
 
+# Parse working_dir from task.md metadata (first line matching "working_dir:" or from config)
+WORKING_DIR=$(python3 -c "
+import re
+with open('$ROOM_DIR/task.md', 'r') as f:
+    content = f.read()
+m = re.search(r'working_dir:\s*(.+)', content)
+if m:
+    print(m.group(1).strip())
+else:
+    print('$(pwd)')
+" 2>/dev/null || echo "$(pwd)")
+
 # Read role prompt
 ROLE_PROMPT=$(cat "$SCRIPT_DIR/ROLE.md" 2>/dev/null || echo "")
 
@@ -70,7 +87,7 @@ $LATEST_BODY
 
 Room: $(basename "$ROOM_DIR")
 Task Ref: $TASK_REF
-Working Directory: $(pwd)
+Working Directory: $WORKING_DIR
 
 ## Instructions
 
@@ -79,14 +96,25 @@ Working Directory: $(pwd)
 3. Format your summary with: Changes Made, Files Modified, How to Test
 "
 
-# Update status
-echo "engineering" > "$ROOM_DIR/status"
+# Prompt size guard — truncate if exceeds max
+PROMPT_SIZE=${#PROMPT}
+if [ "$PROMPT_SIZE" -gt "$MAX_PROMPT_BYTES" ]; then
+  PROMPT="${PROMPT:0:$MAX_PROMPT_BYTES}
+
+[TRUNCATED: prompt was ${PROMPT_SIZE} bytes, max is ${MAX_PROMPT_BYTES}. Full task description in: $ROOM_DIR/task.md]"
+  log WARN "Prompt truncated from $PROMPT_SIZE to $MAX_PROMPT_BYTES bytes for $TASK_REF" 2>/dev/null || true
+fi
+
+# NOTE: Status is set by the manager (loop.sh), not here — avoids race condition
 
 # Run the engineer agent
 OUTPUT_FILE="$ROOM_DIR/artifacts/engineer-output.txt"
-mkdir -p "$ROOM_DIR/artifacts"
+mkdir -p "$ROOM_DIR/artifacts" "$ROOM_DIR/pids"
 
-echo "[ENGINEER] Starting work on $TASK_REF in $(basename "$ROOM_DIR")..."
+# Write PID BEFORE execution so manager can track the running process
+echo $$ > "$ROOM_DIR/pids/engineer.pid"
+
+log INFO "Starting work on $TASK_REF in $(basename "$ROOM_DIR")..." 2>/dev/null || echo "[ENGINEER] Starting work on $TASK_REF in $(basename "$ROOM_DIR")..."
 
 # Execute with timeout, capture output
 EXIT_CODE=0
@@ -100,23 +128,20 @@ else
   EXIT_CODE=$?
 fi
 
-# Store PID (for live agents, PID is captured before wait)
-echo $$ > "$ROOM_DIR/pids/engineer.pid"
-
 # Read output
 OUTPUT=$(cat "$OUTPUT_FILE" 2>/dev/null || echo "No output captured")
 
 # Post result to channel
 if [[ $EXIT_CODE -eq 0 ]]; then
   "$CHANNEL/post.sh" "$ROOM_DIR" engineer manager done "$TASK_REF" "$OUTPUT"
-  echo "[ENGINEER] Completed $TASK_REF successfully."
+  log INFO "Completed $TASK_REF successfully." 2>/dev/null || echo "[ENGINEER] Completed $TASK_REF successfully."
 elif [[ $EXIT_CODE -eq 124 ]]; then
   # Timeout
   "$CHANNEL/post.sh" "$ROOM_DIR" engineer manager error "$TASK_REF" "Engineer timed out after ${TIMEOUT}s"
-  echo "[ENGINEER] Timed out on $TASK_REF after ${TIMEOUT}s." >&2
+  log ERROR "Timed out on $TASK_REF after ${TIMEOUT}s." 2>/dev/null || echo "[ENGINEER] Timed out on $TASK_REF after ${TIMEOUT}s." >&2
 else
   "$CHANNEL/post.sh" "$ROOM_DIR" engineer manager error "$TASK_REF" "Engineer exited with code $EXIT_CODE: $OUTPUT"
-  echo "[ENGINEER] Failed on $TASK_REF with exit code $EXIT_CODE." >&2
+  log ERROR "Failed on $TASK_REF with exit code $EXIT_CODE." 2>/dev/null || echo "[ENGINEER] Failed on $TASK_REF with exit code $EXIT_CODE." >&2
 fi
 
 # Clean up PID file

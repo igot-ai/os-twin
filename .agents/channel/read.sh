@@ -55,11 +55,16 @@ messages = []
 found_after = not bool(after_id)
 
 with open('${CHANNEL_FILE}', 'r') as f:
-    for line in f:
+    for line_num, line in enumerate(f, 1):
         line = line.strip()
         if not line:
             continue
-        msg = json.loads(line)
+        try:
+            msg = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            # Skip corrupt lines gracefully
+            print(f'[WARN] Skipping corrupt JSON at line {line_num}', file=sys.stderr)
+            continue
 
         if not found_after:
             if msg.get('id') == after_id:

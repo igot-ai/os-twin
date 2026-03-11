@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# agent-os CLI — unified entry point for Agent OS
+#
+# Multi-Agent War-Room Orchestrator
+#
+# Usage: agent-os <command> [options]
+
+set -euo pipefail
+
+# Resolve AGENTS_DIR (supports both installed and in-repo usage)
+if [[ -L "$0" ]]; then
+  REAL_PATH="$(readlink "$0")"
+  BIN_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
+else
+  BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+fi
+AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
+
+# Version from config
+VERSION=$(python3 -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
+
+show_help() {
+  cat << HELP
+agent-os v${VERSION} — Multi-Agent War-Room Orchestrator
+
+Usage:
+  agent-os <command> [options]
+
+Commands:
+  run <plan.md>     Execute a plan file
+                    Options: --dry-run, --max-rooms N, --working-dir PATH
+  init [directory]  Scaffold Agent OS into a project
+  status            Show war-room dashboard
+                    Options: --json, --watch
+  logs [room-id]    View channel logs
+                    Options: --follow, --type TYPE, --last N
+  stop              Graceful shutdown of running manager
+                    Options: --force
+  demo              Launch web dashboard
+                    Options: --port PORT (default: 8000)
+  config            View or update configuration
+                    Options: --get KEY, --set KEY VALUE
+  health            Check system health
+  test              Run test suites
+                    Options: --suite NAME, --verbose
+  version           Show version
+
+Examples:
+  agent-os run plans/my-feature.md
+  agent-os run plans/my-feature.md --dry-run
+  agent-os status --watch
+  agent-os logs room-001 --follow
+  agent-os stop
+
+Environment:
+  ENGINEER_CMD      Override engineer CLI (default: deepagents)
+  QA_CMD            Override QA CLI (default: gemini)
+  MOCK_SIGNOFF      Set to "true" for auto-signoff (testing)
+  AGENT_OS_LOG_LEVEL  Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
+HELP
+}
+
+case "${1:-}" in
+  run)
+    shift
+    exec "$AGENTS_DIR/run.sh" "$@"
+    ;;
+  init)
+    shift
+    exec "$AGENTS_DIR/init.sh" "$@"
+    ;;
+  status)
+    shift
+    exec "$AGENTS_DIR/war-rooms/status.sh" "$@"
+    ;;
+  logs)
+    shift
+    exec "$AGENTS_DIR/logs.sh" "$@"
+    ;;
+  stop)
+    shift
+    exec "$AGENTS_DIR/stop.sh" "$@"
+    ;;
+  demo)
+    shift
+    exec "$AGENTS_DIR/demo.sh" "$@"
+    ;;
+  config)
+    shift
+    exec "$AGENTS_DIR/config.sh" "$@"
+    ;;
+  health)
+    shift
+    exec "$AGENTS_DIR/health.sh" "$@"
+    ;;
+  test)
+    shift
+    exec "$AGENTS_DIR/tests/run-all.sh" "$@"
+    ;;
+  version|-v|--version)
+    echo "agent-os v${VERSION}"
+    ;;
+  -h|--help|help)
+    show_help
+    ;;
+  "")
+    show_help
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    echo "Run 'agent-os --help' for usage." >&2
+    exit 1
+    ;;
+esac

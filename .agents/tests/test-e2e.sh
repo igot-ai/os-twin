@@ -24,9 +24,6 @@ if ls "$WARROOMS"/room-* 1>/dev/null 2>&1; then
   cp -r "$WARROOMS"/room-* "$BACKUP_DIR/" 2>/dev/null || true
 fi
 
-# Backup config
-cp "$AGENTS_DIR/config.json" "$BACKUP_DIR/config.json.bak"
-
 cleanup() {
   # Remove test rooms
   rm -rf "$WARROOMS"/room-* 2>/dev/null || true
@@ -34,10 +31,9 @@ cleanup() {
   if ls "$BACKUP_DIR"/room-* 1>/dev/null 2>&1; then
     cp -r "$BACKUP_DIR"/room-* "$WARROOMS/" 2>/dev/null || true
   fi
-  # Restore config
-  cp "$BACKUP_DIR/config.json.bak" "$AGENTS_DIR/config.json"
-  # Clean up test plan and release
-  rm -f "$TEST_PLAN" "$AGENTS_DIR/RELEASE.md" "$AGENTS_DIR/release/signoffs.json" 2>/dev/null || true
+  # Clean up test plan, release, and copy-on-write config
+  rm -f "${TEST_PLAN:-}" "$AGENTS_DIR/RELEASE.md" "$AGENTS_DIR/release/signoffs.json" 2>/dev/null || true
+  rm -f "${TEST_CONFIG:-}" "$AGENTS_DIR/config.run.json" 2>/dev/null || true
   rm -rf "$BACKUP_DIR"
 }
 trap cleanup EXIT
@@ -82,15 +78,17 @@ assert_contains() {
 
 echo "=== Test Suite: End-to-End ==="
 
-# Fast config
+# Copy-on-write config for fast testing (never mutates original config.json)
+TEST_CONFIG=$(mktemp)
 python3 -c "
 import json
 config = json.load(open('$AGENTS_DIR/config.json'))
 config['manager']['poll_interval_seconds'] = 1
 config['manager']['max_concurrent_rooms'] = 10
 config['manager']['max_engineer_retries'] = 2
-json.dump(config, open('$AGENTS_DIR/config.json', 'w'), indent=2)
+json.dump(config, open('$TEST_CONFIG', 'w'), indent=2)
 "
+export AGENT_OS_CONFIG="$TEST_CONFIG"
 
 # --- Test 1: Dry run ---
 echo ""

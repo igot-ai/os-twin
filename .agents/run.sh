@@ -23,6 +23,9 @@ AGENTS_DIR="$SCRIPT_DIR"
 WARROOMS="$AGENTS_DIR/war-rooms"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
+# Source shared utilities
+source "$AGENTS_DIR/lib/log.sh" 2>/dev/null || true
+
 # Parse args
 PLAN_FILE=""
 DRY_RUN=false
@@ -58,15 +61,22 @@ if [[ ! -f "$PLAN_FILE" ]]; then
   exit 1
 fi
 
-# Override max rooms if specified
+# === Copy-on-write config ===
+# Never modify the original config.json. Copy to a run-specific config
+# and apply overrides there. All child scripts read from AGENT_OS_CONFIG.
+RUN_CONFIG="$AGENTS_DIR/config.run.json"
+cp "$AGENTS_DIR/config.json" "$RUN_CONFIG"
+
 if [[ -n "$MAX_ROOMS" ]]; then
   python3 -c "
 import json
-config = json.load(open('$AGENTS_DIR/config.json'))
+config = json.load(open('$RUN_CONFIG'))
 config['manager']['max_concurrent_rooms'] = $MAX_ROOMS
-json.dump(config, open('$AGENTS_DIR/config.json', 'w'), indent=2)
+json.dump(config, open('$RUN_CONFIG', 'w'), indent=2)
 "
 fi
+
+export AGENT_OS_CONFIG="$RUN_CONFIG"
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
@@ -131,6 +141,43 @@ if [[ "$TASK_COUNT" -eq 0 ]]; then
   exit 1
 fi
 
+# === Plan validation ===
+VALIDATION_WARNINGS=$(echo "$TASKS" | python3 -c "
+import json, sys, os
+
+tasks = json.load(sys.stdin)
+warnings = []
+
+# Check for duplicate task IDs
+refs = [t['task_ref'] for t in tasks]
+seen = set()
+for r in refs:
+    if r in seen:
+        warnings.append(f'Duplicate task ID: {r}')
+    seen.add(r)
+
+# Check for empty descriptions
+for t in tasks:
+    if not t['body'].strip():
+        warnings.append(f'{t[\"task_ref\"]}: Empty task description')
+
+# Check working directory
+wd = tasks[0]['working_dir'] if tasks else '.'
+if wd != '.' and not os.path.isdir(wd):
+    warnings.append(f'Working directory does not exist: {wd}')
+
+for w in warnings:
+    print(w)
+" 2>/dev/null || echo "")
+
+if [[ -n "$VALIDATION_WARNINGS" ]]; then
+  echo "  [WARN] Plan validation warnings:"
+  echo "$VALIDATION_WARNINGS" | while IFS= read -r warning; do
+    echo "    - $warning"
+  done
+  echo ""
+fi
+
 echo "  Found $TASK_COUNT task(s):"
 echo ""
 
@@ -146,6 +193,7 @@ echo ""
 # Dry run: just show what would happen
 if $DRY_RUN; then
   echo "[DRY RUN] Would create $TASK_COUNT war-rooms. No actions taken."
+  rm -f "$RUN_CONFIG"
   exit 0
 fi
 

@@ -2,17 +2,19 @@
   "version": "0.1.0",
   "project_name": "agent-os",
   "manager": {
-    "poll_interval_seconds": 2,
-    "max_concurrent_rooms": 4,
-    "max_engineer_retries": 2,
-    "auto_approve_tools": true
+    "poll_interval_seconds": 5,
+    "max_concurrent_rooms": 50,
+    "max_engineer_retries": 3,
+    "auto_approve_tools": true,
+    "state_timeout_seconds": 900
   },
   "engineer": {
     "cli": "deepagents",
-    "default_model": "gpt-4o",
+    "default_model": "gemini-2.5-pro",
     "shell_allow_list": "all",
     "auto_approve": true,
-    "timeout_seconds": 600
+    "timeout_seconds": 600,
+    "max_prompt_bytes": 102400
   },
   "qa": {
     "cli": "gemini",

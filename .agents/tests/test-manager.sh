@@ -35,6 +35,8 @@ cleanup() {
     cp -r "$BACKUP_DIR"/room-* "$WARROOMS/" 2>/dev/null || true
   fi
   rm -rf "$BACKUP_DIR"
+  # Clean up test config
+  rm -f "${TEST_CONFIG:-}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -55,15 +57,17 @@ assert_eq() {
   fi
 }
 
-# Override config for fast testing
+# Copy-on-write config for fast testing (never mutates original config.json)
+TEST_CONFIG=$(mktemp)
 python3 -c "
 import json
 config = json.load(open('$AGENTS_DIR/config.json'))
 config['manager']['poll_interval_seconds'] = 1
 config['manager']['max_concurrent_rooms'] = 2
 config['manager']['max_engineer_retries'] = 2
-json.dump(config, open('$AGENTS_DIR/config.json', 'w'), indent=2)
+json.dump(config, open('$TEST_CONFIG', 'w'), indent=2)
 "
+export AGENT_OS_CONFIG="$TEST_CONFIG"
 
 echo "=== Test Suite: Manager Orchestration ==="
 
@@ -201,14 +205,6 @@ MANAGER_PID=""
 echo ""
 echo "Manager Tests: $PASS passed, $FAIL failed"
 
-# Restore original config
-python3 -c "
-import json
-config = json.load(open('$AGENTS_DIR/config.json'))
-config['manager']['poll_interval_seconds'] = 5
-config['manager']['max_concurrent_rooms'] = 50
-config['manager']['max_engineer_retries'] = 3
-json.dump(config, open('$AGENTS_DIR/config.json', 'w'), indent=2)
-"
+# Config cleanup handled by trap (copy-on-write, no restore needed)
 
 [[ $FAIL -eq 0 ]]

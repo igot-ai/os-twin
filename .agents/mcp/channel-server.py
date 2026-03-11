@@ -1,32 +1,77 @@
 #!/usr/bin/env python3
 """
-MCP Server: War-Room Channel Tools
+Agent OS — MCP Channel Server
 
-Exposes channel read/write operations as MCP tools so that
-Engineer and QA agents can post messages and read the channel
-directly without shelling out to bash scripts.
+Exposes war-room channel operations as MCP tools.
+Engineers and QA agents call these tools to post messages
+and read the JSONL channel without shelling out to bash.
 
-Protocol: JSON-RPC 2.0 over stdio (MCP standard)
+Usage (via mcp-config.json):
+    python3 .agents/mcp/channel-server.py
+
+Environment:
+    AGENT_OS_ROOT  Root of the agent-os repo (default: ".")
 """
 
+import fcntl
 import json
-import sys
 import os
+import time
 from datetime import datetime, timezone
+from typing import Annotated, Literal, Optional
 
-AGENT_OS_ROOT = os.environ.get("AGENT_OS_ROOT", ".")
+from pydantic import Field
+from mcp.server.fastmcp import FastMCP
+
+# ── Validation constants ─────────────────────────────────────────────────────
+
+VALID_ROLES = {"manager", "engineer", "qa"}
+VALID_TYPES = {"task", "done", "review", "pass", "fail", "fix", "error", "signoff", "release"}
+MAX_BODY_BYTES = 65536
+
+# ── Module-level state ────────────────────────────────────────────────────────
+
+AGENT_OS_ROOT: str = os.environ.get("AGENT_OS_ROOT", ".")
+
+mcp = FastMCP("agent-os-channel")
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
 
 
-def post_message(room_dir: str, from_role: str, to_role: str,
-                 msg_type: str, ref: str, body: str) -> dict:
-    """Post a message to a war-room channel."""
-    channel_file = os.path.join(room_dir, "channel.jsonl")
+@mcp.tool()
+def post_message(
+    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory (e.g. .agents/war-rooms/room-001)")],
+    from_role: Annotated[str, Field(description="Sender role: manager | engineer | qa")],
+    to_role: Annotated[str, Field(description="Recipient role: manager | engineer | qa")],
+    msg_type: Annotated[str, Field(description="Message type: task | done | review | pass | fail | fix | error | signoff")],
+    ref: Annotated[str, Field(description="Task reference, e.g. TASK-001")],
+    body: Annotated[str, Field(description="Message body text")],
+) -> str:
+    """Post a message to the war-room channel.
+
+    Appends a JSON message to {room_dir}/channel.jsonl using an exclusive
+    file lock (fcntl.LOCK_EX) so concurrent writers cannot corrupt the log.
+    Returns a confirmation string with the generated message ID.
+    """
+    # Validate inputs
+    if from_role not in VALID_ROLES:
+        return f"error:invalid from_role '{from_role}'. Must be one of: {', '.join(sorted(VALID_ROLES))}"
+    if msg_type not in VALID_TYPES:
+        return f"error:invalid msg_type '{msg_type}'. Must be one of: {', '.join(sorted(VALID_TYPES))}"
+
+    # Enforce body size limit
+    if len(body) > MAX_BODY_BYTES:
+        body = body[:MAX_BODY_BYTES] + f"\n[TRUNCATED: original {len(body)} bytes, max {MAX_BODY_BYTES}]"
+
     os.makedirs(room_dir, exist_ok=True)
+    channel_file = os.path.join(room_dir, "channel.jsonl")
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    msg_id = f"{from_role}-{msg_type}-{int(datetime.now().timestamp())}-{os.getpid()}"
+    # Nanosecond precision — matches .agents/channel/post.sh which uses date +%s%N
+    msg_id = f"{from_role}-{msg_type}-{time.time_ns()}-{os.getpid()}"
 
     msg = {
+        "v": 1,
         "id": msg_id,
         "ts": ts,
         "from": from_role,
@@ -36,24 +81,50 @@ def post_message(room_dir: str, from_role: str, to_role: str,
         "body": body,
     }
 
-    # Use file locking for concurrent safety
-    import fcntl
     with open(channel_file, "a") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        f.write(json.dumps(msg) + "\n")
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        try:
+            f.write(json.dumps(msg) + "\n")
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
-    return {"message_id": msg_id, "status": "posted"}
+    return f"posted:{msg_id}"
 
 
-def read_messages(room_dir: str, msg_type: str = None,
-                  from_role: str = None, to_role: str = None,
-                  ref: str = None, last_n: int = None) -> list:
-    """Read messages from a war-room channel with optional filters."""
+@mcp.tool()
+def read_messages(
+    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
+    msg_type: Annotated[
+        Optional[str],
+        Field(description="Filter by message type (task/done/review/pass/fail/fix/error/signoff). Omit for all types."),
+    ] = None,
+    from_role: Annotated[
+        Optional[str],
+        Field(description="Filter by sender role. Omit for all senders."),
+    ] = None,
+    to_role: Annotated[
+        Optional[str],
+        Field(description="Filter by recipient role. Omit for all recipients."),
+    ] = None,
+    ref: Annotated[
+        Optional[str],
+        Field(description="Filter by task reference (e.g. TASK-001). Omit for all refs."),
+    ] = None,
+    last_n: Annotated[
+        Optional[int],
+        Field(description="Return only the last N messages. Omit for all messages.", ge=1),
+    ] = None,
+) -> str:
+    """Read messages from the war-room channel with optional filters.
+
+    Reads {room_dir}/channel.jsonl and returns a JSON array string of
+    matching messages. All filter parameters are optional and combinable.
+    Returns an empty JSON array ("[]") if the channel file does not exist.
+    """
     channel_file = os.path.join(room_dir, "channel.jsonl")
 
     if not os.path.exists(channel_file):
-        return []
+        return "[]"
 
     messages = []
     with open(channel_file, "r") as f:
@@ -61,172 +132,60 @@ def read_messages(room_dir: str, msg_type: str = None,
             line = line.strip()
             if not line:
                 continue
-            msg = json.loads(line)
-            if msg_type and msg.get("type") != msg_type:
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # skip corrupted lines gracefully
+            if msg_type is not None and msg.get("type") != msg_type:
                 continue
-            if from_role and msg.get("from") != from_role:
+            if from_role is not None and msg.get("from") != from_role:
                 continue
-            if to_role and msg.get("to") != to_role:
+            if to_role is not None and msg.get("to") != to_role:
                 continue
-            if ref and msg.get("ref") != ref:
+            if ref is not None and msg.get("ref") != ref:
                 continue
             messages.append(msg)
 
-    if last_n:
+    # Use `is not None` — not `if last_n:` — so last_n=1 is handled correctly
+    if last_n is not None:
         messages = messages[-last_n:]
 
-    return messages
+    return json.dumps(messages)
 
 
-def get_latest(room_dir: str, msg_type: str) -> dict:
-    """Get the most recent message of a given type."""
-    messages = read_messages(room_dir, msg_type=msg_type, last_n=1)
-    return messages[0] if messages else None
+@mcp.tool()
+def get_latest(
+    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
+    msg_type: Annotated[str, Field(description="Message type to search for (task/done/review/pass/fail/fix/error/signoff)")],
+) -> str:
+    """Get the most recent message of a given type from the war-room channel.
+
+    Reads {room_dir}/channel.jsonl linearly, keeping the last match.
+    Returns the message as a JSON string, or the string "null" if no
+    message of that type exists or the file does not exist.
+    """
+    channel_file = os.path.join(room_dir, "channel.jsonl")
+
+    if not os.path.exists(channel_file):
+        return "null"
+
+    latest = None
+    with open(channel_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("type") == msg_type:
+                latest = msg
+
+    return json.dumps(latest)
 
 
-# === MCP Server Protocol ===
-
-TOOLS = [
-    {
-        "name": "post_message",
-        "description": "Post a message to the war-room channel",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "room_dir": {"type": "string", "description": "Path to the war-room directory"},
-                "from_role": {"type": "string", "description": "Sender role (manager/engineer/qa)"},
-                "to_role": {"type": "string", "description": "Recipient role"},
-                "msg_type": {"type": "string", "description": "Message type (task/done/review/pass/fail/fix/signoff)"},
-                "ref": {"type": "string", "description": "Task reference (e.g., TASK-001)"},
-                "body": {"type": "string", "description": "Message body"},
-            },
-            "required": ["room_dir", "from_role", "to_role", "msg_type", "ref", "body"],
-        },
-    },
-    {
-        "name": "read_messages",
-        "description": "Read messages from the war-room channel with optional filters",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "room_dir": {"type": "string", "description": "Path to the war-room directory"},
-                "msg_type": {"type": "string", "description": "Filter by message type"},
-                "from_role": {"type": "string", "description": "Filter by sender"},
-                "to_role": {"type": "string", "description": "Filter by recipient"},
-                "ref": {"type": "string", "description": "Filter by task reference"},
-                "last_n": {"type": "integer", "description": "Return only the last N messages"},
-            },
-            "required": ["room_dir"],
-        },
-    },
-    {
-        "name": "get_latest",
-        "description": "Get the most recent message of a given type from the channel",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "room_dir": {"type": "string", "description": "Path to the war-room directory"},
-                "msg_type": {"type": "string", "description": "Message type to find"},
-            },
-            "required": ["room_dir", "msg_type"],
-        },
-    },
-]
-
-
-def handle_request(request: dict) -> dict:
-    """Handle a JSON-RPC 2.0 request."""
-    method = request.get("method", "")
-    req_id = request.get("id")
-    params = request.get("params", {})
-
-    if method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {
-                    "name": "agent-os-channel",
-                    "version": "0.1.0",
-                },
-            },
-        }
-
-    if method == "notifications/initialized":
-        return None  # No response for notifications
-
-    if method == "tools/list":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {"tools": TOOLS},
-        }
-
-    if method == "tools/call":
-        tool_name = params.get("name", "")
-        args = params.get("arguments", {})
-
-        try:
-            if tool_name == "post_message":
-                result = post_message(**args)
-            elif tool_name == "read_messages":
-                result = read_messages(**args)
-            elif tool_name == "get_latest":
-                result = get_latest(**args)
-            else:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
-                }
-
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
-                },
-            }
-        except Exception as e:
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps({"error": str(e)})}],
-                    "isError": True,
-                },
-            }
-
-    return {
-        "jsonrpc": "2.0",
-        "id": req_id,
-        "error": {"code": -32601, "message": f"Unknown method: {method}"},
-    }
-
-
-def main():
-    """Main loop: read JSON-RPC requests from stdin, write responses to stdout."""
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            request = json.loads(line)
-            response = handle_request(request)
-            if response is not None:
-                sys.stdout.write(json.dumps(response) + "\n")
-                sys.stdout.flush()
-        except json.JSONDecodeError:
-            error_response = {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": "Parse error"},
-            }
-            sys.stdout.write(json.dumps(error_response) + "\n")
-            sys.stdout.flush()
-
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    main()
+    mcp.run(transport="stdio")
