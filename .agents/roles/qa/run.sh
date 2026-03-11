@@ -89,20 +89,20 @@ fi)
 
 ## Instructions
 
-$(if [[ "$IS_EPIC" == "true" ]]; then
-cat << 'EPICQA'
+$(if [[ "\$IS_EPIC" == "true" ]]; then
+cat << EPICQA
 You are reviewing an EPIC — a complete feature delivered by the engineer.
 
 1. Review ALL code changes holistically across the full epic
 2. Verify the TASKS.md checklist is complete — all sub-tasks must be checked off
 3. Verify each sub-task was actually implemented (not just checked off)
-4. Run the project's test suite
+4. Run the project test suite
 5. Validate the epic delivers the feature described in the brief
 6. Provide your verdict
 EPICQA
 else
-cat << 'TASKQA'
-1. Review the code changes described in the engineer's report
+cat << TASKQA
+1. Review the code changes described in the engineer report
 2. Verify the implementation meets the task requirements
 3. Run tests if applicable
 4. Provide your verdict
