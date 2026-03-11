@@ -1,0 +1,35 @@
+{
+  "version": "0.1.0",
+  "project_name": "agent-os",
+  "manager": {
+    "poll_interval_seconds": 5,
+    "max_concurrent_rooms": 50,
+    "max_engineer_retries": 3,
+    "auto_approve_tools": true
+  },
+  "engineer": {
+    "cli": "deepagents",
+    "default_model": "gpt-4o",
+    "shell_allow_list": "all",
+    "auto_approve": true,
+    "timeout_seconds": 600
+  },
+  "qa": {
+    "cli": "gemini",
+    "default_model": "gemini-2.5-pro",
+    "approval_mode": "yolo",
+    "timeout_seconds": 300
+  },
+  "channel": {
+    "format": "jsonl",
+    "max_message_size_bytes": 65536
+  },
+  "release": {
+    "require_signoffs": [
+      "engineer",
+      "qa",
+      "manager"
+    ],
+    "auto_draft": true
+  }
+}
