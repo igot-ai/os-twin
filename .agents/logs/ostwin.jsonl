@@ -37,3 +37,12 @@
 {"ts": "2026-03-11T11:55:20Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
 {"ts": "2026-03-11T11:55:27Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
 {"ts": "2026-03-11T11:57:42Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "50", "poll_interval": "5", "max_retries": "3", "state_timeout": "900"}}
+{"ts": "2026-03-11T11:57:59Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "2"}}
+{"ts": "2026-03-11T11:58:00Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-11T11:58:02Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "1"}}
+{"ts": "2026-03-11T11:58:08Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-11T11:58:12Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "1"}}
+{"ts": "2026-03-11T11:58:12Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-11T11:58:17Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-11T11:58:20Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "1"}}
+{"ts": "2026-03-11T11:58:22Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
