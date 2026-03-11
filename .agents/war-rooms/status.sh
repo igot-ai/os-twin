@@ -99,9 +99,9 @@ print(json.dumps({
 
     # Header
     printf "  %-12s %-10s %-14s %-8s %-6s %-10s %s\n" \
-      "ROOM" "TASK" "STATUS" "RETRIES" "MSGS" "PIDS" "LAST ACTIVITY"
+      "ROOM" "REF" "STATUS" "RETRIES" "MSGS" "PIDS" "LAST ACTIVITY"
     printf "  %-12s %-10s %-14s %-8s %-6s %-10s %s\n" \
-      "----" "----" "------" "-------" "----" "----" "-------------"
+      "----" "---" "------" "-------" "----" "----" "-------------"
 
     for entry in "${rooms[@]}"; do
       IFS='|' read -r room_id task_ref status retries msg_count active_pids last_activity <<< "$entry"

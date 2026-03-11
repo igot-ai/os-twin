@@ -141,9 +141,81 @@ echo "$DRY_OUTPUT" | grep -q "DRY RUN" && {
   FAIL=$((FAIL + 1))
 }
 
-# --- Test 2: Full lifecycle with mock agents ---
+# --- Test 2: Dry run with Epic format ---
 echo ""
-echo "Test 2: Full lifecycle (plan → rooms → engineer → QA → release)"
+echo "Test 2: Dry run with Epic format"
+
+EPIC_PLAN=$(mktemp)
+cat > "$EPIC_PLAN" << 'EOF'
+# Plan: Epic Format Test
+
+## Config
+working_dir: /tmp/test-project
+
+## Epic: EPIC-001 — Build authentication system
+Implement complete user authentication with login, logout, and session management.
+
+Acceptance criteria:
+- Login endpoint works
+- Sessions persist
+
+## Epic: EPIC-002 — Build API layer
+Create RESTful API endpoints for core resources.
+
+Acceptance criteria:
+- CRUD operations work
+- Input validation
+EOF
+
+EPIC_DRY=$("$AGENTS_DIR/run.sh" "$EPIC_PLAN" --dry-run 2>&1)
+echo "$EPIC_DRY" | grep -q "EPIC-001" && {
+  echo "  [PASS] Epic dry run shows EPIC-001"
+  PASS=$((PASS + 1))
+} || {
+  echo "  [FAIL] Epic dry run missing EPIC-001"
+  FAIL=$((FAIL + 1))
+}
+echo "$EPIC_DRY" | grep -q "EPIC-002" && {
+  echo "  [PASS] Epic dry run shows EPIC-002"
+  PASS=$((PASS + 1))
+} || {
+  echo "  [FAIL] Epic dry run missing EPIC-002"
+  FAIL=$((FAIL + 1))
+}
+rm -f "$EPIC_PLAN"
+
+# --- Test 3: Mixed format rejected ---
+echo ""
+echo "Test 3: Mixed format (Epic + Task) is rejected"
+
+MIXED_PLAN=$(mktemp)
+cat > "$MIXED_PLAN" << 'EOF'
+# Plan: Mixed Format
+
+## Config
+working_dir: /tmp/test
+
+## Epic: EPIC-001 — Feature A
+Description.
+
+## Task: TASK-001 — Sub-thing
+Description.
+EOF
+
+MIXED_EXIT=0
+"$AGENTS_DIR/run.sh" "$MIXED_PLAN" --dry-run > /dev/null 2>&1 || MIXED_EXIT=$?
+if [[ "$MIXED_EXIT" -ne 0 ]]; then
+  echo "  [PASS] Mixed format rejected (exit $MIXED_EXIT)"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] Mixed format was NOT rejected"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$MIXED_PLAN"
+
+# --- Test 4: Full lifecycle with mock agents ---
+echo ""
+echo "Test 4: Full lifecycle (plan → rooms → engineer → QA → release)"
 
 # Clean previous rooms
 rm -rf "$WARROOMS"/room-* 2>/dev/null || true

@@ -66,7 +66,7 @@ truncate_bytes() {
   if [ "$size" -gt "$max_bytes" ]; then
     echo "${text:0:$max_bytes}
 
-[TRUNCATED: original size ${size} bytes. Full content available in task.md]"
+[TRUNCATED: original size ${size} bytes. Full content available in brief.md]"
   else
     echo "$text"
   fi

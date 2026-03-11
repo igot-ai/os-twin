@@ -31,9 +31,9 @@ mkdir -p "$ROOM_DIR"/{pids,artifacts}
 # Initialize channel (with flock for concurrent safety)
 touch "$ROOM_DIR/channel.jsonl"
 
-# Write task description
-cat > "$ROOM_DIR/task.md" << EOF
-# Task: $TASK_REF
+# Write assignment brief
+cat > "$ROOM_DIR/brief.md" << EOF
+# $TASK_REF
 
 $TASK_DESC
 

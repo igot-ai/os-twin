@@ -90,8 +90,8 @@ echo ""
 echo "  Plan: $PLAN_FILE"
 echo ""
 
-# Parse plan file: extract ## Task: sections
-# Each "## Task: TASK-XXX — Title" becomes a war-room
+# Parse plan file: extract ## Epic: or ## Task: sections
+# Each section becomes a war-room (one room per epic or task)
 TASKS=$(python3 -c "
 import re, json, sys
 
@@ -104,43 +104,56 @@ config_match = re.search(r'working_dir:\s*(.+)', content)
 if config_match and not '$WORKING_DIR':
     working_dir = config_match.group(1).strip()
 
-# Extract tasks
-tasks = []
-# Split on ## Task: headers
-parts = re.split(r'^## Task:\s*', content, flags=re.MULTILINE)
+# Detect format: Epic or Task (reject mixed)
+has_epics = bool(re.search(r'^## Epic:', content, re.MULTILINE))
+has_tasks = bool(re.search(r'^## Task:', content, re.MULTILINE))
 
-for i, part in enumerate(parts[1:], 1):  # Skip everything before first task
+if has_epics and has_tasks:
+    print('ERROR: Plan mixes ## Epic: and ## Task: sections. Use one format.', file=sys.stderr)
+    sys.exit(1)
+
+if has_epics:
+    split_pattern = r'^## Epic:\s*'
+    ref_pattern = r'(EPIC-\d+)\s*[—\-]\s*(.*)'
+    default_prefix = 'EPIC'
+else:
+    split_pattern = r'^## Task:\s*'
+    ref_pattern = r'(TASK-\d+)\s*[—\-]\s*(.*)'
+    default_prefix = 'TASK'
+
+items = []
+parts = re.split(split_pattern, content, flags=re.MULTILINE)
+
+for i, part in enumerate(parts[1:], 1):
     lines = part.strip().split('\n')
     header = lines[0].strip()
 
-    # Parse: TASK-XXX — Title  or  TASK-XXX - Title
-    ref_match = re.match(r'(TASK-\d+)\s*[—\-]\s*(.*)', header)
+    ref_match = re.match(ref_pattern, header)
     if ref_match:
-        task_ref = ref_match.group(1)
-        task_title = ref_match.group(2).strip()
+        item_ref = ref_match.group(1)
+        item_title = ref_match.group(2).strip()
     else:
-        task_ref = f'TASK-{i:03d}'
-        task_title = header
+        item_ref = f'{default_prefix}-{i:03d}'
+        item_title = header
 
-    # Body is everything after the header
-    task_body = '\n'.join(lines[1:]).strip()
+    item_body = '\n'.join(lines[1:]).strip()
     room_id = f'room-{i:03d}'
 
-    tasks.append({
+    items.append({
         'room_id': room_id,
-        'task_ref': task_ref,
-        'title': task_title,
-        'body': task_body,
+        'task_ref': item_ref,
+        'title': item_title,
+        'body': item_body,
         'working_dir': working_dir,
     })
 
-print(json.dumps(tasks))
+print(json.dumps(items))
 ")
 
 TASK_COUNT=$(echo "$TASKS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 
 if [[ "$TASK_COUNT" -eq 0 ]]; then
-  echo "[ERROR] No tasks found in plan file. Expected '## Task: TASK-XXX — Title' sections." >&2
+  echo "[ERROR] No items found in plan file. Expected '## Epic: EPIC-XXX — Title' or '## Task: TASK-XXX — Title' sections." >&2
   exit 1
 fi
 

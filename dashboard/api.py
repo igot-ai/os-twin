@@ -82,7 +82,7 @@ def read_room(room_dir: Path) -> dict:
     task_ref = (room_dir / "task-ref").read_text().strip() if (room_dir / "task-ref").exists() else "UNKNOWN"
     retries_str = (room_dir / "retries").read_text().strip() if (room_dir / "retries").exists() else "0"
     retries = int(retries_str) if retries_str.isdigit() else 0
-    task_md = (room_dir / "task.md").read_text() if (room_dir / "task.md").exists() else None
+    task_md = (room_dir / "brief.md").read_text() if (room_dir / "brief.md").exists() else None
 
     channel_file = room_dir / "channel.jsonl"
     message_count = 0

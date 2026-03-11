@@ -36,7 +36,7 @@ mkdir -p "$TARGET_AGENTS/roles/engineer"
 mkdir -p "$TARGET_AGENTS/roles/qa"
 
 # Copy core scripts
-for script in run.sh stop.sh logs.sh config.sh dashboard.sh health.sh init.sh; do
+for script in run.sh stop.sh logs.sh config.sh dashboard.sh health.sh init.sh plan.sh; do
   [[ -f "$SOURCE_AGENTS/$script" ]] && cp "$SOURCE_AGENTS/$script" "$TARGET_AGENTS/$script"
 done
 
@@ -47,7 +47,7 @@ done
 
 # Copy role definitions and runners
 for role in manager engineer qa; do
-  for file in ROLE.md run.sh loop.sh; do
+  for file in ROLE.md run.sh loop.sh deepagents-cli.md; do
     src="$SOURCE_AGENTS/roles/$role/$file"
     [[ -f "$src" ]] && cp "$src" "$TARGET_AGENTS/roles/$role/$file"
   done

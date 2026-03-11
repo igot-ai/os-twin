@@ -180,9 +180,45 @@ MANAGER_PID=""
 
 assert_eq "Max retries → failed-final" "failed-final" "$STATUS"
 
-# --- Test 4: Graceful shutdown on SIGTERM ---
+# --- Test 4: Epic room processed identically ---
 echo ""
-echo "Test 4: Graceful shutdown"
+echo "Test 4: Epic room processed like Task room"
+
+rm -rf "$WARROOMS"/room-* 2>/dev/null || true
+
+# Create room with EPIC ref
+"$WARROOMS/create.sh" room-001 EPIC-001 "Build authentication system" > /dev/null
+
+# Verify ref is stored as EPIC
+EPIC_REF=$(cat "$WARROOMS/room-001/task-ref" 2>/dev/null || echo "UNKNOWN")
+assert_eq "Epic ref stored" "EPIC-001" "$EPIC_REF"
+
+# Simulate engineer done
+"$CHANNEL/post.sh" "$WARROOMS/room-001" engineer manager done EPIC-001 "Epic complete" > /dev/null
+echo "engineering" > "$WARROOMS/room-001/status"
+
+# Run manager briefly
+timeout 15 "$AGENTS_DIR/roles/manager/loop.sh" > /dev/null 2>&1 &
+MANAGER_PID=$!
+sleep 5
+
+STATUS=$(cat "$WARROOMS/room-001/status" 2>/dev/null || echo "unknown")
+
+kill "$MANAGER_PID" 2>/dev/null || true
+wait "$MANAGER_PID" 2>/dev/null || true
+MANAGER_PID=""
+
+if [[ "$STATUS" == "passed" || "$STATUS" == "qa-review" ]]; then
+  echo "  [PASS] Epic room processed by manager (status: $STATUS)"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] Epic room status is '$STATUS' (expected 'passed' or 'qa-review')"
+  FAIL=$((FAIL + 1))
+fi
+
+# --- Test 5: Graceful shutdown on SIGTERM ---
+echo ""
+echo "Test 5: Graceful shutdown"
 
 rm -rf "$WARROOMS"/room-* 2>/dev/null || true
 "$WARROOMS/create.sh" room-001 TASK-001 "Test shutdown" > /dev/null

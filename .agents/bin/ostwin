@@ -29,6 +29,8 @@ Usage:
 Commands:
   run <plan.md>     Execute a plan file
                     Options: --dry-run, --max-rooms N, --working-dir PATH
+  plan <sub>        Plan management (AI-assisted)
+                    Subcommands: create, start [plan-file], list
   init [directory]  Scaffold Agent OS into a project
   status            Show war-room dashboard
                     Options: --json, --watch
@@ -64,6 +66,10 @@ case "${1:-}" in
   run)
     shift
     exec "$AGENTS_DIR/run.sh" "$@"
+    ;;
+  plan)
+    shift
+    exec "$AGENTS_DIR/plan.sh" "$@"
     ;;
   init)
     shift

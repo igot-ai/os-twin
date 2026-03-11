@@ -48,15 +48,15 @@ mcp = FastMCP("agent-os-warroom")
 def get_task(
     room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory (e.g. .agents/war-rooms/room-001)")],
 ) -> str:
-    """Read the current task assignment for this war-room.
+    """Read the current assignment brief for this war-room.
 
-    Reads task.md and the latest task/fix message from channel.jsonl.
+    Reads brief.md and the latest task/fix message from channel.jsonl.
     Returns a JSON string with {task_description, latest_instruction, room_dir}.
-    Raises RuntimeError if task.md does not exist.
+    Raises RuntimeError if brief.md does not exist.
     """
-    task_file = os.path.join(room_dir, "task.md")
+    task_file = os.path.join(room_dir, "brief.md")
     if not os.path.exists(task_file):
-        raise RuntimeError(f"No task file found in {room_dir!r}")
+        raise RuntimeError(f"No brief file found in {room_dir!r}")
 
     with open(task_file, "r") as f:
         content = f.read()

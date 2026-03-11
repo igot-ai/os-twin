@@ -37,6 +37,12 @@ done
 # Read task ref
 TASK_REF=$(cat "$ROOM_DIR/task-ref" 2>/dev/null || echo "UNKNOWN")
 
+# Detect Epic vs Task
+IS_EPIC=false
+case "$TASK_REF" in
+  EPIC-*) IS_EPIC=true ;;
+esac
+
 # Read the engineer's "done" message
 DONE_MSG=$("$CHANNEL/read.sh" "$ROOM_DIR" --type done --last 1)
 ENGINEER_REPORT=$(echo "$DONE_MSG" | python3 -c "
@@ -49,7 +55,13 @@ else:
 " 2>/dev/null || echo "No engineer report found.")
 
 # Read original task
-TASK_DESC=$(cat "$ROOM_DIR/task.md" 2>/dev/null || echo "No task description found.")
+TASK_DESC=$(cat "$ROOM_DIR/brief.md" 2>/dev/null || echo "No task description found.")
+
+# Read TASKS.md for Epic reviews
+TASKS_MD=""
+if [[ "$IS_EPIC" == "true" ]]; then
+  TASKS_MD=$(cat "$ROOM_DIR/TASKS.md" 2>/dev/null || echo "")
+fi
 
 # Read role prompt
 ROLE_PROMPT=$(cat "$SCRIPT_DIR/ROLE.md" 2>/dev/null || echo "")
@@ -59,20 +71,43 @@ PROMPT="$ROLE_PROMPT
 
 ---
 
-## Original Task
+## Original Assignment
 
 $TASK_DESC
 
 ## Engineer's Report
 
 $ENGINEER_REPORT
+$(if [[ "$IS_EPIC" == "true" ]] && [[ -n "$TASKS_MD" ]]; then
+cat << TASKSECTION
+
+## Engineer's Task Breakdown (TASKS.md)
+
+$TASKS_MD
+TASKSECTION
+fi)
 
 ## Instructions
 
+$(if [[ "$IS_EPIC" == "true" ]]; then
+cat << 'EPICQA'
+You are reviewing an EPIC — a complete feature delivered by the engineer.
+
+1. Review ALL code changes holistically across the full epic
+2. Verify the TASKS.md checklist is complete — all sub-tasks must be checked off
+3. Verify each sub-task was actually implemented (not just checked off)
+4. Run the project's test suite
+5. Validate the epic delivers the feature described in the brief
+6. Provide your verdict
+EPICQA
+else
+cat << 'TASKQA'
 1. Review the code changes described in the engineer's report
 2. Verify the implementation meets the task requirements
 3. Run tests if applicable
 4. Provide your verdict
+TASKQA
+fi)
 
 IMPORTANT: Your response MUST include exactly one of these lines:
   VERDICT: PASS
