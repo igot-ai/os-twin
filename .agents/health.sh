@@ -120,7 +120,7 @@ print(json.dumps({
 "
 else
   echo ""
-  echo "  Agent OS Health Check"
+  echo "  Ostwin Health Check"
   echo "  ====================="
   echo ""
 

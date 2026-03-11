@@ -88,7 +88,7 @@ print(json.dumps({
 "
   else
     echo ""
-    echo "=== Agent OS War-Room Dashboard ==="
+    echo "=== Ostwin War-Room Dashboard ==="
     echo ""
 
     if [[ $total -eq 0 ]]; then

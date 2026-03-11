@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Test Suite: CLI Entry Point
 #
-# Tests the agent-os CLI dispatcher and new command scripts.
+# Tests the ostwin CLI dispatcher and new command scripts.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CLI="$AGENTS_DIR/bin/agent-os"
+CLI="$AGENTS_DIR/bin/ostwin"
 
 PASS=0
 FAIL=0
@@ -43,7 +43,7 @@ echo ""
 echo "Test 1: Help output"
 
 HELP_OUTPUT=$("$CLI" --help 2>&1)
-assert_contains "Help shows 'agent-os'" "agent-os" "$HELP_OUTPUT"
+assert_contains "Help shows 'ostwin'" "ostwin" "$HELP_OUTPUT"
 assert_contains "Help shows 'run'" "run" "$HELP_OUTPUT"
 assert_contains "Help shows 'status'" "status" "$HELP_OUTPUT"
 assert_contains "Help shows 'stop'" "stop" "$HELP_OUTPUT"

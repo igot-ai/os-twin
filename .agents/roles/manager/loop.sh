@@ -63,7 +63,7 @@ POLL_INTERVAL=$(python3 -c "import json; print(json.load(open('$CONFIG'))['manag
 MAX_RETRIES=$(python3 -c "import json; print(json.load(open('$CONFIG'))['manager']['max_engineer_retries'])")
 STATE_TIMEOUT=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c['manager'].get('state_timeout_seconds', 900))")
 
-log INFO "Starting Agent OS Manager Loop" 2>/dev/null || echo "[MANAGER] Starting Agent OS Manager Loop"
+log INFO "Starting Ostwin Manager Loop" 2>/dev/null || echo "[MANAGER] Starting Ostwin Manager Loop"
 echo "  Max concurrent rooms: $MAX_CONCURRENT"
 echo "  Poll interval: ${POLL_INTERVAL}s"
 echo "  Max retries per task: $MAX_RETRIES"

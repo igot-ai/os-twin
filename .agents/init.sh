@@ -17,13 +17,13 @@ TARGET_AGENTS="$TARGET_DIR/.agents"
 
 if [[ -d "$TARGET_AGENTS" ]]; then
   echo "[WARN] .agents/ already exists in $TARGET_DIR"
-  echo "  Use agent-os config to modify settings."
+  echo "  Use ostwin config to modify settings."
   exit 1
 fi
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║       Agent OS — Project Init        ║"
+echo "  ║        Ostwin — Project Init          ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 echo "  Target: $TARGET_DIR"
@@ -65,7 +65,7 @@ for lib in utils.sh log.sh; do
 done
 
 # Copy CLI entry point
-[[ -f "$SOURCE_AGENTS/bin/agent-os" ]] && cp "$SOURCE_AGENTS/bin/agent-os" "$TARGET_AGENTS/bin/agent-os"
+[[ -f "$SOURCE_AGENTS/bin/ostwin" ]] && cp "$SOURCE_AGENTS/bin/ostwin" "$TARGET_AGENTS/bin/ostwin"
 
 # Copy config
 cp "$SOURCE_AGENTS/config.json" "$TARGET_AGENTS/config.json"
@@ -91,14 +91,14 @@ done
 
 # Make all scripts executable
 find "$TARGET_AGENTS" -name "*.sh" -exec chmod +x {} \;
-chmod +x "$TARGET_AGENTS/bin/agent-os" 2>/dev/null || true
+chmod +x "$TARGET_AGENTS/bin/ostwin" 2>/dev/null || true
 
-echo "  [OK] Agent OS initialized in $TARGET_DIR/.agents/"
+echo "  [OK] Ostwin initialized in $TARGET_DIR/.agents/"
 echo ""
 echo "  Next steps:"
 echo "    1. Edit your plan:  cp .agents/plans/PLAN.template.md .agents/plans/my-plan.md"
-echo "    2. Configure:       .agents/bin/agent-os config"
-echo "    3. Run:             .agents/bin/agent-os run .agents/plans/my-plan.md"
+echo "    2. Configure:       .agents/bin/ostwin config"
+echo "    3. Run:             .agents/bin/ostwin run .agents/plans/my-plan.md"
 echo ""
 echo "  Or add to PATH:       export PATH=\"$TARGET_AGENTS/bin:\$PATH\""
 echo ""

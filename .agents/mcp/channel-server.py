@@ -33,7 +33,7 @@ MAX_BODY_BYTES = 65536
 
 AGENT_OS_ROOT: str = os.environ.get("AGENT_OS_ROOT", ".")
 
-mcp = FastMCP("agent-os-channel")
+mcp = FastMCP("ostwin-channel")
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 

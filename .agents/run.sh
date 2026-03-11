@@ -80,7 +80,7 @@ export AGENT_OS_CONFIG="$RUN_CONFIG"
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║          AGENT OS v0.1.0             ║"
+echo "  ║          OSTWIN v0.1.0               ║"
 echo "  ║   Multi-Agent War-Room Orchestrator  ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""

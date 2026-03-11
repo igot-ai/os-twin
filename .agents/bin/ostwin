@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# agent-os CLI — unified entry point for Agent OS
+# ostwin CLI — unified entry point for Agent OS
 #
 # Multi-Agent War-Room Orchestrator
 #
-# Usage: agent-os <command> [options]
+# Usage: ostwin <command> [options]
 
 set -euo pipefail
 
@@ -21,10 +21,10 @@ VERSION=$(python3 -c "import json; print(json.load(open('$AGENTS_DIR/config.json
 
 show_help() {
   cat << HELP
-agent-os v${VERSION} — Multi-Agent War-Room Orchestrator
+ostwin v${VERSION} — Multi-Agent War-Room Orchestrator
 
 Usage:
-  agent-os <command> [options]
+  ostwin <command> [options]
 
 Commands:
   run <plan.md>     Execute a plan file
@@ -46,11 +46,11 @@ Commands:
   version           Show version
 
 Examples:
-  agent-os run plans/my-feature.md
-  agent-os run plans/my-feature.md --dry-run
-  agent-os status --watch
-  agent-os logs room-001 --follow
-  agent-os stop
+  ostwin run plans/my-feature.md
+  ostwin run plans/my-feature.md --dry-run
+  ostwin status --watch
+  ostwin logs room-001 --follow
+  ostwin stop
 
 Environment:
   ENGINEER_CMD      Override engineer CLI (default: deepagents)
@@ -98,7 +98,7 @@ case "${1:-}" in
     exec "$AGENTS_DIR/tests/run-all.sh" "$@"
     ;;
   version|-v|--version)
-    echo "agent-os v${VERSION}"
+    echo "ostwin v${VERSION}"
     ;;
   -h|--help|help)
     show_help
@@ -108,7 +108,7 @@ case "${1:-}" in
     ;;
   *)
     echo "Unknown command: $1" >&2
-    echo "Run 'agent-os --help' for usage." >&2
+    echo "Run 'ostwin --help' for usage." >&2
     exit 1
     ;;
 esac

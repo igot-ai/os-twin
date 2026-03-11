@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "project_name": "agent-os",
+  "project_name": "ostwin",
   "manager": {
     "poll_interval_seconds": 5,
     "max_concurrent_rooms": 50,

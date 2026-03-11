@@ -11,7 +11,7 @@
 
 LOG_DIR="${AGENT_OS_LOG_DIR:-${AGENTS_DIR:-/tmp}/logs}"
 LOG_LEVEL="${AGENT_OS_LOG_LEVEL:-INFO}"
-LOG_FILE="${LOG_DIR}/agent-os.log"
+LOG_FILE="${LOG_DIR}/ostwin.log"
 
 _log_level_num() {
   case "$1" in
@@ -52,6 +52,6 @@ args = sys.argv[1:]
 for i in range(0, len(args)-1, 2):
     data[args[i]] = args[i+1]
 print(json.dumps({'ts': '$ts', 'level': '$level', 'event': '$event', 'data': data}))
-" "$@" >> "$LOG_DIR/agent-os.jsonl" 2>/dev/null || true
+" "$@" >> "$LOG_DIR/ostwin.jsonl" 2>/dev/null || true
   fi
 }
