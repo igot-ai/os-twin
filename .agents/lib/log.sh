@@ -9,7 +9,13 @@
 #   log WARN "Room stuck" room_id=room-001
 #   log ERROR "Engineer crashed" task_ref=TASK-001
 
-LOG_DIR="${AGENT_OS_LOG_DIR:-${AGENTS_DIR:-/tmp}/logs}"
+# Self-resolve installation folder from this file's location
+# so logs always land inside .agents/logs/ even if AGENTS_DIR is unset.
+_LOG_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_LOG_AGENTS_DIR="$(cd "$_LOG_SH_DIR/.." && pwd)"
+LOG_DIR="${AGENT_OS_LOG_DIR:-${AGENTS_DIR:-$_LOG_AGENTS_DIR}/logs}"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+
 LOG_LEVEL="${AGENT_OS_LOG_LEVEL:-INFO}"
 LOG_FILE="${LOG_DIR}/ostwin.log"
 

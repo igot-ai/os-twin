@@ -23,6 +23,9 @@ AGENTS_DIR="$SCRIPT_DIR"
 WARROOMS="$AGENTS_DIR/war-rooms"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
+# Ensure logs directory exists before sourcing log.sh
+mkdir -p "$AGENTS_DIR/logs"
+
 # Source shared utilities
 source "$AGENTS_DIR/lib/log.sh" 2>/dev/null || true
 
