@@ -36,7 +36,7 @@ mkdir -p "$TARGET_AGENTS/roles/engineer"
 mkdir -p "$TARGET_AGENTS/roles/qa"
 
 # Copy core scripts
-for script in run.sh stop.sh logs.sh config.sh demo.sh health.sh init.sh; do
+for script in run.sh stop.sh logs.sh config.sh dashboard.sh health.sh init.sh; do
   [[ -f "$SOURCE_AGENTS/$script" ]] && cp "$SOURCE_AGENTS/$script" "$TARGET_AGENTS/$script"
 done
 

@@ -1,31 +1,67 @@
 #!/usr/bin/env python3
 """
-MCP Server: War-Room State Tools
+Agent OS — MCP War-Room Server
 
-Exposes war-room state management as MCP tools so that
-agents can read their task, update status, and report progress.
+Exposes war-room state management as MCP tools.
+Agents call these tools to read their task, update status,
+list artifacts, and report progress without shelling out to bash.
 
-Protocol: JSON-RPC 2.0 over stdio (MCP standard)
+Usage (via mcp-config.json):
+    python3 .agents/mcp/warroom-server.py
+
+Environment:
+    AGENT_OS_ROOT  Root of the agent-os repo (default: ".")
 """
 
 import json
-import sys
 import os
 from datetime import datetime, timezone
+from typing import Annotated, Literal, get_args
 
-AGENT_OS_ROOT = os.environ.get("AGENT_OS_ROOT", ".")
+from pydantic import Field
+from mcp.server.fastmcp import FastMCP
+
+# ── Status type ───────────────────────────────────────────────────────────────
+# Defined as a Literal so the SDK auto-generates an enum-constrained JSON
+# Schema for calling agents, and get_args() drives runtime validation without
+# duplicating the list.
+
+StatusType = Literal[
+    "pending",
+    "engineering",
+    "qa-review",
+    "fixing",
+    "passed",
+    "failed-final",
+]
+
+# ── Module-level state ────────────────────────────────────────────────────────
+
+AGENT_OS_ROOT: str = os.environ.get("AGENT_OS_ROOT", ".")
+
+mcp = FastMCP("agent-os-warroom")
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
 
 
-def get_task(room_dir: str) -> dict:
-    """Read the current task assignment for this war-room."""
+@mcp.tool()
+def get_task(
+    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory (e.g. .agents/war-rooms/room-001)")],
+) -> str:
+    """Read the current task assignment for this war-room.
+
+    Reads task.md and the latest task/fix message from channel.jsonl.
+    Returns a JSON string with {task_description, latest_instruction, room_dir}.
+    Raises RuntimeError if task.md does not exist.
+    """
     task_file = os.path.join(room_dir, "task.md")
     if not os.path.exists(task_file):
-        return {"error": "No task file found"}
+        raise RuntimeError(f"No task file found in {room_dir!r}")
 
     with open(task_file, "r") as f:
         content = f.read()
 
-    # Also read latest task/fix message from channel
+    # Also read the latest task/fix message from channel
     channel_file = os.path.join(room_dir, "channel.jsonl")
     latest_instruction = None
     if os.path.exists(channel_file):
@@ -34,46 +70,66 @@ def get_task(room_dir: str) -> dict:
                 line = line.strip()
                 if not line:
                     continue
-                msg = json.loads(line)
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 if msg.get("type") in ("task", "fix"):
                     latest_instruction = msg
 
-    return {
+    result = {
         "task_description": content,
         "latest_instruction": latest_instruction,
         "room_dir": room_dir,
     }
+    return json.dumps(result)
 
 
-def update_status(room_dir: str, status: str) -> dict:
-    """Update the war-room status."""
-    valid_statuses = [
-        "pending", "engineering", "qa-review",
-        "fixing", "passed", "failed-final",
-    ]
-    if status not in valid_statuses:
-        return {"error": f"Invalid status: {status}. Must be one of: {valid_statuses}"}
+@mcp.tool()
+def update_status(
+    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
+    status: Annotated[StatusType, Field(description="New status: pending | engineering | qa-review | fixing | passed | failed-final")],
+) -> str:
+    """Update the war-room status file.
 
+    Writes {status} to {room_dir}/status.
+    Raises ValueError for an unrecognised status string.
+    Returns a confirmation string "status:{status}".
+    """
+    valid = get_args(StatusType)
+    if status not in valid:
+        raise ValueError(f"Invalid status {status!r}. Must be one of: {list(valid)}")
+
+    os.makedirs(room_dir, exist_ok=True)
     status_file = os.path.join(room_dir, "status")
     with open(status_file, "w") as f:
         f.write(status)
 
-    return {"status": status, "updated": True}
+    return f"status:{status}"
 
 
-def list_artifacts(room_dir: str) -> dict:
-    """List all artifacts in the war-room."""
+@mcp.tool()
+def list_artifacts(
+    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
+) -> str:
+    """List all artifacts produced in this war-room.
+
+    Walks {room_dir}/artifacts/ and returns a JSON array of
+    {path, size_bytes, modified} objects sorted by path.
+    Returns an empty JSON array ("[]") if the artifacts directory
+    does not exist.
+    """
     artifacts_dir = os.path.join(room_dir, "artifacts")
     if not os.path.exists(artifacts_dir):
-        return {"artifacts": []}
+        return "[]"
 
-    artifacts = []
-    for root, _dirs, files in os.walk(artifacts_dir):
-        for fname in files:
+    files = []
+    for root, _dirs, fnames in os.walk(artifacts_dir):
+        for fname in fnames:
             full_path = os.path.join(root, fname)
             rel_path = os.path.relpath(full_path, artifacts_dir)
             stat = os.stat(full_path)
-            artifacts.append({
+            files.append({
                 "path": rel_path,
                 "size_bytes": stat.st_size,
                 "modified": datetime.fromtimestamp(
@@ -81,11 +137,21 @@ def list_artifacts(room_dir: str) -> dict:
                 ).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
 
-    return {"artifacts": artifacts, "count": len(artifacts)}
+    return json.dumps(sorted(files, key=lambda x: x["path"]))
 
 
-def report_progress(room_dir: str, percent: int, message: str) -> dict:
-    """Report progress for the current task."""
+@mcp.tool()
+def report_progress(
+    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
+    percent: Annotated[int, Field(description="Completion percentage (0–100)", ge=0, le=100)],
+    message: Annotated[str, Field(description="Human-readable progress message")],
+) -> str:
+    """Write a progress snapshot to {room_dir}/progress.json.
+
+    Clamps percent to [0, 100] even if the schema constraint is bypassed.
+    Returns the written progress object as a JSON string.
+    """
+    os.makedirs(room_dir, exist_ok=True)
     progress_file = os.path.join(room_dir, "progress.json")
 
     progress = {
@@ -97,157 +163,10 @@ def report_progress(room_dir: str, percent: int, message: str) -> dict:
     with open(progress_file, "w") as f:
         json.dump(progress, f, indent=2)
 
-    return progress
+    return json.dumps(progress)
 
 
-# === MCP Server Protocol ===
-
-TOOLS = [
-    {
-        "name": "get_task",
-        "description": "Read the current task assignment for this war-room",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "room_dir": {"type": "string", "description": "Path to the war-room directory"},
-            },
-            "required": ["room_dir"],
-        },
-    },
-    {
-        "name": "update_status",
-        "description": "Update the war-room status",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "room_dir": {"type": "string", "description": "Path to the war-room directory"},
-                "status": {"type": "string", "description": "New status (pending/engineering/qa-review/fixing/passed/failed-final)"},
-            },
-            "required": ["room_dir", "status"],
-        },
-    },
-    {
-        "name": "list_artifacts",
-        "description": "List all artifacts in the war-room",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "room_dir": {"type": "string", "description": "Path to the war-room directory"},
-            },
-            "required": ["room_dir"],
-        },
-    },
-    {
-        "name": "report_progress",
-        "description": "Report progress for the current task",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "room_dir": {"type": "string", "description": "Path to the war-room directory"},
-                "percent": {"type": "integer", "description": "Progress percentage (0-100)"},
-                "message": {"type": "string", "description": "Progress message"},
-            },
-            "required": ["room_dir", "percent", "message"],
-        },
-    },
-]
-
-
-def handle_request(request: dict) -> dict:
-    """Handle a JSON-RPC 2.0 request."""
-    method = request.get("method", "")
-    req_id = request.get("id")
-    params = request.get("params", {})
-
-    if method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {
-                    "name": "agent-os-warroom",
-                    "version": "0.1.0",
-                },
-            },
-        }
-
-    if method == "notifications/initialized":
-        return None
-
-    if method == "tools/list":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {"tools": TOOLS},
-        }
-
-    if method == "tools/call":
-        tool_name = params.get("name", "")
-        args = params.get("arguments", {})
-
-        try:
-            if tool_name == "get_task":
-                result = get_task(**args)
-            elif tool_name == "update_status":
-                result = update_status(**args)
-            elif tool_name == "list_artifacts":
-                result = list_artifacts(**args)
-            elif tool_name == "report_progress":
-                result = report_progress(**args)
-            else:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
-                }
-
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
-                },
-            }
-        except Exception as e:
-            return {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps({"error": str(e)})}],
-                    "isError": True,
-                },
-            }
-
-    return {
-        "jsonrpc": "2.0",
-        "id": req_id,
-        "error": {"code": -32601, "message": f"Unknown method: {method}"},
-    }
-
-
-def main():
-    """Main loop: read JSON-RPC requests from stdin, write responses to stdout."""
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            request = json.loads(line)
-            response = handle_request(request)
-            if response is not None:
-                sys.stdout.write(json.dumps(response) + "\n")
-                sys.stdout.flush()
-        except json.JSONDecodeError:
-            error_response = {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": "Parse error"},
-            }
-            sys.stdout.write(json.dumps(error_response) + "\n")
-            sys.stdout.flush()
-
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    main()
+    mcp.run(transport="stdio")

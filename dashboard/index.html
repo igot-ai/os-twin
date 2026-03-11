@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⬡ Agent OS — Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/main.css">
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-logo">
+      <span class="logo-hex">⬡</span>
+      <span class="logo-text">AGENT<span class="logo-accent">OS</span></span>
+      <span class="logo-version">v0.1.0</span>
+    </div>
+
+    <div class="topbar-stats">
+      <div class="stat-pill" id="stat-active">
+        <span class="stat-dot active-dot"></span>
+        <span id="stat-active-text">0 active</span>
+      </div>
+      <div class="stat-pill" id="stat-passed">
+        <span class="stat-icon">✓</span>
+        <span id="stat-passed-text">0 passed</span>
+      </div>
+      <div class="stat-pill" id="stat-rooms">
+        <span class="stat-icon">⬡</span>
+        <span id="stat-rooms-text">0 rooms</span>
+      </div>
+    </div>
+
+    <div class="topbar-conn">
+      <span class="conn-dot" id="conn-dot"></span>
+      <span id="conn-status">connecting...</span>
+    </div>
+  </header>
+
+  <!-- Pipeline Visualization -->
+  <div class="pipeline-bar" id="pipeline-bar">
+    <div class="pipeline-step" id="pipe-manager">
+      <span class="pipe-icon">⬡</span>
+      <span>MANAGER</span>
+    </div>
+    <div class="pipeline-arrow">
+      <svg width="60" height="16" viewBox="0 0 60 16">
+        <line x1="0" y1="8" x2="50" y2="8" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3">
+          <animate attributeName="stroke-dashoffset" from="14" to="0" dur="0.8s" repeatCount="indefinite"/>
+        </line>
+        <polygon points="50,4 60,8 50,12" fill="currentColor"/>
+      </svg>
+    </div>
+    <div class="pipeline-step" id="pipe-engineer">
+      <span class="pipe-icon">⚙</span>
+      <span>ENGINEER</span>
+    </div>
+    <div class="pipeline-arrow">
+      <svg width="60" height="16" viewBox="0 0 60 16">
+        <line x1="0" y1="8" x2="50" y2="8" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3">
+          <animate attributeName="stroke-dashoffset" from="14" to="0" dur="0.8s" repeatCount="indefinite"/>
+        </line>
+        <polygon points="50,4 60,8 50,12" fill="currentColor"/>
+      </svg>
+    </div>
+    <div class="pipeline-step" id="pipe-qa">
+      <span class="pipe-icon">✦</span>
+      <span>QA</span>
+    </div>
+    <div class="pipeline-arrow">
+      <svg width="60" height="16" viewBox="0 0 60 16">
+        <line x1="0" y1="8" x2="50" y2="8" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3">
+          <animate attributeName="stroke-dashoffset" from="14" to="0" dur="0.8s" repeatCount="indefinite"/>
+        </line>
+        <polygon points="50,4 60,8 50,12" fill="currentColor"/>
+      </svg>
+    </div>
+    <div class="pipeline-step" id="pipe-release">
+      <span class="pipe-icon">◆</span>
+      <span>RELEASE</span>
+    </div>
+  </div>
+
+  <!-- Main Layout -->
+  <main class="main-layout">
+
+    <!-- Left Panel: Plan Launcher -->
+    <aside class="panel panel-left">
+      <div class="panel-header">
+        <span class="panel-title">▶ PLAN LAUNCHER</span>
+      </div>
+
+      <div class="panel-body">
+        <label class="field-label">Plan File</label>
+        <textarea
+          id="plan-input"
+          class="plan-textarea"
+          placeholder="# Plan: My Feature&#10;&#10;## Config&#10;working_dir: .&#10;&#10;## Task: TASK-001 — Description&#10;&#10;Build the feature..."
+          spellcheck="false"
+        ># Plan: Demo Feature
+
+## Config
+working_dir: .
+
+## Task: TASK-001 — Create hello module
+
+Build hello.py with a greet() function.
+
+Acceptance criteria:
+- greet("World") returns "Hello, World!"
+
+## Task: TASK-002 — Add tests
+
+Write test_hello.py with pytest tests.
+
+Acceptance criteria:
+- pytest passes with 3+ assertions</textarea>
+
+        <div class="launch-actions">
+          <button class="launch-btn" id="launch-btn" onclick="launchPlan()">
+            <span class="btn-icon" id="launch-icon">▶</span>
+            <span id="launch-text">LAUNCH</span>
+          </button>
+          <button class="stop-btn" id="stop-btn" onclick="stopRun()" style="display:none">
+            ■ STOP
+          </button>
+        </div>
+
+        <div class="launch-status" id="launch-status"></div>
+
+        <!-- Quick Actions -->
+        <div class="quick-actions">
+          <label class="field-label">Quick Actions</label>
+          <button class="action-btn" onclick="loadTemplate('hello')">hello world</button>
+          <button class="action-btn" onclick="loadTemplate('api')">REST API</button>
+          <button class="action-btn" onclick="loadTemplate('fullstack')">full-stack app</button>
+        </div>
+
+        <!-- System Config -->
+        <div class="config-section" id="config-section">
+          <label class="field-label">System Config</label>
+          <div class="config-line">
+            <span class="config-key">max_concurrent</span>
+            <span class="config-val" id="cfg-concurrent">—</span>
+          </div>
+          <div class="config-line">
+            <span class="config-key">poll_interval</span>
+            <span class="config-val" id="cfg-poll">—</span>
+          </div>
+          <div class="config-line">
+            <span class="config-key">max_retries</span>
+            <span class="config-val" id="cfg-retries">—</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Panel: War-Room Grid -->
+    <section class="panel panel-center">
+      <div class="panel-header">
+        <span class="panel-title">⬡ WAR-ROOMS</span>
+        <div class="summary-chips" id="summary-chips">
+          <span class="summary-chip chip-pending">pending: <span id="sum-pending">0</span></span>
+          <span class="summary-chip chip-eng">eng: <span id="sum-eng">0</span></span>
+          <span class="summary-chip chip-qa">qa: <span id="sum-qa">0</span></span>
+          <span class="summary-chip chip-passed">passed: <span id="sum-passed">0</span></span>
+          <span class="summary-chip chip-failed">failed: <span id="sum-failed">0</span></span>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div class="room-grid" id="room-grid">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-hex">⬡</div>
+            <p>No war-rooms active.</p>
+            <p class="empty-sub">Launch a plan to get started.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Panel: Channel Feed -->
+    <aside class="panel panel-right">
+      <div class="panel-header">
+        <span class="panel-title">▸ CHANNEL FEED</span>
+        <button class="clear-btn" onclick="clearFeed()">clear</button>
+      </div>
+
+      <div class="panel-body">
+        <div class="feed" id="channel-feed">
+          <div class="feed-empty">Waiting for messages...</div>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- Release Notes Bar -->
+  <footer class="release-bar" id="release-bar" style="display:none">
+    <div class="release-header">
+      <span class="release-icon">◆</span>
+      <span class="release-title">RELEASE NOTES</span>
+      <button class="release-toggle" id="release-toggle" onclick="toggleRelease()">▾ expand</button>
+    </div>
+    <div class="release-content" id="release-content" style="display:none">
+      <pre id="release-text"></pre>
+    </div>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+
+</body>
+</html>

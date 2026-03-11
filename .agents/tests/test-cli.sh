@@ -49,6 +49,7 @@ assert_contains "Help shows 'status'" "status" "$HELP_OUTPUT"
 assert_contains "Help shows 'stop'" "stop" "$HELP_OUTPUT"
 assert_contains "Help shows 'logs'" "logs" "$HELP_OUTPUT"
 assert_contains "Help shows 'init'" "init" "$HELP_OUTPUT"
+assert_contains "Help shows 'dashboard'" "dashboard" "$HELP_OUTPUT"
 
 # --- Test 2: Version output ---
 echo ""

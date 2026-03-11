@@ -36,7 +36,7 @@ Commands:
                     Options: --follow, --type TYPE, --last N
   stop              Graceful shutdown of running manager
                     Options: --force
-  demo              Launch web dashboard
+  dashboard         Launch web dashboard
                     Options: --port PORT (default: 8000)
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
@@ -81,9 +81,9 @@ case "${1:-}" in
     shift
     exec "$AGENTS_DIR/stop.sh" "$@"
     ;;
-  demo)
+  dashboard)
     shift
-    exec "$AGENTS_DIR/demo.sh" "$@"
+    exec "$AGENTS_DIR/dashboard.sh" "$@"
     ;;
   config)
     shift
