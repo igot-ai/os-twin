@@ -8,6 +8,8 @@
 set -euo pipefail
 
 AGENTS_DIR="${1:-.agents}"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 CHANNEL="$AGENTS_DIR/channel"
 WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 TEMPLATE="$AGENTS_DIR/release/RELEASE.template.md"
@@ -34,7 +36,7 @@ for room_dir in "$WARROOMS"/room-*/; do
 
   # Read QA verdict
   qa_verdict=$("$CHANNEL/read.sh" "$room_dir" --type pass --last 1 2>/dev/null | \
-    python3 -c "
+    "$PYTHON" -c "
 import json, sys
 msgs = json.load(sys.stdin)
 if msgs:
@@ -65,7 +67,7 @@ if [[ -f "$TEMPLATE" ]]; then
       -e "s|{{STATUS}}|Draft|g" \
       -e "s|{{SUMMARY}}|$SUMMARY|g" \
       "$TEMPLATE" | \
-    python3 -c "
+    "$PYTHON" -c "
 import sys
 content = sys.stdin.read()
 task_sections = '''$TASK_SECTIONS'''

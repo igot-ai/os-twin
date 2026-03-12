@@ -7,6 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 WARROOMS="$AGENTS_DIR/war-rooms"
 
 # Export WARROOMS_DIR so war-room scripts use this location for data
@@ -89,7 +91,7 @@ echo "Test 2: Initial channel has task message"
 MSG_COUNT=$(wc -l < "$ROOM/channel.jsonl" | tr -d ' ')
 assert_eq "Channel has 1 initial message" "1" "$MSG_COUNT"
 
-MSG_TYPE=$(python3 -c "import json; print(json.loads(open('$ROOM/channel.jsonl').readline())['type'])")
+MSG_TYPE=$("$PYTHON" -c "import json; print(json.loads(open('$ROOM/channel.jsonl').readline())['type'])")
 assert_eq "Initial message type is 'task'" "task" "$MSG_TYPE"
 
 # --- Test 3: Duplicate room prevention ---
@@ -150,7 +152,7 @@ echo "$DASHBOARD" | grep -q "room-test-002" && {
 echo ""
 echo "Test 7: JSON dashboard"
 JSON_STATUS=$("$WARROOMS/status.sh" --json 2>/dev/null)
-ROOM_COUNT=$(echo "$JSON_STATUS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['rooms']))")
+ROOM_COUNT=$(echo "$JSON_STATUS" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)['rooms']))")
 # At least 2 test rooms
 if [[ "$ROOM_COUNT" -ge 2 ]]; then
   echo "  [PASS] JSON dashboard shows at least 2 rooms"

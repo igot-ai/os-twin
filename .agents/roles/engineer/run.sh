@@ -12,6 +12,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 CHANNEL="$AGENTS_DIR/channel"
 
 # Source shared utilities
@@ -23,9 +25,9 @@ shift
 
 # Config
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
-MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG'))['engineer']['default_model'])")
-TIMEOUT=$(python3 -c "import json; print(json.load(open('$CONFIG'))['engineer']['timeout_seconds'])")
-MAX_PROMPT_BYTES=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c['engineer'].get('max_prompt_bytes', 102400))")
+MODEL=$("$PYTHON" -c "import json; print(json.load(open('$CONFIG'))['engineer']['default_model'])")
+TIMEOUT=$("$PYTHON" -c "import json; print(json.load(open('$CONFIG'))['engineer']['timeout_seconds'])")
+MAX_PROMPT_BYTES=$("$PYTHON" -c "import json; c=json.load(open('$CONFIG')); print(c['engineer'].get('max_prompt_bytes', 102400))")
 ENGINEER_CMD="${ENGINEER_CMD:-deepagents}"
 
 # Parse optional args
@@ -47,7 +49,7 @@ esac
 
 # Read the latest task or fix message
 LATEST_MSG=$("$CHANNEL/read.sh" "$ROOM_DIR" --last 1)
-LATEST_BODY=$(echo "$LATEST_MSG" | python3 -c "
+LATEST_BODY=$(echo "$LATEST_MSG" | "$PYTHON" -c "
 import json, sys
 msgs = json.load(sys.stdin)
 for m in reversed(msgs):
@@ -62,7 +64,7 @@ else:
 TASK_DESC=$(cat "$ROOM_DIR/brief.md" 2>/dev/null || echo "No task description found.")
 
 # Parse working_dir from brief.md metadata (first line matching "working_dir:" or from config)
-WORKING_DIR=$(python3 -c "
+WORKING_DIR=$("$PYTHON" -c "
 import re
 with open('$ROOM_DIR/brief.md', 'r') as f:
     content = f.read()

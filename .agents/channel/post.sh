@@ -29,11 +29,13 @@ touch "$CHANNEL_FILE"
 # Read max message size from config (if available)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
 
 # Build, validate, and write JSON message with file locking — all in one Python call
 # Uses fcntl.LOCK_EX for atomic writes, matching MCP channel-server.py semantics
-python3 -c "
+"$PYTHON" -c "
 import json, sys, os, fcntl, time
 
 from_val = sys.argv[1]

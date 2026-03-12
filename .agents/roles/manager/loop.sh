@@ -17,6 +17,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 CHANNEL="$AGENTS_DIR/channel"
 # War-room data from env (set by run.sh), fallback to $AGENTS_DIR/war-rooms
 WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
@@ -59,10 +61,10 @@ trap cleanup SIGTERM SIGINT
 
 # === Config ===
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
-MAX_CONCURRENT=$(python3 -c "import json; print(json.load(open('$CONFIG'))['manager']['max_concurrent_rooms'])")
-POLL_INTERVAL=$(python3 -c "import json; print(json.load(open('$CONFIG'))['manager']['poll_interval_seconds'])")
-MAX_RETRIES=$(python3 -c "import json; print(json.load(open('$CONFIG'))['manager']['max_engineer_retries'])")
-STATE_TIMEOUT=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c['manager'].get('state_timeout_seconds', 900))")
+MAX_CONCURRENT=$("$PYTHON" -c "import json; print(json.load(open('$CONFIG'))['manager']['max_concurrent_rooms'])")
+POLL_INTERVAL=$("$PYTHON" -c "import json; print(json.load(open('$CONFIG'))['manager']['poll_interval_seconds'])")
+MAX_RETRIES=$("$PYTHON" -c "import json; print(json.load(open('$CONFIG'))['manager']['max_engineer_retries'])")
+STATE_TIMEOUT=$("$PYTHON" -c "import json; c=json.load(open('$CONFIG')); print(c['manager'].get('state_timeout_seconds', 900))")
 
 log INFO "Starting Ostwin Manager Loop" 2>/dev/null || echo "[MANAGER] Starting Ostwin Manager Loop"
 echo "  Max concurrent rooms: $MAX_CONCURRENT"
@@ -95,14 +97,14 @@ active_count() {
 msg_count() {
   local room_dir="$1"
   local msg_type="$2"
-  "$CHANNEL/read.sh" "$room_dir" --type "$msg_type" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0"
+  "$CHANNEL/read.sh" "$room_dir" --type "$msg_type" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0"
 }
 
 # === Helper: get latest message body of a type ===
 latest_body() {
   local room_dir="$1"
   local msg_type="$2"
-  "$CHANNEL/read.sh" "$room_dir" --type "$msg_type" --last 1 | python3 -c "
+  "$CHANNEL/read.sh" "$room_dir" --type "$msg_type" --last 1 | "$PYTHON" -c "
 import json, sys
 msgs = json.load(sys.stdin)
 if msgs:

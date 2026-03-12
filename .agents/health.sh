@@ -15,6 +15,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
@@ -38,7 +40,7 @@ PASSED_ROOMS=0
 FAILED_ROOMS=0
 ACTIVE_ROOMS=0
 STUCK_ROOMS=0
-STATE_TIMEOUT=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c['manager'].get('state_timeout_seconds', 900))" 2>/dev/null || echo "900")
+STATE_TIMEOUT=$("$PYTHON" -c "import json; c=json.load(open('$CONFIG')); print(c['manager'].get('state_timeout_seconds', 900))" 2>/dev/null || echo "900")
 NOW=$(date +%s)
 
 for room_dir in "$WARROOMS"/room-*/; do
@@ -78,7 +80,7 @@ ENGINEER_CMD="${ENGINEER_CMD:-deepagents}"
 QA_CMD="${QA_CMD:-deepagents}"
 ENGINEER_AVAILABLE=$(command -v "$ENGINEER_CMD" &>/dev/null && echo "available" || echo "not found")
 QA_AVAILABLE=$(command -v "$QA_CMD" &>/dev/null && echo "available" || echo "not found")
-PYTHON_AVAILABLE=$(command -v python3 &>/dev/null && echo "available" || echo "not found")
+PYTHON_AVAILABLE=$([[ -x "$PYTHON" ]] && echo "available" || echo "not found")
 
 # Determine overall health
 HEALTH="healthy"
@@ -93,7 +95,7 @@ if [[ "$MANAGER_ALIVE" == "false" ]] && [ "$ACTIVE_ROOMS" -gt 0 ]; then
 fi
 
 if $JSON_MODE; then
-  python3 -c "
+  "$PYTHON" -c "
 import json
 print(json.dumps({
     'status': '$HEALTH',

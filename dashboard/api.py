@@ -20,14 +20,20 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, List, Optional, Dict
+from pydantic import BaseModel, Field
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+
+# === Engagement Logic ===
+from engagement import (
+    toggle_reaction, add_comment, load_engagement, 
+    EngagementState, Comment
+)
 
 # === Paths ===
 # PROJECT_DIR is set via --project-dir flag (from dashboard.sh) or defaults to parent of dashboard/
@@ -101,6 +107,17 @@ class Message(BaseModel):
 
 class RunRequest(BaseModel):
     plan: str
+
+class ReactionRequest(BaseModel):
+    entity_id: str
+    user_id: str
+    reaction_type: str
+
+class CommentRequest(BaseModel):
+    entity_id: str
+    user_id: str
+    body: str
+    parent_id: Optional[str] = None
 
 
 # === Helpers ===
@@ -177,6 +194,96 @@ def read_channel(room_dir: Path) -> list[dict]:
 
 
 # === Routes ===
+
+# === Real-Time Event Gateway ===
+
+async def process_notification(event_type: str, data: dict):
+    """Asynchronously process notifications (e.g., log to file or send to external service)."""
+    # Simulate processing delay
+    await asyncio.sleep(0.1)
+    
+    # Persist notification to a log file
+    notifications_file = PROJECT_ROOT / ".data" / "notifications.log"
+    notifications_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now(timezone.utc).isoformat()
+    log_entry = json.dumps({"ts": timestamp, "event": event_type, "data": data})
+    
+    with open(notifications_file, "a") as f:
+        f.write(log_entry + "\n")
+
+class Broadcaster:
+    def __init__(self):
+        self.clients: List[asyncio.Queue] = []
+
+    async def subscribe(self) -> asyncio.Queue:
+        queue = asyncio.Queue()
+        self.clients.append(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue):
+        if queue in self.clients:
+            self.clients.remove(queue)
+
+    async def broadcast(self, event_type: str, data: dict):
+        event = json.dumps({"event": event_type, "data": data})
+        for queue in self.clients:
+            await queue.put(f"data: {event}\n\n")
+
+broadcaster = Broadcaster()
+
+
+# === Engagement Routes ===
+
+@app.get("/api/engagement/{entity_id}")
+async def get_engagement(entity_id: str):
+    """Retrieve all reactions and comments for an entity."""
+    return load_engagement(entity_id)
+
+@app.post("/api/engagement/reactions")
+async def post_reaction(req: ReactionRequest, background_tasks: BackgroundTasks):
+    """Toggle a reaction on an entity."""
+    state = toggle_reaction(req.entity_id, req.user_id, req.reaction_type)
+    event_data = {
+        "entity_id": req.entity_id,
+        "user_id": req.user_id,
+        "reaction_type": req.reaction_type,
+        "state": state.model_dump()
+    }
+    await broadcaster.broadcast("reaction_toggled", event_data)
+    background_tasks.add_task(process_notification, "reaction_toggled", event_data)
+    return state
+
+@app.post("/api/engagement/comments")
+async def post_comment(req: CommentRequest, background_tasks: BackgroundTasks):
+    """Post a hierarchical comment."""
+    state, new_comment = add_comment(req.entity_id, req.user_id, req.body, req.parent_id)
+    event_data = {
+        "entity_id": req.entity_id,
+        "comment": new_comment.model_dump(),
+        "state": state.model_dump()
+    }
+    await broadcaster.broadcast("comment_published", event_data)
+    background_tasks.add_task(process_notification, "comment_published", event_data)
+    return {"state": state, "new_comment": new_comment}
+
+
+@app.get("/api/engagement/events")
+async def engagement_events():
+    """Real-time event gateway for engagement."""
+    async def event_generator() -> AsyncIterator[str]:
+        queue = await broadcaster.subscribe()
+        try:
+            while True:
+                event = await queue.get()
+                yield event
+        except asyncio.CancelledError:
+            pass
+        finally:
+            broadcaster.unsubscribe(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 @app.get("/")
 async def index():

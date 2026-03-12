@@ -12,6 +12,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 CHANNEL="$AGENTS_DIR/channel"
 
 # Source shared utilities
@@ -23,7 +25,7 @@ shift
 
 # Config
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
-TIMEOUT=$(python3 -c "import json; print(json.load(open('$CONFIG'))['qa']['timeout_seconds'])")
+TIMEOUT=$("$PYTHON" -c "import json; print(json.load(open('$CONFIG'))['qa']['timeout_seconds'])")
 QA_CMD="${QA_CMD:-deepagents}"
 
 # Parse optional args
@@ -45,7 +47,7 @@ esac
 
 # Read the engineer's "done" message
 DONE_MSG=$("$CHANNEL/read.sh" "$ROOM_DIR" --type done --last 1)
-ENGINEER_REPORT=$(echo "$DONE_MSG" | python3 -c "
+ENGINEER_REPORT=$(echo "$DONE_MSG" | "$PYTHON" -c "
 import json, sys
 msgs = json.load(sys.stdin)
 if msgs:

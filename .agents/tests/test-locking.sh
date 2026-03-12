@@ -7,6 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 CHANNEL="$AGENTS_DIR/channel"
 
 PASS=0
@@ -48,7 +50,7 @@ LINE_COUNT=$(wc -l < "$TEST_ROOM/channel.jsonl" | tr -d ' ')
 assert_eq "20 messages written" "20" "$LINE_COUNT"
 
 # Verify all lines are valid JSON
-VALID_COUNT=$(python3 -c "
+VALID_COUNT=$("$PYTHON" -c "
 import json
 count = 0
 with open('$TEST_ROOM/channel.jsonl') as f:
@@ -69,7 +71,7 @@ assert_eq "All 20 messages valid JSON" "20" "$VALID_COUNT"
 echo ""
 echo "Test 2: Message version field"
 
-VERSION_COUNT=$(python3 -c "
+VERSION_COUNT=$("$PYTHON" -c "
 import json
 count = 0
 with open('$TEST_ROOM/channel.jsonl') as f:
@@ -112,7 +114,7 @@ wait
 LINE_COUNT=$(wc -l < "$TEST_ROOM/channel.jsonl" | tr -d ' ')
 assert_eq "50 stress messages written" "50" "$LINE_COUNT"
 
-VALID_COUNT=$(python3 -c "
+VALID_COUNT=$("$PYTHON" -c "
 import json
 count = 0
 with open('$TEST_ROOM/channel.jsonl') as f:
@@ -132,11 +134,11 @@ assert_eq "All 50 stress messages valid JSON" "50" "$VALID_COUNT"
 echo ""
 echo "Test 5: Body truncation (oversized message)"
 
-BIG_BODY=$(python3 -c "print('x' * 100000)")
+BIG_BODY=$("$PYTHON" -c "print('x' * 100000)")
 "$CHANNEL/post.sh" "$TEST_ROOM" manager engineer task TASK-BIG "$BIG_BODY" > /dev/null
 
 LAST_MSG=$("$CHANNEL/read.sh" "$TEST_ROOM" --ref TASK-BIG --last 1)
-HAS_TRUNCATED=$(echo "$LAST_MSG" | python3 -c "
+HAS_TRUNCATED=$(echo "$LAST_MSG" | "$PYTHON" -c "
 import json, sys
 msgs = json.load(sys.stdin)
 if msgs and 'TRUNCATED' in msgs[-1].get('body', ''):

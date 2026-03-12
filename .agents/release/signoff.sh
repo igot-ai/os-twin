@@ -9,6 +9,8 @@
 set -euo pipefail
 
 AGENTS_DIR="${1:-.agents}"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 RELEASE_FILE="$AGENTS_DIR/RELEASE.md"
 SIGNOFF_FILE="$AGENTS_DIR/release/signoffs.json"
 CHANNEL="$AGENTS_DIR/channel"
@@ -19,7 +21,7 @@ QA_CMD="${QA_CMD:-deepagents}"
 
 # Config
 CONFIG="$AGENTS_DIR/config.json"
-REQUIRED_ROLES=$(python3 -c "
+REQUIRED_ROLES=$("$PYTHON" -c "
 import json
 config = json.load(open('$CONFIG'))
 roles = config.get('release', {}).get('require_signoffs', ['engineer', 'qa', 'manager'])
@@ -41,7 +43,7 @@ if [[ "$MOCK_SIGNOFF" == "true" ]]; then
   # Mock mode: auto-sign all roles
   echo "[SIGNOFF] Mock mode — auto-signing all roles."
   for role in $REQUIRED_ROLES; do
-    SIGNOFFS=$(echo "$SIGNOFFS" | python3 -c "
+    SIGNOFFS=$(echo "$SIGNOFFS" | "$PYTHON" -c "
 import json, sys
 s = json.load(sys.stdin)
 s['$role'] = {'status': 'approved', 'timestamp': '$TS', 'comment': 'Auto-signed (mock mode)'}
@@ -60,7 +62,7 @@ else
 $RELEASE_CONTENT" --auto-approve --shell-allow-list recommended 2>&1 || echo "APPROVED")
 
     if echo "$ENGINEER_VERDICT" | grep -qi "APPROVED"; then
-      SIGNOFFS=$(echo "$SIGNOFFS" | python3 -c "
+      SIGNOFFS=$(echo "$SIGNOFFS" | "$PYTHON" -c "
 import json, sys
 s = json.load(sys.stdin)
 s['engineer'] = {'status': 'approved', 'timestamp': '$TS'}
@@ -81,7 +83,7 @@ print(json.dumps(s))
 $RELEASE_CONTENT" --auto-approve -q 2>&1 || echo "APPROVED")
 
     if echo "$QA_VERDICT" | grep -qi "APPROVED"; then
-      SIGNOFFS=$(echo "$SIGNOFFS" | python3 -c "
+      SIGNOFFS=$(echo "$SIGNOFFS" | "$PYTHON" -c "
 import json, sys
 s = json.load(sys.stdin)
 s['qa'] = {'status': 'approved', 'timestamp': '$TS'}
@@ -96,7 +98,7 @@ print(json.dumps(s))
 
   # Manager auto-signs last (the orchestrator)
   if echo "$REQUIRED_ROLES" | grep -qw "manager"; then
-    SIGNOFFS=$(echo "$SIGNOFFS" | python3 -c "
+    SIGNOFFS=$(echo "$SIGNOFFS" | "$PYTHON" -c "
 import json, sys
 s = json.load(sys.stdin)
 s['manager'] = {'status': 'approved', 'timestamp': '$TS'}
@@ -107,10 +109,10 @@ print(json.dumps(s))
 fi
 
 # Save signoffs
-echo "$SIGNOFFS" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))" > "$SIGNOFF_FILE"
+echo "$SIGNOFFS" | "$PYTHON" -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))" > "$SIGNOFF_FILE"
 
 # Update RELEASE.md with signoff status
-python3 -c "
+"$PYTHON" -c "
 import json
 
 signoffs = json.load(open('$SIGNOFF_FILE'))
@@ -136,7 +138,7 @@ with open('$RELEASE_FILE', 'w') as f:
 "
 
 # Check if all required roles signed off
-ALL_SIGNED=$(python3 -c "
+ALL_SIGNED=$("$PYTHON" -c "
 import json
 signoffs = json.load(open('$SIGNOFF_FILE'))
 required = '$REQUIRED_ROLES'.split()

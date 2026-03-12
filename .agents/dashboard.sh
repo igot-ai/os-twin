@@ -9,6 +9,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 
 # Resolve dashboard directory:
 #   1. Inside .agents/dashboard/ (installed via ostwin init)
@@ -23,19 +25,19 @@ fi
 PORT=9000
 PROJECT_DIR="$(pwd)"
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --port)        PORT="$2"; shift 2 ;;
-    --project-dir) PROJECT_DIR="$2"; shift 2 ;;
-    -h|--help)
-      echo "Usage: dashboard.sh [--port PORT] [--project-dir PATH]"
-      echo "  --port PORT         Server port (default: 9000)"
-      echo "  --project-dir PATH  Project to monitor (default: current directory)"
-      exit 0
-      ;;
-    *) shift ;;
-  esac
-done
+# while [[ $# -gt 0 ]]; do
+#   case "$1" in
+#     --port)        PORT="$2"; shift 2 ;;
+#     --project-dir) PROJECT_DIR="$2"; shift 2 ;;
+#     -h|--help)
+#       echo "Usage: dashboard.sh [--port PORT] [--project-dir PATH]"
+#       echo "  --port PORT         Server port (default: 9000)"
+#       echo "  --project-dir PATH  Project to monitor (default: current directory)"
+#       exit 0
+#       ;;
+#     *) shift ;;
+#   esac
+# done
 
 if [[ -z "$DASHBOARD_DIR" ]] || [[ ! -f "$DASHBOARD_DIR/api.py" ]]; then
   echo "[ERROR] Web dashboard not found." >&2
@@ -49,7 +51,7 @@ if [[ -z "$DASHBOARD_DIR" ]] || [[ ! -f "$DASHBOARD_DIR/api.py" ]]; then
 fi
 
 # Check Python dependencies
-python3 -c "import fastapi, uvicorn" 2>/dev/null || {
+"$PYTHON" -c "import fastapi, uvicorn" 2>/dev/null || {
   echo "[ERROR] Missing Python dependencies." >&2
   echo "  Install with: pip install fastapi uvicorn" >&2
   exit 1
@@ -65,4 +67,4 @@ echo "  Press Ctrl+C to stop."
 echo ""
 
 cd "$DASHBOARD_DIR"
-exec python3 api.py --port "$PORT" --project-dir "$PROJECT_DIR"
+exec "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR"

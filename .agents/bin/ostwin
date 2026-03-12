@@ -15,9 +15,11 @@ else
   BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 fi
 AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 
 # Version from config
-VERSION=$(python3 -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
+VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
 show_help() {
   cat << HELP

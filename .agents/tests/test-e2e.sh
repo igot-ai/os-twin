@@ -8,6 +8,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 WARROOMS="$AGENTS_DIR/war-rooms"
 
 # Export WARROOMS_DIR so war-room scripts use this location for data
@@ -83,7 +85,7 @@ echo "=== Test Suite: End-to-End ==="
 
 # Copy-on-write config for fast testing (never mutates original config.json)
 TEST_CONFIG=$(mktemp)
-python3 -c "
+"$PYTHON" -c "
 import json
 config = json.load(open('$AGENTS_DIR/config.json'))
 config['manager']['poll_interval_seconds'] = 1
@@ -287,7 +289,7 @@ fi
 # Check signoffs
 assert_exists "Signoffs file created" "$AGENTS_DIR/release/signoffs.json"
 if [[ -f "$AGENTS_DIR/release/signoffs.json" ]]; then
-  SIGNOFF_COUNT=$(python3 -c "import json; print(len(json.load(open('$AGENTS_DIR/release/signoffs.json'))))")
+  SIGNOFF_COUNT=$("$PYTHON" -c "import json; print(len(json.load(open('$AGENTS_DIR/release/signoffs.json'))))")
   if [[ "$SIGNOFF_COUNT" -ge 2 ]]; then
     echo "  [PASS] Signoffs collected ($SIGNOFF_COUNT roles)"
     PASS=$((PASS + 1))

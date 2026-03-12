@@ -7,6 +7,9 @@
 # --- Portable timeout ---
 # macOS does not include `timeout` by default.
 # Try: timeout → gtimeout → perl fallback
+PYTHON="${AGENTS_DIR:-}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
+
 if ! command -v timeout &>/dev/null; then
   if command -v gtimeout &>/dev/null; then
     timeout() { gtimeout "$@"; }
@@ -24,7 +27,7 @@ fi
 read_config() {
   local key_path="$1"
   local config="${AGENT_OS_CONFIG:-${AGENTS_DIR}/config.json}"
-  python3 -c "
+  "$PYTHON" -c "
 import json, sys, functools
 config = json.load(open('$config'))
 keys = '${key_path}'.split('.')
