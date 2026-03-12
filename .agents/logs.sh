@@ -17,6 +17,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 CHANNEL="$AGENTS_DIR/channel"
 
@@ -43,7 +45,7 @@ done
 
 # Format a message for display
 format_msg() {
-  python3 -c "
+  "$PYTHON" -c "
 import json, sys
 for line in sys.stdin:
     line = line.strip()
@@ -117,7 +119,7 @@ else
       # Prepend room_id to each line for context
       echo "$line"
     done < "$channel_file"
-  done | python3 -c "
+  done | "$PYTHON" -c "
 import json, sys
 
 messages = []

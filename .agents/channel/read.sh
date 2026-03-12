@@ -11,6 +11,11 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
+
 ROOM_DIR="$1"
 shift
 
@@ -41,7 +46,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-python3 -c "
+"$PYTHON" -c "
 import json, sys
 
 filter_from = '${FILTER_FROM}'

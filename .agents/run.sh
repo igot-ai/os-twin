@@ -20,6 +20,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 WARROOM_TOOLS="$AGENTS_DIR/war-rooms"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
@@ -71,7 +73,7 @@ RUN_CONFIG="$AGENTS_DIR/config.run.json"
 cp "$AGENTS_DIR/config.json" "$RUN_CONFIG"
 
 if [[ -n "$MAX_ROOMS" ]]; then
-  python3 -c "
+  "$PYTHON" -c "
 import json
 config = json.load(open('$RUN_CONFIG'))
 config['manager']['max_concurrent_rooms'] = $MAX_ROOMS
@@ -92,7 +94,7 @@ echo ""
 
 # Parse plan file: extract ## Epic: or ## Task: sections
 # Each section becomes a war-room (one room per epic or task)
-TASKS=$(python3 -c "
+TASKS=$("$PYTHON" -c "
 import re, json, sys
 
 with open('$PLAN_FILE', 'r') as f:
@@ -150,7 +152,7 @@ for i, part in enumerate(parts[1:], 1):
 print(json.dumps(items))
 ")
 
-TASK_COUNT=$(echo "$TASKS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+TASK_COUNT=$(echo "$TASKS" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 
 if [[ "$TASK_COUNT" -eq 0 ]]; then
   echo "[ERROR] No items found in plan file. Expected '## Epic: EPIC-XXX — Title' or '## Task: TASK-XXX — Title' sections." >&2
@@ -158,7 +160,7 @@ if [[ "$TASK_COUNT" -eq 0 ]]; then
 fi
 
 # === Plan validation ===
-VALIDATION_WARNINGS=$(echo "$TASKS" | python3 -c "
+VALIDATION_WARNINGS=$(echo "$TASKS" | "$PYTHON" -c "
 import json, sys, os
 
 tasks = json.load(sys.stdin)
@@ -198,7 +200,7 @@ echo "  Found $TASK_COUNT task(s):"
 echo ""
 
 # Display tasks
-echo "$TASKS" | python3 -c "
+echo "$TASKS" | "$PYTHON" -c "
 import json, sys
 tasks = json.load(sys.stdin)
 for t in tasks:
@@ -214,7 +216,7 @@ if $DRY_RUN; then
 fi
 
 # Resolve project-scoped war-rooms directory
-PROJECT_DIR=$(echo "$TASKS" | python3 -c "
+PROJECT_DIR=$(echo "$TASKS" | "$PYTHON" -c "
 import json, sys, os
 tasks = json.load(sys.stdin)
 wd = tasks[0]['working_dir'] if tasks else '.'
@@ -249,7 +251,7 @@ rm -f "$AGENTS_DIR/RELEASE.md" "$AGENTS_DIR/release/signoffs.json" 2>/dev/null |
 
 # Create war-rooms for each task
 echo "[SETUP] Creating war-rooms..."
-echo "$TASKS" | python3 -c "
+echo "$TASKS" | "$PYTHON" -c "
 import json, sys, subprocess
 
 tasks = json.load(sys.stdin)

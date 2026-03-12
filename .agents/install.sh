@@ -9,12 +9,13 @@
 #
 # Requirements:
 #   - bash 3.2+
-#   - python3 3.8+
+#   - uv (https://github.com/astral-sh/uv)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="${1:-$HOME/.ostwin}"
+VENV_DIR="$INSTALL_DIR/.venv"
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
@@ -34,12 +35,14 @@ else
   echo "    [OK] bash $BASH_VER"
 fi
 
-if ! command -v python3 &>/dev/null; then
-  echo "    [FAIL] python3 not found — required"
+if ! command -v uv &>/dev/null; then
+  echo "    [FAIL] uv not found — required"
+  echo "           Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+  echo "           Or via Homebrew: brew install uv"
   DEPS_OK=false
 else
-  PY_VER=$(python3 --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-  echo "    [OK] python3 $PY_VER"
+  UV_VER=$(uv --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  echo "    [OK] uv $UV_VER"
 fi
 
 # Check for timeout (optional)
@@ -73,6 +76,26 @@ find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
 chmod +x "$INSTALL_DIR/bin/ostwin" 2>/dev/null || true
 
 echo "    [OK] Files installed"
+
+# Set up uv venv and install Python dependencies
+echo "  Setting up Python environment with uv..."
+[ -d "$VENV_DIR" ] || uv venv "$VENV_DIR" --quiet
+echo "    [OK] venv created at $VENV_DIR"
+
+REQUIREMENTS="$INSTALL_DIR/mcp/requirements.txt"
+if [ -f "$REQUIREMENTS" ]; then
+  uv pip install --quiet --python "$VENV_DIR/bin/python" -r "$REQUIREMENTS"
+  echo "    [OK] Python dependencies installed from mcp/requirements.txt"
+else
+  echo "    [WARN] No mcp/requirements.txt found — skipping pip install"
+fi
+
+# Patch mcp-config.json with actual venv python path
+MCP_CONFIG="$INSTALL_DIR/mcp/mcp-config.json"
+if [ -f "$MCP_CONFIG" ]; then
+  sed -i '' "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$MCP_CONFIG"
+  echo "    [OK] mcp-config.json patched with venv python path"
+fi
 
 # Add to PATH
 SHELL_NAME=$(basename "$SHELL")

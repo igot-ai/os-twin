@@ -8,6 +8,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 WARROOMS="$AGENTS_DIR/war-rooms"
 CHANNEL="$AGENTS_DIR/channel"
 
@@ -62,7 +64,7 @@ assert_eq() {
 
 # Copy-on-write config for fast testing (never mutates original config.json)
 TEST_CONFIG=$(mktemp)
-python3 -c "
+"$PYTHON" -c "
 import json
 config = json.load(open('$AGENTS_DIR/config.json'))
 config['manager']['poll_interval_seconds'] = 1

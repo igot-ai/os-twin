@@ -1,2 +1,11 @@
-.agents/war-rooms
+.agents/war-rooms/*
+.agents/.war-rooms/*
+.claude/*
 *pid
+
+*/identity-service/**
+*/social-graph/**
+social-graph/**
+identity-service/**
+
+

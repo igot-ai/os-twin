@@ -18,6 +18,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 PLANS_DIR="$AGENTS_DIR/plans"
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
 
@@ -25,7 +27,7 @@ CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
 source "$AGENTS_DIR/lib/log.sh" 2>/dev/null || true
 
 # Read config
-ENGINEER_CLI=$(python3 -c "import json; print(json.load(open('$CONFIG'))['engineer']['cli'])" 2>/dev/null || echo "deepagents")
+ENGINEER_CLI=$("$PYTHON" -c "import json; print(json.load(open('$CONFIG'))['engineer']['cli'])" 2>/dev/null || echo "deepagents")
 IDEATION_MODEL="gemini-3.1-pro-preview"
 
 # Module-level state (set by plan_create, read by plan_start)
@@ -143,7 +145,7 @@ plan_list() {
 
     found=$((found + 1))
 
-    python3 -c "
+    "$PYTHON" -c "
 import re, os, datetime
 path = '$plan_file'
 bname = '$bname'
@@ -413,7 +415,7 @@ Rules:
   fi
 
   # ── Normalize Task → Epic if AI ignored instructions ──
-  PLAN_OUTPUT=$(echo "$PLAN_OUTPUT" | python3 -c "
+  PLAN_OUTPUT=$(echo "$PLAN_OUTPUT" | "$PYTHON" -c "
 import sys, re
 content = sys.stdin.read()
 content = re.sub(r'^## Task:\s*TASK-(\d+)', r'## Epic: EPIC-\1', content, flags=re.MULTILINE)
@@ -478,7 +480,7 @@ Rules: Epic IDs sequential, em-dash between ID and title, no code fences."
               -q 2>/dev/null) || true
 
           if [[ -n "$REFINED" ]] && echo "$REFINED" | grep -q "^# Plan:"; then
-            REFINED=$(echo "$REFINED" | python3 -c "
+            REFINED=$(echo "$REFINED" | "$PYTHON" -c "
 import sys, re
 content = sys.stdin.read()
 content = re.sub(r'^## Task:\s*TASK-(\d+)', r'## Epic: EPIC-\1', content, flags=re.MULTILINE)
@@ -506,7 +508,7 @@ print(content, end='')
             -q 2>/dev/null) || true
 
         if [[ -n "$PLAN_OUTPUT" ]] && echo "$PLAN_OUTPUT" | grep -q "^# Plan:"; then
-          PLAN_OUTPUT=$(echo "$PLAN_OUTPUT" | python3 -c "
+          PLAN_OUTPUT=$(echo "$PLAN_OUTPUT" | "$PYTHON" -c "
 import sys, re
 content = sys.stdin.read()
 content = re.sub(r'^## Task:\s*TASK-(\d+)', r'## Epic: EPIC-\1', content, flags=re.MULTILINE)
@@ -558,7 +560,7 @@ _display_plan() {
   echo ""
   _tui_header "$plan_title"
 
-  echo "$plan_content" | python3 -c "
+  echo "$plan_content" | "$PYTHON" -c "
 import sys, re
 
 content = sys.stdin.read()
@@ -613,8 +615,8 @@ _offer_start() {
   read -r NEXT
 
   local PORT
-  PORT=$(_project_port "$working_dir")
-
+  # PORT=$(_project_port "$working_dir")
+  PORT=9000
   case "${NEXT:-s}" in
     [Ss]*)
       echo ""
@@ -708,7 +710,7 @@ plan_start() {
 
     # Resolve project dir from plan config
     local wd
-    wd=$(python3 -c "
+    wd=$("$PYTHON" -c "
 import re
 with open('$plan_file') as f:
     m = re.search(r'working_dir:\s*(.+)', f.read())

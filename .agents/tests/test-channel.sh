@@ -7,6 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 CHANNEL="$AGENTS_DIR/channel"
 
 # Create temp test directory
@@ -66,35 +68,35 @@ echo "Test 2: Filter by type"
 "$CHANNEL/post.sh" "$ROOM" manager qa review TASK-001 "Please review" > /dev/null
 
 DONE_MSGS=$("$CHANNEL/read.sh" "$ROOM" --type done)
-DONE_COUNT=$(echo "$DONE_MSGS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+DONE_COUNT=$(echo "$DONE_MSGS" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 assert_eq "Filter by type=done returns 1" "1" "$DONE_COUNT"
 
 TASK_MSGS=$("$CHANNEL/read.sh" "$ROOM" --type task)
-TASK_COUNT=$(echo "$TASK_MSGS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+TASK_COUNT=$(echo "$TASK_MSGS" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 assert_eq "Filter by type=task returns 1" "1" "$TASK_COUNT"
 
 # --- Test 3: Filter by --from ---
 echo ""
 echo "Test 3: Filter by from"
 MGR_MSGS=$("$CHANNEL/read.sh" "$ROOM" --from manager)
-MGR_COUNT=$(echo "$MGR_MSGS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+MGR_COUNT=$(echo "$MGR_MSGS" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 assert_eq "Filter by from=manager returns 2" "2" "$MGR_COUNT"
 
 # --- Test 4: --last N ---
 echo ""
 echo "Test 4: --last N"
 LAST_1=$("$CHANNEL/read.sh" "$ROOM" --last 1)
-LAST_COUNT=$(echo "$LAST_1" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+LAST_COUNT=$(echo "$LAST_1" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 assert_eq "--last 1 returns 1 message" "1" "$LAST_COUNT"
 
-LAST_TYPE=$(echo "$LAST_1" | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['type'])")
+LAST_TYPE=$(echo "$LAST_1" | "$PYTHON" -c "import json,sys; print(json.load(sys.stdin)[0]['type'])")
 assert_eq "--last 1 returns most recent" "review" "$LAST_TYPE"
 
 # --- Test 5: Combined filters ---
 echo ""
 echo "Test 5: Combined filters"
 COMBINED=$("$CHANNEL/read.sh" "$ROOM" --from manager --type task)
-COMB_COUNT=$(echo "$COMBINED" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+COMB_COUNT=$(echo "$COMBINED" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 assert_eq "Combined filter (from=manager, type=task)" "1" "$COMB_COUNT"
 
 # --- Test 6: Empty channel ---
@@ -105,7 +107,7 @@ mkdir -p "$EMPTY_ROOM"
 touch "$EMPTY_ROOM/channel.jsonl"
 
 EMPTY_RESULT=$("$CHANNEL/read.sh" "$EMPTY_ROOM")
-EMPTY_COUNT=$(echo "$EMPTY_RESULT" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+EMPTY_COUNT=$(echo "$EMPTY_RESULT" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 assert_eq "Empty channel returns 0 messages" "0" "$EMPTY_COUNT"
 
 # --- Test 7: Non-existent channel ---
@@ -131,7 +133,7 @@ CONC_COUNT=$(wc -l < "$CONC_ROOM/channel.jsonl" | tr -d ' ')
 assert_eq "10 concurrent writes all persisted" "10" "$CONC_COUNT"
 
 # Verify all are valid JSON
-VALID_JSON=$(python3 -c "
+VALID_JSON=$("$PYTHON" -c "
 import json
 count = 0
 with open('$CONC_ROOM/channel.jsonl') as f:

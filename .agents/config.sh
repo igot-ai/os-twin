@@ -13,6 +13,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 
 MODE=""
 KEY=""
@@ -42,12 +44,12 @@ done
 
 if [[ -z "$MODE" ]]; then
   # Print full config with nice formatting
-  python3 -c "import json; print(json.dumps(json.load(open('$CONFIG')), indent=2))"
+  "$PYTHON" -c "import json; print(json.dumps(json.load(open('$CONFIG')), indent=2))"
   exit 0
 fi
 
 if [[ "$MODE" == "get" ]]; then
-  python3 -c "
+  "$PYTHON" -c "
 import json, functools
 config = json.load(open('$CONFIG'))
 keys = '${KEY}'.split('.')
@@ -61,7 +63,7 @@ else:
 fi
 
 if [[ "$MODE" == "set" ]]; then
-  python3 -c "
+  "$PYTHON" -c "
 import json
 
 config = json.load(open('$CONFIG'))

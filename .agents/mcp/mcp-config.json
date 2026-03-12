@@ -1,14 +1,14 @@
 {
   "mcpServers": {
     "channel": {
-      "command": "python3",
+      "command": "OSTWIN_VENV_PYTHON",
       "args": [".agents/mcp/channel-server.py"],
       "env": {
         "AGENT_OS_ROOT": "."
       }
     },
     "warroom": {
-      "command": "python3",
+      "command": "OSTWIN_VENV_PYTHON",
       "args": [".agents/mcp/warroom-server.py"],
       "env": {
         "AGENT_OS_ROOT": "."

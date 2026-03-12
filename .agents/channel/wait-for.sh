@@ -11,6 +11,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
+
 ROOM_DIR="$1"
 WAIT_TYPE="$2"
 shift 2
@@ -43,11 +47,11 @@ while true; do
     READ_ARGS+=("--last" "1")
 
     RESULT=$("$SCRIPT_DIR/read.sh" "${READ_ARGS[@]}")
-    MSG_COUNT=$(echo "$RESULT" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+    MSG_COUNT=$(echo "$RESULT" | "$PYTHON" -c "import json,sys; print(len(json.load(sys.stdin)))")
 
     if [[ "$MSG_COUNT" -gt 0 ]]; then
       # Return the matching message
-      echo "$RESULT" | python3 -c "import json,sys; msgs=json.load(sys.stdin); print(json.dumps(msgs[-1]))"
+      echo "$RESULT" | "$PYTHON" -c "import json,sys; msgs=json.load(sys.stdin); print(json.dumps(msgs[-1]))"
       exit 0
     fi
   fi

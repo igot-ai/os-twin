@@ -18,6 +18,8 @@ mkdir -p "$LOG_DIR" 2>/dev/null || true
 
 LOG_LEVEL="${AGENT_OS_LOG_LEVEL:-INFO}"
 LOG_FILE="${LOG_DIR}/ostwin.log"
+PYTHON="${_LOG_AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
 
 _log_level_num() {
   case "$1" in
@@ -51,7 +53,7 @@ log_json() {
   local ts
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   if [[ -d "$LOG_DIR" ]]; then
-    python3 -c "
+    "$PYTHON" -c "
 import json, sys
 data = {}
 args = sys.argv[1:]
