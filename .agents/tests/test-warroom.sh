@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WARROOMS="$AGENTS_DIR/war-rooms"
 
+# Export WARROOMS_DIR so war-room scripts use this location for data
+export WARROOMS_DIR="$WARROOMS"
+
 # Save and restore any existing rooms
 BACKUP_DIR=$(mktemp -d)
 if ls "$WARROOMS"/room-* 1>/dev/null 2>&1; then
@@ -64,7 +67,7 @@ echo "Test 1: create.sh produces correct directory structure"
 ROOM="$WARROOMS/room-test-001"
 assert_exists "Room directory created" "$ROOM"
 assert_exists "channel.jsonl created" "$ROOM/channel.jsonl"
-assert_exists "task.md created" "$ROOM/task.md"
+assert_exists "brief.md created" "$ROOM/brief.md"
 assert_exists "status file created" "$ROOM/status"
 assert_exists "retries file created" "$ROOM/retries"
 assert_exists "pids directory created" "$ROOM/pids"
@@ -157,9 +160,25 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# --- Test 8: Teardown ---
+# --- Test 8: Epic ref support ---
 echo ""
-echo "Test 8: Teardown"
+echo "Test 8: Epic ref support"
+"$WARROOMS/create.sh" room-test-003 EPIC-001 "Build authentication system" > /dev/null
+
+EPIC_ROOM="$WARROOMS/room-test-003"
+assert_exists "Epic room created" "$EPIC_ROOM"
+assert_exists "Epic brief.md created" "$EPIC_ROOM/brief.md"
+
+EPIC_REF=$(cat "$EPIC_ROOM/task-ref")
+assert_eq "Epic ref stored correctly" "EPIC-001" "$EPIC_REF"
+
+# Verify brief contains epic ref
+EPIC_HEADER=$(head -1 "$EPIC_ROOM/brief.md" | sed 's/^# //')
+assert_eq "Brief header has epic ref" "EPIC-001" "$EPIC_HEADER"
+
+# --- Test 9: Teardown ---
+echo ""
+echo "Test 9: Teardown"
 "$WARROOMS/teardown.sh" room-test-002 --force > /dev/null 2>&1
 if [[ ! -d "$WARROOMS/room-test-002" ]]; then
   echo "  [PASS] Teardown removes room directory"

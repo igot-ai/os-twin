@@ -11,6 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# War-room data location (project-scoped via WARROOMS_DIR, fallback to script dir)
+WARROOMS_DATA="${WARROOMS_DIR:-$SCRIPT_DIR}"
 JSON_MODE=false
 WATCH_MODE=false
 
@@ -18,6 +20,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --json)  JSON_MODE=true; shift ;;
     --watch) WATCH_MODE=true; shift ;;
+    --project-dir) WARROOMS_DATA="$2/.war-rooms"; shift 2 ;;
     *)       shift ;;
   esac
 done
@@ -26,7 +29,7 @@ print_status() {
   local rooms=()
   local total=0 pending=0 engineering=0 qa_review=0 fixing=0 passed=0 failed=0
 
-  for room_dir in "$SCRIPT_DIR"/room-*/; do
+  for room_dir in "$WARROOMS_DATA"/room-*/; do
     [[ -d "$room_dir" ]] || continue
     total=$((total + 1))
 
@@ -88,7 +91,7 @@ print(json.dumps({
 "
   else
     echo ""
-    echo "=== Agent OS War-Room Dashboard ==="
+    echo "=== Ostwin War-Room Dashboard ==="
     echo ""
 
     if [[ $total -eq 0 ]]; then
@@ -99,9 +102,9 @@ print(json.dumps({
 
     # Header
     printf "  %-12s %-10s %-14s %-8s %-6s %-10s %s\n" \
-      "ROOM" "TASK" "STATUS" "RETRIES" "MSGS" "PIDS" "LAST ACTIVITY"
+      "ROOM" "REF" "STATUS" "RETRIES" "MSGS" "PIDS" "LAST ACTIVITY"
     printf "  %-12s %-10s %-14s %-8s %-6s %-10s %s\n" \
-      "----" "----" "------" "-------" "----" "----" "-------------"
+      "----" "---" "------" "-------" "----" "----" "-------------"
 
     for entry in "${rooms[@]}"; do
       IFS='|' read -r room_id task_ref status retries msg_count active_pids last_activity <<< "$entry"

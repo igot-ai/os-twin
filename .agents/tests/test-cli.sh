@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Test Suite: CLI Entry Point
 #
-# Tests the agent-os CLI dispatcher and new command scripts.
+# Tests the ostwin CLI dispatcher and new command scripts.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CLI="$AGENTS_DIR/bin/agent-os"
+CLI="$AGENTS_DIR/bin/ostwin"
 
 PASS=0
 FAIL=0
@@ -43,12 +43,14 @@ echo ""
 echo "Test 1: Help output"
 
 HELP_OUTPUT=$("$CLI" --help 2>&1)
-assert_contains "Help shows 'agent-os'" "agent-os" "$HELP_OUTPUT"
+assert_contains "Help shows 'ostwin'" "ostwin" "$HELP_OUTPUT"
 assert_contains "Help shows 'run'" "run" "$HELP_OUTPUT"
 assert_contains "Help shows 'status'" "status" "$HELP_OUTPUT"
 assert_contains "Help shows 'stop'" "stop" "$HELP_OUTPUT"
 assert_contains "Help shows 'logs'" "logs" "$HELP_OUTPUT"
 assert_contains "Help shows 'init'" "init" "$HELP_OUTPUT"
+assert_contains "Help shows 'dashboard'" "dashboard" "$HELP_OUTPUT"
+assert_contains "Help shows 'plan'" "plan" "$HELP_OUTPUT"
 
 # --- Test 2: Version output ---
 echo ""
@@ -95,6 +97,23 @@ echo "Test 6: Stop when not running"
 
 STOP_OUTPUT=$("$AGENTS_DIR/stop.sh" 2>&1)
 assert_contains "Stop shows no manager" "No manager" "$STOP_OUTPUT"
+
+# --- Test 7: Plan subcommand ---
+echo ""
+echo "Test 7: Plan subcommand"
+
+PLAN_HELP=$("$CLI" plan --help 2>&1)
+assert_contains "Plan help shows 'create'" "create" "$PLAN_HELP"
+assert_contains "Plan help shows 'start'" "start" "$PLAN_HELP"
+assert_contains "Plan help shows 'list'" "list" "$PLAN_HELP"
+
+PLAN_LIST=$("$CLI" plan list 2>&1)
+assert_contains "Plan list runs without error" "Plans" "$PLAN_LIST"
+
+PLAN_UNKNOWN_EXIT=0
+PLAN_UNKNOWN=$("$CLI" plan foobar 2>&1) || PLAN_UNKNOWN_EXIT=$?
+assert_eq "Plan unknown subcommand exits non-zero" "1" "$PLAN_UNKNOWN_EXIT"
+assert_contains "Plan unknown shows error" "Unknown plan subcommand" "$PLAN_UNKNOWN"
 
 # --- Summary ---
 echo ""

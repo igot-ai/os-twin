@@ -9,7 +9,7 @@ set -euo pipefail
 
 AGENTS_DIR="${1:-.agents}"
 CHANNEL="$AGENTS_DIR/channel"
-WARROOMS="$AGENTS_DIR/war-rooms"
+WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 TEMPLATE="$AGENTS_DIR/release/RELEASE.template.md"
 OUTPUT="$AGENTS_DIR/RELEASE.md"
 
@@ -29,8 +29,8 @@ for room_dir in "$WARROOMS"/room-*/; do
   task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "UNKNOWN")
   room_id=$(basename "$room_dir")
 
-  # Read task description (first line after "# Task:")
-  task_title=$(head -1 "$room_dir/task.md" 2>/dev/null | sed 's/^# Task: //' || echo "$task_ref")
+  # Read brief description (first line header)
+  task_title=$(head -1 "$room_dir/brief.md" 2>/dev/null | sed 's/^# //' || echo "$task_ref")
 
   # Read QA verdict
   qa_verdict=$("$CHANNEL/read.sh" "$room_dir" --type pass --last 1 2>/dev/null | \

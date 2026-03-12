@@ -8,7 +8,7 @@
 #
 # Environment:
 #   ENGINEER_CMD  Override engineer command (default: deepagents)
-#   QA_CMD        Override QA command (default: gemini)
+#   QA_CMD        Override QA command (default: deepagents)
 #
 # Portable: works with bash 3.2+ (no associative arrays).
 # State is read from war-room files each iteration (crash-resilient).
@@ -18,7 +18,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CHANNEL="$AGENTS_DIR/channel"
-WARROOMS="$AGENTS_DIR/war-rooms"
+# War-room data from env (set by run.sh), fallback to $AGENTS_DIR/war-rooms
+WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 RELEASE_DIR="$AGENTS_DIR/release"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 
@@ -63,7 +64,7 @@ POLL_INTERVAL=$(python3 -c "import json; print(json.load(open('$CONFIG'))['manag
 MAX_RETRIES=$(python3 -c "import json; print(json.load(open('$CONFIG'))['manager']['max_engineer_retries'])")
 STATE_TIMEOUT=$(python3 -c "import json; c=json.load(open('$CONFIG')); print(c['manager'].get('state_timeout_seconds', 900))")
 
-log INFO "Starting Agent OS Manager Loop" 2>/dev/null || echo "[MANAGER] Starting Agent OS Manager Loop"
+log INFO "Starting Ostwin Manager Loop" 2>/dev/null || echo "[MANAGER] Starting Ostwin Manager Loop"
 echo "  Max concurrent rooms: $MAX_CONCURRENT"
 echo "  Poll interval: ${POLL_INTERVAL}s"
 echo "  Max retries per task: $MAX_RETRIES"
@@ -171,7 +172,12 @@ while true; do
     ROOM_COUNT=$((ROOM_COUNT + 1))
     room_id=$(basename "$room_dir")
     status=$(cat "$room_dir/status" 2>/dev/null || echo "pending")
-    task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "UNKNOWN")
+    task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "")
+    # Fallback: extract ref from TASKS.md header when task-ref file is missing
+    if [ -z "$task_ref" ] && [ -f "$room_dir/TASKS.md" ]; then
+      task_ref=$(head -1 "$room_dir/TASKS.md" | grep -oE '(EPIC|TASK)-[0-9]+' | head -1)
+    fi
+    task_ref="${task_ref:-UNKNOWN}"
     retries=$(cat "$room_dir/retries" 2>/dev/null || echo "0")
 
     case "$status" in
@@ -326,7 +332,11 @@ while true; do
       for room_dir in "$WARROOMS"/room-*/; do
         [ -d "$room_dir" ] || continue
         local_status=$(cat "$room_dir/status" 2>/dev/null || echo "")
-        local_task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "UNKNOWN")
+        local_task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "")
+        if [ -z "$local_task_ref" ] && [ -f "$room_dir/TASKS.md" ]; then
+          local_task_ref=$(head -1 "$room_dir/TASKS.md" | grep -oE '(EPIC|TASK)-[0-9]+' | head -1)
+        fi
+        local_task_ref="${local_task_ref:-UNKNOWN}"
         local_retries=$(cat "$room_dir/retries" 2>/dev/null || echo "0")
         case "$local_status" in
           engineering|fixing)

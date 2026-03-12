@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "agent-os-demo",
+      "name": "ostwin-dashboard",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["demo/api.py"],
-      "port": 8000
+      "runtimeArgs": ["dashboard/api.py"],
+      "port": 9000
     }
   ]
 }

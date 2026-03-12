@@ -17,7 +17,10 @@ TASK_REF="$2"
 TASK_DESC="$3"
 WORKING_DIR="${4:-.}"
 
-ROOM_DIR="$SCRIPT_DIR/$ROOM_ID"
+# War-room data location (project-scoped via WARROOMS_DIR, fallback to script dir)
+WARROOMS_DATA="${WARROOMS_DIR:-$SCRIPT_DIR}"
+mkdir -p "$WARROOMS_DATA"
+ROOM_DIR="$WARROOMS_DATA/$ROOM_ID"
 
 # Prevent overwriting existing room
 if [[ -d "$ROOM_DIR" ]]; then
@@ -31,9 +34,9 @@ mkdir -p "$ROOM_DIR"/{pids,artifacts}
 # Initialize channel (with flock for concurrent safety)
 touch "$ROOM_DIR/channel.jsonl"
 
-# Write task description
-cat > "$ROOM_DIR/task.md" << EOF
-# Task: $TASK_REF
+# Write assignment brief
+cat > "$ROOM_DIR/brief.md" << EOF
+# $TASK_REF
 
 $TASK_DESC
 

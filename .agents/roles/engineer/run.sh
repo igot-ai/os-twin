@@ -39,6 +39,12 @@ done
 # Read task ref
 TASK_REF=$(cat "$ROOM_DIR/task-ref" 2>/dev/null || echo "UNKNOWN")
 
+# Detect Epic vs Task
+IS_EPIC=false
+case "$TASK_REF" in
+  EPIC-*) IS_EPIC=true ;;
+esac
+
 # Read the latest task or fix message
 LATEST_MSG=$("$CHANNEL/read.sh" "$ROOM_DIR" --last 1)
 LATEST_BODY=$(echo "$LATEST_MSG" | python3 -c "
@@ -53,12 +59,12 @@ else:
 " 2>/dev/null || echo "")
 
 # Read full task description
-TASK_DESC=$(cat "$ROOM_DIR/task.md" 2>/dev/null || echo "No task description found.")
+TASK_DESC=$(cat "$ROOM_DIR/brief.md" 2>/dev/null || echo "No task description found.")
 
-# Parse working_dir from task.md metadata (first line matching "working_dir:" or from config)
+# Parse working_dir from brief.md metadata (first line matching "working_dir:" or from config)
 WORKING_DIR=$(python3 -c "
 import re
-with open('$ROOM_DIR/task.md', 'r') as f:
+with open('$ROOM_DIR/brief.md', 'r') as f:
     content = f.read()
 m = re.search(r'working_dir:\s*(.+)', content)
 if m:
@@ -69,6 +75,38 @@ else:
 
 # Read role prompt
 ROLE_PROMPT=$(cat "$SCRIPT_DIR/ROLE.md" 2>/dev/null || echo "")
+
+# Build instructions based on Epic vs Task
+ROOM_NAME=$(basename "$ROOM_DIR")
+
+if [[ "$IS_EPIC" == "true" ]]; then
+  ENG_INSTRUCTIONS="You are working on an EPIC — a high-level feature that you must plan and implement yourself.
+
+### Phase 1 — Planning
+1. Analyze the brief above and break it into concrete sub-tasks
+2. Create a file called TASKS.md at: $ROOM_DIR/TASKS.md
+   - Use markdown checkboxes: - [ ] TASK-001 — Description
+   - Each sub-task should be independently testable
+   - Include acceptance criteria for each sub-task
+3. Save TASKS.md before proceeding to implementation
+
+### Phase 2 — Implementation
+1. Work through each sub-task in TASKS.md sequentially
+2. After completing each sub-task, check it off: - [x] TASK-001 — Description
+3. Write tests as you go — each sub-task should be verified before moving on
+
+### Phase 3 — Reporting
+1. Ensure all checkboxes in TASKS.md are checked
+2. Summarize your changes with:
+   - Epic overview: what was delivered
+   - Sub-tasks completed (include the final TASKS.md checklist)
+   - Files modified/created
+   - How to test the full epic"
+else
+  ENG_INSTRUCTIONS="1. Implement the task described above
+2. When done, summarize your changes clearly
+3. Format your summary with: Changes Made, Files Modified, How to Test"
+fi
 
 # Build the prompt
 PROMPT="$ROLE_PROMPT
@@ -85,15 +123,13 @@ $LATEST_BODY
 
 ## War-Room
 
-Room: $(basename "$ROOM_DIR")
+Room: $ROOM_NAME
 Task Ref: $TASK_REF
 Working Directory: $WORKING_DIR
 
 ## Instructions
 
-1. Implement the task described above
-2. When done, summarize your changes clearly
-3. Format your summary with: Changes Made, Files Modified, How to Test
+$ENG_INSTRUCTIONS
 "
 
 # Prompt size guard — truncate if exceeds max
@@ -101,7 +137,7 @@ PROMPT_SIZE=${#PROMPT}
 if [ "$PROMPT_SIZE" -gt "$MAX_PROMPT_BYTES" ]; then
   PROMPT="${PROMPT:0:$MAX_PROMPT_BYTES}
 
-[TRUNCATED: prompt was ${PROMPT_SIZE} bytes, max is ${MAX_PROMPT_BYTES}. Full task description in: $ROOM_DIR/task.md]"
+[TRUNCATED: prompt was ${PROMPT_SIZE} bytes, max is ${MAX_PROMPT_BYTES}. Full task description in: $ROOM_DIR/brief.md]"
   log WARN "Prompt truncated from $PROMPT_SIZE to $MAX_PROMPT_BYTES bytes for $TASK_REF" 2>/dev/null || true
 fi
 

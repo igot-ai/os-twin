@@ -10,7 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
-WARROOMS="$AGENTS_DIR/war-rooms"
+WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 FORCE=false
 
 while [[ $# -gt 0 ]]; do

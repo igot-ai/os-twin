@@ -20,8 +20,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
-WARROOMS="$AGENTS_DIR/war-rooms"
+WARROOM_TOOLS="$AGENTS_DIR/war-rooms"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
+
+# Ensure logs directory exists before sourcing log.sh
+mkdir -p "$AGENTS_DIR/logs"
 
 # Source shared utilities
 source "$AGENTS_DIR/lib/log.sh" 2>/dev/null || true
@@ -80,15 +83,15 @@ export AGENT_OS_CONFIG="$RUN_CONFIG"
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║          AGENT OS v0.1.0             ║"
+echo "  ║          OSTWIN v0.1.0               ║"
 echo "  ║   Multi-Agent War-Room Orchestrator  ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 echo "  Plan: $PLAN_FILE"
 echo ""
 
-# Parse plan file: extract ## Task: sections
-# Each "## Task: TASK-XXX — Title" becomes a war-room
+# Parse plan file: extract ## Epic: or ## Task: sections
+# Each section becomes a war-room (one room per epic or task)
 TASKS=$(python3 -c "
 import re, json, sys
 
@@ -101,43 +104,56 @@ config_match = re.search(r'working_dir:\s*(.+)', content)
 if config_match and not '$WORKING_DIR':
     working_dir = config_match.group(1).strip()
 
-# Extract tasks
-tasks = []
-# Split on ## Task: headers
-parts = re.split(r'^## Task:\s*', content, flags=re.MULTILINE)
+# Detect format: Epic or Task (reject mixed)
+has_epics = bool(re.search(r'^## Epic:', content, re.MULTILINE))
+has_tasks = bool(re.search(r'^## Task:', content, re.MULTILINE))
 
-for i, part in enumerate(parts[1:], 1):  # Skip everything before first task
+if has_epics and has_tasks:
+    print('ERROR: Plan mixes ## Epic: and ## Task: sections. Use one format.', file=sys.stderr)
+    sys.exit(1)
+
+if has_epics:
+    split_pattern = r'^## Epic:\s*'
+    ref_pattern = r'(EPIC-\d+)\s*[—\-]\s*(.*)'
+    default_prefix = 'EPIC'
+else:
+    split_pattern = r'^## Task:\s*'
+    ref_pattern = r'(TASK-\d+)\s*[—\-]\s*(.*)'
+    default_prefix = 'TASK'
+
+items = []
+parts = re.split(split_pattern, content, flags=re.MULTILINE)
+
+for i, part in enumerate(parts[1:], 1):
     lines = part.strip().split('\n')
     header = lines[0].strip()
 
-    # Parse: TASK-XXX — Title  or  TASK-XXX - Title
-    ref_match = re.match(r'(TASK-\d+)\s*[—\-]\s*(.*)', header)
+    ref_match = re.match(ref_pattern, header)
     if ref_match:
-        task_ref = ref_match.group(1)
-        task_title = ref_match.group(2).strip()
+        item_ref = ref_match.group(1)
+        item_title = ref_match.group(2).strip()
     else:
-        task_ref = f'TASK-{i:03d}'
-        task_title = header
+        item_ref = f'{default_prefix}-{i:03d}'
+        item_title = header
 
-    # Body is everything after the header
-    task_body = '\n'.join(lines[1:]).strip()
+    item_body = '\n'.join(lines[1:]).strip()
     room_id = f'room-{i:03d}'
 
-    tasks.append({
+    items.append({
         'room_id': room_id,
-        'task_ref': task_ref,
-        'title': task_title,
-        'body': task_body,
+        'task_ref': item_ref,
+        'title': item_title,
+        'body': item_body,
         'working_dir': working_dir,
     })
 
-print(json.dumps(tasks))
+print(json.dumps(items))
 ")
 
 TASK_COUNT=$(echo "$TASKS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 
 if [[ "$TASK_COUNT" -eq 0 ]]; then
-  echo "[ERROR] No tasks found in plan file. Expected '## Task: TASK-XXX — Title' sections." >&2
+  echo "[ERROR] No items found in plan file. Expected '## Epic: EPIC-XXX — Title' or '## Task: TASK-XXX — Title' sections." >&2
   exit 1
 fi
 
@@ -197,6 +213,17 @@ if $DRY_RUN; then
   exit 0
 fi
 
+# Resolve project-scoped war-rooms directory
+PROJECT_DIR=$(echo "$TASKS" | python3 -c "
+import json, sys, os
+tasks = json.load(sys.stdin)
+wd = tasks[0]['working_dir'] if tasks else '.'
+print(os.path.abspath(wd))
+" 2>/dev/null || echo "$(pwd)")
+export WARROOMS_DIR="${WARROOMS_DIR:-$PROJECT_DIR/.war-rooms}"
+mkdir -p "$WARROOMS_DIR"
+echo "[SETUP] War-rooms directory: $WARROOMS_DIR"
+
 # Kill any running manager loop
 if [[ -f "$MANAGER_PID_FILE" ]]; then
   old_pid=$(cat "$MANAGER_PID_FILE")
@@ -210,10 +237,10 @@ if [[ -f "$MANAGER_PID_FILE" ]]; then
 fi
 
 # Clean up any previous rooms
-if ls "$WARROOMS"/room-* 1>/dev/null 2>&1; then
+if ls "$WARROOMS_DIR"/room-* 1>/dev/null 2>&1; then
   echo "[SETUP] Cleaning previous war-rooms..."
-  for old_room in "$WARROOMS"/room-*/; do
-    [[ -d "$old_room" ]] && "$WARROOMS/teardown.sh" "$(basename "$old_room")" --force 2>/dev/null || true
+  for old_room in "$WARROOMS_DIR"/room-*/; do
+    [[ -d "$old_room" ]] && "$WARROOM_TOOLS/teardown.sh" "$(basename "$old_room")" --force 2>/dev/null || true
   done
 fi
 
@@ -229,7 +256,7 @@ tasks = json.load(sys.stdin)
 for t in tasks:
     full_desc = f\"{t['title']}\n\n{t['body']}\"
     subprocess.run([
-        '$WARROOMS/create.sh',
+        '$WARROOM_TOOLS/create.sh',
         t['room_id'],
         t['task_ref'],
         full_desc,
@@ -239,7 +266,7 @@ for t in tasks:
 
 echo ""
 echo "[LAUNCH] Starting manager loop..."
-echo "  Monitor with: $WARROOMS/status.sh --watch"
+echo "  Monitor with: ostwin status --watch"
 echo "  Stop with: Ctrl+C"
 echo ""
 

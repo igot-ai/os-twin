@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Mock QA: simulates gemini CLI without API calls
+# Mock QA: simulates deepagents CLI without API calls
 #
-# Usage: mock-qa.sh -p <prompt> [--yolo] [--model ...]
+# Usage: mock-qa.sh -n <prompt> [--auto-approve] [-q] [--model ...]
 #
 # Behavior:
 #   - Reads the prompt (review request)
@@ -19,15 +19,18 @@ DELAY="${MOCK_QA_DELAY:-1}"
 VERDICT="${MOCK_QA_VERDICT:-pass}"
 CUSTOM_OUTPUT="${MOCK_QA_OUTPUT:-}"
 
-# Parse args (mirror gemini interface)
+# Parse args (mirror deepagents interface)
 PROMPT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -p)           PROMPT="$2"; shift 2 ;;
-    --yolo)       shift ;;
-    --model)      shift 2 ;;
-    --mcp-config) shift 2 ;;
-    *)            shift ;;
+    -n)             PROMPT="$2"; shift 2 ;;
+    -p)             PROMPT="$2"; shift 2 ;;
+    --auto-approve) shift ;;
+    -q)             shift ;;
+    --model)        shift 2 ;;
+    --mcp-config)   shift 2 ;;
+    --shell-allow-list) shift 2 ;;
+    *)              shift ;;
   esac
 done
 

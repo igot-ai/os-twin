@@ -28,7 +28,7 @@ done
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║     Agent OS Test Runner v0.1.0      ║"
+echo "  ║     Ostwin Test Runner v0.1.0         ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 

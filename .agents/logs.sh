@@ -17,7 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
-WARROOMS="$AGENTS_DIR/war-rooms"
+WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 CHANNEL="$AGENTS_DIR/channel"
 
 ROOM_ID=""

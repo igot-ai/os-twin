@@ -26,7 +26,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ROOM_DIR="$SCRIPT_DIR/$ROOM_ID"
+# War-room data location (project-scoped via WARROOMS_DIR, fallback to script dir)
+WARROOMS_DATA="${WARROOMS_DIR:-$SCRIPT_DIR}"
+ROOM_DIR="$WARROOMS_DATA/$ROOM_ID"
 
 if [[ ! -d "$ROOM_DIR" ]]; then
   echo "[ERROR] War-room '$ROOM_ID' not found at $ROOM_DIR" >&2
@@ -63,7 +65,7 @@ fi
 
 # 3. Archive channel log if requested
 if $ARCHIVE && [[ -f "$ROOM_DIR/channel.jsonl" ]]; then
-  ARCHIVE_DIR="$SCRIPT_DIR/../.archives"
+  ARCHIVE_DIR="$WARROOMS_DATA/.archives"
   mkdir -p "$ARCHIVE_DIR"
   ARCHIVE_FILE="$ARCHIVE_DIR/${ROOM_ID}-$(date +%Y%m%d-%H%M%S).jsonl"
   cp "$ROOM_DIR/channel.jsonl" "$ARCHIVE_FILE"

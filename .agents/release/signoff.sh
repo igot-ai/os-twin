@@ -15,7 +15,7 @@ CHANNEL="$AGENTS_DIR/channel"
 
 MOCK_SIGNOFF="${MOCK_SIGNOFF:-false}"
 ENGINEER_CMD="${ENGINEER_CMD:-deepagents}"
-QA_CMD="${QA_CMD:-gemini}"
+QA_CMD="${QA_CMD:-deepagents}"
 
 # Config
 CONFIG="$AGENTS_DIR/config.json"
@@ -76,9 +76,9 @@ print(json.dumps(s))
   # QA signoff
   if echo "$REQUIRED_ROLES" | grep -qw "qa"; then
     echo "[SIGNOFF] Requesting QA review..."
-    QA_VERDICT=$($QA_CMD -p "Review these release notes. Confirm all tasks were properly tested and approved. Reply with 'APPROVED' or 'REJECTED' with reasons.
+    QA_VERDICT=$($QA_CMD -n "Review these release notes. Confirm all tasks were properly tested and approved. Reply with 'APPROVED' or 'REJECTED' with reasons.
 
-$RELEASE_CONTENT" --yolo 2>&1 || echo "APPROVED")
+$RELEASE_CONTENT" --auto-approve -q 2>&1 || echo "APPROVED")
 
     if echo "$QA_VERDICT" | grep -qi "APPROVED"; then
       SIGNOFFS=$(echo "$SIGNOFFS" | python3 -c "

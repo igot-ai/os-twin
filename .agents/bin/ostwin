@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# agent-os CLI — unified entry point for Agent OS
+# ostwin CLI — unified entry point for Agent OS
 #
 # Multi-Agent War-Room Orchestrator
 #
-# Usage: agent-os <command> [options]
+# Usage: ostwin <command> [options]
 
 set -euo pipefail
 
@@ -21,14 +21,16 @@ VERSION=$(python3 -c "import json; print(json.load(open('$AGENTS_DIR/config.json
 
 show_help() {
   cat << HELP
-agent-os v${VERSION} — Multi-Agent War-Room Orchestrator
+ostwin v${VERSION} — Multi-Agent War-Room Orchestrator
 
 Usage:
-  agent-os <command> [options]
+  ostwin <command> [options]
 
 Commands:
   run <plan.md>     Execute a plan file
                     Options: --dry-run, --max-rooms N, --working-dir PATH
+  plan <sub>        Plan management (AI-assisted)
+                    Subcommands: create, start [plan-file], list
   init [directory]  Scaffold Agent OS into a project
   status            Show war-room dashboard
                     Options: --json, --watch
@@ -36,8 +38,8 @@ Commands:
                     Options: --follow, --type TYPE, --last N
   stop              Graceful shutdown of running manager
                     Options: --force
-  demo              Launch web dashboard
-                    Options: --port PORT (default: 8000)
+  dashboard         Launch web dashboard
+                    Options: --port PORT, --project-dir PATH
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
   health            Check system health
@@ -46,24 +48,33 @@ Commands:
   version           Show version
 
 Examples:
-  agent-os run plans/my-feature.md
-  agent-os run plans/my-feature.md --dry-run
-  agent-os status --watch
-  agent-os logs room-001 --follow
-  agent-os stop
+  ostwin run plans/my-feature.md
+  ostwin run plans/my-feature.md --dry-run
+  ostwin status --watch
+  ostwin logs room-001 --follow
+  ostwin stop
 
 Environment:
-  ENGINEER_CMD      Override engineer CLI (default: deepagents)
-  QA_CMD            Override QA CLI (default: gemini)
-  MOCK_SIGNOFF      Set to "true" for auto-signoff (testing)
+  ENGINEER_CMD        Override engineer CLI (default: deepagents)
+  QA_CMD              Override QA CLI (default: deepagents)
+  MOCK_SIGNOFF        Set to "true" for auto-signoff (testing)
   AGENT_OS_LOG_LEVEL  Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
+  WARROOMS_DIR        Override war-rooms data directory
+                      (default: <project>/.war-rooms)
 HELP
 }
+
+# Default WARROOMS_DIR to cwd/.war-rooms for project-scoped commands
+export WARROOMS_DIR="${WARROOMS_DIR:-$(pwd)/.war-rooms}"
 
 case "${1:-}" in
   run)
     shift
     exec "$AGENTS_DIR/run.sh" "$@"
+    ;;
+  plan)
+    shift
+    exec "$AGENTS_DIR/plan.sh" "$@"
     ;;
   init)
     shift
@@ -81,9 +92,14 @@ case "${1:-}" in
     shift
     exec "$AGENTS_DIR/stop.sh" "$@"
     ;;
-  demo)
+  dashboard)
     shift
-    exec "$AGENTS_DIR/demo.sh" "$@"
+    # Default project-dir to cwd if not specified
+    if ! echo "$*" | grep -q -- "--project-dir"; then
+      exec "$AGENTS_DIR/dashboard.sh" --project-dir "$(pwd)" "$@"
+    else
+      exec "$AGENTS_DIR/dashboard.sh" "$@"
+    fi
     ;;
   config)
     shift
@@ -98,7 +114,7 @@ case "${1:-}" in
     exec "$AGENTS_DIR/tests/run-all.sh" "$@"
     ;;
   version|-v|--version)
-    echo "agent-os v${VERSION}"
+    echo "ostwin v${VERSION}"
     ;;
   -h|--help|help)
     show_help
@@ -108,7 +124,7 @@ case "${1:-}" in
     ;;
   *)
     echo "Unknown command: $1" >&2
-    echo "Run 'agent-os --help' for usage." >&2
+    echo "Run 'ostwin --help' for usage." >&2
     exit 1
     ;;
 esac

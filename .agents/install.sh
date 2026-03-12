@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Agent OS — Installer
 #
-# Installs agent-os CLI to ~/.agent-os and adds to PATH.
+# Installs ostwin CLI to ~/.ostwin and adds to PATH.
 #
 # Usage:
-#   ./install.sh               # Install to ~/.agent-os
-#   ./install.sh /opt/agent-os # Install to custom location
+#   ./install.sh               # Install to ~/.ostwin
+#   ./install.sh /opt/ostwin # Install to custom location
 #
 # Requirements:
 #   - bash 3.2+
@@ -14,11 +14,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_DIR="${1:-$HOME/.agent-os}"
+INSTALL_DIR="${1:-$HOME/.ostwin}"
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║       Agent OS — Installer           ║"
+echo "  ║        Ostwin — Installer             ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 
@@ -70,7 +70,7 @@ cp -r "$SCRIPT_DIR/".* "$INSTALL_DIR/" 2>/dev/null || true
 
 # Make scripts executable
 find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
-chmod +x "$INSTALL_DIR/bin/agent-os" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/bin/ostwin" 2>/dev/null || true
 
 echo "    [OK] Files installed"
 
@@ -84,11 +84,11 @@ esac
 
 PATH_LINE="export PATH=\"$INSTALL_DIR/bin:\$PATH\""
 
-if grep -qF "agent-os" "$SHELL_RC" 2>/dev/null; then
+if grep -qF "ostwin" "$SHELL_RC" 2>/dev/null; then
   echo "    [OK] PATH already configured in $SHELL_RC"
 else
   echo "" >> "$SHELL_RC"
-  echo "# Agent OS CLI" >> "$SHELL_RC"
+  echo "# Ostwin CLI" >> "$SHELL_RC"
   echo "$PATH_LINE" >> "$SHELL_RC"
   echo "    [OK] Added to PATH in $SHELL_RC"
 fi
@@ -97,10 +97,10 @@ echo ""
 echo "  Installation complete!"
 echo ""
 echo "  To use now:   source $SHELL_RC"
-echo "  Or new shell: agent-os --help"
+echo "  Or new shell: ostwin --help"
 echo ""
 echo "  Quick start:"
-echo "    agent-os init ~/my-project"
+echo "    ostwin init ~/my-project"
 echo "    cd ~/my-project"
-echo "    agent-os run .agents/plans/PLAN.template.md --dry-run"
+echo "    ostwin run .agents/plans/PLAN.template.md --dry-run"
 echo ""
