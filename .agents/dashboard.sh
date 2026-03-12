@@ -20,7 +20,7 @@ elif [[ -d "$AGENTS_DIR/../dashboard" ]]; then
 else
   DASHBOARD_DIR=""
 fi
-PORT=8000
+PORT=9000
 PROJECT_DIR="$(pwd)"
 
 while [[ $# -gt 0 ]]; do
@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
     --project-dir) PROJECT_DIR="$2"; shift 2 ;;
     -h|--help)
       echo "Usage: dashboard.sh [--port PORT] [--project-dir PATH]"
-      echo "  --port PORT         Server port (default: 8000)"
+      echo "  --port PORT         Server port (default: 9000)"
       echo "  --project-dir PATH  Project to monitor (default: current directory)"
       exit 0
       ;;

@@ -105,3 +105,13 @@
 {"ts": "2026-03-12T04:33:13Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
 {"ts": "2026-03-12T04:33:15Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "1"}}
 {"ts": "2026-03-12T04:33:18Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-12T04:56:47Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "50", "poll_interval": "5", "max_retries": "3", "state_timeout": "900"}}
+{"ts": "2026-03-12T04:57:03Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "2"}}
+{"ts": "2026-03-12T04:57:04Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-12T04:57:07Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "1"}}
+{"ts": "2026-03-12T04:57:12Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-12T04:57:16Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "1"}}
+{"ts": "2026-03-12T04:57:16Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-12T04:57:22Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}
+{"ts": "2026-03-12T04:57:24Z", "level": "INFO", "event": "release_complete", "data": {"rooms": "1"}}
+{"ts": "2026-03-12T04:57:27Z", "level": "INFO", "event": "manager_started", "data": {"max_concurrent": "2", "poll_interval": "1", "max_retries": "2", "state_timeout": "900"}}

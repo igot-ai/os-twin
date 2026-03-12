@@ -434,7 +434,7 @@ if __name__ == "__main__":
     import argparse as _ap
 
     _parser = _ap.ArgumentParser(description="Ostwin Dashboard")
-    _parser.add_argument("--port", type=int, default=8000, help="Port to listen on")
+    _parser.add_argument("--port", type=int, default=9000, help="Port to listen on")
     _parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     _parser.add_argument("--project-dir", default=None, help="Project directory to monitor")
     _args = _parser.parse_args()
