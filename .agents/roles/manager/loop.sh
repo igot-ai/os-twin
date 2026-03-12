@@ -172,7 +172,12 @@ while true; do
     ROOM_COUNT=$((ROOM_COUNT + 1))
     room_id=$(basename "$room_dir")
     status=$(cat "$room_dir/status" 2>/dev/null || echo "pending")
-    task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "UNKNOWN")
+    task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "")
+    # Fallback: extract ref from TASKS.md header when task-ref file is missing
+    if [ -z "$task_ref" ] && [ -f "$room_dir/TASKS.md" ]; then
+      task_ref=$(head -1 "$room_dir/TASKS.md" | grep -oE '(EPIC|TASK)-[0-9]+' | head -1)
+    fi
+    task_ref="${task_ref:-UNKNOWN}"
     retries=$(cat "$room_dir/retries" 2>/dev/null || echo "0")
 
     case "$status" in
@@ -327,7 +332,11 @@ while true; do
       for room_dir in "$WARROOMS"/room-*/; do
         [ -d "$room_dir" ] || continue
         local_status=$(cat "$room_dir/status" 2>/dev/null || echo "")
-        local_task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "UNKNOWN")
+        local_task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "")
+        if [ -z "$local_task_ref" ] && [ -f "$room_dir/TASKS.md" ]; then
+          local_task_ref=$(head -1 "$room_dir/TASKS.md" | grep -oE '(EPIC|TASK)-[0-9]+' | head -1)
+        fi
+        local_task_ref="${local_task_ref:-UNKNOWN}"
         local_retries=$(cat "$room_dir/retries" 2>/dev/null || echo "0")
         case "$local_status" in
           engineering|fixing)

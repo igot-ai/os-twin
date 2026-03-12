@@ -11,6 +11,9 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "cypress": "^10.11.0"
+    "autoprefixer": "^10.4.27",
+    "cypress": "^10.11.0",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1"
   }
 }

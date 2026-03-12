@@ -41,19 +41,13 @@ const TEMPLATES = {
 ## Config
 working_dir: .
 
-## Task: TASK-001 — Create hello module
+## Epic: EPIC-001 — Hello module with tests
 
-Build hello.py with a greet() function.
+Build hello.py with a greet() function and full pytest test suite.
 
 Acceptance criteria:
 - greet("World") returns "Hello, World!"
 - Module is importable
-
-## Task: TASK-002 — Add pytest tests
-
-Write test_hello.py covering the greet() function.
-
-Acceptance criteria:
 - pytest passes with 3+ assertions
 `,
 
@@ -62,24 +56,18 @@ Acceptance criteria:
 ## Config
 working_dir: .
 
-## Task: TASK-001 — FastAPI skeleton
+## Epic: EPIC-001 — API foundation
 
-Create main.py with FastAPI app, health endpoint.
+Create FastAPI app with health endpoint, Pydantic models, and CRUD endpoints for items.
 
 Acceptance criteria:
 - GET /health returns {"status":"ok"}
+- POST /items creates item, GET /items lists all
+- Pydantic validation on all inputs
 
-## Task: TASK-002 — Data models + CRUD
+## Epic: EPIC-002 — Test suite
 
-Add Pydantic models and CRUD endpoints.
-
-Acceptance criteria:
-- POST /items creates item
-- GET /items lists all items
-
-## Task: TASK-003 — Tests
-
-Write pytest tests for all endpoints.
+Write pytest tests for all endpoints with full coverage.
 
 Acceptance criteria:
 - All endpoints tested
@@ -91,21 +79,29 @@ Acceptance criteria:
 ## Config
 working_dir: .
 
-## Task: TASK-001 — Backend API
+## Epic: EPIC-001 — Backend API
 
-FastAPI backend with SQLite, auth, CRUD.
+FastAPI backend with SQLite, auth, and CRUD endpoints.
 
-## Task: TASK-002 — Frontend SPA
+Acceptance criteria:
+- Auth flow works end-to-end
+- All CRUD endpoints functional
 
-React SPA with login, data views.
+## Epic: EPIC-002 — Frontend SPA
 
-## Task: TASK-003 — Docker compose
+React SPA with login, data views, and API integration.
 
-Containerize frontend + backend.
+Acceptance criteria:
+- Login/logout works
+- Data views render from API
 
-## Task: TASK-004 — CI pipeline
+## Epic: EPIC-003 — Deployment
 
-GitHub Actions: lint, test, build, push.
+Docker compose for frontend + backend, GitHub Actions CI pipeline.
+
+Acceptance criteria:
+- docker compose up runs the full stack
+- CI runs lint, test, build
 `,
 };
 
@@ -672,4 +668,78 @@ function esc(s) {
   return String(s || '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Vector Search ───────────────────────────────────────────────────────────
+
+let searchTimer = null;
+
+function debouncedSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(doSearch, 300);
+}
+
+async function doSearch() {
+  const input = document.getElementById('search-input');
+  const resultsEl = document.getElementById('search-results');
+  if (!input || !resultsEl) return;
+
+  const q = input.value.trim();
+  if (!q) {
+    resultsEl.style.display = 'none';
+    resultsEl.innerHTML = '';
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=10`);
+    if (!res.ok) {
+      if (res.status === 503) {
+        resultsEl.innerHTML = '<div class="search-result"><span style="color:var(--muted)">Vector search not available</span></div>';
+        resultsEl.style.display = 'block';
+      }
+      return;
+    }
+    const data = await res.json();
+    if (!data.results || data.results.length === 0) {
+      resultsEl.innerHTML = '<div class="search-result"><span style="color:var(--muted)">No results</span></div>';
+      resultsEl.style.display = 'block';
+      return;
+    }
+
+    resultsEl.innerHTML = data.results.map(r => `
+      <div class="search-result" onclick="filterRoom('${esc(r.room_id)}')">
+        <div class="search-result-header">
+          <span class="search-result-room">${esc(r.room_id)}</span>
+          <span class="search-result-type">${esc(r.type)}</span>
+          <span style="color:var(--muted)">${esc(r.ref)}</span>
+          <span class="search-result-score">${(r.score * 100).toFixed(0)}%</span>
+        </div>
+        <div class="search-result-body">${esc(trunc(r.body, 120))}</div>
+      </div>
+    `).join('');
+    resultsEl.style.display = 'block';
+  } catch (err) {
+    console.error('Search failed:', err);
+  }
+}
+
+// Close search results on click outside
+document.addEventListener('click', (e) => {
+  const bar = document.getElementById('search-bar');
+  const results = document.getElementById('search-results');
+  if (bar && results && !bar.contains(e.target)) {
+    results.style.display = 'none';
+  }
+});
+
+// Filter room in channel feed when clicking a search result
+function filterRoom(roomId) {
+  const results = document.getElementById('search-results');
+  if (results) results.style.display = 'none';
+  // Use existing channel filter if available
+  if (typeof channelFilter !== 'undefined') {
+    channelFilter = roomId;
+    renderFeed();
+  }
 }

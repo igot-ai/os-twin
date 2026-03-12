@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +35,14 @@ AGENTS_DIR = PROJECT_ROOT / ".agents"
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 DEMO_DIR = Path(__file__).parent
 
+# === zvec store (optional, graceful fallback) ===
+store = None
+try:
+    from zvec_store import AgentOSStore
+    _ZVEC_AVAILABLE = True
+except ImportError:
+    _ZVEC_AVAILABLE = False
+
 app = FastAPI(title="Agent OS Command Center", version="0.1.0")
 
 app.add_middleware(
@@ -47,6 +55,24 @@ app.add_middleware(
 # Serve static assets
 if (DEMO_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(DEMO_DIR / "assets")), name="assets")
+
+
+@app.on_event("startup")
+async def startup_zvec():
+    """Initialize zvec store on startup (non-blocking, graceful fallback)."""
+    global store
+    if not _ZVEC_AVAILABLE:
+        print("  zvec: not available (pip install zvec sentence-transformers)")
+        return
+    try:
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+        store = AgentOSStore(WARROOMS_DIR)
+        store.ensure_collections()
+        count = store.sync_from_disk()
+        print(f"  zvec: synced {count} messages from disk")
+    except Exception as e:
+        print(f"  zvec: init failed ({e}), running without vector search")
+        store = None
 
 
 # === Models ===
@@ -79,12 +105,31 @@ class RunRequest(BaseModel):
 
 def read_room(room_dir: Path) -> dict:
     """Read war-room state from disk."""
+    import re as _re
+
     room_id = room_dir.name
     status = (room_dir / "status").read_text().strip() if (room_dir / "status").exists() else "unknown"
-    task_ref = (room_dir / "task-ref").read_text().strip() if (room_dir / "task-ref").exists() else "UNKNOWN"
+    task_ref = (room_dir / "task-ref").read_text().strip() if (room_dir / "task-ref").exists() else None
     retries_str = (room_dir / "retries").read_text().strip() if (room_dir / "retries").exists() else "0"
     retries = int(retries_str) if retries_str.isdigit() else 0
     task_md = (room_dir / "brief.md").read_text() if (room_dir / "brief.md").exists() else None
+
+    # Fallback: extract ref from TASKS.md header ("# Tasks for EPIC-XXX ..." or "# EPIC-XXX ...")
+    if not task_ref:
+        tasks_file = room_dir / "TASKS.md"
+        if tasks_file.exists():
+            header = tasks_file.read_text().split("\n", 1)[0]
+            m = _re.search(r"(EPIC-\d+|TASK-\d+)", header)
+            if m:
+                task_ref = m.group(1)
+    # Fallback: derive from room-id
+    if not task_ref:
+        m = _re.match(r"room-(\d+)", room_id)
+        task_ref = f"EPIC-{m.group(1)}" if m else "UNKNOWN"
+
+    # Fallback: use TASKS.md as description when brief.md is missing
+    if not task_md and (room_dir / "TASKS.md").exists():
+        task_md = (room_dir / "TASKS.md").read_text()
 
     channel_file = room_dir / "channel.jsonl"
     message_count = 0
@@ -227,9 +272,9 @@ async def run_plan(request: RunRequest):
     if not plan:
         raise HTTPException(status_code=422, detail="Plan content is empty")
 
-    # Quick pre-flight: must contain at least one ## Task: section
-    if not re.search(r"^## Task:", plan, re.MULTILINE):
-        raise HTTPException(status_code=400, detail="Plan contains no tasks. Add at least one '## Task: TASK-XXX — Title' section.")
+    # Quick pre-flight: must contain at least one ## Epic: or ## Task: section
+    if not re.search(r"^## (Epic|Task):", plan, re.MULTILINE):
+        raise HTTPException(status_code=400, detail="Plan contains no epics or tasks. Add at least one '## Epic: EPIC-XXX — Title' section.")
 
     run_sh = AGENTS_DIR / "run.sh"
     if not run_sh.exists():
@@ -283,6 +328,9 @@ async def sse_events():
                         # New room
                         event = json.dumps({"event": "room_created", "room": room})
                         yield f"data: {event}\n\n"
+                        # Index new room in zvec
+                        if store:
+                            store.upsert_room_metadata(room_id, room)
                     elif (
                         prev["status"] != room["status"]
                         or prev["message_count"] != room["message_count"]
@@ -296,6 +344,10 @@ async def sse_events():
                             "new_messages": new_messages,
                         })
                         yield f"data: {event}\n\n"
+                        # Index new messages and update metadata in zvec
+                        if store:
+                            store.index_messages_batch(room_id, new_messages)
+                            store.upsert_room_metadata(room_id, room)
 
                 # Detect removed rooms
                 for room_id in last_snapshot:
@@ -333,6 +385,49 @@ async def sse_events():
             "Connection": "keep-alive",
         },
     )
+
+
+# === Vector Search Endpoints ===
+
+@app.get("/api/search")
+async def search_messages(
+    q: str = Query(..., min_length=1, description="Search query"),
+    room_id: str | None = Query(None, description="Filter by room"),
+    type: str | None = Query(None, description="Filter by message type"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Semantic vector search across all indexed messages."""
+    if not store:
+        raise HTTPException(status_code=503, detail="Vector search not available (zvec not initialized)")
+    results = store.search(q, room_id=room_id, msg_type=type, limit=limit)
+    return {"results": results, "count": len(results)}
+
+
+@app.get("/api/rooms/{room_id}/context")
+async def search_room_context(
+    room_id: str,
+    q: str = Query(..., min_length=1, description="Search query"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Semantic search scoped to a single room."""
+    if not store:
+        raise HTTPException(status_code=503, detail="Vector search not available")
+    results = store.search(q, room_id=room_id, limit=limit)
+    return {"results": results, "count": len(results)}
+
+
+@app.get("/api/rooms/{room_id}/state")
+async def get_room_state(room_id: str):
+    """Get room metadata from zvec (fast, no file I/O) with file fallback."""
+    if store:
+        meta = store.get_room_metadata(room_id)
+        if meta:
+            return meta
+    # Fallback to file-based read
+    room_dir = WARROOMS_DIR / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
+    return read_room(room_dir)
 
 
 if __name__ == "__main__":

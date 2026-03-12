@@ -97,25 +97,19 @@
         <textarea
           id="plan-input"
           class="plan-textarea"
-          placeholder="# Plan: My Feature&#10;&#10;## Config&#10;working_dir: .&#10;&#10;## Task: TASK-001 — Description&#10;&#10;Build the feature..."
+          placeholder="# Plan: My Feature&#10;&#10;## Config&#10;working_dir: .&#10;&#10;## Epic: EPIC-001 — Feature Title&#10;&#10;Describe the feature to deliver..."
           spellcheck="false"
         ># Plan: Demo Feature
 
 ## Config
 working_dir: .
 
-## Task: TASK-001 — Create hello module
+## Epic: EPIC-001 — Hello module with tests
 
-Build hello.py with a greet() function.
+Build hello.py with a greet() function and full pytest test suite.
 
 Acceptance criteria:
 - greet("World") returns "Hello, World!"
-
-## Task: TASK-002 — Add tests
-
-Write test_hello.py with pytest tests.
-
-Acceptance criteria:
 - pytest passes with 3+ assertions</textarea>
 
         <div class="launch-actions">
@@ -168,6 +162,14 @@ Acceptance criteria:
           <span class="summary-chip chip-passed">passed: <span id="sum-passed">0</span></span>
           <span class="summary-chip chip-failed">failed: <span id="sum-failed">0</span></span>
         </div>
+      </div>
+
+      <!-- Vector Search Bar -->
+      <div class="search-bar" id="search-bar">
+        <input type="text" id="search-input" class="search-input"
+               placeholder="Search messages (semantic)…"
+               oninput="debouncedSearch()" spellcheck="false" />
+        <div class="search-results" id="search-results" style="display:none"></div>
       </div>
 
       <div class="panel-body">

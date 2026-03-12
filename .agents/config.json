@@ -10,7 +10,7 @@
   },
   "engineer": {
     "cli": "deepagents",
-    "default_model": "gemini-3.1-flash-preview",
+    "default_model": "gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 600,
@@ -18,7 +18,7 @@
   },
   "qa": {
     "cli": "deepagents",
-    "default_model": "gemini-3.1-flash-preview",
+    "default_model": "gemini-3-flash-preview",
     "approval_mode": "auto-approve",
     "timeout_seconds": 300
   },

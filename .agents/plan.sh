@@ -72,11 +72,20 @@ _tui_prompt() {
 }
 
 _tui_success() {
-  echo "  \033[32m✓\033[0m $1"
+  printf "  \033[32m✓\033[0m %s\n" "$1"
 }
 
 _tui_dim() {
-  echo "  \033[2m$1\033[0m"
+  printf "  \033[2m%s\033[0m\n" "$1"
+}
+
+_tui_bold() {
+  printf "  \033[1m%s\033[0m\n" "$1"
+}
+
+_tui_kv() {
+  # Key-value display: key in cyan, value in white
+  printf "  \033[2m%s\033[0m %s\n" "$1" "$2"
 }
 
 # ─── Per-project port ────────────────────────────────────────────────────────
@@ -196,6 +205,15 @@ plan_create() {
     return 0
   fi
 
+  # ── Show current config ──
+  _tui_section "Configuration"
+  _tui_kv "Ideation model:" "$MODEL"
+  _tui_kv "Engineer CLI:  " "$ENGINEER_CLI"
+  _tui_kv "Plans dir:     " "$PLANS_DIR"
+  echo "  │"
+  _tui_line "Override with: --model <name> or --working-dir <path>"
+  _tui_end_section
+
   # ══════════════════════════════════════════════════════════════════════════
   # PHASE 1: Discovery — Consultant Q&A
   # ══════════════════════════════════════════════════════════════════════════
@@ -210,7 +228,7 @@ plan_create() {
   if [[ -z "$WORKING_DIR" ]]; then
     local default_dir
     default_dir=$(pwd)
-    printf "  \033[1mProject directory\033[0m [%s]: " "$default_dir"
+    printf "  \033[1mProject directory\033[0m [\033[2m%s\033[0m]: " "$default_dir"
     read -r WORKING_DIR
     WORKING_DIR="${WORKING_DIR:-$default_dir}"
   fi
@@ -226,19 +244,19 @@ plan_create() {
   local PROJECT_NAME=""
   local dir_name
   dir_name=$(basename "$WORKING_DIR")
-  printf "  \033[1mProject name\033[0m [%s]: " "$dir_name"
+  printf "  \033[1mProject name\033[0m [\033[2m%s\033[0m]: " "$dir_name"
   read -r PROJECT_NAME
   PROJECT_NAME="${PROJECT_NAME:-$dir_name}"
   echo ""
 
   # Q3: What are you building?
   local GOAL_DESC=""
-  echo "  \033[1mWhat are you building or trying to achieve?\033[0m"
-  echo "  \033[2m(Describe the feature, product, or goal in a few sentences)\033[0m"
+  printf "  \033[1mWhat are you building or trying to achieve?\033[0m\n"
+  printf "  \033[2m(Describe the feature, product, or goal in a few sentences)\033[0m\n"
   _tui_prompt
   read -r GOAL_DESC
   while [[ -z "$GOAL_DESC" ]]; do
-    echo "  \033[31m(cannot be empty)\033[0m"
+    printf "  \033[31m(cannot be empty)\033[0m\n"
     _tui_prompt
     read -r GOAL_DESC
   done
@@ -246,8 +264,8 @@ plan_create() {
 
   # Q4: Target users / audience
   local TARGET_USERS=""
-  echo "  \033[1mWho is the target user or audience?\033[0m"
-  echo "  \033[2m(e.g., developers, students, internal team, end consumers)\033[0m"
+  printf "  \033[1mWho is the target user or audience?\033[0m\n"
+  printf "  \033[2m(e.g., developers, students, internal team, end consumers)\033[0m\n"
   _tui_prompt
   read -r TARGET_USERS
   TARGET_USERS="${TARGET_USERS:-general users}"
@@ -255,8 +273,8 @@ plan_create() {
 
   # Q5: Tech stack / constraints
   local TECH_STACK=""
-  echo "  \033[1mAny tech stack preferences or constraints?\033[0m"
-  echo "  \033[2m(e.g., Python/FastAPI, React, Unity, or press Enter to auto-detect)\033[0m"
+  printf "  \033[1mAny tech stack preferences or constraints?\033[0m\n"
+  printf "  \033[2m(e.g., Python/FastAPI, React, Unity, or press Enter to auto-detect)\033[0m\n"
   _tui_prompt
   read -r TECH_STACK
   TECH_STACK="${TECH_STACK:-auto-detect from project}"
@@ -264,10 +282,10 @@ plan_create() {
 
   # Q6: Priority / timeline
   local PRIORITY=""
-  echo "  \033[1mWhat matters most for this iteration?\033[0m"
-  echo "  \033[2m(1) Speed — ship MVP fast\033[0m"
-  echo "  \033[2m(2) Quality — production-ready with tests\033[0m"
-  echo "  \033[2m(3) Learning — explore and prototype\033[0m"
+  printf "  \033[1mWhat matters most for this iteration?\033[0m\n"
+  printf "  \033[2m(1) Speed — ship MVP fast\033[0m\n"
+  printf "  \033[2m(2) Quality — production-ready with tests\033[0m\n"
+  printf "  \033[2m(3) Learning — explore and prototype\033[0m\n"
   printf "  \033[36m❯\033[0m [1/2/3]: "
   read -r PRIORITY_CHOICE
   case "${PRIORITY_CHOICE:-1}" in
@@ -415,11 +433,11 @@ print(content, end='')
 
   while true; do
     echo ""
-    echo "  \033[1mWhat would you like to do?\033[0m"
-    echo "  \033[2m(a) Accept and save this plan\033[0m"
-    echo "  \033[2m(f) Give feedback — refine the plan\033[0m"
-    echo "  \033[2m(r) Regenerate from scratch\033[0m"
-    echo "  \033[2m(q) Quit without saving\033[0m"
+    printf "  \033[1mWhat would you like to do?\033[0m\n"
+    printf "  \033[2m(a) Accept and save this plan\033[0m\n"
+    printf "  \033[2m(f) Give feedback — refine the plan\033[0m\n"
+    printf "  \033[2m(r) Regenerate from scratch\033[0m\n"
+    printf "  \033[2m(q) Quit without saving\033[0m\n"
     printf "  \033[36m❯\033[0m [a/f/r/q]: "
     read -r FEEDBACK_CHOICE
 
@@ -431,8 +449,8 @@ print(content, end='')
       [Ff]*)
         # Feedback — refine
         echo ""
-        echo "  \033[1mWhat should change?\033[0m"
-        echo "  \033[2m(e.g., 'merge epic 2 and 3', 'add a testing epic', 'too many epics')\033[0m"
+        printf "  \033[1mWhat should change?\033[0m\n"
+        printf "  \033[2m(e.g., 'merge epic 2 and 3', 'add a testing epic', 'too many epics')\033[0m\n"
         _tui_prompt
         local FEEDBACK=""
         read -r FEEDBACK
@@ -506,7 +524,7 @@ print(content, end='')
         return 0
         ;;
       *)
-        echo "  \033[31mInvalid choice. Use a/f/r/q.\033[0m"
+        printf "  \033[31mInvalid choice. Use a/f/r/q.\033[0m\n"
         ;;
     esac
   done
@@ -585,13 +603,11 @@ _offer_start() {
 
   [[ -t 0 ]] || return 0
 
-  echo "  ┌─── Next Steps ───"
-  echo "  │"
-  echo "  │  \033[1m(s)\033[0m Start plan now — launch execution + dashboard"
-  echo "  │  \033[1m(d)\033[0m Dashboard only — monitor without running"
-  echo "  │  \033[1m(l)\033[0m Later — save and exit"
-  echo "  │"
-  echo "  └───────────────────────────────────────────"
+  _tui_section "Next Steps"
+  printf "  │  \033[1m(s)\033[0m Start plan now — launch execution + dashboard\n"
+  printf "  │  \033[1m(d)\033[0m Dashboard only — monitor without running\n"
+  printf "  │  \033[1m(l)\033[0m Later — save and exit\n"
+  _tui_end_section
   printf "  \033[36m❯\033[0m [s/d/l]: "
   local NEXT=""
   read -r NEXT
@@ -606,7 +622,7 @@ _offer_start() {
       # Start dashboard in background
       "$AGENTS_DIR/dashboard.sh" --port "$PORT" --project-dir "$working_dir" > /dev/null 2>&1 &
       local DASH_PID=$!
-      echo "  \033[2mDashboard: http://localhost:$PORT (PID $DASH_PID)\033[0m"
+      printf "  \033[2mDashboard: http://localhost:%s (PID %s)\033[0m\n" "$PORT" "$DASH_PID"
       echo ""
       printf "  \033[32m✓\033[0m Launching plan execution...\n"
       echo ""
@@ -617,7 +633,7 @@ _offer_start() {
       printf "  \033[32m✓\033[0m Starting dashboard on port %s...\n" "$PORT"
       "$AGENTS_DIR/dashboard.sh" --port "$PORT" --project-dir "$working_dir" > /dev/null 2>&1 &
       local DASH_PID=$!
-      echo "  \033[2mDashboard: http://localhost:$PORT (PID $DASH_PID)\033[0m"
+      printf "  \033[2mDashboard: http://localhost:%s (PID %s)\033[0m\n" "$PORT" "$DASH_PID"
       echo ""
       echo "  Run the plan later with:"
       echo "    ostwin plan start $plan_file"
@@ -705,7 +721,7 @@ with open('$plan_file') as f:
     if [[ -t 0 ]]; then
       printf "  \033[32m✓\033[0m Starting dashboard on port %s...\n" "$PORT"
       "$AGENTS_DIR/dashboard.sh" --port "$PORT" --project-dir "$wd" > /dev/null 2>&1 &
-      echo "  \033[2mDashboard: http://localhost:$PORT\033[0m"
+      printf "  \033[2mDashboard: http://localhost:%s\033[0m\n" "$PORT"
       echo ""
     fi
 
