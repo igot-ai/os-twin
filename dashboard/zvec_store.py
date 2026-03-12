@@ -26,27 +26,34 @@ logger = logging.getLogger("zvec_store")
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
+PLANS_COLLECTION = "plans"
+EPICS_COLLECTION = "epics"
 
 
 class AgentOSStore:
     """In-process vector store for Agent OS logs and metadata."""
 
-    def __init__(self, warrooms_dir: Path):
+    def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
         self.warrooms_dir = warrooms_dir
+        self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
         self.zvec_dir = warrooms_dir / ".zvec"
         self.zvec_dir.mkdir(parents=True, exist_ok=True)
         self._messages: Optional[zvec.Collection] = None
         self._metadata: Optional[zvec.Collection] = None
+        self._plans: Optional[zvec.Collection] = None
+        self._epics: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
     # ── Collections ────────────────────────────────────────────────────
 
     def ensure_collections(self) -> None:
-        """Create or open both collections."""
+        """Create or open all collections."""
         zvec.init(log_level=zvec.LogLevel.WARN)
         self._messages = self._open_or_create_messages()
         self._metadata = self._open_or_create_metadata()
+        self._plans = self._open_or_create_plans()
+        self._epics = self._open_or_create_epics()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def _open_or_create_messages(self) -> zvec.Collection:
@@ -107,6 +114,71 @@ class AgentOSStore:
                     zvec.DataType.VECTOR_FP32,
                     1,
                     index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
+    def _open_or_create_plans(self) -> zvec.Collection:
+        path = str(self.zvec_dir / PLANS_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=PLANS_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("title", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("content", zvec.DataType.STRING),
+                    zvec.FieldSchema("status", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("epic_count", zvec.DataType.INT32),
+                    zvec.FieldSchema("created_at", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("filename", zvec.DataType.STRING, nullable=True),
+                ],
+                vectors=zvec.VectorSchema(
+                    "embedding",
+                    zvec.DataType.VECTOR_FP32,
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
+    def _open_or_create_epics(self) -> zvec.Collection:
+        path = str(self.zvec_dir / EPICS_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=EPICS_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("epic_ref", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("plan_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("title", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("body", zvec.DataType.STRING),
+                    zvec.FieldSchema("room_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("status", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("working_dir", zvec.DataType.STRING, nullable=True),
+                ],
+                vectors=zvec.VectorSchema(
+                    "embedding",
+                    zvec.DataType.VECTOR_FP32,
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
                 ),
             )
             return zvec.create_and_open(path=path, schema=schema)
@@ -249,6 +321,228 @@ class AgentOSStore:
                     results.append(meta)
         return results
 
+    # ── Plan & Epic Indexing ─────────────────────────────────────────────
+
+    def index_plan(self, plan_id: str, title: str, content: str,
+                   epic_count: int, filename: str = "",
+                   status: str = "launched", created_at: str = "") -> bool:
+        """Index a plan document. Returns True on success."""
+        if self._plans is None:
+            return False
+
+        content_clean = content.encode("ascii", errors="replace").decode("ascii")
+        embedding = self._embed_text(f"{title} {content_clean[:1000]}")
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
+        doc = zvec.Doc(
+            id=plan_id,
+            fields={
+                "title": title,
+                "content": content_clean,
+                "status": status,
+                "epic_count": epic_count,
+                "created_at": created_at or "",
+                "filename": filename or "",
+            },
+            vectors={"embedding": embedding},
+        )
+        try:
+            s = self._plans.upsert(doc)
+            self._plans.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to index plan %s: %s", plan_id, e)
+            return False
+
+    def index_epic(self, epic_ref: str, plan_id: str, title: str,
+                   body: str, room_id: str, working_dir: str = ".",
+                   status: str = "pending") -> bool:
+        """Index a single Epic from a plan. Returns True on success."""
+        if self._epics is None:
+            return False
+
+        body_clean = body.encode("ascii", errors="replace").decode("ascii")
+        embed_text = f"{epic_ref} {title} {body_clean[:1000]}"
+        embedding = self._embed_text(embed_text)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
+        doc = zvec.Doc(
+            id=f"{plan_id}--{epic_ref}",
+            fields={
+                "epic_ref": epic_ref,
+                "plan_id": plan_id,
+                "title": title,
+                "body": body_clean,
+                "room_id": room_id,
+                "status": status,
+                "working_dir": working_dir or ".",
+            },
+            vectors={"embedding": embedding},
+        )
+        try:
+            s = self._epics.upsert(doc)
+            self._epics.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to index epic %s: %s", epic_ref, e)
+            return False
+
+    def update_epic_status(self, plan_id: str, epic_ref: str, status: str) -> bool:
+        """Update an epic's status (syncs from war-room status)."""
+        if self._epics is None:
+            return False
+        doc_id = f"{plan_id}--{epic_ref}"
+        try:
+            result = self._epics.fetch(doc_id)
+            if doc_id not in result:
+                return False
+            existing = result[doc_id]
+            # Re-upsert with updated status
+            doc = zvec.Doc(
+                id=doc_id,
+                fields={
+                    "epic_ref": existing.field("epic_ref"),
+                    "plan_id": existing.field("plan_id"),
+                    "title": existing.field("title"),
+                    "body": existing.field("body"),
+                    "room_id": existing.field("room_id"),
+                    "status": status,
+                    "working_dir": existing.field("working_dir"),
+                },
+                vectors={"embedding": [0.0] * EMBEDDING_DIM},  # reuse placeholder
+            )
+            s = self._epics.upsert(doc)
+            self._epics.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to update epic status %s: %s", doc_id, e)
+            return False
+
+    def get_plan(self, plan_id: str) -> dict | None:
+        """Fetch a single plan by ID."""
+        if self._plans is None:
+            return None
+        try:
+            result = self._plans.fetch(plan_id)
+            if plan_id not in result:
+                return None
+            doc = result[plan_id]
+            return {
+                "plan_id": plan_id,
+                "title": doc.field("title"),
+                "content": doc.field("content"),
+                "status": doc.field("status"),
+                "epic_count": doc.field("epic_count"),
+                "created_at": doc.field("created_at"),
+                "filename": doc.field("filename"),
+            }
+        except Exception:
+            return None
+
+    def get_all_plans(self) -> list[dict]:
+        """Fetch all plans. Returns list sorted by created_at desc."""
+        if self._plans is None:
+            return []
+        results = []
+        # Scan plans directory on disk to discover plan IDs
+        plans_dir = self._plans_dir()
+        if not plans_dir.exists():
+            return results
+        for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+            plan_id = f.stem
+            plan = self.get_plan(plan_id)
+            if plan:
+                results.append(plan)
+        return results
+
+    def get_epics_for_plan(self, plan_id: str) -> list[dict]:
+        """Get all epics belonging to a plan."""
+        if self._epics is None:
+            return []
+        results = []
+        # Use vector query with filter (any vector, just for filtering)
+        try:
+            docs = self._epics.query(
+                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
+                topk=50,
+                filter=f"plan_id = '{plan_id}'",
+                output_fields=["epic_ref", "plan_id", "title", "body",
+                               "room_id", "status", "working_dir"],
+            )
+            for doc in docs:
+                results.append({
+                    "id": doc.id,
+                    "epic_ref": doc.field("epic_ref"),
+                    "plan_id": doc.field("plan_id"),
+                    "title": doc.field("title"),
+                    "body": doc.field("body"),
+                    "room_id": doc.field("room_id"),
+                    "status": doc.field("status"),
+                    "working_dir": doc.field("working_dir"),
+                })
+        except Exception as e:
+            logger.warning("Failed to get epics for plan %s: %s", plan_id, e)
+        return results
+
+    def search_plans(self, query: str, limit: int = 10) -> list[dict]:
+        """Semantic search across plans."""
+        if self._plans is None:
+            return []
+        embedding = self._embed_text(query)
+        if embedding is None:
+            return []
+        try:
+            docs = self._plans.query(
+                vectors=zvec.VectorQuery("embedding", vector=embedding),
+                topk=limit,
+                output_fields=["title", "status", "epic_count", "created_at", "filename"],
+            )
+            return [{
+                "plan_id": doc.id,
+                "score": doc.score,
+                "title": doc.field("title"),
+                "status": doc.field("status"),
+                "epic_count": doc.field("epic_count"),
+                "created_at": doc.field("created_at"),
+                "filename": doc.field("filename"),
+            } for doc in docs]
+        except Exception as e:
+            logger.error("Plan search failed: %s", e)
+            return []
+
+    def search_epics(self, query: str, plan_id: str | None = None,
+                     limit: int = 20) -> list[dict]:
+        """Semantic search across epics."""
+        if self._epics is None:
+            return []
+        embedding = self._embed_text(query)
+        if embedding is None:
+            return []
+        filter_str = f"plan_id = '{plan_id}'" if plan_id else None
+        try:
+            docs = self._epics.query(
+                vectors=zvec.VectorQuery("embedding", vector=embedding),
+                topk=limit,
+                filter=filter_str,
+                output_fields=["epic_ref", "plan_id", "title", "body",
+                               "room_id", "status", "working_dir"],
+            )
+            return [{
+                "id": doc.id,
+                "score": doc.score,
+                "epic_ref": doc.field("epic_ref"),
+                "plan_id": doc.field("plan_id"),
+                "title": doc.field("title"),
+                "body": doc.field("body"),
+                "room_id": doc.field("room_id"),
+                "status": doc.field("status"),
+            } for doc in docs]
+        except Exception as e:
+            logger.error("Epic search failed: %s", e)
+            return []
+
     # ── Search ─────────────────────────────────────────────────────────
 
     def search(
@@ -269,9 +563,9 @@ class AgentOSStore:
         # Build filter expression
         filters = []
         if room_id:
-            filters.append(f"room_id == '{room_id}'")
+            filters.append(f"room_id = '{room_id}'")
         if msg_type:
-            filters.append(f"msg_type == '{msg_type}'")
+            filters.append(f"msg_type = '{msg_type}'")
         filter_str = " AND ".join(filters) if filters else None
 
         try:
@@ -381,6 +675,9 @@ class AgentOSStore:
                 "task_description": desc or "",
             })
 
+        # Sync plans from disk
+        plans_synced = self._sync_plans_from_disk()
+
         if self._messages:
             self._messages.flush()
             # Build HNSW index for search after bulk insert
@@ -390,9 +687,139 @@ class AgentOSStore:
                 logger.warning("optimize failed: %s", e)
         if self._metadata:
             self._metadata.flush()
+        if self._plans:
+            self._plans.flush()
+            try:
+                self._plans.optimize()
+            except Exception:
+                pass
+        if self._epics:
+            self._epics.flush()
+            try:
+                self._epics.optimize()
+            except Exception:
+                pass
 
-        logger.info("zvec sync complete: %d messages indexed", total)
+        logger.info("zvec sync complete: %d messages, %d plans indexed", total, plans_synced)
         return total
+
+    def _sync_plans_from_disk(self) -> int:
+        """Backfill plans collection from .agents/plans/*.md files on disk."""
+        plans_dir = self._plans_dir()
+        if not plans_dir.exists():
+            return 0
+
+        count = 0
+        for plan_file in sorted(plans_dir.glob("*.md")):
+            plan_id = plan_file.stem
+            if plan_id == "PLAN.template":
+                continue
+
+            content = plan_file.read_text()
+            if not content.strip():
+                continue
+
+            # Extract title from "# Plan: ..." header
+            title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+            title = title_match.group(1).strip() if title_match else plan_id
+
+            # Extract epics/tasks
+            epics = self._parse_plan_epics(content, plan_id)
+
+            # Determine status from war-rooms (if rooms exist, it was launched)
+            status = "launched" if any(
+                (self.warrooms_dir / f"room-{i+1:03d}").exists()
+                for i in range(len(epics))
+            ) else "stored"
+
+            # Use file mtime as created_at
+            from datetime import datetime, timezone
+            mtime = plan_file.stat().st_mtime
+            created_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+            self.index_plan(
+                plan_id=plan_id,
+                title=title,
+                content=content,
+                epic_count=len(epics),
+                filename=plan_file.name,
+                status=status,
+                created_at=created_at,
+            )
+
+            # Index each epic
+            for epic in epics:
+                # Try to sync status from war-room
+                room_dir = self.warrooms_dir / epic["room_id"]
+                epic_status = "pending"
+                if room_dir.exists():
+                    s = self._read_file(room_dir / "status")
+                    if s:
+                        epic_status = s
+
+                self.index_epic(
+                    epic_ref=epic["task_ref"],
+                    plan_id=plan_id,
+                    title=epic["title"],
+                    body=epic["body"],
+                    room_id=epic["room_id"],
+                    working_dir=epic.get("working_dir", "."),
+                    status=epic_status,
+                )
+
+            count += 1
+
+        return count
+
+    @staticmethod
+    def _parse_plan_epics(content: str, plan_id: str) -> list[dict]:
+        """Parse a plan markdown into a list of epic/task dicts."""
+        # Extract working dir
+        config_match = re.search(r"working_dir:\s*(.+)", content)
+        working_dir = config_match.group(1).strip() if config_match else "."
+
+        # Detect format
+        has_epics = bool(re.search(r"^## Epic:", content, re.MULTILINE))
+        has_tasks = bool(re.search(r"^## Task:", content, re.MULTILINE))
+
+        if has_epics:
+            split_pattern = r"^## Epic:\s*"
+            ref_pattern = r"(EPIC-\d+)\s*[—\-]\s*(.*)"
+            default_prefix = "EPIC"
+        elif has_tasks:
+            split_pattern = r"^## Task:\s*"
+            ref_pattern = r"(TASK-\d+)\s*[—\-]\s*(.*)"
+            default_prefix = "TASK"
+        else:
+            return []
+
+        items = []
+        parts = re.split(split_pattern, content, flags=re.MULTILINE)
+
+        for i, part in enumerate(parts[1:], 1):
+            lines = part.strip().split("\n")
+            header = lines[0].strip()
+
+            ref_match = re.match(ref_pattern, header)
+            if ref_match:
+                item_ref = ref_match.group(1)
+                item_title = ref_match.group(2).strip()
+            else:
+                item_ref = f"{default_prefix}-{i:03d}"
+                item_title = header
+
+            item_body = "\n".join(lines[1:]).strip()
+            room_id = f"room-{i:03d}"
+
+            items.append({
+                "room_id": room_id,
+                "task_ref": item_ref,
+                "title": item_title,
+                "body": item_body,
+                "working_dir": working_dir,
+            })
+
+        return items
 
     def close(self) -> None:
         """Flush and close collections."""
@@ -400,8 +827,25 @@ class AgentOSStore:
             self._messages.flush()
         if self._metadata:
             self._metadata.flush()
+        if self._plans:
+            self._plans.flush()
+        if self._epics:
+            self._epics.flush()
 
     # ── Helpers ─────────────────────────────────────────────────────────
+
+    def _plans_dir(self) -> Path:
+        """Resolve the plans directory from agents_dir or fallback."""
+        if self.agents_dir:
+            return self.agents_dir / "plans"
+        # Fallback: try common locations
+        for candidate in [
+            self.warrooms_dir.parent / ".agents" / "plans",
+            self.warrooms_dir.parent.parent / ".agents" / "plans",
+        ]:
+            if candidate.exists():
+                return candidate
+        return self.warrooms_dir.parent / ".agents" / "plans"
 
     @staticmethod
     def _read_file(path: Path) -> str | None:

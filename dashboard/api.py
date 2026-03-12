@@ -11,8 +11,10 @@ Usage:
 
 import asyncio
 import glob
+import hashlib
 import json
 import os
+import re as _re_mod
 import signal
 import subprocess
 import tempfile
@@ -66,7 +68,7 @@ async def startup_zvec():
         return
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-        store = AgentOSStore(WARROOMS_DIR)
+        store = AgentOSStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
         store.ensure_collections()
         count = store.sync_from_disk()
         print(f"  zvec: synced {count} messages from disk")
@@ -266,14 +268,12 @@ async def get_config():
 @app.post("/api/run")
 async def run_plan(request: RunRequest):
     """Launch Agent OS with the provided plan content."""
-    import re
-
     plan = request.plan.strip()
     if not plan:
         raise HTTPException(status_code=422, detail="Plan content is empty")
 
     # Quick pre-flight: must contain at least one ## Epic: or ## Task: section
-    if not re.search(r"^## (Epic|Task):", plan, re.MULTILINE):
+    if not _re_mod.search(r"^## (Epic|Task):", plan, _re_mod.MULTILINE):
         raise HTTPException(status_code=400, detail="Plan contains no epics or tasks. Add at least one '## Epic: EPIC-XXX — Title' section.")
 
     run_sh = AGENTS_DIR / "run.sh"
@@ -291,6 +291,35 @@ async def run_plan(request: RunRequest):
         f.write(plan)
         plan_path = f.name
 
+    plan_filename = os.path.basename(plan_path)
+    plan_id = Path(plan_path).stem
+
+    # Index plan + epics into zvec
+    if store:
+        try:
+            from zvec_store import AgentOSStore
+            # Extract title
+            title_match = _re_mod.search(r"^# Plan:\s*(.+)", plan, _re_mod.MULTILINE)
+            title = title_match.group(1).strip() if title_match else plan_id
+            # Parse epics
+            epics = AgentOSStore._parse_plan_epics(plan, plan_id)
+            now = datetime.now(timezone.utc).isoformat()
+            store.index_plan(
+                plan_id=plan_id, title=title, content=plan,
+                epic_count=len(epics), filename=plan_filename,
+                status="launched", created_at=now,
+            )
+            for epic in epics:
+                store.index_epic(
+                    epic_ref=epic["task_ref"], plan_id=plan_id,
+                    title=epic["title"], body=epic["body"],
+                    room_id=epic["room_id"],
+                    working_dir=epic.get("working_dir", "."),
+                    status="pending",
+                )
+        except Exception as e:
+            print(f"  zvec: plan indexing failed ({e}), continuing without")
+
     # Spawn Agent OS in background (run.sh will kill any existing manager itself)
     subprocess.Popen(
         [str(run_sh), plan_path],
@@ -299,7 +328,7 @@ async def run_plan(request: RunRequest):
         stderr=subprocess.DEVNULL,
     )
 
-    return {"status": "launched", "plan_file": os.path.basename(plan_path)}
+    return {"status": "launched", "plan_file": plan_filename, "plan_id": plan_id}
 
 
 @app.get("/api/events")
@@ -348,6 +377,25 @@ async def sse_events():
                         if store:
                             store.index_messages_batch(room_id, new_messages)
                             store.upsert_room_metadata(room_id, room)
+                            # Sync epic status if room status changed
+                            if prev["status"] != room["status"]:
+                                epic_ref = room.get("task_ref", "")
+                                if epic_ref:
+                                    # Find plan_id from plans dir (latest launched)
+                                    try:
+                                        plans_dir = AGENTS_DIR / "plans"
+                                        if plans_dir.exists():
+                                            latest = max(
+                                                plans_dir.glob("agent-os-plan-*.md"),
+                                                key=lambda p: p.stat().st_mtime,
+                                                default=None,
+                                            )
+                                            if latest:
+                                                store.update_epic_status(
+                                                    latest.stem, epic_ref, room["status"]
+                                                )
+                                    except Exception:
+                                        pass
 
                 # Detect removed rooms
                 for room_id in last_snapshot:
@@ -428,6 +476,131 @@ async def get_room_state(room_id: str):
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
     return read_room(room_dir)
+
+
+# === Plan & Epic Endpoints ===
+
+@app.get("/api/plans")
+async def list_plans():
+    """List all stored plans (from zvec, with file fallback)."""
+    if store:
+        plans = store.get_all_plans()
+        if plans:
+            return {"plans": plans, "count": len(plans)}
+
+    # Fallback: read from disk
+    plans_dir = AGENTS_DIR / "plans"
+    if not plans_dir.exists():
+        return {"plans": [], "count": 0}
+
+    plans = []
+    for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+        if f.stem == "PLAN.template":
+            continue
+        content = f.read_text()
+        if not content.strip():
+            continue
+        title_match = _re_mod.search(r"^# Plan:\s*(.+)", content, _re_mod.MULTILINE)
+        title = title_match.group(1).strip() if title_match else f.stem
+
+        # Count epics/tasks
+        epic_count = len(_re_mod.findall(r"^## (Epic|Task):", content, _re_mod.MULTILINE))
+
+        plans.append({
+            "plan_id": f.stem,
+            "title": title,
+            "content": content,
+            "status": "stored",
+            "epic_count": epic_count,
+            "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
+            "filename": f.name,
+        })
+
+    return {"plans": plans, "count": len(plans)}
+
+
+@app.get("/api/plans/{plan_id}")
+async def get_plan(plan_id: str):
+    """Get a specific plan with its epics."""
+    plan = None
+    epics = []
+
+    if store:
+        plan = store.get_plan(plan_id)
+        epics = store.get_epics_for_plan(plan_id)
+
+    # Fallback: read from disk
+    if not plan:
+        plans_dir = AGENTS_DIR / "plans"
+        plan_file = plans_dir / f"{plan_id}.md"
+        if not plan_file.exists():
+            raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+        content = plan_file.read_text()
+        title_match = _re_mod.search(r"^# Plan:\s*(.+)", content, _re_mod.MULTILINE)
+        title = title_match.group(1).strip() if title_match else plan_id
+        epic_count = len(_re_mod.findall(r"^## (Epic|Task):", content, _re_mod.MULTILINE))
+        plan = {
+            "plan_id": plan_id,
+            "title": title,
+            "content": content,
+            "status": "stored",
+            "epic_count": epic_count,
+            "created_at": datetime.fromtimestamp(
+                plan_file.stat().st_mtime, tz=timezone.utc
+            ).isoformat(),
+            "filename": plan_file.name,
+        }
+
+    return {"plan": plan, "epics": epics}
+
+
+@app.get("/api/plans/{plan_id}/epics")
+async def get_plan_epics(plan_id: str):
+    """Get epics for a specific plan."""
+    if store:
+        epics = store.get_epics_for_plan(plan_id)
+        if epics:
+            return {"epics": epics, "count": len(epics)}
+
+    # Fallback: parse from disk
+    plans_dir = AGENTS_DIR / "plans"
+    plan_file = plans_dir / f"{plan_id}.md"
+    if not plan_file.exists():
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+
+    content = plan_file.read_text()
+    if store:
+        from zvec_store import AgentOSStore
+        epics_raw = AgentOSStore._parse_plan_epics(content, plan_id)
+    else:
+        epics_raw = []
+
+    return {"epics": epics_raw, "count": len(epics_raw)}
+
+
+@app.get("/api/search/plans")
+async def search_plans(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Semantic search across plans."""
+    if not store:
+        raise HTTPException(status_code=503, detail="Vector search not available")
+    results = store.search_plans(q, limit=limit)
+    return {"results": results, "count": len(results)}
+
+
+@app.get("/api/search/epics")
+async def search_epics(
+    q: str = Query(..., min_length=1),
+    plan_id: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Semantic search across epics."""
+    if not store:
+        raise HTTPException(status_code=503, detail="Vector search not available")
+    results = store.search_epics(q, plan_id=plan_id, limit=limit)
+    return {"results": results, "count": len(results)}
 
 
 if __name__ == "__main__":

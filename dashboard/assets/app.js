@@ -113,11 +113,14 @@ let channelFilter = null;
 let eventSource = null;
 let reconnectMs = 1000;
 let releaseExpanded = false;
+let planHistory = [];
+let activePlanId = null;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   loadConfig();
+  loadPlanHistory();
   loadInitialState().then(() => connect());
   pollManagerStatus();
   setInterval(pollManagerStatus, 3000);
@@ -168,6 +171,7 @@ function dispatch(ev) {
       rooms[ev.room.room_id] = ev.room;
       renderCard(ev.room, false, prev);
       updateSummary();
+      updateEpicStatuses();
       (ev.new_messages || []).forEach(m => pushMsg(ev.room.room_id, m));
       break;
     }
@@ -498,6 +502,17 @@ window.launchPlan = async function () {
 
     const data = await res.json();
     showLaunchStatus(`✓ Launched — ${data.plan_file || 'ok'}`, '#00ff88');
+    // Track launched plan and refresh history
+    if (data.plan_id) {
+      activePlanId = data.plan_id;
+      // Load epics for the launched plan
+      try {
+        const planRes = await fetch(`/api/plans/${data.plan_id}`);
+        const planData = await planRes.json();
+        showEpicTracker(planData.epics || []);
+      } catch { /* will populate on next poll */ }
+    }
+    loadPlanHistory();
     // Poll immediately so the button shows RUNNING state
     setTimeout(pollManagerStatus, 800);
   } catch (err) {
@@ -523,6 +538,114 @@ window.loadTemplate = function (name) {
   textarea.value = TEMPLATES[name];
   textarea.focus();
 };
+
+// ── Plan History & Epic Tracker ─────────────────────────────────────────────
+
+async function loadPlanHistory() {
+  try {
+    const res = await fetch('/api/plans');
+    const data = await res.json();
+    planHistory = data.plans || [];
+
+    const select = document.getElementById('plan-select');
+    const count = document.getElementById('plan-count');
+    if (!select) return;
+
+    // Keep the "new plan" option, add history
+    select.innerHTML = '<option value="">— new plan —</option>';
+    planHistory.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.plan_id;
+      const date = p.created_at ? new Date(p.created_at).toLocaleDateString('en', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+      }) : '';
+      opt.textContent = `${p.title || p.plan_id} (${p.epic_count} epics, ${date})`;
+      opt.dataset.status = p.status;
+      select.appendChild(opt);
+    });
+
+    if (count) count.textContent = `${planHistory.length} plans`;
+  } catch (e) {
+    console.error('Failed to load plan history:', e);
+  }
+}
+
+window.loadPlanFromHistory = async function () {
+  const select = document.getElementById('plan-select');
+  const textarea = document.getElementById('plan-input');
+  if (!select || !textarea) return;
+
+  const planId = select.value;
+  if (!planId) {
+    // "new plan" selected — clear epic tracker
+    activePlanId = null;
+    hideEpicTracker();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/plans/${planId}`);
+    const data = await res.json();
+    if (data.plan && data.plan.content) {
+      textarea.value = data.plan.content;
+      textarea.focus();
+      activePlanId = planId;
+      showEpicTracker(data.epics || []);
+    }
+  } catch (e) {
+    console.error('Failed to load plan:', e);
+  }
+};
+
+function showEpicTracker(epics) {
+  const tracker = document.getElementById('epic-tracker');
+  const list = document.getElementById('epic-list');
+  if (!tracker || !list) return;
+
+  if (!epics.length) {
+    hideEpicTracker();
+    return;
+  }
+
+  list.innerHTML = epics.map(e => {
+    const statusClass = `st-${(e.status || 'pending').replace(' ', '-')}`;
+    const label = (e.status || 'pending').toUpperCase();
+    return `
+      <div class="epic-item" onclick="selectRoom('${esc(e.room_id)}')">
+        <span class="epic-ref">${esc(e.epic_ref)}</span>
+        <span class="epic-title">${esc(trunc(e.title, 40))}</span>
+        <span class="epic-status ${statusClass}">${label}</span>
+      </div>
+    `;
+  }).join('');
+
+  tracker.style.display = 'block';
+}
+
+function hideEpicTracker() {
+  const tracker = document.getElementById('epic-tracker');
+  if (tracker) tracker.style.display = 'none';
+}
+
+function updateEpicStatuses() {
+  // Update epic statuses from current room state
+  if (!activePlanId) return;
+  const list = document.getElementById('epic-list');
+  if (!list) return;
+
+  const items = list.querySelectorAll('.epic-item');
+  items.forEach(item => {
+    const roomId = item.getAttribute('onclick')?.match(/'(room-\d+)'/)?.[1];
+    if (!roomId || !rooms[roomId]) return;
+    const room = rooms[roomId];
+    const statusEl = item.querySelector('.epic-status');
+    if (statusEl) {
+      const statusClass = `st-${room.status.replace(' ', '-')}`;
+      statusEl.className = `epic-status ${statusClass}`;
+      statusEl.textContent = (room.status || 'pending').toUpperCase();
+    }
+  });
+}
 
 // ── Release Panel ──────────────────────────────────────────────────────────
 

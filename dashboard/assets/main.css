@@ -876,6 +876,109 @@ body {
   box-shadow: 0 0 8px rgba(0,212,255,0.3) !important;
 }
 
+/* === Plan History === */
+.plan-history {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.plan-select {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: var(--font);
+  font-size: 11px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2388a'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+
+.plan-select:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 4px rgba(0,212,255,0.2);
+}
+
+.plan-select option {
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.plan-count {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* === Epic Tracker === */
+.epic-tracker {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.epic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.epic-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.epic-item:hover {
+  border-color: var(--cyan);
+}
+
+.epic-item .epic-ref {
+  color: var(--cyan);
+  font-weight: 500;
+  min-width: 64px;
+}
+
+.epic-item .epic-title {
+  color: var(--text-dim);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.epic-item .epic-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.epic-status.st-pending        { color: #555; border-color: #55555566; }
+.epic-status.st-engineering    { color: var(--cyan); border-color: rgba(0,212,255,0.3); }
+.epic-status.st-qa-review      { color: var(--amber); border-color: rgba(255,217,61,0.3); }
+.epic-status.st-fixing         { color: var(--orange); border-color: rgba(255,159,67,0.3); }
+.epic-status.st-passed         { color: var(--green); border-color: rgba(0,255,136,0.3); }
+.epic-status.st-failed-final   { color: var(--red); border-color: rgba(255,107,107,0.3); }
+
 /* === Responsive === */
 @media (max-width: 768px) {
   .main-layout {

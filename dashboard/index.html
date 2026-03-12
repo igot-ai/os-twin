@@ -93,6 +93,15 @@
       </div>
 
       <div class="panel-body">
+        <!-- Plan History -->
+        <label class="field-label">Plan History</label>
+        <div class="plan-history" id="plan-history">
+          <select id="plan-select" class="plan-select" onchange="loadPlanFromHistory()">
+            <option value="">— new plan —</option>
+          </select>
+          <span class="plan-count" id="plan-count"></span>
+        </div>
+
         <label class="field-label">Plan File</label>
         <textarea
           id="plan-input"
@@ -130,6 +139,12 @@ Acceptance criteria:
           <button class="action-btn" onclick="loadTemplate('hello')">hello world</button>
           <button class="action-btn" onclick="loadTemplate('api')">REST API</button>
           <button class="action-btn" onclick="loadTemplate('fullstack')">full-stack app</button>
+        </div>
+
+        <!-- Epic Tracker -->
+        <div class="epic-tracker" id="epic-tracker" style="display:none">
+          <label class="field-label">Epic Tracker</label>
+          <div class="epic-list" id="epic-list"></div>
         </div>
 
         <!-- System Config -->
