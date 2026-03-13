@@ -52,6 +52,8 @@ param(
     [string]$AgentCmd = '',
     [bool]$AutoApprove = $true,
     [switch]$Quiet,
+    [string]$InstanceId = '',
+    [string]$WorkingDir = '',
     [string[]]$ExtraArgs = @()
 )
 
@@ -64,13 +66,42 @@ $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
 
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
+
+    # --- Instance-aware config resolution ---
+    $instanceConfig = $null
+    if ($InstanceId -and $config.$RoleName.instances.$InstanceId) {
+        $instanceConfig = $config.$RoleName.instances.$InstanceId
+    }
+
+    # Model: instance → role → engineer fallback
     if (-not $Model) {
-        $Model = $config.$RoleName.default_model
-        if (-not $Model) { $Model = $config.engineer.default_model }
+        if ($instanceConfig -and $instanceConfig.default_model) {
+            $Model = $instanceConfig.default_model
+        }
+        elseif ($config.$RoleName.default_model) {
+            $Model = $config.$RoleName.default_model
+        }
+        else {
+            $Model = $config.engineer.default_model
+        }
     }
-    if ($TimeoutSeconds -eq 600 -and $config.$RoleName.timeout_seconds) {
-        $TimeoutSeconds = $config.$RoleName.timeout_seconds
+
+    # Timeout: instance → role
+    if ($TimeoutSeconds -eq 600) {
+        if ($instanceConfig -and $instanceConfig.timeout_seconds) {
+            $TimeoutSeconds = $instanceConfig.timeout_seconds
+        }
+        elseif ($config.$RoleName.timeout_seconds) {
+            $TimeoutSeconds = $config.$RoleName.timeout_seconds
+        }
     }
+
+    # WorkingDir: instance → parameter
+    if (-not $WorkingDir -and $instanceConfig -and $instanceConfig.working_dir) {
+        $WorkingDir = $instanceConfig.working_dir
+    }
+
+    # CLI: role → default
     if (-not $AgentCmd) {
         $AgentCmd = $config.$RoleName.cli
         if (-not $AgentCmd) { $AgentCmd = "deepagents" }
@@ -123,9 +154,12 @@ $cliArgs += $ExtraArgs
 $exitCode = 0
 try {
     $job = Start-Job -ScriptBlock {
-        param($cmd, $args, $outFile)
+        param($cmd, $args, $outFile, $cwd)
+        if ($cwd -and (Test-Path $cwd)) {
+            Set-Location $cwd
+        }
         & $cmd @args 2>&1 | Tee-Object -FilePath $outFile
-    } -ArgumentList $AgentCmd, $cliArgs, $outputFile
+    } -ArgumentList $AgentCmd, $cliArgs, $outputFile, $WorkingDir
 
     $completed = $job | Wait-Job -Timeout $TimeoutSeconds
 
