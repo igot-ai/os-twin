@@ -101,6 +101,17 @@ for mcp_file in "$SOURCE_AGENTS"/mcp/*.py; do
 done
 [[ -f "$SOURCE_AGENTS/mcp/requirements.txt" ]] && cp "$SOURCE_AGENTS/mcp/requirements.txt" "$TARGET_AGENTS/mcp/requirements.txt"
 
+# Copy dashboard (web UI + API)
+if [[ -d "$SOURCE_AGENTS/../dashboard" ]]; then
+  # Source repo layout: dashboard/ is sibling to .agents/
+  echo "  → Copying dashboard from source repo..."
+  cp -r "$SOURCE_AGENTS/../dashboard" "$TARGET_AGENTS/dashboard"
+elif [[ -d "$SOURCE_AGENTS/dashboard" ]]; then
+  # Installed layout: dashboard/ is inside .agents/
+  echo "  → Copying dashboard from installed location..."
+  cp -r "$SOURCE_AGENTS/dashboard" "$TARGET_AGENTS/dashboard"
+fi
+
 # Make all scripts executable
 find "$TARGET_AGENTS" -name "*.sh" -exec chmod +x {} \;
 chmod +x "$TARGET_AGENTS/bin/ostwin" 2>/dev/null || true

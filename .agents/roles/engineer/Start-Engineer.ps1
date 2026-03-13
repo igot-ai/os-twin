@@ -256,4 +256,8 @@ else {
     }
 }
 
+# --- Clean up PID file (after channel message is posted) ---
+$engPidFile = Join-Path $RoomDir "pids" "engineer.pid"
+Remove-Item $engPidFile -Force -ErrorAction SilentlyContinue
+
 exit $result.ExitCode

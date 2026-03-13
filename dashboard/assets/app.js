@@ -5,6 +5,24 @@
 
 'use strict';
 
+// ── Theme Management ────────────────────────────────────────────────────────
+
+let currentTheme = localStorage.getItem('theme') || 'dark';
+document.documentElement.setAttribute('data-theme', currentTheme);
+
+function initTheme() {
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.innerText = currentTheme === 'dark' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+  localStorage.setItem('theme', currentTheme);
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.innerText = currentTheme === 'dark' ? '🌙' : '☀️';
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const STATUS_COLOR = {
@@ -14,6 +32,7 @@ const STATUS_COLOR = {
   fixing:         '#ff9f43',
   passed:         '#00ff88',
   'failed-final': '#ff6b6b',
+  paused:         '#ffd93d',
 };
 
 const STATUS_LABEL = {
@@ -23,6 +42,7 @@ const STATUS_LABEL = {
   fixing:         'FIXING',
   passed:         'PASSED',
   'failed-final': 'FAILED',
+  paused:         'PAUSED',
 };
 
 const MSG_ICON = {
@@ -32,7 +52,7 @@ const MSG_ICON = {
 
 const PROGRESS_PCT = {
   pending: 5, engineering: 35, 'qa-review': 65,
-  fixing: 45, passed: 100, 'failed-final': 100,
+  fixing: 45, passed: 100, 'failed-final': 100, paused: 50,
 };
 
 const TEMPLATES = {
@@ -110,7 +130,7 @@ Acceptance criteria:
 let rooms = {};
 let allMessages = [];
 let channelFilter = null;
-let eventSource = null;
+let socket = null;
 let reconnectMs = 1000;
 let releaseExpanded = false;
 let planHistory = [];
@@ -119,6 +139,7 @@ let activePlanId = null;
 // ── Boot ───────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
   loadConfig();
   loadPlanHistory();
   loadInitialState().then(() => connect());
@@ -129,26 +150,39 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── SSE ────────────────────────────────────────────────────────────────────
 
 function connect() {
-  if (eventSource) eventSource.close();
+  if (socket) socket.close();
 
-  eventSource = new EventSource('/api/events');
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/api/ws`;
+  socket = new WebSocket(wsUrl);
 
-  eventSource.onopen = () => {
+  socket.onopen = () => {
     reconnectMs = 1000;
     setConn(true);
+    // Initial ping to verify bidirectional link
+    socket.send(JSON.stringify({ type: 'ping' }));
   };
 
-  eventSource.onmessage = (e) => {
-    try { dispatch(JSON.parse(e.data)); }
-    catch (err) { console.error('SSE parse error', err); }
+  socket.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === 'pong') {
+        return;
+      }
+      dispatch(data);
+    }
+    catch (err) { console.error('WebSocket parse error', err); }
   };
 
-  eventSource.onerror = () => {
+  socket.onclose = () => {
     setConn(false);
-    eventSource.close();
-    eventSource = null;
+    socket = null;
     setTimeout(connect, reconnectMs);
     reconnectMs = Math.min(reconnectMs * 2, 30000);
+  };
+
+  socket.onerror = () => {
+    socket.close();
   };
 }
 
@@ -170,6 +204,10 @@ function dispatch(ev) {
       const prev = rooms[ev.room.room_id];
       rooms[ev.room.room_id] = ev.room;
       renderCard(ev.room, false, prev);
+      if (channelFilter === ev.room.room_id) {
+        renderRoomDetail(ev.room);
+        renderActivityLog(ev.room.room_id);
+      }
       updateSummary();
       updateEpicStatuses();
       (ev.new_messages || []).forEach(m => pushMsg(ev.room.room_id, m));
@@ -185,10 +223,95 @@ function dispatch(ev) {
     case 'release':
       showRelease(ev.content);
       break;
+
+    case 'reaction_toggled':
+      // Engagement update (real-time)
+      console.log('Reaction toggled:', ev);
+      if (typeof updateEngagementUI === 'function') {
+        updateEngagementUI(ev.entity_id, ev.state);
+      }
+      break;
+
+    case 'comment_published':
+      // Engagement update (real-time)
+      console.log('Comment published:', ev);
+      if (typeof updateEngagementUI === 'function') {
+        updateEngagementUI(ev.entity_id, ev.state);
+      }
+      break;
+      console.log('Comment published:', ev);
+      break;
   }
 }
 
-// ── War-Room Cards ─────────────────────────────────────────────────────────
+// ── View Management ────────────────────────────────────────────────────────
+
+let currentView = 'grid';
+
+window.setView = function(view) {
+  currentView = view;
+  const btnGrid = document.getElementById('btn-grid');
+  const btnMatrix = document.getElementById('btn-matrix');
+  if (btnGrid) btnGrid.classList.toggle('active', view === 'grid');
+  if (btnMatrix) btnMatrix.classList.toggle('active', view === 'matrix');
+
+  const grid = document.getElementById('room-grid');
+  const matrix = document.getElementById('goal-matrix');
+  if (grid) grid.style.display = view === 'grid' ? 'grid' : 'none';
+  if (matrix) matrix.style.display = view === 'matrix' ? 'block' : 'none';
+
+  if (view === 'matrix') renderGoalMatrix();
+};
+
+function renderGoalMatrix() {
+  const head = document.getElementById('matrix-head');
+  const body = document.getElementById('matrix-body');
+  if (!head || !body) return;
+
+  const roomList = Object.values(rooms);
+  if (roomList.length === 0) {
+    body.innerHTML = '<tr><td colspan="100" style="text-align:center; padding: 40px; color: var(--text-dim)">No active rooms</td></tr>';
+    return;
+  }
+
+  // Collect all unique goal names across all rooms
+  const allGoals = new Set();
+  roomList.forEach(r => {
+    if (r.task_description) {
+      const tasks = r.task_description.match(/- \[[ xX\-\!]+\] .+/g) || [];
+      tasks.forEach(t => allGoals.add(t.replace(/- \[[ xX\-\!]+\] /, '')));
+    }
+  });
+
+  const goalArray = Array.from(allGoals);
+
+  // Render header
+  head.innerHTML = '<th>Goal / Room</th>' + roomList.map(r => `<th>${esc(r.room_id)}</th>`).join('');
+
+  // Render body
+  body.innerHTML = goalArray.map(goal => {
+    return `<tr>
+      <td style="font-weight: 500">${esc(goal)}</td>
+      ${roomList.map(r => {
+        let status = '';
+        if (r.task_description) {
+          const lines = r.task_description.split('\n');
+          const taskLine = lines.find(line => line.includes(goal) && line.trim().startsWith('- ['));
+          if (taskLine) {
+            if (taskLine.includes('[x]') || taskLine.includes('[X]')) {
+              status = '<span class="cell-passed">✓</span>';
+            } else if (taskLine.includes('[-]') || taskLine.includes('[!]')) {
+              status = '<span class="cell-failed">✗</span>';
+            } else {
+              status = '<span class="cell-pending">○</span>';
+            }
+          }
+        }
+        return `<td class="matrix-cell">${status}</td>`;
+      }).join('')}
+    </tr>`;
+  }).join('');
+}
 
 function renderCard(room, isNew = false, prev = null) {
   const grid = document.getElementById('room-grid');
@@ -214,6 +337,7 @@ function renderCard(room, isNew = false, prev = null) {
   const label = STATUS_LABEL[room.status] || room.status.toUpperCase();
   const pct = PROGRESS_PCT[room.status] ?? 0;
   const isActive = ['engineering', 'qa-review', 'fixing'].includes(room.status);
+  const goalPct = room.goal_total > 0 ? Math.round((room.goal_done / room.goal_total) * 100) : 0;
 
   card.dataset.status = room.status;
   card.style.setProperty('--status-color', color);
@@ -226,13 +350,19 @@ function renderCard(room, isNew = false, prev = null) {
     </div>
     <div class="rc-ref">${esc(room.task_ref)}</div>
     <div class="rc-desc">${esc(trunc(room.task_description || '', 90))}</div>
+    
+    <div class="rc-goal-stats" style="display: flex; justify-content: space-between; font-size: 8px; color: var(--text-dim); margin-bottom: 4px;">
+      <span>GOALS: ${room.goal_done}/${room.goal_total}</span>
+      <span>${goalPct}%</span>
+    </div>
+
     <div class="rc-bar-wrap">
       <div class="rc-bar" style="width:${pct}%;background:${color}${isActive ? ';animation:barPulse 1.5s ease-in-out infinite' : ''}"></div>
     </div>
     <div class="rc-foot">
-      <span style="color:#555">⬡ ${room.message_count}</span>
+      <span style="color:var(--text-dim)">⬡ ${room.message_count}</span>
       ${room.retries > 0 ? `<span style="color:#ff9f43">↻${room.retries}</span>` : ''}
-      <span style="color:#333">${fmtTime(room.last_activity)}</span>
+      <span style="color:var(--text-dim)">${fmtTime(room.last_activity)}</span>
     </div>
   `;
 
@@ -289,9 +419,123 @@ function selectRoom(roomId) {
   document.querySelectorAll('.room-card').forEach(c => {
     c.classList.toggle('selected', c.id === `room-${channelFilter}`);
   });
-  const title = document.querySelector('.panel-right .panel-title');
+
+  const detail = document.getElementById('room-detail');
+  if (detail) {
+    if (channelFilter && rooms[channelFilter]) {
+      renderRoomDetail(rooms[channelFilter]);
+      detail.style.display = 'block';
+    } else {
+      detail.style.display = 'none';
+    }
+  }
+
+  const title = document.getElementById('panel-right-title');
   if (title) title.textContent = channelFilter ? `▸ ${channelFilter}` : '▸ CHANNEL FEED';
   reloadFeed();
+}
+
+window.roomAction = async function(action) {
+  if (!channelFilter) return;
+  const roomId = channelFilter;
+
+  try {
+    const res = await fetch(`/api/rooms/${roomId}/action?action=${action}`, { method: 'POST' });
+    if (res.ok) {
+      console.log(`Room ${roomId} ${action} successful`);
+    }
+  } catch (e) {
+    console.error(`Failed to ${action} room:`, e);
+  }
+};
+
+function renderRoomDetail(room) {
+  setTxt('detail-room-id', room.room_id);
+  setTxt('detail-task-ref', room.task_ref);
+
+  const pct = PROGRESS_PCT[room.status] ?? 0;
+  const color = STATUS_COLOR[room.status] || '#555';
+  const bar = document.getElementById('detail-bar');
+  if (bar) {
+    bar.style.width = `${pct}%`;
+    bar.style.background = color;
+  }
+
+  // Update action buttons
+  const startBtn = document.getElementById('btn-start-room');
+  const pauseBtn = document.getElementById('btn-pause-room');
+  const stopBtn = document.getElementById('btn-stop-room');
+
+  if (startBtn) {
+    startBtn.style.display = (room.status === 'paused' || room.status === 'failed-final') ? 'inline-block' : 'none';
+  }
+
+  if (pauseBtn) {
+    if (room.status === 'paused') {
+      pauseBtn.textContent = 'resume';
+      pauseBtn.onclick = () => roomAction('resume');
+      pauseBtn.style.display = 'inline-block';
+    } else {
+      pauseBtn.textContent = 'pause';
+      pauseBtn.onclick = () => roomAction('pause');
+      pauseBtn.style.display = ['engineering', 'qa-review', 'fixing'].includes(room.status) ? 'inline-block' : 'none';
+    }
+  }
+
+  if (stopBtn) {
+    stopBtn.style.display = ['engineering', 'qa-review', 'fixing', 'paused', 'pending'].includes(room.status) ? 'inline-block' : 'none';
+  }
+
+  // Parse task description for goals
+  const list = document.getElementById('detail-goal-list');
+  if (list && room.task_description) {
+     const tasks = room.task_description.match(/- \[[ xX\-\!]+\] .+/g) || [];
+     list.innerHTML = tasks.map(t => {
+        const checked = t.includes('[x]') || t.includes('[X]');
+        const failed = t.includes('[-]') || t.includes('[!]');
+        const text = t.replace(/- \[[ xX\-\!]+\] /, '');
+        let icon = checked ? '✓' : (failed ? '✗' : '');
+        let cls = checked ? 'checked' : (failed ? 'failed' : '');
+        return `
+          <div class="goal-item">
+            <span class="goal-checkbox ${cls}">${icon}</span>
+            <span class="goal-text">${esc(text)}</span>
+          </div>
+        `;
+     }).join('');
+  }
+
+  // Fetch and render activity log
+  renderActivityLog(room.room_id);
+}
+
+async function renderActivityLog(roomId) {
+  const logContainer = document.getElementById('detail-activity-log');
+  if (!logContainer) return;
+
+  try {
+    const res = await fetch(`/api/notifications?room_id=${roomId}&limit=20`);
+    const data = await res.json();
+    const logs = data.notifications || [];
+
+    if (logs.length === 0) {
+      logContainer.innerHTML = '<div style="padding: 10px; color: var(--text-dim)">No activity recorded.</div>';
+      return;
+    }
+
+    logContainer.innerHTML = logs.map(entry => {
+      const ts = fmtTime(entry.ts);
+      const event = entry.event.replace(/_/g, ' ');
+      return `
+        <div class="activity-item">
+          <span class="activity-ts">${ts}</span>
+          <span class="activity-event">${event}</span>
+        </div>
+      `;
+    }).reverse().join('');
+  } catch (e) {
+    console.error('Failed to fetch activity log:', e);
+  }
 }
 
 async function reloadFeed() {
@@ -389,6 +633,8 @@ function updateSummary() {
   setTxt('sum-qa', qa);
   setTxt('sum-passed', passed);
   setTxt('sum-failed', failed);
+
+  if (currentView === 'matrix') renderGoalMatrix();
 
   // Pipeline highlight
   highlightPipeline(list);
@@ -565,21 +811,52 @@ async function loadPlanHistory() {
     });
 
     if (count) count.textContent = `${planHistory.length} plans`;
+    renderPlanQueue();
   } catch (e) {
     console.error('Failed to load plan history:', e);
   }
 }
 
-window.loadPlanFromHistory = async function () {
+function renderPlanQueue() {
+  const list = document.getElementById('plan-queue-list');
+  if (!list) return;
+
+  if (planHistory.length === 0) {
+    list.innerHTML = '<div class="empty-queue">Queue is empty</div>';
+    return;
+  }
+
+  list.innerHTML = planHistory.map(p => {
+    let status = p.status;
+    if (status === 'launched') status = 'active';
+    else if (status === 'stored') status = 'queued';
+    
+    const statusClass = `status-${status}`;
+    return `
+      <div class="plan-queue-item ${status === 'active' ? 'active' : ''}" onclick="loadPlan('${esc(p.plan_id)}')">
+        <div class="plan-queue-header">
+          <span class="plan-queue-title">${esc(p.title || p.plan_id)}</span>
+          <span class="plan-queue-status ${statusClass}">${status}</span>
+        </div>
+        <div style="font-size: 8px; color: var(--text-dim)">
+          ${p.epic_count} epics • ${fmtTime(p.created_at)}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.loadPlan = async function (planId) {
   const select = document.getElementById('plan-select');
   const textarea = document.getElementById('plan-input');
-  if (!select || !textarea) return;
+  if (!textarea) return;
 
-  const planId = select.value;
+  if (select) select.value = planId;
+
   if (!planId) {
-    // "new plan" selected — clear epic tracker
     activePlanId = null;
     hideEpicTracker();
+    textarea.value = '';
     return;
   }
 
@@ -595,6 +872,12 @@ window.loadPlanFromHistory = async function () {
   } catch (e) {
     console.error('Failed to load plan:', e);
   }
+};
+
+window.loadPlanFromHistory = async function () {
+  const select = document.getElementById('plan-select');
+  if (!select) return;
+  loadPlan(select.value);
 };
 
 function showEpicTracker(epics) {

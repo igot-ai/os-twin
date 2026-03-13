@@ -405,6 +405,18 @@ setup_venv() {
     fi
     ok "MCP dependencies installed"
   fi
+
+  # Install Dashboard requirements
+  local dash_reqs="$INSTALL_DIR/dashboard/requirements.txt"
+  if [[ -f "$dash_reqs" ]]; then
+    step "Installing dashboard dependencies (FastAPI, uvicorn, websockets)..."
+    if check_uv; then
+      uv pip install --quiet --python "$VENV_DIR/bin/python" -r "$dash_reqs"
+    else
+      "$VENV_DIR/bin/pip" install --quiet -r "$dash_reqs"
+    fi
+    ok "Dashboard dependencies installed"
+  fi
 }
 
 # ─── File installation ───────────────────────────────────────────────────────
@@ -418,6 +430,14 @@ install_files() {
   # Copy hidden files (like .claude/)
   find "$SCRIPT_DIR" -maxdepth 1 -name '.*' -not -name '.' -not -name '..' \
     -exec cp -r {} "$INSTALL_DIR/" \; 2>/dev/null || true
+
+  # Copy dashboard (source repo layout: dashboard/ is sibling to .agents/)
+  if [[ -d "$SCRIPT_DIR/../dashboard" ]] && [[ -f "$SCRIPT_DIR/../dashboard/api.py" ]]; then
+    step "Copying web dashboard..."
+    rm -rf "$INSTALL_DIR/dashboard" 2>/dev/null || true
+    cp -r "$SCRIPT_DIR/../dashboard" "$INSTALL_DIR/dashboard"
+    ok "Dashboard copied (api.py, index.html, assets)"
+  fi
 
   # Make scripts executable
   find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
@@ -640,6 +660,35 @@ else
   echo -e "    venv:             ${RED}❌ not created${NC}"
 fi
 
+# ─── 8. Start Dashboard ──────────────────────────────────────────────────────
+
+header "8. Starting dashboard"
+
+DASHBOARD_SCRIPT="$INSTALL_DIR/dashboard.sh"
+if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; then
+  # Kill any existing dashboard on :9000
+  if lsof -ti:9000 >/dev/null 2>&1; then
+    step "Stopping existing process on :9000..."
+    kill "$(lsof -ti:9000)" 2>/dev/null || true
+    sleep 1
+  fi
+
+  step "Starting dashboard on http://localhost:9000..."
+  nohup bash "$DASHBOARD_SCRIPT" --background > "$INSTALL_DIR/logs/dashboard.log" 2>&1 &
+  DASHBOARD_PID=$!
+  echo "$DASHBOARD_PID" > "$INSTALL_DIR/dashboard.pid"
+  sleep 2
+
+  if kill -0 "$DASHBOARD_PID" 2>/dev/null; then
+    ok "Dashboard running on http://localhost:9000 (PID $DASHBOARD_PID)"
+  else
+    warn "Dashboard failed to start — check $INSTALL_DIR/logs/dashboard.log"
+  fi
+else
+  warn "Dashboard not found — skipping auto-start"
+  info "Re-run install or copy dashboard/ manually"
+fi
+
 # ─── Done! ────────────────────────────────────────────────────────────────────
 
 SHELL_NAME=$(basename "${SHELL:-/bin/bash}")
@@ -655,6 +704,10 @@ echo -e "    ${CYAN}2.${NC} Verify installation:       ${DIM}ostwin health${NC}"
 echo -e "    ${CYAN}3.${NC} Initialize a project:      ${DIM}ostwin init ~/my-project${NC}"
 echo -e "    ${CYAN}4.${NC} Set your API key:          ${DIM}export GOOGLE_API_KEY=\"your-key\"${NC}"
 echo -e "    ${CYAN}5.${NC} Run your first plan:       ${DIM}ostwin run plans/my-plan.md${NC}"
+echo ""
+echo -e "  ${BOLD}Dashboard:${NC}"
+echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
+echo -e "    ${DIM}Stop with: ostwin stop${NC}"
 echo ""
 echo -e "  ${BOLD}API Key Setup:${NC}"
 echo -e "    ${DIM}# Google (default model: gemini-3-flash-preview)${NC}"

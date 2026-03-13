@@ -3,7 +3,7 @@
 #
 # Starts the FastAPI web dashboard for monitoring war-rooms.
 #
-# Usage: dashboard.sh [--port PORT] [--project-dir PATH]
+# Usage: dashboard.sh [--port PORT] [--project-dir PATH] [--background]
 
 set -euo pipefail
 
@@ -24,20 +24,23 @@ else
 fi
 PORT=9000
 PROJECT_DIR="$(pwd)"
+BACKGROUND=false
 
-# while [[ $# -gt 0 ]]; do
-#   case "$1" in
-#     --port)        PORT="$2"; shift 2 ;;
-#     --project-dir) PROJECT_DIR="$2"; shift 2 ;;
-#     -h|--help)
-#       echo "Usage: dashboard.sh [--port PORT] [--project-dir PATH]"
-#       echo "  --port PORT         Server port (default: 9000)"
-#       echo "  --project-dir PATH  Project to monitor (default: current directory)"
-#       exit 0
-#       ;;
-#     *) shift ;;
-#   esac
-# done
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port)        PORT="$2"; shift 2 ;;
+    --project-dir) PROJECT_DIR="$2"; shift 2 ;;
+    --background)  BACKGROUND=true; shift ;;
+    -h|--help)
+      echo "Usage: dashboard.sh [--port PORT] [--project-dir PATH] [--background]"
+      echo "  --port PORT         Server port (default: 9000)"
+      echo "  --project-dir PATH  Project to monitor (default: current directory)"
+      echo "  --background        Run in background (write PID to dashboard.pid)"
+      exit 0
+      ;;
+    *) shift ;;
+  esac
+done
 
 if [[ -z "$DASHBOARD_DIR" ]] || [[ ! -f "$DASHBOARD_DIR/api.py" ]]; then
   echo "[ERROR] Web dashboard not found." >&2
@@ -60,11 +63,24 @@ fi
 # Resolve project dir to absolute path
 PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
-echo "[DASHBOARD] Starting web dashboard on http://localhost:${PORT}"
-echo "  Project: $PROJECT_DIR"
-echo "  War-rooms: $PROJECT_DIR/.war-rooms"
-echo "  Press Ctrl+C to stop."
-echo ""
+PID_FILE="$AGENTS_DIR/dashboard.pid"
 
-cd "$DASHBOARD_DIR"
-exec "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR"
+if $BACKGROUND; then
+  echo "[DASHBOARD] Starting in background on http://localhost:${PORT}"
+  echo "  Project: $PROJECT_DIR"
+  cd "$DASHBOARD_DIR"
+  nohup "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR" > "$AGENTS_DIR/logs/dashboard.log" 2>&1 &
+  DASH_PID=$!
+  echo "$DASH_PID" > "$PID_FILE"
+  echo "  PID: $DASH_PID (log: $AGENTS_DIR/logs/dashboard.log)"
+else
+  echo "[DASHBOARD] Starting web dashboard on http://localhost:${PORT}"
+  echo "  Project: $PROJECT_DIR"
+  echo "  War-rooms: $PROJECT_DIR/.war-rooms"
+  echo "  Press Ctrl+C to stop."
+  echo ""
+  echo "$$" > "$PID_FILE"
+  cd "$DASHBOARD_DIR"
+  exec "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR"
+fi
+

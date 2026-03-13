@@ -36,6 +36,9 @@
     <div class="topbar-conn">
       <span class="conn-dot" id="conn-dot"></span>
       <span id="conn-status">connecting...</span>
+      <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()">
+        <span id="theme-icon">🌙</span>
+      </button>
     </div>
   </header>
 
@@ -100,6 +103,14 @@
             <option value="">— new plan —</option>
           </select>
           <span class="plan-count" id="plan-count"></span>
+        </div>
+
+        <!-- Plan Queue -->
+        <div class="plan-queue-section" id="plan-queue-section">
+          <label class="field-label">Plan Queue</label>
+          <div class="plan-queue-list" id="plan-queue-list">
+            <div class="empty-queue">Queue is empty</div>
+          </div>
         </div>
 
         <label class="field-label">Plan File</label>
@@ -169,7 +180,13 @@ Acceptance criteria:
     <!-- Center Panel: War-Room Grid -->
     <section class="panel panel-center">
       <div class="panel-header">
-        <span class="panel-title">⬡ WAR-ROOMS</span>
+        <div class="header-left">
+          <span class="panel-title">⬡ WAR-ROOMS</span>
+          <div class="view-toggle">
+            <button class="view-btn active" id="btn-grid" onclick="setView('grid')">grid</button>
+            <button class="view-btn" id="btn-matrix" onclick="setView('matrix')">matrix</button>
+          </div>
+        </div>
         <div class="summary-chips" id="summary-chips">
           <span class="summary-chip chip-pending">pending: <span id="sum-pending">0</span></span>
           <span class="summary-chip chip-eng">eng: <span id="sum-eng">0</span></span>
@@ -195,17 +212,59 @@ Acceptance criteria:
             <p class="empty-sub">Launch a plan to get started.</p>
           </div>
         </div>
+
+        <div class="goal-matrix" id="goal-matrix" style="display:none">
+          <table class="matrix-table">
+            <thead>
+              <tr id="matrix-head">
+                <th>Goal / Room</th>
+              </tr>
+            </thead>
+            <tbody id="matrix-body">
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <!-- Right Panel: Channel Feed -->
+    <!-- Right Panel: Room Detail & Channel Feed -->
     <aside class="panel panel-right">
       <div class="panel-header">
-        <span class="panel-title">▸ CHANNEL FEED</span>
-        <button class="clear-btn" onclick="clearFeed()">clear</button>
+        <span class="panel-title" id="panel-right-title">▸ CHANNEL FEED</span>
+        <button class="clear-btn" id="clear-feed-btn" onclick="clearFeed()">clear</button>
       </div>
 
       <div class="panel-body">
+        <!-- Room Detail Section -->
+        <div id="room-detail" class="room-detail" style="display:none">
+          <div class="detail-header">
+             <div class="detail-header-top">
+               <div id="detail-room-id" class="detail-room-id"></div>
+               <div class="room-actions">
+                 <button class="action-btn-mini start" id="btn-start-room" onclick="roomAction('start')">start</button>
+                 <button class="action-btn-mini" id="btn-pause-room" onclick="roomAction('pause')">pause</button>
+                 <button class="action-btn-mini stop" id="btn-stop-room" onclick="roomAction('stop')">stop</button>
+               </div>
+             </div>
+             <div id="detail-task-ref" class="detail-task-ref"></div>
+          </div>
+          <div class="detail-progress">
+             <div id="detail-bar-wrap" class="rc-bar-wrap">
+                <div id="detail-bar" class="rc-bar"></div>
+             </div>
+          </div>
+          <div class="detail-goals">
+             <label class="field-label">Goal Checklist</label>
+             <div id="detail-goal-list" class="goal-list"></div>
+          </div>
+          <div class="detail-activity">
+             <label class="field-label">Activity Log</label>
+             <div id="detail-activity-log" class="activity-log"></div>
+          </div>
+          <div class="detail-divider"></div>
+          <label class="field-label">Messages</label>
+        </div>
+
         <div class="feed" id="channel-feed">
           <div class="feed-empty">Waiting for messages...</div>
         </div>

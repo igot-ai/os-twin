@@ -209,4 +209,8 @@ else {
     }
 }
 
+# --- Clean up PID file (after channel message is posted) ---
+$qaPidFile = Join-Path $RoomDir "pids" "qa.pid"
+Remove-Item $qaPidFile -Force -ErrorAction SilentlyContinue
+
 exit $result.ExitCode

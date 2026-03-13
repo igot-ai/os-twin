@@ -65,3 +65,19 @@ if kill -0 "$PID" 2>/dev/null; then
     exit 1
   fi
 fi
+
+# --- Stop dashboard if running ---
+DASHBOARD_PID_FILE="$AGENTS_DIR/dashboard.pid"
+if [[ -f "$DASHBOARD_PID_FILE" ]]; then
+  DASH_PID=$(cat "$DASHBOARD_PID_FILE")
+  if kill -0 "$DASH_PID" 2>/dev/null; then
+    echo "[STOP] Stopping dashboard (PID $DASH_PID)..."
+    kill "$DASH_PID" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$DASH_PID" 2>/dev/null; then
+      kill -9 "$DASH_PID" 2>/dev/null || true
+    fi
+    echo "[STOP] Dashboard stopped."
+  fi
+  rm -f "$DASHBOARD_PID_FILE"
+fi

@@ -128,52 +128,59 @@ $pidFile = Join-Path $pidsDir "$RoleName.pid"
 # --- Write PID before execution so manager can track ---
 $PID | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
 
-# --- Build CLI arguments ---
-$cliArgs = @("-n", $Prompt)
 
-if ($AutoApprove) {
-    $cliArgs += "--auto-approve"
-}
-
-if ($Model) {
-    $cliArgs += @("--model", $Model)
-}
-
-# Shell allow list for engineer
-if ($RoleName -eq 'engineer') {
-    $cliArgs += @("--shell-allow-list", "all")
-}
-
-if ($Quiet) {
-    $cliArgs += "-q"
-}
-
-$cliArgs += $ExtraArgs
 
 # --- Execute with timeout ---
 $exitCode = 0
 try {
-    $job = Start-Job -ScriptBlock {
-        param($cmd, $args, $outFile, $cwd)
-        if ($cwd -and (Test-Path $cwd)) {
-            Set-Location $cwd
-        }
-        & $cmd @args 2>&1 | Tee-Object -FilePath $outFile
-    } -ArgumentList $AgentCmd, $cliArgs, $outputFile, $WorkingDir
+    $stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
+                 else { "NUL" }
 
-    $completed = $job | Wait-Job -Timeout $TimeoutSeconds
+    # Write prompt to a file to avoid shell escaping issues
+    $promptFile = Join-Path $artifactsDir "prompt.txt"
+    $Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
 
-    if ($null -eq $completed) {
+    # Build non-prompt CLI args safely
+    $extraCliArgs = @()
+    if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
+    if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
+    if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
+    if ($Quiet) { $extraCliArgs += "-q" }
+    $extraCliArgs += $ExtraArgs
+
+    $argsLine = ($extraCliArgs | ForEach-Object {
+        if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
+    }) -join ' '
+
+    # Write wrapper script
+    $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+    $safeOutput = $outputFile -replace "'", "'\''"
+    $safePrompt = $promptFile -replace "'", "'\''"
+    $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
+
+    $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
+    $scriptContent = @"
+#!/bin/bash
+$cwdLine
+$AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
+"@
+    $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
+    chmod +x $wrapperScript 2>$null
+
+    $proc = Start-Process -FilePath "bash" `
+        -ArgumentList $wrapperScript `
+        -NoNewWindow -PassThru `
+        -RedirectStandardInput $stdinNull
+
+    $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
+    if (-not $proc.HasExited) {
         # Timeout
-        $job | Stop-Job
-        $job | Remove-Job -Force
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
         $exitCode = 124
-        "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8
+        "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
     }
     else {
-        $job | Receive-Job -ErrorAction SilentlyContinue | Out-Null
-        $exitCode = if ($job.State -eq 'Failed') { 1 } else { 0 }
-        $job | Remove-Job -Force
+        $exitCode = $proc.ExitCode
     }
 }
 catch {
@@ -187,8 +194,9 @@ $output = if (Test-Path $outputFile) {
 }
 else { "No output captured" }
 
-# --- Clean up PID file ---
-Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+# Note: PID file is NOT removed here. The caller (Start-Engineer/Start-QA)
+# must clean it up after posting the channel message, to avoid race conditions
+# with the manager's deadlock detection.
 
 # --- Return result ---
 [PSCustomObject]@{
