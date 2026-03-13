@@ -31,6 +31,8 @@ AUTO_YES=false
 SKIP_OPTIONAL=false
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
+PYTHON_VERSION=""
+PWSH_VERSION=""
 
 # ─── Argument parsing ────────────────────────────────────────────────────────
 
@@ -149,6 +151,15 @@ check_python() {
       fi
     fi
   done
+  # Fallback: check uv-managed Python
+  if [[ -z "$py_cmd" ]] && check_uv; then
+    local uv_py
+    uv_py=$(uv python find 2>/dev/null || true)
+    if [[ -n "$uv_py" && -x "$uv_py" ]]; then
+      PYTHON_VERSION=$($uv_py --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+      py_cmd="$uv_py"
+    fi
+  fi
   echo "$py_cmd"
 }
 

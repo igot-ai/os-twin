@@ -7,14 +7,39 @@
 
 set -euo pipefail
 
-# Resolve AGENTS_DIR (supports both installed and in-repo usage)
-if [[ -L "$0" ]]; then
-  REAL_PATH="$(readlink "$0")"
-  BIN_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
+# Resolve AGENTS_DIR: search from cwd upward for .agents, fallback to script-relative
+AGENTS_DIR=""
+if [[ -d "$(pwd)/.agents" && -f "$(pwd)/.agents/config.json" ]]; then
+  # Running from project root (e.g., /project)
+  AGENTS_DIR="$(cd "$(pwd)/.agents" && pwd)"
+elif [[ -f "$(pwd)/config.json" && -d "$(pwd)/bin" ]]; then
+  # Running from inside .agents itself
+  AGENTS_DIR="$(pwd)"
 else
-  BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+  # Walk up to find .agents (e.g., running from .agents/plans/)
+  _dir="$(pwd)"
+  while [[ "$_dir" != "/" ]]; do
+    if [[ -f "$_dir/config.json" && -d "$_dir/bin" ]]; then
+      AGENTS_DIR="$_dir"
+      break
+    fi
+    if [[ -d "$_dir/.agents" && -f "$_dir/.agents/config.json" ]]; then
+      AGENTS_DIR="$(cd "$_dir/.agents" && pwd)"
+      break
+    fi
+    _dir="$(dirname "$_dir")"
+  done
 fi
-AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
+# Final fallback: script-relative
+if [[ -z "$AGENTS_DIR" ]]; then
+  if [[ -L "$0" ]]; then
+    REAL_PATH="$(readlink "$0")"
+    BIN_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
+  else
+    BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+  fi
+  AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
+fi
 PYTHON="${AGENTS_DIR}/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
