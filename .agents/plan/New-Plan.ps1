@@ -14,7 +14,7 @@
 .PARAMETER Goal
     High-level project goal for AI ideation.
 .PARAMETER PlanFile
-    Path to write the plan. Default: <ProjectDir>/.agents/plans/plan-<timestamp>.md
+    Path to write the plan. Default: <ProjectDir>/plan-<timestamp>.md
 .PARAMETER NonInteractive
     Skip interactive prompts and use defaults.
 
@@ -37,14 +37,10 @@ param(
 $agentsDir = Join-Path $ProjectDir ".agents"
 if (-not (Test-Path $agentsDir)) { $agentsDir = $PSScriptRoot | Split-Path }
 
-# --- Ensure plan directory ---
-$plansDir = Join-Path $agentsDir "plans"
-New-Item -ItemType Directory -Path $plansDir -Force | Out-Null
-
 # --- Generate plan file name ---
 if (-not $PlanFile) {
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $PlanFile = Join-Path $plansDir "plan-$timestamp.md"
+    $PlanFile = Join-Path $ProjectDir "plan-$timestamp.md"
 }
 
 # --- Interactive goal prompt ---

@@ -230,4 +230,27 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             $auditLines[-1] | Should -Match "qa-review -> passed"
         }
     }
+
+    Context "Blocked status (OPT-001)" {
+        It "blocked status is valid for Set-WarRoomStatus" {
+            & $script:NewWarRoom -RoomId "room-060" -TaskRef "TASK-060" `
+                                 -TaskDescription "Block test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-060"
+
+            { Set-WarRoomStatus -RoomDir $roomDir -NewStatus "blocked" } | Should -Not -Throw
+
+            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $status | Should -Be "blocked"
+        }
+
+        It "blocked counts as terminal (not active)" {
+            & $script:NewWarRoom -RoomId "room-061" -TaskRef "TASK-061" `
+                                 -TaskDescription "Block test 2" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-061"
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "blocked"
+            $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
+            $audit | Should -Match "pending -> blocked"
+        }
+    }
 }

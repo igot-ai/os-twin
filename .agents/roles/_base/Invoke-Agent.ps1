@@ -172,6 +172,10 @@ $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
         -NoNewWindow -PassThru `
         -RedirectStandardInput $stdinNull
 
+    # Overwrite PID file with the actual bash child PID (not PS $PID)
+    # so manager's Test-PidAlive can detect when the agent process dies.
+    $proc.Id | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
+
     $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
     if (-not $proc.HasExited) {
         # Timeout
@@ -193,6 +197,10 @@ $output = if (Test-Path $outputFile) {
     Get-Content $outputFile -Raw -ErrorAction SilentlyContinue
 }
 else { "No output captured" }
+
+# --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
+Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
+Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
 
 # Note: PID file is NOT removed here. The caller (Start-Engineer/Start-QA)
 # must clean it up after posting the channel message, to avoid race conditions

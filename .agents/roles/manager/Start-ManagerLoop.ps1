@@ -66,6 +66,16 @@ if (-not $WarRoomsDir) {
                    else { Join-Path $agentsDir "war-rooms" }
 }
 
+# --- Load DAG if present ---
+$dagFile = Join-Path $WarRoomsDir "DAG.json"
+$hasDag = Test-Path $dagFile
+$testDepsReady = Join-Path $agentsDir "plan" "Test-DependenciesReady.ps1"
+$updateProgress = Join-Path $agentsDir "plan" "Update-Progress.ps1"
+$maxQaRetries = 2
+$script:lastProgressUpdate = 0
+$script:dagCache = $null
+$script:dagMtime = $null
+
 # --- Write PID ---
 $PID | Out-File -FilePath $managerPidFile -Encoding utf8 -NoNewline
 
@@ -170,6 +180,52 @@ function Write-Log {
     }
 }
 
+function Get-CachedDag {
+    if (-not (Test-Path $dagFile)) { return $null }
+    $mtime = (Get-Item $dagFile).LastWriteTimeUtc.Ticks
+    if ($script:dagCache -and $script:dagMtime -eq $mtime) {
+        return $script:dagCache
+    }
+    $script:dagCache = Get-Content $dagFile -Raw | ConvertFrom-Json
+    $script:dagMtime = $mtime
+    return $script:dagCache
+}
+
+function Set-BlockedDescendants {
+    param([string]$FailedTaskRef)
+    if (-not $hasDag) { return }
+    $dag = Get-CachedDag
+    if (-not $dag) { return }
+
+    # BFS through dependents
+    $bfsQueue = [System.Collections.Queue]::new()
+    $bfsQueue.Enqueue($FailedTaskRef)
+    $visited = @{}
+
+    while ($bfsQueue.Count -gt 0) {
+        $current = $bfsQueue.Dequeue()
+        if ($visited.ContainsKey($current)) { continue }
+        $visited[$current] = $true
+
+        $node = $dag.nodes.$current
+        if (-not $node) { continue }
+        $dependents = $node.dependents
+        if (-not $dependents) { continue }
+        foreach ($dep in $dependents) {
+            $depNode = $dag.nodes.$dep
+            if (-not $depNode) { continue }
+            $depRoomDir = Join-Path $WarRoomsDir $depNode.room_id
+            if (-not (Test-Path (Join-Path $depRoomDir "status"))) { continue }
+            $depStatus = (Get-Content (Join-Path $depRoomDir "status") -Raw).Trim()
+            if ($depStatus -eq "pending") {
+                Write-Log "WARN" "[$dep] Blocked: upstream $FailedTaskRef failed"
+                Write-RoomStatus $depRoomDir "blocked"
+            }
+            $bfsQueue.Enqueue($dep)
+        }
+    }
+}
+
 # === MAIN LOOP ===
 $iteration = 0
 $stallCycles = 0
@@ -209,8 +265,22 @@ while (-not $script:shuttingDown) {
             'pending' {
                 $allPassed = $false
                 $allTerminal = $false
+
+                # --- DEPENDENCY GATE ---
+                if ($hasDag) {
+                    $depResult = & $testDepsReady -RoomDir $roomDir -WarRoomsDir $WarRoomsDir
+                    if (-not $depResult.Ready) {
+                        if ($depResult.Reason -eq 'blocked') {
+                            Write-Log "WARN" "[$taskRef] Blocked by $($depResult.BlockedBy)"
+                            Write-RoomStatus $roomDir "blocked"
+                        }
+                        # still waiting or now blocked — skip this room
+                        continue
+                    }
+                }
+
                 if ((Get-ActiveCount) -lt $maxConcurrent) {
-                    Write-Log "INFO" "[$taskRef] Spawning engineer in $roomId..."
+                    Write-Log "INFO" "[$taskRef] Dependencies met. Spawning engineer in $roomId..."
                     Write-RoomStatus $roomDir "engineering"
                     Start-Job -ScriptBlock {
                         param($script, $room)
@@ -240,6 +310,7 @@ while (-not $script:shuttingDown) {
                     else {
                         Write-Log "ERROR" "[$taskRef] Max retries exceeded after timeout."
                         Write-RoomStatus $roomDir "failed-final"
+                        Set-BlockedDescendants $taskRef
                     }
                     continue
                 }
@@ -276,6 +347,7 @@ while (-not $script:shuttingDown) {
                             else {
                                 Write-Log "ERROR" "[$taskRef] Max retries exceeded. Marking as failed."
                                 Write-RoomStatus $roomDir "failed-final"
+                                Set-BlockedDescendants $taskRef
                             }
                         }
                         else {
@@ -331,6 +403,7 @@ while (-not $script:shuttingDown) {
                         else {
                             Write-Log "ERROR" "[$taskRef] Max retries exceeded after QA failure. Marking as failed."
                             Write-RoomStatus $roomDir "failed-final"
+                            Set-BlockedDescendants $taskRef
                         }
                     }
                     else {
@@ -339,8 +412,13 @@ while (-not $script:shuttingDown) {
                         if ($errorCount -gt 0) {
                             $errorBody = Get-LatestBody $roomDir "error"
                             Write-Log "WARN" "[$taskRef] QA error (verdict parse failure): $errorBody"
-                            if ($retries -lt $maxRetries) {
-                                Write-Log "INFO" "[$taskRef] Re-running QA review..."
+                            # Use separate qa_retries counter to prevent infinite QA retry loops
+                            $qaRetries = if (Test-Path (Join-Path $roomDir "qa_retries")) {
+                                [int](Get-Content (Join-Path $roomDir "qa_retries") -Raw).Trim()
+                            } else { 0 }
+                            if ($qaRetries -lt $maxQaRetries) {
+                                ($qaRetries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "qa_retries") -Encoding utf8 -NoNewline
+                                Write-Log "INFO" "[$taskRef] Re-running QA review (qa retry $($qaRetries + 1)/$maxQaRetries)..."
                                 Write-RoomStatus $roomDir "qa-review"
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
@@ -348,7 +426,9 @@ while (-not $script:shuttingDown) {
                                 } -ArgumentList $startQA, $roomDir | Out-Null
                             }
                             else {
+                                Write-Log "ERROR" "[$taskRef] QA retries exhausted ($maxQaRetries). Marking as failed."
                                 Write-RoomStatus $roomDir "failed-final"
+                                Set-BlockedDescendants $taskRef
                             }
                         }
                         else {
@@ -372,6 +452,11 @@ while (-not $script:shuttingDown) {
             'failed-final' {
                 $allPassed = $false
                 $failedCount++
+            }
+
+            'blocked' {
+                $allPassed = $false
+                $failedCount++  # counts toward terminal
             }
 
             default {
@@ -451,25 +536,35 @@ while (-not $script:shuttingDown) {
         }
     }
 
-    # === Exit on all-terminal (some failed) ===
+    # === Exit on all-terminal (some failed/blocked) ===
     if ($roomCount -gt 0 -and -not $allPassed -and $allTerminal) {
         Write-Host ""
         $passedRooms = $roomCount - $failedCount
-        Write-Log "ERROR" "All rooms terminal: $passedRooms passed, $failedCount failed-final. Exiting."
+        Write-Log "ERROR" "All rooms terminal: $passedRooms passed, $failedCount failed/blocked. Exiting."
+        Write-Log "INFO" "To resume: Start-Plan.ps1 -PlanFile <plan> -Resume"
         Remove-Item $managerPidFile -Force -ErrorAction SilentlyContinue
         break
     }
 
-    # Status summary every 10 iterations
-    if ($iteration % 10 -eq 0 -and $roomCount -gt 0) {
+    # OPT-002: Time-based progress throttle (10s minimum interval)
+    $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+    if ($roomCount -gt 0 -and ($nowEpoch - $script:lastProgressUpdate) -ge 10) {
         $passedCount = 0
-        $failedCount = 0
+        $failedSummary = 0
+        $blockedCount = 0
         Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue | ForEach-Object {
             $s2 = if (Test-Path (Join-Path $_.FullName "status")) { (Get-Content (Join-Path $_.FullName "status") -Raw).Trim() } else { "" }
             if ($s2 -eq 'passed') { $passedCount++ }
-            if ($s2 -eq 'failed-final') { $failedCount++ }
+            if ($s2 -eq 'failed-final') { $failedSummary++ }
+            if ($s2 -eq 'blocked') { $blockedCount++ }
         }
-        Write-Log "INFO" "Progress: $passedCount/$roomCount passed, $failedCount failed (iteration $iteration)"
+        Write-Log "INFO" "Progress: $passedCount/$roomCount passed, $failedSummary failed, $blockedCount blocked (iteration $iteration)"
+
+        # Update progress file if available
+        if (Test-Path $updateProgress) {
+            try { & $updateProgress -WarRoomsDir $WarRoomsDir } catch { }
+        }
+        $script:lastProgressUpdate = $nowEpoch
     }
 
     Start-Sleep -Seconds $pollInterval

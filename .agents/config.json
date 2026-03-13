@@ -10,7 +10,7 @@
   },
   "engineer": {
     "cli": "deepagents",
-    "default_model": "gemini-3-flash-preview",
+    "default_model": "gemini-3.1-pro-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 600,
@@ -21,14 +21,24 @@
         "default_model": "gemini-3-pro-preview",
         "timeout_seconds": 900,
         "working_dir": "dashboard",
-        "skills": ["javascript", "typescript", "css", "html"]
+        "skills": [
+          "javascript",
+          "typescript",
+          "css",
+          "html"
+        ]
       },
       "be": {
         "display_name": "Backend Engineer",
         "default_model": "gemini-3-flash-preview",
         "timeout_seconds": 600,
         "working_dir": "api",
-        "skills": ["python", "sql", "docker", "powershell"]
+        "skills": [
+          "python",
+          "sql",
+          "docker",
+          "powershell"
+        ]
       }
     }
   },

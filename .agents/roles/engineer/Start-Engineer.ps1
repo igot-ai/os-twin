@@ -181,7 +181,35 @@ else {
 "@
 }
 
-# --- Build the full prompt ---
+# --- Inject predecessor context from DAG ---
+$predecessorSection = ""
+$dagFile = Join-Path (Split-Path $RoomDir) "DAG.json"
+if (Test-Path $dagFile) {
+    $dag = Get-Content $dagFile -Raw | ConvertFrom-Json
+    $myNode = $dag.nodes.$taskRef
+    if ($myNode -and $myNode.depends_on -and $myNode.depends_on.Count -gt 0) {
+        $sections = @()
+        foreach ($depRef in $myNode.depends_on) {
+            $depNode = $dag.nodes.$depRef
+            if (-not $depNode) { continue }
+            $depRoomDir = Join-Path (Split-Path $RoomDir) $depNode.room_id
+            try {
+                $doneMsgs = & $readMessages -RoomDir $depRoomDir -FilterType "done" -Last 1 -AsObject
+                if ($doneMsgs -and $doneMsgs.Count -gt 0) {
+                    $body = $doneMsgs[-1].body
+                    # Truncate to 10KB per predecessor
+                    if ($body.Length -gt 10240) { $body = $body.Substring(0, 10240) + "`n[TRUNCATED]" }
+                    $sections += "### $depRef`n$body"
+                }
+            } catch { }
+        }
+        if ($sections.Count -gt 0) {
+            $predecessorSection = "`n`n## Predecessor Outputs`n`n$($sections -join "`n`n")"
+        }
+    }
+}
+
+# --- Assemble final prompt ---
 $prompt = @"
 $rolePrompt
 
@@ -200,7 +228,7 @@ $latestBody
 Room: $roomName
 Task Ref: $taskRef
 Working Directory: $workingDir
-
+$predecessorSection
 ## Instructions
 
 $instructions

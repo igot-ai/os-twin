@@ -3,8 +3,11 @@
     Parses a plan file and spawns war-rooms for each epic/task.
 
 .DESCRIPTION
-    Reads a plan markdown file, extracts epics and tasks with their goals,
-    creates war-rooms for each, and starts the manager loop.
+    Reads a plan markdown file, extracts epics and tasks with their goals
+    and dependencies, creates war-rooms for each, builds the dependency
+    graph (DAG), and starts the manager loop.
+
+    Supports -Resume to restart from existing war-rooms without recreating them.
 
     Replaces: run.sh
 
@@ -14,10 +17,14 @@
     Project root. Default: current directory.
 .PARAMETER DryRun
     Parse and show what would be created, but don't actually create rooms or start the loop.
+.PARAMETER Resume
+    Skip room creation, rebuild DAG from existing rooms, and restart the manager loop.
+    Rooms in 'blocked' state will be reset to 'pending' if their upstream deps are no longer failed.
 
 .EXAMPLE
     ./Start-Plan.ps1 -PlanFile "./plans/plan-001.md" -ProjectDir "/project"
     ./Start-Plan.ps1 -PlanFile "./plans/plan-001.md" -DryRun
+    ./Start-Plan.ps1 -PlanFile "./plans/plan-001.md" -Resume
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +33,9 @@ param(
 
     [string]$ProjectDir = (Get-Location).Path,
 
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [switch]$Resume
 )
 
 # --- Resolve paths ---
@@ -38,10 +47,13 @@ if (-not (Test-Path $agentsDir)) {
 
 $newWarRoom = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
 $managerLoop = Join-Path $agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+$buildDag = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
 
 # --- Import modules ---
 $logModule = Join-Path $agentsDir "lib" "Log.psm1"
 if (Test-Path $logModule) { Import-Module $logModule -Force }
+$utilsModule = Join-Path $agentsDir "lib" "Utils.psm1"
+if (Test-Path $utilsModule) { Import-Module $utilsModule -Force }
 
 # --- Validate plan file ---
 if (-not (Test-Path $PlanFile)) {
@@ -60,6 +72,7 @@ $epicPattern = '###\s+(EPIC-\d+)\s*[—–-]\s*(.+)'
 $taskPattern = '- \[[ x]\]\s+(TASK-\d+)\s*[—–-]\s*(.+)'
 $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|###|---|\z)'
 $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|###|---|\z)'
+$depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
 
 # Extract epics
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
@@ -88,12 +101,22 @@ foreach ($em in $epicMatches) {
         $ac = [regex]::Matches($acBlock, '- \[[ x]\]\s*(.+)') | ForEach-Object { $_.Groups[1].Value.Trim() }
     }
 
+    # Extract depends_on
+    $depsOn = @()
+    if ($epicSection -match $depsPattern) {
+        $rawDeps = $Matches[1]
+        if ($rawDeps.Trim()) {
+            $depsOn = ($rawDeps -split ',') | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ }
+        }
+    }
+
     $parsed.Add([PSCustomObject]@{
         RoomId      = "room-$('{0:D3}' -f $roomIndex)"
         TaskRef     = $epicRef
         Description = $epicDesc
         DoD         = $dod
         AC          = $ac
+        DependsOn   = $depsOn
         Type        = 'epic'
     })
     $roomIndex++
@@ -109,6 +132,7 @@ if ($parsed.Count -eq 0) {
             Description = $tm.Groups[2].Value.Trim()
             DoD         = @()
             AC          = @()
+            DependsOn   = @()
             Type        = 'task'
         })
         $roomIndex++
@@ -133,13 +157,23 @@ Write-Host ""
 Write-Host "  Plan: $PlanFile"
 Write-Host "  Plan ID: $planId"
 Write-Host "  Project: $ProjectDir"
-Write-Host "  War-rooms to create: $($parsed.Count)"
+if ($Resume) {
+    Write-Host "  Mode: RESUME (using existing war-rooms)" -ForegroundColor Yellow
+} else {
+    Write-Host "  War-rooms to create: $($parsed.Count)"
+}
 Write-Host ""
 
+$hasDeps = $false
 foreach ($entry in $parsed) {
     $dodCount = if ($entry.DoD) { $entry.DoD.Count } else { 0 }
     $acCount = if ($entry.AC) { $entry.AC.Count } else { 0 }
-    Write-Host "  $($entry.RoomId) → $($entry.TaskRef) — $($entry.Description) (DoD: $dodCount, AC: $acCount)" -ForegroundColor White
+    $depStr = ""
+    if ($entry.DependsOn -and $entry.DependsOn.Count -gt 0) {
+        $depStr = " [depends_on: $($entry.DependsOn -join ', ')]"
+        $hasDeps = $true
+    }
+    Write-Host "  $($entry.RoomId) → $($entry.TaskRef) — $($entry.Description) (DoD: $dodCount, AC: $acCount)$depStr" -ForegroundColor White
 }
 Write-Host ""
 
@@ -153,25 +187,60 @@ $warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
                else { Join-Path $ProjectDir ".war-rooms" }
 $env:WARROOMS_DIR = $warRoomsDir
 
-# --- Create war-rooms ---
-foreach ($entry in $parsed) {
-    $args = @{
-        RoomId           = $entry.RoomId
-        TaskRef          = $entry.TaskRef
-        TaskDescription  = $entry.Description
-        WorkingDir       = $ProjectDir
-        WarRoomsDir      = $warRoomsDir
-        PlanId           = $planId
-    }
+# --- Resume mode: reset blocked rooms if upstream cleared ---
+if ($Resume) {
+    Write-Host "[RESUME] Checking existing war-rooms..." -ForegroundColor Yellow
+    $roomDirs = Get-ChildItem -Path $warRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue
+    foreach ($rd in $roomDirs) {
+        $statusFile = Join-Path $rd.FullName "status"
+        $status = if (Test-Path $statusFile) { (Get-Content $statusFile -Raw).Trim() } else { "pending" }
+        $tr = if (Test-Path (Join-Path $rd.FullName "task-ref")) { (Get-Content (Join-Path $rd.FullName "task-ref") -Raw).Trim() } else { "?" }
+        Write-Host "  $($rd.Name) [$tr]: $status"
 
-    if ($entry.DoD -and $entry.DoD.Count -gt 0) {
-        $args['DefinitionOfDone'] = $entry.DoD
+        # Reset blocked rooms to pending so they can be re-evaluated
+        if ($status -eq 'blocked') {
+            Write-Host "    → Resetting to pending" -ForegroundColor Yellow
+            if (Get-Command Set-WarRoomStatus -ErrorAction SilentlyContinue) {
+                Set-WarRoomStatus -RoomDir $rd.FullName -NewStatus "pending"
+            } else {
+                "pending" | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
+            }
+            # Reset qa_retries counter
+            $qaRetriesFile = Join-Path $rd.FullName "qa_retries"
+            if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
+        }
     }
-    if ($entry.AC -and $entry.AC.Count -gt 0) {
-        $args['AcceptanceCriteria'] = $entry.AC
-    }
+    Write-Host ""
+} else {
+    # --- Create war-rooms ---
+    foreach ($entry in $parsed) {
+        $roomArgs = @{
+            RoomId           = $entry.RoomId
+            TaskRef          = $entry.TaskRef
+            TaskDescription  = $entry.Description
+            WorkingDir       = $ProjectDir
+            WarRoomsDir      = $warRoomsDir
+            PlanId           = $planId
+        }
 
-    & $newWarRoom @args
+        if ($entry.DoD -and $entry.DoD.Count -gt 0) {
+            $roomArgs['DefinitionOfDone'] = $entry.DoD
+        }
+        if ($entry.AC -and $entry.AC.Count -gt 0) {
+            $roomArgs['AcceptanceCriteria'] = $entry.AC
+        }
+        if ($entry.DependsOn -and $entry.DependsOn.Count -gt 0) {
+            $roomArgs['DependsOn'] = $entry.DependsOn
+        }
+
+        & $newWarRoom @roomArgs
+    }
+}
+
+# --- Build dependency graph ---
+if ($hasDeps -or $Resume) {
+    Write-Host "[DAG] Building dependency graph..." -ForegroundColor Cyan
+    & $buildDag -WarRoomsDir $warRoomsDir
 }
 
 # --- Start the manager loop ---

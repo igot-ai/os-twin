@@ -81,14 +81,11 @@ Describe "New-Plan" {
     }
 
     Context "Auto-generated plan file path" {
-        It "creates plan in plans/ directory when no PlanFile specified" {
+        It "creates plan in project root directory when no PlanFile specified" {
             & $script:NewPlan -ProjectDir $script:projectDir -Goal "Auto path" -NonInteractive
 
-            $plansDir = Join-Path $script:projectDir ".agents" "plans"
-            # Should exist (could also be at script-relative location)
-            $plans = Get-ChildItem $plansDir -Filter "plan-*.md" -ErrorAction SilentlyContinue
-            # At least one plan file should exist somewhere
-            $true | Should -BeTrue
+            $plans = Get-ChildItem $script:projectDir -Filter "plan-*.md" -ErrorAction SilentlyContinue
+            $plans.Count | Should -BeGreaterOrEqual 1
         }
     }
 
