@@ -792,3 +792,101 @@
 [2026-03-13T02:59:21Z] [INFO] [main] Starting work on EPIC-001 in room-001
 [2026-03-13T02:59:22Z] [ERROR] [main] Failed on EPIC-001 with exit code 1.
 [2026-03-13T03:00:06Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 10)
+[2026-03-13T03:25:02Z] [INFO] [main] Starting Ostwin Manager Loop
+[2026-03-13T03:25:02Z] [INFO] [Write-Log] [EPIC-001] Spawning engineer in room-001...
+[2026-03-13T03:25:03Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T03:25:47Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 10)
+[2026-03-13T03:26:37Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 20)
+[2026-03-13T03:27:27Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 30)
+[2026-03-13T03:28:17Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 40)
+[2026-03-13T03:29:07Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 50)
+[2026-03-13T03:29:57Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 60)
+[2026-03-13T03:30:47Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 70)
+[2026-03-13T03:31:37Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 80)
+[2026-03-13T03:32:27Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 90)
+[2026-03-13T03:33:17Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 100)
+[2026-03-13T03:34:08Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 110)
+[2026-03-13T03:34:58Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 120)
+[2026-03-13T03:35:03Z] [ERROR] [main] Timed out on EPIC-001 after 600s.
+[2026-03-13T03:35:48Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 130)
+[2026-03-13T03:36:38Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 140)
+[2026-03-13T03:37:28Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 150)
+[2026-03-13T03:38:18Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 160)
+[2026-03-13T03:39:08Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 170)
+[2026-03-13T03:39:58Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 180)
+[2026-03-13T03:40:03Z] [ERROR] [Write-Log] [EPIC-001] State 'engineering' timed out after 900s.
+[2026-03-13T03:40:04Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T03:40:48Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 190)
+[2026-03-13T03:41:38Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 200)
+[2026-03-13T03:42:28Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 210)
+[2026-03-13T03:43:18Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 220)
+[2026-03-13T03:44:08Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 230)
+[2026-03-13T03:44:58Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 240)
+[2026-03-13T03:45:49Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 250)
+[2026-03-13T03:45:53Z] [INFO] [main] Starting Ostwin Manager Loop
+[2026-03-13T03:45:53Z] [INFO] [Write-Log] [EPIC-001] Spawning engineer in room-001...
+[2026-03-13T03:45:53Z] [INFO] [Write-Log] [EPIC-002] Spawning engineer in room-002...
+[2026-03-13T03:45:53Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T03:45:53Z] [INFO] [main] Starting work on EPIC-002 in room-002
+[2026-03-13T03:46:38Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 10)
+[2026-03-13T03:46:39Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 260)
+[2026-03-13T03:47:28Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 20)
+[2026-03-13T03:47:29Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 270)
+[2026-03-13T03:48:18Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 30)
+[2026-03-13T03:48:19Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 280)
+[2026-03-13T03:49:08Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 40)
+[2026-03-13T03:49:09Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 290)
+[2026-03-13T03:49:58Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 50)
+[2026-03-13T03:49:59Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 300)
+[2026-03-13T03:50:04Z] [ERROR] [main] Timed out on EPIC-001 after 600s.
+[2026-03-13T03:50:48Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 60)
+[2026-03-13T03:50:49Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 310)
+[2026-03-13T03:51:38Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 70)
+[2026-03-13T03:51:39Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 320)
+[2026-03-13T03:52:28Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 80)
+[2026-03-13T03:52:29Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 330)
+[2026-03-13T03:53:18Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 90)
+[2026-03-13T03:53:19Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 340)
+[2026-03-13T03:54:09Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 100)
+[2026-03-13T03:54:09Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 350)
+[2026-03-13T03:54:59Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 110)
+[2026-03-13T03:54:59Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 360)
+[2026-03-13T03:55:04Z] [ERROR] [Write-Log] [EPIC-001] State 'fixing' timed out after 900s.
+[2026-03-13T03:55:05Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T03:55:49Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 120)
+[2026-03-13T03:55:49Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 370)
+[2026-03-13T03:55:54Z] [ERROR] [main] Timed out on EPIC-001 after 600s.
+[2026-03-13T03:55:54Z] [ERROR] [main] Timed out on EPIC-002 after 600s.
+[2026-03-13T03:56:39Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 130)
+[2026-03-13T03:56:39Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 380)
+[2026-03-13T03:57:29Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 140)
+[2026-03-13T03:57:29Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 390)
+[2026-03-13T03:58:19Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 150)
+[2026-03-13T03:58:19Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 400)
+[2026-03-13T03:59:09Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 160)
+[2026-03-13T03:59:09Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 410)
+[2026-03-13T03:59:59Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 170)
+[2026-03-13T03:59:59Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 420)
+[2026-03-13T04:00:49Z] [INFO] [Write-Log] Progress: 0/2 passed, 0 failed (iteration 180)
+[2026-03-13T04:00:50Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 430)
+[2026-03-13T04:00:54Z] [ERROR] [Write-Log] [EPIC-001] State 'engineering' timed out after 900s.
+[2026-03-13T04:00:54Z] [ERROR] [Write-Log] [EPIC-002] State 'engineering' timed out after 900s.
+[2026-03-13T04:00:55Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T04:01:40Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 440)
+[2026-03-13T04:02:30Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 450)
+[2026-03-13T04:03:20Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 460)
+[2026-03-13T04:04:10Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 470)
+[2026-03-13T04:05:00Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 480)
+[2026-03-13T04:05:05Z] [ERROR] [main] Timed out on EPIC-001 after 600s.
+[2026-03-13T04:05:50Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 490)
+[2026-03-13T04:06:40Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 500)
+[2026-03-13T04:07:30Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 510)
+[2026-03-13T04:08:20Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 520)
+[2026-03-13T04:09:10Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 530)
+[2026-03-13T04:10:00Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 540)
+[2026-03-13T04:10:05Z] [ERROR] [Write-Log] [EPIC-001] State 'fixing' timed out after 900s.
+[2026-03-13T04:10:06Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T04:10:50Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 550)
+[2026-03-13T04:11:40Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 560)
+[2026-03-13T04:12:31Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 570)
+[2026-03-13T04:13:21Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 580)
