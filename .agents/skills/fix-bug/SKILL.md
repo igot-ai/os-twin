@@ -1,4 +1,9 @@
-# Skill: Fix Bug
+---
+name: fix-bug
+description: Use this skill to fix bugs based on QA feedback by identifying root causes and applying targeted, minimal fixes.
+---
+
+# fix-bug
 
 ## Trigger
 When assigned a `fix` message with QA feedback.

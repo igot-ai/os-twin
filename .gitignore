@@ -1,11 +1,13 @@
 .agents/war-rooms/*
 .agents/.war-rooms/*
+.agents/.cache
 .claude/*
 *pid
 
 */identity-service/**
 */social-graph/**
-social-graph/**
-identity-service/**
+social-graph
+identity-service
 
+my_work
 

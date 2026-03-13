@@ -1,4 +1,9 @@
-# Skill: Run Tests
+---
+name: run-tests
+description: Use this skill to execute and report on project tests by discovering the test framework, running the suite, and analyzing the output.
+---
+
+# run-tests
 
 ## Trigger
 When needing to execute and report on project tests during review.

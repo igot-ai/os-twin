@@ -1,4 +1,9 @@
-# Skill: Code Review
+---
+name: code-review
+description: Use this skill to evaluate an engineer's work by reviewing code changes, running tests, checking requirements, and providing a pass/fail verdict.
+---
+
+# code-review
 
 ## Trigger
 When assigned a `review` message to evaluate engineer's work.

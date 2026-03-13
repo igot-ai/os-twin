@@ -16,6 +16,7 @@ ROOM_ID="$1"
 TASK_REF="$2"
 TASK_DESC="$3"
 WORKING_DIR="${4:-.}"
+DEPENDENCIES="${5:-}"
 
 # War-room data location (project-scoped via WARROOMS_DIR, fallback to script dir)
 WARROOMS_DATA="${WARROOMS_DIR:-$SCRIPT_DIR}"

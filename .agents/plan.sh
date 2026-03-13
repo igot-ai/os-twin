@@ -361,6 +361,7 @@ Instructions:
 working_dir: $WORKING_DIR
 
 ## Epic: EPIC-001 — [Feature Title]
+Dependencies: None
 [High-level description of the feature to deliver — describe the goal, not the steps.
 The engineer will create their own sub-task breakdown.]
 
@@ -369,6 +370,7 @@ Acceptance criteria:
 - [Another criterion]
 
 ## Epic: EPIC-002 — [Feature Title]
+Dependencies: EPIC-001
 [Description]
 
 Acceptance criteria:
@@ -378,6 +380,7 @@ Acceptance criteria:
 
 Rules:
 - Epic IDs must be sequential: EPIC-001, EPIC-002, etc.
+- Dependencies must explicitly list the exact Epic IDs that must be completed BEFORE this epic can begin (e.g., \`Dependencies: EPIC-001, EPIC-002\`). If none, write \`Dependencies: None\`.
 - Each epic is a cohesive feature, NOT an atomic task
 - Acceptance criteria must be concrete and testable
 - Use the em-dash character — between epic ID and title

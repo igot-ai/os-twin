@@ -1,4 +1,9 @@
-# Skill: Implement Feature
+---
+name: implement-feature
+description: Use this skill to implement new features by understanding requirements, following existing patterns, writing code, and adding tests.
+---
+
+# implement-feature
 
 ## Trigger
 When assigned a `task` message to build new functionality.

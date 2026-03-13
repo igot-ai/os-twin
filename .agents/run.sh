@@ -139,6 +139,16 @@ for i, part in enumerate(parts[1:], 1):
         item_title = header
 
     item_body = '\n'.join(lines[1:]).strip()
+    
+    # Extract Dependencies
+    dependencies = []
+    dep_match = re.search(r'^Dependencies:\s*(.+)$', item_body, flags=re.MULTILINE | re.IGNORECASE)
+    if dep_match:
+        deps_str = dep_match.group(1).strip()
+        if deps_str.lower() != 'none':
+            # Split by commas and clean up
+            dependencies = [d.strip() for d in deps_str.split(',')]
+    
     room_id = f'room-{i:03d}'
 
     items.append({
@@ -147,6 +157,7 @@ for i, part in enumerate(parts[1:], 1):
         'title': item_title,
         'body': item_body,
         'working_dir': working_dir,
+        'dependencies': ','.join(dependencies)
     })
 
 print(json.dumps(items))
@@ -274,3 +285,4 @@ echo ""
 
 # Launch the manager loop
 exec "$AGENTS_DIR/roles/manager/loop.sh"
+/roles/manager/loop.sh"
