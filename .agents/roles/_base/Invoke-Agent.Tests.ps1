@@ -151,4 +151,63 @@ Describe "Invoke-Agent" {
             $result.RoleName | Should -Be "architect"
         }
     }
+
+    Context "Instance config resolution" {
+        BeforeEach {
+            $script:instanceConfigFile = Join-Path $TestDrive "instance-config.json"
+            @{
+                engineer = @{
+                    cli             = "echo"
+                    default_model   = "base-model"
+                    timeout_seconds = 600
+                    instances = @{
+                        fe = @{
+                            display_name    = "Frontend Engineer"
+                            default_model   = "fe-pro-model"
+                            timeout_seconds = 900
+                            working_dir     = "/tmp/frontend"
+                        }
+                    }
+                }
+            } | ConvertTo-Json -Depth 5 | Out-File $script:instanceConfigFile -Encoding utf8
+        }
+
+        It "resolves model from instance config when InstanceId is provided" {
+            $env:AGENT_OS_CONFIG = $script:instanceConfigFile
+            try {
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -InstanceId "fe" -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+                $result.RoleName | Should -Be "engineer"
+            }
+            finally {
+                Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "falls back to role default when InstanceId not in config" {
+            $env:AGENT_OS_CONFIG = $script:instanceConfigFile
+            try {
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -InstanceId "nonexistent" -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+                $result.RoleName | Should -Be "engineer"
+            }
+            finally {
+                Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "passes WorkingDir parameter through" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -WorkingDir "/tmp/testdir" -AgentCmd "echo" -TimeoutSeconds 5
+
+            $result | Should -Not -BeNullOrEmpty
+        }
+    }
 }

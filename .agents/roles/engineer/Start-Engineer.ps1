@@ -43,6 +43,8 @@ $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
 
 $config = $null
 $maxPromptBytes = 102400
+$InstanceId = ""
+$instanceWorkingDir = ""
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
     if ($TimeoutSeconds -eq 0) {
@@ -54,10 +56,55 @@ if (Test-Path $configPath) {
 }
 if ($TimeoutSeconds -eq 0) { $TimeoutSeconds = 600 }
 
+# --- Parse instance from war-room config ---
+$roomConfigFile = Join-Path $RoomDir "config.json"
+if (Test-Path $roomConfigFile) {
+    $roomConfig = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
+    $assignedRole = $roomConfig.assignment.assigned_role
+    if ($assignedRole -match '^engineer:(.+)$') {
+        $InstanceId = $Matches[1]
+    }
+}
+
+# --- Resolve instance-specific working directory ---
+if ($InstanceId -and $config -and $config.engineer.instances.$InstanceId) {
+    $instanceConfig = $config.engineer.instances.$InstanceId
+    if ($instanceConfig.working_dir) {
+        $instanceWorkingDir = $instanceConfig.working_dir
+    }
+    if ($instanceConfig.timeout_seconds -and $TimeoutSeconds -eq $config.engineer.timeout_seconds) {
+        $TimeoutSeconds = $instanceConfig.timeout_seconds
+    }
+}
+
+# --- Write per-role context.md ---
+$contextsDir = Join-Path $RoomDir "contexts"
+if (-not (Test-Path $contextsDir)) {
+    New-Item -ItemType Directory -Path $contextsDir -Force | Out-Null
+}
+$contextFileName = if ($InstanceId) { "engineer-$InstanceId.md" } else { "engineer.md" }
+$contextFile = Join-Path $contextsDir $contextFileName
+$instanceDisplayName = if ($InstanceId -and $config.engineer.instances.$InstanceId.display_name) {
+    $config.engineer.instances.$InstanceId.display_name
+} else { "Engineer" }
+$contextContent = @"
+# $instanceDisplayName Context
+
+## Assignment
+- Task: $taskRef (resolving below)
+- Instance: $(if ($InstanceId) { $InstanceId } else { 'default' })
+- Working Directory: $(if ($instanceWorkingDir) { $instanceWorkingDir } else { 'project root' })
+- Started: $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))
+"@
+
 # --- Read task ref ---
 $taskRef = if (Test-Path (Join-Path $RoomDir "task-ref")) {
     (Get-Content (Join-Path $RoomDir "task-ref") -Raw).Trim()
 } else { "UNKNOWN" }
+
+# --- Finalize context.md with task ref ---
+$contextContent = $contextContent -replace '\$taskRef \(resolving below\)', $taskRef
+$contextContent | Out-File -FilePath $contextFile -Encoding utf8 -Force
 
 # --- Detect Epic vs Task ---
 $isEpic = $taskRef -match '^EPIC-'
@@ -181,6 +228,8 @@ else {
 
 # --- Run the agent ---
 $result = & $invokeAgent -RoomDir $RoomDir -RoleName "engineer" `
+                         -InstanceId $InstanceId `
+                         -WorkingDir $instanceWorkingDir `
                          -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
 
 # --- Post result to channel ---

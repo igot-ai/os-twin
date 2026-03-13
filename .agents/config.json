@@ -14,13 +14,29 @@
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 600,
-    "max_prompt_bytes": 102400
+    "max_prompt_bytes": 102400,
+    "instances": {
+      "fe": {
+        "display_name": "Frontend Engineer",
+        "default_model": "gemini-3-pro-preview",
+        "timeout_seconds": 900,
+        "working_dir": "dashboard",
+        "skills": ["javascript", "typescript", "css", "html"]
+      },
+      "be": {
+        "display_name": "Backend Engineer",
+        "default_model": "gemini-3-flash-preview",
+        "timeout_seconds": 600,
+        "working_dir": "api",
+        "skills": ["python", "sql", "docker", "powershell"]
+      }
+    }
   },
   "qa": {
     "cli": "deepagents",
     "default_model": "gemini-3-flash-preview",
     "approval_mode": "auto-approve",
-    "timeout_seconds": 300
+    "timeout_seconds": 600
   },
   "channel": {
     "format": "jsonl",

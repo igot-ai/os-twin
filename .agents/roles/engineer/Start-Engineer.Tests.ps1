@@ -114,4 +114,49 @@ $TestDrive
             $true | Should -BeTrue
         }
     }
+
+    Context "Instance parsing from room config" {
+        It "parses instance ID from assigned_role in room config" {
+            # Write a room config with assigned_role = engineer:fe
+            $roomConfig = @{
+                room_id = "room-eng-inst"
+                task_ref = "TASK-001"
+                assignment = @{
+                    assigned_role = "engineer:fe"
+                    type = "task"
+                }
+            } | ConvertTo-Json -Depth 3
+            $roomConfig | Out-File (Join-Path $script:roomDir "config.json") -Encoding utf8
+
+            $config = Get-Content (Join-Path $script:roomDir "config.json") -Raw | ConvertFrom-Json
+            $assignedRole = $config.assignment.assigned_role
+
+            $instanceId = ""
+            if ($assignedRole -match '^engineer:(.+)$') {
+                $instanceId = $Matches[1]
+            }
+            $instanceId | Should -Be "fe"
+        }
+
+        It "returns empty instance for plain engineer role" {
+            $roomConfig = @{
+                room_id = "room-eng-plain"
+                task_ref = "TASK-002"
+                assignment = @{
+                    assigned_role = "engineer"
+                    type = "task"
+                }
+            } | ConvertTo-Json -Depth 3
+            $roomConfig | Out-File (Join-Path $script:roomDir "config.json") -Encoding utf8
+
+            $config = Get-Content (Join-Path $script:roomDir "config.json") -Raw | ConvertFrom-Json
+            $assignedRole = $config.assignment.assigned_role
+
+            $instanceId = ""
+            if ($assignedRole -match '^engineer:(.+)$') {
+                $instanceId = $Matches[1]
+            }
+            $instanceId | Should -Be ""
+        }
+    }
 }

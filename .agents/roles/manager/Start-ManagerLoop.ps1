@@ -179,6 +179,8 @@ while (-not $script:shuttingDown) {
 
     $roomCount = 0
     $allPassed = $true
+    $allTerminal = $true
+    $failedCount = 0
     $activeWithNoPid = 0
     $totalActive = 0
 
@@ -206,6 +208,7 @@ while (-not $script:shuttingDown) {
         switch ($status) {
             'pending' {
                 $allPassed = $false
+                $allTerminal = $false
                 if ((Get-ActiveCount) -lt $maxConcurrent) {
                     Write-Log "INFO" "[$taskRef] Spawning engineer in $roomId..."
                     Write-RoomStatus $roomDir "engineering"
@@ -218,6 +221,7 @@ while (-not $script:shuttingDown) {
 
             { $_ -in @('engineering', 'fixing') } {
                 $allPassed = $false
+                $allTerminal = $false
                 $totalActive++
 
                 # Check for state timeout
@@ -283,6 +287,7 @@ while (-not $script:shuttingDown) {
 
             'qa-review' {
                 $allPassed = $false
+                $allTerminal = $false
                 $totalActive++
 
                 # Check for state timeout
@@ -366,11 +371,13 @@ while (-not $script:shuttingDown) {
 
             'failed-final' {
                 $allPassed = $false
+                $failedCount++
             }
 
             default {
                 Write-Log "WARN" "Unknown status '$status' for $roomId"
                 $allPassed = $false
+                $allTerminal = $false
             }
         }
     }
@@ -442,6 +449,15 @@ while (-not $script:shuttingDown) {
         else {
             Write-Log "ERROR" "Signoff failed. Continuing loop..."
         }
+    }
+
+    # === Exit on all-terminal (some failed) ===
+    if ($roomCount -gt 0 -and -not $allPassed -and $allTerminal) {
+        Write-Host ""
+        $passedRooms = $roomCount - $failedCount
+        Write-Log "ERROR" "All rooms terminal: $passedRooms passed, $failedCount failed-final. Exiting."
+        Remove-Item $managerPidFile -Force -ErrorAction SilentlyContinue
+        break
     }
 
     # Status summary every 10 iterations

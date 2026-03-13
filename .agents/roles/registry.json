@@ -12,6 +12,7 @@
       "definition": "roles/engineer/role.json",
       "prompt": "roles/engineer/ROLE.md",
       "default_assignment": true,
+      "instance_support": true,
       "supported_task_types": ["task", "epic"],
       "capabilities": ["code-generation", "file-editing", "shell-execution", "testing", "refactoring"],
       "quality_gates": ["unit-tests", "lint-clean", "no-hardcoded-secrets"]
