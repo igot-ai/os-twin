@@ -301,7 +301,9 @@ function dispatch(ev) {
         updateEngagementUI(ev.entity_id, ev.state);
       }
       break;
-      console.log('Comment published:', ev);
+      
+    case 'plans_updated':
+      loadPlanHistory();
       break;
   }
 }
@@ -845,6 +847,146 @@ window.loadTemplate = function (name) {
   if (!textarea || !TEMPLATES[name]) return;
   textarea.value = TEMPLATES[name];
   textarea.focus();
+};
+
+// ── New Project Modal + Folder Browser ─────────────────────────────────────
+
+let _folderBrowserPath = null;
+
+window.showNewProjectModal = function () {
+  const modal = document.getElementById('new-project-modal');
+  if (modal) modal.style.display = 'block';
+  // Load initial folder listing
+  browseFolder(null);
+};
+
+window.hideNewProjectModal = function () {
+  const modal = document.getElementById('new-project-modal');
+  if (modal) modal.style.display = 'none';
+  const status = document.getElementById('np-status');
+  if (status) status.textContent = '';
+};
+
+async function browseFolder(path) {
+  const listEl = document.getElementById('np-dir-list');
+  const breadcrumbEl = document.getElementById('np-breadcrumb');
+  const selectedEl = document.getElementById('np-selected-path');
+
+  if (listEl) listEl.innerHTML = '<div style="padding:10px; color:#555; text-align:center; font-size:0.8rem;">Loading...</div>';
+
+  try {
+    const url = path ? `/api/fs/browse?path=${encodeURIComponent(path)}` : '/api/fs/browse';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to browse');
+    const data = await res.json();
+
+    _folderBrowserPath = data.current;
+    if (selectedEl) selectedEl.textContent = data.current;
+
+    // Render breadcrumb
+    if (breadcrumbEl) {
+      const parts = data.current.split('/').filter(Boolean);
+      let html = '<span style="cursor:pointer; color:#7c5bf0;" onclick="browseFolder(\'/\')">🏠</span>';
+      let accumulated = '';
+      parts.forEach((part, i) => {
+        accumulated += '/' + part;
+        const isLast = i === parts.length - 1;
+        const accPath = accumulated;
+        html += '<span style="color:#444; margin:0 2px;">›</span>';
+        if (isLast) {
+          html += `<span style="color:#e0e0e0; font-weight:500;">${esc(part)}</span>`;
+        } else {
+          html += `<span style="cursor:pointer; color:#7c5bf0;" onclick="browseFolder('${esc(accPath)}')">${esc(part)}</span>`;
+        }
+      });
+      breadcrumbEl.innerHTML = html;
+    }
+
+    // Render directory listing
+    if (listEl) {
+      let html = '';
+      // Parent directory link
+      if (data.parent) {
+        html += `<div onclick="browseFolder('${esc(data.parent)}')" style="display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#888; border-bottom:1px solid #1e1e2e;" onmouseover="this.style.background='#252540'" onmouseout="this.style.background='transparent'">
+            <span style="opacity:0.6;">📁</span>
+            <span>..</span>
+          </div>`;
+      }
+      if (data.dirs.length === 0) {
+        html += '<div style="padding:12px; color:#555; text-align:center; font-size:0.8rem;">No subdirectories</div>';
+      } else {
+        data.dirs.forEach(d => {
+          const arrow = d.has_children ? '<span style="color:#555; margin-left:auto; font-size:0.7rem;">›</span>' : '';
+          html += `<div onclick="browseFolder('${esc(d.path)}')" style="display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#ccc; border-bottom:1px solid #1e1e2e;" onmouseover="this.style.background='#252540'" onmouseout="this.style.background='transparent'">
+              <span>📁</span>
+              <span style="flex:1;">${esc(d.name)}</span>
+              ${arrow}
+            </div>`;
+        });
+      }
+      listEl.innerHTML = html;
+    }
+  } catch (err) {
+    if (listEl) listEl.innerHTML = `<div style="padding:12px; color:#ff6b6b; text-align:center; font-size:0.8rem;">Error: ${err.message}</div>`;
+  }
+}
+window.browseFolder = browseFolder;
+
+window.selectCurrentFolder = function () {
+  const pathInput = document.getElementById('np-path');
+  const selectedEl = document.getElementById('np-selected-path');
+  if (pathInput && _folderBrowserPath) {
+    pathInput.value = _folderBrowserPath;
+    if (selectedEl) {
+      selectedEl.style.color = '#22c55e';
+      selectedEl.textContent = '✓ ' + _folderBrowserPath;
+      setTimeout(() => { selectedEl.style.color = '#7c5bf0'; }, 1500);
+    }
+  }
+};
+
+window.createNewProject = async function () {
+  const pathInput = document.getElementById('np-path');
+  const titleInput = document.getElementById('np-title');
+  const contentInput = document.getElementById('np-content');
+  const statusEl = document.getElementById('np-status');
+
+  const path = pathInput ? pathInput.value.trim() : '';
+  const title = (titleInput ? titleInput.value.trim() : '') || 'Untitled';
+  const content = contentInput ? contentInput.value.trim() : '';
+
+  if (!path) {
+    if (statusEl) statusEl.textContent = 'Please select a project directory using the folder picker above.';
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = 'Creating project...';
+
+  try {
+    const body = { path, title };
+    if (content) body.content = content;
+
+    const res = await fetch('/api/plans/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (statusEl) statusEl.textContent = `✓ Created: ${data.plan_id}`;
+
+    // Navigate to plan editor
+    setTimeout(() => {
+      window.location.href = data.url;
+    }, 500);
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `✗ ${err.message}`;
+  }
 };
 
 // ── Plan History & Epic Tracker ─────────────────────────────────────────────

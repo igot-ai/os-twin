@@ -2,7 +2,8 @@
 .agents/.war-rooms/*
 .claude/*
 *pid
-
+.agents/plans/*
+node_modules
 */identity-service/**
 */social-graph/**
 social-graph/**

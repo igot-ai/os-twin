@@ -1,0 +1,1 @@
+pytest /Users/paulaan/PycharmProjects/agent-os/.agents/dashboard/test_telegram.py
