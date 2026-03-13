@@ -34,6 +34,95 @@
             min-height: 100vh;
         }
 
+        
+        .light-mode {
+            --bg-primary: #f0f2f5;
+            --bg-secondary: rgba(255, 255, 255, 0.7);
+            --bg-card: rgba(255, 255, 255, 0.6);
+            --text-primary: #1a1d27;
+            --text-secondary: #4a4d57;
+            --text-muted: #888c96;
+            --border: rgba(0, 0, 0, 0.1);
+        }
+        
+        body {
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .header, .summary-card, .room-card, .modal, .event-log {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            background: var(--bg-card);
+        }
+        .header, .event-log {
+            background: var(--bg-secondary);
+        }
+        
+        .plan-queue, .goal-matrix {
+            padding: 0 32px 32px;
+        }
+        .plan-queue h2, .goal-matrix h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+        .plan-list {
+            display: flex;
+            gap: 16px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+        }
+        .plan-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            min-width: 250px;
+            backdrop-filter: blur(12px);
+        }
+        .plan-card .status-select {
+            margin-top: 12px;
+            padding: 4px;
+            border-radius: 4px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            font-size: 12px;
+        }
+        
+        .matrix-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .matrix-table th, .matrix-table td {
+            padding: 10px;
+            border: 1px solid var(--border);
+            text-align: left;
+        }
+        .matrix-table th {
+            background: var(--bg-secondary);
+        }
+        
+        .room-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .btn-action {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .btn-action:hover {
+            background: var(--border);
+        }
+
         /* --- Header --- */
         .header {
             background: var(--bg-secondary);
@@ -373,6 +462,8 @@
     <div class="header">
         <h1>⚔️ Ostwin War-Room Dashboard</h1>
         <div class="header-status">
+            <button id="theme-toggle" style="background: var(--bg-card); border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; color: var(--text-primary); cursor: pointer; font-size: 13px;">🌞</button>
+            <button id="telegram-btn" style="background: var(--accent-blue); border: none; padding: 6px 12px; border-radius: 6px; color: white; cursor: pointer; font-size: 13px; font-weight: 500;">Telegram Config</button>
             <div class="ws-indicator" id="ws-indicator"></div>
             <span id="ws-status">Connecting...</span>
             <span id="client-count"></span>
@@ -403,12 +494,26 @@
         </div>
     </div>
 
+    
+    <!-- Plan Queue -->
+    <div class="plan-queue">
+        <h2>Plan Queue</h2>
+        <div class="plan-list" id="plan-list">Loading plans...</div>
+    </div>
+
     <!-- Rooms -->
     <div class="rooms-container">
         <div class="rooms-header">
             <h2>War Rooms</h2>
         </div>
         <div class="room-grid" id="room-grid"></div>
+    </div>
+
+    
+    <!-- Goal Matrix -->
+    <div class="goal-matrix">
+        <h2>Goal Tracker (Cross-Room)</h2>
+        <div id="goal-matrix-container" style="overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; backdrop-filter: blur(12px);">Loading goals...</div>
     </div>
 
     <!-- Detail Modal -->
@@ -422,12 +527,164 @@
         </div>
     </div>
 
+    <!-- Telegram Modal -->
+    <div class="modal-overlay" id="telegram-modal" onclick="closeTelegramModal(event)">
+        <div class="modal" id="telegram-modal-content" onclick="event.stopPropagation()">
+            <h2>
+                <span>Telegram Configuration</span>
+                <button class="modal-close" onclick="closeTelegramModal()">&times;</button>
+            </h2>
+            <div style="margin-top: 16px;">
+                <label style="display: block; margin-bottom: 8px; font-size: 13px; color: var(--text-secondary);">Bot Token</label>
+                <input type="text" id="tg-bot-token" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); margin-bottom: 16px;">
+                
+                <label style="display: block; margin-bottom: 8px; font-size: 13px; color: var(--text-secondary);">Chat ID</label>
+                <input type="text" id="tg-chat-id" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); margin-bottom: 24px;">
+                
+                <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                    <button id="tg-test-btn" style="background: var(--bg-primary); border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px; color: var(--text-primary); cursor: pointer;">Test Connection</button>
+                    <button id="tg-save-btn" style="background: var(--accent-blue); border: none; padding: 8px 16px; border-radius: 6px; color: white; cursor: pointer;">Save Settings</button>
+                </div>
+                <div id="tg-status-msg" style="margin-top: 16px; font-size: 13px; text-align: center;"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Event Log -->
     <div class="event-log" id="event-log"></div>
 
     <script>
         let ws = null;
         let rooms = [];
+
+        // --- Theme Toggle ---
+        const themeToggle = document.getElementById('theme-toggle');
+        let isLightMode = localStorage.getItem('theme') === 'light';
+        if (isLightMode) document.body.classList.add('light-mode');
+        themeToggle.textContent = isLightMode ? '🌙' : '🌞';
+        
+        themeToggle.addEventListener('click', () => {
+            isLightMode = !isLightMode;
+            if (isLightMode) {
+                document.body.classList.add('light-mode');
+                localStorage.setItem('theme', 'light');
+                themeToggle.textContent = '🌙';
+            } else {
+                document.body.classList.remove('light-mode');
+                localStorage.setItem('theme', 'dark');
+                themeToggle.textContent = '🌞';
+            }
+        });
+
+        // --- Plans and Goals ---
+        async function fetchPlans() {
+            try {
+                const res = await fetch('/api/plans');
+                const data = await res.json();
+                renderPlans(data.plans || []);
+            } catch (e) {
+                console.error('Failed to fetch plans', e);
+            }
+        }
+        
+        async function updatePlanStatus(planId, newStatus) {
+            try {
+                await fetch(`/api/plans/${planId}/status`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status: newStatus})
+                });
+                fetchPlans();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderPlans(plans) {
+            const container = document.getElementById('plan-list');
+            container.innerHTML = plans.map(p => `
+                <div class="plan-card">
+                    <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">${p.id}</div>
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;">Created: ${p.created}</div>
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span class="status-badge ${p.status}">${p.status}</span>
+                        <select class="status-select" onchange="updatePlanStatus('${p.id}', this.value)">
+                            <option value="queued" ${p.status === 'queued' ? 'selected' : ''}>Queued</option>
+                            <option value="active" ${p.status === 'active' ? 'selected' : ''}>Active</option>
+                            <option value="completed" ${p.status === 'completed' ? 'selected' : ''}>Completed</option>
+                            <option value="draft" ${p.status === 'draft' ? 'selected' : ''}>Draft</option>
+                        </select>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function fetchGoals() {
+            try {
+                const res = await fetch('/api/goals');
+                const data = await res.json();
+                renderGoalMatrix(data.matrix || []);
+            } catch (e) {
+                console.error('Failed to fetch goals', e);
+            }
+        }
+
+        function renderGoalMatrix(matrix) {
+            const container = document.getElementById('goal-matrix-container');
+            if (!matrix.length) {
+                container.innerHTML = '<div style="padding: 16px; color: var(--text-muted);">No goals data available</div>';
+                return;
+            }
+            
+            // Gather all unique goals
+            const allGoals = new Set();
+            matrix.forEach(m => {
+                const ac = m.config_goals?.acceptance_criteria || [];
+                const dod = m.config_goals?.definition_of_done || [];
+                [...ac, ...dod].forEach(g => allGoals.add(g));
+            });
+            
+            const goalsArray = Array.from(allGoals);
+            
+            let html = '<table class="matrix-table"><thead><tr><th>Goal</th>';
+            matrix.forEach(m => {
+                html += `<th>${m.room_id}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            goalsArray.forEach(g => {
+                html += `<tr><td style="max-width: 300px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${g}">${g}</td>`;
+                matrix.forEach(m => {
+                    const result = m.goals?.find(rg => rg.goal === g);
+                    let icon = '➖';
+                    if (result) {
+                        icon = result.status === 'met' ? '✅' : (result.status === 'partial' ? '🟡' : '❌');
+                    } else if ([...(m.config_goals?.acceptance_criteria||[]), ...(m.config_goals?.definition_of_done||[])].includes(g)) {
+                        icon = '⬜';
+                    }
+                    html += `<td style="text-align: center;">${icon}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function sendRoomAction(roomId, action, e) {
+            e.stopPropagation();
+            try {
+                await fetch(`/api/rooms/${roomId}/action`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action})
+                });
+                logEvent(`Sent <b>${action}</b> to ${roomId}`);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
 
         // --- WebSocket ---
         function connectWS() {
@@ -481,12 +738,30 @@
                         ws.send(JSON.stringify({ action: 'refresh' }));
                     }
                     break;
+                case 'plan_update':
+                    logEvent('<span class="evt-status">Plan queue updated</span>');
+                    ws.send(JSON.stringify({ action: 'refresh' }));
+                    break;
+                case 'goal_update':
+                    logEvent(`<span class="evt-room">${msg.room_id}</span> goals updated`);
+                    ws.send(JSON.stringify({ action: 'refresh' }));
+                    // If modal is open for this room, refresh modal
+                    if (document.getElementById('modal-overlay').classList.contains('active') && 
+                        document.getElementById('modal-title').textContent === msg.room_id) {
+                        openRoom(msg.room_id);
+                    }
+                    break;
                 case 'new_message':
                     logEvent(
                         `<span class="evt-room">${msg.room_id}</span> new message (${msg.message_count} total)`
                     );
                     const r = rooms.find(r => r.room_id === msg.room_id);
                     if (r) { r.messages = msg.message_count; renderRooms(); }
+                    
+                    if (document.getElementById('modal-overlay').classList.contains('active') && 
+                        document.getElementById('modal-title').textContent === msg.room_id) {
+                        openRoom(msg.room_id);
+                    }
                     break;
             }
         }
@@ -519,6 +794,12 @@
                         </div>
                     </div>
                     ${renderGoalBar(r)}
+                    <div class="room-actions">
+                        <button class="btn-action" onclick="sendRoomAction('${r.room_id}', 'start', event)">Start</button>
+                        <button class="btn-action" onclick="sendRoomAction('${r.room_id}', 'pause', event)">Pause</button>
+                        <button class="btn-action" onclick="sendRoomAction('${r.room_id}', 'stop', event)">Stop</button>
+                    </div>
+
                 </div>
             `).join('');
 
@@ -632,6 +913,8 @@
 
         // --- Init ---
         connectWS();
+        fetchPlans();
+        fetchGoals();
 
         // Fallback: poll REST if WS fails
         setInterval(async () => {
@@ -642,11 +925,89 @@
                 rooms = data.rooms || [];
                 renderRooms();
             } catch (e) {}
+            fetchPlans();
+            fetchGoals();
         }, 5000);
+
+        // --- Telegram Config ---
+        document.getElementById('telegram-btn').addEventListener('click', async () => {
+            const modal = document.getElementById('telegram-modal');
+            const statusMsg = document.getElementById('tg-status-msg');
+            statusMsg.textContent = 'Loading...';
+            modal.classList.add('active');
+            
+            try {
+                const res = await fetch('/api/telegram/config');
+                const data = await res.json();
+                document.getElementById('tg-bot-token').value = data.bot_token || '';
+                document.getElementById('tg-chat-id').value = data.chat_id || '';
+                statusMsg.textContent = '';
+            } catch (err) {
+                statusMsg.textContent = 'Failed to load config.';
+                statusMsg.style.color = 'var(--accent-red)';
+            }
+        });
+
+        function closeTelegramModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('telegram-modal').classList.remove('active');
+        }
+
+        document.getElementById('tg-save-btn').addEventListener('click', async () => {
+            const botToken = document.getElementById('tg-bot-token').value.trim();
+            const chatId = document.getElementById('tg-chat-id').value.trim();
+            const statusMsg = document.getElementById('tg-status-msg');
+            
+            statusMsg.textContent = 'Saving...';
+            statusMsg.style.color = 'var(--text-primary)';
+            
+            try {
+                const res = await fetch('/api/telegram/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bot_token: botToken, chat_id: chatId })
+                });
+                
+                if (res.ok) {
+                    statusMsg.textContent = 'Settings saved successfully!';
+                    statusMsg.style.color = 'var(--accent-green)';
+                    setTimeout(() => closeTelegramModal(), 1500);
+                } else {
+                    statusMsg.textContent = 'Failed to save settings.';
+                    statusMsg.style.color = 'var(--accent-red)';
+                }
+            } catch (err) {
+                statusMsg.textContent = 'Error saving settings.';
+                statusMsg.style.color = 'var(--accent-red)';
+            }
+        });
+
+        document.getElementById('tg-test-btn').addEventListener('click', async () => {
+            const statusMsg = document.getElementById('tg-status-msg');
+            statusMsg.textContent = 'Sending test message...';
+            statusMsg.style.color = 'var(--text-primary)';
+            
+            try {
+                const res = await fetch('/api/telegram/test', { method: 'POST' });
+                if (res.ok) {
+                    statusMsg.textContent = 'Test message sent!';
+                    statusMsg.style.color = 'var(--accent-green)';
+                } else {
+                    statusMsg.textContent = 'Failed to send test message. Check configuration.';
+                    statusMsg.style.color = 'var(--accent-red)';
+                }
+            } catch (err) {
+                statusMsg.textContent = 'Error testing connection.';
+                statusMsg.style.color = 'var(--accent-red)';
+            }
+        });
 
         // Keyboard
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeModal();
+            if (e.key === 'Escape') {
+                closeModal();
+                closeTelegramModal();
+            }
             if (e.key === 'r' && !document.querySelector('.modal-overlay.active')) {
                 ws?.send(JSON.stringify({ action: 'refresh' }));
             }

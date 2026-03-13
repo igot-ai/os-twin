@@ -27,8 +27,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="${HOME}/.ostwin"
+# SOURCE_DIR: root of the agent-os repo (to locate dashboard/ source).
+# Auto-detected as SCRIPT_DIR parent; override with --source-dir.
+SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 AUTO_YES=false
 SKIP_OPTIONAL=false
+DASHBOARD_PORT=9000
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
 PYTHON_VERSION=""
@@ -38,8 +42,10 @@ PWSH_VERSION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --yes|-y)       AUTO_YES=true; shift ;;
-    --dir)          INSTALL_DIR="$2"; shift 2 ;;
+    --yes|-y)        AUTO_YES=true; shift ;;
+    --dir)           INSTALL_DIR="$2"; shift 2 ;;
+    --source-dir)    SOURCE_DIR="$2"; shift 2 ;;
+    --port)          DASHBOARD_PORT="$2"; shift 2 ;;
     --skip-optional) SKIP_OPTIONAL=true; shift ;;
     --help|-h)
       head -22 "$0" | tail -20
@@ -385,21 +391,32 @@ install_pester() {
 setup_venv() {
   step "Setting up Python virtual environment..."
 
+  # Pin to Python 3.12 — some deps (e.g. zvec) lack cp313 wheels
   if check_uv; then
-    [[ -d "$VENV_DIR" ]] || uv venv "$VENV_DIR" --quiet
+    if [[ -d "$VENV_DIR" ]]; then
+      ok "venv exists at $VENV_DIR (reusing)"
+    else
+      uv venv "$VENV_DIR" --python 3.12 --quiet
+      ok "venv at $VENV_DIR (Python 3.12)"
+    fi
   else
     local py_cmd
     py_cmd=$(check_python)
-    [[ -d "$VENV_DIR" ]] || "$py_cmd" -m venv "$VENV_DIR"
+    if [[ -d "$VENV_DIR" ]]; then
+      ok "venv exists at $VENV_DIR (reusing)"
+    else
+      "$py_cmd" -m venv "$VENV_DIR"
+      ok "venv at $VENV_DIR"
+    fi
   fi
-  ok "venv at $VENV_DIR"
 
   # Install MCP requirements
   local requirements="$INSTALL_DIR/mcp/requirements.txt"
   if [[ -f "$requirements" ]]; then
     step "Installing MCP dependencies..."
     if check_uv; then
-      uv pip install --quiet --python "$VENV_DIR/bin/python" -r "$requirements"
+      uv pip install --quiet --prerelease=allow \
+        --python "$VENV_DIR/bin/python" -r "$requirements"
     else
       "$VENV_DIR/bin/pip" install --quiet -r "$requirements"
     fi
@@ -411,7 +428,8 @@ setup_venv() {
   if [[ -f "$dash_reqs" ]]; then
     step "Installing dashboard dependencies (FastAPI, uvicorn, websockets)..."
     if check_uv; then
-      uv pip install --quiet --python "$VENV_DIR/bin/python" -r "$dash_reqs"
+      uv pip install --quiet --prerelease=allow \
+        --python "$VENV_DIR/bin/python" -r "$dash_reqs"
     else
       "$VENV_DIR/bin/pip" install --quiet -r "$dash_reqs"
     fi
@@ -419,24 +437,102 @@ setup_venv() {
   fi
 }
 
+# ─── .env setup ───────────────────────────────────────────────────────────────
+# Creates ~/.ostwin/.env on first install so the dashboard and agents can
+# read API keys without requiring them to be exported in every shell session.
+
+setup_env() {
+  local env_file="$INSTALL_DIR/.env"
+
+  if [[ -f "$env_file" ]]; then
+    ok ".env already exists at $env_file"
+    return
+  fi
+
+  step "Creating .env file at $env_file..."
+  mkdir -p "$INSTALL_DIR"
+
+  cat > "$env_file" << 'EOF'
+# Ostwin — Environment Variables
+# Edit this file and re-start the dashboard (ostwin stop && ostwin start)
+# Lines starting with # are comments.
+
+# ── AI Provider Keys (set at least one) ────────────────────────────────────
+# GOOGLE_API_KEY=your-google-api-key-here
+# OPENAI_API_KEY=your-openai-api-key-here
+# ANTHROPIC_API_KEY=your-anthropic-api-key-here
+
+# ── Dashboard settings ──────────────────────────────────────────────────────
+# DASHBOARD_PORT=9000
+# DASHBOARD_HOST=0.0.0.0
+
+# ── Agent OS settings ───────────────────────────────────────────────────────
+# OSTWIN_LOG_LEVEL=INFO
+EOF
+
+  chmod 600 "$env_file"   # Protect API keys
+  ok ".env created — edit $env_file to add your API keys"
+
+  # Migrate any existing exported key from the current shell environment
+  local migrated=false
+  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
+    if [[ -n "${!key:-}" ]]; then
+      # Uncomment and fill the matching line
+      if [[ "$OS" == "macos" ]]; then
+        sed -i '' "s|^# ${key}=.*|${key}=${!key}|" "$env_file"
+      else
+        sed -i "s|^# ${key}=.*|${key}=${!key}|" "$env_file"
+      fi
+      ok "Migrated \$${key} into .env"
+      migrated=true
+    fi
+  done
+
+  if ! $migrated; then
+    warn "No API keys found in current shell — edit $env_file and add them"
+  fi
+}
+
 # ─── File installation ───────────────────────────────────────────────────────
 
 install_files() {
-  step "Installing Agent OS to $INSTALL_DIR..."
+  step "Installing OS Twin to $INSTALL_DIR..."
   mkdir -p "$INSTALL_DIR"
 
-  # Copy the entire .agents directory
-  cp -r "$SCRIPT_DIR/"* "$INSTALL_DIR/" 2>/dev/null || true
-  # Copy hidden files (like .claude/)
-  find "$SCRIPT_DIR" -maxdepth 1 -name '.*' -not -name '.' -not -name '..' \
-    -exec cp -r {} "$INSTALL_DIR/" \; 2>/dev/null || true
+  # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
+  rsync -a \
+    --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
+    --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
+    "$SCRIPT_DIR/" "$INSTALL_DIR/" 2>/dev/null || {
+      # rsync fallback to cp
+      cp -r "$SCRIPT_DIR/"* "$INSTALL_DIR/" 2>/dev/null || true
+      find "$SCRIPT_DIR" -maxdepth 1 -name '.*' -not -name '.' -not -name '..' \
+        -exec cp -r {} "$INSTALL_DIR/" \; 2>/dev/null || true
+    }
 
-  # Copy dashboard (source repo layout: dashboard/ is sibling to .agents/)
-  if [[ -d "$SCRIPT_DIR/../dashboard" ]] && [[ -f "$SCRIPT_DIR/../dashboard/api.py" ]]; then
-    step "Copying web dashboard..."
-    rm -rf "$INSTALL_DIR/dashboard" 2>/dev/null || true
-    cp -r "$SCRIPT_DIR/../dashboard" "$INSTALL_DIR/dashboard"
-    ok "Dashboard copied (api.py, index.html, assets)"
+  # ── Dashboard: always override from source repo ───────────────────────────
+  local dash_src=""
+  for candidate in \
+    "${SOURCE_DIR}/dashboard" \
+    "${SCRIPT_DIR}/../dashboard" \
+    "${SCRIPT_DIR}/dashboard"; do
+    if [[ -n "$candidate" ]] && [[ -f "$candidate/api.py" ]]; then
+      dash_src="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+
+  if [[ -n "$dash_src" ]]; then
+    step "Syncing dashboard from $dash_src (override)..."
+    rm -rf "$INSTALL_DIR/dashboard"
+    mkdir -p "$INSTALL_DIR/dashboard"
+    rsync -a \
+      --exclude='__pycache__/' --exclude='*.pyc' --exclude='.DS_Store' \
+      "$dash_src/" "$INSTALL_DIR/dashboard/"
+    ok "Dashboard → $INSTALL_DIR/dashboard/"
+  else
+    warn "Dashboard source not found — dashboard/ not updated"
+    info "Pass the repo root: ./install.sh --source-dir /path/to/agent-os"
   fi
 
   # Make scripts executable
@@ -606,6 +702,11 @@ header "4. Setting up Python environment"
 setup_venv
 patch_mcp_config
 
+# ─── 4b. Environment variables (.env) ────────────────────────────────────────
+
+header "4b. Setting up .env"
+setup_env
+
 # ─── 5. PowerShell extras ────────────────────────────────────────────────────
 
 if ! $SKIP_OPTIONAL && command -v pwsh &>/dev/null; then
@@ -666,27 +767,52 @@ header "8. Starting dashboard"
 
 DASHBOARD_SCRIPT="$INSTALL_DIR/dashboard.sh"
 if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; then
-  # Kill any existing dashboard on :9000
-  if lsof -ti:9000 >/dev/null 2>&1; then
-    step "Stopping existing process on :9000..."
-    kill "$(lsof -ti:9000)" 2>/dev/null || true
+
+  # Stop any existing process on the dashboard port
+  local_pids=$(lsof -ti:"$DASHBOARD_PORT" 2>/dev/null || true)
+  if [[ -n "$local_pids" ]]; then
+    step "Stopping existing process on :$DASHBOARD_PORT..."
+    echo "$local_pids" | xargs kill 2>/dev/null || true
     sleep 1
   fi
 
-  step "Starting dashboard on http://localhost:9000..."
-  nohup bash "$DASHBOARD_SCRIPT" --background > "$INSTALL_DIR/logs/dashboard.log" 2>&1 &
+  # Source .env so the dashboard process inherits API keys
+  ENV_FILE="$INSTALL_DIR/.env"
+  if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
+  fi
+
+  mkdir -p "$INSTALL_DIR/logs"
+  step "Starting dashboard on http://localhost:${DASHBOARD_PORT}..."
+  nohup bash "$DASHBOARD_SCRIPT" \
+    --background --port "$DASHBOARD_PORT" \
+    > "$INSTALL_DIR/logs/dashboard.log" 2>&1 &
   DASHBOARD_PID=$!
   echo "$DASHBOARD_PID" > "$INSTALL_DIR/dashboard.pid"
-  sleep 2
 
-  if kill -0 "$DASHBOARD_PID" 2>/dev/null; then
-    ok "Dashboard running on http://localhost:9000 (PID $DASHBOARD_PID)"
+  # Health-check: poll /api/status up to 10s
+  step "Waiting for dashboard to be healthy..."
+  DASH_OK=false
+  for _i in $(seq 1 10); do
+    if curl -sf "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1; then
+      DASH_OK=true
+      break
+    fi
+    sleep 1
+  done
+
+  if $DASH_OK; then
+    ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
   else
-    warn "Dashboard failed to start — check $INSTALL_DIR/logs/dashboard.log"
+    warn "Dashboard did not respond in 10s — check $INSTALL_DIR/logs/dashboard.log"
+    info "Start manually: bash $DASHBOARD_SCRIPT"
   fi
 else
   warn "Dashboard not found — skipping auto-start"
-  info "Re-run install or copy dashboard/ manually"
+  info "Re-run: ./install.sh --source-dir /path/to/agent-os"
 fi
 
 # ─── Done! ────────────────────────────────────────────────────────────────────
@@ -710,7 +836,9 @@ echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
 echo ""
 echo -e "  ${BOLD}API Key Setup:${NC}"
-echo -e "    ${DIM}# Google (default model: gemini-3-flash-preview)${NC}"
-echo -e "    export GOOGLE_API_KEY=\"your-api-key\""
+echo -e "    ${DIM}Edit your .env file (keys auto-migrated if already in shell):${NC}"
+echo -e "    nano ${INSTALL_DIR}/.env"
+echo -e "    ${DIM}Then restart dashboard: ostwin stop && ostwin start${NC}"
+echo -e "    ${DIM}# Or export directly (not persisted): export GOOGLE_API_KEY=\"your-key\"${NC}"
 echo -e "    ${DIM}# Or use OpenAI/Anthropic — see: ostwin config${NC}"
 echo ""
