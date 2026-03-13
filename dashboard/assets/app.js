@@ -5,6 +5,66 @@
 
 'use strict';
 
+// ── Fetch Interceptor for Auth ──────────────────────────────────────────────
+const originalFetch = window.fetch;
+window.fetch = async function(resource, config = {}) {
+  const token = localStorage.getItem('agent_os_token');
+  if (token && typeof resource === 'string' && resource.startsWith('/api/')) {
+    config.headers = {
+      ...config.headers,
+      'Authorization': `Bearer ${token}`
+    };
+  } else if (token && resource instanceof Request && resource.url.includes('/api/')) {
+     config.headers = {
+      ...config.headers,
+      'Authorization': `Bearer ${token}`
+    };
+  }
+  const response = await originalFetch(resource, config);
+  if (response.status === 401) {
+    // Show login if unauthorized
+    document.getElementById('auth-overlay').style.display = 'flex';
+  }
+  return response;
+};
+
+// ── Auth Logic ──────────────────────────────────────────────────────────────
+
+async function performLogin() {
+  const user = document.getElementById('auth-user').value;
+  const pass = document.getElementById('auth-pass').value;
+  const errDiv = document.getElementById('auth-error');
+  
+  const formData = new URLSearchParams();
+  formData.append('username', user);
+  formData.append('password', pass);
+
+  try {
+    const res = await originalFetch('/api/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData
+    });
+    
+    if (!res.ok) {
+      errDiv.innerText = 'Login failed. Check credentials.';
+      return;
+    }
+    
+    const data = await res.json();
+    localStorage.setItem('agent_os_token', data.access_token);
+    document.getElementById('auth-overlay').style.display = 'none';
+    errDiv.innerText = '';
+    
+    // Refresh the app data
+    fetchManagerConfig();
+    pollRoomsAndRelease();
+    initApp();
+  } catch (err) {
+    errDiv.innerText = 'Network error during login.';
+  }
+}
+
 // ── Theme Management ────────────────────────────────────────────────────────
 
 let currentTheme = localStorage.getItem('theme') || 'dark';
@@ -142,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   loadConfig();
   loadPlanHistory();
+  loadGlobalNotifications();
   loadInitialState().then(() => connect());
   pollManagerStatus();
   setInterval(pollManagerStatus, 3000);
@@ -187,6 +248,7 @@ function connect() {
 }
 
 function dispatch(ev) {
+  addGlobalNotification(ev);
   switch (ev.event) {
     case 'room_created':
       rooms[ev.room.room_id] = ev.room;
@@ -1149,3 +1211,97 @@ function filterRoom(roomId) {
     renderFeed();
   }
 }
+
+// ── Global Notifications ───────────────────────────────────────────────────
+
+let globalNotifications = [];
+let unreadNotificationsCount = 0;
+
+async function loadGlobalNotifications() {
+  try {
+    const res = await fetch('/api/notifications?limit=50');
+    if (!res.ok) return;
+    const data = await res.json();
+    globalNotifications = data.notifications || [];
+    renderGlobalNotifications();
+  } catch (err) {
+    console.error('Error fetching global notifications', err);
+  }
+}
+
+function renderGlobalNotifications() {
+  const list = document.getElementById('global-notification-list');
+  const badge = document.getElementById('notification-badge');
+  if (!list || !badge) return;
+
+  if (globalNotifications.length === 0) {
+    list.innerHTML = '<div class="empty-notifications">No new notifications</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  globalNotifications.slice().reverse().forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'notification-item';
+    
+    let text = 'New notification';
+    if (n.event_type === 'room_created') text = `War-room created: ${n.data.room?.room_id || 'Unknown'}`;
+    else if (n.event_type === 'room_updated') text = `Room updated: ${n.data.room?.room_id || 'Unknown'}`;
+    else if (n.event_type === 'room_action') text = `Room action: ${n.data.action} in ${n.data.room_id}`;
+    else if (n.event_type === 'reaction_toggled') text = `Reaction toggled in ${n.data.room_id || ''}`;
+    else if (n.event_type === 'comment_published') text = `New comment in ${n.data.room_id || ''}`;
+    else text = `${n.event_type}`;
+
+    const timestamp = n.timestamp || new Date().toISOString();
+    const dateStr = new Date(timestamp).toLocaleString();
+
+    el.innerHTML = `
+      <div>${text}</div>
+      <div class="notification-time">${dateStr}</div>
+    `;
+    list.appendChild(el);
+  });
+
+  if (unreadNotificationsCount > 0) {
+    badge.style.display = 'block';
+    badge.innerText = unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function toggleNotifications() {
+  const dropdown = document.getElementById('notification-dropdown');
+  if (dropdown) {
+    const isVisible = dropdown.style.display === 'flex';
+    dropdown.style.display = isVisible ? 'none' : 'flex';
+    if (!isVisible) {
+      unreadNotificationsCount = 0;
+      renderGlobalNotifications();
+    }
+  }
+}
+
+function markNotificationsRead() {
+  unreadNotificationsCount = 0;
+  renderGlobalNotifications();
+}
+
+function addGlobalNotification(ev) {
+  globalNotifications.push({
+    event_type: ev.event,
+    data: ev,
+    timestamp: new Date().toISOString()
+  });
+  unreadNotificationsCount++;
+  renderGlobalNotifications();
+}
+
+// Click outside to close notification dropdown
+document.addEventListener('click', (e) => {
+  const container = document.getElementById('notification-container');
+  const dropdown = document.getElementById('notification-dropdown');
+  if (container && dropdown && !container.contains(e.target)) {
+    dropdown.style.display = 'none';
+  }
+});

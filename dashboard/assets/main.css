@@ -1328,3 +1328,121 @@ body {
   .panel-body { max-height: 300px; }
   .pipeline-bar { display: none; }
 }
+
+/* ── Notifications ───────────────────────────────────────────────────────── */
+
+.notification-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 15px;
+}
+
+.notification-bell {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  position: relative;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text);
+  transition: background 0.2s;
+}
+
+.notification-bell:hover {
+  background: var(--bg-hover);
+}
+
+.notification-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 5px;
+  border-radius: 10px;
+  transform: translate(30%, -30%);
+}
+
+.notification-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 10px;
+  width: 320px;
+  max-height: 400px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.notification-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border);
+  font-weight: bold;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.mark-read-btn {
+  background: none;
+  border: none;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.mark-read-btn:hover {
+  text-decoration: underline;
+}
+
+.notification-list {
+  overflow-y: auto;
+  max-height: 350px;
+}
+
+.empty-notifications {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.notification-item {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-item:hover {
+  background: var(--bg-hover);
+}
+
+.notification-item.unread {
+  background: rgba(0, 212, 255, 0.05);
+  border-left: 2px solid var(--blue);
+}
+
+.notification-time {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+

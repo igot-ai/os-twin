@@ -19,7 +19,7 @@ describe('Plan Launcher', () => {
   it('textarea is pre-filled with a valid plan template', () => {
     cy.get('#plan-input')
       .should('contain.value', '# Plan:')
-      .and('contain.value', '## Task:');
+      .and('contain.value', '## Epic:');
   });
 
   it('textarea accepts typed input', () => {
@@ -29,26 +29,28 @@ describe('Plan Launcher', () => {
 
   // ── Quick Action Templates ────────────────────────────────────────────────
 
-  it('"hello world" template fills a 2-task hello plan', () => {
+  it('"hello world" template fills a 1-epic hello plan', () => {
     cy.contains('button', 'hello world').click();
     cy.get('#plan-input')
       .should('contain.value', 'Hello World')
-      .and('contain.value', 'TASK-001')
-      .and('contain.value', 'TASK-002');
+      .and('contain.value', 'EPIC-001');
   });
 
-  it('"REST API" template fills a 3-task API plan', () => {
+  it('"REST API" template fills a 2-epic API plan', () => {
     cy.contains('button', 'REST API').click();
     cy.get('#plan-input')
       .should('contain.value', 'REST API')
-      .and('contain.value', 'TASK-003');
+      .and('contain.value', 'EPIC-001')
+      .and('contain.value', 'EPIC-002');
   });
 
-  it('"full-stack app" template fills a 4-task plan', () => {
+  it('"full-stack app" template fills a 3-epic plan', () => {
     cy.contains('button', 'full-stack app').click();
     cy.get('#plan-input')
       .should('contain.value', 'Full-Stack')
-      .and('contain.value', 'TASK-004');
+      .and('contain.value', 'EPIC-001')
+      .and('contain.value', 'EPIC-002')
+      .and('contain.value', 'EPIC-003');
   });
 
   // ── LAUNCH Button ─────────────────────────────────────────────────────────
