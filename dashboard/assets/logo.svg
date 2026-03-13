@@ -2,9 +2,9 @@
   <defs>
     <linearGradient id="g" x1="8" y1="220" x2="232" y2="20"
                     gradientUnits="userSpaceOnUse">
-      <stop offset="0%"   stop-color="#38A3A5"/>
-      <stop offset="55%"  stop-color="#3375B5"/>
-      <stop offset="100%" stop-color="#1E3F7A"/>
+      <stop offset="0%"   stop-color="#00ff88"/>
+      <stop offset="50%"  stop-color="#00c4e0"/>
+      <stop offset="100%" stop-color="#00d4ff"/>
     </linearGradient>
     <clipPath id="c">
       <circle cx="120" cy="120" r="112"/>
