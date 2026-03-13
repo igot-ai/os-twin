@@ -75,10 +75,24 @@ Be concise, technical, and precise. Write like a senior engineering lead scoping
 """
 
 
+# ── Auto-detect available AI provider ──────────────────────────────
+
+def detect_model() -> str:
+    """Pick the best available model based on which API keys are set."""
+    if os.environ.get("GOOGLE_API_KEY"):
+        return "gemini-3.1-pro-preview"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "claude-sonnet-4-6"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "gpt-4o"
+    # Default — will fail with a clear message if no key is set
+    return "gemini-3-flash-preview"
+
+
 # ── Agent factory ──────────────────────────────────────────────────
 
 def create_plan_agent(
-    model: str = "claude-sonnet-4-6",
+    model: str = "",
     plans_dir: Optional[Path] = None,
 ):
     """Create a deepagent configured for plan refinement.
@@ -113,6 +127,9 @@ def create_plan_agent(
         if not plan_file.exists():
             return f"Error: Plan '{plan_id}' not found."
         return plan_file.read_text()
+
+    if not model:
+        model = detect_model()
 
     agent = create_deep_agent(
         model=model,
@@ -168,7 +185,7 @@ async def refine_plan(
     user_message: str,
     plan_content: str = "",
     chat_history: list[dict] | None = None,
-    model: str = "claude-sonnet-4-6",
+    model: str = "",
     plans_dir: Optional[Path] = None,
 ) -> str:
     """Invoke the plan agent and return the refined plan text.
@@ -200,7 +217,7 @@ async def refine_plan_stream(
     user_message: str,
     plan_content: str = "",
     chat_history: list[dict] | None = None,
-    model: str = "claude-sonnet-4-6",
+    model: str = "",
     plans_dir: Optional[Path] = None,
 ) -> AsyncIterator[str]:
     """Stream the plan agent's response token-by-token.
