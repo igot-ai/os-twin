@@ -1,5 +1,5 @@
 /**
- * Agent OS Command Center — Real-time SSE Client
+ * OS Twin Command Center — Real-time SSE Client
  * TASK-003 + TASK-004: SSE client, DOM wiring, animations, integration
  */
 

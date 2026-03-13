@@ -1,11 +1,11 @@
 """
-Agent OS Vector Log Store — zvec integration layer.
+OS Twin Vector Log Store — zvec integration layer.
 
 Indexes all war-room channel messages with embeddings for semantic search.
 Stores room metadata for fast dashboard lookups (eliminates "UNKNOWN" task-ref).
 
 Usage:
-    store = AgentOSStore(Path("/project/.war-rooms"))
+    store = OSTwinStore(Path("/project/.war-rooms"))
     store.ensure_collections()
     store.sync_from_disk()  # backfill existing JSONL
     results = store.search("authentication bug", limit=5)
@@ -30,8 +30,8 @@ PLANS_COLLECTION = "plans"
 EPICS_COLLECTION = "epics"
 
 
-class AgentOSStore:
-    """In-process vector store for Agent OS logs and metadata."""
+class OSTwinStore:
+    """In-process vector store for OS Twin logs and metadata."""
 
     def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
         self.warrooms_dir = warrooms_dir

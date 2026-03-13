@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # RESTART_TOKEN: 1
 """
-Agent OS Command Center — FastAPI Backend
+OS Twin Command Center — FastAPI Backend
 
 Serves the dashboard and provides real-time war-room state via SSE.
 
@@ -43,12 +43,12 @@ DEMO_DIR = Path(__file__).parent
 # === zvec store (optional, graceful fallback) ===
 store = None
 try:
-    from zvec_store import AgentOSStore
+    from zvec_store import OSTwinStore
     _ZVEC_AVAILABLE = True
 except ImportError:
     _ZVEC_AVAILABLE = False
 
-app = FastAPI(title="Agent OS Command Center", version="0.1.0")
+app = FastAPI(title="OS Twin Command Center", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,7 +76,7 @@ async def startup_all():
         return
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-        store = AgentOSStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
+        store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
         store.ensure_collections()
         count = store.sync_from_disk()
         print(f"  zvec: synced {count} messages from disk")
@@ -476,7 +476,7 @@ async def index():
     index_file = DEMO_DIR / "index.html"
     if index_file.exists():
         return FileResponse(str(index_file))
-    return HTMLResponse("<h1>Agent OS Command Center</h1><p>index.html not found.</p>")
+    return HTMLResponse("<h1>OS Twin Command Center</h1><p>index.html not found.</p>")
 
 
 @app.get("/api/rooms")
@@ -551,7 +551,7 @@ async def get_release():
 
 @app.get("/api/config")
 async def get_config():
-    """Get Agent OS configuration."""
+    """Get OS Twin configuration."""
     config_file = AGENTS_DIR / "config.json"
     if not config_file.exists():
         return {}
@@ -560,7 +560,7 @@ async def get_config():
 
 @app.post("/api/run")
 async def run_plan(request: RunRequest):
-    """Launch Agent OS with the provided plan content."""
+    """Launch OS Twin with the provided plan content."""
     plan = request.plan.strip()
     if not plan:
         raise HTTPException(status_code=422, detail="Plan content is empty")
@@ -571,7 +571,7 @@ async def run_plan(request: RunRequest):
 
     run_sh = AGENTS_DIR / "run.sh"
     if not run_sh.exists():
-        raise HTTPException(status_code=500, detail="Agent OS run.sh not found")
+        raise HTTPException(status_code=500, detail="OS Twin run.sh not found")
 
     plans_dir = AGENTS_DIR / "plans"
     plans_dir.mkdir(exist_ok=True)
@@ -590,12 +590,12 @@ async def run_plan(request: RunRequest):
     # Index plan + epics into zvec
     if store:
         try:
-            from zvec_store import AgentOSStore
+            from zvec_store import OSTwinStore
             # Extract title
             title_match = _re_mod.search(r"^# Plan:\s*(.+)", plan, _re_mod.MULTILINE)
             title = title_match.group(1).strip() if title_match else plan_id
             # Parse epics
-            epics = AgentOSStore._parse_plan_epics(plan, plan_id)
+            epics = OSTwinStore._parse_plan_epics(plan, plan_id)
             now = datetime.now(timezone.utc).isoformat()
             store.index_plan(
                 plan_id=plan_id, title=title, content=plan,
@@ -613,7 +613,7 @@ async def run_plan(request: RunRequest):
         except Exception as e:
             print(f"  zvec: plan indexing failed ({e}), continuing without")
 
-    # Spawn Agent OS in background (run.sh will kill any existing manager itself)
+    # Spawn OS Twin in background (run.sh will kill any existing manager itself)
     subprocess.Popen(
         [str(run_sh), plan_path],
         cwd=str(PROJECT_ROOT),
@@ -804,8 +804,8 @@ async def get_plan_epics(plan_id: str):
 
     content = plan_file.read_text()
     if store:
-        from zvec_store import AgentOSStore
-        epics_raw = AgentOSStore._parse_plan_epics(content, plan_id)
+        from zvec_store import OSTwinStore
+        epics_raw = OSTwinStore._parse_plan_epics(content, plan_id)
     else:
         epics_raw = []
 
@@ -885,7 +885,7 @@ if __name__ == "__main__":
     if _args.project_dir:
         WARROOMS_DIR = Path(_args.project_dir) / ".war-rooms"
 
-    print("⬡ Agent OS Command Center")
+    print("⬡ OS Twin Command Center")
     print(f"  Project:   {_args.project_dir or PROJECT_ROOT}")
     print(f"  War-rooms: {WARROOMS_DIR}")
     print(f"  URL:       http://localhost:{_args.port}")

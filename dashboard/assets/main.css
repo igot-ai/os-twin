@@ -1,5 +1,5 @@
 /* =====================================================
-   Agent OS Command Center — Dark Cyber Theme
+   OS Twin Command Center — Dark Cyber Theme
    ===================================================== */
 
 :root {
@@ -83,8 +83,15 @@ body {
 .topbar-logo {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   flex-shrink: 0;
+}
+
+.logo-img {
+  height: 20px;
+  width: auto;
+  filter: drop-shadow(0 0 4px var(--cyan));
+  display: block;
 }
 
 .logo-hex {
