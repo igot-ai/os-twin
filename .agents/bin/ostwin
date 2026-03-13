@@ -57,8 +57,8 @@ Examples:
   ostwin stop
 
 Environment:
-  ENGINEER_CMD        Override engineer CLI (default: deepagents)
-  QA_CMD              Override QA CLI (default: deepagents)
+  ENGINEER_CMD        Override engineer CLI
+  QA_CMD              Override QA CLI
   MOCK_SIGNOFF        Set to "true" for auto-signoff (testing)
   AGENT_OS_LOG_LEVEL  Log level: DEBUG, INFO, WARN, ERROR (default: INFO)
   WARROOMS_DIR        Override war-rooms data directory
@@ -69,14 +69,62 @@ HELP
 # Default WARROOMS_DIR to cwd/.war-rooms for project-scoped commands
 export WARROOMS_DIR="${WARROOMS_DIR:-$(pwd)/.war-rooms}"
 
+# PowerShell dispatch: prefer .ps1 scripts via pwsh when available
+HAS_PWSH=false
+if command -v pwsh &>/dev/null; then
+  HAS_PWSH=true
+fi
+
+ps_dispatch() {
+  # Usage: ps_dispatch <ps1-script> <fallback-sh-script> [args...]
+  local ps1="$1"; shift
+  local sh="$1"; shift
+  if $HAS_PWSH && [[ -f "$ps1" ]]; then
+    # Translate bash-style args to PowerShell params
+    local ps_args=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --dry-run)      ps_args+=("-DryRun"); shift ;;
+        --max-rooms)    ps_args+=("-MaxConcurrent" "$2"); shift 2 ;;
+        --working-dir)  ps_args+=("-ProjectDir" "$2"); shift 2 ;;
+        --non-interactive|-n) ps_args+=("-NonInteractive"); shift ;;
+        --goal)         ps_args+=("-Goal" "$2"); shift 2 ;;
+        --plan-file)    ps_args+=("-PlanFile" "$2"); shift 2 ;;
+        --json)         ps_args+=("-AsJson"); shift ;;
+        --watch)        ps_args+=("-Watch"); shift ;;
+        *)              ps_args+=("$1"); shift ;;
+      esac
+    done
+    exec pwsh -NoProfile -File "$ps1" "${ps_args[@]}"
+  elif [[ -f "$sh" ]]; then
+    exec "$sh" "$@"
+  else
+    echo "[ERROR] Neither $ps1 nor $sh found." >&2
+    exit 1
+  fi
+}
+
 case "${1:-}" in
   run)
     shift
-    exec "$AGENTS_DIR/run.sh" "$@"
+    ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "$@"
     ;;
   plan)
     shift
-    exec "$AGENTS_DIR/plan.sh" "$@"
+    SUB="${1:-create}"
+    case "$SUB" in
+      create)
+        shift
+        ps_dispatch "$AGENTS_DIR/plan/New-Plan.ps1" "$AGENTS_DIR/plan.sh" -ProjectDir "$(pwd)" "$@"
+        ;;
+      start)
+        shift
+        ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "$@"
+        ;;
+      *)
+        exec "$AGENTS_DIR/plan.sh" "$SUB" "$@"
+        ;;
+    esac
     ;;
   init)
     shift
@@ -84,7 +132,7 @@ case "${1:-}" in
     ;;
   status)
     shift
-    exec "$AGENTS_DIR/war-rooms/status.sh" "$@"
+    ps_dispatch "$AGENTS_DIR/war-rooms/Get-WarRoomStatus.ps1" "$AGENTS_DIR/war-rooms/status.sh" "$@"
     ;;
   logs)
     shift
@@ -114,6 +162,18 @@ case "${1:-}" in
   test)
     shift
     exec "$AGENTS_DIR/tests/run-all.sh" "$@"
+    ;;
+  test-ps)
+    # Run Pester tests for PowerShell modules
+    shift
+    if $HAS_PWSH; then
+      exec pwsh -NoProfile -Command "
+        Invoke-Pester '$AGENTS_DIR/lib','$AGENTS_DIR/channel','$AGENTS_DIR/war-rooms','$AGENTS_DIR/roles','$AGENTS_DIR/plan' -Output Detailed
+      "
+    else
+      echo "[ERROR] pwsh (PowerShell) not found. Install: https://aka.ms/install-powershell" >&2
+      exit 1
+    fi
     ;;
   version|-v|--version)
     echo "ostwin v${VERSION}"

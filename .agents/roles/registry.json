@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent OS Role Registry",
+  "description": "Catalog of all available roles for war-room assignment",
+  "version": "0.2.0",
+  "roles": [
+    {
+      "name": "engineer",
+      "description": "Software engineer — implements features, writes tests, fixes bugs",
+      "runner": "roles/engineer/Start-Engineer.ps1",
+      "runner_legacy": "roles/engineer/run.sh",
+      "definition": "roles/engineer/role.json",
+      "prompt": "roles/engineer/ROLE.md",
+      "default_assignment": true,
+      "supported_task_types": ["task", "epic"],
+      "capabilities": ["code-generation", "file-editing", "shell-execution", "testing", "refactoring"],
+      "quality_gates": ["unit-tests", "lint-clean", "no-hardcoded-secrets"]
+    },
+    {
+      "name": "qa",
+      "description": "QA engineer — reviews code, verifies requirements, validates quality",
+      "runner": "roles/qa/Start-QA.ps1",
+      "runner_legacy": "roles/qa/run.sh",
+      "definition": "roles/qa/role.json",
+      "prompt": "roles/qa/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": ["review"],
+      "capabilities": ["code-review", "test-execution", "shell-execution", "security-review"],
+      "quality_gates": ["verdict-required", "evidence-based-review"]
+    },
+    {
+      "name": "architect",
+      "description": "Software architect — designs systems, reviews architecture, makes technical decisions",
+      "runner": null,
+      "definition": "roles/architect/role.json",
+      "prompt": "roles/architect/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": ["design", "review", "epic"],
+      "capabilities": ["architecture-design", "code-review", "documentation", "technical-decisions"],
+      "quality_gates": ["design-review", "scalability-check", "security-review"]
+    },
+    {
+      "name": "manager",
+      "description": "Manager — orchestrates war-rooms, routes work, handles retries and release",
+      "runner": "roles/manager/Start-ManagerLoop.ps1",
+      "runner_legacy": "roles/manager/loop.sh",
+      "definition": null,
+      "prompt": null,
+      "default_assignment": false,
+      "supported_task_types": ["orchestration"],
+      "capabilities": ["task-routing", "retry-management", "release-coordination", "deadlock-detection"],
+      "quality_gates": []
+    }
+  ],
+  "assignment_rules": {
+    "default_role": "engineer",
+    "review_role": "qa",
+    "design_role": "architect",
+    "orchestration_role": "manager"
+  },
+  "extensibility": {
+    "custom_roles_dir": "roles/",
+    "auto_discover": true,
+    "required_files": ["role.json"],
+    "optional_files": ["ROLE.md", "skills/"]
+  }
+}

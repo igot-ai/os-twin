@@ -210,7 +210,6 @@ plan_create() {
   # ── Show current config ──
   _tui_section "Configuration"
   _tui_kv "Ideation model:" "$MODEL"
-  _tui_kv "Engineer CLI:  " "$ENGINEER_CLI"
   _tui_kv "Plans dir:     " "$PLANS_DIR"
   echo "  │"
   _tui_line "Override with: --model <name> or --working-dir <path>"

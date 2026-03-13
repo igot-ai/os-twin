@@ -1,0 +1,24 @@
+{
+  "name": "qa",
+  "description": "QA engineer — reviews code, verifies requirements, validates quality",
+  "capabilities": [
+    "code-review",
+    "test-execution",
+    "shell-execution",
+    "security-review"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "verdict-required",
+    "evidence-based-review"
+  ],
+  "skills": [
+    "testing",
+    "security-audit",
+    "code-review",
+    "regression-testing"
+  ],
+  "cli": "deepagents",
+  "model": null,
+  "timeout": 300
+}

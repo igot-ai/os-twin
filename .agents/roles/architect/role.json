@@ -1,0 +1,28 @@
+{
+  "name": "architect",
+  "description": "Software architect — designs systems, reviews architecture, makes technical decisions",
+  "capabilities": [
+    "architecture-design",
+    "code-review",
+    "documentation",
+    "technical-decisions"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "design-review",
+    "scalability-check",
+    "security-review"
+  ],
+  "skills": [
+    "system-design",
+    "api-design",
+    "microservices",
+    "event-driven-architecture",
+    "database-design",
+    "cloud-architecture",
+    "security"
+  ],
+  "cli": "deepagents",
+  "model": null,
+  "timeout": 900
+}

@@ -771,3 +771,24 @@
 [2026-03-12T06:51:22Z] [INFO] [main] PASSED TASK-001.
 [2026-03-12T06:51:22Z] [INFO] [cleanup] Shutting down all war-rooms...
 [2026-03-12T06:51:24Z] [INFO] [cleanup] Shutdown complete.
+[2026-03-13T02:58:34Z] [INFO] [main] Starting Ostwin Manager Loop
+[2026-03-13T02:58:34Z] [ERROR] [Write-Log] [EPIC-001] State 'engineering' timed out after 900s.
+[2026-03-13T02:58:34Z] [ERROR] [Write-Log] [EPIC-002] State 'engineering' timed out after 900s.
+[2026-03-13T02:58:34Z] [ERROR] [Write-Log] [EPIC-003] State 'engineering' timed out after 900s.
+[2026-03-13T02:58:34Z] [ERROR] [Write-Log] [EPIC-004] State 'engineering' timed out after 900s.
+[2026-03-13T02:58:34Z] [INFO] [Write-Log] [EPIC-005] Spawning engineer in room-005...
+[2026-03-13T02:58:35Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T02:58:35Z] [INFO] [main] Starting work on EPIC-002 in room-002
+[2026-03-13T02:58:35Z] [INFO] [main] Starting work on EPIC-003 in room-003
+[2026-03-13T02:58:35Z] [INFO] [main] Starting work on EPIC-004 in room-004
+[2026-03-13T02:58:35Z] [INFO] [main] Starting work on EPIC-005 in room-005
+[2026-03-13T02:58:36Z] [ERROR] [main] Failed on EPIC-001 with exit code 1.
+[2026-03-13T02:58:36Z] [ERROR] [main] Failed on EPIC-002 with exit code 1.
+[2026-03-13T02:58:36Z] [ERROR] [main] Failed on EPIC-003 with exit code 1.
+[2026-03-13T02:58:36Z] [ERROR] [main] Failed on EPIC-004 with exit code 1.
+[2026-03-13T02:58:36Z] [ERROR] [main] Failed on EPIC-005 with exit code 1.
+[2026-03-13T02:59:21Z] [INFO] [main] Starting Ostwin Manager Loop
+[2026-03-13T02:59:21Z] [INFO] [Write-Log] [EPIC-001] Spawning engineer in room-001...
+[2026-03-13T02:59:21Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T02:59:22Z] [ERROR] [main] Failed on EPIC-001 with exit code 1.
+[2026-03-13T03:00:06Z] [INFO] [Write-Log] Progress: 0/1 passed, 0 failed (iteration 10)

@@ -35,23 +35,32 @@ mkdir -p "$TARGET_AGENTS/roles/manager"
 mkdir -p "$TARGET_AGENTS/roles/engineer"
 mkdir -p "$TARGET_AGENTS/roles/qa"
 
-# Copy core scripts
-for script in run.sh stop.sh logs.sh config.sh dashboard.sh health.sh init.sh plan.sh; do
+# Copy core scripts (bash + install)
+for script in run.sh stop.sh logs.sh config.sh dashboard.sh health.sh init.sh plan.sh install.sh uninstall.sh; do
   [[ -f "$SOURCE_AGENTS/$script" ]] && cp "$SOURCE_AGENTS/$script" "$TARGET_AGENTS/$script"
 done
 
-# Copy channel tools
-for script in post.sh read.sh wait-for.sh; do
+# Copy channel tools (bash + PowerShell)
+for script in post.sh read.sh wait-for.sh Post-Message.ps1 Read-Messages.ps1 Wait-ForMessage.ps1; do
   [[ -f "$SOURCE_AGENTS/channel/$script" ]] && cp "$SOURCE_AGENTS/channel/$script" "$TARGET_AGENTS/channel/$script"
 done
 
-# Copy role definitions and runners
-for role in manager engineer qa; do
-  for file in ROLE.md run.sh loop.sh deepagents-cli.md; do
-    src="$SOURCE_AGENTS/roles/$role/$file"
-    [[ -f "$src" ]] && cp "$src" "$TARGET_AGENTS/roles/$role/$file"
+# Copy role definitions and runners (bash + PowerShell)
+mkdir -p "$TARGET_AGENTS/roles/_base"
+for role in manager engineer qa architect; do
+  mkdir -p "$TARGET_AGENTS/roles/$role"
+  for file in ROLE.md run.sh loop.sh deepagents-cli.md role.json Start-*.ps1; do
+    for src in "$SOURCE_AGENTS/roles/$role/"$file; do
+      [[ -f "$src" ]] && cp "$src" "$TARGET_AGENTS/roles/$role/$(basename "$src")"
+    done
   done
 done
+# Copy _base role engine
+for file in "$SOURCE_AGENTS/roles/_base/"*.ps1; do
+  [[ -f "$file" ]] && cp "$file" "$TARGET_AGENTS/roles/_base/$(basename "$file")"
+done
+# Copy role registry
+[[ -f "$SOURCE_AGENTS/roles/registry.json" ]] && cp "$SOURCE_AGENTS/roles/registry.json" "$TARGET_AGENTS/roles/registry.json"
 
 # Copy release tools
 for script in draft.sh signoff.sh; do
@@ -59,9 +68,12 @@ for script in draft.sh signoff.sh; do
 done
 [[ -f "$SOURCE_AGENTS/release/RELEASE.template.md" ]] && cp "$SOURCE_AGENTS/release/RELEASE.template.md" "$TARGET_AGENTS/release/RELEASE.template.md"
 
-# Copy libraries
+# Copy libraries (bash + PowerShell modules)
 for lib in utils.sh log.sh; do
   [[ -f "$SOURCE_AGENTS/lib/$lib" ]] && cp "$SOURCE_AGENTS/lib/$lib" "$TARGET_AGENTS/lib/$lib"
+done
+for lib in "$SOURCE_AGENTS/lib/"*.psm1; do
+  [[ -f "$lib" ]] && cp "$lib" "$TARGET_AGENTS/lib/$(basename "$lib")"
 done
 
 # Copy CLI entry point
@@ -73,8 +85,8 @@ cp "$SOURCE_AGENTS/config.json" "$TARGET_AGENTS/config.json"
 # Copy plan template
 [[ -f "$SOURCE_AGENTS/plans/PLAN.template.md" ]] && cp "$SOURCE_AGENTS/plans/PLAN.template.md" "$TARGET_AGENTS/plans/PLAN.template.md"
 
-# Copy war-room lifecycle scripts
-for script in create.sh status.sh teardown.sh; do
+# Copy war-room lifecycle scripts (bash + PowerShell)
+for script in create.sh status.sh teardown.sh New-WarRoom.ps1 Get-WarRoomStatus.ps1 Remove-WarRoom.ps1; do
   [[ -f "$SOURCE_AGENTS/war-rooms/$script" ]] && cp "$SOURCE_AGENTS/war-rooms/$script" "$TARGET_AGENTS/war-rooms/$script"
 done
 

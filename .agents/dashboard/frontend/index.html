@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ostwin — War-Room Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0f1117;
+            --bg-secondary: #1a1d27;
+            --bg-card: #222533;
+            --bg-hover: #2a2d3d;
+            --text-primary: #e8eaed;
+            --text-secondary: #9aa0a6;
+            --text-muted: #5f6368;
+            --accent-blue: #4285f4;
+            --accent-green: #34a853;
+            --accent-yellow: #fbbc04;
+            --accent-red: #ea4335;
+            --accent-cyan: #00bcd4;
+            --accent-purple: #a855f7;
+            --border: #333644;
+            --shadow: rgba(0, 0, 0, 0.3);
+            --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-success: linear-gradient(135deg, #34a853 0%, #00bcd4 100%);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* --- Header --- */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .ws-indicator {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--accent-red);
+            transition: background 0.3s;
+        }
+
+        .ws-indicator.connected { background: var(--accent-green); }
+
+        /* --- Summary Bar --- */
+        .summary-bar {
+            display: flex;
+            gap: 16px;
+            padding: 20px 32px;
+            flex-wrap: wrap;
+        }
+
+        .summary-card {
+            flex: 1;
+            min-width: 120px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .summary-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px var(--shadow);
+        }
+
+        .summary-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .summary-card .label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 6px;
+        }
+
+        /* --- Room Grid --- */
+        .rooms-container {
+            padding: 0 32px 32px;
+        }
+
+        .rooms-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .rooms-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .room-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 16px;
+        }
+
+        .room-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .room-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px var(--shadow);
+            border-color: var(--accent-blue);
+        }
+
+        .room-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 4px; height: 100%;
+        }
+
+        .room-card.status-pending::before { background: var(--text-muted); }
+        .room-card.status-engineering::before { background: var(--accent-yellow); }
+        .room-card.status-qa-review::before { background: var(--accent-cyan); }
+        .room-card.status-fixing::before { background: var(--accent-yellow); }
+        .room-card.status-passed::before { background: var(--accent-green); }
+        .room-card.status-failed-final::before { background: var(--accent-red); }
+
+        .room-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .room-id {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .task-ref {
+            font-size: 12px;
+            color: var(--accent-blue);
+            font-weight: 500;
+        }
+
+        .status-badge {
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .status-badge.pending { background: rgba(95,99,104,0.2); color: var(--text-muted); }
+        .status-badge.engineering { background: rgba(251,188,4,0.15); color: var(--accent-yellow); }
+        .status-badge.qa-review { background: rgba(0,188,212,0.15); color: var(--accent-cyan); }
+        .status-badge.fixing { background: rgba(251,188,4,0.15); color: var(--accent-yellow); }
+        .status-badge.passed { background: rgba(52,168,83,0.15); color: var(--accent-green); }
+        .status-badge.failed-final { background: rgba(234,67,53,0.15); color: var(--accent-red); }
+
+        .room-meta {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .meta-item {
+            text-align: center;
+        }
+
+        .meta-item .meta-value {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .meta-item .meta-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        /* --- Goal Progress --- */
+        .goal-bar {
+            margin-top: 12px;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .goal-bar-fill {
+            height: 100%;
+            background: var(--gradient-success);
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        /* --- Room Detail Modal --- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 28px;
+        }
+
+        .modal h2 {
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-close {
+            cursor: pointer;
+            font-size: 20px;
+            color: var(--text-secondary);
+            background: none;
+            border: none;
+        }
+
+        .goal-list { list-style: none; }
+
+        .goal-list li {
+            padding: 8px 12px;
+            margin: 4px 0;
+            border-radius: 8px;
+            background: var(--bg-card);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .goal-icon { font-size: 14px; }
+
+        .messages-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .message-item {
+            padding: 8px 12px;
+            margin: 4px 0;
+            border-radius: 8px;
+            background: var(--bg-card);
+            font-size: 12px;
+        }
+
+        .message-item .msg-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            color: var(--text-secondary);
+        }
+
+        .message-item .msg-body {
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            max-height: 80px;
+            overflow: hidden;
+        }
+
+        /* --- Event Log --- */
+        .event-log {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            max-height: 140px;
+            overflow-y: auto;
+            padding: 8px 32px;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        .event-log-item {
+            padding: 2px 0;
+            color: var(--text-muted);
+        }
+
+        .event-log-item .evt-time { color: var(--text-secondary); }
+        .event-log-item .evt-room { color: var(--accent-blue); }
+        .event-log-item .evt-status { color: var(--accent-cyan); }
+
+        /* --- Animations --- */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .animating { animation: pulse 0.5s ease-in-out; }
+
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .room-card { animation: slideIn 0.3s ease forwards; }
+
+        /* --- Responsive --- */
+        @media (max-width: 768px) {
+            .summary-bar { padding: 12px 16px; }
+            .rooms-container { padding: 0 16px 16px; }
+            .header { padding: 12px 16px; }
+            .room-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>⚔️ Ostwin War-Room Dashboard</h1>
+        <div class="header-status">
+            <div class="ws-indicator" id="ws-indicator"></div>
+            <span id="ws-status">Connecting...</span>
+            <span id="client-count"></span>
+        </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-bar" id="summary-bar">
+        <div class="summary-card">
+            <div class="value" id="sum-total" style="color:var(--text-primary)">0</div>
+            <div class="label">Total</div>
+        </div>
+        <div class="summary-card">
+            <div class="value" id="sum-pending" style="color:var(--text-muted)">0</div>
+            <div class="label">Pending</div>
+        </div>
+        <div class="summary-card">
+            <div class="value" id="sum-active" style="color:var(--accent-yellow)">0</div>
+            <div class="label">Active</div>
+        </div>
+        <div class="summary-card">
+            <div class="value" id="sum-passed" style="color:var(--accent-green)">0</div>
+            <div class="label">Passed</div>
+        </div>
+        <div class="summary-card">
+            <div class="value" id="sum-failed" style="color:var(--accent-red)">0</div>
+            <div class="label">Failed</div>
+        </div>
+    </div>
+
+    <!-- Rooms -->
+    <div class="rooms-container">
+        <div class="rooms-header">
+            <h2>War Rooms</h2>
+        </div>
+        <div class="room-grid" id="room-grid"></div>
+    </div>
+
+    <!-- Detail Modal -->
+    <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+        <div class="modal" id="modal-content" onclick="event.stopPropagation()">
+            <h2>
+                <span id="modal-title">Room Details</span>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </h2>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Event Log -->
+    <div class="event-log" id="event-log"></div>
+
+    <script>
+        let ws = null;
+        let rooms = [];
+
+        // --- WebSocket ---
+        function connectWS() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+            ws.onopen = () => {
+                document.getElementById('ws-indicator').classList.add('connected');
+                document.getElementById('ws-status').textContent = 'Connected';
+                logEvent('WebSocket connected');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('ws-indicator').classList.remove('connected');
+                document.getElementById('ws-status').textContent = 'Disconnected';
+                logEvent('WebSocket disconnected — reconnecting...');
+                setTimeout(connectWS, 3000);
+            };
+
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                handleMessage(msg);
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.event) {
+                case 'initial_state':
+                case 'refresh':
+                    rooms = msg.rooms || [];
+                    renderRooms();
+                    break;
+                case 'status_change':
+                    logEvent(
+                        `<span class="evt-room">${msg.room_id}</span> ` +
+                        `<span class="evt-status">${msg.old_status} → ${msg.new_status}</span>`
+                    );
+                    // Update local state
+                    const room = rooms.find(r => r.room_id === msg.room_id);
+                    if (room) {
+                        room.status = msg.new_status;
+                        renderRooms();
+                        // Flash animation
+                        const card = document.querySelector(`[data-room="${msg.room_id}"]`);
+                        if (card) {
+                            card.classList.add('animating');
+                            setTimeout(() => card.classList.remove('animating'), 500);
+                        }
+                    } else {
+                        // New room — refresh
+                        ws.send(JSON.stringify({ action: 'refresh' }));
+                    }
+                    break;
+                case 'new_message':
+                    logEvent(
+                        `<span class="evt-room">${msg.room_id}</span> new message (${msg.message_count} total)`
+                    );
+                    const r = rooms.find(r => r.room_id === msg.room_id);
+                    if (r) { r.messages = msg.message_count; renderRooms(); }
+                    break;
+            }
+        }
+
+        // --- Rendering ---
+        function renderRooms() {
+            const grid = document.getElementById('room-grid');
+            grid.innerHTML = rooms.map(r => `
+                <div class="room-card status-${r.status}" data-room="${r.room_id}"
+                     onclick="openRoom('${r.room_id}')" style="animation-delay: ${rooms.indexOf(r) * 50}ms">
+                    <div class="room-card-header">
+                        <div>
+                            <div class="room-id">${r.room_id}</div>
+                            <div class="task-ref">${r.task_ref || 'N/A'}</div>
+                        </div>
+                        <span class="status-badge ${r.status}">${r.status}</span>
+                    </div>
+                    <div class="room-meta">
+                        <div class="meta-item">
+                            <div class="meta-value">${r.retries || 0}</div>
+                            <div class="meta-label">Retries</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-value">${r.messages || 0}</div>
+                            <div class="meta-label">Messages</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-value">${r.goals || '0/0'}</div>
+                            <div class="meta-label">Goals</div>
+                        </div>
+                    </div>
+                    ${renderGoalBar(r)}
+                </div>
+            `).join('');
+
+            updateSummary();
+        }
+
+        function renderGoalBar(room) {
+            const total = room.goals_total || 0;
+            const met = room.goals_met || 0;
+            if (total === 0) return '';
+            const pct = Math.round((met / total) * 100);
+            return `<div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%"></div></div>`;
+        }
+
+        function updateSummary() {
+            document.getElementById('sum-total').textContent = rooms.length;
+            document.getElementById('sum-pending').textContent = rooms.filter(r => r.status === 'pending').length;
+            document.getElementById('sum-active').textContent = rooms.filter(r =>
+                ['engineering', 'qa-review', 'fixing'].includes(r.status)).length;
+            document.getElementById('sum-passed').textContent = rooms.filter(r => r.status === 'passed').length;
+            document.getElementById('sum-failed').textContent = rooms.filter(r => r.status === 'failed-final').length;
+        }
+
+        // --- Room Detail Modal ---
+        async function openRoom(roomId) {
+            const overlay = document.getElementById('modal-overlay');
+            const title = document.getElementById('modal-title');
+            const body = document.getElementById('modal-body');
+
+            title.textContent = roomId;
+            body.innerHTML = '<p style="color:var(--text-muted)">Loading...</p>';
+            overlay.classList.add('active');
+
+            try {
+                const [roomRes, goalsRes, msgsRes] = await Promise.all([
+                    fetch(`/api/rooms/${roomId}`).then(r => r.json()),
+                    fetch(`/api/rooms/${roomId}/goals`).then(r => r.json()),
+                    fetch(`/api/rooms/${roomId}/messages?last=10`).then(r => r.json())
+                ]);
+
+                let html = '';
+
+                // Status + task ref
+                html += `<p><strong>Task:</strong> ${roomRes.task_ref} &nbsp;
+                         <span class="status-badge ${roomRes.status}">${roomRes.status}</span></p>`;
+                html += `<p style="color:var(--text-secondary);font-size:13px;margin:8px 0">
+                         Retries: ${roomRes.retries} | Messages: ${roomRes.messages} | 
+                         Goals: ${roomRes.goals}</p>`;
+
+                // Goals
+                const configGoals = goalsRes.config_goals || {};
+                const verification = goalsRes.verification || {};
+                const goalResults = verification.goals || [];
+
+                if (configGoals.definition_of_done?.length || configGoals.acceptance_criteria?.length) {
+                    html += '<h3 style="margin:16px 0 8px;font-size:14px">Goals</h3>';
+                    html += '<ul class="goal-list">';
+
+                    const allGoals = [
+                        ...(configGoals.definition_of_done || []).map(g => ({ goal: g, category: 'DoD' })),
+                        ...(configGoals.acceptance_criteria || []).map(g => ({ goal: g, category: 'AC' }))
+                    ];
+
+                    allGoals.forEach(g => {
+                        const result = goalResults.find(r => r.goal === g.goal);
+                        const icon = result ? (result.status === 'met' ? '✅' : result.status === 'partial' ? '🟡' : '❌') : '⬜';
+                        html += `<li><span class="goal-icon">${icon}</span> 
+                                 <span style="color:var(--text-muted);font-size:10px">[${g.category}]</span>
+                                 ${g.goal}</li>`;
+                    });
+
+                    html += '</ul>';
+                }
+
+                // Messages
+                const messages = msgsRes.messages || [];
+                if (messages.length > 0) {
+                    html += '<h3 style="margin:16px 0 8px;font-size:14px">Recent Messages</h3>';
+                    html += '<div class="messages-list">';
+                    messages.reverse().forEach(m => {
+                        html += `<div class="message-item">
+                            <div class="msg-header">
+                                <span>${m.from} → ${m.to} [${m.type}]</span>
+                                <span>${m.ts || ''}</span>
+                            </div>
+                            <div class="msg-body">${(m.body || '').substring(0, 200)}</div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                }
+
+                body.innerHTML = html;
+            } catch (err) {
+                body.innerHTML = `<p style="color:var(--accent-red)">Error loading room: ${err}</p>`;
+            }
+        }
+
+        function closeModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('modal-overlay').classList.remove('active');
+        }
+
+        // --- Event Log ---
+        function logEvent(html) {
+            const log = document.getElementById('event-log');
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML = `<div class="event-log-item"><span class="evt-time">${time}</span> ${html}</div>` + log.innerHTML;
+            // Keep last 50
+            while (log.children.length > 50) log.removeChild(log.lastChild);
+        }
+
+        // --- Init ---
+        connectWS();
+
+        // Fallback: poll REST if WS fails
+        setInterval(async () => {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                rooms = data.rooms || [];
+                renderRooms();
+            } catch (e) {}
+        }, 5000);
+
+        // Keyboard
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+            if (e.key === 'r' && !document.querySelector('.modal-overlay.active')) {
+                ws?.send(JSON.stringify({ action: 'refresh' }));
+            }
+        });
+    </script>
+</body>
+</html>

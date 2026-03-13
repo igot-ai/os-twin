@@ -1,0 +1,29 @@
+{
+  "name": "engineer",
+  "description": "Software engineer — implements features, writes tests, fixes bugs",
+  "capabilities": [
+    "code-generation",
+    "file-editing",
+    "shell-execution",
+    "testing",
+    "refactoring"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "unit-tests",
+    "lint-clean",
+    "no-hardcoded-secrets"
+  ],
+  "skills": [
+    "python",
+    "javascript",
+    "typescript",
+    "powershell",
+    "bash",
+    "sql",
+    "docker"
+  ],
+  "cli": "deepagents",
+  "model": null,
+  "timeout": 600
+}
