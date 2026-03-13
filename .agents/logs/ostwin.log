@@ -5684,3 +5684,19 @@ s been successfully implemented and verified. The engineer has delivered a high-
 [2026-03-13T15:19:05Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 179)
 [2026-03-13T15:19:39Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 180)
 [2026-03-13T15:19:59Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 181)
+[2026-03-13T15:36:38Z] [INFO] [main] Starting Ostwin Manager Loop
+[2026-03-13T15:36:38Z] [ERROR] [Write-Log] [EPIC-001] QA review timed out after 900s.
+[2026-03-13T15:36:39Z] [ERROR] [Write-Log] [EPIC-003] State 'fixing' timed out after 900s.
+[2026-03-13T15:36:39Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 1)
+[2026-03-13T15:36:39Z] [INFO] [main] Starting work on EPIC-001 in room-001
+[2026-03-13T15:36:39Z] [INFO] [main] Starting work on EPIC-003 in room-003
+[2026-03-13T15:36:49Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 3)
+[2026-03-13T15:36:59Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 5)
+[2026-03-13T15:37:09Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 7)
+[2026-03-13T15:37:19Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 9)
+[2026-03-13T15:37:29Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 11)
+[2026-03-13T15:37:39Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 13)
+[2026-03-13T15:37:49Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 15)
+[2026-03-13T15:37:59Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 17)
+[2026-03-13T15:38:09Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 19)
+[2026-03-13T15:38:19Z] [INFO] [Write-Log] Progress: 1/4 passed, 1 failed, 0 blocked (iteration 21)

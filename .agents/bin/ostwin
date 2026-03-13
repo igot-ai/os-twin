@@ -140,14 +140,82 @@ case "${1:-}" in
     case "$SUB" in
       create)
         shift
-        ps_dispatch "$AGENTS_DIR/plan/New-Plan.ps1" "$AGENTS_DIR/plan.sh" -ProjectDir "$(pwd)" "$@"
+        # ── ostwin plan create ["Title"] ──
+        # Calls dashboard API, creates a plan, and opens the editor in the browser.
+        PLAN_TITLE="${1:-Untitled}"
+        PROJECT_DIR="$(pwd)"
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+
+        # Check dashboard is reachable
+        if ! curl -sf "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
+          echo "⚠  Dashboard not reachable at ${DASHBOARD_URL}" >&2
+          echo "   Start it with: ostwin dashboard" >&2
+          exit 1
+        fi
+
+        # Create plan via API
+        RESPONSE=$(curl -sf -X POST "${DASHBOARD_URL}/api/plans/create" \
+          -H "Content-Type: application/json" \
+          -d "{\"path\": \"${PROJECT_DIR}\", \"title\": \"${PLAN_TITLE}\"}" 2>&1) || {
+          echo "✗ Failed to create plan: ${RESPONSE}" >&2
+          exit 1
+        }
+
+        # Parse plan_id and URL from response
+        PLAN_ID=$(echo "$RESPONSE" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['plan_id'])" 2>/dev/null)
+        PLAN_URL=$(echo "$RESPONSE" | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['url'])" 2>/dev/null)
+
+        if [[ -z "$PLAN_ID" ]]; then
+          echo "✗ Failed to parse plan ID from response" >&2
+          echo "  Response: $RESPONSE" >&2
+          exit 1
+        fi
+
+        EDITOR_URL="${DASHBOARD_URL}${PLAN_URL}"
+        echo "✓ Plan created: ${PLAN_ID}"
+        echo "  Title:  ${PLAN_TITLE}"
+        echo "  Dir:    ${PROJECT_DIR}"
+        echo "  Editor: ${EDITOR_URL}"
+
+        # Open browser
+        if command -v open &>/dev/null; then
+          open "$EDITOR_URL"
+        elif command -v xdg-open &>/dev/null; then
+          xdg-open "$EDITOR_URL"
+        else
+          echo "  → Open this URL in your browser to edit the plan"
+        fi
         ;;
       start)
         shift
         ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "$@"
         ;;
+      list)
+        # Quick list via API
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        if curl -sf "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
+          curl -sf "${DASHBOARD_URL}/api/plans" | "$PYTHON" -c "
+import sys, json
+data = json.load(sys.stdin)
+plans = data.get('plans', [])
+if not plans:
+    print('No plans found.')
+else:
+    for p in plans:
+        status = p.get('status', 'unknown')
+        print(f\"  {p['plan_id'][:12]}  {p.get('title','Untitled'):30s}  {status:10s}  {p.get('epic_count',0)} epics\")
+" 2>/dev/null || echo "Failed to list plans."
+        else
+          echo "⚠  Dashboard not reachable at ${DASHBOARD_URL}" >&2
+          exit 1
+        fi
+        ;;
       *)
-        exec "$AGENTS_DIR/plan.sh" "$SUB" "$@"
+        echo "Unknown plan subcommand: $SUB" >&2
+        echo "  Usage: ostwin plan create [Title]" >&2
+        echo "         ostwin plan start [plan-file]" >&2
+        echo "         ostwin plan list" >&2
+        exit 1
         ;;
     esac
     ;;
