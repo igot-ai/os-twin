@@ -269,14 +269,31 @@ install_python() {
 install_pwsh() {
   case "$OS" in
     macos)
+      # Try Homebrew first, fall back to direct tar.gz install
       if check_brew; then
         step "Installing PowerShell via Homebrew..."
-        brew install powershell/tap/powershell
-      else
-        fail "Homebrew required to install PowerShell on macOS"
-        echo "    Install Homebrew first: https://brew.sh"
-        exit 1
+        if brew install powershell/tap/powershell 2>/dev/null; then
+          return
+        fi
+        warn "Homebrew formula failed — falling back to direct install"
       fi
+
+      # Direct install from GitHub release (no sudo needed)
+      local pwsh_ver="7.4.7"
+      local arch_tag
+      arch_tag=$( [[ "$ARCH" == "arm64" ]] && echo "osx-arm64" || echo "osx-x64" )
+      local url="https://github.com/PowerShell/PowerShell/releases/download/v${pwsh_ver}/powershell-${pwsh_ver}-${arch_tag}.tar.gz"
+
+      step "Installing PowerShell ${pwsh_ver} from GitHub (${arch_tag})..."
+      local pwsh_dir="$HOME/.local/powershell/7"
+      mkdir -p "$pwsh_dir" "$HOME/.local/bin"
+      curl -sSL "$url" -o /tmp/powershell.tar.gz
+      tar -xzf /tmp/powershell.tar.gz -C "$pwsh_dir"
+      chmod +x "$pwsh_dir/pwsh"
+      ln -sf "$pwsh_dir/pwsh" "$HOME/.local/bin/pwsh"
+      rm -f /tmp/powershell.tar.gz
+      export PATH="$HOME/.local/bin:$PATH"
+      ok "PowerShell ${pwsh_ver} installed to $pwsh_dir"
       ;;
     linux)
       case "$PKG_MGR" in
