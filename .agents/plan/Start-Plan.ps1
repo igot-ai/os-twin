@@ -61,6 +61,10 @@ $taskPattern = '- \[[ x]\]\s+(TASK-\d+)\s*[—–-]\s*(.+)'
 $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|###|---|\z)'
 $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|###|---|\z)'
 
+# Patterns for per-epic metadata
+$rolesPattern = '(?m)^Roles:\s*(.+)$'
+$workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
+
 # Extract epics
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
 
@@ -73,6 +77,20 @@ foreach ($em in $epicMatches) {
     $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
     $epicEnd = if ($nextEpicMatch) { $nextEpicMatch.Index } else { $planContent.Length }
     $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
+
+    # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
+    $roles = @()
+    if ($epicSection -match $rolesPattern) {
+        $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    }
+    # Default to "engineer" if no roles specified
+    if ($roles.Count -eq 0) { $roles = @("engineer") }
+
+    # Extract per-epic working directory override
+    $epicWorkingDir = ""
+    if ($epicSection -match $workingDirPattern) {
+        $epicWorkingDir = $Matches[1].Trim()
+    }
 
     # Extract DoD
     $dod = @()
@@ -95,6 +113,8 @@ foreach ($em in $epicMatches) {
         DoD         = $dod
         AC          = $ac
         Type        = 'epic'
+        Roles       = $roles
+        EpicWorkingDir = $epicWorkingDir
     })
     $roomIndex++
 }
@@ -139,7 +159,8 @@ Write-Host ""
 foreach ($entry in $parsed) {
     $dodCount = if ($entry.DoD) { $entry.DoD.Count } else { 0 }
     $acCount = if ($entry.AC) { $entry.AC.Count } else { 0 }
-    Write-Host "  $($entry.RoomId) → $($entry.TaskRef) — $($entry.Description) (DoD: $dodCount, AC: $acCount)" -ForegroundColor White
+    $rolesStr = if ($entry.Roles) { ($entry.Roles -join ', ') } else { 'engineer' }
+    Write-Host "  $($entry.RoomId) → $($entry.TaskRef) — $($entry.Description) (Roles: $rolesStr, DoD: $dodCount, AC: $acCount)" -ForegroundColor White
 }
 Write-Host ""
 
@@ -155,23 +176,38 @@ $env:WARROOMS_DIR = $warRoomsDir
 
 # --- Create war-rooms ---
 foreach ($entry in $parsed) {
-    $args = @{
+    # Resolve working directory: per-epic override > project dir
+    $resolvedWorkingDir = $ProjectDir
+    if ($entry.EpicWorkingDir) {
+        $candidate = Join-Path $ProjectDir $entry.EpicWorkingDir
+        if (Test-Path $candidate) {
+            $resolvedWorkingDir = $candidate
+        } else {
+            $resolvedWorkingDir = $entry.EpicWorkingDir  # absolute path
+        }
+    }
+
+    # Use the first role as the primary assigned role (e.g. "engineer:fe")
+    $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
+
+    $roomArgs = @{
         RoomId           = $entry.RoomId
         TaskRef          = $entry.TaskRef
         TaskDescription  = $entry.Description
-        WorkingDir       = $ProjectDir
+        WorkingDir       = $resolvedWorkingDir
         WarRoomsDir      = $warRoomsDir
         PlanId           = $planId
+        Role             = $primaryRole
     }
 
     if ($entry.DoD -and $entry.DoD.Count -gt 0) {
-        $args['DefinitionOfDone'] = $entry.DoD
+        $roomArgs['DefinitionOfDone'] = $entry.DoD
     }
     if ($entry.AC -and $entry.AC.Count -gt 0) {
-        $args['AcceptanceCriteria'] = $entry.AC
+        $roomArgs['AcceptanceCriteria'] = $entry.AC
     }
 
-    & $newWarRoom @args
+    & $newWarRoom @roomArgs
 }
 
 # --- Start the manager loop ---

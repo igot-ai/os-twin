@@ -3,39 +3,61 @@
 ## Config
 working_dir: /path/to/your/project
 
-## Epic: EPIC-001 — Build core module
+## Available Roles
 
-Create the core module with foundational functionality:
-- Set up the module structure and public API
-- Implement primary business logic
-- Include inline documentation
+<!-- The planner MUST assign roles from this list to each epic -->
+<!-- Use colon syntax for instances: engineer:fe, engineer:be -->
+
+| Role | Instance | Description | Skills |
+|------|----------|-------------|--------|
+| engineer | (default) | Full-stack engineer | python, javascript, powershell |
+| engineer:fe | Frontend Engineer | UI/UX, components, styling | javascript, typescript, css, html |
+| engineer:be | Backend Engineer | APIs, databases, infra | python, sql, docker, powershell |
+| qa | (auto) | Code review & test validation | testing, security-audit |
+| architect | (optional) | System design & tech decisions | architecture, documentation |
+
+## Epic: EPIC-001 — Build React dashboard UI
+
+Roles: engineer:fe
+Working_dir: dashboard
+
+Create the dashboard frontend with real-time status cards:
+- War-room status grid with color-coded states
+- SSE connection for live updates
+- Theme toggle (dark/light mode)
 
 The engineer will decompose this into sub-tasks and create TASKS.md.
 
 Acceptance criteria:
-- Module is importable and functional
-- Core API methods work as documented
-- All tests pass
+- Dashboard renders all active war-rooms
+- Status colors match state (blue=engineering, green=passed, red=failed)
+- SSE reconnects automatically on disconnect
 
-## Epic: EPIC-002 — Add test coverage and CLI
+## Epic: EPIC-002 — Build FastAPI backend
 
-Build comprehensive tests and a command-line interface:
-- Unit tests for all core module functions
-- Integration tests for end-to-end workflows
-- CLI with argument parsing and help text
+Roles: engineer:be
+Working_dir: api
 
-Acceptance criteria:
-- Test suite passes with full coverage of core module
-- CLI supports required commands and flags
-- `--help` shows usage information
-
-## Epic: EPIC-003 — Documentation and packaging
-
-Prepare the project for distribution:
-- README with usage examples
-- API documentation
-- Package configuration (setup.py / pyproject.toml)
+Create the REST + WebSocket API layer:
+- GET /warrooms endpoint returning room state
+- SSE /stream endpoint for real-time broadcasts
+- CORS configuration
 
 Acceptance criteria:
-- README covers installation, usage, and examples
-- Package installs cleanly via pip
+- API returns valid JSON for all war-rooms
+- SSE stream emits events within 2s of state change
+- CORS allows dashboard origin
+
+## Epic: EPIC-003 — Integration testing and documentation
+
+Roles: engineer
+Working_dir: .
+
+End-to-end integration between frontend and backend:
+- Cypress test suite for dashboard
+- API endpoint tests
+- README with setup instructions
+
+Acceptance criteria:
+- All Cypress tests pass
+- README covers installation, running, and architecture
