@@ -19,6 +19,6 @@
     "regression-testing"
   ],
   "cli": "deepagents",
-  "model": null,
+  "model": "gemini-3-flash-preview",
   "timeout": 300
 }

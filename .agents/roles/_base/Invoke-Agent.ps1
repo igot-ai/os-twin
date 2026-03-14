@@ -51,7 +51,7 @@ param(
     [int]$TimeoutSeconds = 600,
     [string]$AgentCmd = '',
     [bool]$AutoApprove = $true,
-    [switch]$Quiet,
+    [bool]$Quiet = $true,
     [string]$InstanceId = '',
     [string]$WorkingDir = '',
     [string[]]$ExtraArgs = @()
@@ -73,7 +73,7 @@ if (Test-Path $configPath) {
         $instanceConfig = $config.$RoleName.instances.$InstanceId
     }
 
-    # Model: instance → role → engineer fallback
+    # Model: instance → role config.json → role.json → hardcoded default
     if (-not $Model) {
         if ($instanceConfig -and $instanceConfig.default_model) {
             $Model = $instanceConfig.default_model
@@ -82,7 +82,14 @@ if (Test-Path $configPath) {
             $Model = $config.$RoleName.default_model
         }
         else {
-            $Model = $config.engineer.default_model
+            # Try role.json as last config-based source
+            $roleJsonPath = Join-Path $agentsDir "roles" $RoleName "role.json"
+            if (Test-Path $roleJsonPath) {
+                $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+                if ($roleJson.model) {
+                    $Model = $roleJson.model
+                }
+            }
         }
     }
 

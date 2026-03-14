@@ -336,6 +336,7 @@ class CreatePlanRequest(BaseModel):
     path: str
     title: str = "Untitled"
     content: str | None = None
+    working_dir: str | None = None  # project dir — defaults to path
 
 # === Helpers ===
 
@@ -703,6 +704,293 @@ async def get_config(user: dict = Depends(get_current_user)):
     return json.loads(config_file.read_text())
 
 
+# === Role Settings Endpoints ===
+
+# Default models — used when config is missing
+ROLE_DEFAULTS = {
+    "manager":   {"default_model": "gemini-3.1-pro-preview",  "timeout_seconds": 900},
+    "engineer":  {"default_model": "gemini-3-flash-preview",  "timeout_seconds": 600},
+    "qa":        {"default_model": "gemini-3-flash-preview",  "timeout_seconds": 600},
+    "architect": {"default_model": "gemini-3-flash-preview",  "timeout_seconds": 900},
+}
+
+
+def _resolve_plan_warrooms_dir(plan_id: str) -> Path:
+    """Resolve the war-rooms directory for a plan from its working_dir.
+
+    Each plan stores its working_dir. War-rooms live at: {working_dir}/.war-rooms/
+    Falls back to global WARROOMS_DIR if no plan-specific dir is found.
+    """
+    # Try plan meta file first ({plan_id}.meta.json)
+    plan_meta_file = AGENTS_DIR / "plans" / f"{plan_id}.meta.json"
+    if plan_meta_file.exists():
+        try:
+            meta = json.loads(plan_meta_file.read_text())
+            working_dir = meta.get("working_dir")
+            if working_dir:
+                return Path(working_dir) / ".war-rooms"
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Try parsing working_dir from plan markdown
+    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+    if plan_file.exists():
+        content = plan_file.read_text()
+        m = _re_mod.search(r"working_dir:\s*(.+)", content)
+        if m:
+            working_dir = m.group(1).strip()
+            if working_dir and Path(working_dir).is_absolute():
+                return Path(working_dir) / ".war-rooms"
+
+    # Fallback: global war-rooms dir
+    return WARROOMS_DIR
+
+
+def _get_plan_roles_config(plan_id: str) -> dict:
+    """Load the per-plan role config file, or fall back to global config."""
+    plan_roles_file = AGENTS_DIR / "plans" / f"{plan_id}.roles.json"
+    if plan_roles_file.exists():
+        try:
+            return json.loads(plan_roles_file.read_text())
+        except json.JSONDecodeError:
+            pass
+    # Fall back to global config.json
+    config_file = AGENTS_DIR / "config.json"
+    if config_file.exists():
+        return json.loads(config_file.read_text())
+    return {}
+
+
+def _build_roles_list(config: dict) -> list:
+    """Build roles list from registry + config."""
+    registry_file = AGENTS_DIR / "roles" / "registry.json"
+    registry_roles = []
+    if registry_file.exists():
+        registry = json.loads(registry_file.read_text())
+        registry_roles = registry.get("roles", [])
+
+    roles = []
+    for role in registry_roles:
+        name = role["name"]
+        role_config = config.get(name, {})
+        defaults = ROLE_DEFAULTS.get(name, {})
+        roles.append({
+            "name": name,
+            "description": role.get("description", ""),
+            "default_model": role_config.get("default_model", role.get("default_model", defaults.get("default_model", "gemini-3-flash-preview"))),
+            "timeout_seconds": role_config.get("timeout_seconds", defaults.get("timeout_seconds", 600)),
+            "runner": role.get("runner"),
+            "capabilities": role.get("capabilities", []),
+            "supported_task_types": role.get("supported_task_types", []),
+            "default_assignment": role.get("default_assignment", False),
+            "instance_support": role.get("instance_support", False),
+        })
+    return roles
+
+
+@app.get("/api/roles")
+async def list_roles(user: dict = Depends(get_current_user)):
+    """List all roles with their default models from global config."""
+    config_file = AGENTS_DIR / "config.json"
+    config = json.loads(config_file.read_text()) if config_file.exists() else {}
+    roles = _build_roles_list(config)
+    return {"roles": roles, "count": len(roles)}
+
+
+@app.get("/api/roles/{role_name}/config")
+async def get_role_config(role_name: str, user: dict = Depends(get_current_user)):
+    """Get detailed config for a specific role (global defaults)."""
+    config_file = AGENTS_DIR / "config.json"
+    config = json.loads(config_file.read_text()) if config_file.exists() else {}
+    role_config = config.get(role_name, {})
+
+    role_json_file = AGENTS_DIR / "roles" / role_name / "role.json"
+    role_json = json.loads(role_json_file.read_text()) if role_json_file.exists() else {}
+
+    registry_file = AGENTS_DIR / "roles" / "registry.json"
+    registry_entry = {}
+    if registry_file.exists():
+        registry = json.loads(registry_file.read_text())
+        for r in registry.get("roles", []):
+            if r["name"] == role_name:
+                registry_entry = r
+                break
+
+    defaults = ROLE_DEFAULTS.get(role_name, {})
+    return {
+        "name": role_name,
+        "default_model": role_config.get("default_model", role_json.get("model", defaults.get("default_model", "gemini-3-flash-preview"))),
+        "timeout_seconds": role_config.get("timeout_seconds", defaults.get("timeout_seconds", 600)),
+        "cli": role_config.get("cli", role_json.get("cli", "deepagents")),
+        "capabilities": registry_entry.get("capabilities", role_json.get("capabilities", [])),
+        "quality_gates": registry_entry.get("quality_gates", role_json.get("quality_gates", [])),
+        "instances": role_config.get("instances", {}),
+        "role_json": role_json,
+        "config_overrides": role_config,
+    }
+
+
+# === Plan-scoped role & room endpoints ===
+
+
+@app.get("/api/plans/{plan_id}/roles")
+async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
+    """Get role settings for a plan, including war-room assignments."""
+    config = _get_plan_roles_config(plan_id)
+    roles = _build_roles_list(config)
+    warrooms_dir = _resolve_plan_warrooms_dir(plan_id)
+
+    # Aggregate role instances from war-rooms
+    rooms_with_roles = []
+    role_summary: Dict[str, int] = {}
+
+    if warrooms_dir.exists():
+        for room_dir in sorted(warrooms_dir.glob("room-*")):
+            if not room_dir.is_dir():
+                continue
+            room_config_file = room_dir / "config.json"
+            room_config = {}
+            if room_config_file.exists():
+                try:
+                    room_config = json.loads(room_config_file.read_text())
+                    if room_config.get("plan_id") and room_config["plan_id"] != plan_id:
+                        continue
+                except json.JSONDecodeError:
+                    continue
+
+            role_instances = []
+            for f in sorted(room_dir.glob("*_*.json")):
+                if f.name == "config.json":
+                    continue
+                try:
+                    data = json.loads(f.read_text())
+                    if "role" in data and "instance_id" in data:
+                        data["filename"] = f.name
+                        role_instances.append(data)
+                        rn = data["role"]
+                        role_summary[rn] = role_summary.get(rn, 0) + 1
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+            if role_instances:
+                rooms_with_roles.append({
+                    "room_id": room_dir.name,
+                    "task_ref": room_config.get("task_ref", "UNKNOWN"),
+                    "roles": role_instances,
+                })
+
+    return {
+        "plan_id": plan_id,
+        "warrooms_dir": str(warrooms_dir),
+        "role_defaults": roles,
+        "rooms": rooms_with_roles,
+        "summary": role_summary,
+        "total_assignments": sum(role_summary.values()),
+    }
+
+
+class UpdatePlanRoleConfigRequest(BaseModel):
+    default_model: str | None = None
+    timeout_seconds: int | None = None
+    cli: str | None = None
+
+
+@app.put("/api/plans/{plan_id}/roles/{role_name}/config")
+async def update_plan_role_config(
+    plan_id: str, role_name: str,
+    request: UpdatePlanRoleConfigRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Update role config for a specific plan. Creates per-plan roles config."""
+    plans_dir = AGENTS_DIR / "plans"
+    plan_roles_file = plans_dir / f"{plan_id}.roles.json"
+
+    if plan_roles_file.exists():
+        config = json.loads(plan_roles_file.read_text())
+    else:
+        config_file = AGENTS_DIR / "config.json"
+        config = json.loads(config_file.read_text()) if config_file.exists() else {}
+
+    if role_name not in config:
+        config[role_name] = {}
+    if request.default_model is not None:
+        config[role_name]["default_model"] = request.default_model
+    if request.timeout_seconds is not None:
+        config[role_name]["timeout_seconds"] = request.timeout_seconds
+    if request.cli is not None:
+        config[role_name]["cli"] = request.cli
+
+    plan_roles_file.write_text(json.dumps(config, indent=2) + "\n")
+    return {"status": "updated", "plan_id": plan_id, "role": role_name, "config": config[role_name]}
+
+
+@app.get("/api/plans/{plan_id}/rooms")
+async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
+    """List all war-rooms for a plan, scoped to the plan's working_dir."""
+    warrooms_dir = _resolve_plan_warrooms_dir(plan_id)
+    if not warrooms_dir.exists():
+        return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "rooms": [], "count": 0}
+
+    rooms = []
+    for room_dir in sorted(warrooms_dir.glob("room-*")):
+        if not room_dir.is_dir():
+            continue
+        room_config_file = room_dir / "config.json"
+        if room_config_file.exists():
+            try:
+                rc = json.loads(room_config_file.read_text())
+                if rc.get("plan_id") and rc["plan_id"] != plan_id:
+                    continue
+            except json.JSONDecodeError:
+                continue
+
+        status_file = room_dir / "status"
+        status = status_file.read_text().strip() if status_file.exists() else "unknown"
+        task_ref_file = room_dir / "task-ref"
+        task_ref = task_ref_file.read_text().strip() if task_ref_file.exists() else "UNKNOWN"
+
+        role_files = []
+        for f in sorted(room_dir.glob("*_*.json")):
+            if f.name == "config.json":
+                continue
+            try:
+                data = json.loads(f.read_text())
+                if "role" in data and "instance_id" in data:
+                    role_files.append(data)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        rooms.append({
+            "room_id": room_dir.name,
+            "task_ref": task_ref,
+            "status": status,
+            "roles": role_files,
+        })
+
+    return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "rooms": rooms, "count": len(rooms)}
+
+
+@app.get("/api/plans/{plan_id}/rooms/{room_id}/roles")
+async def get_plan_room_roles(plan_id: str, room_id: str, user: dict = Depends(get_current_user)):
+    """List all role instances assigned to a specific room within a plan."""
+    warrooms_dir = _resolve_plan_warrooms_dir(plan_id)
+    room_dir = warrooms_dir / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
+
+    role_instances = []
+    for f in sorted(room_dir.glob("*_*.json")):
+        if f.name == "config.json":
+            continue
+        try:
+            data = json.loads(f.read_text())
+            if "role" in data and "instance_id" in data:
+                data["filename"] = f.name
+                role_instances.append(data)
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return {"plan_id": plan_id, "room_id": room_id, "roles": role_instances, "count": len(role_instances)}
 @app.post("/api/run")
 async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     """Launch OS Twin with the provided plan content."""
@@ -860,6 +1148,9 @@ async def create_plan(request: CreatePlanRequest):
     plans_dir.mkdir(exist_ok=True)
     plan_file = plans_dir / f"{plan_id}.md"
 
+    # Resolve working_dir: explicit > path > cwd
+    working_dir = request.working_dir or request.path or str(Path.cwd())
+
     if request.content:
         plan_file.write_text(request.content)
     else:
@@ -869,6 +1160,8 @@ async def create_plan(request: CreatePlanRequest):
             f"> Created: {now}\n"
             f"> Status: draft\n"
             f"> Project: {request.path}\n\n"
+            f"## Config\n\n"
+            f"working_dir: {working_dir}\n\n"
             f"---\n\n"
             f"## Goal\n\n{request.title}\n\n"
             f"## Epics\n\n"
@@ -878,6 +1171,25 @@ async def create_plan(request: CreatePlanRequest):
             f"#### Tasks\n"
             f"- [ ] TASK-001 — Design and plan implementation\n"
         )
+
+    # Save plan metadata (working_dir, roles config, etc.)
+    meta_file = plans_dir / f"{plan_id}.meta.json"
+    meta = {
+        "plan_id": plan_id,
+        "title": request.title,
+        "working_dir": working_dir,
+        "warrooms_dir": str(Path(working_dir) / ".war-rooms"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "draft",
+    }
+    meta_file.write_text(json.dumps(meta, indent=2) + "\n")
+
+    # Initialize per-plan roles config from global defaults
+    plan_roles_file = plans_dir / f"{plan_id}.roles.json"
+    if not plan_roles_file.exists():
+        config_file = AGENTS_DIR / "config.json"
+        global_config = json.loads(config_file.read_text()) if config_file.exists() else {}
+        plan_roles_file.write_text(json.dumps(global_config, indent=2) + "\n")
 
     # Index in zvec if available
     if store:
@@ -897,6 +1209,8 @@ async def create_plan(request: CreatePlanRequest):
         "url": f"/plans/{plan_id}",
         "title": request.title,
         "path": request.path,
+        "working_dir": working_dir,
+        "warrooms_dir": str(Path(working_dir) / ".war-rooms"),
         "filename": f"{plan_id}.md",
     }
 

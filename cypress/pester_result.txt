@@ -1,0 +1,71 @@
+[95mPester v5.7.1[0m
+[95m
+[95mStarting discovery in 1 files.[0m
+[95mDiscovery found 14 tests in 196ms.[0m
+[95mRunning tests.[0m
+[95m
+[95mRunning tests from '/Users/paulaan/PycharmProjects/agent-os/.agents/plan/Start-Plan.Tests.ps1'[0m
+[92mDescribing Start-Plan[0m
+[96m Context Plan parsing[0m
+[32m   [+] parses the plan in dry-run mode without errors[0m[90m 371ms (290ms|80ms)[0m
+[32m   [+] detects EPIC-001[0m[90m 14ms (13ms|1ms)[0m
+[32m   [+] shows the number of war-rooms to create[0m[90m 9ms (8ms|1ms)[0m
+[32m   [+] does not create rooms in dry-run mode[0m[90m 11ms (5ms|6ms)[0m
+[96m Context Plan expansion[0m
+[32m   [+] runs expansion when underspecified epics are detected[0m[90m 52ms (51ms|1ms)[0m
+[32m   [+] respects the DryRun flag during expansion[0m[90m 26ms (25ms|1ms)[0m
+DEBUG OUTPUT:
+
+=== Plan Refinement Required ===
+Detected underspecified epics. Auto-triggering plan refinement...
+
+Plan expanded to: /private/tmp/45d2d526-c3fc-4ac1-b782-3f800c41dd5b/expand-plan.refined.md
+Please review the expanded plan.
+
+
+=== Ostwin Plan Launcher ===
+
+  Plan: /private/tmp/45d2d526-c3fc-4ac1-b782-3f800c41dd5b/expand-plan.refined.md
+  Plan ID: 
+  Project: /private/tmp/45d2d526-c3fc-4ac1-b782-3f800c41dd5b/project-1738106805
+  War-rooms to create: 1
+
+  room-001 → EPIC-001 — Expanded description (DoD: 1, AC: 1)
+
+[PLAN REVIEW] Creating pre-flight review room (room-000)...
+Creating room
+[PLAN REVIEW] Posting plan to room-000...
+Posting message
+[PLAN REVIEW] Waiting for plan-approve or plan-reject...
+[PLAN REVIEW] Plan was rejected by test. Aborting.
+   [-] runs expansion without DryRun and writes logs 68ms (68ms|1ms)
+    at $logMessages | Should -Contain "Plan expansion diff:`nDiff output", /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Start-Plan.Tests.ps1:157
+    at <ScriptBlock>, /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Start-Plan.Tests.ps1:157
+    Expected 'Plan expansion diff:
+    Diff output' to be found in collection $null, but it was not found.
+[96m Context Multi-epic plan[0m
+[32m   [+] detects multiple epics[0m[90m 25ms (23ms|2ms)[0m
+[96m Context Task-only plan[0m
+[32m   [+] parses standalone tasks[0m[90m 24ms (22ms|2ms)[0m
+[96m Context Error handling[0m
+[32m   [+] fails when plan file doesn't exist[0m[90m 11ms (9ms|2ms)[0m
+[32m   [+] fails when plan has no epics or tasks[0m[90m 19ms (19ms|1ms)[0m
+[96m Context Plan ID extraction[0m
+[33;1mWARNING: Expand-Plan.ps1 not found at /private/tmp/45d2d526-c3fc-4ac1-b782-3f800c41dd5b/project-992701114/.agents/plan/Expand-Plan.ps1, skipping expansion.[0m
+
+=== Ostwin Plan Launcher ===
+
+  Plan: /private/tmp/45d2d526-c3fc-4ac1-b782-3f800c41dd5b/plan-with-id.md
+  Plan ID: 
+  Project: /private/tmp/45d2d526-c3fc-4ac1-b782-3f800c41dd5b/project-992701114
+  War-rooms to create: 1
+
+  room-001 → EPIC-001 — Test (DoD: 1, AC: 0)
+
+[DRY RUN] No rooms created.
+[32m   [+] extracts plan_id from embedded JSON config[0m[90m 16ms (14ms|2ms)[0m
+[96m Context depends_on parsing (OPT-004)[0m
+[32m   [+] parses depends_on from EPIC section[0m[90m 35ms (31ms|4ms)[0m
+[32m   [+] creates rooms without depends_on (backward compat)[0m[90m 15ms (13ms|2ms)[0m
+[97mTests completed in 1.4s[0m
+[97mTests Passed: 13, [0m[91mFailed: 1, [0m[90mSkipped: 0, [0m[90mInconclusive: 0, [0m[37m[0m[90mNotRun: 0[0m

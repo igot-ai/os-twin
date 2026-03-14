@@ -15,7 +15,8 @@
       "instance_support": true,
       "supported_task_types": ["task", "epic"],
       "capabilities": ["code-generation", "file-editing", "shell-execution", "testing", "refactoring"],
-      "quality_gates": ["unit-tests", "lint-clean", "no-hardcoded-secrets"]
+      "quality_gates": ["unit-tests", "lint-clean", "no-hardcoded-secrets"],
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "qa",
@@ -27,7 +28,8 @@
       "default_assignment": false,
       "supported_task_types": ["review"],
       "capabilities": ["code-review", "test-execution", "shell-execution", "security-review"],
-      "quality_gates": ["verdict-required", "evidence-based-review"]
+      "quality_gates": ["verdict-required", "evidence-based-review"],
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "architect",
@@ -38,7 +40,8 @@
       "default_assignment": false,
       "supported_task_types": ["design", "review", "epic"],
       "capabilities": ["architecture-design", "code-review", "documentation", "technical-decisions"],
-      "quality_gates": ["design-review", "scalability-check", "security-review"]
+      "quality_gates": ["design-review", "scalability-check", "security-review"],
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "manager",
@@ -50,7 +53,8 @@
       "default_assignment": false,
       "supported_task_types": ["orchestration"],
       "capabilities": ["task-routing", "retry-management", "release-coordination", "deadlock-detection"],
-      "quality_gates": []
+      "quality_gates": [],
+      "default_model": "gemini-3.1-pro-preview"
     }
   ],
   "assignment_rules": {

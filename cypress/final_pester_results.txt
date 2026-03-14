@@ -1,0 +1,42 @@
+STDOUT:
+[95m
+[95mStarting discovery in 2 files.[0m
+[95mDiscovery found 19 tests in 178ms.[0m
+[95mRunning tests.[0m
+---MANUAL_TEST_START---
+
+=== Plan Refinement Required ===
+Detected underspecified epics. Auto-triggering plan refinement...
+Expanding EPIC-001 — Minimal Epic...
+  [DryRun] Would expand EPIC-001
+
+=== Ostwin Plan Launcher ===
+
+  Plan: /Users/paulaan/PycharmProjects/agent-os/.agents/plans/test-plan.md
+  Plan ID: 
+  Project: /Users/paulaan/.ostwin/dashboard
+  War-rooms to create: 1
+
+  room-001 → EPIC-001 — Minimal Epic (DoD: 0, AC: 0)
+
+[DRY RUN] No rooms created.
+
+---MANUAL_TEST_END---
+[33;1mWARNING: Expand-Plan.ps1 not found at /private/tmp/7f07d9fb-538d-4f32-ae0a-971746eff9b6/project-1794516843/.agents/plan/Expand-Plan.ps1, skipping expansion.[0m
+
+=== Ostwin Plan Launcher ===
+
+  Plan: /private/tmp/7f07d9fb-538d-4f32-ae0a-971746eff9b6/plan-with-id.md
+  Plan ID: 
+  Project: /private/tmp/7f07d9fb-538d-4f32-ae0a-971746eff9b6/project-1794516843
+  War-rooms to create: 1
+
+  room-001 → EPIC-001 — Test (DoD: 1, AC: 0)
+
+[DRY RUN] No rooms created.
+[32m[+] /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Start-Plan.Tests.ps1[0m[90m 1.41s (908ms|351ms)[0m
+[32m[+] /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Expand-Plan.Tests.ps1[0m[90m 2.58s (2.53s|42ms)[0m
+[97mTests completed in 4.01s[0m
+[32mTests Passed: 19, [0m[90mFailed: 0, [0m[90mSkipped: 0, [0m[90mInconclusive: 0, [0m[37m[0m[90mNotRun: 0[0m
+
+STDERR:

@@ -151,8 +151,41 @@ if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
             $PlanFile = $refinedFile
             
             if ($Review) {
+                # --- Push refined plan to dashboard API for browser review ---
+                $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
+                $dashboardBase = "http://localhost:$dashboardPort"
+                $planTitle = "Untitled Plan"
+                $planContentForApi = Get-Content $PlanFile -Raw
+                $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
+                if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
+
+                $planUrl = $null
+                try {
+                    $createBody = @{
+                        path        = $ProjectDir
+                        title       = $planTitle
+                        content     = $planContentForApi
+                        working_dir = $ProjectDir
+                    } | ConvertTo-Json -Depth 5
+
+                    $response = Invoke-RestMethod -Uri "$dashboardBase/api/plans/create" `
+                        -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
+
+                    $planId = $response.plan_id
+                    $planUrl = "$dashboardBase/plans/$planId"
+                    Write-Host ""
+                    Write-Host "Plan pushed to dashboard: $planTitle" -ForegroundColor Cyan
+                    Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
+                }
+                catch {
+                    Write-Warning "Could not push plan to dashboard ($($_.Exception.Message)). Review the file directly."
+                }
+
                 Write-Host ""
                 Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
+                if ($planUrl) {
+                    Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
+                }
                 Write-Host "Please review the expanded plan." -ForegroundColor Green
                 Read-Host -Prompt "Press [Enter] to approve and continue, or Ctrl+C to abort..."
             }
@@ -211,6 +244,20 @@ foreach ($em in $epicMatches) {
     $descPattern = '(?m)^(?s)(?:## Epic:\s+|###\s+)EPIC-\d+\s*[—–-]\s*.+?\n(.*?)(?=####|\z)'
     if ($epicSection -match $descPattern) {
         $descBody = $Matches[1].Trim()
+    }
+
+    # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
+    $roles = @()
+    if ($epicSection -match $rolesPattern) {
+        $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    }
+    # Default to "engineer" if no roles specified
+    if ($roles.Count -eq 0) { $roles = @("engineer") }
+
+    # Extract per-epic working directory override
+    $epicWorkingDir = ""
+    if ($epicSection -match $workingDirPattern) {
+        $epicWorkingDir = $Matches[1].Trim()
     }
 
     # Extract DoD
