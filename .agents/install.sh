@@ -510,6 +510,54 @@ EOF
   fi
 }
 
+# ─── Next.js dashboard build ────────────────────────────────────────────────
+
+build_nextjs() {
+  # Locate the nextjs directory relative to the source repo
+  local nextjs_dir=""
+  for candidate in \
+    "${SOURCE_DIR}/dashboard/nextjs" \
+    "${SCRIPT_DIR}/../dashboard/nextjs" \
+    "${SCRIPT_DIR}/dashboard/nextjs"; do
+    if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
+      nextjs_dir="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+
+  if [[ -z "$nextjs_dir" ]]; then
+    warn "Next.js dashboard not found — skipping build"
+    info "Expected at dashboard/nextjs/package.json"
+    return
+  fi
+
+  # Pick installed package manager (prefer bun for speed)
+  local pm=""
+  for tool in bun pnpm npm yarn; do
+    if command -v "$tool" &>/dev/null; then
+      pm="$tool"
+      break
+    fi
+  done
+
+  if [[ -z "$pm" ]]; then
+    warn "No package manager (bun/pnpm/npm/yarn) found — skipping Next.js build"
+    info "Install Node.js and a package manager to enable the dashboard UI"
+    return
+  fi
+
+  step "Building Next.js dashboard ($pm) at $nextjs_dir..."
+  (
+    cd "$nextjs_dir"
+    # Install deps if node_modules missing
+    if [[ ! -d node_modules ]]; then
+      step "Installing npm dependencies..."
+      "$pm" install --frozen-lockfile 2>/dev/null || "$pm" install
+    fi
+    "$pm" run build
+  ) && ok "Next.js build complete" || warn "Next.js build failed — dashboard UI may be outdated"
+}
+
 # ─── File installation ───────────────────────────────────────────────────────
 
 install_files() {
@@ -708,40 +756,45 @@ fi
 
 echo ""
 
-# ─── 3. Install files ────────────────────────────────────────────────────────
+# ─── 3. Build Next.js dashboard ─────────────────────────────────────────────
 
-header "3. Installing Agent OS"
+header "3. Building Next.js dashboard"
+build_nextjs
+
+# ─── 4. Install files ────────────────────────────────────────────────────────
+
+header "4. Installing Agent OS"
 install_files
 
-# ─── 4. Python environment ───────────────────────────────────────────────────
+# ─── 5. Python environment ───────────────────────────────────────────────────
 
-header "4. Setting up Python environment"
+header "5. Setting up Python environment"
 setup_venv
 patch_mcp_config
 
-# ─── 4b. Environment variables (.env) ────────────────────────────────────────
+# ─── 5b. Environment variables (.env) ────────────────────────────────────────
 
-header "4b. Setting up .env"
+header "5b. Setting up .env"
 setup_env
 
-# ─── 5. PowerShell extras ────────────────────────────────────────────────────
+# ─── 6. PowerShell extras ────────────────────────────────────────────────────
 
 if ! $SKIP_OPTIONAL && command -v pwsh &>/dev/null; then
-  header "5. PowerShell modules"
+  header "6. PowerShell modules"
   install_pester
 else
-  header "5. PowerShell modules (skipped)"
+  header "6. PowerShell modules (skipped)"
   info "PowerShell not available or --skip-optional set"
 fi
 
-# ─── 6. PATH ─────────────────────────────────────────────────────────────────
+# ─── 7. PATH ─────────────────────────────────────────────────────────────────
 
-header "6. Configuring PATH"
+header "7. Configuring PATH"
 setup_path
 
-# ─── 7. Verification ─────────────────────────────────────────────────────────
+# ─── 8. Verification ─────────────────────────────────────────────────────────
 
-header "7. Verification"
+header "8. Verification"
 
 echo ""
 echo -e "  ${BOLD}Component Status:${NC}"
@@ -780,7 +833,7 @@ fi
 
 # ─── 8. Start Dashboard ──────────────────────────────────────────────────────
 
-header "8. Starting dashboard"
+header "9. Starting dashboard"
 
 DASHBOARD_SCRIPT="$INSTALL_DIR/dashboard.sh"
 if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; then
