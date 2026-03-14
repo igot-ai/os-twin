@@ -1,0 +1,156 @@
+[95mPester v5.7.1[0m
+[95m
+[95mStarting discovery in 3 files.[0m
+[95mDiscovery found 65 tests in 200ms.[0m
+[95mRunning tests.[0m
+[95m
+[95mRunning tests from '/Users/paulaan/PycharmProjects/agent-os/.agents/tests/Channel-Negotiation.Tests.ps1'[0m
+[92mDescribing Channel-Based Plan Negotiation[0m
+[33;1mWARNING: Invalid from role: team[0m
+[32m  [+] creates room-000, posts plan-review, and waits for plan-approve[0m[90m 4.36s (4.32s|42ms)[0m
+[33;1mWARNING: Invalid from role: team[0m
+[32m  [+] aborts if plan is rejected[0m[90m 3.07s (3.07s|1ms)[0m
+[95m
+[95mRunning tests from '/Users/paulaan/PycharmProjects/agent-os/.agents/tests/Orchestration.Tests.ps1'[0m
+[92mDescribing Message Protocol[0m
+[96m Context Room creation → initial task message[0m
+[32m   [+] New-WarRoom posts manager→engineer task message[0m[90m 44ms (42ms|2ms)[0m
+[96m Context Engineer → Manager done message[0m
+[32m   [+] done message has correct from/to/type/ref[0m[90m 15ms (14ms|1ms)[0m
+[96m Context QA → Manager pass message[0m
+[32m   [+] pass message has correct from/to/type[0m[90m 19ms (18ms|1ms)[0m
+[96m Context QA → Manager fail message[0m
+[32m   [+] fail message has correct protocol[0m[90m 11ms (11ms|1ms)[0m
+[96m Context Manager → Engineer fix message[0m
+[32m   [+] fix message routes QA feedback to engineer[0m[90m 16ms (15ms|1ms)[0m
+[96m Context Error messages[0m
+[32m   [+] engineer→manager error has correct protocol[0m[90m 18ms (17ms|1ms)[0m
+[32m   [+] qa→manager error has correct protocol[0m[90m 19ms (19ms|0ms)[0m
+[0m
+[92mDescribing Manager State Machine — Routing Decisions[0m
+[96m Context pending → engineering (team allocation)[0m
+[32m   [+] pending room with active count below max should be picked up[0m[90m 35ms (33ms|3ms)[0m
+[96m Context engineering → qa-review (done message triggers QA recruitment)[0m
+[32m   [+] done message count ≥ expected triggers QA transition[0m[90m 19ms (19ms|1ms)[0m
+[32m   [+] done count less than expected does NOT trigger QA[0m[90m 15ms (15ms|0ms)[0m
+[96m Context qa-review → passed (QA PASS verdict)[0m
+[32m   [+] pass message triggers passed status[0m[90m 18ms (17ms|0ms)[0m
+[96m Context qa-review → fixing (QA FAIL with retries)[0m
+[32m   [+] fail message + retries < max triggers fix cycle[0m[90m 35ms (34ms|2ms)[0m
+[96m Context qa-review → failed-final (retries exhausted)[0m
+[32m   [+] fail message + retries ≥ max triggers failed-final[0m[90m 18ms (17ms|1ms)[0m
+[0m
+[92mDescribing Full Room Lifecycle[0m
+[96m Context Happy path: task → done → pass → passed[0m
+[32m   [+] walks through complete lifecycle[0m[90m 26ms (25ms|1ms)[0m
+[96m Context Retry path: task → done → fail → fix → done → pass[0m
+[32m   [+] walks through fail-retry-pass lifecycle[0m[90m 32ms (31ms|1ms)[0m
+[96m Context Max retries exhausted → failed-final[0m
+[32m   [+] fails after max retries[0m[90m 57ms (54ms|3ms)[0m
+[0m
+[92mDescribing Multi-Room Team Allocation[0m
+[96m Context Concurrent room management[0m
+[32m   [+] creates multiple rooms from a single plan scope[0m[90m 34ms (34ms|1ms)[0m
+[32m   [+] count active rooms correctly for concurrency control[0m[90m 30ms (29ms|0ms)[0m
+[32m   [+] detects all-passed for release gate[0m[90m 17ms (17ms|0ms)[0m
+[32m   [+] detects NOT all-passed when one room is failed-final[0m[90m 17ms (16ms|0ms)[0m
+[0m
+[92mDescribing Done-Count Gate Logic[0m
+[96m Context First attempt (retries=0, expects done≥1)[0m
+[32m   [+] routes to QA on first done message[0m[90m 14ms (13ms|1ms)[0m
+[96m Context Second attempt (retries=1, expects done≥2)[0m
+[32m   [+] waits for 2 done messages on retry[0m[90m 26ms (25ms|1ms)[0m
+[0m
+[92mDescribing State Timeout Detection[0m
+[96m Context state_changed_at file mechanics[0m
+[32m   [+] Set-WarRoomStatus writes state_changed_at epoch[0m[90m 11ms (10ms|1ms)[0m
+[32m   [+] detects timeout when state_changed_at is old[0m[90m 14ms (13ms|0ms)[0m
+[32m   [+] does NOT detect timeout for fresh state[0m[90m 9ms (9ms|0ms)[0m
+[0m
+[92mDescribing Deadlock Detection[0m
+[96m Context Stall cycle counting[0m
+[32m   [+] identifies all-active-no-PID condition[0m[90m 22ms (21ms|1ms)[0m
+[32m   [+] does NOT detect deadlock when PIDs are alive[0m[90m 10ms (9ms|1ms)[0m
+[0m
+[92mDescribing Goal Contract Propagation[0m
+[96m Context Goals flow from plan to room config[0m
+[32m   [+] config.json contains DoD from room creation[0m[90m 15ms (14ms|1ms)[0m
+[32m   [+] goal contract includes quality requirements[0m[90m 13ms (13ms|0ms)[0m
+[32m   [+] Epic detection in config[0m[90m 9ms (9ms|0ms)[0m
+[32m   [+] Task detection in config[0m[90m 11ms (10ms|0ms)[0m
+[0m
+[92mDescribing Audit Trail[0m
+[96m Context Full lifecycle audit[0m
+[32m   [+] records every status transition with timestamp[0m[90m 32ms (30ms|1ms)[0m
+[96m Context Channel message history[0m
+[32m   [+] preserves complete message ordering[0m[90m 90ms (88ms|1ms)[0m
+[95m
+[95mRunning tests from '/Users/paulaan/PycharmProjects/agent-os/.agents/tests/RoleCommunication.Tests.ps1'[0m
+[92mDescribing Manager → Engineer Communication[0m
+[96m Context Task assignment (initial spawn)[0m
+[32m   [+] manager posts 'task' message before spawning engineer[0m[90m 23ms (22ms|1ms)[0m
+[96m Context Fix routing (after QA failure)[0m
+[32m   [+] manager posts 'fix' message with QA feedback[0m[90m 19ms (18ms|1ms)[0m
+[32m   [+] fix message is the LATEST message engineer reads[0m[90m 27ms (27ms|0ms)[0m
+[96m Context Timeout recovery message[0m
+[32m   [+] manager posts fix message on timeout with timeout info[0m[90m 15ms (13ms|1ms)[0m
+[96m Context Deadlock recovery message[0m
+[32m   [+] manager posts fix message for deadlock recovery[0m[90m 14ms (13ms|1ms)[0m
+[0m
+[92mDescribing Engineer → Manager Communication[0m
+[96m Context Success reporting[0m
+[32m   [+] engineer posts 'done' message with summary to manager[0m[90m 19ms (18ms|1ms)[0m
+[96m Context Error reporting[0m
+[32m   [+] engineer posts 'error' message on failure[0m[90m 11ms (10ms|0ms)[0m
+[32m   [+] engineer posts timeout error[0m[90m 11ms (11ms|0ms)[0m
+[96m Context Multiple done messages (retry counting)[0m
+[32m   [+] manager uses done count to track retry completions[0m[90m 18ms (18ms|1ms)[0m
+[0m
+[92mDescribing QA → Manager Communication[0m
+[96m Context Pass verdict[0m
+[32m   [+] QA posts 'pass' message to manager[0m[90m 15ms (15ms|1ms)[0m
+[96m Context Fail verdict[0m
+[32m   [+] QA posts 'fail' message with feedback[0m[90m 12ms (11ms|1ms)[0m
+[96m Context Error (verdict parse failure)[0m
+[32m   [+] QA posts 'error' when verdict cannot be parsed[0m[90m 10ms (10ms|0ms)[0m
+[96m Context QA process death[0m
+[32m   [+] manager detects QA death and posts error on behalf[0m[90m 13ms (10ms|2ms)[0m
+[0m
+[92mDescribing Full Lifecycle — Happy Path[0m
+[32m  [+] simulates: pending → task → done → qa-pass → passed[0m[90m 25ms (24ms|1ms)[0m
+[0m
+[92mDescribing Full Lifecycle — Retry Path[0m
+[32m  [+] simulates: task → done → qa-fail → fix → done → qa-pass[0m[90m 37ms (37ms|0ms)[0m
+[0m
+[92mDescribing Full Lifecycle — Max Retries Exhausted[0m
+[32m  [+] reaches failed-final after max retries[0m[90m 51ms (50ms|1ms)[0m
+[0m
+[92mDescribing Message Format Validation[0m
+[32m  [+] all messages have required fields: ts, from, to, type, ref, body[0m[90m 26ms (25ms|1ms)[0m
+[33;1mWARNING: Invalid from role: test[0m
+[33;1mWARNING: Invalid from role: test[0m
+[33;1mWARNING: Invalid from role: test[0m
+[33;1mWARNING: Invalid from role: test[0m
+[33;1mWARNING: Invalid from role: test[0m
+[33;1mWARNING: Invalid from role: test[0m
+[32m  [+] message types follow the contract: task, fix, done, error, pass, fail[0m[90m 24ms (24ms|0ms)[0m
+[32m  [+] sender-receiver pairs follow the contract[0m[90m 22ms (21ms|0ms)[0m
+[0m
+[92mDescribing Engineer Prompt Construction[0m
+[32m  [+] engineer reads brief.md for task description[0m[90m 7ms (7ms|0ms)[0m
+[32m  [+] engineer reads latest task/fix message from channel[0m[90m 12ms (10ms|2ms)[0m
+[32m  [+] config.json contains goals that scope the engineer's work[0m[90m 8ms (7ms|1ms)[0m
+[0m
+[92mDescribing QA Verdict Parsing Contract[0m
+[32m  [+] parses 'VERDICT: PASS' at start of line[0m[90m 2ms (2ms|1ms)[0m
+[32m  [+] parses 'VERDICT: FAIL' at start of line[0m[90m 1ms (1ms|0ms)[0m
+[32m  [+] parses VERDICT: anywhere in a line (fallback)[0m[90m 1ms (1ms|0ms)[0m
+[32m  [+] parses standalone PASS in first 20 lines (final fallback)[0m[90m 1ms (1ms|0ms)[0m
+[32m  [+] returns empty when no verdict found[0m[90m 1ms (0ms|0ms)[0m
+[0m
+[92mDescribing Epic vs Task Differentiation[0m
+[32m  [+] detects EPIC- prefix for epic handling[0m[90m 2ms (1ms|1ms)[0m
+[32m  [+] detects TASK- prefix for task handling[0m[90m 1ms (0ms|0ms)[0m
+[32m  [+] epic war-room has brief.md with epic description[0m[90m 6ms (6ms|0ms)[0m
+[97mTests completed in 9.5s[0m
+[32mTests Passed: 65, [0m[90mFailed: 0, [0m[90mSkipped: 0, [0m[90mInconclusive: 0, [0m[37m[0m[90mNotRun: 0[0m

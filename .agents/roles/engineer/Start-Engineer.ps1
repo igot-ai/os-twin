@@ -66,6 +66,19 @@ if (Test-Path $roomConfigFile) {
     }
 }
 
+# --- Read per-role config file (engineer_{id}.json) ---
+$roleInstanceModel = ""
+$roleInstanceId = ""
+$engineerConfigs = Get-ChildItem -Path $RoomDir -Filter "engineer_*.json" -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+if ($engineerConfigs) {
+    $latestRoleConfig = Get-Content $engineerConfigs[0].FullName -Raw | ConvertFrom-Json
+    $roleInstanceModel = $latestRoleConfig.model
+    $roleInstanceId = $latestRoleConfig.instance_id
+    # Update status to active
+    $latestRoleConfig.status = "active"
+    $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $engineerConfigs[0].FullName -Encoding utf8
+}
+
 # --- Resolve instance-specific working directory ---
 if ($InstanceId -and $config -and $config.engineer.instances.$InstanceId) {
     $instanceConfig = $config.engineer.instances.$InstanceId
@@ -284,8 +297,16 @@ else {
     }
 }
 
+# --- Update per-role config status ---
+if ($engineerConfigs) {
+    $latestRoleConfig = Get-Content $engineerConfigs[0].FullName -Raw | ConvertFrom-Json
+    $latestRoleConfig.status = if ($result.ExitCode -eq 0) { "completed" } else { "failed" }
+    $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $engineerConfigs[0].FullName -Encoding utf8
+}
+
 # --- Clean up PID file (after channel message is posted) ---
 $engPidFile = Join-Path $RoomDir "pids" "engineer.pid"
 Remove-Item $engPidFile -Force -ErrorAction SilentlyContinue
 
 exit $result.ExitCode
+

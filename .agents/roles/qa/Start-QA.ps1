@@ -49,6 +49,36 @@ if (Test-Path $configPath) {
 }
 if ($TimeoutSeconds -eq 0) { $TimeoutSeconds = 300 }
 
+# --- Read/Create per-role config file (qa_{id}.json) ---
+$qaConfigs = Get-ChildItem -Path $RoomDir -Filter "qa_*.json" -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+if ($qaConfigs) {
+    # Existing QA config — update status to active
+    $qaRoleConfig = Get-Content $qaConfigs[0].FullName -Raw | ConvertFrom-Json
+    $qaRoleConfig.status = "active"
+    $qaRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $qaConfigs[0].FullName -Encoding utf8
+    $qaRoleConfigFile = $qaConfigs[0].FullName
+}
+else {
+    # First QA assignment — create qa_001.json
+    $qaModel = "gemini-3-flash-preview"
+    if ($config -and $config.qa.default_model) {
+        $qaModel = $config.qa.default_model
+    }
+    $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $qaRoleConfigObj = [ordered]@{
+        role          = "qa"
+        instance_id   = "001"
+        instance_type = ""
+        display_name  = "qa #001"
+        model         = $qaModel
+        assigned_at   = $ts
+        status        = "active"
+        config_override = [ordered]@{}
+    }
+    $qaRoleConfigFile = Join-Path $RoomDir "qa_001.json"
+    $qaRoleConfigObj | ConvertTo-Json -Depth 5 | Out-File -FilePath $qaRoleConfigFile -Encoding utf8
+}
+
 # --- Read task ref ---
 $taskRef = if (Test-Path (Join-Path $RoomDir "task-ref")) {
     (Get-Content (Join-Path $RoomDir "task-ref") -Raw).Trim()
@@ -154,7 +184,7 @@ else {
 
 # --- Run the agent ---
 $result = & $invokeAgent -RoomDir $RoomDir -RoleName "qa" `
-                         -Prompt $prompt -TimeoutSeconds $TimeoutSeconds -Quiet
+                         -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
 
 # --- Parse verdict from output ---
 $output = $result.Output
@@ -213,4 +243,12 @@ else {
 $qaPidFile = Join-Path $RoomDir "pids" "qa.pid"
 Remove-Item $qaPidFile -Force -ErrorAction SilentlyContinue
 
+# --- Update per-role config status ---
+if (Test-Path $qaRoleConfigFile) {
+    $qaFinalConfig = Get-Content $qaRoleConfigFile -Raw | ConvertFrom-Json
+    $qaFinalConfig.status = if ($verdict -eq "PASS") { "completed" } else { "failed" }
+    $qaFinalConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $qaRoleConfigFile -Encoding utf8
+}
+
 exit $result.ExitCode
+
