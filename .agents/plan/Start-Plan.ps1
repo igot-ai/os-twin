@@ -343,40 +343,6 @@ if ($Resume) {
     }
     Write-Host ""
 } else {
-    # --- Pre-flight plan negotiation (EPIC-002) ---
-    Write-Host "[PLAN REVIEW] Creating pre-flight review room (room-000)..." -ForegroundColor Cyan
-    $room000Args = @{
-        RoomId             = "room-000"
-        TaskRef            = "PLAN-REVIEW"
-        TaskDescription    = "Review proposed plan refinements"
-        WorkingDir         = $ProjectDir
-        WarRoomsDir        = $warRoomsDir
-        PlanId             = $planId
-    }
-    & $newWarRoom @room000Args
-
-    $postMsgCmd = Join-Path $agentsDir "channel" "Post-Message.ps1"
-    $waitMsgCmd = Join-Path $agentsDir "channel" "Wait-ForMessage.ps1"
-    $room000Dir = Join-Path $warRoomsDir "room-000"
-
-    Write-Host "[PLAN REVIEW] Posting plan to room-000..." -ForegroundColor Cyan
-    & $postMsgCmd -RoomDir $room000Dir -From "manager" -To "team" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContent | Out-Null
-
-    Write-Host "[PLAN REVIEW] Waiting for plan-approve or plan-reject..." -ForegroundColor Yellow
-    $approvalMsgJson = & $waitMsgCmd -RoomDir $room000Dir -WaitType @("plan-approve", "plan-reject") -PollIntervalSeconds 2
-    if ($approvalMsgJson) {
-        $approvalMsg = $approvalMsgJson | ConvertFrom-Json
-        if ($approvalMsg.type -eq "plan-reject") {
-            Write-Error "[PLAN REVIEW] Plan was rejected by $($approvalMsg.from). Aborting."
-            exit 1
-        }
-        Write-Host "[PLAN REVIEW] Plan approved by $($approvalMsg.from)!" -ForegroundColor Green
-    } else {
-        Write-Error "[PLAN REVIEW] Failed to receive approval message."
-        exit 1
-    }
-    Write-Host ""
-
     # --- Create war-rooms ---
     foreach ($entry in $parsed) {
         # Resolve working directory: per-epic override > project dir

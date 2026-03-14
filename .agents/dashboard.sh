@@ -9,7 +9,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
+# Resolve Python: local .venv → ~/.ostwin/.venv (install dir) → system python3
 PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
 # Resolve dashboard directory:

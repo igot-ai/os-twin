@@ -41,6 +41,7 @@ if [[ -z "$AGENTS_DIR" ]]; then
   AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
 fi
 PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
 # Version from config

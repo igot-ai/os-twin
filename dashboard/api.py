@@ -315,6 +315,7 @@ class Message(BaseModel):
 
 class RunRequest(BaseModel):
     plan: str
+    plan_id: Optional[str] = None
 
 class ReactionRequest(BaseModel):
     entity_id: str
@@ -713,23 +714,25 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     if not _re_mod.search(r"^## (Epic|Task):", plan, _re_mod.MULTILINE):
         raise HTTPException(status_code=400, detail="Plan contains no epics or tasks. Add at least one '## Epic: EPIC-XXX — Title' section.")
 
-    run_sh = AGENTS_DIR / "run.sh"
-    if not run_sh.exists():
-        raise HTTPException(status_code=500, detail="OS Twin run.sh not found")
-
     plans_dir = AGENTS_DIR / "plans"
     plans_dir.mkdir(exist_ok=True)
 
-    # Write plan to temp file
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".md", prefix="agent-os-plan-",
-        dir=str(plans_dir), delete=False
-    ) as f:
-        f.write(plan)
-        plan_path = f.name
+    if request.plan_id:
+        plan_path = str(plans_dir / f"{request.plan_id}.md")
+        Path(plan_path).write_text(plan)
+        plan_filename = os.path.basename(plan_path)
+        plan_id = request.plan_id
+    else:
+        # Write plan to temp file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", prefix="agent-os-plan-",
+            dir=str(plans_dir), delete=False
+        ) as f:
+            f.write(plan)
+            plan_path = f.name
 
-    plan_filename = os.path.basename(plan_path)
-    plan_id = Path(plan_path).stem
+        plan_filename = os.path.basename(plan_path)
+        plan_id = Path(plan_path).stem
 
     # Index plan + epics into zvec
     if store:
@@ -757,9 +760,14 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         except Exception as e:
             print(f"  zvec: plan indexing failed ({e}), continuing without")
 
-    # Spawn OS Twin in background (run.sh will kill any existing manager itself)
+    # Spawn OS Twin in background
+    # Since run.sh was deprecated in favor of Start-Plan.ps1, we invoke pwsh directly.
+    start_plan_ps1 = AGENTS_DIR / "plan" / "Start-Plan.ps1"
+    if not start_plan_ps1.exists():
+        raise HTTPException(status_code=500, detail="Start-Plan.ps1 not found")
+
     subprocess.Popen(
-        [str(run_sh), plan_path],
+        ["pwsh", "-NoProfile", "-File", str(start_plan_ps1), "-PlanFile", plan_path, "-ProjectDir", str(PROJECT_ROOT)],
         cwd=str(PROJECT_ROOT),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -1150,7 +1158,7 @@ async function launchPlan() {{
     const res = await fetch('/api/run', {{
       method: 'POST',
       headers: {{ 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{ plan: content }})
+      body: JSON.stringify({{ plan: content, plan_id: PLAN_ID }})
     }});
     if (res.ok) {{
       window.location.href = '/';
