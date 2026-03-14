@@ -802,7 +802,7 @@ window.launchPlan = async function () {
     const res = await fetch('/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan }),
+      body: JSON.stringify({ plan, plan_id: activePlanId }),
     });
 
     if (!res.ok) {

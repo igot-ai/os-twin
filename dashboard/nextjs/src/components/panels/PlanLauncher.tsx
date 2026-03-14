@@ -78,7 +78,7 @@ export default function PlanLauncher({ onPlanLaunched }: PlanLauncherProps) {
       const res = await apiFetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: planText }),
+        body: JSON.stringify({ plan: planText, plan_id: activePlanId }),
       });
 
       if (!res.ok) {
