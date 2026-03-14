@@ -34,7 +34,7 @@
     {
       "name": "architect",
       "description": "Software architect — designs systems, reviews architecture, makes technical decisions",
-      "runner": null,
+      "runner": "roles/architect/Start-Architect.ps1",
       "definition": "roles/architect/role.json",
       "prompt": "roles/architect/ROLE.md",
       "default_assignment": false,

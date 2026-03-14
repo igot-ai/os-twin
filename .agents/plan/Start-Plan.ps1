@@ -56,6 +56,8 @@ if (-not (Test-Path $agentsDir)) {
 $newWarRoom = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
 $managerLoop = Join-Path $agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
 $buildDag = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
+$postMessage = Join-Path $agentsDir "channel" "Post-Message.ps1"
+$waitForMessage = Join-Path $agentsDir "channel" "Wait-ForMessage.ps1"
 
 # --- Import modules ---
 $logModule = Join-Path $agentsDir "lib" "Log.psm1"
@@ -70,6 +72,11 @@ if (-not (Test-Path $PlanFile)) {
     Write-Error "Plan file not found: $PlanFile"
     exit 1
 }
+
+# --- Resolve war-rooms directory ---
+$warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
+               else { Join-Path $ProjectDir ".war-rooms" }
+$env:WARROOMS_DIR = $warRoomsDir
 
 # --- Plan Expansion (Manager Loop Startup Integration) ---
 $config = Get-OstwinConfig
@@ -107,7 +114,8 @@ foreach ($em in $epicMatchesCheck) {
         $bulletCount = ([regex]::Matches($descBody, '(?m)^[-*]\s+')).Count
     }
 
-    if ($dodCount -lt 1 -or $acCount -lt 1 -or $bulletCount -lt 2) {
+    # Threshold: 5 DoD, 5 AC, 2 description bullets — synced with Expand-Plan.ps1
+    if ($dodCount -lt 5 -or $acCount -lt 5 -or $bulletCount -lt 2) {
         $hasUnderspecified = $true
         break
     }
@@ -187,7 +195,53 @@ if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
                     Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
                 }
                 Write-Host "Please review the expanded plan." -ForegroundColor Green
-                Read-Host -Prompt "Press [Enter] to approve and continue, or Ctrl+C to abort..."
+                
+                # --- Create room-plan for channel-based approval ---
+                $roomPlanDir = Join-Path $warRoomsDir "room-plan"
+                if (-not (Test-Path $roomPlanDir)) {
+                    & $newWarRoom -RoomId "room-plan" -TaskRef "PLAN-REVIEW" -TaskDescription "Review refined plan: $planTitle" -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir | Out-Null
+                }
+                & $postMessage -RoomDir $roomPlanDir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContentForApi | Out-Null
+
+                # Configurable approval timeout (seconds). Default: 300s (5 min). Set PLAN_REVIEW_TIMEOUT_SECONDS=0 to disable.
+                $reviewTimeoutSec = if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) { [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS } else { 300 }
+                $reviewDeadline   = if ($reviewTimeoutSec -gt 0) { (Get-Date).AddSeconds($reviewTimeoutSec) } else { $null }
+                Write-Host "Waiting for plan approval (timeout: $(if ($reviewTimeoutSec -gt 0) { "${reviewTimeoutSec}s" } else { 'none' }))..." -ForegroundColor Cyan
+                Write-Host "  Press Enter to approve manually, or post 'plan-approve' to the room-plan channel." -ForegroundColor Cyan
+
+                # Guard: RawUI.KeyAvailable throws in non-interactive/CI sessions
+                $canReadKey = $false
+                try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { }
+
+                $approved = $false
+                while (-not $approved) {
+                    # Check keyboard (interactive sessions only)
+                    if ($canReadKey) {
+                        try {
+                            if ($Host.UI.RawUI.KeyAvailable) {
+                                $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                if ($key.VirtualKeyCode -eq 13) { $approved = $true; Write-Host "Approved manually." }
+                            }
+                        } catch { $canReadKey = $false }  # lost interactivity mid-run
+                    }
+
+                    # Check channel for plan-approve
+                    if (-not $approved) {
+                        $msgs = & (Join-Path $agentsDir "channel" "Read-Messages.ps1") -RoomDir $roomPlanDir -FilterType "plan-approve" -Last 1 -AsObject
+                        if ($msgs -and $msgs.Count -gt 0) {
+                            $approved = $true
+                            Write-Host "Approved via channel message!" -ForegroundColor Green
+                        }
+                    }
+
+                    # Timeout guard
+                    if (-not $approved -and $reviewDeadline -and (Get-Date) -gt $reviewDeadline) {
+                        Write-Warning "Plan review timed out after ${reviewTimeoutSec}s. Auto-approving and continuing."
+                        $approved = $true
+                    }
+
+                    if (-not $approved) { Start-Sleep -Seconds 1 }
+                }
             }
         }
     } else {
@@ -196,6 +250,17 @@ if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
 }
 
 $planContent = Get-Content $PlanFile -Raw
+
+# --- Parse global working_dir from PLAN.md ---
+if ($planContent -match '(?m)^working_dir:\s*(.+)$') {
+    $globalWorkingDir = $Matches[1].Trim()
+    if ($globalWorkingDir -and (Test-Path $globalWorkingDir)) {
+        $ProjectDir = (Resolve-Path $globalWorkingDir).Path
+        Write-Host "  Project: $ProjectDir" -ForegroundColor DarkGray
+    } elseif ($globalWorkingDir -and $globalWorkingDir -ne '...') {
+        Write-Warning "working_dir '$globalWorkingDir' not found. Falling back to ProjectDir: $ProjectDir"
+    }
+}
 
 # --- Parse plan: extract epics and tasks ---
 $parsed = [System.Collections.Generic.List[PSObject]]::new()
@@ -360,11 +425,6 @@ if ($DryRun) {
     exit 0
 }
 
-# --- Set up war-rooms directory ---
-$warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
-               else { Join-Path $ProjectDir ".war-rooms" }
-$env:WARROOMS_DIR = $warRoomsDir
-
 # --- Resume mode: reset blocked rooms if upstream cleared ---
 if ($Resume) {
     Write-Host "[RESUME] Checking existing war-rooms..." -ForegroundColor Yellow
@@ -406,14 +466,19 @@ if ($Resume) {
         # Use the first role as the primary assigned role (e.g. "engineer:fe")
         $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
 
+        $fullDesc = $entry.Description
+        if ($entry.DescBody) {
+            $fullDesc = "$fullDesc`n`n$($entry.DescBody)"
+        }
+
         $roomArgs = @{
             RoomId           = $entry.RoomId
             TaskRef          = $entry.TaskRef
-            TaskDescription  = $entry.Description
+            TaskDescription  = $fullDesc
             WorkingDir       = $resolvedWorkingDir
             WarRoomsDir      = $warRoomsDir
             PlanId           = $planId
-            Role             = $primaryRole
+            AssignedRole     = $primaryRole
         }
 
         if ($entry.DoD -and $entry.DoD.Count -gt 0) {

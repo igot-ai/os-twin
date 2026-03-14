@@ -24,7 +24,23 @@ Describe "Start-Plan" {
         $script:logs = @()
         $script:projectDir = Join-Path $TestDrive "project-$(Get-Random)"
         New-Item -ItemType Directory -Path $script:projectDir -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $script:projectDir ".agents") -Force | Out-Null
+        $agentsDir = Join-Path $script:projectDir ".agents"
+        New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+        
+        # Create necessary subdirectories
+        $subDirs = @("plan", "war-rooms", "roles/manager", "channel", "lib")
+        foreach ($sd in $subDirs) {
+            New-Item -ItemType Directory -Path (Join-Path $agentsDir $sd) -Force | Out-Null
+        }
+
+        # Create dummy scripts to avoid file not found errors
+        "Write-Host 'Dummy BuildDag'" | Out-File (Join-Path $agentsDir "plan/Build-DependencyGraph.ps1") -Encoding utf8
+        "Write-Host 'Dummy NewWarRoom'" | Out-File (Join-Path $agentsDir "war-rooms/New-WarRoom.ps1") -Encoding utf8
+        "Write-Host 'Dummy ManagerLoop'" | Out-File (Join-Path $agentsDir "roles/manager/Start-ManagerLoop.ps1") -Encoding utf8
+        "Write-Host 'Dummy PostMessage'" | Out-File (Join-Path $agentsDir "channel/Post-Message.ps1") -Encoding utf8
+        "Write-Host 'Dummy WaitForMessage'" | Out-File (Join-Path $agentsDir "channel/Wait-ForMessage.ps1") -Encoding utf8
+        "Write-Host 'Dummy ReadMessages'" | Out-File (Join-Path $agentsDir "channel/Read-Messages.ps1") -Encoding utf8
+        "Write-Host 'Dummy ExpandPlan'" | Out-File (Join-Path $agentsDir "plan/Expand-Plan.ps1") -Encoding utf8
     }
 
     Context "Plan parsing" {
@@ -45,26 +61,26 @@ Describe "Start-Plan" {
                 "## Epics",
                 "",
                 "### EPIC-001 — JWT Authentication",
+                "- Feature description bullet 1",
+                "- Feature description bullet 2",
                 "",
                 "#### Definition of Done",
                 "- [ ] JWT token generation working",
                 "- [ ] Token validation middleware",
                 "- [ ] Refresh token support",
+                "- [ ] Unit tests pass",
+                "- [ ] Documentation updated",
                 "",
                 "#### Acceptance Criteria",
                 "- [ ] POST /login returns valid JWT",
-                "- [ ] Protected routes reject invalid tokens"
+                "- [ ] Protected routes reject invalid tokens",
+                "- [ ] Scenario 3",
+                "- [ ] Scenario 4",
+                "- [ ] Scenario 5"
             )
             $lines | Out-File $script:planFile -Encoding utf8
         }
 
-        It "runs the manual test for plan refinement" {
-            $output = pwsh -c ". /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Start-Plan.ps1 -PlanFile /Users/paulaan/PycharmProjects/agent-os/.agents/plans/test-plan.md -DryRun"
-            Write-Host "---MANUAL_TEST_START---"
-            $output | Out-String | Write-Host
-            Write-Host "---MANUAL_TEST_END---"
-            $true | Should -Be $true
-        }
 
         It "detects EPIC-001" {
             $output = & $script:StartPlan -PlanFile $script:planFile `
@@ -87,6 +103,28 @@ Describe "Start-Plan" {
                 $rooms = Get-ChildItem $warRooms -Directory -Filter "room-*" -ErrorAction SilentlyContinue
                 $rooms.Count | Should -Be 0
             }
+        }
+
+        It "parses global working_dir from PLAN.md" {
+            $workingDirPlan = Join-Path $TestDrive "working-dir-plan.md"
+            $targetDir = Join-Path $TestDrive "target-project"
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            
+            $content = "# Plan: Test`n`n## Config`nworking_dir: $targetDir`n`n### EPIC-001 — Test`n"
+            $content | Out-File $workingDirPlan -Encoding utf8
+            
+            # Use -DryRun to just parse
+            $output = & $script:StartPlan -PlanFile $workingDirPlan -ProjectDir $script:projectDir -DryRun *>&1
+            ($output -join "`n") | Should -Match "Project: $targetDir"
+        }
+
+        It "warns when working_dir is invalid" {
+            $badDirPlan = Join-Path $TestDrive "bad-dir-plan.md"
+            $content = "# Plan: Test`n`n## Config`nworking_dir: /nonexistent/path/xyz`n`n### EPIC-001 — Test`n"
+            $content | Out-File $badDirPlan -Encoding utf8
+
+            $output = & $script:StartPlan -PlanFile $badDirPlan -ProjectDir $script:projectDir -DryRun *>&1
+            ($output -join "`n") | Should -Match "working_dir.*not found"
         }
     }
 
@@ -135,6 +173,9 @@ if (-not `$DryRun) {
             
             $dummyPost = "Write-Host 'Posting message'"
             $dummyPost | Out-File (Join-Path $testChannelDir "Post-Message.ps1") -Encoding utf8
+
+            $dummyRead = "param(`$RoomDir,`$FilterType) if (`$FilterType -eq 'plan-approve') { return @([PSCustomObject]@{type='plan-approve'}) } else { return @() }"
+            $dummyRead | Out-File (Join-Path $testChannelDir "Read-Messages.ps1") -Encoding utf8
             
             # Mock new war room script
             $testWarRoomsDir = Join-Path $script:projectDir ".agents/war-rooms"
@@ -146,12 +187,14 @@ if (-not `$DryRun) {
             # We mock git to avoid depending on actual git repo state
             function global:git { "Diff output" }
             function global:Read-Host { return "" }
+            function global:Invoke-RestMethod { return [PSCustomObject]@{ plan_id = "test-id" } }
             
             $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir *>&1
             
             # Clean up the mock
             Remove-Item Function:\git -ErrorAction SilentlyContinue
             Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue
+            Remove-Item Function:\Invoke-RestMethod -ErrorAction SilentlyContinue
 
             $logMessages = $global:testLogs | ForEach-Object { $_.Message }
             $logMessages | Should -Contain "Plan expansion diff:`nDiff output`n"
@@ -165,7 +208,47 @@ if (-not `$DryRun) {
     Context "Multi-epic plan" {
         BeforeEach {
             $script:multiPlan = Join-Path $TestDrive "multi-plan.md"
-            $multiContent = "# Plan: Full System`n`n## Epics`n`n### EPIC-001 — Authentication`n`n#### Definition of Done`n- [ ] Login working`n`n#### Acceptance Criteria`n- [ ] POST /login returns 200`n`n### EPIC-002 — Dashboard`n`n#### Definition of Done`n- [ ] Dashboard renders`n`n#### Acceptance Criteria`n- [ ] GET /dashboard returns HTML`n"
+            $multiContent = @"
+# Plan: Full System
+
+## Epics
+
+### EPIC-001 — Authentication
+- Auth logic description
+- More details
+
+#### Definition of Done
+- [ ] Login working
+- [ ] D2
+- [ ] D3
+- [ ] D4
+- [ ] D5
+
+#### Acceptance Criteria
+- [ ] POST /login returns 200
+- [ ] A2
+- [ ] A3
+- [ ] A4
+- [ ] A5
+
+### EPIC-002 — Dashboard
+- Dashboard logic description
+- More details
+
+#### Definition of Done
+- [ ] Dashboard renders
+- [ ] D2
+- [ ] D3
+- [ ] D4
+- [ ] D5
+
+#### Acceptance Criteria
+- [ ] GET /dashboard returns HTML
+- [ ] A2
+- [ ] A3
+- [ ] A4
+- [ ] A5
+"@
             $multiContent | Out-File $script:multiPlan -Encoding utf8
         }
 
@@ -213,7 +296,27 @@ if (-not `$DryRun) {
     Context "Plan ID extraction" {
         It "extracts plan_id from embedded JSON config" {
             $planWithId = Join-Path $TestDrive "plan-with-id.md"
-            $planContent = "# Plan: Test`n`n### EPIC-001 — Test`n`n#### Definition of Done`n- [ ] Done`n"
+            $planContent = @"
+# Plan: Test
+
+### EPIC-001 — Test
+- Bullet 1
+- Bullet 2
+
+#### Definition of Done
+- [ ] D1
+- [ ] D2
+- [ ] D3
+- [ ] D4
+- [ ] D5
+
+#### Acceptance Criteria
+- [ ] A1
+- [ ] A2
+- [ ] A3
+- [ ] A4
+- [ ] A5
+"@
             $planContent | Out-File $planWithId -Encoding utf8
 
             $output = & $script:StartPlan -PlanFile $planWithId `
@@ -232,16 +335,28 @@ if (-not `$DryRun) {
                 "## Epics",
                 "",
                 "### EPIC-001 — Authentication",
+                "- Mock description with enough details to pass check",
+                "- Detailed bullet 2",
                 "depends_on: []",
                 "",
                 "#### Definition of Done",
                 "- [ ] Login working",
+                "- [ ] D2", "- [ ] D3", "- [ ] D4", "- [ ] D5",
+                "",
+                "#### Acceptance Criteria",
+                "- [ ] A1", "- [ ] A2", "- [ ] A3", "- [ ] A4", "- [ ] A5",
                 "",
                 "### EPIC-002 — Dashboard",
+                "- Mock description with enough details to pass check",
+                "- Detailed bullet 2",
                 "depends_on: [EPIC-001]",
                 "",
                 "#### Definition of Done",
-                "- [ ] Dashboard renders"
+                "- [ ] Dashboard renders",
+                "- [ ] D2", "- [ ] D3", "- [ ] D4", "- [ ] D5",
+                "",
+                "#### Acceptance Criteria",
+                "- [ ] A1", "- [ ] A2", "- [ ] A3", "- [ ] A4", "- [ ] A5"
             )
             $lines | Out-File $depsPlan -Encoding utf8
 
@@ -258,9 +373,15 @@ if (-not `$DryRun) {
                 "## Epics",
                 "",
                 "### EPIC-001 — Simple Feature",
+                "- Mock description with enough details to pass check",
+                "- Detailed bullet 2",
                 "",
                 "#### Definition of Done",
-                "- [ ] Feature working"
+                "- [ ] Feature working",
+                "- [ ] D2", "- [ ] D3", "- [ ] D4", "- [ ] D5",
+                "",
+                "#### Acceptance Criteria",
+                "- [ ] A1", "- [ ] A2", "- [ ] A3", "- [ ] A4", "- [ ] A5"
             )
             $lines | Out-File $noDeps -Encoding utf8
 

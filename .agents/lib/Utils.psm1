@@ -71,7 +71,7 @@ function Set-WarRoomStatus {
         [string]$RoomDir,
 
         [Parameter(Mandatory)]
-        [ValidateSet('pending', 'engineering', 'qa-review', 'fixing', 'passed', 'failed-final', 'blocked')]
+        [ValidateSet('pending', 'engineering', 'qa-review', 'fixing', 'passed', 'failed-final', 'blocked', 'manager-triage', 'architect-review', 'plan-revision')]
         [string]$NewStatus
     )
 

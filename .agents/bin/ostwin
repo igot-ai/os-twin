@@ -44,6 +44,26 @@ PYTHON="${AGENTS_DIR}/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
+# Resolve the Python that has deepagents_cli installed (uv-tool env).
+# Priority: shebang of the deepagents binary → sibling python3 → fallback to $PYTHON.
+DEEPAGENTS_PYTHON="$PYTHON"
+if command -v deepagents &>/dev/null; then
+  _DA_BIN="$(command -v deepagents)"
+  # Extract interpreter from shebang line (e.g. #!/path/to/python)
+  _DA_SHEBANG_PY="$(head -1 "$_DA_BIN" 2>/dev/null | sed 's|^#!||')"
+  if [[ -x "$_DA_SHEBANG_PY" ]]; then
+    DEEPAGENTS_PYTHON="$_DA_SHEBANG_PY"
+  else
+    # Try python3 sibling in the same bin dir as deepagents
+    _DA_BIN_DIR="$(dirname "$(realpath "$_DA_BIN" 2>/dev/null || echo "$_DA_BIN")")"
+    if [[ -x "$_DA_BIN_DIR/python3" ]]; then
+      DEEPAGENTS_PYTHON="$_DA_BIN_DIR/python3"
+    elif [[ -x "$_DA_BIN_DIR/python" ]]; then
+      DEEPAGENTS_PYTHON="$_DA_BIN_DIR/python"
+    fi
+  fi
+fi
+
 # Version from config
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
@@ -55,6 +75,8 @@ Usage:
   ostwin <command> [options]
 
 Commands:
+  chat [options]    Interactive AI chat session
+                    Options: -a AGENT, -M MODEL, -m MSG, --auto-approve, -r [ID]
   run <plan.md>     Execute a plan file
                     Options: --dry-run, --max-rooms N, --working-dir PATH
   plan <sub>        Plan management (AI-assisted)
@@ -73,6 +95,8 @@ Commands:
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
   health            Check system health
+  mcp               Manage MCP extensions
+                    Subcommands: install, list, catalog, remove, sync
   test              Run test suites
                     Options: --suite NAME, --verbose
   version           Show version
@@ -135,6 +159,10 @@ ps_dispatch() {
 }
 
 case "${1:-}" in
+  chat)
+    shift
+    exec "$DEEPAGENTS_PYTHON" "$AGENTS_DIR/bin/chat.py" "$@"
+    ;;
   run)
     shift
     ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "$@"
@@ -252,6 +280,10 @@ else:
   orphans)
     shift
     ps_dispatch "$AGENTS_DIR/bin/Orphans.ps1" "" "$@"
+    ;;
+  mcp)
+    shift
+    exec "$AGENTS_DIR/mcp/mcp-extension.sh" "$@"
     ;;
   config)
     shift

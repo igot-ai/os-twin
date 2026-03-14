@@ -222,7 +222,24 @@ if (Test-Path $dagFile) {
     }
 }
 
+# --- Read triage context if available (from manager triage) ---
+$triageContext = ""
+$triageFile = Join-Path $RoomDir "artifacts" "triage-context.md"
+if (Test-Path $triageFile) {
+    $triageContext = Get-Content $triageFile -Raw
+}
+
 # --- Assemble final prompt ---
+$triageSection = ""
+if ($triageContext) {
+    $triageSection = @"
+
+## Triage Context (Manager Analysis)
+
+$triageContext
+"@
+}
+
 $prompt = @"
 $rolePrompt
 
@@ -235,7 +252,7 @@ $taskDesc
 ## Latest Instruction
 
 $latestBody
-
+$triageSection
 ## War-Room
 
 Room: $roomName
