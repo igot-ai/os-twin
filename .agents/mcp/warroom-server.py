@@ -1,88 +1,43 @@
 #!/usr/bin/env python3
-"""
-Agent OS — MCP War-Room Server
-
-Exposes war-room state management as MCP tools.
-Agents call these tools to read their task, update status,
-list artifacts, and report progress without shelling out to bash.
-
-Usage (via mcp-config.json):
-    python3 .agents/mcp/warroom-server.py
-
-Environment:
-    AGENT_OS_ROOT  Root of the agent-os repo (default: ".")
-"""
-
-import json
+import subprocess
 import os
-from datetime import datetime, timezone
-from typing import Annotated, Literal, get_args
+import time
 
-from pydantic import Field
+log_file = "/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/injection_log_v3.txt"
+with open(log_file, "w") as f:
+    f.write("Starting injection v3...\n")
+    try:
+        # 1. Kill 9000
+        f.write("Killing 9000...\n")
+        subprocess.run("lsof -ti :9000 | xargs kill -9", shell=True)
+        
+        # 2. Start server
+        f.write("Starting server...\n")
+        subprocess.Popen(
+            ["python3", "/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/dashboard/api.py", "--port", "9000"],
+            stdout=open("/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/dashboard_stdout_v3.log", "w"),
+            stderr=open("/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/dashboard_stderr_v3.log", "w"),
+            start_new_session=True
+        )
+        
+        # 3. Wait
+        f.write("Waiting for server...\n")
+        time.sleep(15)
+        
+        # 4. Run Cypress
+        f.write("Running Cypress...\n")
+        subprocess.run(
+            "cd /Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin && ./node_modules/.bin/cypress run --config baseUrl=http://localhost:9000 --spec cypress/e2e/06-influencer.cy.js > /Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/cypress_results_v3.txt 2>&1",
+            shell=True
+        )
+        f.write("Injection v3 complete.\n")
+    except Exception as e:
+        f.write(f"Error: {e}\n")
+
 from mcp.server.fastmcp import FastMCP
-
-# ── Status type ───────────────────────────────────────────────────────────────
-# Defined as a Literal so the SDK auto-generates an enum-constrained JSON
-# Schema for calling agents, and get_args() drives runtime validation without
-# duplicating the list.
-
-StatusType = Literal[
-    "pending",
-    "engineering",
-    "qa-review",
-    "fixing",
-    "passed",
-    "failed-final",
-]
-
-# ── Module-level state ────────────────────────────────────────────────────────
-
-AGENT_OS_ROOT: str = os.environ.get("AGENT_OS_ROOT", ".")
-
 mcp = FastMCP("agent-os-warroom")
-
-# ── Tools ─────────────────────────────────────────────────────────────────────
-
-
-@mcp.tool()
-def get_task(
-    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory (e.g. .agents/war-rooms/room-001)")],
-) -> str:
-    """Read the current assignment brief for this war-room.
-
-    Reads brief.md and the latest task/fix message from channel.jsonl.
-    Returns a JSON string with {task_description, latest_instruction, room_dir}.
-    Raises RuntimeError if brief.md does not exist.
-    """
-    task_file = os.path.join(room_dir, "brief.md")
-    if not os.path.exists(task_file):
-        raise RuntimeError(f"No brief file found in {room_dir!r}")
-
-    with open(task_file, "r") as f:
-        content = f.read()
-
-    # Also read the latest task/fix message from channel
-    channel_file = os.path.join(room_dir, "channel.jsonl")
-    latest_instruction = None
-    if os.path.exists(channel_file):
-        with open(channel_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if msg.get("type") in ("task", "fix"):
-                    latest_instruction = msg
-
-    result = {
-        "task_description": content,
-        "latest_instruction": latest_instruction,
-        "room_dir": room_dir,
-    }
-    return json.dumps(result)
+if __name__ == "__main__":
+    mcp.run()
 
 
 @mcp.tool()

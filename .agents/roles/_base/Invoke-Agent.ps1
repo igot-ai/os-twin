@@ -161,6 +161,9 @@ try {
     $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
     $scriptContent = @"
 #!/bin/bash
+export AGENT_OS_ROOM_DIR='$RoomDir'
+export AGENT_OS_ROLE='$RoleName'
+export AGENT_OS_PARENT_PID='$PID'
 $cwdLine
 $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
 "@

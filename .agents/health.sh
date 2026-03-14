@@ -16,6 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS_DIR="$SCRIPT_DIR"
 PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="${HOME}/.ostwin/.venv/bin/python" # fallback to global ostwin venv
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 CONFIG="${AGENT_OS_CONFIG:-$AGENTS_DIR/config.json}"

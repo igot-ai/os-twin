@@ -67,6 +67,8 @@ Commands:
                     Options: --force
   dashboard         Launch web dashboard
                     Options: --port PORT, --project-dir PATH
+  orphans           Manage orphaned agent processes
+                    Options: --list, --kill, --json
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
   health            Check system health
@@ -117,6 +119,8 @@ ps_dispatch() {
         --plan-file)    ps_args+=("-PlanFile" "$2"); shift 2 ;;
         --json)         ps_args+=("-AsJson"); shift ;;
         --watch)        ps_args+=("-Watch"); shift ;;
+        --list)         ps_args+=("-List"); shift ;;
+        --kill)         ps_args+=("-Kill"); shift ;;
         *)              ps_args+=("$1"); shift ;;
       esac
     done
@@ -243,6 +247,10 @@ else:
     else
       exec "$AGENTS_DIR/dashboard.sh" "$@"
     fi
+    ;;
+  orphans)
+    shift
+    ps_dispatch "$AGENTS_DIR/bin/Orphans.ps1" "" "$@"
     ;;
   config)
     shift

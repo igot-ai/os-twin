@@ -56,6 +56,42 @@ if (-not $Goal) {
     exit 1
 }
 
+# --- Generate plan file name ---
+if (-not $PlanFile) {
+    # Create a friendly slug from the goal
+    $slug = $Goal -replace '[^a-zA-Z0-9]+', '-' -replace '^-|-$', ''
+    $slug = $slug.ToLower()
+    if ($slug.Length -gt 40) { $slug = $slug.Substring(0, 40) -replace '-$', '' }
+    if (-not $slug) { $slug = "plan-$(Get-Date -Format 'yyyyMMdd-HHmmss')" }
+    
+    $defaultPlanFile = Join-Path $plansDir "$slug.md"
+    
+    if (-not $NonInteractive) {
+        $relativePath = $defaultPlanFile.Replace($ProjectDir + [System.IO.Path]::DirectorySeparatorChar, "")
+        $promptMsg = "Where would you like to save this plan? [default: $relativePath]"
+        $userInput = Read-Host $promptMsg
+        
+        if ($userInput) {
+            # If user entered an absolute path, use it. Otherwise, combine with ProjectDir.
+            if ([System.IO.Path]::IsPathRooted($userInput)) {
+                $PlanFile = $userInput
+            } else {
+                $PlanFile = Join-Path $ProjectDir $userInput
+            }
+        } else {
+            $PlanFile = $defaultPlanFile
+        }
+    } else {
+        $PlanFile = $defaultPlanFile
+    }
+}
+
+# --- Ensure custom plan directory exists if they changed it ---
+$customPlanDir = Split-Path $PlanFile
+if (-not (Test-Path $customPlanDir)) {
+    New-Item -ItemType Directory -Path $customPlanDir -Force | Out-Null
+}
+
 # --- Build plan structure ---
 $planContent = @"
 # Plan: $Goal
@@ -131,6 +167,9 @@ Write-Host "[PLAN] Tasks: 4"
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Review and edit the plan"
-Write-Host "  2. Run: ./Start-Plan.ps1 -PlanFile '$PlanFile'"
+Write-Host "  2. Run: ./.agents/plan/Start-Plan.ps1 -PlanFile '$PlanFile'"
 
+# --- Return plan file path ---
 Write-Output $PlanFile
+
+

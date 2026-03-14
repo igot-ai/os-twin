@@ -68,8 +68,19 @@ from auth import (
 
 # === Paths ===
 # PROJECT_DIR is set via --project-dir flag (from dashboard.sh) or defaults to parent of dashboard/
-PROJECT_ROOT = Path(__file__).parent.parent
-AGENTS_DIR = PROJECT_ROOT / ".agents"
+_dashboard_parent = Path(__file__).parent.parent
+if _dashboard_parent.name == ".agents":
+    # Installed via ostwin init: .agents/dashboard/api.py
+    AGENTS_DIR = _dashboard_parent
+    PROJECT_ROOT = AGENTS_DIR.parent
+elif (_dashboard_parent / ".agents").exists():
+    # Source repo layout: dashboard/api.py alongside .agents/
+    PROJECT_ROOT = _dashboard_parent
+    AGENTS_DIR = PROJECT_ROOT / ".agents"
+else:
+    # Global installation: ~/.ostwin/dashboard/api.py
+    PROJECT_ROOT = _dashboard_parent
+    AGENTS_DIR = _dashboard_parent
 # Default war-rooms location — overridden by --project-dir in __main__
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 DEMO_DIR = Path(__file__).parent

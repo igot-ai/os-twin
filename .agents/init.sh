@@ -45,6 +45,12 @@ for script in post.sh read.sh wait-for.sh Post-Message.ps1 Read-Messages.ps1 Wai
   [[ -f "$SOURCE_AGENTS/channel/$script" ]] && cp "$SOURCE_AGENTS/channel/$script" "$TARGET_AGENTS/channel/$script"
 done
 
+# Copy plan tools (bash + PowerShell)
+mkdir -p "$TARGET_AGENTS/plan"
+for script in New-Plan.ps1 Start-Plan.ps1 New-Plan.Tests.ps1 Start-Plan.Tests.ps1; do
+  [[ -f "$SOURCE_AGENTS/plan/$script" ]] && cp "$SOURCE_AGENTS/plan/$script" "$TARGET_AGENTS/plan/$script"
+done
+
 # Copy role definitions and runners (bash + PowerShell)
 mkdir -p "$TARGET_AGENTS/roles/_base"
 for role in manager engineer qa architect; do

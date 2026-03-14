@@ -1,12 +1,27 @@
-.agents/war-rooms/*
-.agents/.war-rooms/*
-.claude/*
+# ── Runtime / Process ─────────────────────────────────────────────────────────
 *pid
-.agents/plans/*
-node_modules
-*/identity-service/**
-*/social-graph/**
-social-graph/**
+.agents/war-rooms/**
+.agents/.war-rooms/**
+.agents/plans/**
+.war-rooms/**
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/**
+
+# ── Services (vendored / generated) ───────────────────────────────────────────
 identity-service/**
+*/identity-service/**
+social-graph/**
+*/social-graph/**
 
+# ── Local data & secrets ──────────────────────────────────────────────────────
+.claude/
+.data/
+.data/**
 
+# ── Dummy project ──────────────────────────────────────────────────────────────
+quant-project/

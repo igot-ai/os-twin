@@ -427,30 +427,34 @@ setup_venv() {
     fi
   fi
 
+  # Always sync requirements — even if the venv was reused.
+  # This ensures newly added packages (e.g. deepagents) are installed
+  # when a user re-runs install.sh after an update.
+
   # Install MCP requirements
   local requirements="$INSTALL_DIR/mcp/requirements.txt"
   if [[ -f "$requirements" ]]; then
-    step "Installing MCP dependencies..."
+    step "Syncing MCP dependencies..."
     if check_uv; then
-      uv pip install --quiet --prerelease=allow \
+      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
         --python "$VENV_DIR/bin/python" -r "$requirements"
     else
-      "$VENV_DIR/bin/pip" install --quiet -r "$requirements"
+      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$requirements"
     fi
-    ok "MCP dependencies installed"
+    ok "MCP dependencies up to date"
   fi
 
   # Install Dashboard requirements
   local dash_reqs="$INSTALL_DIR/dashboard/requirements.txt"
   if [[ -f "$dash_reqs" ]]; then
-    step "Installing dashboard dependencies (FastAPI, uvicorn, websockets)..."
+    step "Syncing dashboard dependencies..."
     if check_uv; then
-      uv pip install --quiet --prerelease=allow \
+      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
         --python "$VENV_DIR/bin/python" -r "$dash_reqs"
     else
-      "$VENV_DIR/bin/pip" install --quiet -r "$dash_reqs"
+      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$dash_reqs"
     fi
-    ok "Dashboard dependencies installed"
+    ok "Dashboard dependencies up to date"
   fi
 }
 

@@ -9,6 +9,7 @@ set -euo pipefail
 
 AGENTS_DIR="${1:-.agents}"
 PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="${HOME}/.ostwin/.venv/bin/python" # fallback to global ostwin venv
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 CHANNEL="$AGENTS_DIR/channel"
 WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
@@ -34,14 +35,22 @@ for room_dir in "$WARROOMS"/room-*/; do
   # Read brief description (first line header)
   task_title=$(head -1 "$room_dir/brief.md" 2>/dev/null | sed 's/^# //' || echo "$task_ref")
 
-  # Read QA verdict
-  qa_verdict=$("$CHANNEL/read.sh" "$room_dir" --type pass --last 1 2>/dev/null | \
-    "$PYTHON" -c "
+  # Read QA verdict directly from channel.jsonl (Read-Messages.ps1 replaced read.sh)
+  qa_verdict=$("$PYTHON" -c "
 import json, sys
-msgs = json.load(sys.stdin)
+msgs = []
+try:
+    with open('$room_dir/channel.jsonl') as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            msg = json.loads(line)
+            if msg.get('type') == 'pass':
+                msgs.append(msg)
+except Exception:
+    pass
 if msgs:
     body = msgs[-1].get('body', 'Approved')
-    # Truncate long verdicts
     lines = body.split('\n')[:5]
     print('\n'.join(lines))
 else:

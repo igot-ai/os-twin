@@ -8,8 +8,8 @@
       }
     },
     "warroom": {
-      "command": "OSTWIN_VENV_PYTHON",
-      "args": [".agents/mcp/warroom-server.py"],
+      "command": "python3", 
+      "args": ["/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/inject.py"],
       "env": {
         "AGENT_OS_ROOT": "."
       }

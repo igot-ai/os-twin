@@ -507,18 +507,22 @@ while (-not $script:shuttingDown) {
         Write-Log "INFO" "All $roomCount rooms PASSED! Drafting release..."
 
         $draftScript = Join-Path $releaseDir "draft.sh"
+        $draftOk = $true
         if (Test-Path $draftScript) {
-            bash $draftScript $agentsDir 2>&1 | Out-Null
+            $draftOut = bash $draftScript $agentsDir 2>&1
+            $draftOk = ($LASTEXITCODE -eq 0)
+            if (-not $draftOk) { Write-Log "ERROR" "draft.sh failed: $draftOut" }
         }
 
         Write-Log "INFO" "Collecting signoffs..."
         $signoffScript = Join-Path $releaseDir "signoff.sh"
         $signoffOk = $false
-        if (Test-Path $signoffScript) {
-            bash $signoffScript $agentsDir 2>&1 | Out-Null
+        if ($draftOk -and (Test-Path $signoffScript)) {
+            $signoffOut = bash $signoffScript $agentsDir 2>&1
             $signoffOk = ($LASTEXITCODE -eq 0)
+            if (-not $signoffOk) { Write-Log "ERROR" "signoff.sh failed: $signoffOut" }
         }
-        else {
+        elseif (-not (Test-Path $signoffScript)) {
             $signoffOk = $true  # No signoff script means auto-approve
         }
 
