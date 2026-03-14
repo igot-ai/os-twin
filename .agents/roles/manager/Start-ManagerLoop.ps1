@@ -777,6 +777,17 @@ while (-not $script:shuttingDown) {
                 $lr = if (Test-Path (Join-Path $rd "retries")) { [int](Get-Content (Join-Path $rd "retries") -Raw).Trim() } else { 0 }
                 $lt = if (Test-Path (Join-Path $rd "task-ref")) { (Get-Content (Join-Path $rd "task-ref") -Raw).Trim() } else { "UNKNOWN" }
 
+                # --- Safety net: cap total deadlock recoveries per room ---
+                $dlFile = Join-Path $rd "deadlock_recoveries"
+                $dlCount = if (Test-Path $dlFile) { [int](Get-Content $dlFile -Raw).Trim() } else { 0 }
+                if ($dlCount -ge 3) {
+                    Write-Log "ERROR" "[$lt] Max deadlock recoveries (3) exceeded. Marking as failed."
+                    Write-RoomStatus $rd "failed-final"
+                    Set-BlockedDescendants $lt
+                    return  # ForEach-Object uses 'return' to skip to next item
+                }
+                ($dlCount + 1).ToString() | Out-File -FilePath $dlFile -Encoding utf8 -NoNewline
+
                 if ($ls -in @('engineering', 'fixing')) {
                     if ($lr -lt $maxRetries) {
                         ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
@@ -786,11 +797,30 @@ while (-not $script:shuttingDown) {
                     }
                     else {
                         Write-RoomStatus $rd "failed-final"
+                        Set-BlockedDescendants $lt
                     }
                 }
                 elseif ($ls -eq 'qa-review') {
-                    Write-RoomStatus $rd "qa-review"
-                    Start-Job -ScriptBlock { param($s, $r); & $s -RoomDir $r } -ArgumentList $startQA, $rd | Out-Null
+                    # Route to manager-triage so manager handles QA failure through normal flow
+                    Write-Log "WARN" "[$lt] Deadlock recovery: QA process died. Routing to manager triage."
+                    & $postMessage -RoomDir $rd -From "qa" -To "manager" -Type "error" -Ref $lt -Body "QA process terminated without verdict (deadlock recovery)"
+                    Write-RoomStatus $rd "manager-triage"
+                }
+                elseif ($ls -eq 'manager-triage') {
+                    # Triage is stateless — will re-process on next loop iteration
+                    Write-Log "INFO" "[$lt] Deadlock recovery: will re-process manager-triage."
+                }
+                elseif ($ls -eq 'architect-review') {
+                    Write-Log "WARN" "[$lt] Deadlock recovery: architect review stalled. Falling back to engineer fix."
+                    if ($lr -lt $maxRetries) {
+                        ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
+                        & $postMessage -RoomDir $rd -From "manager" -To "engineer" -Type "fix" -Ref $lt -Body "Architect review stalled during deadlock recovery. Please attempt fix."
+                        Write-RoomStatus $rd "fixing"
+                        Start-Job -ScriptBlock { param($s, $r); & $s -RoomDir $r } -ArgumentList $startEngineer, $rd | Out-Null
+                    } else {
+                        Write-RoomStatus $rd "failed-final"
+                        Set-BlockedDescendants $lt
+                    }
                 }
             }
             $stallCycles = 0
