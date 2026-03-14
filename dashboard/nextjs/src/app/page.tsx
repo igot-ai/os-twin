@@ -10,6 +10,7 @@ import { useRooms } from '@/hooks/useRooms';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { useNotifications } from '@/hooks/useNotifications';
+import { usePlanRefine } from '@/hooks/usePlanRefine';
 
 // Layout components
 import AuthOverlay from '@/components/shared/AuthOverlay';
@@ -17,10 +18,10 @@ import TopBar from '@/components/layout/TopBar';
 import PipelineBar from '@/components/layout/PipelineBar';
 import ReleaseBar from '@/components/layout/ReleaseBar';
 
-// Panel components
 import PlanLauncher from '@/components/panels/PlanLauncher';
 import WarRoomGrid from '@/components/panels/WarRoomGrid';
 import ChannelFeed from '@/components/panels/ChannelFeed';
+import PlanEditor from '@/components/plan/PlanEditor';
 
 export default function Dashboard() {
   const { showLogin, error: authError, performLogin } = useAuth();
@@ -46,6 +47,23 @@ export default function Dashboard() {
     loadInitialRooms,
     handleWSEvent,
   } = useRooms();
+
+  const { refine, cancelRefine, clearHistory } = usePlanRefine(); // Added this hook call
+
+  const [activeEditorPlanId, setActiveEditorPlanId] = useState<string | null>(null);
+  const [editorContent, setEditorContent] = useState<string>(''); // State to hold editor content
+  const [aiError, setAiError] = useState<string | null>(null); // State to hold AI error
+
+  // Path detection for /plans/abc
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const match = path.match(/^\/plans\/([a-zA-Z0-9]+)/);
+      if (match) {
+        setActiveEditorPlanId(match[1]);
+      }
+    }
+  }, []);
 
   const [releaseContent, setReleaseContent] = useState<string | null>(null);
 
@@ -84,6 +102,12 @@ export default function Dashboard() {
 
   const selectedRoom = channelFilter ? rooms[channelFilter] || null : null;
 
+  // Placeholder for handleApplyAI, assuming it will be defined elsewhere or passed down
+  const handleApplyAI = useCallback((content: string) => {
+    // Logic to apply AI content to the editor
+    setEditorContent(content);
+  }, []);
+
   return (
     <>
       <AuthOverlay show={showLogin} onLogin={performLogin} error={authError} />
@@ -119,6 +143,16 @@ export default function Dashboard() {
           onClearFeed={clearFeed}
         />
       </main>
+
+      {activeEditorPlanId && (
+        <PlanEditor
+          planId={activeEditorPlanId}
+          onClose={() => {
+            setActiveEditorPlanId(null);
+            window.history.pushState({}, '', '/');
+          }}
+        />
+      )}
 
       <ReleaseBar content={releaseContent} />
     </>

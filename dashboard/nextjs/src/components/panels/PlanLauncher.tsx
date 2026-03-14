@@ -489,9 +489,20 @@ export default function PlanLauncher({ onPlanLaunched }: PlanLauncherProps) {
                   >
                     <div className="plan-queue-header">
                       <span className="plan-queue-title">{p.title || p.plan_id}</span>
-                      <span className={`plan-queue-status ${statusClass}`}>{status}</span>
+                      <div className="plan-queue-actions">
+                        <button 
+                          className="action-btn-mini"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.location.href = `/plans/${p.plan_id}`;
+                          }}
+                        >
+                          EDIT
+                        </button>
+                        <span className={`plan-queue-status ${statusClass}`}>{status}</span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '8px', color: 'var(--text-dim)' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
                       {p.epic_count} epics • {fmtTime(p.created_at)}
                     </div>
                   </div>
