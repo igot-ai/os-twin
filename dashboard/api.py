@@ -16,6 +16,22 @@ Usage:
     python dashboard/api.py
 """
 
+# ─── Load environment variables from .env ─────────────────────────
+# Checks ~/.ostwin/.env first, then local .env.
+# OS-level env vars are NOT overridden (override=False).
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _env_candidates = [
+        os.path.join(os.path.expanduser("~"), ".ostwin", ".env"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+    ]
+    for _env in _env_candidates:
+        if os.path.isfile(_env):
+            _load_dotenv(_env, override=False)
+except ImportError:
+    pass  # python-dotenv not installed — rely on OS env
+
 import asyncio
 import glob
 import hashlib
@@ -1349,7 +1365,7 @@ class RefineRequest(BaseModel):
     message: str
     plan_content: str = ""
     plan_id: str = ""
-    model: str = "claude-sonnet-4-6"
+    model: str = ""
     chat_history: list = Field(default_factory=list)
 
 

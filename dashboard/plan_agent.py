@@ -77,16 +77,47 @@ Be concise, technical, and precise. Write like a senior engineering lead scoping
 
 # ── Auto-detect available AI provider ──────────────────────────────
 
-def detect_model() -> str:
-    """Pick the best available model based on which API keys are set."""
+def detect_model() -> tuple[str, str]:
+    """Pick the best available model based on which API keys are set.
+
+    Returns:
+        A tuple of (model_name, provider) for langchain's init_chat_model.
+    """
     if os.environ.get("GOOGLE_API_KEY"):
-        return "gemini-3.1-pro-preview"
+        return ("gemini-3.1-pro-preview", "google_genai")
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return "claude-sonnet-4-6"
+        return ("claude-sonnet-4-6", "anthropic")
     if os.environ.get("OPENAI_API_KEY"):
-        return "gpt-4o"
-    # Default — will fail with a clear message if no key is set
-    return "gemini-3-flash-preview"
+        return ("gpt-4o", "openai")
+    raise RuntimeError(
+        "No AI API key found. Set GOOGLE_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY in ~/.ostwin/.env"
+    )
+
+
+def _resolve_model(model_str: str = ""):
+    """Resolve a model string into an initialized ChatModel.
+
+    If model_str is empty, auto-detects from environment.
+    If model_str contains ':', splits as 'provider:model'.
+    Otherwise uses init_chat_model's auto-detection.
+    """
+    from langchain.chat_models import init_chat_model
+
+    if not model_str:
+        model_name, provider = detect_model()
+        return init_chat_model(model_name, model_provider=provider)
+
+    if ":" in model_str:
+        provider, model_name = model_str.split(":", 1)
+        # Normalize provider names
+        provider_map = {
+            "google-genai": "google_genai",
+            "google-vertexai": "google_vertexai",
+        }
+        provider = provider_map.get(provider, provider)
+        return init_chat_model(model_name, model_provider=provider)
+
+    return init_chat_model(model_str)
 
 
 # ── Agent factory ──────────────────────────────────────────────────
@@ -98,7 +129,10 @@ def create_plan_agent(
     """Create a deepagent configured for plan refinement.
 
     Args:
-        model: LLM model identifier (e.g. "claude-sonnet-4-6", "gemini-3-pro").
+        model: LLM model identifier. Supports formats:
+               - Empty string: auto-detect from env vars
+               - "provider:model" (e.g. "google-genai:gemini-2.5-flash")
+               - Plain model name (e.g. "claude-sonnet-4-6")
         plans_dir: Path to the plans directory for the read_existing_plan tool.
 
     Returns:
@@ -128,11 +162,11 @@ def create_plan_agent(
             return f"Error: Plan '{plan_id}' not found."
         return plan_file.read_text()
 
-    if not model:
-        model = detect_model()
+    chat_model = _resolve_model(model)
+    logger.info("Plan agent using model: %s", type(chat_model).__name__)
 
     agent = create_deep_agent(
-        model=model,
+        model=chat_model,
         tools=[read_existing_plan],
         system_prompt=SYSTEM_PROMPT,
     )
@@ -246,7 +280,18 @@ async def refine_plan_stream(
             if kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
-                    yield chunk.content
+                    content = chunk.content
+                    # Gemini returns content as a list of blocks:
+                    #   [{"type": "text", "text": "..."}]
+                    # Other providers return a plain string.
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("text"):
+                                yield block["text"]
+                            elif isinstance(block, str):
+                                yield block
+                    elif isinstance(content, str):
+                        yield content
     except Exception as e:
         logger.error("Plan agent streaming error: %s", e)
         yield f"\n\n[Error: {str(e)}]"
