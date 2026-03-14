@@ -50,6 +50,10 @@ working_dir: .
 
 ## EPIC-001 - Hello module with tests
 
+Role: python-engineer
+Objective: Build a clean, well-tested Python module following best practices
+Skills: python, pytest, packaging
+
 Build hello.py with a greet() function and full pytest test suite.
 
 Acceptance criteria:
@@ -65,6 +69,10 @@ working_dir: .
 
 ## EPIC-001 - API foundation
 
+Role: api-engineer
+Objective: Design and implement a robust REST API with clean endpoint structure
+Skills: python, fastapi, pydantic, rest-api-design
+
 Create FastAPI app with health endpoint, Pydantic models, and CRUD endpoints for items.
 
 Acceptance criteria:
@@ -73,6 +81,10 @@ Acceptance criteria:
 - Pydantic validation on all inputs
 
 ## EPIC-002 - Test suite
+
+Role: test-engineer
+Objective: Achieve comprehensive test coverage with meaningful assertions
+Skills: pytest, httpx, test-design, coverage
 
 Write pytest tests for all endpoints with full coverage.
 
@@ -88,6 +100,10 @@ working_dir: .
 
 ## EPIC-001 - Backend API
 
+Role: backend-engineer
+Objective: Build a secure, well-structured API with auth and data persistence
+Skills: python, fastapi, sqlite, jwt-auth, pydantic
+
 FastAPI backend with SQLite, auth, and CRUD endpoints.
 
 Acceptance criteria:
@@ -96,6 +112,10 @@ Acceptance criteria:
 
 ## EPIC-002 - Frontend SPA
 
+Role: frontend-engineer
+Objective: Create a responsive, accessible SPA with smooth API integration
+Skills: react, typescript, tailwindcss, fetch-api, responsive-design
+
 React SPA with login, data views, and API integration.
 
 Acceptance criteria:
@@ -103,6 +123,10 @@ Acceptance criteria:
 - Data views render from API
 
 ## EPIC-003 - Deployment
+
+Role: devops-engineer
+Objective: Containerize the full stack and set up automated CI/CD
+Skills: docker, docker-compose, github-actions, nginx, ci-cd
 
 Docker compose for frontend + backend, GitHub Actions CI pipeline.
 
