@@ -10,6 +10,14 @@
     "state_timeout_seconds": 900,
     "auto_expand_plan": false
   },
+  "architect": {
+    "default_model": "gemini-3.1-pro-preview",
+    "cli": "deepagents",
+    "shell_allow_list": "all",
+    "auto_approve": true,
+    "timeout_seconds": 600,
+    "max_prompt_bytes": 102400
+  },
   "engineer": {
     "cli": "deepagents",
     "default_model": "gemini-3-flash-preview",
@@ -20,7 +28,7 @@
     "instances": {
       "fe": {
         "display_name": "Frontend Engineer",
-        "default_model": "gemini-3-pro-preview",
+        "default_model": "gemini-3.1-pro-preview",
         "timeout_seconds": 900,
         "working_dir": "dashboard",
         "skills": [
