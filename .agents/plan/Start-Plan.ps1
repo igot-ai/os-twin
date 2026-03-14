@@ -151,8 +151,41 @@ if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
             $PlanFile = $refinedFile
             
             if ($Review) {
+                # --- Push refined plan to dashboard API for browser review ---
+                $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
+                $dashboardBase = "http://localhost:$dashboardPort"
+                $planTitle = "Untitled Plan"
+                $planContentForApi = Get-Content $PlanFile -Raw
+                $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
+                if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
+
+                $planUrl = $null
+                try {
+                    $createBody = @{
+                        path        = $ProjectDir
+                        title       = $planTitle
+                        content     = $planContentForApi
+                        working_dir = $ProjectDir
+                    } | ConvertTo-Json -Depth 5
+
+                    $response = Invoke-RestMethod -Uri "$dashboardBase/api/plans/create" `
+                        -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
+
+                    $planId = $response.plan_id
+                    $planUrl = "$dashboardBase/plans/$planId"
+                    Write-Host ""
+                    Write-Host "Plan pushed to dashboard: $planTitle" -ForegroundColor Cyan
+                    Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
+                }
+                catch {
+                    Write-Warning "Could not push plan to dashboard ($($_.Exception.Message)). Review the file directly."
+                }
+
                 Write-Host ""
                 Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
+                if ($planUrl) {
+                    Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
+                }
                 Write-Host "Please review the expanded plan." -ForegroundColor Green
                 Read-Host -Prompt "Press [Enter] to approve and continue, or Ctrl+C to abort..."
             }
@@ -322,41 +355,7 @@ if ($Resume) {
     }
     Write-Host ""
 } else {
-    # --- Pre-flight plan negotiation (EPIC-002) ---
-    Write-Host "[PLAN REVIEW] Creating pre-flight review room (room-000)..." -ForegroundColor Cyan
-    $room000Args = @{
-        RoomId             = "room-000"
-        TaskRef            = "PLAN-REVIEW"
-        TaskDescription    = "Review proposed plan refinements"
-        WorkingDir         = $ProjectDir
-        WarRoomsDir        = $warRoomsDir
-        PlanId             = $planId
-    }
-    & $newWarRoom @room000Args
-
-    $postMsgCmd = Join-Path $agentsDir "channel" "Post-Message.ps1"
-    $waitMsgCmd = Join-Path $agentsDir "channel" "Wait-ForMessage.ps1"
-    $room000Dir = Join-Path $warRoomsDir "room-000"
-
-    Write-Host "[PLAN REVIEW] Posting plan to room-000..." -ForegroundColor Cyan
-    & $postMsgCmd -RoomDir $room000Dir -From "manager" -To "team" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContent | Out-Null
-
-    Write-Host "[PLAN REVIEW] Waiting for plan-approve or plan-reject..." -ForegroundColor Yellow
-    $approvalMsgJson = & $waitMsgCmd -RoomDir $room000Dir -WaitType @("plan-approve", "plan-reject") -PollIntervalSeconds 2
-    if ($approvalMsgJson) {
-        $approvalMsg = $approvalMsgJson | ConvertFrom-Json
-        if ($approvalMsg.type -eq "plan-reject") {
-            Write-Error "[PLAN REVIEW] Plan was rejected by $($approvalMsg.from). Aborting."
-            exit 1
-        }
-        Write-Host "[PLAN REVIEW] Plan approved by $($approvalMsg.from)!" -ForegroundColor Green
-    } else {
-        Write-Error "[PLAN REVIEW] Failed to receive approval message."
-        exit 1
-    }
-    Write-Host ""
-
-    # --- Create war-rooms ---
+    # --- Create war-rooms (plan was already approved at the Read-Host prompt) ---
     foreach ($entry in $parsed) {
         $roomArgs = @{
             RoomId           = $entry.RoomId
