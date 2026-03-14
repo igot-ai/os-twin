@@ -1,12 +1,48 @@
-ERROR: file or directory not found: /Users/paulaan/PycharmProjects/agent-os/.agents/dashboard/test_telegram.py
+[95m
+[95mStarting discovery in 1 files.[0m
+[95mDiscovery found 5 tests in 114ms.[0m
+[95mRunning tests.[0m
+[32m[+] /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Expand-Plan.Tests.ps1[0m[90m 3.68s (3.39s|193ms)[0m
+[97mTests completed in 3.68s[0m
+[32mTests Passed: 5, [0m[90mFailed: 0, [0m[90mSkipped: 0, [0m[90mInconclusive: 0, [0m[37m[0m[90mNotRun: 0[0m
 
-============================= test session starts ==============================
-platform darwin -- Python 3.12.9, pytest-9.0.2, pluggy-1.6.0
-codspeed: 4.3.0 (disabled, mode: walltime, callgraph: not supported, timer_resolution: 41.7ns)
-benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
-rootdir: /Users/paulaan/.ostwin/dashboard
-plugins: anyio-4.12.1, benchmark-5.2.3, codspeed-4.3.0, recording-0.13.4, syrupy-5.1.0, socket-0.7.0, asyncio-1.3.0, langsmith-0.7.17
-asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collected 0 items
+[32;1mContainers            : [0m{[+] /Users/paulaan/PycharmProjects/agent-os/.agents/pl
+                        an/Expand-Plan.Tests.ps1}
+[32;1mResult                : [0mPassed
+[32;1mFailedCount           : [0m0
+[32;1mFailedBlocksCount     : [0m0
+[32;1mFailedContainersCount : [0m0
+[32;1mPassedCount           : [0m5
+[32;1mSkippedCount          : [0m0
+[32;1mInconclusiveCount     : [0m0
+[32;1mNotRunCount           : [0m0
+[32;1mTotalCount            : [0m5
+[32;1mDuration              : [0m00:00:03.6830904
+[32;1mExecuted              : [0mTrue
+[32;1mExecutedAt            : [0m14/3/2026 10:31:58
+[32;1mVersion               : [0m5.7.1
+[32;1mPSVersion             : [0m7.4.7
+[32;1mPSBoundParameters     : [0m{[Path, System.String[]], [PassThru, True]}
+[32;1mPlugins               : [0m
+[32;1mPluginConfiguration   : [0m
+[32;1mPluginData            : [0m
+[32;1mConfiguration         : [0mPesterConfiguration
+[32;1mDiscoveryDuration     : [0m00:00:00.0929177
+[32;1mUserDuration          : [0m00:00:03.3911909
+[32;1mFrameworkDuration     : [0m00:00:00.1989818
+[32;1mFailed                : [0m{}
+[32;1mFailedBlocks          : [0m{}
+[32;1mFailedContainers      : [0m{}
+[32;1mPassed                : [0m{[+] fails if plan file does not exist, [+] skips 
+                        well-specified epics, [+] expands underspecified 
+                        epics, [+] expands epics with ### headers without 
+                        deleting subsequent epics…}
+[32;1mSkipped               : [0m{}
+[32;1mInconclusive          : [0m{}
+[32;1mNotRun                : [0m{}
+[32;1mTests                 : [0m{[+] fails if plan file does not exist, [+] skips 
+                        well-specified epics, [+] expands underspecified 
+                        epics, [+] expands epics with ### headers without 
+                        deleting subsequent epics…}
+[32;1mCodeCoverage          : [0m
 
-============================ no tests ran in 0.00s =============================

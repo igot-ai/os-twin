@@ -34,7 +34,7 @@ param(
     [string]$RoomDir,
 
     [Parameter(Mandatory)]
-    [string]$WaitType,
+    [string[]]$WaitType,
 
     [string]$FilterFrom = '',
     [string]$FilterRef = '',

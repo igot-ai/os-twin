@@ -1,0 +1,3 @@
+{"v":1,"id":"manager-task-1773459252482000000-67305","ts":"2026-03-14T03:34:12Z","from":"manager","to":"engineer","type":"task","ref":"PLAN-REVIEW","body":"Review proposed plan refinements"}
+{"v":1,"id":"manager-plan-review-1773459252496000000-67305","ts":"2026-03-14T03:34:12Z","from":"manager","to":"team","type":"plan-review","ref":"PLAN-REVIEW","body":"# Plan: Test\n\n## Epics\n### EPIC-001 — First task\n- Detail 1\n- Detail 2\n#### Definition of Done\n- [ ] Task done\n#### Acceptance Criteria\n- [ ] Test passes"}
+{"v":1,"id":"team-plan-reject-1773459254938000000-67304","ts":"2026-03-14T03:34:14Z","from":"team","to":"manager","type":"plan-reject","ref":"PLAN-REVIEW","body":"nah"}

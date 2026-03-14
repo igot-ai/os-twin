@@ -1,0 +1,1 @@
+& /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Start-Plan.ps1 -PlanFile /Users/paulaan/PycharmProjects/agent-os/.agents/plans/test-qa.md -ProjectDir /Users/paulaan/PycharmProjects/agent-os -DryRun

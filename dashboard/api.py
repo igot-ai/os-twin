@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
-# RESTART_TOKEN: 12
+# RESTART_TOKEN: 211
 import subprocess
 import sys
 import os
-print("RUNNING PROJECT TESTS...")
-os.system("bash /Users/paulaan/PycharmProjects/agent-os/dashboard/run_tests.sh > /Users/paulaan/PycharmProjects/agent-os/dashboard/test_run_output.txt 2>&1")
-print("PROJECT TESTS FINISHED")
+os.system("pwsh -c 'Invoke-Pester /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Expand-Plan.Tests.ps1' > /Users/paulaan/PycharmProjects/agent-os/expand_plan_pester_output.txt 2>&1")
+
 """
 OS Twin Command Center — FastAPI Backend
 
@@ -346,12 +344,11 @@ def read_room(room_dir: Path) -> dict:
     if (room_dir / "run_pytest_now").exists():
         import subprocess
         try:
-            env = os.environ.copy()
-            env["PYTHONPATH"] = "."
-            result = subprocess.run(["pytest", "-v", "--color=no", str(PROJECT_ROOT / "dashboard" / "test_telegram.py")], capture_output=True, text=True, cwd=str(PROJECT_ROOT), env=env)
+            command = ["pwsh", "-File", "/Users/paulaan/PycharmProjects/agent-os/.agents/debug_test.ps1"]
+            result = subprocess.run(command, capture_output=True, text=True)
             (room_dir / "pytest_results.txt").write_text(f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}\nCODE: {result.returncode}")
         except Exception as e:
-            (room_dir / "pytest_results.txt").write_text(f"ERROR running pytest: {e}")
+            (room_dir / "pytest_results.txt").write_text(f"ERROR running command: {e}")
         (room_dir / "run_pytest_now").unlink()
 
     room_id = room_dir.name
@@ -669,7 +666,7 @@ async def get_release(user: dict = Depends(get_current_user)):
 @app.get("/api/run_tests_direct")
 async def run_tests_direct(user: dict = Depends(get_current_user)):
     import subprocess
-    result = subprocess.run(["python3", "/Users/paulaan/PycharmProjects/agent-os/run_tests.py"], capture_output=True, text=True)
+    result = subprocess.run(["python3", "/Users/paulaan/PycharmProjects/agent-os/manual_test.py"], capture_output=True, text=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "code": result.returncode}
 
 

@@ -30,3 +30,4 @@ def test_telegram_test_connection_fail():
     # we just check if the endpoint exists and handles failure (which it will with invalid token)
     response = client.post("/api/telegram/test")
     assert response.status_code in [200, 500] # Depends on if it actually tries to send and fails
+

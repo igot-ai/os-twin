@@ -6,7 +6,8 @@
     "max_concurrent_rooms": 50,
     "max_engineer_retries": 3,
     "auto_approve_tools": true,
-    "state_timeout_seconds": 900
+    "state_timeout_seconds": 900,
+    "auto_expand_plan": false
   },
   "engineer": {
     "cli": "deepagents",
