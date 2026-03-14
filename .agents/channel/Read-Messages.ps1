@@ -39,7 +39,7 @@ param(
 
     [string]$FilterFrom = '',
     [string]$FilterTo = '',
-    [string]$FilterType = '',
+    [string[]]$FilterType = @(),
     [string]$FilterRef = '',
     [int]$Last = 0,
     [string]$After = '',
@@ -84,7 +84,7 @@ foreach ($line in (Get-Content $channelFile -Encoding utf8)) {
     # Apply filters
     if ($FilterFrom -and $msg.from -ne $FilterFrom) { continue }
     if ($FilterTo -and $msg.to -ne $FilterTo) { continue }
-    if ($FilterType -and $msg.type -ne $FilterType) { continue }
+    if ($FilterType -and $FilterType.Count -gt 0 -and $msg.type -notin $FilterType) { continue }
     if ($FilterRef -and $msg.ref -ne $FilterRef) { continue }
 
     $messages.Add($msg)

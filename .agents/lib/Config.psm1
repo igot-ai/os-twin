@@ -77,6 +77,11 @@ function Test-OstwinConfig {
         if ($null -eq $Config.manager.max_engineer_retries) {
             $errors.Add("Missing: manager.max_engineer_retries")
         }
+
+        if ($null -eq $Config.manager.auto_expand_plan) {
+            # Provide a default value if missing
+            $Config.manager | Add-Member -MemberType NoteProperty -Name "auto_expand_plan" -Value $false -Force
+        }
     }
 
     # Engineer section
