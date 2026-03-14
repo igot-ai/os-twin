@@ -26,7 +26,7 @@ logger = logging.getLogger("zvec_store")
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
-PLANS_COLLECTION = "plans_01"
+PLANS_COLLECTION = "plans_02"
 EPICS_COLLECTION = "epics"
 
 
@@ -445,16 +445,30 @@ class OSTwinStore:
         """Fetch all plans. Returns list sorted by created_at desc."""
         if self._plans is None:
             return []
+
         results = []
-        # Scan plans directory on disk to discover plan IDs
-        plans_dir = self._plans_dir()
-        if not plans_dir.exists():
-            return results
-        for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
-            plan_id = f.stem
-            plan = self.get_plan(plan_id)
-            if plan:
-                results.append(plan)
+
+        # Primary: query all plans directly from the zvec collection
+        try:
+            docs = self._plans.query(
+                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
+                topk=200,
+                output_fields=["title", "content", "status", "epic_count",
+                                "created_at", "filename"],
+            )
+            for doc in docs:
+                results.append({
+                    "plan_id": doc.id,
+                    "title": doc.field("title"),
+                    "content": doc.field("content"),
+                    "status": doc.field("status"),
+                    "epic_count": doc.field("epic_count"),
+                    "created_at": doc.field("created_at"),
+                    "filename": doc.field("filename"),
+                })
+        except Exception as e:
+            logger.warning("Failed to query plans collection: %s", e)
+
         return results
 
     def get_epics_for_plan(self, plan_id: str) -> list[dict]:
