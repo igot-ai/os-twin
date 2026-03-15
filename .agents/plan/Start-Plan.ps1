@@ -47,10 +47,25 @@ param(
 )
 
 # --- Resolve paths ---
-$agentsDir = Join-Path $ProjectDir ".agents"
-if (-not (Test-Path $agentsDir)) {
-    # Fallback: look relative to script
-    $agentsDir = $PSScriptRoot | Split-Path
+# The agentsDir must point to the Ostwin *installation* (where scripts like
+# New-WarRoom.ps1 and Start-ManagerLoop.ps1 live), NOT the target project's
+# .agents folder which might only contain .war-rooms or project-local config.
+#
+# Resolution order:
+#   1. $OSTWIN_HOME env var (explicit override)
+#   2. $ProjectDir/.agents — but ONLY if it contains the required scripts
+#   3. Fallback: derive from $PSScriptRoot (the script's own install location)
+$installDir = $PSScriptRoot | Split-Path   # e.g. /Users/paulaan/.ostwin
+
+if ($env:OSTWIN_HOME -and (Test-Path $env:OSTWIN_HOME)) {
+    $agentsDir = $env:OSTWIN_HOME
+} else {
+    $agentsDir = Join-Path $ProjectDir ".agents"
+    $sentinel  = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
+    if (-not (Test-Path $sentinel)) {
+        # Project .agents dir is missing or doesn't contain Ostwin scripts — use installation
+        $agentsDir = $installDir
+    }
 }
 
 $newWarRoom = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
