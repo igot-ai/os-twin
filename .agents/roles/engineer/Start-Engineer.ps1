@@ -161,7 +161,38 @@ $rolePrompt = if (Test-Path (Join-Path $scriptDir "ROLE.md")) {
 $roomName = Split-Path $RoomDir -Leaf
 
 if ($isEpic) {
-    $instructions = @"
+    # --- Check if TASKS.md already exists (fix cycle or resumed epic) ---
+    $existingTasksMd = ""
+    $existingTasksFile = Join-Path $RoomDir "TASKS.md"
+    if (Test-Path $existingTasksFile) {
+        $existingTasksMd = Get-Content $existingTasksFile -Raw
+    }
+
+    if ($existingTasksMd) {
+        # Fix cycle: TASKS.md already exists from a previous attempt
+        $instructions = @"
+You are continuing work on an EPIC — a previous attempt was made and TASKS.md already exists.
+
+## Existing TASKS.md (from previous attempt)
+
+$existingTasksMd
+
+### Instructions
+1. Review the existing TASKS.md above — checked tasks ([x]) were completed previously
+2. Focus on unchecked tasks ([ ]) and any issues raised in the QA feedback / fix message
+3. Update TASKS.md if fixes require new sub-tasks
+4. After completing each sub-task, check it off: - [x] TASK-001 — Description
+5. Write tests as you go — each sub-task should be verified before moving on
+6. When all tasks are complete, summarize your changes with:
+   - Epic overview: what was delivered
+   - Sub-tasks completed (include the final TASKS.md checklist)
+   - Files modified/created
+   - How to test the full epic
+"@
+    }
+    else {
+        # First attempt: create TASKS.md from scratch
+        $instructions = @"
 You are working on an EPIC — a high-level feature that you must plan and implement yourself.
 
 ### Phase 1 — Planning
@@ -185,6 +216,7 @@ You are working on an EPIC — a high-level feature that you must plan and imple
    - Files modified/created
    - How to test the full epic
 "@
+    }
 }
 else {
     $instructions = @"

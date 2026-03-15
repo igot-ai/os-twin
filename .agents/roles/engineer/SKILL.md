@@ -14,9 +14,13 @@ When assigned an Epic, you own the full planning and implementation cycle:
    # Tasks for EPIC-001
 
    - [ ] TASK-001 — Set up module structure
+     - AC: Module has correct folder layout, exports public API, passes import test
    - [ ] TASK-002 — Implement core logic
+     - AC: All unit tests pass, handles edge cases from brief
    - [ ] TASK-003 — Add unit tests
+     - AC: ≥80% coverage, tests both happy path and error cases
    - [ ] TASK-004 — Integration testing
+     - AC: End-to-end workflow completes without errors
    ```
 4. Save TASKS.md before proceeding
 

@@ -578,7 +578,10 @@ async function renderActivityLog(roomId) {
   if (!logContainer) return;
 
   try {
-    const res = await fetch(`/api/notifications?room_id=${roomId}&limit=20`);
+    const params = new URLSearchParams({ limit: '20' });
+    if (activePlanId) params.set('plan_id', activePlanId);
+    params.set('room_id', roomId);
+    const res = await fetch(`/api/notifications?${params.toString()}`);
     const data = await res.json();
     const logs = data.notifications || [];
 
@@ -1422,7 +1425,9 @@ let unreadNotificationsCount = 0;
 
 async function loadGlobalNotifications() {
   try {
-    const res = await fetch('/api/notifications?limit=50');
+    const params = new URLSearchParams({ limit: '50' });
+    if (activePlanId) params.set('plan_id', activePlanId);
+    const res = await fetch(`/api/notifications?${params.toString()}`);
     if (!res.ok) return;
     const data = await res.json();
     globalNotifications = data.notifications || [];

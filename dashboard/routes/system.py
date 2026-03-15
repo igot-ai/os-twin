@@ -12,7 +12,8 @@ except ImportError:
 from dashboard.models import TelegramConfigRequest, UpdatePlanRoleConfigRequest
 from dashboard.api_utils import (
     AGENTS_DIR, PROJECT_ROOT, 
-    build_roles_list, get_plan_roles_config
+    build_roles_list, get_plan_roles_config,
+    resolve_plan_warrooms_dir, read_channel
 )
 from dashboard.constants import ROLE_DEFAULTS
 from dashboard.auth import get_current_user
@@ -180,26 +181,41 @@ async def run_ws_test():
     }
 
 @router.get("/notifications")
-async def get_notifications(room_id: str | None = None, limit: int = 100, user: dict = Depends(get_current_user)):
-    """Retrieve filtered notifications from the log."""
-    notifications_file = PROJECT_ROOT / ".data" / "notifications.log"
-    if not notifications_file.exists():
-        return {"notifications": []}
-    
+async def get_notifications(
+    plan_id: str = Query(..., description="Plan ID to scope notifications to"),
+    room_id: str | None = None,
+    limit: int = 100,
+    user: dict = Depends(get_current_user),
+):
+    """Retrieve notifications scoped to a plan's war-rooms directory.
+
+    When *room_id* is supplied the endpoint returns entries from that room's
+    ``channel.jsonl``.  Otherwise it aggregates across every room under the
+    plan's resolved war-rooms directory.
+    """
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+
+    if room_id:
+        # ── Single room ─────────────────────────────────────────────
+        room_dir = warrooms_dir / room_id
+        if not room_dir.exists():
+            return {"notifications": [], "plan_id": plan_id, "room_id": room_id}
+        results = read_channel(room_dir)
+        return {"notifications": results[-limit:], "plan_id": plan_id, "room_id": room_id}
+
+    # ── All rooms in the plan ───────────────────────────────────────
+    if not warrooms_dir.exists():
+        return {"notifications": [], "plan_id": plan_id}
+
     results = []
-    with open(notifications_file, "r") as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-                if room_id:
-                    data = entry.get("data", {})
-                    if data.get("room_id") == room_id or data.get("entity_id") == room_id:
-                        results.append(entry)
-                    elif "room" in data and isinstance(data["room"], dict) and data["room"].get("room_id") == room_id:
-                        results.append(entry)
-                else:
-                    results.append(entry)
-            except (json.JSONDecodeError, TypeError):
-                continue
-    
-    return {"notifications": results[-limit:]}
+    for room_dir in sorted(warrooms_dir.glob("room-*")):
+        if room_dir.is_dir():
+            for msg in read_channel(room_dir):
+                # Tag each entry with its source room_id for the frontend
+                msg.setdefault("room_id", room_dir.name)
+                results.append(msg)
+
+    # Sort by timestamp so the combined feed is chronological
+    results.sort(key=lambda m: m.get("ts", ""))
+
+    return {"notifications": results[-limit:], "plan_id": plan_id}

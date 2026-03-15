@@ -186,11 +186,35 @@ $roleConfig = [ordered]@{
 $roleConfigFile = Join-Path $roomDir "${baseRole}_${instanceId}.json"
 $roleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $roleConfigFile -Encoding utf8
 
-# --- Write assignment brief (backward compatible with existing brief.md) ---
+# --- Write assignment brief (includes DoD + AC for full context) ---
+$dodSection = ""
+if ($DefinitionOfDone -and $DefinitionOfDone.Count -gt 0) {
+    $dodLines = ($DefinitionOfDone | ForEach-Object { "- [ ] $_" }) -join "`n"
+    $dodSection = @"
+
+## Definition of Done
+
+$dodLines
+"@
+}
+
+$acSection = ""
+if ($AcceptanceCriteria -and $AcceptanceCriteria.Count -gt 0) {
+    $acLines = ($AcceptanceCriteria | ForEach-Object { "- [ ] $_" }) -join "`n"
+    $acSection = @"
+
+## Acceptance Criteria
+
+$acLines
+"@
+}
+
 $briefContent = @"
 # $TaskRef
 
 $TaskDescription
+$dodSection
+$acSection
 
 ## Working Directory
 $($config.working_dir)

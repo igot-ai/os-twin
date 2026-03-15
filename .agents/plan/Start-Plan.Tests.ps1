@@ -203,6 +203,113 @@ if (-not `$DryRun) {
             $refinedFile = $script:expandPlan -replace '\.md$', '.refined.md'
             Test-Path $refinedFile | Should -Be $true
         }
+
+        It "skips expansion when refined file already exists" {
+            # Create a pre-existing refined file
+            $refinedFile = $script:expandPlan -replace '\.md$', '.refined.md'
+            $refinedContent = @"
+# Plan: Already Refined
+
+## Epics
+
+### EPIC-001 — Already expanded description
+- Detailed bullet 1
+- Detailed bullet 2
+
+#### Definition of Done
+- [ ] D1
+- [ ] D2
+- [ ] D3
+- [ ] D4
+- [ ] D5
+
+#### Acceptance Criteria
+- [ ] A1
+- [ ] A2
+- [ ] A3
+- [ ] A4
+- [ ] A5
+"@
+            $refinedContent | Out-File $refinedFile -Encoding utf8
+
+            $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir -DryRun *>&1
+            $outputStr = ($output -join "`n")
+
+            # Should detect and reuse existing refined file
+            $outputStr | Should -Match "Using Existing Refined Plan"
+            $outputStr | Should -Match "Skipping expansion"
+            # Should NOT try to expand again
+            $outputStr | Should -Not -Match "Detected underspecified epics"
+        }
+
+        It "force re-expands with -Expand even when refined file exists" {
+            # Create a pre-existing refined file
+            $refinedFile = $script:expandPlan -replace '\.md$', '.refined.md'
+            "# Plan: Old Refined`n`n### EPIC-001 — Old`n" | Out-File $refinedFile -Encoding utf8
+
+            # With -Expand flag, it should re-run expansion, not reuse
+            $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir -DryRun -Expand *>&1
+            $outputStr = ($output -join "`n")
+
+            # Should NOT say "Using Existing" — it should re-expand
+            $outputStr | Should -Not -Match "Using Existing Refined Plan"
+            $outputStr | Should -Match "Would expand EPIC-001"
+        }
+
+        It "parses epics from the refined file when reusing" {
+            $refinedFile = $script:expandPlan -replace '\.md$', '.refined.md'
+            $refinedContent = @"
+# Plan: Refined Plan
+
+## Epics
+
+### EPIC-001 — Expanded Auth System
+- Full description bullet 1
+- Full description bullet 2
+
+#### Definition of Done
+- [ ] D1
+- [ ] D2
+- [ ] D3
+- [ ] D4
+- [ ] D5
+
+#### Acceptance Criteria
+- [ ] A1
+- [ ] A2
+- [ ] A3
+- [ ] A4
+- [ ] A5
+
+### EPIC-002 — Expanded Dashboard
+- Full description bullet 1
+- Full description bullet 2
+
+#### Definition of Done
+- [ ] D1
+- [ ] D2
+- [ ] D3
+- [ ] D4
+- [ ] D5
+
+#### Acceptance Criteria
+- [ ] A1
+- [ ] A2
+- [ ] A3
+- [ ] A4
+- [ ] A5
+"@
+            $refinedContent | Out-File $refinedFile -Encoding utf8
+
+            $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir -DryRun *>&1
+            $outputStr = ($output -join "`n")
+
+            # Should use the refined file and parse its 2 epics
+            $outputStr | Should -Match "Using Existing Refined Plan"
+            $outputStr | Should -Match "War-rooms to create: 2"
+            $outputStr | Should -Match "EPIC-001"
+            $outputStr | Should -Match "EPIC-002"
+        }
     }
 
     Context "Multi-epic plan" {

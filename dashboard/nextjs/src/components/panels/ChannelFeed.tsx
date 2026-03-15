@@ -40,7 +40,7 @@ function FeedMessage({ roomId, msg }: { roomId: string; msg: Message }) {
 }
 
 // Room Detail sub-component
-function RoomDetail({ room }: { room: Room }) {
+function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   const [activityLogs, setActivityLogs] = useState<Notification[]>([]);
 
   const color = STATUS_COLOR[room.status] || '#555';
@@ -51,7 +51,7 @@ function RoomDetail({ room }: { room: Room }) {
     const loadLogs = async () => {
       try {
         const data = await apiGet<Notification[] | { notifications: Notification[] }>(
-          `/api/notifications?room_id=${room.room_id}&limit=20`
+          `/api/notifications?plan_id=${planId || ''}&room_id=${room.room_id}&limit=20`
         );
         // Support both array response and {notifications:[]} wrapper
         const items = Array.isArray(data) ? data : (data.notifications || []);
@@ -61,7 +61,7 @@ function RoomDetail({ room }: { room: Room }) {
       }
     };
     loadLogs();
-  }, [room.room_id, room.status]);
+  }, [room.room_id, room.status, planId]);
 
   const roomAction = async (action: string) => {
     try {
@@ -166,6 +166,7 @@ interface ChannelFeedProps {
   feedMessages: { roomId: string; msg: Message }[];
   channelFilter: string | null;
   selectedRoom: Room | null;
+  activePlanId: string | null;
   onClearFeed: () => void;
 }
 
@@ -173,6 +174,7 @@ export default function ChannelFeed({
   feedMessages,
   channelFilter,
   selectedRoom,
+  activePlanId,
   onClearFeed,
 }: ChannelFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null);
@@ -196,7 +198,7 @@ export default function ChannelFeed({
       </div>
 
       <div className="panel-body">
-        {selectedRoom && <RoomDetail room={selectedRoom} />}
+        {selectedRoom && <RoomDetail room={selectedRoom} planId={activePlanId} />}
 
         <div className="feed" ref={feedRef}>
           {feedMessages.length === 0 ? (

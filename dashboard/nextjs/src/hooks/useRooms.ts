@@ -26,10 +26,10 @@ function notifToRoomMsg(roomId: string, n: Notification): RoomMsg {
 }
 
 /** Fetch notifications for a room and convert them to RoomMsgs. */
-async function loadRoomNotifications(roomId: string): Promise<RoomMsg[]> {
+async function loadRoomNotifications(planId: string, roomId: string): Promise<RoomMsg[]> {
   try {
     const data = await apiGet<Notification[] | { notifications: Notification[] }>(
-      `/api/notifications?room_id=${roomId}&limit=50`
+      `/api/notifications?plan_id=${planId}&room_id=${roomId}&limit=50`
     );
     const items = Array.isArray(data) ? data : (data.notifications || []);
     return items.map((n) => notifToRoomMsg(roomId, n));
@@ -42,6 +42,7 @@ export function useRooms() {
   const [rooms, setRooms] = useState<Record<string, Room>>({});
   const [allMessages, setAllMessages] = useState<RoomMsg[]>([]);
   const [channelFilter, setChannelFilter] = useState<string | null>(null);
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
 
   const loadInitialRooms = useCallback(async () => {
     try {
@@ -66,12 +67,12 @@ export function useRooms() {
             }
           } else {
             // Fall back to notifications for this room
-            const notifMsgs = await loadRoomNotifications(room.room_id);
+            const notifMsgs = await loadRoomNotifications(activePlanId || '', room.room_id);
             msgs.push(...notifMsgs);
           }
         } catch {
           // Try notifications as fallback
-          const notifMsgs = await loadRoomNotifications(room.room_id);
+          const notifMsgs = await loadRoomNotifications(activePlanId || '', room.room_id);
           msgs.push(...notifMsgs);
         }
       }
@@ -79,10 +80,11 @@ export function useRooms() {
     } catch (err) {
       console.error('Failed to load initial rooms:', err);
     }
-  }, []);
+  }, [activePlanId]);
 
   /** Load plan-scoped war-rooms (replaces the room grid). */
   const loadPlanRooms = useCallback(async (planId: string | null) => {
+    setActivePlanId(planId);
     if (!planId) {
       // Reset to global rooms
       await loadInitialRooms();
@@ -114,11 +116,11 @@ export function useRooms() {
               msgs.push({ roomId: room.room_id, msg: m });
             }
           } else {
-            const notifMsgs = await loadRoomNotifications(room.room_id);
+            const notifMsgs = await loadRoomNotifications(planId, room.room_id);
             msgs.push(...notifMsgs);
           }
         } catch {
-          const notifMsgs = await loadRoomNotifications(room.room_id);
+          const notifMsgs = await loadRoomNotifications(planId, room.room_id);
           msgs.push(...notifMsgs);
         }
       }
@@ -215,6 +217,7 @@ export function useRooms() {
     allMessages,
     feedMessages,
     channelFilter,
+    activePlanId,
     selectRoom,
     clearFeed,
     loadInitialRooms,

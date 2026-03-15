@@ -4,15 +4,17 @@ import { useState, useCallback } from 'react';
 import { Notification, WSEvent } from '@/types';
 import { apiGet } from '@/lib/api';
 
-export function useNotifications() {
+export function useNotifications(planId?: string | null) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const loadNotifications = useCallback(async () => {
     try {
+      const params = new URLSearchParams({ limit: '50' });
+      if (planId) params.set('plan_id', planId);
       const data = await apiGet<Notification[] | { notifications: Notification[] }>(
-        '/api/notifications?limit=50'
+        `/api/notifications?${params.toString()}`
       );
       // Support both array response and {notifications:[]} wrapper
       const items = Array.isArray(data) ? data : (data.notifications || []);
@@ -20,7 +22,7 @@ export function useNotifications() {
     } catch (err) {
       console.error('Error fetching global notifications', err);
     }
-  }, []);
+  }, [planId]);
 
   const addNotification = useCallback((ev: WSEvent) => {
     const notif: Notification = {

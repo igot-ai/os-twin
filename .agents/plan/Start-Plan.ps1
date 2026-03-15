@@ -141,121 +141,135 @@ $shouldExpand = $Expand -or ($config.manager -and $config.manager.auto_expand_pl
 if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
     $expandScript = Join-Path $agentsDir "plan" "Expand-Plan.ps1"
     if (Test-Path $expandScript) {
-        if ($hasUnderspecified) {
-            Write-Host ""
-            Write-Host "=== Plan Refinement Required ===" -ForegroundColor Yellow
-            Write-Host "Detected underspecified epics. Auto-triggering plan refinement..." -ForegroundColor Yellow
-            $Review = $true
-        } else {
-            Write-OstwinLog -Message "Auto-expanding plan: $PlanFile" -Level "INFO" -Caller "manager"
-        }
-        
         $refinedFile = $PlanFile -replace "(?i)\.md`$", ".refined.md"
         if ($refinedFile -eq $PlanFile) { $refinedFile = $PlanFile + ".refined.md" }
 
-        $expandArgs = @{
-            PlanFile = $PlanFile
-            OutFile = $refinedFile
-        }
-        if ($DryRun) { $expandArgs.Add("DryRun", $true) }
-
-        & $expandScript @expandArgs
-
-        if ($LASTEXITCODE -ne 0 -and $?) {
-            Write-Error "Failed to expand plan."
-            exit 1
-        }
-        
-        if (-not $DryRun -and (Test-Path $refinedFile)) {
-            $diffSummary = git diff --no-index --stat $PlanFile $refinedFile | Out-String
-            if (-not $diffSummary) { $diffSummary = "No changes or git not available" }
-            Write-OstwinLog -Message "Plan expansion diff:`n$diffSummary" -Level "INFO" -Caller "manager"
-            
+        # --- Skip expansion if refined file already exists (unless -Expand forces it) ---
+        if ((Test-Path $refinedFile) -and -not $Expand) {
+            Write-Host ""
+            Write-Host "=== Using Existing Refined Plan ===" -ForegroundColor Green
+            Write-Host "  Found: $refinedFile" -ForegroundColor Green
+            Write-Host "  Skipping expansion (use -Expand to force re-refinement)." -ForegroundColor DarkGray
+            if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
+                Write-OstwinLog -Message "Reusing existing refined plan: $refinedFile" -Level "INFO" -Caller "manager"
+            }
             $PlanFile = $refinedFile
-            
-            if ($Review) {
-                # --- Push refined plan to dashboard API for browser review ---
-                $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
-                $dashboardBase = "http://localhost:$dashboardPort"
-                $planTitle = "Untitled Plan"
-                $planContentForApi = Get-Content $PlanFile -Raw
-                $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
-                if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
-
-                $planUrl = $null
-                try {
-                    $createBody = @{
-                        path        = $ProjectDir
-                        title       = $planTitle
-                        content     = $planContentForApi
-                        working_dir = $ProjectDir
-                    } | ConvertTo-Json -Depth 5
-
-                    $response = Invoke-RestMethod -Uri "$dashboardBase/api/plans/create" `
-                        -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
-
-                    $planId = $response.plan_id
-                    $planUrl = "$dashboardBase/plans/$planId"
-                    Write-Host ""
-                    Write-Host "Plan pushed to dashboard: $planTitle" -ForegroundColor Cyan
-                    Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
-                }
-                catch {
-                    Write-Warning "Could not push plan to dashboard ($($_.Exception.Message)). Review the file directly."
-                }
-
+        }
+        else {
+            # --- Run expansion ---
+            if ($hasUnderspecified) {
                 Write-Host ""
-                Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
-                if ($planUrl) {
-                    Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
-                }
-                Write-Host "Please review the expanded plan." -ForegroundColor Green
+                Write-Host "=== Plan Refinement Required ===" -ForegroundColor Yellow
+                Write-Host "Detected underspecified epics. Auto-triggering plan refinement..." -ForegroundColor Yellow
+                $Review = $true
+            } else {
+                Write-OstwinLog -Message "Auto-expanding plan: $PlanFile" -Level "INFO" -Caller "manager"
+            }
+
+            $expandArgs = @{
+                PlanFile = $PlanFile
+                OutFile = $refinedFile
+            }
+            if ($DryRun) { $expandArgs.Add("DryRun", $true) }
+
+            & $expandScript @expandArgs
+
+            if ($LASTEXITCODE -ne 0 -and $?) {
+                Write-Error "Failed to expand plan."
+                exit 1
+            }
+            
+            if (-not $DryRun -and (Test-Path $refinedFile)) {
+                $diffSummary = git diff --no-index --stat $PlanFile $refinedFile | Out-String
+                if (-not $diffSummary) { $diffSummary = "No changes or git not available" }
+                Write-OstwinLog -Message "Plan expansion diff:`n$diffSummary" -Level "INFO" -Caller "manager"
                 
-                # --- Create room-plan for channel-based approval ---
-                $roomPlanDir = Join-Path $warRoomsDir "room-plan"
-                if (-not (Test-Path $roomPlanDir)) {
-                    & $newWarRoom -RoomId "room-plan" -TaskRef "PLAN-REVIEW" -TaskDescription "Review refined plan: $planTitle" -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir | Out-Null
-                }
-                & $postMessage -RoomDir $roomPlanDir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContentForApi | Out-Null
+                $PlanFile = $refinedFile
+                
+                if ($Review) {
+                    # --- Push refined plan to dashboard API for browser review ---
+                    $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
+                    $dashboardBase = "http://localhost:$dashboardPort"
+                    $planTitle = "Untitled Plan"
+                    $planContentForApi = Get-Content $PlanFile -Raw
+                    $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
+                    if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
 
-                # Configurable approval timeout (seconds). Default: 300s (5 min). Set PLAN_REVIEW_TIMEOUT_SECONDS=0 to disable.
-                $reviewTimeoutSec = if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) { [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS } else { 300 }
-                $reviewDeadline   = if ($reviewTimeoutSec -gt 0) { (Get-Date).AddSeconds($reviewTimeoutSec) } else { $null }
-                Write-Host "Waiting for plan approval (timeout: $(if ($reviewTimeoutSec -gt 0) { "${reviewTimeoutSec}s" } else { 'none' }))..." -ForegroundColor Cyan
-                Write-Host "  Press Enter to approve manually, or post 'plan-approve' to the room-plan channel." -ForegroundColor Cyan
+                    $planUrl = $null
+                    try {
+                        $createBody = @{
+                            path        = $ProjectDir
+                            title       = $planTitle
+                            content     = $planContentForApi
+                            working_dir = $ProjectDir
+                        } | ConvertTo-Json -Depth 5
 
-                # Guard: RawUI.KeyAvailable throws in non-interactive/CI sessions
-                $canReadKey = $false
-                try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { }
+                        $response = Invoke-RestMethod -Uri "$dashboardBase/api/plans/create" `
+                            -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
 
-                $approved = $false
-                while (-not $approved) {
-                    # Check keyboard (interactive sessions only)
-                    if ($canReadKey) {
-                        try {
-                            if ($Host.UI.RawUI.KeyAvailable) {
-                                $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                                if ($key.VirtualKeyCode -eq 13) { $approved = $true; Write-Host "Approved manually." }
-                            }
-                        } catch { $canReadKey = $false }  # lost interactivity mid-run
+                        $planId = $response.plan_id
+                        $planUrl = "$dashboardBase/plans/$planId"
+                        Write-Host ""
+                        Write-Host "Plan pushed to dashboard: $planTitle" -ForegroundColor Cyan
+                        Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
+                    }
+                    catch {
+                        Write-Warning "Could not push plan to dashboard ($($_.Exception.Message)). Review the file directly."
                     }
 
-                    # Check channel for plan-approve
-                    if (-not $approved) {
-                        $msgs = & (Join-Path $agentsDir "channel" "Read-Messages.ps1") -RoomDir $roomPlanDir -FilterType "plan-approve" -Last 1 -AsObject
-                        if ($msgs -and $msgs.Count -gt 0) {
-                            $approved = $true
-                            Write-Host "Approved via channel message!" -ForegroundColor Green
+                    Write-Host ""
+                    Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
+                    if ($planUrl) {
+                        Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
+                    }
+                    Write-Host "Please review the expanded plan." -ForegroundColor Green
+                    
+                    # --- Create room-plan for channel-based approval ---
+                    $roomPlanDir = Join-Path $warRoomsDir "room-plan"
+                    if (-not (Test-Path $roomPlanDir)) {
+                        & $newWarRoom -RoomId "room-plan" -TaskRef "PLAN-REVIEW" -TaskDescription "Review refined plan: $planTitle" -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir | Out-Null
+                    }
+                    & $postMessage -RoomDir $roomPlanDir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContentForApi | Out-Null
+
+                    # Configurable approval timeout (seconds). Default: 300s (5 min). Set PLAN_REVIEW_TIMEOUT_SECONDS=0 to disable.
+                    $reviewTimeoutSec = if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) { [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS } else { 300 }
+                    $reviewDeadline   = if ($reviewTimeoutSec -gt 0) { (Get-Date).AddSeconds($reviewTimeoutSec) } else { $null }
+                    Write-Host "Waiting for plan approval (timeout: $(if ($reviewTimeoutSec -gt 0) { "${reviewTimeoutSec}s" } else { 'none' }))..." -ForegroundColor Cyan
+                    Write-Host "  Press Enter to approve manually, or post 'plan-approve' to the room-plan channel." -ForegroundColor Cyan
+
+                    # Guard: RawUI.KeyAvailable throws in non-interactive/CI sessions
+                    $canReadKey = $false
+                    try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { }
+
+                    $approved = $false
+                    while (-not $approved) {
+                        # Check keyboard (interactive sessions only)
+                        if ($canReadKey) {
+                            try {
+                                if ($Host.UI.RawUI.KeyAvailable) {
+                                    $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                    if ($key.VirtualKeyCode -eq 13) { $approved = $true; Write-Host "Approved manually." }
+                                }
+                            } catch { $canReadKey = $false }  # lost interactivity mid-run
                         }
-                    }
 
-                    # Timeout guard
-                    if (-not $approved -and $reviewDeadline -and (Get-Date) -gt $reviewDeadline) {
-                        Write-Warning "Plan review timed out after ${reviewTimeoutSec}s. Auto-approving and continuing."
-                        $approved = $true
-                    }
+                        # Check channel for plan-approve
+                        if (-not $approved) {
+                            $msgs = & (Join-Path $agentsDir "channel" "Read-Messages.ps1") -RoomDir $roomPlanDir -FilterType "plan-approve" -Last 1 -AsObject
+                            if ($msgs -and $msgs.Count -gt 0) {
+                                $approved = $true
+                                Write-Host "Approved via channel message!" -ForegroundColor Green
+                            }
+                        }
 
-                    if (-not $approved) { Start-Sleep -Seconds 1 }
+                        # Timeout guard
+                        if (-not $approved -and $reviewDeadline -and (Get-Date) -gt $reviewDeadline) {
+                            Write-Warning "Plan review timed out after ${reviewTimeoutSec}s. Auto-approving and continuing."
+                            $approved = $true
+                        }
+
+                        if (-not $approved) { Start-Sleep -Seconds 1 }
+                    }
                 }
             }
         }

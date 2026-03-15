@@ -27,6 +27,20 @@ export default function Dashboard() {
   const { showLogin, error: authError, performLogin } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const {
+    rooms,
+    roomList,
+    summary,
+    feedMessages,
+    channelFilter,
+    activePlanId,
+    selectRoom,
+    clearFeed,
+    loadInitialRooms,
+    loadPlanRooms,
+    handleWSEvent,
+  } = useRooms();
+
+  const {
     notifications,
     unreadCount,
     showDropdown: showNotifications,
@@ -34,20 +48,7 @@ export default function Dashboard() {
     addNotification,
     markAllRead,
     toggleDropdown: toggleNotifications,
-  } = useNotifications();
-
-  const {
-    rooms,
-    roomList,
-    summary,
-    feedMessages,
-    channelFilter,
-    selectRoom,
-    clearFeed,
-    loadInitialRooms,
-    loadPlanRooms,
-    handleWSEvent,
-  } = useRooms();
+  } = useNotifications(activePlanId);
 
   const { refine, cancelRefine, clearHistory } = usePlanRefine(); // Added this hook call
 
@@ -101,6 +102,13 @@ export default function Dashboard() {
     });
   }, [loadInitialRooms, loadNotifications]);
 
+  // Reload notifications when active plan changes
+  useEffect(() => {
+    if (activePlanId) {
+      loadNotifications();
+    }
+  }, [activePlanId, loadNotifications]);
+
   const selectedRoom = channelFilter ? rooms[channelFilter] || null : null;
 
   // Placeholder for handleApplyAI, assuming it will be defined elsewhere or passed down
@@ -141,6 +149,7 @@ export default function Dashboard() {
           feedMessages={feedMessages}
           channelFilter={channelFilter}
           selectedRoom={selectedRoom}
+          activePlanId={activePlanId}
           onClearFeed={clearFeed}
         />
       </main>
