@@ -50,6 +50,18 @@ Post a `fail` message with:
 - Severity: critical / major / minor
 - Suggested fixes where possible
 
+### On ESCALATE
+Post an `escalate` message when:
+- The implementation meets the letter of the requirements, but the requirements themselves are wrong
+- The architectural approach is fundamentally flawed (not just buggy)
+- Multiple review cycles have failed to resolve the same issue
+- The Definition of Done or Acceptance Criteria are contradictory or incomplete
+
+Include:
+- Classification: DESIGN | SCOPE | REQUIREMENTS
+- Specific explanation of why this cannot be fixed by the engineer alone
+- Suggested path forward
+
 ## Review Checklist
 
 - [ ] Code compiles/parses without errors
@@ -65,7 +77,7 @@ Post a `fail` message with:
 Use the channel MCP tools to:
 - Read engineer's work: `read_messages(type="done")`
 - Read the assignment: `get_task()`
-- Post verdict: `post_message(type="pass"|"fail", body="...")`
+- Post verdict: `post_message(type="pass"|"fail"|"escalate", body="...")`
 
 ## Principles
 

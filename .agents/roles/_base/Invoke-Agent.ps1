@@ -24,7 +24,10 @@
 .PARAMETER AutoApprove
     Auto-approve tool usage. Default: true.
 .PARAMETER Quiet
-    Suppress interactive output (-q flag). Default: false.
+    Always $true — agents always run in quiet mode (-q flag).
+.PARAMETER McpConfig
+    Path to the MCP config JSON. Defaults to <AGENTS_DIR>/mcp/mcp-config.json.
+    Pass empty string to disable MCP tool injection.
 .PARAMETER ExtraArgs
     Additional CLI arguments as string array.
 
@@ -51,11 +54,14 @@ param(
     [int]$TimeoutSeconds = 600,
     [string]$AgentCmd = '',
     [bool]$AutoApprove = $true,
-    [bool]$Quiet = $true,
     [string]$InstanceId = '',
     [string]$WorkingDir = '',
+    [string]$McpConfig = '',
     [string[]]$ExtraArgs = @()
 )
+
+# --- Always run agents in quiet mode ---
+$Quiet = $true
 
 # --- Resolve paths ---
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
@@ -152,7 +158,26 @@ try {
     if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
     if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
     if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
-    if ($Quiet) { $extraCliArgs += "-q" }
+    if ($Quiet) { $extraCliArgs += "--quiet" }
+
+    # --- MCP config: let agents pick the best tool server available ---
+    $resolvedMcpConfig = $McpConfig
+    if (-not $resolvedMcpConfig) {
+        $resolvedMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+    }
+    if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
+        $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
+        # Expand ${AGENT_DIR} → absolute agentsDir so deepagents gets concrete paths
+        if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
+            $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
+            $tempMcpConfig = Join-Path $artifactsDir "mcp-config-resolved.json"
+            $mcpConfigContent | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
+            $resolvedMcpConfig = $tempMcpConfig
+        }
+        $extraCliArgs += "--mcp-config"
+        $extraCliArgs += (Resolve-Path $resolvedMcpConfig).Path
+    }
+
     $extraCliArgs += $ExtraArgs
 
     $argsLine = ($extraCliArgs | ForEach-Object {
@@ -211,6 +236,10 @@ else { "No output captured" }
 # --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
 Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
 Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
+# Remove resolved MCP config copy if one was generated
+if ($tempMcpConfig -and (Test-Path $tempMcpConfig)) {
+    Remove-Item $tempMcpConfig -Force -ErrorAction SilentlyContinue
+}
 
 # Note: PID file is NOT removed here. The caller (Start-Engineer/Start-QA)
 # must clean it up after posting the channel message, to avoid race conditions

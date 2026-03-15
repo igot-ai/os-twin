@@ -100,6 +100,13 @@ Describe "Post-Message" {
             Should -Throw
     }
 
+    It "allows plan-related message types" {
+        foreach ($type in @('plan-review', 'plan-approve', 'plan-reject')) {
+            & $script:PostMessage -RoomDir $script:roomDir -From "manager" -To "architect" `
+                                  -Type $type -Ref "EPIC-001" -Body "test" | Should -Not -BeNullOrEmpty
+        }
+    }
+
     It "creates the room directory if it doesn't exist" {
         $newRoom = Join-Path $TestDrive "nonexistent-room-$(Get-Random)"
         & $script:PostMessage -RoomDir $newRoom -From "manager" -To "engineer" `

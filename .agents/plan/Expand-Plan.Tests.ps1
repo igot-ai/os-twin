@@ -22,9 +22,13 @@ if [[ "`$PROMPT" != *"Short desc."* ]]; then
   exit 1
 fi
 
-echo '## Epic: EPIC-001 — Expanded Title
+echo "### EPIC-001 — Expanded Title
 
 This is an expanded description.
+
+#### Implementation Strategy
+1. Phase 1: Setup
+2. Phase 2: Implementation
 
 depends_on: [EPIC-000]
 complexity: XL
@@ -41,7 +45,7 @@ complexity: XL
 - [ ] Test 2
 - [ ] Test 3
 - [ ] Test 4
-- [ ] Test 5'
+- [ ] Test 5"
 "@ | Out-File -FilePath $script:mockAgent -Encoding utf8 -NoNewline
         chmod +x $script:mockAgent
     }
@@ -58,6 +62,9 @@ complexity: XL
 # Plan: Test
 
 ## Epic: EPIC-002 — Fully Spec'd
+
+- Description bullet 1
+- Description bullet 2
 
 Description
 
@@ -109,7 +116,7 @@ Review before starting.
 
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$script:mockAgent'" 2>&1
         ($output -join "`n") | Should -Match "Expanding EPIC-001"
-        ($output -join "`n") | Should -Match "Success: EPIC-001 expanded"
+        ($output -join "`n") | Should -Match "\[DONE\]"
 
         Test-Path $outputFile | Should -BeTrue
         $refinedContent = Get-Content $outputFile -Raw
@@ -118,6 +125,8 @@ Review before starting.
         $refinedContent | Should -Match "depends_on:"
         $refinedContent | Should -Match "complexity: XL"
         $refinedContent | Should -Match "- \[ \] Requirement 5"
+        $refinedContent | Should -Match "#### Implementation Strategy"
+        $refinedContent | Should -Match "Phase 1: Setup"
         $refinedContent | Should -Match "- \[ \] Test 5"
         $refinedContent | Should -Match "## Config"
         $refinedContent | Should -Match "working_dir: /tmp"
@@ -141,6 +150,8 @@ Short desc.
 - [ ] One
 
 ### EPIC-002 — Another Title
+- Bullet 1
+- Bullet 2
 
 Another short desc.
 
@@ -163,7 +174,7 @@ Another short desc.
 
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$script:mockAgent'" 2>&1
         ($output -join "`n") | Should -Match "Expanding EPIC-001"
-        ($output -join "`n") | Should -Match "Success: EPIC-001 expanded"
+        ($output -join "`n") | Should -Match "\[DONE\]"
         ($output -join "`n") | Should -Match "EPIC-002 is already well-specified. Skipping."
 
         Test-Path $outputFile | Should -BeTrue

@@ -6,3 +6,4 @@ sentence-transformers>=2.2.0
 deepagents>=0.4.0
 python-dotenv>=1.0.0
 httpx
+mcp[cli]>=1.1.3

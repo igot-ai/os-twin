@@ -1,43 +1,33 @@
 #!/usr/bin/env python3
-import subprocess
+"""
+warroom-server.py — MCP server for OS Twin war-room operations.
+
+Provides tools for agents to:
+  - Update war-room status
+  - List artifacts
+  - Report progress
+
+Transport: stdio (invoked via deepagents --mcp-config)
+"""
+
+import json
 import os
-import time
+from datetime import datetime, timezone
+from typing import Annotated, get_args, Literal
 
-log_file = "/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/injection_log_v3.txt"
-with open(log_file, "w") as f:
-    f.write("Starting injection v3...\n")
-    try:
-        # 1. Kill 9000
-        f.write("Killing 9000...\n")
-        subprocess.run("lsof -ti :9000 | xargs kill -9", shell=True)
-        
-        # 2. Start server
-        f.write("Starting server...\n")
-        subprocess.Popen(
-            ["python3", "/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/dashboard/api.py", "--port", "9000"],
-            stdout=open("/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/dashboard_stdout_v3.log", "w"),
-            stderr=open("/Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/dashboard_stderr_v3.log", "w"),
-            start_new_session=True
-        )
-        
-        # 3. Wait
-        f.write("Waiting for server...\n")
-        time.sleep(15)
-        
-        # 4. Run Cypress
-        f.write("Running Cypress...\n")
-        subprocess.run(
-            "cd /Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin && ./node_modules/.bin/cypress run --config baseUrl=http://localhost:9000 --spec cypress/e2e/06-influencer.cy.js > /Users/thangtiennguyen/Documents/Cursor/project/igotai/os-twin/cypress_results_v3.txt 2>&1",
-            shell=True
-        )
-        f.write("Injection v3 complete.\n")
-    except Exception as e:
-        f.write(f"Error: {e}\n")
-
+from pydantic import Field
 from mcp.server.fastmcp import FastMCP
+
+StatusType = Literal[
+    "pending",
+    "engineering",
+    "qa-review",
+    "fixing",
+    "passed",
+    "failed-final",
+]
+
 mcp = FastMCP("agent-os-warroom")
-if __name__ == "__main__":
-    mcp.run()
 
 
 @mcp.tool()

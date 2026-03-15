@@ -127,6 +127,28 @@ $TestDrive
             }
             $verdict | Should -Be ""
         }
+
+        It "parses VERDICT: ESCALATE from strict format" {
+            $output = "This is a design problem.`nVERDICT: ESCALATE`nArchitecture needs rethinking."
+            if ($output -match '(?m)^VERDICT:\s*(PASS|FAIL|ESCALATE)') {
+                $Matches[1] | Should -Be "ESCALATE"
+            }
+        }
+
+        It "parses VERDICT: ESCALATE from inline format" {
+            $output = "The result is VERDICT: ESCALATE because the requirements are wrong."
+            if ($output -match 'VERDICT:\s*(PASS|FAIL|ESCALATE)') {
+                $Matches[1] | Should -Be "ESCALATE"
+            }
+        }
+
+        It "detects ESCALATE as standalone keyword" {
+            $output = "Requirements are fundamentally wrong. ESCALATE"
+            $first20 = ($output -split "`n" | Select-Object -First 20) -join "`n"
+            if ($first20 -match '\b(PASS|FAIL|ESCALATE)\b') {
+                $Matches[1] | Should -Be "ESCALATE"
+            }
+        }
     }
 
     Context "TASKS.md for epics" {

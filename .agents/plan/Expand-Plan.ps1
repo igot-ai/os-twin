@@ -1,163 +1,214 @@
 <#
 .SYNOPSIS
-    Expands underspecified epics in a plan file using AI.
+    Maximizes planning detail in a PLAN.md using AI refinement.
 
 .DESCRIPTION
-    Takes a raw PLAN.md as input and produces a PLAN.refined.md with maximized detail:
-    expanded descriptions, DoD checklists, Acceptance Criteria, dependency declarations,
-    and complexity estimates for every Epic.
+    Parses a plan markdown file, identifies epics, and uses an AI architect
+    to expand each epic into a detailed plan with clear Definition of Done,
+    Acceptance Criteria, and dependency analysis.
 
 .PARAMETER PlanFile
-    Path to the input plan file.
+    Path to the raw plan markdown file.
 .PARAMETER OutFile
-    Path to write the expanded plan. Defaults to <PlanFile>.refined.md
+    Path to write the refined plan. Defaults to <original>.refined.md next to the source file.
 .PARAMETER DryRun
-    Parse and show what would be expanded, without modifying or writing any files.
+    Show what would be refined without calling the AI or writing the file.
+.PARAMETER AgentCmd
+    Optional path to a custom agent runner script. Used in tests to inject a mock AI.
+    When not set, the real Invoke-Agent.ps1 with the 'architect' role is used.
 
 .EXAMPLE
-    ./Expand-Plan.ps1 -PlanFile ./PLAN.md
-    ./Expand-Plan.ps1 -PlanFile ./PLAN.md -DryRun
+    ./Expand-Plan.ps1 -PlanFile "./plans/plan-001.md"
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory)]
     [string]$PlanFile,
 
-    [string]$OutFile,
+    [string]$OutFile = '',
 
     [switch]$DryRun,
-    
-    [string]$AgentCmd = 'deepagents'
+
+    [string]$AgentCmd = ''
 )
 
-if (-not $OutFile) {
-    $OutFile = $PlanFile -replace "(?i)\.md$", ".refined.md"
-    if ($OutFile -eq $PlanFile) {
-        $OutFile = $PlanFile + ".refined.md"
-    }
-}
+# --- Resolve paths ---
+$scriptDir = $PSScriptRoot
+$agentsDir = (Resolve-Path (Join-Path $scriptDir "..")).Path
+$invokeAgent = Join-Path $agentsDir "roles" "_base" "Invoke-Agent.ps1"
+$logModule = Join-Path $agentsDir "lib" "Log.psm1"
+$utilsModule = Join-Path $agentsDir "lib" "Utils.psm1"
 
+if (Test-Path $logModule) { Import-Module $logModule -Force }
+if (Test-Path $utilsModule) { Import-Module $utilsModule -Force }
+
+# --- Validate plan file ---
 if (-not (Test-Path $PlanFile)) {
     Write-Error "Plan file not found: $PlanFile"
     exit 1
 }
 
 $planContent = Get-Content $PlanFile -Raw
-$newPlanContent = $planContent
+$planBase = [IO.Path]::GetFileNameWithoutExtension($PlanFile)
+$planDir = Split-Path $PlanFile
+if (-not $OutFile) {
+    $OutFile = Join-Path $planDir "${planBase}.refined.md"
+}
 
-# Regex to find Epics
+# --- Parsing logic ---
 $epicPattern = '(?m)^(## Epic:\s+|###\s+)(EPIC-\d+)\s*[—–-]\s*(.+)$'
 
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
-
 if ($epicMatches.Count -eq 0) {
-    Write-Host "No Epics found in $PlanFile to expand."
+    Write-Host "No epics found to refine in $PlanFile"
     exit 0
 }
 
-# AI agent configuration
-$model = "gemini-3.1-pro-preview"
-$systemPrompt = @"
-You are an expert product manager and technical planner.
-Your job is to expand underspecified epics into highly detailed plan sections.
-The output MUST adhere to the following format exactly:
+Write-Host ""
+Write-Host "=== Ostwin Plan Expander ===" -ForegroundColor Cyan
+Write-Host "  Plan: $PlanFile"
+Write-Host "  Epics to refine: $($epicMatches.Count)"
+Write-Host ""
 
-## Epic: [EPIC-ID] — [Title]
+# --- Refinement loop ---
+$refinedEpics = @{}
 
-[3-5 paragraphs of detailed description, context, and requirements.]
+# Create a temporary room for expansion
+$warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
+               else { Join-Path (Split-Path $agentsDir) ".war-rooms" }
+$expansionRoom = Join-Path $warRoomsDir "room-expansion"
+if (-not (Test-Path $expansionRoom)) {
+    New-Item -ItemType Directory -Path $expansionRoom -Force | Out-Null
+}
 
-depends_on: [array of dependencies if any, e.g., [EPIC-001, EPIC-002]]
-complexity: [S/M/L/XL]
+foreach ($em in $epicMatches) {
+    $epicRef = $em.Groups[2].Value
+    $epicTitle = $em.Groups[3].Value.Trim()
 
-#### Definition of Done
-- [ ] [Requirement 1]
-- [ ] [Requirement 2]
-- [ ] [Requirement 3]
-- [ ] [Requirement 4]
-- [ ] [Requirement 5]
+    # Find epic section
+    $epicStart = $em.Index
+    $nextMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
+    $epicEnd = if ($nextMatch) { $nextMatch.Index } else { $planContent.Length }
+    $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
 
-#### Acceptance Criteria
-- [ ] [Testable criteria 1]
-- [ ] [Testable criteria 2]
-- [ ] [Testable criteria 3]
-- [ ] [Testable criteria 4]
-- [ ] [Testable criteria 5]
+    # --- Check if already well-specified ---
+    $dodPatternCheck = '(?s)#### Definition of Done\s*\n(.*?)(?=####|###|---|\z)'
+    $acPatternCheck = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|###|---|\z)'
+    $descPatternCheck = '(?m)^(?s)(?:## Epic:\s+|###\s+)EPIC-\d+\s*[—–-]\s*.+?\n(.*?)(?=####|\z)'
 
-Do not include any conversational filler. Only output the expanded epic text.
-"@
-
-# Process from bottom to top to preserve indexes when replacing
-for ($i = $epicMatches.Count - 1; $i -ge 0; $i--) {
-    $match = $epicMatches[$i]
-    $epicPrefix = $match.Groups[1].Value.Trim()
-    $epicId = $match.Groups[2].Value
-    $epicTitle = $match.Groups[3].Value
-    
-    $startIdx = $match.Index
-    $headerLength = $match.Length
-    
-    # Stop at any header level equal to or higher than the current epic
-    if ($epicPrefix -match '^###') {
-        $nextSectionPattern = '(?m)^#{1,3}\s+|^---$'
-    } else {
-        $nextSectionPattern = '(?m)^#{1,2}\s+|^---$'
-    }
-    
-    $nextMatch = [regex]::Match($planContent.Substring($startIdx + $headerLength), $nextSectionPattern)
-    
-    if ($nextMatch.Success) {
-        $endIdx = $startIdx + $headerLength + $nextMatch.Index
-    } else {
-        $endIdx = $planContent.Length
-    }
-    $epicText = $planContent.Substring($startIdx, $endIdx - $startIdx)
-    
-    # Check if underspecified: < 5 bullets in DoD or AC
-    $dodMatch = [regex]::Match($epicText, '(?is)#### Definition of Done(.*?)(?=####|\z)')
-    $acMatch = [regex]::Match($epicText, '(?is)#### Acceptance Criteria(.*?)(?=####|\z)')
+    $descBody = ""
+    if ($epicSection -match $descPatternCheck) { $descBody = $Matches[1].Trim() }
     
     $dodCount = 0
-    if ($dodMatch.Success) {
-        $dodCount = ([regex]::Matches($dodMatch.Value, '(?im)^-\s+\[[ x]\]')).Count
+    if ($epicSection -match $dodPatternCheck) {
+        $dodCount = ([regex]::Matches($Matches[1], '- \[[ x]\]\s*(.+)')).Count
     }
     
     $acCount = 0
-    if ($acMatch.Success) {
-        $acCount = ([regex]::Matches($acMatch.Value, '(?im)^-\s+\[[ x]\]')).Count
+    if ($epicSection -match $acPatternCheck) {
+        $acCount = ([regex]::Matches($Matches[1], '- \[[ x]\]\s*(.+)')).Count
     }
-    
-    if ($dodCount -lt 5 -or $acCount -lt 5) {
-        Write-Host "Expanding $epicId — $epicTitle..."
-        
-        if ($DryRun) {
-            Write-Host "  [DryRun] Would expand $epicId" -ForegroundColor Yellow
-            continue
-        }
-        
-        $promptContent = $systemPrompt + "`n`n" + $epicText
-        
-        # Call deepagents
-        $outputFile = [System.IO.Path]::GetTempFileName()
-        & $AgentCmd -n $promptContent --model $model -q --auto-approve > $outputFile
-        
-        if ($LASTEXITCODE -eq 0) {
-            $expandedText = Get-Content $outputFile -Raw
-            $expandedText = $expandedText -replace '^```[a-zA-Z]*\n', '' -replace '\n```\s*$', ''
-            # Replace in original plan (using substring replacement)
-            $newPlanContent = $newPlanContent.Remove($startIdx, $endIdx - $startIdx).Insert($startIdx, $expandedText.Trim() + "`n`n")
-            Write-Host "  Success: $epicId expanded." -ForegroundColor Green
-        } else {
-            Write-Error "Failed to expand $epicId"
-        }
-        
-        Remove-Item $outputFile -ErrorAction SilentlyContinue
+
+    $bulletCount = 0
+    if ($descBody) {
+        $bulletCount = ([regex]::Matches($descBody, '(?m)^[-*]\s+')).Count
+    }
+
+    # Threshold: same as Start-Plan.ps1 — 5 DoD, 5 AC, 2 description bullets
+    if ($dodCount -ge 5 -and $acCount -ge 5 -and $bulletCount -ge 2) {
+        Write-Host "  ${epicRef} is already well-specified. Skipping."
+        continue
+    }
+
+    if ($DryRun) {
+        Write-Host "  [DryRun] Would expand ${epicRef}: ${epicTitle}"
+        continue
+    }
+
+    Write-Host "  Expanding ${epicRef}: ${epicTitle}..." -NoNewline
+
+    $prompt = @"
+You are a Senior Software Architect. Your task is to REFINE and EXPAND a high-level Epic into a detailed implementation plan.
+
+## Original Epic
+$epicSection
+
+## Instructions
+Maximize the detail in this plan. Your output MUST be a single markdown block representing the expansion of this Epic, following the Ostwin template:
+
+1. **Description**: Expand the 1-2 line description into 3-5 paragraphs. Cover technical approach, key components, and potential risks.
+2. **Implementation Strategy**: Provide a sequential breakdown of the phases required to build this Epic. This should serve as the "detail plan for the team".
+3. **Definition of Done (DoD)**: List at least 5 crystal-clear, verifiable conditions (e.g., "Unit test coverage >= 80%", "Lint clean", "Documentation updated").
+4. **Acceptance Criteria (AC)**: List at least 5 testable scenarios (e.g., "User can login with valid JWT", "System rejects expired tokens with 401").
+5. **Dependencies**: Identify if this depends on other EPICs from the plan (based on the reference NNN in EPIC-NNN). Format as: depends_on: [EPIC-NNN]
+
+## Format Requirement
+Return ONLY the refined markdown starting with '### $epicRef — $epicTitle'. Do not include any other text, chatter, or preamble.
+
+### EXAMPLE OUTPUT
+### EPIC-001 — Build Auth Module
+
+[Detailed Description here...]
+
+#### Definition of Done
+- [ ] Core logic implemented
+- [ ] ... (4 more)
+
+#### Acceptance Criteria
+- [ ] Scenario 1
+- [ ] ... (4 more)
+
+depends_on: []
+"@
+
+    $result = if ($AgentCmd) {
+        $output = & $AgentCmd $prompt | Out-String
+        $code = if ($?) { 0 } else { 1 }
+        [PSCustomObject]@{ ExitCode = $code; Output = $output }
     } else {
-        Write-Host "$epicId is already well-specified. Skipping."
+        & $invokeAgent -RoomDir $expansionRoom -RoleName "architect" `
+                         -Prompt $prompt -TimeoutSeconds 300
+    }
+
+    if ($result.ExitCode -eq 0) {
+        $refinedEpics[$epicRef] = $result.Output.Trim()
+        Write-Host " [DONE]" -ForegroundColor Green
+    } else {
+        Write-Host " [FAILED]" -ForegroundColor Red
+        Write-Warning "Refinement failed for ${epicRef}: $($result.Output)"
+        $refinedEpics[$epicRef] = $epicSection # Fallback to original
     }
 }
 
-if (-not $DryRun) {
-    $newPlanContent | Out-File $OutFile -Encoding UTF8
-    Write-Host "Refined plan written to $OutFile" -ForegroundColor Green
+if ($DryRun) {
+    Write-Host ""
+    Write-Host "[DRY RUN] Complete. No changes made." -ForegroundColor Yellow
+    exit 0
 }
-exit 0
+
+# --- Assemble refined plan ---
+$newPlanContent = $planContent
+
+foreach ($ref in $refinedEpics.Keys) {
+    # Find the original epic section again to replace it
+    $targetMatch = [regex]::Match($newPlanContent, "(?m)^(## Epic:\s+|###\s+)${ref}\s*[—–-]\s*.+$")
+    if ($targetMatch.Success) {
+        $start = $targetMatch.Index
+        # Find end of section: next header (any level) or horizontal rule
+        $afterRef = $newPlanContent.Substring($start + $targetMatch.Length)
+        $nextSectionMatch = [regex]::Match($afterRef, "(?m)^(#+|---)")
+        $end = if ($nextSectionMatch.Success) { $start + $targetMatch.Length + $nextSectionMatch.Index } else { $newPlanContent.Length }
+        
+        $newPlanContent = $newPlanContent.Remove($start, $end - $start).Insert($start, $refinedEpics[$ref] + "`n")
+    }
+}
+
+# Ensure spacing is correct and save
+$newPlanContent | Out-File -FilePath $OutFile -Encoding utf8
+
+Write-Host ""
+Write-Host "[PLAN] Refined plan saved to: $OutFile" -ForegroundColor Green
+Write-Host ""
+
+# Clean up temporary room
+Remove-Item $expansionRoom -Recurse -Force -ErrorAction SilentlyContinue

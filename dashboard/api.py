@@ -15,7 +15,7 @@ if _root not in sys.path:
 
 from dashboard.api_utils import PROJECT_ROOT, AGENTS_DIR, WARROOMS_DIR, DEMO_DIR, USE_NEXTJS, NEXTJS_OUT_DIR
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp
 from dashboard.global_state import broadcaster
 
 # Configure logging
@@ -45,6 +45,7 @@ app.include_router(engagement.router)
 app.include_router(plans.router)
 app.include_router(rooms.router)
 app.include_router(system.router)
+app.include_router(mcp.router)
 
 # --- Static Frontend Serving ---
 if USE_NEXTJS:

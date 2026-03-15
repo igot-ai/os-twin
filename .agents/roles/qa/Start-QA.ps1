@@ -170,6 +170,11 @@ $reviewInstructions
 IMPORTANT: Your response MUST include exactly one of these lines:
   VERDICT: PASS
   VERDICT: FAIL
+  VERDICT: ESCALATE
+
+Use ESCALATE when the failure is NOT an implementation bug — e.g., the requirements
+are wrong, the architecture is fundamentally flawed, or the acceptance criteria are
+incomplete. Include a classification: DESIGN | SCOPE | REQUIREMENTS.
 
 Follow with detailed reasoning.
 "@
@@ -191,19 +196,19 @@ $output = $result.Output
 $verdict = ""
 
 # Strategy 1: Line starts with VERDICT:
-if ($output -match '(?m)^VERDICT:\s*(PASS|FAIL)') {
+if ($output -match '(?m)^VERDICT:\s*(PASS|FAIL|ESCALATE)') {
     $verdict = $Matches[1].ToUpper()
 }
 
 # Strategy 2: VERDICT: anywhere in a line
-if (-not $verdict -and $output -match 'VERDICT:\s*(PASS|FAIL)') {
+if (-not $verdict -and $output -match 'VERDICT:\s*(PASS|FAIL|ESCALATE)') {
     $verdict = $Matches[1].ToUpper()
 }
 
-# Strategy 3: standalone PASS/FAIL in first 20 lines
+# Strategy 3: standalone PASS/FAIL/ESCALATE in first 20 lines
 if (-not $verdict) {
     $first20 = ($output -split "`n" | Select-Object -First 20) -join "`n"
-    if ($first20 -match '\b(PASS|FAIL)\b') {
+    if ($first20 -match '\b(PASS|FAIL|ESCALATE)\b') {
         $verdict = $Matches[1].ToUpper()
     }
 }
@@ -228,6 +233,13 @@ elseif ($verdict -eq "FAIL") {
                    -Type "fail" -Ref $taskRef -Body $output
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level INFO -Message "FAILED $taskRef."
+    }
+}
+elseif ($verdict -eq "ESCALATE") {
+    & $postMessage -RoomDir $RoomDir -From "qa" -To "manager" `
+                   -Type "escalate" -Ref $taskRef -Body $output
+    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
+        Write-OstwinLog -Level WARN -Message "ESCALATED $taskRef — design/scope issue."
     }
 }
 else {

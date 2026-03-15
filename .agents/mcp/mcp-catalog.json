@@ -1,0 +1,17 @@
+{
+  "catalog_version": "1.0.0",
+  "description": "Predefined MCP extension packages supported by Ostwin. Users install by name: ostwin mcp install <name>",
+  "packages": {
+    "nanobanana": {
+      "repo": "https://github.com/gemini-cli-extensions/nanobanana.git",
+      "branch": "main",
+      "description": "Nanobanana MCP extension for Gemini CLI",
+      "build_type": "node",
+      "config": {
+        "command": "node",
+        "args": ["${extensionPath}/mcp-server/dist/index.js"],
+        "env": {}
+      }
+    }
+  }
+}

@@ -41,8 +41,8 @@ mcp = FastMCP("ostwin-channel")
 @mcp.tool()
 def post_message(
     room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory (e.g. .agents/war-rooms/room-001)")],
-    from_role: Annotated[str, Field(description="Sender role: manager | engineer | qa")],
-    to_role: Annotated[str, Field(description="Recipient role: manager | engineer | qa")],
+    from_role: Annotated[str, Field(description="Sender role: manager | engineer | qa | architect")],
+    to_role: Annotated[str, Field(description="Recipient role: manager | engineer | qa | architect")],
     msg_type: Annotated[str, Field(description="Message type: task | done | review | pass | fail | fix | error | signoff")],
     ref: Annotated[str, Field(description="Task reference, e.g. TASK-001")],
     body: Annotated[str, Field(description="Message body text")],
@@ -53,9 +53,6 @@ def post_message(
     file lock (fcntl.LOCK_EX) so concurrent writers cannot corrupt the log.
     Returns a confirmation string with the generated message ID.
     """
-    # Validate inputs
-    if from_role not in VALID_ROLES:
-        return f"error:invalid from_role '{from_role}'. Must be one of: {', '.join(sorted(VALID_ROLES))}"
     if msg_type not in VALID_TYPES:
         return f"error:invalid msg_type '{msg_type}'. Must be one of: {', '.join(sorted(VALID_TYPES))}"
 
