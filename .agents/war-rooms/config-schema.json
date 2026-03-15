@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "War-Room Config",
+  "description": "Per-war-room configuration with goal contract for Agent OS v0.2",
+  "type": "object",
+  "required": ["room_id", "task_ref", "created_at", "assignment", "goals", "constraints", "status"],
+  "properties": {
+    "room_id": {
+      "type": "string",
+      "description": "Unique war-room identifier",
+      "pattern": "^room-[a-zA-Z0-9-]+$"
+    },
+    "task_ref": {
+      "type": "string",
+      "description": "Task or Epic reference",
+      "pattern": "^(TASK|EPIC)-\\d+$"
+    },
+    "plan_id": {
+      "type": "string",
+      "description": "Plan identifier this room belongs to"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "working_dir": {
+      "type": ["string", "null"],
+      "description": "Project working directory"
+    },
+    "assignment": {
+      "type": "object",
+      "required": ["title", "description", "assigned_role", "type"],
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assigned_role": {
+          "type": "string",
+          "enum": ["engineer", "qa", "architect", "devops", "tech-writer", "security", "product-owner"]
+        },
+        "type": {
+          "type": "string",
+          "enum": ["task", "epic"]
+        }
+      }
+    },
+    "goals": {
+      "type": "object",
+      "required": ["definition_of_done", "acceptance_criteria"],
+      "properties": {
+        "definition_of_done": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of conditions that must be true for the work to be considered done"
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of testable acceptance criteria"
+        },
+        "quality_requirements": {
+          "type": "object",
+          "properties": {
+            "test_coverage_min": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 80
+            },
+            "lint_clean": {
+              "type": "boolean",
+              "default": true
+            },
+            "security_scan_pass": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "default": 900
+        },
+        "budget_tokens_max": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 500000
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": ["current"],
+      "properties": {
+        "current": {
+          "type": "string",
+          "enum": ["pending", "engineering", "qa-review", "fixing", "passed", "failed-final"]
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "started_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "last_state_change": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
