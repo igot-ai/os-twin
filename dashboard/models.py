@@ -23,7 +23,7 @@ class Message(BaseModel):
 
 class RunRequest(BaseModel):
     plan: str
-    plan_id: Optional[str] = None
+    plan_id: str
 
 class ReactionRequest(BaseModel):
     entity_id: str

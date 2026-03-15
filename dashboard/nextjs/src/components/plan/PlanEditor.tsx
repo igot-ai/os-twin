@@ -84,7 +84,7 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
   const handleLaunch = async () => {
     await handleSave();
     try {
-      await apiPost('/api/run', { plan: content }); // Send content directly for run
+      await apiPost('/api/run', { plan: content, plan_id: planId });
       onClose(); // Close editor on launch
     } catch (err) {
       alert('Launch failed');

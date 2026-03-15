@@ -45,6 +45,7 @@ export default function Dashboard() {
     selectRoom,
     clearFeed,
     loadInitialRooms,
+    loadPlanRooms,
     handleWSEvent,
   } = useRooms();
 
@@ -127,7 +128,7 @@ export default function Dashboard() {
       <PipelineBar rooms={roomList} />
 
       <main className="main-layout">
-        <PlanLauncher />
+        <PlanLauncher onPlanSelected={loadPlanRooms} />
 
         <WarRoomGrid
           rooms={roomList}

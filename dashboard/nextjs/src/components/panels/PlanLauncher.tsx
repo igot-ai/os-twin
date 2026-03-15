@@ -8,9 +8,10 @@ import { trunc, fmtTime } from '@/lib/utils';
 
 interface PlanLauncherProps {
   onPlanLaunched?: () => void;
+  onPlanSelected?: (planId: string | null) => void;
 }
 
-export default function PlanLauncher({ onPlanLaunched }: PlanLauncherProps) {
+export default function PlanLauncher({ onPlanLaunched, onPlanSelected }: PlanLauncherProps) {
   const [planText, setPlanText] = useState(TEMPLATES.hello);
   const [launchStatus, setLaunchStatus] = useState('');
   const [launchColor, setLaunchColor] = useState('');
@@ -98,6 +99,8 @@ export default function PlanLauncher({ onPlanLaunched }: PlanLauncherProps) {
         } catch {
           // will populate on next poll
         }
+        // Load plan-scoped war-rooms
+        onPlanSelected?.(data.plan_id);
       }
 
       loadPlanHistory();
@@ -128,6 +131,7 @@ export default function PlanLauncher({ onPlanLaunched }: PlanLauncherProps) {
       setActivePlanId(null);
       setEpics([]);
       setPlanText('');
+      onPlanSelected?.(null);
       return;
     }
     try {
@@ -137,10 +141,12 @@ export default function PlanLauncher({ onPlanLaunched }: PlanLauncherProps) {
         setActivePlanId(planId);
         setEpics(data.epics || []);
       }
+      // Load plan-scoped war-rooms
+      onPlanSelected?.(planId);
     } catch (e) {
       console.error('Failed to load plan:', e);
     }
-  }, []);
+  }, [onPlanSelected]);
 
   const browseFolder = useCallback(async (path: string | null) => {
     try {

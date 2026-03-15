@@ -50,10 +50,12 @@ function RoomDetail({ room }: { room: Room }) {
   useEffect(() => {
     const loadLogs = async () => {
       try {
-        const data = await apiGet<{ notifications: Notification[] }>(
+        const data = await apiGet<Notification[] | { notifications: Notification[] }>(
           `/api/notifications?room_id=${room.room_id}&limit=20`
         );
-        setActivityLogs(data.notifications || []);
+        // Support both array response and {notifications:[]} wrapper
+        const items = Array.isArray(data) ? data : (data.notifications || []);
+        setActivityLogs(items);
       } catch {
         // ignore
       }
@@ -137,11 +139,18 @@ function RoomDetail({ room }: { room: Room }) {
             <div style={{ padding: '10px', color: 'var(--text-dim)' }}>No activity recorded.</div>
           ) : (
             [...activityLogs].reverse().map((entry, i) => (
-              <div key={i} className="activity-item">
-                <span className="activity-ts">{fmtTime(entry.timestamp)}</span>
+              <div key={entry.id || i} className="activity-item">
+                <span className="activity-ts">{fmtTime(entry.ts)}</span>
                 <span className="activity-event">
-                  {entry.event_type.replace(/_/g, ' ')}
+                  {entry.from}→{entry.to}
                 </span>
+                <span className="activity-type">
+                  {String(entry.type).replace(/_/g, ' ')}
+                </span>
+                {entry.ref && <span className="activity-ref">[{entry.ref}]</span>}
+                {entry.body && (
+                  <span className="activity-body">{trunc(entry.body, 80)}</span>
+                )}
               </div>
             ))
           )}

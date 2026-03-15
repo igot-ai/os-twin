@@ -18,9 +18,31 @@ async def poll_war_rooms():
     """Background task to poll war-room state and broadcast changes."""
     last_snapshot: dict[str, dict] = {}
     
+    def _discover_warroom_dirs() -> list[Path]:
+        """Discover all war-room directories: global + plan-specific."""
+        dirs = set()
+        if WARROOMS_DIR.exists():
+            dirs.add(WARROOMS_DIR)
+        # Scan plans meta for plan-specific war-room dirs
+        plans_dir = AGENTS_DIR / "plans"
+        if plans_dir.exists():
+            for meta_file in plans_dir.glob("*.meta.json"):
+                try:
+                    meta = json.loads(meta_file.read_text())
+                    wd = meta.get("working_dir") or meta.get("warrooms_dir")
+                    if wd:
+                        warrooms_path = Path(wd)
+                        if warrooms_path.name != ".war-rooms":
+                            warrooms_path = warrooms_path / ".war-rooms"
+                        if warrooms_path.exists():
+                            dirs.add(warrooms_path)
+                except (json.JSONDecodeError, KeyError):
+                    pass
+        return list(dirs)
+
     # Initialize snapshot
-    if WARROOMS_DIR.exists():
-        for room_dir in sorted(WARROOMS_DIR.glob("room-*")):
+    for warroom_dir in _discover_warroom_dirs():
+        for room_dir in sorted(warroom_dir.glob("room-*")):
             if room_dir.is_dir():
                 room = read_room(room_dir)
                 last_snapshot[room["room_id"]] = room
@@ -39,8 +61,8 @@ async def poll_war_rooms():
     while True:
         try:
             current: dict[str, dict] = {}
-            if WARROOMS_DIR.exists():
-                for room_dir in sorted(WARROOMS_DIR.glob("room-*")):
+            for warroom_dir in _discover_warroom_dirs():
+                for room_dir in sorted(warroom_dir.glob("room-*")):
                     if room_dir.is_dir():
                         room = read_room(room_dir)
                         current[room["room_id"]] = room
@@ -56,8 +78,14 @@ async def poll_war_rooms():
                         global_state.store.upsert_room_metadata(room_id, room)
                     
                     # Ensure initial messages are broadcast
-                    if room["message_count"] > 0:
-                        messages = read_channel(WARROOMS_DIR / room_id)
+                    # Find the correct warroom dir for this room
+                    room_parent = None
+                    for wd in _discover_warroom_dirs():
+                        if (wd / room_id).is_dir():
+                            room_parent = wd
+                            break
+                    if room_parent and room["message_count"] > 0:
+                        messages = read_channel(room_parent / room_id)
                         event_data = {"room": room, "new_messages": messages}
                         await global_state.broadcaster.broadcast("room_updated", event_data)
                         await process_notification("room_updated", event_data)
@@ -67,8 +95,16 @@ async def poll_war_rooms():
                     prev["status"] != room["status"]
                     or prev["message_count"] != room["message_count"]
                 ):
-                    # Changed room — include latest channel messages
-                    messages = read_channel(WARROOMS_DIR / room_id)
+                    # Changed room — find correct dir and include latest channel messages
+                    room_parent = None
+                    for wd in _discover_warroom_dirs():
+                        if (wd / room_id).is_dir():
+                            room_parent = wd
+                            break
+                    if room_parent:
+                        messages = read_channel(room_parent / room_id)
+                    else:
+                        messages = read_channel(WARROOMS_DIR / room_id)
                     new_messages = messages[prev["message_count"]:]
                     event_data = {"room": room, "new_messages": new_messages}
                     await global_state.broadcaster.broadcast("room_updated", event_data)

@@ -4,7 +4,10 @@ import signal
 import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
-import telegram_bot
+try:
+    import telegram_bot
+except ImportError:
+    telegram_bot = None
 
 from dashboard.models import TelegramConfigRequest, UpdatePlanRoleConfigRequest
 from dashboard.api_utils import (

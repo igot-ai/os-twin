@@ -33,8 +33,24 @@ async def list_rooms(user: dict = Depends(get_current_user)):
 
 @router.get("/api/rooms/{room_id}/channel")
 async def get_channel(room_id: str, user: dict = Depends(get_current_user)):
-    """Get messages for a specific war-room."""
+    """Get messages for a specific war-room (searches global + plan-specific dirs)."""
+    import json as _json
     room_dir = WARROOMS_DIR / room_id
+    if not room_dir.exists():
+        # Search plan-specific war-room directories
+        plans_dir = AGENTS_DIR / "plans"
+        if plans_dir.exists():
+            for meta_file in plans_dir.glob("*.meta.json"):
+                try:
+                    meta = _json.loads(meta_file.read_text())
+                    wd = meta.get("working_dir")
+                    if wd:
+                        candidate = Path(wd) / ".war-rooms" / room_id
+                        if candidate.exists():
+                            room_dir = candidate
+                            break
+                except (ValueError, KeyError):
+                    pass
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
     return {"messages": read_channel(room_dir)}

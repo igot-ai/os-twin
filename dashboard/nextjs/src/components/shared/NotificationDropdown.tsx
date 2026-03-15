@@ -18,25 +18,10 @@ export default function NotificationDropdown({
   onMarkAllRead,
 }: NotificationDropdownProps) {
   const getNotificationText = (n: Notification): string => {
-    const data = n.data as Record<string, unknown>;
-    switch (n.event_type) {
-      case 'room_created': {
-        const room = data.room as Record<string, unknown> | undefined;
-        return `War-room created: ${room?.room_id || 'Unknown'}`;
-      }
-      case 'room_updated': {
-        const room = data.room as Record<string, unknown> | undefined;
-        return `Room updated: ${room?.room_id || 'Unknown'}`;
-      }
-      case 'room_action':
-        return `Room action: ${data.action} in ${data.room_id}`;
-      case 'reaction_toggled':
-        return `Reaction toggled in ${data.room_id || ''}`;
-      case 'comment_published':
-        return `New comment in ${data.room_id || ''}`;
-      default:
-        return `${n.event_type}`;
-    }
+    // New schema: {v, id, ts, from, to, type, ref, body}
+    const prefix = n.from && n.to ? `${n.from}→${n.to}` : n.from || '';
+    const refTag = n.ref ? ` [${n.ref}]` : '';
+    return `${prefix}${refTag}: ${n.body || n.type}`;
   };
 
   return (
@@ -64,10 +49,10 @@ export default function NotificationDropdown({
               [...notifications]
                 .reverse()
                 .map((n, i) => (
-                  <div key={i} className="notification-item">
+                  <div key={n.id || i} className="notification-item">
                     <div>{getNotificationText(n)}</div>
                     <div className="notification-time">
-                      {new Date(n.timestamp).toLocaleString()}
+                      {new Date(n.ts).toLocaleString()}
                     </div>
                   </div>
                 ))

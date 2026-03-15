@@ -1061,6 +1061,13 @@ window.loadPlan = async function (planId) {
     activePlanId = null;
     hideEpicTracker();
     textarea.value = '';
+    // Clear rooms and reload global rooms
+    rooms = {};
+    const grid = document.getElementById('room-grid');
+    if (grid) grid.innerHTML = '';
+    restoreEmptyState();
+    updateSummary();
+    loadInitialState();
     return;
   }
 
@@ -1073,10 +1080,64 @@ window.loadPlan = async function (planId) {
       activePlanId = planId;
       showEpicTracker(data.epics || []);
     }
+
+    // Fetch plan-scoped war-rooms
+    await loadPlanRooms(planId);
   } catch (e) {
     console.error('Failed to load plan:', e);
   }
 };
+
+async function loadPlanRooms(planId) {
+  try {
+    const res = await fetch(`/api/plans/${planId}/rooms`);
+    if (!res.ok) {
+      console.warn(`Failed to fetch rooms for plan ${planId}: HTTP ${res.status}`);
+      return;
+    }
+    const data = await res.json();
+    const planRooms = data.rooms || [];
+
+    // Clear current rooms and grid
+    rooms = {};
+    const grid = document.getElementById('room-grid');
+    if (grid) grid.innerHTML = '';
+
+    if (planRooms.length === 0) {
+      restoreEmptyState();
+      updateSummary();
+      return;
+    }
+
+    // Populate rooms and render cards
+    for (const room of planRooms) {
+      rooms[room.room_id] = room;
+      renderCard(room, false);
+    }
+    updateSummary();
+
+    // Also load channel messages for the feed
+    allMessages = [];
+    const feed = document.getElementById('channel-feed');
+    if (feed) feed.innerHTML = '';
+    for (const room of planRooms) {
+      // Use the generic room channel endpoint
+      try {
+        const chRes = await fetch(`/api/rooms/${room.room_id}/channel`);
+        if (chRes.ok) {
+          const chData = await chRes.json();
+          (chData.messages || []).forEach(m => {
+            allMessages.push({ roomId: room.room_id, msg: m });
+            appendMsg(room.room_id, m, false);
+          });
+        }
+      } catch { /* skip room */ }
+    }
+    scrollFeed();
+  } catch (e) {
+    console.error('Failed to load plan rooms:', e);
+  }
+}
 
 window.loadPlanFromHistory = async function () {
   const select = document.getElementById('plan-select');

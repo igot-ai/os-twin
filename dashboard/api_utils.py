@@ -133,7 +133,13 @@ async def process_notification(event_type: str, data: dict):
 
 # Router helpers
 def resolve_plan_warrooms_dir(plan_id: str) -> Path:
-    """Resolve the war-rooms directory for a plan."""
+    """Resolve the war-rooms directory for a plan.
+
+    Resolution order:
+    1. meta.json  → working_dir field
+    2. plan .md   → working_dir: line (absolute or relative to PROJECT_ROOT)
+    3. Fallback   → global WARROOMS_DIR
+    """
     import re
     plan_meta_file = AGENTS_DIR / "plans" / f"{plan_id}.meta.json"
     if plan_meta_file.exists():
@@ -141,7 +147,10 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
             meta = json.loads(plan_meta_file.read_text())
             working_dir = meta.get("working_dir")
             if working_dir:
-                return Path(working_dir) / ".war-rooms"
+                wd = Path(working_dir)
+                if not wd.is_absolute():
+                    wd = PROJECT_ROOT / wd
+                return wd / ".war-rooms"
         except (json.JSONDecodeError, KeyError):
             pass
 
@@ -151,8 +160,14 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
         m = re.search(r"working_dir:\s*(.+)", content)
         if m:
             working_dir = m.group(1).strip()
-            if working_dir and Path(working_dir).is_absolute():
-                return Path(working_dir) / ".war-rooms"
+            if working_dir:
+                wd = Path(working_dir)
+                if not wd.is_absolute():
+                    wd = PROJECT_ROOT / wd
+                return wd / ".war-rooms"
+
+    # Fallback: global war-rooms directory
+    return WARROOMS_DIR
 
 def get_plan_roles_config(plan_id: str) -> dict:
     """Load the per-plan role config file, or fall back to global config."""

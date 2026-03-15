@@ -74,9 +74,14 @@ export interface ManagerConfig {
 
 // === Notification ===
 export interface Notification {
-  event_type: string;
-  data: Record<string, unknown>;
-  timestamp: string;
+  v: number;
+  id: string;
+  ts: string;
+  from: string;
+  to: string;
+  type: string;
+  ref: string;
+  body: string;
 }
 
 // === WebSocket Event ===

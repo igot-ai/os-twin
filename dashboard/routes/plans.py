@@ -1,7 +1,6 @@
 import os
 import json
 import hashlib
-import tempfile
 import asyncio
 import re
 import logging
@@ -209,7 +208,14 @@ async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
 
 @router.post("/api/run")
 async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
-    """Launch OS Twin with the provided plan content."""
+    """Launch OS Twin with the provided plan content.
+
+    plan_id is required. The endpoint is idempotent:
+    - .md file is only written when the content actually changed.
+    - .meta.json is upserted (preserves created_at and custom fields).
+    - .roles.json is only seeded from global config when it does not exist yet,
+      so user customisations are never overwritten.
+    """
     plan = request.plan.strip()
     if not plan:
         raise HTTPException(status_code=422, detail="Plan content is empty")
@@ -226,46 +232,62 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     plans_dir.mkdir(exist_ok=True)
 
     plan_id = request.plan_id
-    if plan_id:
-        # Use existing plan_id, ensure prefix
-        if not plan_id.startswith("agent-os-plan-"):
-            # If it's a draft hex ID from create_plan, we might want to rename it or prefix it?
-            # Actually, let's just use it as is if provided.
-            pass
-        plan_path = plans_dir / f"{plan_id}.md"
+    plan_path = plans_dir / f"{plan_id}.md"
+    plan_filename = plan_path.name
+
+    # --- .md: only write when content actually changed ---
+    existing_content = plan_path.read_text() if plan_path.exists() else None
+    if existing_content != plan:
         plan_path.write_text(plan)
-        plan_filename = plan_path.name
+        logger.info(f"run_plan: wrote updated plan content for {plan_id}")
     else:
-        # Generate new temp file
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", prefix="agent-os-plan-",
-            dir=str(plans_dir), delete=False
-        ) as f:
-            f.write(plan)
-            plan_path = Path(f.name)
-        
-        plan_filename = plan_path.name
-        plan_id = plan_path.stem
+        logger.debug(f"run_plan: plan content unchanged for {plan_id}, skipping write")
 
     # Extract title
     title_match = _re_mod.search(r"^# Plan:\s*(.+)", plan, _re_mod.MULTILINE)
     title = title_match.group(1).strip() if title_match else plan_id
 
-    # Create meta.json for the plan (crucial for state tracking)
+    # Extract working_dir from plan content (## Config section)
+    working_dir = None
+    wd_match = _re_mod.search(r"working_dir:\s*(.+)", plan)
+    if wd_match:
+        working_dir = wd_match.group(1).strip()
+    if not working_dir:
+        working_dir = str(PROJECT_ROOT)
+
+    # --- .meta.json: upsert — merge into existing, preserve created_at ---
     meta_path = plans_dir / f"{plan_id}.meta.json"
+    existing_meta = {}
+    if meta_path.exists():
+        try:
+            existing_meta = json.loads(meta_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
     meta = {
+        **existing_meta,                           # keep previous fields
         "plan_id": plan_id,
         "title": title,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "status": "launched"
+        "working_dir": working_dir,
+        "warrooms_dir": str(Path(working_dir) / ".war-rooms") if Path(working_dir).is_absolute() else str(PROJECT_ROOT / working_dir / ".war-rooms"),
+        "status": "launched",
     }
+    # Preserve original created_at; only set if missing
+    if "created_at" not in meta:
+        meta["created_at"] = datetime.now(timezone.utc).isoformat()
+    meta["launched_at"] = datetime.now(timezone.utc).isoformat()
+
     meta_path.write_text(json.dumps(meta, indent=2))
 
-    # Initialize role config for this plan (copy global)
+    # --- .roles.json: only seed from global config when the file does NOT exist ---
     role_config_path = plans_dir / f"{plan_id}.roles.json"
-    global_config_file = AGENTS_DIR / "config.json"
-    if global_config_file.exists():
-        role_config_path.write_text(global_config_file.read_text())
+    if not role_config_path.exists():
+        global_config_file = AGENTS_DIR / "config.json"
+        if global_config_file.exists():
+            role_config_path.write_text(global_config_file.read_text())
+            logger.info(f"run_plan: seeded roles.json for {plan_id} from global config")
+    else:
+        logger.debug(f"run_plan: roles.json already exists for {plan_id}, preserving user customisations")
 
     # Sync with zvec store if available
     store = global_state.store
@@ -462,8 +484,11 @@ async def update_plan_role_config(plan_id: str, role_name: str, request: UpdateP
 
 @router.get("/api/plans/{plan_id}/rooms")
 async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
+    """Get war-rooms for a specific plan, using the plan's working_dir."""
+    from dashboard.api_utils import read_room
     warrooms_dir = resolve_plan_warrooms_dir(plan_id)
-    if not warrooms_dir.exists(): return {"plan_id": plan_id, "rooms": [], "count": 0}
+    if not warrooms_dir or not warrooms_dir.exists():
+        return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "rooms": [], "count": 0}
     rooms = []
     for room_dir in sorted(warrooms_dir.glob("room-*")):
         if not room_dir.is_dir(): continue
@@ -473,8 +498,9 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
                 rc = json.loads(room_config_file.read_text())
                 if rc.get("plan_id") and rc["plan_id"] != plan_id: continue
             except json.JSONDecodeError: continue
-        status = (room_dir / "status").read_text().strip() if (room_dir / "status").exists() else "unknown"
-        task_ref = (room_dir / "task-ref").read_text().strip() if (room_dir / "task-ref").exists() else "UNKNOWN"
+        # Use full read_room for rich data (status, messages, goals, etc.)
+        room_data = read_room(room_dir)
+        # Also attach role assignments if present
         role_files = []
         for f in sorted(room_dir.glob("*_*.json")):
             if f.name == "config.json": continue
@@ -482,7 +508,8 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
                 data = json.loads(f.read_text())
                 if "role" in data and "instance_id" in data: role_files.append(data)
             except (json.JSONDecodeError, KeyError): continue
-        rooms.append({"room_id": room_dir.name, "task_ref": task_ref, "status": status, "roles": role_files})
+        room_data["roles"] = role_files
+        rooms.append(room_data)
     return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "rooms": rooms, "count": len(rooms)}
 
 @router.get("/api/plans/{plan_id}/rooms/{room_id}/roles")

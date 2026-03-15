@@ -1,12 +1,41 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Room, Message, WSEvent } from '@/types';
+import { Room, Message, Notification, WSEvent } from '@/types';
 import { apiGet } from '@/lib/api';
 
 interface RoomMsg {
   roomId: string;
   msg: Message;
+}
+
+/** Convert a Notification (new schema) into a RoomMsg for the feed. */
+function notifToRoomMsg(roomId: string, n: Notification): RoomMsg {
+  return {
+    roomId,
+    msg: {
+      id: n.id,
+      ts: n.ts,
+      from: n.from,
+      to: n.to,
+      type: n.type as Message['type'],
+      ref: n.ref,
+      body: n.body,
+    },
+  };
+}
+
+/** Fetch notifications for a room and convert them to RoomMsgs. */
+async function loadRoomNotifications(roomId: string): Promise<RoomMsg[]> {
+  try {
+    const data = await apiGet<Notification[] | { notifications: Notification[] }>(
+      `/api/notifications?room_id=${roomId}&limit=50`
+    );
+    const items = Array.isArray(data) ? data : (data.notifications || []);
+    return items.map((n) => notifToRoomMsg(roomId, n));
+  } catch {
+    return [];
+  }
 }
 
 export function useRooms() {
@@ -23,18 +52,27 @@ export function useRooms() {
       }
       setRooms(roomMap);
 
-      // Load channel history
+      // Load channel history, falling back to notifications
       const msgs: RoomMsg[] = [];
       for (const room of data.rooms || []) {
         try {
           const chData = await apiGet<{ messages: Message[] }>(
             `/api/rooms/${room.room_id}/channel`
           );
-          for (const m of chData.messages || []) {
-            msgs.push({ roomId: room.room_id, msg: m });
+          const channelMsgs = chData.messages || [];
+          if (channelMsgs.length > 0) {
+            for (const m of channelMsgs) {
+              msgs.push({ roomId: room.room_id, msg: m });
+            }
+          } else {
+            // Fall back to notifications for this room
+            const notifMsgs = await loadRoomNotifications(room.room_id);
+            msgs.push(...notifMsgs);
           }
         } catch {
-          // skip room
+          // Try notifications as fallback
+          const notifMsgs = await loadRoomNotifications(room.room_id);
+          msgs.push(...notifMsgs);
         }
       }
       setAllMessages(msgs);
@@ -42,6 +80,53 @@ export function useRooms() {
       console.error('Failed to load initial rooms:', err);
     }
   }, []);
+
+  /** Load plan-scoped war-rooms (replaces the room grid). */
+  const loadPlanRooms = useCallback(async (planId: string | null) => {
+    if (!planId) {
+      // Reset to global rooms
+      await loadInitialRooms();
+      return;
+    }
+
+    try {
+      const data = await apiGet<{ rooms: Room[]; warrooms_dir?: string }>(
+        `/api/plans/${planId}/rooms`
+      );
+      const planRooms = data.rooms || [];
+      const roomMap: Record<string, Room> = {};
+      for (const room of planRooms) {
+        roomMap[room.room_id] = room;
+      }
+      setRooms(roomMap);
+      setChannelFilter(null);
+
+      // Load channel history for plan rooms, falling back to notifications
+      const msgs: RoomMsg[] = [];
+      for (const room of planRooms) {
+        try {
+          const chData = await apiGet<{ messages: Message[] }>(
+            `/api/rooms/${room.room_id}/channel`
+          );
+          const channelMsgs = chData.messages || [];
+          if (channelMsgs.length > 0) {
+            for (const m of channelMsgs) {
+              msgs.push({ roomId: room.room_id, msg: m });
+            }
+          } else {
+            const notifMsgs = await loadRoomNotifications(room.room_id);
+            msgs.push(...notifMsgs);
+          }
+        } catch {
+          const notifMsgs = await loadRoomNotifications(room.room_id);
+          msgs.push(...notifMsgs);
+        }
+      }
+      setAllMessages(msgs);
+    } catch (err) {
+      console.error('Failed to load plan rooms:', err);
+    }
+  }, [loadInitialRooms]);
 
   const handleWSEvent = useCallback((ev: WSEvent) => {
     switch (ev.event) {
@@ -133,6 +218,8 @@ export function useRooms() {
     selectRoom,
     clearFeed,
     loadInitialRooms,
+    loadPlanRooms,
     handleWSEvent,
   };
 }
+
