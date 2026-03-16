@@ -29,7 +29,11 @@ param(
 
     [switch]$DryRun,
 
-    [string]$AgentCmd = ''
+    [string]$AgentCmd = '',
+
+    # Dashboard plan ID to sync after expansion.
+    # Defaults to the filename stem of $OutFile (e.g. 'c0d5ec36aa48' from 'c0d5ec36aa48.md').
+    [string]$PlanId = ''
 )
 
 # --- Resolve paths ---
@@ -52,11 +56,11 @@ $planContent = Get-Content $PlanFile -Raw
 $planBase = [IO.Path]::GetFileNameWithoutExtension($PlanFile)
 $planDir = Split-Path $PlanFile
 if (-not $OutFile) {
-    $OutFile = Join-Path $planDir "${planBase}.refined.md"
+    $OutFile = $PlanFile  # In-place update by default
 }
 
-# --- Parsing logic ---
-$epicPattern = '(?m)^(## Epic:\s+|###\s+)(EPIC-\d+)\s*[—–-]\s*(.+)$'
+# Accept - (single hyphen) as separator; also accept —, – for legacy
+$epicPattern = '(?m)^## (EPIC-\d+)\s*[-—–]\s*(.+)$'
 
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
 if ($epicMatches.Count -eq 0) {
@@ -82,8 +86,8 @@ if (-not (Test-Path $expansionRoom)) {
 }
 
 foreach ($em in $epicMatches) {
-    $epicRef = $em.Groups[2].Value
-    $epicTitle = $em.Groups[3].Value.Trim()
+    $epicRef = $em.Groups[1].Value
+    $epicTitle = $em.Groups[2].Value.Trim()
 
     # Find epic section
     $epicStart = $em.Index
@@ -92,12 +96,20 @@ foreach ($em in $epicMatches) {
     $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
 
     # --- Check if already well-specified ---
-    $dodPatternCheck = '(?s)#### Definition of Done\s*\n(.*?)(?=####|###|---|\z)'
-    $acPatternCheck = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|###|---|\z)'
-    $descPatternCheck = '(?m)^(?s)(?:## Epic:\s+|###\s+)EPIC-\d+\s*[—–-]\s*.+?\n(.*?)(?=####|\z)'
+    $dodPatternCheck = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
+    $acPatternCheck  = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
 
+    # Extract description body: everything between the header line and the first ####
+    # Using string split is more reliable than a multiline regex across PowerShell versions
     $descBody = ""
-    if ($epicSection -match $descPatternCheck) { $descBody = $Matches[1].Trim() }
+    $firstSubheader = $epicSection.IndexOf("`n####")
+    if ($firstSubheader -gt 0) {
+        # Skip the first line (the ## EPIC- header itself) then take up to the first ####
+        $firstNewline = $epicSection.IndexOf("`n")
+        if ($firstNewline -ge 0 -and $firstNewline -lt $firstSubheader) {
+            $descBody = $epicSection.Substring($firstNewline + 1, $firstSubheader - $firstNewline - 1).Trim()
+        }
+    }
     
     $dodCount = 0
     if ($epicSection -match $dodPatternCheck) {
@@ -143,10 +155,10 @@ Maximize the detail in this plan. Your output MUST be a single markdown block re
 5. **Dependencies**: Identify if this depends on other EPICs from the plan (based on the reference NNN in EPIC-NNN). Format as: depends_on: [EPIC-NNN]
 
 ## Format Requirement
-Return ONLY the refined markdown starting with '### $epicRef — $epicTitle'. Do not include any other text, chatter, or preamble.
+Return ONLY the refined markdown starting with '## $epicRef - $epicTitle'. Use a single hyphen '-' as the separator. Do NOT use '?', '—', '###', or 'Epic:'. Do not include any other text, chatter, or preamble.
 
 ### EXAMPLE OUTPUT
-### EPIC-001 — Build Auth Module
+## EPIC-001 - Build Auth Module
 
 [Detailed Description here...]
 
@@ -191,24 +203,40 @@ $newPlanContent = $planContent
 
 foreach ($ref in $refinedEpics.Keys) {
     # Find the original epic section again to replace it
-    $targetMatch = [regex]::Match($newPlanContent, "(?m)^(## Epic:\s+|###\s+)${ref}\s*[—–-]\s*.+$")
+    $targetMatch = [regex]::Match($newPlanContent, "(?m)^## ${ref}\s*[-—–]\s*.+$")
     if ($targetMatch.Success) {
         $start = $targetMatch.Index
-        # Find end of section: next header (any level) or horizontal rule
+        # Find end of section: next ## EPIC- header or horizontal rule
         $afterRef = $newPlanContent.Substring($start + $targetMatch.Length)
-        $nextSectionMatch = [regex]::Match($afterRef, "(?m)^(#+|---)")
+        $nextSectionMatch = [regex]::Match($afterRef, "(?m)^(^## EPIC-|---)")
         $end = if ($nextSectionMatch.Success) { $start + $targetMatch.Length + $nextSectionMatch.Index } else { $newPlanContent.Length }
         
         $newPlanContent = $newPlanContent.Remove($start, $end - $start).Insert($start, $refinedEpics[$ref] + "`n")
     }
 }
 
-# Ensure spacing is correct and save
+# Normalize epic header separators: replace —, – with single -
+$newPlanContent = $newPlanContent -replace '(?m)^(## EPIC-\d+)\s*[—–?]\s*', '$1 - '
 $newPlanContent | Out-File -FilePath $OutFile -Encoding utf8
 
 Write-Host ""
-Write-Host "[PLAN] Refined plan saved to: $OutFile" -ForegroundColor Green
+Write-Host "[PLAN] Plan updated in-place: $OutFile" -ForegroundColor Green
 Write-Host ""
+
+# --- Sync expanded content to dashboard API ---
+if (-not $DryRun) {
+    $resolvedPlanId = if ($PlanId) { $PlanId } else { [IO.Path]::GetFileNameWithoutExtension($OutFile) }
+    $dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { 'http://localhost:9000' }
+    try {
+        $saveBody = @{ content = $newPlanContent; change_source = 'expansion' } | ConvertTo-Json -Depth 5
+        Invoke-RestMethod -Uri "$dashboardUrl/api/plans/$resolvedPlanId/save" `
+            -Method Post -ContentType 'application/json' -Body $saveBody -ErrorAction Stop | Out-Null
+        Write-Host "[PLAN] Synced to dashboard: $dashboardUrl/plans/$resolvedPlanId" -ForegroundColor Cyan
+    }
+    catch {
+        Write-Host "[PLAN] ⚠ Dashboard not reachable — plan updated locally only." -ForegroundColor Yellow
+    }
+}
 
 # Clean up temporary room
 Remove-Item $expansionRoom -Recurse -Force -ErrorAction SilentlyContinue

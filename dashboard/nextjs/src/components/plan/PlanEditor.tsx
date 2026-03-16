@@ -5,6 +5,7 @@ import { apiGet, apiPost } from '@/lib/api';
 import MarkdownPreview from './MarkdownPreview';
 import AIChatPanel from './AIChatPanel';
 import { usePlanRefine } from '@/hooks/usePlanRefine';
+import { usePlanVersions } from '@/hooks/usePlanVersions';
 
 interface PlanEditorProps {
   planId: string;
@@ -21,7 +22,7 @@ interface RoleConfig {
 export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorProps) {
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
-  const [activeTab, setActiveTab] = useState<'editor' | 'preview' | 'settings'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'preview' | 'settings' | 'history'>('editor');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -38,6 +39,17 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
     cancelRefine,
     clearHistory
   } = usePlanRefine();
+
+  const {
+    versions,
+    selectedVersion,
+    isLoading: isLoadingVersions,
+    error: versionError,
+    loadVersions,
+    loadVersion,
+    restoreVersion,
+    clearSelection,
+  } = usePlanVersions(planId);
 
   // Load plan
   useEffect(() => {
@@ -94,6 +106,19 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
   const handleApplyAI = (newContent: string) => {
     setContent(newContent);
     setActiveTab('editor');
+  };
+
+  const handleRestore = async (version: number) => {
+    const err = await restoreVersion(version);
+    if (!err) {
+      // Reload plan content after restore
+      const data = await apiGet<{ plan: { content: string; title: string } }>(`/api/plans/${planId}`);
+      if (data.plan) {
+        setContent(data.plan.content || '');
+        setTitle(data.plan.title || planId);
+      }
+      onPlanSaved?.();
+    }
   };
 
   const updateRoleModel = (roleName: string, model: string) => {
@@ -155,6 +180,12 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
               >
                 Roles Settings
               </button>
+              <button 
+                className={`editor-tab ${activeTab === 'history' ? 'active' : ''}`}
+                onClick={() => { setActiveTab('history'); loadVersions(); }}
+              >
+                History{versions.length > 0 ? ` (${versions.length})` : ''}
+              </button>
             </div>
             
             <div className="editor-content-area">
@@ -197,6 +228,121 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+              {activeTab === 'history' && (
+                <div className="editor-settings-view">
+                  <h2 className="settings-title">Version History</h2>
+                  <p className="settings-desc">Previous versions of this plan. Click to view, restore to revert.</p>
+                  
+                  {isLoadingVersions && <p className="muted-text">Loading versions...</p>}
+                  {versionError && <p style={{ color: '#ff6b6b', fontSize: '0.85rem' }}>{versionError}</p>}
+                  
+                  {selectedVersion ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                        <button
+                          className="editor-btn editor-btn-save"
+                          style={{ fontSize: '0.8rem', padding: '4px 12px' }}
+                          onClick={clearSelection}
+                        >← Back</button>
+                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: '0.85rem', color: '#aaa' }}>
+                          v{selectedVersion.version} · {selectedVersion.change_source} · {new Date(selectedVersion.created_at).toLocaleString()}
+                        </span>
+                        <button
+                          className="editor-btn editor-btn-launch"
+                          style={{ fontSize: '0.8rem', padding: '4px 12px', marginLeft: 'auto' }}
+                          onClick={() => handleRestore(selectedVersion.version)}
+                        >Restore This Version</button>
+                      </div>
+                      <pre style={{
+                        background: '#1a1a2a',
+                        border: '1px solid #333',
+                        borderRadius: '6px',
+                        padding: '14px',
+                        fontSize: '0.8rem',
+                        fontFamily: "'JetBrains Mono',monospace",
+                        color: '#ccc',
+                        overflow: 'auto',
+                        maxHeight: 'calc(100vh - 360px)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                      }}>
+                        {selectedVersion.content || '(no content)'}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div className="version-list" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {versions.length === 0 && !isLoadingVersions && (
+                        <p className="muted-text">No versions yet. Versions are created when you save changes.</p>
+                      )}
+                      {versions.map((v) => {
+                        const sourceColors: Record<string, string> = {
+                          manual_save: '#7c5bf0',
+                          ai_refine: '#00d4ff',
+                          expansion: '#00ff88',
+                          before_restore: '#ff9f43',
+                        };
+                        return (
+                          <div
+                            key={v.id}
+                            onClick={() => loadVersion(v.version)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '12px',
+                              padding: '10px 14px',
+                              background: '#1a1a2a',
+                              border: '1px solid #2a2a3a',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              transition: 'border-color 0.2s, background 0.2s',
+                            }}
+                            onMouseEnter={(e) => {
+                              (e.currentTarget as HTMLDivElement).style.borderColor = '#7c5bf0';
+                              (e.currentTarget as HTMLDivElement).style.background = '#1e1e30';
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.currentTarget as HTMLDivElement).style.borderColor = '#2a2a3a';
+                              (e.currentTarget as HTMLDivElement).style.background = '#1a1a2a';
+                            }}
+                          >
+                            <span style={{
+                              fontFamily: "'JetBrains Mono',monospace",
+                              fontSize: '0.85rem',
+                              fontWeight: 600,
+                              color: '#e0e0e0',
+                              minWidth: '32px',
+                            }}>v{v.version}</span>
+                            <span style={{
+                              flex: 1,
+                              fontSize: '0.8rem',
+                              color: '#999',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}>{v.title}</span>
+                            <span style={{
+                              fontSize: '0.7rem',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              background: (sourceColors[v.change_source] || '#555') + '22',
+                              color: sourceColors[v.change_source] || '#888',
+                              border: `1px solid ${sourceColors[v.change_source] || '#555'}44`,
+                              fontFamily: "'JetBrains Mono',monospace",
+                              whiteSpace: 'nowrap',
+                            }}>{v.change_source.replace('_', ' ')}</span>
+                            <span style={{
+                              fontSize: '0.75rem',
+                              color: '#666',
+                              fontFamily: "'JetBrains Mono',monospace",
+                              whiteSpace: 'nowrap',
+                            }}>{new Date(v.created_at).toLocaleString()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -19,9 +19,9 @@ function validatePlanFormat(content: string): FormatValidation {
   const hasTitle = /^# Plan:\s*.+/m.test(content);
   const hasConfig = /^## Config/m.test(content);
   const hasWorkingDir = /working_dir:\s*.+/m.test(content);
-  const epicMatches = content.match(/^## Epic:\s*EPIC-\d+/gm);
+  const epicMatches = content.match(/^## EPIC-\d+/gm);
   const epicCount = epicMatches?.length || 0;
-  const hasAcceptanceCriteria = /Acceptance criteria:/i.test(content);
+  const hasAcceptanceCriteria = /Acceptance criteria:|#### Acceptance Criteria/i.test(content);
   const isValid = hasTitle && hasConfig && hasWorkingDir && epicCount > 0 && hasAcceptanceCriteria;
 
   return { hasTitle, hasConfig, hasWorkingDir, epicCount, hasAcceptanceCriteria, isValid };
@@ -42,7 +42,7 @@ function renderMarkdown(content: string): string {
     '<h3 class="md-h3">$1</h3>'
   );
   html = html.replace(
-    /^## (Epic:\s*EPIC-\d+\s*—\s*.+)$/gm,
+    /^## (EPIC-\d+\s*[-—–]\s*.+)$/gm,
     '<h2 class="md-epic"><span class="md-epic-badge">EPIC</span> $1</h2>'
   );
   html = html.replace(

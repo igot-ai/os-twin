@@ -99,10 +99,10 @@ $config = Get-OstwinConfig
 $planContentForCheck = Get-Content $PlanFile -Raw
 $hasUnderspecified = $false
 
-$epicPatternCheck = '(?m)^(## Epic:\s+|###\s+)(EPIC-\d+)\s*[—–-]\s*(.+)$'
-$dodPatternCheck = '(?s)#### Definition of Done\s*\n(.*?)(?=####|###|---|\z)'
-$acPatternCheck = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|###|---|\z)'
-$descPatternCheck = '(?m)^(?s)(?:## Epic:\s+|###\s+)EPIC-\d+\s*[—–-]\s*.+?\n(.*?)(?=####|\z)'
+$epicPatternCheck = '(?m)^## (EPIC-\d+)\s*[-—–]\s*(.+)$'
+$dodPatternCheck = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
+$acPatternCheck = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
+$descPatternCheck = '(?m)^## EPIC-\d+\s*[-—–]\s*.+?\n(.*?)(?=####|\z)'
 
 $epicMatchesCheck = [regex]::Matches($planContentForCheck, $epicPatternCheck)
 foreach ($em in $epicMatchesCheck) {
@@ -141,61 +141,77 @@ $shouldExpand = $Expand -or ($config.manager -and $config.manager.auto_expand_pl
 if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
     $expandScript = Join-Path $agentsDir "plan" "Expand-Plan.ps1"
     if (Test-Path $expandScript) {
-        $refinedFile = $PlanFile -replace "(?i)\.md`$", ".refined.md"
-        if ($refinedFile -eq $PlanFile) { $refinedFile = $PlanFile + ".refined.md" }
-
-        # --- Skip expansion if refined file already exists (unless -Expand forces it) ---
-        if ((Test-Path $refinedFile) -and -not $Expand) {
-            Write-Host ""
-            Write-Host "=== Using Existing Refined Plan ===" -ForegroundColor Green
-            Write-Host "  Found: $refinedFile" -ForegroundColor Green
-            Write-Host "  Skipping expansion (use -Expand to force re-refinement)." -ForegroundColor DarkGray
-            if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-                Write-OstwinLog -Message "Reusing existing refined plan: $refinedFile" -Level "INFO" -Caller "manager"
-            }
-            $PlanFile = $refinedFile
+        # --- Always expand in-place (no .refined.md) ---
+        $expandArgs = @{
+            PlanFile = $PlanFile
+            OutFile  = $PlanFile   # in-place
         }
-        else {
-            # --- Run expansion ---
-            if ($hasUnderspecified) {
-                Write-Host ""
-                Write-Host "=== Plan Refinement Required ===" -ForegroundColor Yellow
-                Write-Host "Detected underspecified epics. Auto-triggering plan refinement..." -ForegroundColor Yellow
-                $Review = $true
-            } else {
-                Write-OstwinLog -Message "Auto-expanding plan: $PlanFile" -Level "INFO" -Caller "manager"
+        if ($DryRun) { $expandArgs.Add("DryRun", $true) }
+
+        if ($hasUnderspecified) {
+            Write-Host ""
+            Write-Host "=== Plan Refinement Required ===" -ForegroundColor Yellow
+            Write-Host "Detected underspecified epics. Auto-triggering plan refinement..." -ForegroundColor Yellow
+            $Review = $true
+        } else {
+            Write-OstwinLog -Message "Auto-expanding plan in-place: $PlanFile" -Level "INFO" -Caller "manager"
+        }
+
+        # Capture pre-expansion content for diff
+        $preExpansionContent = Get-Content $PlanFile -Raw
+
+        & $expandScript @expandArgs
+
+        if ($LASTEXITCODE -ne 0 -and $?) {
+            Write-Error "Failed to expand plan."
+            exit 1
+        }
+
+        if (-not $DryRun) {
+            $postExpansionContent = Get-Content $PlanFile -Raw
+            $diffSummary = "(diff not available)"
+            $tempOld = [IO.Path]::GetTempFileName()
+            $tempNew = [IO.Path]::GetTempFileName()
+            try {
+                $preExpansionContent | Out-File $tempOld -Encoding utf8
+                $postExpansionContent | Out-File $tempNew -Encoding utf8
+                $diffSummary = git diff --no-index --stat $tempOld $tempNew | Out-String
+            } catch { }
+            finally {
+                Remove-Item $tempOld, $tempNew -Force -ErrorAction SilentlyContinue
             }
+            if (-not $diffSummary) { $diffSummary = "No changes" }
+            Write-OstwinLog -Message "Plan expansion diff:`n$diffSummary" -Level "INFO" -Caller "manager"
 
-            $expandArgs = @{
-                PlanFile = $PlanFile
-                OutFile = $refinedFile
-            }
-            if ($DryRun) { $expandArgs.Add("DryRun", $true) }
+            if ($Review) {
+                # --- Push updated plan content to dashboard via save (NOT create) ---
+                $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
+                $dashboardBase = "http://localhost:$dashboardPort"
+                $planContentForApi = Get-Content $PlanFile -Raw
+                $planTitle = "Untitled Plan"
+                $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
+                if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
 
-            & $expandScript @expandArgs
+                $planUrl = $null
+                # plan_id is the filename stem (e.g. 42e07f8b2738)
+                $planId = [IO.Path]::GetFileNameWithoutExtension($PlanFile)
+                try {
+                    # Update existing plan in-place via /save (no new plan created)
+                    $saveBody = @{
+                        content       = $planContentForApi
+                        change_source = "expansion"
+                    } | ConvertTo-Json -Depth 5
 
-            if ($LASTEXITCODE -ne 0 -and $?) {
-                Write-Error "Failed to expand plan."
-                exit 1
-            }
-            
-            if (-not $DryRun -and (Test-Path $refinedFile)) {
-                $diffSummary = git diff --no-index --stat $PlanFile $refinedFile | Out-String
-                if (-not $diffSummary) { $diffSummary = "No changes or git not available" }
-                Write-OstwinLog -Message "Plan expansion diff:`n$diffSummary" -Level "INFO" -Caller "manager"
-                
-                $PlanFile = $refinedFile
-                
-                if ($Review) {
-                    # --- Push refined plan to dashboard API for browser review ---
-                    $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
-                    $dashboardBase = "http://localhost:$dashboardPort"
-                    $planTitle = "Untitled Plan"
-                    $planContentForApi = Get-Content $PlanFile -Raw
-                    $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
-                    if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
+                    Invoke-RestMethod -Uri "$dashboardBase/api/plans/$planId/save" `
+                        -Method Post -ContentType 'application/json' -Body $saveBody -ErrorAction Stop | Out-Null
 
-                    $planUrl = $null
+                    $planUrl = "$dashboardBase/plans/$planId"
+                    Write-Host ""
+                    Write-Host "Plan updated on dashboard: $planTitle" -ForegroundColor Cyan
+                    Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
+                }
+                catch {
+                    # Plan not on dashboard yet — create it (first-time push)
                     try {
                         $createBody = @{
                             path        = $ProjectDir
@@ -207,69 +223,65 @@ if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
                         $response = Invoke-RestMethod -Uri "$dashboardBase/api/plans/create" `
                             -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
 
-                        $planId = $response.plan_id
-                        $planUrl = "$dashboardBase/plans/$planId"
+                        $planUrl = "$dashboardBase/plans/$($response.plan_id)"
                         Write-Host ""
                         Write-Host "Plan pushed to dashboard: $planTitle" -ForegroundColor Cyan
                         Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
                     }
                     catch {
                         Write-Warning "Could not push plan to dashboard ($($_.Exception.Message)). Review the file directly."
+                        $planUrl = $null
                     }
+                }
 
-                    Write-Host ""
-                    Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
-                    if ($planUrl) {
-                        Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
-                    }
-                    Write-Host "Please review the expanded plan." -ForegroundColor Green
-                    
-                    # --- Create room-plan for channel-based approval ---
-                    $roomPlanDir = Join-Path $warRoomsDir "room-plan"
-                    if (-not (Test-Path $roomPlanDir)) {
-                        & $newWarRoom -RoomId "room-plan" -TaskRef "PLAN-REVIEW" -TaskDescription "Review refined plan: $planTitle" -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir | Out-Null
-                    }
-                    & $postMessage -RoomDir $roomPlanDir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContentForApi | Out-Null
+                Write-Host ""
+                Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
+                if ($planUrl) {
+                    Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
+                }
+                Write-Host "Please review the expanded plan." -ForegroundColor Green
 
-                    # Configurable approval timeout (seconds). Default: 300s (5 min). Set PLAN_REVIEW_TIMEOUT_SECONDS=0 to disable.
-                    $reviewTimeoutSec = if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) { [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS } else { 300 }
-                    $reviewDeadline   = if ($reviewTimeoutSec -gt 0) { (Get-Date).AddSeconds($reviewTimeoutSec) } else { $null }
-                    Write-Host "Waiting for plan approval (timeout: $(if ($reviewTimeoutSec -gt 0) { "${reviewTimeoutSec}s" } else { 'none' }))..." -ForegroundColor Cyan
-                    Write-Host "  Press Enter to approve manually, or post 'plan-approve' to the room-plan channel." -ForegroundColor Cyan
+                # --- Create room-plan for channel-based approval ---
+                $roomPlanDir = Join-Path $warRoomsDir "room-plan"
+                if (-not (Test-Path $roomPlanDir)) {
+                    & $newWarRoom -RoomId "room-plan" -TaskRef "PLAN-REVIEW" -TaskDescription "Review refined plan: $planTitle" -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir | Out-Null
+                }
+                & $postMessage -RoomDir $roomPlanDir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContentForApi | Out-Null
 
-                    # Guard: RawUI.KeyAvailable throws in non-interactive/CI sessions
-                    $canReadKey = $false
-                    try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { }
+                # Configurable approval timeout
+                $reviewTimeoutSec = if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) { [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS } else { 300 }
+                $reviewDeadline   = if ($reviewTimeoutSec -gt 0) { (Get-Date).AddSeconds($reviewTimeoutSec) } else { $null }
+                Write-Host "Waiting for plan approval (timeout: $(if ($reviewTimeoutSec -gt 0) { "${reviewTimeoutSec}s" } else { 'none' }))..." -ForegroundColor Cyan
+                Write-Host "  Press Enter to approve manually, or post 'plan-approve' to the room-plan channel." -ForegroundColor Cyan
 
-                    $approved = $false
-                    while (-not $approved) {
-                        # Check keyboard (interactive sessions only)
-                        if ($canReadKey) {
-                            try {
-                                if ($Host.UI.RawUI.KeyAvailable) {
-                                    $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                                    if ($key.VirtualKeyCode -eq 13) { $approved = $true; Write-Host "Approved manually." }
-                                }
-                            } catch { $canReadKey = $false }  # lost interactivity mid-run
-                        }
+                $canReadKey = $false
+                try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { }
 
-                        # Check channel for plan-approve
-                        if (-not $approved) {
-                            $msgs = & (Join-Path $agentsDir "channel" "Read-Messages.ps1") -RoomDir $roomPlanDir -FilterType "plan-approve" -Last 1 -AsObject
-                            if ($msgs -and $msgs.Count -gt 0) {
-                                $approved = $true
-                                Write-Host "Approved via channel message!" -ForegroundColor Green
+                $approved = $false
+                while (-not $approved) {
+                    if ($canReadKey) {
+                        try {
+                            if ($Host.UI.RawUI.KeyAvailable) {
+                                $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                if ($key.VirtualKeyCode -eq 13) { $approved = $true; Write-Host "Approved manually." }
                             }
-                        }
-
-                        # Timeout guard
-                        if (-not $approved -and $reviewDeadline -and (Get-Date) -gt $reviewDeadline) {
-                            Write-Warning "Plan review timed out after ${reviewTimeoutSec}s. Auto-approving and continuing."
-                            $approved = $true
-                        }
-
-                        if (-not $approved) { Start-Sleep -Seconds 1 }
+                        } catch { $canReadKey = $false }
                     }
+
+                    if (-not $approved) {
+                        $msgs = & (Join-Path $agentsDir "channel" "Read-Messages.ps1") -RoomDir $roomPlanDir -FilterType "plan-approve" -Last 1 -AsObject
+                        if ($msgs -and $msgs.Count -gt 0) {
+                            $approved = $true
+                            Write-Host "Approved via channel message!" -ForegroundColor Green
+                        }
+                    }
+
+                    if (-not $approved -and $reviewDeadline -and (Get-Date) -gt $reviewDeadline) {
+                        Write-Warning "Plan review timed out after ${reviewTimeoutSec}s. Auto-approving and continuing."
+                        $approved = $true
+                    }
+
+                    if (-not $approved) { Start-Sleep -Seconds 1 }
                 }
             }
         }
@@ -295,11 +307,11 @@ if ($planContent -match '(?m)^working_dir:\s*(.+)$') {
 $parsed = [System.Collections.Generic.List[PSObject]]::new()
 $roomIndex = 1
 
-# Pattern: ### EPIC-NNN or ### TASK-NNN sections
-$epicPattern = '(?m)^(## Epic:\s+|###\s+)(EPIC-\d+)\s*[—–-]\s*(.+)$'
-$taskPattern = '- \[[ x]\]\s+(TASK-\d+)\s*[—–-]\s*(.+)'
-$dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|###|---|\z)'
-$acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|###|---|\z)'
+# Pattern: ## EPIC-NNN - Description
+$epicPattern = '(?m)^## (EPIC-\d+)\s*[-—–]\s*(.+)$'
+$taskPattern = '- \[[ x]\]\s+(TASK-\d+)\s*[-—–]\s*(.+)'
+$dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
+$acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
 $depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
 
 # Patterns for per-epic metadata
@@ -310,8 +322,8 @@ $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
 
 foreach ($em in $epicMatches) {
-    $epicRef = $em.Groups[2].Value
-    $epicDesc = $em.Groups[3].Value.Trim()
+    $epicRef = $em.Groups[1].Value
+    $epicDesc = $em.Groups[2].Value.Trim()
 
     # Find the epic section content
     $epicStart = $em.Index
@@ -335,7 +347,7 @@ foreach ($em in $epicMatches) {
 
     # Extract description body
     $descBody = ""
-    $descPattern = '(?m)^(?s)(?:## Epic:\s+|###\s+)EPIC-\d+\s*[—–-]\s*.+?\n(.*?)(?=####|\z)'
+    $descPattern = '(?m)^## EPIC-\d+\s*[-—–]\s*.+?\n(.*?)(?=####|\z)'
     if ($epicSection -match $descPattern) {
         $descBody = $Matches[1].Trim()
     }

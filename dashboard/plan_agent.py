@@ -24,7 +24,7 @@ PLAN_FORMAT_SPEC = """\
 ## Config
 working_dir: /path/to/your/project
 
-## Epic: EPIC-001 — <Epic Title>
+## EPIC-001 - <Epic Title>
 
 <Description of what the engineer should build.>
 <Be specific about modules, APIs, or structures to create.>
@@ -34,7 +34,7 @@ Acceptance criteria:
 - <Concrete, testable criterion 1>
 - <Concrete, testable criterion 2>
 
-## Epic: EPIC-002 — <Second Epic Title>
+## EPIC-002 - <Second Epic Title>
 
 <Description...>
 
@@ -60,7 +60,7 @@ You MUST produce a plan in EXACTLY this format:
 
 1. Every plan MUST start with `# Plan: <Title>`
 2. Every plan MUST have `## Config` with `working_dir:` (use `.` if not specified)
-3. Break the work into **2–5 Epics** (`## Epic: EPIC-XXX — Title`)
+3. Break the work into **2–5 Epics** (`## EPIC-XXX - Title`)
 4. Number epics sequentially: EPIC-001, EPIC-002, etc.
 5. Each Epic MUST have **Acceptance criteria:** as a bulleted list
 6. Be specific and actionable — an engineer agent reads this

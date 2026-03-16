@@ -48,7 +48,7 @@ export const TEMPLATES: Record<string, string> = {
 ## Config
 working_dir: .
 
-## Epic: EPIC-001 — Hello module with tests
+## EPIC-001 - Hello module with tests
 
 Build hello.py with a greet() function and full pytest test suite.
 
@@ -63,7 +63,7 @@ Acceptance criteria:
 ## Config
 working_dir: .
 
-## Epic: EPIC-001 — API foundation
+## EPIC-001 - API foundation
 
 Create FastAPI app with health endpoint, Pydantic models, and CRUD endpoints for items.
 
@@ -72,7 +72,7 @@ Acceptance criteria:
 - POST /items creates item, GET /items lists all
 - Pydantic validation on all inputs
 
-## Epic: EPIC-002 — Test suite
+## EPIC-002 - Test suite
 
 Write pytest tests for all endpoints with full coverage.
 
@@ -86,7 +86,7 @@ Acceptance criteria:
 ## Config
 working_dir: .
 
-## Epic: EPIC-001 — Backend API
+## EPIC-001 - Backend API
 
 FastAPI backend with SQLite, auth, and CRUD endpoints.
 
@@ -94,7 +94,7 @@ Acceptance criteria:
 - Auth flow works end-to-end
 - All CRUD endpoints functional
 
-## Epic: EPIC-002 — Frontend SPA
+## EPIC-002 - Frontend SPA
 
 React SPA with login, data views, and API integration.
 
@@ -102,7 +102,7 @@ Acceptance criteria:
 - Login/logout works
 - Data views render from API
 
-## Epic: EPIC-003 — Deployment
+## EPIC-003 - Deployment
 
 Docker compose for frontend + backend, GitHub Actions CI pipeline.
 

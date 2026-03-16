@@ -48,6 +48,7 @@ class CreatePlanRequest(BaseModel):
 
 class SavePlanRequest(BaseModel):
     content: str
+    change_source: str = "manual_save"  # "manual_save", "ai_refine", "expansion"
 
 class RefineRequest(BaseModel):
     message: str

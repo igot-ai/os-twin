@@ -1,5 +1,5 @@
 #!/bin/bash
-echo '## Epic: EPIC-001 — Expanded Title
+echo '## EPIC-001 - Expanded Title
 
 Expanded description.
 

@@ -76,6 +76,19 @@ export interface Plan {
   epic_count: number;
   created_at: string;
   filename: string;
+  version_count?: number;
+}
+
+// === Plan Version ===
+export interface PlanVersion {
+  id: string;
+  plan_id: string;
+  version: number;
+  title: string;
+  epic_count: number;
+  created_at: string;
+  change_source: string;
+  content?: string;  // Only present when fetching a specific version
 }
 
 // === Epic ===

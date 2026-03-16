@@ -22,7 +22,7 @@ if [[ "`$PROMPT" != *"Short desc."* ]]; then
   exit 1
 fi
 
-echo "### EPIC-001 — Expanded Title
+echo "## EPIC-001 - Expanded Title
 
 This is an expanded description.
 
@@ -61,7 +61,7 @@ complexity: XL
         $content = @"
 # Plan: Test
 
-## Epic: EPIC-002 — Fully Spec'd
+## EPIC-002 - Fully Spec'd
 
 - Description bullet 1
 - Description bullet 2
@@ -83,13 +83,13 @@ Description
 - [ ] T5
 "@
         $content | Out-File -FilePath $script:planFile -Encoding utf8
-        $outputFile = Join-Path $script:tempDir "PLAN.refined.md"
 
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$script:mockAgent'" 2>&1
         ($output -join "`n") | Should -Match "is already well-specified. Skipping."
-        
-        $refinedContent = Get-Content $outputFile -Raw
-        $refinedContent.Trim() | Should -Be $content.Trim()
+
+        # Plan file must be unchanged (no expansion performed)
+        $updatedContent = Get-Content $script:planFile -Raw
+        $updatedContent.Trim() | Should -Be $content.Trim()
     }
 
     It "expands underspecified epics" {
@@ -99,7 +99,7 @@ Description
 ## Config
 working_dir: /tmp
 
-## Epic: EPIC-001 — Simple Title
+## EPIC-001 — Simple Title
 
 Short desc.
 
@@ -112,44 +112,42 @@ Short desc.
 Review before starting.
 "@
         $content | Out-File -FilePath $script:planFile -Encoding utf8
-        $outputFile = Join-Path $script:tempDir "PLAN.refined.md"
 
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$script:mockAgent'" 2>&1
         ($output -join "`n") | Should -Match "Expanding EPIC-001"
         ($output -join "`n") | Should -Match "\[DONE\]"
 
-        Test-Path $outputFile | Should -BeTrue
-        $refinedContent = Get-Content $outputFile -Raw
-        
-        $refinedContent | Should -Match "Expanded Title"
-        $refinedContent | Should -Match "depends_on:"
-        $refinedContent | Should -Match "complexity: XL"
-        $refinedContent | Should -Match "- \[ \] Requirement 5"
-        $refinedContent | Should -Match "#### Implementation Strategy"
-        $refinedContent | Should -Match "Phase 1: Setup"
-        $refinedContent | Should -Match "- \[ \] Test 5"
-        $refinedContent | Should -Match "## Config"
-        $refinedContent | Should -Match "working_dir: /tmp"
-        $refinedContent | Should -Match "## Notes"
-        $refinedContent | Should -Match "Review before starting."
-        
-        # Original should be preserved
-        $originalContent = Get-Content $script:planFile -Raw
-        $originalContent | Should -Not -Match "Expanded Title"
+        # Plan file is updated in-place — no .refined.md created
+        $refinedFile = Join-Path $script:tempDir "PLAN.refined.md"
+        Test-Path $refinedFile | Should -BeFalse
+
+        $updatedContent = Get-Content $script:planFile -Raw
+        $updatedContent | Should -Match "Expanded Title"
+        $updatedContent | Should -Match "depends_on:"
+        $updatedContent | Should -Match "complexity: XL"
+        $updatedContent | Should -Match "- \[ \] Requirement 5"
+        $updatedContent | Should -Match "#### Implementation Strategy"
+        $updatedContent | Should -Match "Phase 1: Setup"
+        $updatedContent | Should -Match "- \[ \] Test 5"
+        $updatedContent | Should -Match "## Config"
+        $updatedContent | Should -Match "working_dir: /tmp"
+        $updatedContent | Should -Match "## Notes"
+        $updatedContent | Should -Match "Review before starting."
     }
 
-    It "expands epics with ### headers without deleting subsequent epics" {
+    It "expands epics with ## EPIC- headers without deleting subsequent epics" {
         $content = @"
 # Plan: Test
 
-### EPIC-001 — Simple Title
+## EPIC-001 - Simple Title
 
 Short desc.
 
 #### Definition of Done
 - [ ] One
 
-### EPIC-002 — Another Title
+## EPIC-002 - Another Title
+
 - Bullet 1
 - Bullet 2
 
@@ -170,27 +168,28 @@ Another short desc.
 - [ ] Five
 "@
         $content | Out-File -FilePath $script:planFile -Encoding utf8
-        $outputFile = Join-Path $script:tempDir "PLAN.refined.md"
 
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$script:mockAgent'" 2>&1
         ($output -join "`n") | Should -Match "Expanding EPIC-001"
         ($output -join "`n") | Should -Match "\[DONE\]"
         ($output -join "`n") | Should -Match "EPIC-002 is already well-specified. Skipping."
 
-        Test-Path $outputFile | Should -BeTrue
-        $refinedContent = Get-Content $outputFile -Raw
-        
-        $refinedContent | Should -Match "Expanded Title"
-        # We must verify EPIC-002 is still present in the file and wasn't swallowed by EPIC-001's regex
-        $refinedContent | Should -Match "### EPIC-002 — Another Title"
-        $refinedContent | Should -Match "Another short desc."
+        # Plan file is updated in-place
+        $refinedFile = Join-Path $script:tempDir "PLAN.refined.md"
+        Test-Path $refinedFile | Should -BeFalse
+
+        $updatedContent = Get-Content $script:planFile -Raw
+        $updatedContent | Should -Match "Expanded Title"
+        # EPIC-002 must still be present and not swallowed by EPIC-001's regex
+        $updatedContent | Should -Match "## EPIC-002 - Another Title"
+        $updatedContent | Should -Match "Another short desc."
     }
 
     It "runs in DryRun mode without modifying files" {
         $content = @"
 # Plan: Test
 
-## Epic: EPIC-001 — Simple Title
+## EPIC-001 - Simple Title
 
 Short desc.
 
@@ -198,11 +197,126 @@ Short desc.
 - [ ] One
 "@
         $content | Out-File -FilePath $script:planFile -Encoding utf8
-        $outputFile = Join-Path $script:tempDir "PLAN.refined.md"
 
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -DryRun -AgentCmd '$script:mockAgent'" 2>&1
         ($output -join "`n") | Should -Match "\[DryRun\] Would expand EPIC-001"
-        
-        Test-Path $outputFile | Should -BeFalse
+
+        # Original file must be untouched in DryRun
+        $updatedContent = Get-Content $script:planFile -Raw
+        $updatedContent.Trim() | Should -Be $content.Trim()
+    }
+
+    It "POSTs expanded content to the dashboard save endpoint" {
+        $content = @"
+# Plan: Test
+
+## EPIC-001 - Simple Title
+
+Short desc.
+
+#### Definition of Done
+- [ ] One
+"@
+        $content | Out-File -FilePath $script:planFile -Encoding utf8
+
+        # --- Start a mock HTTP server on an ephemeral port ---
+        $port = Get-Random -Minimum 19000 -Maximum 19999
+        $mockPort = $port
+        $captured = Join-Path $script:tempDir "captured_body.json"
+
+        $serverJob = Start-Job -ScriptBlock {
+            param($port, $outFile)
+            $listener = [System.Net.HttpListener]::new()
+            $listener.Prefixes.Add("http://localhost:$port/")
+            $listener.Start()
+            try {
+                $ctx = $listener.GetContext()
+                $reader = [System.IO.StreamReader]::new($ctx.Request.InputStream)
+                $body = $reader.ReadToEnd()
+                $body | Out-File -FilePath $outFile -Encoding utf8 -NoNewline
+                $ctx.Response.StatusCode = 200
+                $respBytes = [System.Text.Encoding]::UTF8.GetBytes('{"ok":true}')
+                $ctx.Response.ContentLength64 = $respBytes.Length
+                $ctx.Response.OutputStream.Write($respBytes, 0, $respBytes.Length)
+                $ctx.Response.OutputStream.Close()
+            }
+            finally { $listener.Stop() }
+        } -ArgumentList $mockPort, $captured
+
+        Start-Sleep -Milliseconds 400   # let listener bind
+
+        try {
+            $env:DASHBOARD_URL = "http://localhost:$mockPort"
+            $output = pwsh -NoProfile -Command "
+                `$env:DASHBOARD_URL = 'http://localhost:$mockPort'
+                & '$script:ExpandPlan' -PlanFile '$script:planFile' -PlanId 'testplan123' -AgentCmd '$script:mockAgent'
+            " 2>&1
+        }
+        finally {
+            $env:DASHBOARD_URL = $null
+            $serverJob | Wait-Job -Timeout 5 | Out-Null
+            Remove-Job $serverJob -Force -ErrorAction SilentlyContinue
+        }
+
+        # Verify the save endpoint was called and body contains expanded content
+        Test-Path $captured | Should -BeTrue -Because "mock server should have received a POST body"
+        $body = Get-Content $captured -Raw | ConvertFrom-Json
+        $body.content | Should -Match "Expanded Title"
+        $body.change_source | Should -Be "expansion"
+
+        # Verify dashboard sync message in output
+        ($output -join "`n") | Should -Match "Synced to dashboard"
+    }
+
+    It "does not call the save endpoint in DryRun mode" {
+        $content = @"
+# Plan: Test
+
+## EPIC-001 - Simple Title
+
+Short desc.
+
+#### Definition of Done
+- [ ] One
+"@
+        $content | Out-File -FilePath $script:planFile -Encoding utf8
+
+        # --- Start a mock HTTP server that records whether it was hit ---
+        $port = Get-Random -Minimum 19000 -Maximum 19999
+        $hitFile = Join-Path $script:tempDir "was_hit.txt"
+
+        $serverJob = Start-Job -ScriptBlock {
+            param($port, $hitFile)
+            $listener = [System.Net.HttpListener]::new()
+            $listener.Prefixes.Add("http://localhost:$port/")
+            $listener.Start()
+            try {
+                # Wait up to 3 seconds for a request
+                $task = $listener.GetContextAsync()
+                if ($task.Wait(3000)) {
+                    "HIT" | Out-File -FilePath $hitFile -Encoding utf8 -NoNewline
+                    $ctx = $task.Result
+                    $ctx.Response.StatusCode = 200
+                    $ctx.Response.OutputStream.Close()
+                }
+            }
+            finally { $listener.Stop() }
+        } -ArgumentList $port, $hitFile
+
+        Start-Sleep -Milliseconds 400
+
+        try {
+            pwsh -NoProfile -Command "
+                `$env:DASHBOARD_URL = 'http://localhost:$port'
+                & '$script:ExpandPlan' -PlanFile '$script:planFile' -PlanId 'testplan123' -DryRun -AgentCmd '$script:mockAgent'
+            " 2>&1 | Out-Null
+        }
+        finally {
+            $serverJob | Wait-Job -Timeout 5 | Out-Null
+            Remove-Job $serverJob -Force -ErrorAction SilentlyContinue
+        }
+
+        # In DryRun mode — server must NOT have been hit
+        (Test-Path $hitFile) | Should -BeFalse -Because "DryRun must not call the save API"
     }
 }

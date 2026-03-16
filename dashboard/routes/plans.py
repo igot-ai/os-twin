@@ -174,7 +174,30 @@ async def create_plan(request: CreatePlanRequest):
         plan_file.write_text(request.content)
     else:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        plan_file.write_text(f"# Plan: {request.title}\n\n> Created: {now}\n> Status: draft\n> Project: {request.path}\n\n## Config\n\nworking_dir: {working_dir}\n\n---\n\n## Goal\n\n{request.title}\n\n## Epics\n\n### EPIC-001 — {request.title}\n\n#### Definition of Done\n- [ ] Core functionality implemented\n\n#### Tasks\n- [ ] TASK-001 — Design and plan implementation\n")
+        plan_file.write_text(f"""# Plan: {request.title}
+
+> Created: {now}
+> Status: draft
+> Project: {request.path}
+
+## Config
+
+working_dir: {working_dir}
+
+---
+
+## Goal
+
+{request.title}
+
+## EPIC-001 - {request.title}
+
+#### Definition of Done
+- [ ] Core functionality implemented
+
+#### Tasks
+- [ ] TASK-001 — Design and plan implementation
+""")
 
     meta_file = plans_dir / f"{plan_id}.meta.json"
     meta = {"plan_id": plan_id, "title": request.title, "working_dir": working_dir, "warrooms_dir": str(Path(working_dir) / ".war-rooms"), "created_at": datetime.now(timezone.utc).isoformat(), "status": "draft"}
@@ -201,6 +224,22 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
     
+    # --- Snapshot current content as a version before overwriting ---
+    store = global_state.store
+    old_content = plan_file.read_text()
+    if old_content.strip() and old_content.strip() != request.content.strip():
+        if store:
+            try:
+                old_title_match = re.search(r"^# Plan:\s*(.+)", old_content, re.MULTILINE)
+                old_title = old_title_match.group(1).strip() if old_title_match else plan_id
+                old_epics = len(re.findall(r"^## (Epic|Task):", old_content, re.MULTILINE))
+                store.save_plan_version(
+                    plan_id=plan_id, content=old_content, title=old_title,
+                    epic_count=old_epics, change_source=request.change_source,
+                )
+            except Exception as e:
+                logger.warning("Failed to snapshot plan version for %s: %s", plan_id, e)
+
     plan_file.write_text(request.content)
     
     # Update meta if title changed (best effort)
@@ -218,7 +257,6 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
         except Exception: pass
 
     # Update zvec if available
-    store = global_state.store
     if store:
         try:
             # Re-parse epic count
@@ -273,8 +311,8 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=422, detail="Plan content is empty")
 
     # Quick pre-flight: must contain at least one ## Epic: or ## Task: section
-    if not _re_mod.search(r"^## (Epic|Task):", plan, _re_mod.MULTILINE):
-        raise HTTPException(status_code=400, detail="Plan contains no epics or tasks. Add at least one '## Epic: EPIC-XXX — Title' section.")
+    if not _re_mod.search(r"^## (EPIC-|Task:)", plan, _re_mod.MULTILINE):
+        raise HTTPException(status_code=400, detail="Plan contains no epics or tasks. Add at least one '## EPIC-XXX - Title' section.")
 
     run_sh = AGENTS_DIR / "run.sh"
     if not run_sh.exists():
@@ -290,6 +328,18 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     # --- .md: only write when content actually changed ---
     existing_content = plan_path.read_text() if plan_path.exists() else None
     if existing_content != plan:
+        # Snapshot old content before overwriting
+        if existing_content and existing_content.strip() and store:
+            try:
+                old_title_match = _re_mod.search(r"^# Plan:\s*(.+)", existing_content, _re_mod.MULTILINE)
+                old_title = old_title_match.group(1).strip() if old_title_match else plan_id
+                old_epics = len(_re_mod.findall(r"^## (Epic|Task):", existing_content, _re_mod.MULTILINE))
+                store.save_plan_version(
+                    plan_id=plan_id, content=existing_content, title=old_title,
+                    epic_count=old_epics, change_source="expansion",
+                )
+            except Exception as e:
+                logger.warning("Failed to snapshot plan version before launch %s: %s", plan_id, e)
         plan_path.write_text(plan)
         logger.info(f"run_plan: wrote updated plan content for {plan_id}")
     else:
@@ -398,6 +448,77 @@ async def update_plan_status(plan_id: str, request: dict):
             )
         except Exception: pass
     return {"status": "updated", "plan_id": plan_id, "new_status": meta["status"]}
+
+# --- Plan Versioning ---
+
+@router.get("/api/plans/{plan_id}/versions")
+async def list_plan_versions(plan_id: str, user: dict = Depends(get_current_user)):
+    """List all versions for a plan (content excluded for performance)."""
+    store = global_state.store
+    if not store:
+        return {"plan_id": plan_id, "versions": [], "count": 0}
+    versions = store.get_plan_versions(plan_id)
+    return {"plan_id": plan_id, "versions": versions, "count": len(versions)}
+
+@router.get("/api/plans/{plan_id}/versions/{version}")
+async def get_plan_version(plan_id: str, version: int, user: dict = Depends(get_current_user)):
+    """Fetch a specific plan version with full content."""
+    store = global_state.store
+    if not store:
+        raise HTTPException(status_code=503, detail="Version store not available")
+    v = store.get_plan_version(plan_id, version)
+    if not v:
+        raise HTTPException(status_code=404, detail=f"Version {version} not found for plan {plan_id}")
+    return {"plan_id": plan_id, "version": v}
+
+@router.post("/api/plans/{plan_id}/versions/{version}/restore")
+async def restore_plan_version(plan_id: str, version: int, user: dict = Depends(get_current_user)):
+    """Restore a previous version as the current plan content."""
+    store = global_state.store
+    if not store:
+        raise HTTPException(status_code=503, detail="Version store not available")
+
+    # Fetch the version to restore
+    v = store.get_plan_version(plan_id, version)
+    if not v:
+        raise HTTPException(status_code=404, detail=f"Version {version} not found for plan {plan_id}")
+
+    plans_dir = AGENTS_DIR / "plans"
+    plan_file = plans_dir / f"{plan_id}.md"
+    if not plan_file.exists():
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+
+    # Snapshot current content before restoring
+    current_content = plan_file.read_text()
+    if current_content.strip():
+        try:
+            cur_title_match = re.search(r"^# Plan:\s*(.+)", current_content, re.MULTILINE)
+            cur_title = cur_title_match.group(1).strip() if cur_title_match else plan_id
+            cur_epics = len(re.findall(r"^## (Epic|Task):", current_content, re.MULTILINE))
+            store.save_plan_version(
+                plan_id=plan_id, content=current_content, title=cur_title,
+                epic_count=cur_epics, change_source="before_restore",
+            )
+        except Exception as e:
+            logger.warning("Failed to snapshot before restore %s: %s", plan_id, e)
+
+    # Restore
+    restored_content = v["content"]
+    plan_file.write_text(restored_content)
+
+    # Update zvec plan index
+    try:
+        title_match = re.search(r"^# Plan:\s*(.+)", restored_content, re.MULTILINE)
+        title = title_match.group(1).strip() if title_match else plan_id
+        epics_found = re.findall(r"^## (Epic|Task):", restored_content, re.MULTILINE)
+        store.index_plan(
+            plan_id=plan_id, title=title, content=restored_content,
+            epic_count=len(epics_found), filename=f"{plan_id}.md",
+        )
+    except Exception as e:
+        logger.warning("Failed to update zvec after restore %s: %s", plan_id, e)
+
+    return {"status": "restored", "plan_id": plan_id, "restored_version": version}
 
 @router.get("/api/goals")
 async def get_all_goals():

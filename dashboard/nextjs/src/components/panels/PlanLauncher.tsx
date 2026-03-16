@@ -548,7 +548,7 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected }: PlanLau
           className="plan-textarea"
           value={planText}
           onChange={(e) => setPlanText(e.target.value)}
-          placeholder={`# Plan: My Feature\n\n## Config\nworking_dir: .\n\n## Epic: EPIC-001 — Feature Title\n\nDescribe the feature to deliver...`}
+          placeholder={`# Plan: My Feature\n\n## Config\nworking_dir: .\n\n## EPIC-001 - Feature Title\n\nDescribe the feature to deliver...`}
           spellCheck={false}
         />
 
