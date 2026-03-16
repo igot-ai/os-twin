@@ -25,7 +25,7 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
   const [activeTab, setActiveTab] = useState<'editor' | 'preview' | 'settings' | 'history'>('editor');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  
+
   const [roles, setRoles] = useState<RoleConfig[]>([]);
   const [roleConfig, setRoleConfig] = useState<Record<string, any>>({});
   const [isRefreshingRoles, setIsRefreshingRoles] = useState(false);
@@ -60,12 +60,12 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
         setTitle(data.plan.title || planId);
       }
     });
-    
+
     // Load config
     apiGet<Record<string, any>>(`/api/plans/${planId}/config`).then(data => {
       setRoleConfig(data || {});
     });
-    
+
     // Load roles metadata
     apiGet<{ roles: RoleConfig[] }>(`/api/plans/${planId}/roles`).then(data => {
       setRoles(data.roles || []);
@@ -77,12 +77,12 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
     setSaveStatus('Saving content...');
     try {
       await apiPost(`/api/plans/${planId}/save`, { content });
-      
+
       if (Object.keys(roleConfig).length > 0) {
         setSaveStatus('Saving config...');
         await apiPost(`/api/plans/${planId}/config`, roleConfig);
       }
-      
+
       setSaveStatus('Saved!');
       onPlanSaved?.();
       setTimeout(() => setSaveStatus(null), 2000);
@@ -162,32 +162,32 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
           {/* Left Column: Editor/Preview/Settings */}
           <div className="editor-view-column">
             <div className="editor-tabs">
-              <button 
+              <button
                 className={`editor-tab ${activeTab === 'editor' ? 'active' : ''}`}
                 onClick={() => setActiveTab('editor')}
               >
                 Editor
               </button>
-              <button 
+              <button
                 className={`editor-tab ${activeTab === 'preview' ? 'active' : ''}`}
                 onClick={() => setActiveTab('preview')}
               >
                 Preview
               </button>
-              <button 
+              <button
                 className={`editor-tab ${activeTab === 'settings' ? 'active' : ''}`}
                 onClick={() => setActiveTab('settings')}
               >
                 Roles Settings
               </button>
-              <button 
+              <button
                 className={`editor-tab ${activeTab === 'history' ? 'active' : ''}`}
                 onClick={() => { setActiveTab('history'); loadVersions(); }}
               >
                 History{versions.length > 0 ? ` (${versions.length})` : ''}
               </button>
             </div>
-            
+
             <div className="editor-content-area">
               {activeTab === 'editor' && (
                 <textarea
@@ -205,7 +205,7 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
                 <div className="editor-settings-view">
                   <h2 className="settings-title">Role Overrides</h2>
                   <p className="settings-desc">Customize models for this plan. These take precedence over global settings.</p>
-                  
+
                   <div className="roles-grid">
                     {roles.length === 0 ? <p className="muted-text">Loading roles...</p> : roles.map(role => (
                       <div key={role.name} className="role-card glass">
@@ -215,14 +215,14 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
                         <p className="role-desc">{role.description}</p>
                         <div className="role-field">
                           <label>Model</label>
-                          <select 
+                          <select
                             value={roleConfig[role.name]?.default_model || role.default_model}
                             onChange={(e) => updateRoleModel(role.name, e.target.value)}
                           >
                             <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
                             <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
-                            <option value="gpt-4o">GPT-4o</option>
-                            <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                            <option value="anthropic:claude-opus-4-6">Claude 4.6 Opus</option>
+                            <option value="anthropic:claude-sonnet-4-6">Claude 4.6 Sonnet</option>
                           </select>
                         </div>
                       </div>
@@ -234,10 +234,10 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
                 <div className="editor-settings-view">
                   <h2 className="settings-title">Version History</h2>
                   <p className="settings-desc">Previous versions of this plan. Click to view, restore to revert.</p>
-                  
+
                   {isLoadingVersions && <p className="muted-text">Loading versions...</p>}
                   {versionError && <p style={{ color: '#ff6b6b', fontSize: '0.85rem' }}>{versionError}</p>}
-                  
+
                   {selectedVersion ? (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
