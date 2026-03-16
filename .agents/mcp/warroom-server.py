@@ -23,8 +23,6 @@ StatusType = Literal[
     "engineering",
     "qa-review",
     "fixing",
-    "passed",
-    "failed-final",
 ]
 
 mcp = FastMCP("agent-os-warroom")
@@ -33,22 +31,45 @@ mcp = FastMCP("agent-os-warroom")
 @mcp.tool()
 def update_status(
     room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
-    status: Annotated[StatusType, Field(description="New status: pending | engineering | qa-review | fixing | passed | failed-final")],
+    status: Annotated[StatusType, Field(description="New status: pending | engineering | qa-review | fixing (terminal states like passed/failed-final are manager-only)")],
 ) -> str:
     """Update the war-room status file.
 
     Writes {status} to {room_dir}/status.
-    Raises ValueError for an unrecognised status string.
+    Terminal states (passed, failed-final) are reserved for the manager —
+    agents must NOT set them directly.
+    Raises ValueError for an unrecognised or forbidden status string.
     Returns a confirmation string "status:{status}".
     """
     valid = get_args(StatusType)
     if status not in valid:
-        raise ValueError(f"Invalid status {status!r}. Must be one of: {list(valid)}")
+        raise ValueError(
+            f"Invalid status {status!r}. Must be one of: {list(valid)}. "
+            f"Terminal states (passed, failed-final) are manager-only."
+        )
 
     os.makedirs(room_dir, exist_ok=True)
     status_file = os.path.join(room_dir, "status")
+
+    # Read old status for audit
+    old_status = "unknown"
+    if os.path.exists(status_file):
+        with open(status_file) as f:
+            old_status = f.read().strip()
+
+    # Write new status
     with open(status_file, "w") as f:
         f.write(status)
+
+    # Write state_changed_at (epoch seconds)
+    epoch = int(datetime.now(timezone.utc).timestamp())
+    with open(os.path.join(room_dir, "state_changed_at"), "w") as f:
+        f.write(str(epoch))
+
+    # Append audit log
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with open(os.path.join(room_dir, "audit.log"), "a") as f:
+        f.write(f"{ts} STATUS {old_status} -> {status}\n")
 
     return f"status:{status}"
 

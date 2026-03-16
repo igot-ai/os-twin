@@ -61,7 +61,6 @@ When assigned a Task, implement it directly:
 ## Communication
 
 Use the channel MCP tools to:
-- Read your task: `get_task()`
 - Report progress: `report_progress(percent, message)`
 - Post completion: `post_message(type="done", body="...")`
 

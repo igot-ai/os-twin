@@ -806,8 +806,28 @@ while (-not $script:shuttingDown) {
             }
 
             'failed-final' {
-                $allPassed = $false
-                $failedCount++
+                # Safety net: if retries not exhausted, an external agent may have
+                # bypassed the manager (e.g., QA called warroom_update_status directly).
+                # Rescue the room back to manager-triage so the normal flow can proceed.
+                if ($retries -lt $maxRetries) {
+                    $failFeedback = Get-LatestBody $roomDir "fail"
+                    if (-not $failFeedback) { $failFeedback = Get-LatestBody $roomDir "error" }
+                    if ($failFeedback) {
+                        Write-Log "WARN" "[$taskRef] failed-final with retries=$retries < max=$maxRetries. Rescuing to manager-triage."
+                        Write-RoomStatus $roomDir "manager-triage"
+                        $allPassed = $false
+                        $allTerminal = $false
+                    }
+                    else {
+                        # No feedback messages — truly terminal
+                        $allPassed = $false
+                        $failedCount++
+                    }
+                }
+                else {
+                    $allPassed = $false
+                    $failedCount++
+                }
             }
 
             'blocked' {

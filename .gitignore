@@ -3,7 +3,7 @@
 .agents/plans/**
 *.war-rooms/**
 .agents/logs/**
-*.war-rooms/**
+.war-rooms/**
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/

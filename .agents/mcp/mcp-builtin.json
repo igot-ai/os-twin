@@ -9,17 +9,6 @@
         "AGENT_OS_ROOT": "."
       }
     },
-    "StitchMCP": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "https://stitch.googleapis.com/mcp",
-        "--header",
-        "X-Goog-Api-Key: AQ.Ab8RN6It1am6TxNckAuqiI-lCBvyXoDPdm982nKGD7vOOfFqEA"
-      ],
-      "env": {}
-    },
     "warroom": {
       "command": "python",
       "args": [

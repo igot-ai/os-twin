@@ -75,9 +75,8 @@ Include:
 ## Communication
 
 Use the channel MCP tools to:
-- Read engineer's work: `read_messages(type="done")`
-- Read the assignment: `get_task()`
-- Post verdict: `post_message(type="pass"|"fail"|"escalate", body="...")`
+- Read engineer's work: `read_messages(from_role="engineer")`
+- Post verdict: `post_message(from_role="qa", msg_type="pass"|"fail"|"escalate", body="...")`
 
 ## Principles
 

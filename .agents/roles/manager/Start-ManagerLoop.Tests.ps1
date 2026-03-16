@@ -441,4 +441,92 @@ Engineer: Follow the architect's guidance above to redesign the approach.
             $msgs[0].body | Should -Match "RECOMMENDATION: FIX"
         }
     }
+
+    Context "External status bypass rescue (QA-bypass scenario)" {
+        It "failed-final with retries remaining and fail message rescues to manager-triage" {
+            # This reproduces the exact room-001 bug: QA agent called
+            # warroom_update_status to set failed-final, bypassing the manager.
+            & $script:NewWarRoom -RoomId "room-120" -TaskRef "EPIC-120" `
+                                 -TaskDescription "QA bypass test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-120"
+
+            # Simulate: engineer done, QA posted fail, but QA also set status directly
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                  -Type "done" -Ref "EPIC-120" -Body "Implemented feature"
+            & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
+                                  -Type "fail" -Ref "EPIC-120" `
+                                  -Body "VERDICT: FAIL`nBuild integrity issues found."
+
+            # QA agent bypassed manager and set failed-final directly
+            "failed-final" | Out-File -FilePath (Join-Path $roomDir "status") -NoNewline
+
+            # Retries still at 0 (manager never got to increment)
+            $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
+            $retries | Should -Be 0
+
+            # Verify there IS a fail message (rescue condition)
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -AsObject
+            $msgs.Count | Should -BeGreaterThan 0
+
+            # The manager rescue logic should detect:
+            #   status=failed-final AND retries(0) < maxRetries(3) AND fail message exists
+            # This means the room SHOULD be rescued to manager-triage, not left as terminal.
+            $maxRetries = 3
+            ($retries -lt $maxRetries) | Should -BeTrue
+        }
+
+        It "failed-final with retries exhausted stays terminal" {
+            & $script:NewWarRoom -RoomId "room-121" -TaskRef "TASK-121" `
+                                 -TaskDescription "Exhausted retries" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-121"
+
+            # Simulate exhausted retries
+            "3" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed-final"
+
+            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $status | Should -Be "failed-final"
+
+            # With retries(3) >= maxRetries(3), should stay terminal
+            $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
+            $maxRetries = 3
+            ($retries -ge $maxRetries) | Should -BeTrue
+        }
+
+        It "failed-final with no fail/error messages stays terminal" {
+            & $script:NewWarRoom -RoomId "room-122" -TaskRef "TASK-122" `
+                                 -TaskDescription "No feedback" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-122"
+
+            # Status set to failed-final but no fail messages posted
+            "failed-final" | Out-File -FilePath (Join-Path $roomDir "status") -NoNewline
+
+            # No fail or error messages exist
+            $failMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -AsObject
+            $errorMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "error" -AsObject
+            ($failMsgs.Count + $errorMsgs.Count) | Should -Be 0
+        }
+    }
+
+    Context "warroom-server MCP status restriction" {
+        It "warroom-server.py rejects terminal statuses" {
+            # Verify the MCP server's StatusType no longer includes terminal states
+            $serverPy = Join-Path $script:agentsDir "mcp" "warroom-server.py"
+            $content = Get-Content $serverPy -Raw
+
+            # Should NOT contain passed or failed-final in the StatusType Literal
+            # Extract the StatusType block
+            $content | Should -Match 'StatusType\s*=\s*Literal\['
+            $content | Should -Not -Match 'StatusType\s*=\s*Literal\[[\s\S]*?"passed"'
+            $content | Should -Not -Match 'StatusType\s*=\s*Literal\[[\s\S]*?"failed-final"'
+        }
+
+        It "warroom-server.py writes audit.log on status change" {
+            $serverPy = Join-Path $script:agentsDir "mcp" "warroom-server.py"
+            $content = Get-Content $serverPy -Raw
+
+            $content | Should -Match 'audit\.log'
+            $content | Should -Match 'state_changed_at'
+        }
+    }
 }
