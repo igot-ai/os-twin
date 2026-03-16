@@ -155,19 +155,26 @@ async def run_textual_cli_async(
         try:
             from deepagents_cli.mcp_tools import resolve_and_load_mcp_tools
 
+            # Default to AGENT_DIR/mcp/mcp-config.json when not explicitly set
+            resolved_mcp_config = mcp_config_path
+            if not resolved_mcp_config and not no_mcp:
+                _agents_dir = Path(__file__).resolve().parent.parent
+                default_cfg = _agents_dir / "mcp" / "mcp-config.json"
+                if default_cfg.exists():
+                    resolved_mcp_config = str(default_cfg)
+
             (
                 mcp_tools,
                 mcp_session_manager,
                 mcp_server_info,
             ) = await resolve_and_load_mcp_tools(
-                explicit_config_path=mcp_config_path,
+                explicit_config_path=resolved_mcp_config,
                 no_mcp=no_mcp,
                 trust_project_mcp=trust_project_mcp,
             )
             tools.extend(mcp_tools)
         except FileNotFoundError as e:
-            console.print(f"[red]✗ MCP config file not found: {e}[/red]")
-            sys.exit(1)
+            console.print(f"[yellow]⚠ MCP config not found: {e} — continuing without MCP tools[/yellow]")
         except RuntimeError as e:
             console.print(f"[red]✗ Failed to load MCP tools: {e}[/red]")
             sys.exit(1)

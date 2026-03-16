@@ -44,6 +44,31 @@ PYTHON="${AGENTS_DIR}/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
+# --- Load .env files (available to ALL subcommands) ---
+# Priority: ~/.ostwin/.env (global) → $AGENTS_DIR/.env (project)
+# Only set vars that are not already in the environment.
+_load_env_file() {
+  local envfile="$1"
+  [[ -f "$envfile" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Skip comments and blank lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// /}" ]] && continue
+    # Extract KEY=VALUE (strip surrounding quotes from value)
+    local key="${line%%=*}"
+    local val="${line#*=}"
+    key="${key// /}"
+    val="${val#\"}" ; val="${val%\"}"
+    val="${val#\'}" ; val="${val%\'}"
+    # Only export if not already set in the environment
+    if [[ -n "$key" && -z "${!key+x}" ]]; then
+      export "$key=$val"
+    fi
+  done < "$envfile"
+}
+_load_env_file "$HOME/.ostwin/.env"
+_load_env_file "$AGENTS_DIR/.env"
+
 # Resolve the Python that has deepagents_cli installed (uv-tool env).
 # Priority: shebang of the deepagents binary → sibling python3 → fallback to $PYTHON.
 DEEPAGENTS_PYTHON="$PYTHON"
@@ -170,6 +195,7 @@ Commands:
   health            Check system health
   mcp               Manage MCP extensions
                     Subcommands: install, list, catalog, remove, sync
+  reload-env        Reload ~/.ostwin/.env into mcp-config.json env blocks
   test              Run test suites
                     Options: --suite NAME, --verbose
   version           Show version
@@ -487,6 +513,74 @@ else:
   mcp)
     shift
     exec "$AGENTS_DIR/mcp/mcp-extension.sh" "$@"
+    ;;
+  reload-env)
+    shift
+    ENV_FILE="$HOME/.ostwin/.env"
+    if [[ ! -f "$ENV_FILE" ]]; then
+      echo "✗ .env not found at $ENV_FILE" >&2
+      exit 1
+    fi
+
+    # Collect all mcp-config.json files to patch
+    MCP_CONFIGS=()
+    [[ -f "$HOME/.ostwin/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/mcp/mcp-config.json")
+    [[ -f "$AGENTS_DIR/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$AGENTS_DIR/mcp/mcp-config.json")
+    # Deduplicate (in case they're the same file)
+    MCP_CONFIGS=($(printf '%s\n' "${MCP_CONFIGS[@]}" | sort -u))
+
+    if [[ ${#MCP_CONFIGS[@]} -eq 0 ]]; then
+      echo "✗ No mcp-config.json found" >&2
+      exit 1
+    fi
+
+    for MCP_CONFIG in "${MCP_CONFIGS[@]}"; do
+      echo "Reloading $ENV_FILE → $MCP_CONFIG ..."
+      "$PYTHON" - "$MCP_CONFIG" "$ENV_FILE" <<'PYEOF'
+import json, sys
+
+mcp_path, env_path = sys.argv[1], sys.argv[2]
+
+# Parse .env
+env_vars = {}
+with open(env_path) as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if '=' not in line:
+            continue
+        key, _, val = line.partition('=')
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            env_vars[key] = val
+
+if not env_vars:
+    print('  No variables found in .env')
+    sys.exit(0)
+
+# Read and patch
+with open(mcp_path) as f:
+    config = json.load(f)
+
+servers = config.get('mcpServers', {})
+for name, server in servers.items():
+    if 'env' not in server:
+        server['env'] = {}
+    for k, v in env_vars.items():
+        server['env'][k] = v
+
+with open(mcp_path, 'w') as f:
+    json.dump(config, f, indent=2)
+    f.write('\n')
+
+print(f'  ✓ Injected {len(env_vars)} var(s) into {len(servers)} MCP server(s)')
+for name in servers:
+    print(f'    • {name}')
+PYEOF
+    done
+    echo "Done."
     ;;
   config)
     shift

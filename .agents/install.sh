@@ -569,15 +569,33 @@ install_files() {
   mkdir -p "$INSTALL_DIR"
 
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
+  # NOTE: mcp/ is excluded to preserve user's installed extensions and config
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
+    --exclude='mcp/' \
     "$SCRIPT_DIR/" "$INSTALL_DIR/" 2>/dev/null || {
-      # rsync fallback to cp
-      cp -r "$SCRIPT_DIR/"* "$INSTALL_DIR/" 2>/dev/null || true
-      find "$SCRIPT_DIR" -maxdepth 1 -name '.*' -not -name '.' -not -name '..' \
+      # rsync fallback to cp (exclude mcp/ manually)
+      find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
         -exec cp -r {} "$INSTALL_DIR/" \; 2>/dev/null || true
     }
+
+  # ── MCP: seed on first install, never overwrite ────────────────────────────
+  if [[ ! -d "$INSTALL_DIR/mcp" ]]; then
+    step "Seeding mcp/ directory (first install)..."
+    cp -r "$SCRIPT_DIR/mcp" "$INSTALL_DIR/mcp"
+    ok "mcp/ seeded"
+  else
+    # Always update the builtin template so new built-in servers are available
+    if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
+      cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$INSTALL_DIR/mcp/mcp-builtin.json"
+    fi
+    # Sync MCP server scripts (channel-server.py, warroom-server.py, etc.)
+    for f in "$SCRIPT_DIR"/mcp/*.py "$SCRIPT_DIR"/mcp/*.sh "$SCRIPT_DIR"/mcp/requirements.txt; do
+      [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/mcp/"
+    done
+    ok "mcp/ preserved (scripts updated, config untouched)"
+  fi
 
   # ── Dashboard: always override from source repo ───────────────────────────
   local dash_src=""
@@ -615,16 +633,69 @@ install_files() {
 
 patch_mcp_config() {
   local mcp_config="$INSTALL_DIR/mcp/mcp-config.json"
-  if [[ -f "$mcp_config" ]]; then
-    step "Patching MCP config with venv Python path..."
-    # Cross-platform sed (works on both macOS and Linux)
-    if [[ "$OS" == "macos" ]]; then
-      sed -i '' "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
-    else
-      sed -i "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
-    fi
-    ok "MCP config patched"
+  local env_file="$INSTALL_DIR/.env"
+
+  if [[ ! -f "$mcp_config" ]]; then
+    return
   fi
+
+  step "Patching MCP config..."
+
+  # 1. Replace OSTWIN_VENV_PYTHON placeholder
+  if [[ "$OS" == "macos" ]]; then
+    sed -i '' "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+  else
+    sed -i "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+  fi
+
+  # 2. Inject all .env variables into every MCP server's "env" block
+  if [[ -f "$env_file" ]]; then
+    "$VENV_DIR/bin/python" - "$mcp_config" "$env_file" <<'PYEOF'
+import json, sys, os
+
+mcp_path, env_path = sys.argv[1], sys.argv[2]
+
+# Parse .env file into a dict
+env_vars = {}
+with open(env_path) as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if '=' not in line:
+            continue
+        key, _, val = line.partition('=')
+        key = key.strip()
+        # Strip surrounding quotes
+        val = val.strip().strip('"').strip("'")
+        if key:
+            env_vars[key] = val
+
+if not env_vars:
+    sys.exit(0)
+
+# Read and patch mcp-config.json
+with open(mcp_path) as f:
+    config = json.load(f)
+
+servers = config.get('mcpServers', {})
+for name, server in servers.items():
+    if 'env' not in server:
+        server['env'] = {}
+    # Merge .env vars (don't overwrite existing per-server values)
+    for k, v in env_vars.items():
+        if k not in server['env']:
+            server['env'][k] = v
+
+with open(mcp_path, 'w') as f:
+    json.dump(config, f, indent=2)
+    f.write('\n')
+
+print(f"    Injected {len(env_vars)} env var(s) into {len(servers)} MCP server(s)")
+PYEOF
+  fi
+
+  ok "MCP config patched"
 }
 
 # ─── PATH setup ──────────────────────────────────────────────────────────────

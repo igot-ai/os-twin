@@ -20,6 +20,53 @@ from dashboard.auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["system"])
 
+# ── .env settings ─────────────────────────────────────────────────────
+
+_OSTWIN_DIR = Path.home() / ".ostwin"
+_ENV_FILE = _OSTWIN_DIR / ".env"
+
+def _parse_env(text: str) -> list[dict]:
+    """Parse .env file into structured entries.
+    Each entry is {type, key, value, enabled, comment} or {type, text}.
+    """
+    entries = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            entries.append({"type": "blank"})
+        elif stripped.startswith("#") and "=" in stripped:
+            # Commented-out variable: # KEY=value
+            rest = stripped.lstrip("# ").strip()
+            key, _, value = rest.partition("=")
+            entries.append({"type": "var", "key": key.strip(), "value": value.strip(), "enabled": False, "comment": ""})
+        elif stripped.startswith("#"):
+            # Pure comment line
+            entries.append({"type": "comment", "text": stripped})
+        elif "=" in stripped:
+            key, _, value = stripped.partition("=")
+            entries.append({"type": "var", "key": key.strip(), "value": value.strip(), "enabled": True, "comment": ""})
+        else:
+            entries.append({"type": "comment", "text": stripped})
+    return entries
+
+def _serialize_env(entries: list[dict]) -> str:
+    """Serialize structured entries back to .env format."""
+    lines = []
+    for e in entries:
+        t = e.get("type", "comment")
+        if t == "blank":
+            lines.append("")
+        elif t == "comment":
+            lines.append(e.get("text", ""))
+        elif t == "var":
+            key = e.get("key", "")
+            value = e.get("value", "")
+            if e.get("enabled", True):
+                lines.append(f"{key}={value}")
+            else:
+                lines.append(f"# {key}={value}")
+    return "\n".join(lines) + "\n"
+
 @router.get("/status")
 async def get_status(user: dict = Depends(get_current_user)):
     """Get current manager run status."""
@@ -219,3 +266,34 @@ async def get_notifications(
     results.sort(key=lambda m: m.get("ts", ""))
 
     return {"notifications": results[-limit:], "plan_id": plan_id}
+
+
+# ── ENV Settings (read/write ~/.ostwin/.env) ───────────────────────────
+
+@router.get("/env")
+async def get_env(user: dict = Depends(get_current_user)):
+    """Read and parse ~/.ostwin/.env into structured entries."""
+    if not _ENV_FILE.exists():
+        return {"path": str(_ENV_FILE), "entries": [], "raw": ""}
+    raw = _ENV_FILE.read_text()
+    entries = _parse_env(raw)
+    return {"path": str(_ENV_FILE), "entries": entries, "raw": raw}
+
+
+@router.post("/env")
+async def save_env(request: dict, user: dict = Depends(get_current_user)):
+    """Write structured entries back to ~/.ostwin/.env.
+
+    Body: { "entries": [...] }
+    Each entry: { type: "var"|"comment"|"blank", key?, value?, enabled?, text? }
+    """
+    entries = request.get("entries", [])
+    if not entries:
+        raise HTTPException(status_code=400, detail="entries is required")
+
+    # Ensure ~/.ostwin directory exists
+    _OSTWIN_DIR.mkdir(parents=True, exist_ok=True)
+
+    content = _serialize_env(entries)
+    _ENV_FILE.write_text(content)
+    return {"status": "saved", "path": str(_ENV_FILE)}

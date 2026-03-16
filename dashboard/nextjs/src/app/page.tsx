@@ -22,6 +22,7 @@ import PlanLauncher from '@/components/panels/PlanLauncher';
 import WarRoomGrid from '@/components/panels/WarRoomGrid';
 import ChannelFeed from '@/components/panels/ChannelFeed';
 import PlanEditor from '@/components/plan/PlanEditor';
+import SettingsPanel from '@/components/panels/SettingsPanel';
 
 export default function Dashboard() {
   const { showLogin, error: authError, performLogin } = useAuth();
@@ -55,6 +56,7 @@ export default function Dashboard() {
   const [activeEditorPlanId, setActiveEditorPlanId] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState<string>(''); // State to hold editor content
   const [aiError, setAiError] = useState<string | null>(null); // State to hold AI error
+  const [showSettings, setShowSettings] = useState(false);
 
   // Path detection for /plans/abc
   useEffect(() => {
@@ -125,6 +127,7 @@ export default function Dashboard() {
         connected={connected}
         theme={theme}
         onToggleTheme={toggleTheme}
+        onOpenSettings={() => setShowSettings(true)}
         notifications={notifications}
         unreadCount={unreadCount}
         showNotifications={showNotifications}
@@ -164,6 +167,10 @@ export default function Dashboard() {
       )}
 
       <ReleaseBar content={releaseContent} />
+
+      {showSettings && (
+        <SettingsPanel onClose={() => setShowSettings(false)} />
+      )}
     </>
   );
 }

@@ -13,6 +13,7 @@ interface TopBarProps {
   connected: boolean;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
+  onOpenSettings: () => void;
   // Notifications
   notifications: Notification[];
   unreadCount: number;
@@ -26,6 +27,7 @@ export default function TopBar({
   connected,
   theme,
   onToggleTheme,
+  onOpenSettings,
   notifications,
   unreadCount,
   showNotifications,
@@ -76,6 +78,9 @@ export default function TopBar({
         >
           {connText}
         </span>
+        <button className="theme-toggle" onClick={onOpenSettings} title="Settings">
+          <span>⚙</span>
+        </button>
         <button className="theme-toggle" onClick={onToggleTheme}>
           <span>{theme === 'dark' ? '🌙' : '☀️'}</span>
         </button>
