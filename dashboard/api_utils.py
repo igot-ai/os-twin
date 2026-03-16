@@ -31,8 +31,14 @@ USE_NEXTJS = NEXTJS_OUT_DIR.exists() and (NEXTJS_OUT_DIR / "index.html").exists(
 
 # === Helper Functions ===
 
-def read_room(room_dir: Path) -> dict:
-    """Read war-room state from disk."""
+def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
+    """Read war-room state from disk.
+
+    Args:
+        room_dir: Path to the room directory.
+        include_metadata: When True, also reads config.json, role instance
+            files, state_changed_at, and artifact directory listing.
+    """
     import re as _re
     # Run pytest if requested (legacy hook)
     if (room_dir / "run_pytest_now").exists():
@@ -92,7 +98,7 @@ def read_room(room_dir: Path) -> dict:
             except json.JSONDecodeError:
                 pass
 
-    return {
+    result = {
         "room_id": room_id,
         "task_ref": task_ref,
         "status": status,
@@ -103,6 +109,60 @@ def read_room(room_dir: Path) -> dict:
         "goal_total": goal_total,
         "goal_done": goal_done,
     }
+
+    # --- Extended metadata (opt-in to keep backward compatibility) ---
+    if include_metadata:
+        # config.json — room-level configuration
+        config_file = room_dir / "config.json"
+        if config_file.exists():
+            try:
+                result["config"] = json.loads(config_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                result["config"] = {}
+        else:
+            result["config"] = {}
+
+        # state_changed_at — last state transition timestamp
+        sca_file = room_dir / "state_changed_at"
+        result["state_changed_at"] = (
+            sca_file.read_text().strip() if sca_file.exists() else None
+        )
+
+        # Role instance files (*_*.json except config.json)
+        roles = []
+        for f in sorted(room_dir.glob("*_*.json")):
+            if f.name == "config.json":
+                continue
+            try:
+                data = json.loads(f.read_text())
+                if "role" in data and "instance_id" in data:
+                    data["filename"] = f.name
+                    roles.append(data)
+            except (json.JSONDecodeError, KeyError, OSError):
+                continue
+        result["roles"] = roles
+
+        # artifacts/ directory listing
+        artifacts_dir = room_dir / "artifacts"
+        if artifacts_dir.exists() and artifacts_dir.is_dir():
+            result["artifact_files"] = sorted(
+                e.name for e in artifacts_dir.iterdir() if e.is_file()
+            )
+        else:
+            result["artifact_files"] = []
+
+        # audit.log — last 20 lines
+        audit_file = room_dir / "audit.log"
+        if audit_file.exists():
+            try:
+                lines = audit_file.read_text().splitlines()
+                result["audit_tail"] = lines[-20:] if len(lines) > 20 else lines
+            except OSError:
+                result["audit_tail"] = []
+        else:
+            result["audit_tail"] = []
+
+    return result
 
 def read_channel(room_dir: Path) -> list[dict]:
     """Read all messages from a channel file."""

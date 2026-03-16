@@ -24,11 +24,30 @@ from dashboard.auth import get_current_user
 router = APIRouter(tags=["plans"])
 logger = logging.getLogger(__name__)
 
+def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
+    """Merge {plan_id}.meta.json fields into a plan dict (in-place).
+    
+    Adds working_dir, warrooms_dir, launched_at, and a nested 'meta' object
+    so the frontend has the full project context from plan creation.
+    """
+    meta_file = plans_dir / f"{plan['plan_id']}.meta.json"
+    if not meta_file.exists():
+        return
+    try:
+        meta = json.loads(meta_file.read_text())
+        for key in ("working_dir", "warrooms_dir", "launched_at", "status"):
+            if key in meta and meta[key]:
+                plan[key] = meta[key]
+        plan["meta"] = meta
+    except (json.JSONDecodeError, OSError):
+        pass
+
 @router.get("/api/plans")
 async def list_plans(user: dict = Depends(get_current_user)):
     """List all stored plans (from zvec, with file fallback)."""
     store = global_state.store
     plans = []
+    plans_dir = AGENTS_DIR / "plans"
     
     if store:
         plans = store.get_all_plans()
@@ -38,10 +57,11 @@ async def list_plans(user: dict = Depends(get_current_user)):
                 epics = store.get_epics_for_plan(p["plan_id"])
                 if epics and all(e.get("status") == "passed" for e in epics):
                     p["status"] = "completed"
+                # Merge meta.json for working_dir etc.
+                _merge_plan_meta(p, plans_dir)
             return {"plans": plans, "count": len(plans)}
 
     # Fallback: read from disk if zvec is empty or unavailable
-    plans_dir = AGENTS_DIR / "plans"
     if not plans_dir.exists():
         return {"plans": [], "count": 0}
 
@@ -70,7 +90,7 @@ async def list_plans(user: dict = Depends(get_current_user)):
                 if epics and all(e.get("status") == "passed" for e in epics):
                     status = "completed"
 
-        plans.append({
+        p = {
             "plan_id": f.stem,
             "title": title,
             "content": content,
@@ -78,12 +98,15 @@ async def list_plans(user: dict = Depends(get_current_user)):
             "epic_count": epic_count,
             "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
             "filename": f.name,
-        })
+        }
+        # Merge meta.json for working_dir etc.
+        _merge_plan_meta(p, plans_dir)
+        plans.append(p)
     return {"plans": plans, "count": len(plans)}
 
 @router.get("/api/plans/{plan_id}")
 async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
-    """Get a specific plan with its epics."""
+    """Get a specific plan with its epics and meta.json details."""
     store = global_state.store
     plan = None
     epics = []
@@ -107,6 +130,10 @@ async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
             "created_at": datetime.fromtimestamp(plan_file.stat().st_mtime, tz=timezone.utc).isoformat(),
             "filename": plan_file.name,
         }
+
+    # --- Merge meta.json for full project context ---
+    _merge_plan_meta(plan, AGENTS_DIR / "plans")
+
     return {"plan": plan, "epics": epics}
 
 @router.post("/api/plans/create")
@@ -498,17 +525,8 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
                 rc = json.loads(room_config_file.read_text())
                 if rc.get("plan_id") and rc["plan_id"] != plan_id: continue
             except json.JSONDecodeError: continue
-        # Use full read_room for rich data (status, messages, goals, etc.)
-        room_data = read_room(room_dir)
-        # Also attach role assignments if present
-        role_files = []
-        for f in sorted(room_dir.glob("*_*.json")):
-            if f.name == "config.json": continue
-            try:
-                data = json.loads(f.read_text())
-                if "role" in data and "instance_id" in data: role_files.append(data)
-            except (json.JSONDecodeError, KeyError): continue
-        room_data["roles"] = role_files
+        # Use enhanced read_room with metadata for rich data
+        room_data = read_room(room_dir, include_metadata=True)
         rooms.append(room_data)
     return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "rooms": rooms, "count": len(rooms)}
 
@@ -527,6 +545,57 @@ async def get_plan_room_roles(plan_id: str, room_id: str, user: dict = Depends(g
                 role_instances.append(data)
         except (json.JSONDecodeError, KeyError): continue
     return {"plan_id": plan_id, "room_id": room_id, "roles": role_instances, "count": len(role_instances)}
+
+@router.get("/api/plans/{plan_id}/rooms/{room_id}/channel")
+async def get_plan_room_channel(plan_id: str, room_id: str, user: dict = Depends(get_current_user)):
+    """Get channel messages for a plan-scoped war-room."""
+    from dashboard.api_utils import read_channel
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    room_dir = warrooms_dir / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
+    return {"messages": read_channel(room_dir), "plan_id": plan_id, "room_id": room_id}
+
+@router.get("/api/plans/{plan_id}/rooms/{room_id}/state")
+async def get_plan_room_state(plan_id: str, room_id: str, user: dict = Depends(get_current_user)):
+    """Get full room state with metadata for a plan-scoped war-room."""
+    from dashboard.api_utils import read_room
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    room_dir = warrooms_dir / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
+    room_data = read_room(room_dir, include_metadata=True)
+    return {"plan_id": plan_id, **room_data}
+
+@router.post("/api/plans/{plan_id}/rooms/{room_id}/action")
+async def plan_room_action(
+    plan_id: str,
+    room_id: str,
+    background_tasks: BackgroundTasks,
+    action: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """Perform an action on a plan-scoped war-room (stop, pause, resume, start)."""
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    room_dir = warrooms_dir / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
+
+    status_file = room_dir / "status"
+    if action == "stop":
+        status_file.write_text("failed-final")
+    elif action == "pause":
+        status_file.write_text("paused")
+    elif action in ("resume", "start"):
+        status_file.write_text("pending")
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
+
+    background_tasks.add_task(
+        process_notification, "room_action",
+        {"room_id": room_id, "action": action, "plan_id": plan_id},
+    )
+    return {"status": "ok", "action": action, "room_id": room_id, "plan_id": plan_id}
 
 @router.get("/plans/{plan_id}", response_class=HTMLResponse)
 async def plan_editor_page(plan_id: str):

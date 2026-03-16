@@ -67,6 +67,77 @@ fi
 # Version from config
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
+# Dashboard URL
+DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+
+# Resolve a plan_id to a plan file path + working_dir.
+# If the argument looks like a hex plan_id (not a file path), resolve via the API.
+# Sets: RESOLVED_PLAN_FILE and RESOLVED_WORKING_DIR
+# Returns 0 on success, 1 on failure.
+resolve_plan_id() {
+  local arg="$1"
+
+  # If it's an existing file, use it directly — backward compat
+  if [[ -f "$arg" ]]; then
+    RESOLVED_PLAN_FILE="$arg"
+    RESOLVED_WORKING_DIR=""
+    return 0
+  fi
+
+  # If it looks like a hex plan_id (8-64 hex characters, no slashes/dots)
+  if [[ "$arg" =~ ^[0-9a-fA-F]{8,64}$ ]]; then
+    # Try to resolve from the API
+    if curl -sf "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
+      local api_response
+      api_response=$(curl -sf "${DASHBOARD_URL}/api/plans/${arg}" 2>&1)
+      if [[ $? -eq 0 && -n "$api_response" ]]; then
+        RESOLVED_PLAN_FILE=$(echo "$api_response" | "$PYTHON" -c "
+import sys, json
+data = json.load(sys.stdin)
+plan = data.get('plan', {})
+working_dir = plan.get('working_dir', plan.get('meta', {}).get('working_dir', ''))
+filename = plan.get('filename', '')
+if filename:
+    import os
+    # Plan files stored in AGENTS_DIR/plans/
+    print(os.path.join('$AGENTS_DIR', 'plans', filename))
+else:
+    print('')
+" 2>/dev/null)
+        RESOLVED_WORKING_DIR=$(echo "$api_response" | "$PYTHON" -c "
+import sys, json
+data = json.load(sys.stdin)
+plan = data.get('plan', {})
+print(plan.get('working_dir', plan.get('meta', {}).get('working_dir', '')))
+" 2>/dev/null)
+
+        if [[ -n "$RESOLVED_PLAN_FILE" && -f "$RESOLVED_PLAN_FILE" ]]; then
+          echo "✓ Resolved plan_id '$arg' → $RESOLVED_PLAN_FILE"
+          if [[ -n "$RESOLVED_WORKING_DIR" ]]; then
+            echo "  Working dir: $RESOLVED_WORKING_DIR"
+          fi
+          return 0
+        else
+          echo "✗ Plan file not found for plan_id '$arg': $RESOLVED_PLAN_FILE" >&2
+          return 1
+        fi
+      else
+        echo "✗ Plan '$arg' not found via API" >&2
+        return 1
+      fi
+    else
+      echo "⚠ Dashboard not reachable at ${DASHBOARD_URL}" >&2
+      echo "  Cannot resolve plan_id. Start dashboard or pass a file path." >&2
+      return 1
+    fi
+  fi
+
+  # Not a file and not a hex plan_id — just pass through
+  RESOLVED_PLAN_FILE="$arg"
+  RESOLVED_WORKING_DIR=""
+  return 0
+}
+
 show_help() {
   cat << HELP
 ostwin v${VERSION} — Multi-Agent War-Room Orchestrator
@@ -77,10 +148,12 @@ Usage:
 Commands:
   chat [options]    Interactive AI chat session
                     Options: -a AGENT, -M MODEL, -m MSG, --auto-approve, -r [ID]
-  run <plan.md>     Execute a plan file
-                    Options: --dry-run, --max-rooms N, --working-dir PATH
+  run <plan_id|file> Execute a plan by ID or file path
+                    Options: --dry-run, --resume, --expand, --working-dir PATH
+  resume <plan_id|file>  Resume a previously failed/stopped plan run
+                    Shortcut for: ostwin run <arg> --resume
   plan <sub>        Plan management (AI-assisted)
-                    Subcommands: create, start [plan-file], list
+                    Subcommands: create [Title|file.md] [--file FILE], start, list
   init [directory]  Scaffold Agent OS into a project
   status            Show war-room dashboard
                     Options: --json, --watch
@@ -104,6 +177,8 @@ Commands:
 Examples:
   ostwin run plans/my-feature.md
   ostwin run plans/my-feature.md --dry-run
+  ostwin resume plans/my-feature.md
+  ostwin run plans/my-feature.md --resume --expand
   ostwin status --watch
   ostwin logs room-001 --follow
   ostwin stop
@@ -137,11 +212,15 @@ ps_dispatch() {
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --dry-run)      ps_args+=("-DryRun"); shift ;;
+        --resume)       ps_args+=("-Resume"); shift ;;
+        --expand)       ps_args+=("-Expand"); shift ;;
+        --review)       ps_args+=("-Review"); shift ;;
         --max-rooms)    ps_args+=("-MaxConcurrent" "$2"); shift 2 ;;
         --working-dir)  ps_args+=("-ProjectDir" "$2"); shift 2 ;;
         --non-interactive|-n) ps_args+=("-NonInteractive"); shift ;;
         --goal)         ps_args+=("-Goal" "$2"); shift 2 ;;
         --plan-file)    ps_args+=("-PlanFile" "$2"); shift 2 ;;
+        --file|-f)      ps_args+=("-InitFile" "$2"); shift 2 ;;
         --json)         ps_args+=("-AsJson"); shift ;;
         --watch)        ps_args+=("-Watch"); shift ;;
         --list)         ps_args+=("-List"); shift ;;
@@ -165,7 +244,47 @@ case "${1:-}" in
     ;;
   run)
     shift
-    ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "$@"
+    # First non-flag argument may be a plan_id — resolve it
+    RUN_ARGS=()
+    PLAN_ARG_RESOLVED=false
+    for a in "$@"; do
+      if [[ "$PLAN_ARG_RESOLVED" == false && ! "$a" =~ ^-- ]]; then
+        if resolve_plan_id "$a"; then
+          RUN_ARGS+=("$RESOLVED_PLAN_FILE")
+          if [[ -n "$RESOLVED_WORKING_DIR" ]]; then
+            RUN_ARGS+=("--working-dir" "$RESOLVED_WORKING_DIR")
+          fi
+        else
+          exit 1
+        fi
+        PLAN_ARG_RESOLVED=true
+      else
+        RUN_ARGS+=("$a")
+      fi
+    done
+    ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "${RUN_ARGS[@]}"
+    ;;
+  resume)
+    shift
+    # First non-flag argument may be a plan_id — resolve it
+    RESUME_ARGS=()
+    RESUME_ARG_RESOLVED=false
+    for a in "$@"; do
+      if [[ "$RESUME_ARG_RESOLVED" == false && ! "$a" =~ ^-- ]]; then
+        if resolve_plan_id "$a"; then
+          RESUME_ARGS+=("$RESOLVED_PLAN_FILE")
+          if [[ -n "$RESOLVED_WORKING_DIR" ]]; then
+            RESUME_ARGS+=("--working-dir" "$RESOLVED_WORKING_DIR")
+          fi
+        else
+          exit 1
+        fi
+        RESUME_ARG_RESOLVED=true
+      else
+        RESUME_ARGS+=("$a")
+      fi
+    done
+    ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" --resume "${RESUME_ARGS[@]}"
     ;;
   plan)
     shift
@@ -173,11 +292,64 @@ case "${1:-}" in
     case "$SUB" in
       create)
         shift
-        # ── ostwin plan create ["Title"] ──
+        # ── ostwin plan create ["Title"] [--file FILE] ──
         # Calls dashboard API, creates a plan, and opens the editor in the browser.
-        PLAN_TITLE="${1:-Untitled}"
+        # If --file is given, the markdown file content seeds the plan's first version.
+        PLAN_TITLE=""
+        INIT_FILE=""
         PROJECT_DIR="$(pwd)"
         DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+
+        # Parse arguments: positional title/file and optional --file/-f
+        # Smart detection: if a positional arg is an existing .md file, treat it as --file
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --file|-f)
+              INIT_FILE="$2"
+              shift 2
+              ;;
+            -*)
+              echo "Unknown option for plan create: $1" >&2
+              exit 1
+              ;;
+            *)
+              # If the argument is an existing .md file, treat it as --file
+              if [[ -z "$INIT_FILE" && -f "$1" && "$1" == *.md ]]; then
+                INIT_FILE="$1"
+              elif [[ -z "$PLAN_TITLE" ]]; then
+                PLAN_TITLE="$1"
+              fi
+              shift
+              ;;
+          esac
+        done
+
+        # If --file provided, validate and read content
+        INIT_CONTENT=""
+        if [[ -n "$INIT_FILE" ]]; then
+          if [[ ! -f "$INIT_FILE" ]]; then
+            echo "✗ File not found: $INIT_FILE" >&2
+            exit 1
+          fi
+          INIT_CONTENT=$(<"$INIT_FILE")
+
+          # Extract title from markdown header if not explicitly provided
+          if [[ -z "$PLAN_TITLE" ]]; then
+            PLAN_TITLE=$("$PYTHON" -c "
+import sys, re
+content = sys.stdin.read()
+m = re.search(r'^#\s+(?:Plan:\s*)?(.+)', content, re.MULTILINE)
+if m:
+    print(m.group(1).strip())
+else:
+    import os
+    print(os.path.splitext(os.path.basename('$INIT_FILE'))[0])
+" <<< "$INIT_CONTENT" 2>/dev/null)
+          fi
+        fi
+
+        # Default title fallback
+        PLAN_TITLE="${PLAN_TITLE:-Untitled}"
 
         # Check dashboard is reachable
         if ! curl -sf "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
@@ -186,10 +358,20 @@ case "${1:-}" in
           exit 1
         fi
 
+        # Build JSON payload (include content only if --file was given)
+        JSON_PAYLOAD=$("$PYTHON" -c "
+import json, sys
+payload = {'path': '$PROJECT_DIR', 'title': '''$PLAN_TITLE'''}
+content = sys.stdin.read()
+if content.strip():
+    payload['content'] = content
+print(json.dumps(payload))
+" <<< "$INIT_CONTENT" 2>/dev/null)
+
         # Create plan via API
         RESPONSE=$(curl -sf -X POST "${DASHBOARD_URL}/api/plans/create" \
           -H "Content-Type: application/json" \
-          -d "{\"path\": \"${PROJECT_DIR}\", \"title\": \"${PLAN_TITLE}\"}" 2>&1) || {
+          -d "$JSON_PAYLOAD" 2>&1) || {
           echo "✗ Failed to create plan: ${RESPONSE}" >&2
           exit 1
         }
@@ -208,6 +390,9 @@ case "${1:-}" in
         echo "✓ Plan created: ${PLAN_ID}"
         echo "  Title:  ${PLAN_TITLE}"
         echo "  Dir:    ${PROJECT_DIR}"
+        if [[ -n "$INIT_FILE" ]]; then
+          echo "  Source: ${INIT_FILE}"
+        fi
         echo "  Editor: ${EDITOR_URL}"
 
         # Open browser
@@ -221,7 +406,25 @@ case "${1:-}" in
         ;;
       start)
         shift
-        ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "$@"
+        # First non-flag argument may be a plan_id — resolve it
+        START_ARGS=()
+        START_ARG_RESOLVED=false
+        for a in "$@"; do
+          if [[ "$START_ARG_RESOLVED" == false && ! "$a" =~ ^-- ]]; then
+            if resolve_plan_id "$a"; then
+              START_ARGS+=("$RESOLVED_PLAN_FILE")
+              if [[ -n "$RESOLVED_WORKING_DIR" ]]; then
+                START_ARGS+=("--working-dir" "$RESOLVED_WORKING_DIR")
+              fi
+            else
+              exit 1
+            fi
+            START_ARG_RESOLVED=true
+          else
+            START_ARGS+=("$a")
+          fi
+        done
+        ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "${START_ARGS[@]}"
         ;;
       list)
         # Quick list via API
@@ -245,7 +448,7 @@ else:
         ;;
       *)
         echo "Unknown plan subcommand: $SUB" >&2
-        echo "  Usage: ostwin plan create [Title]" >&2
+        echo "  Usage: ostwin plan create [Title] [--file FILE]" >&2
         echo "         ostwin plan start [plan-file]" >&2
         echo "         ostwin plan list" >&2
         exit 1

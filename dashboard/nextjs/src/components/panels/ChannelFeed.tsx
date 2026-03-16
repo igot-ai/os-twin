@@ -63,11 +63,13 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
     loadLogs();
   }, [room.room_id, room.status, planId]);
 
+  // Use plan-scoped action endpoint when planId is available
   const roomAction = async (action: string) => {
     try {
-      await apiFetch(`/api/rooms/${room.room_id}/action?action=${action}`, {
-        method: 'POST',
-      });
+      const url = planId
+        ? `/api/plans/${planId}/rooms/${room.room_id}/action?action=${action}`
+        : `/api/rooms/${room.room_id}/action?action=${action}`;
+      await apiFetch(url, { method: 'POST' });
     } catch (e) {
       console.error(`Failed to ${action} room:`, e);
     }
@@ -81,6 +83,15 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
       const text = t.replace(/- \[[ xX\-!]+\] /, '');
       return { text, checked, failed };
     }) || [];
+
+  // Role icon mapping
+  const roleIcon = (role: string): string => {
+    if (role.startsWith('engineer')) return '🔧';
+    if (role.startsWith('qa') || role.startsWith('tester')) return '🔍';
+    if (role.startsWith('architect')) return '📐';
+    if (role.startsWith('manager')) return '👤';
+    return '⬡';
+  };
 
   return (
     <div className="room-detail" style={{ display: 'block' }}>
@@ -112,6 +123,66 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
         </div>
         <div className="detail-task-ref">{room.task_ref}</div>
       </div>
+
+      {/* --- Config Info (from config.json metadata) --- */}
+      {room.config && Object.keys(room.config).length > 0 && (
+        <div className="detail-meta-section">
+          <label className="field-label">Config</label>
+          <div className="meta-grid">
+            {room.config.plan_id && (
+              <div className="meta-item">
+                <span className="meta-key">plan_id</span>
+                <span className="meta-val">{String(room.config.plan_id)}</span>
+              </div>
+            )}
+            {room.config.task_ref && (
+              <div className="meta-item">
+                <span className="meta-key">task_ref</span>
+                <span className="meta-val">{String(room.config.task_ref)}</span>
+              </div>
+            )}
+            {room.config.epic_ref && (
+              <div className="meta-item">
+                <span className="meta-key">epic_ref</span>
+                <span className="meta-val">{String(room.config.epic_ref)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- Role Assignments --- */}
+      {room.roles && room.roles.length > 0 && (
+        <div className="detail-meta-section">
+          <label className="field-label">Roles</label>
+          <div className="role-badges">
+            {room.roles.map((r, i) => (
+              <span
+                key={r.instance_id || i}
+                className="role-badge"
+                title={r.filename || ''}
+              >
+                {roleIcon(r.role)} {r.role}
+                <span className="role-instance-id">#{r.instance_id}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* --- State Timeline --- */}
+      {room.state_changed_at && (
+        <div className="detail-meta-section">
+          <label className="field-label">State</label>
+          <div className="meta-grid">
+            <div className="meta-item">
+              <span className="meta-key">changed_at</span>
+              <span className="meta-val">{fmtTime(room.state_changed_at)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="detail-progress">
         <div className="rc-bar-wrap">
           <div className="rc-bar" style={{ width: `${pct}%`, background: color }} />
@@ -132,6 +203,22 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
           ))}
         </div>
       </div>
+
+      {/* --- Artifacts --- */}
+      {room.artifact_files && room.artifact_files.length > 0 && (
+        <div className="detail-meta-section">
+          <label className="field-label">Artifacts ({room.artifact_files.length})</label>
+          <div className="artifact-list">
+            {room.artifact_files.map((f) => (
+              <div key={f} className="artifact-item">
+                <span className="artifact-icon">📄</span>
+                <span className="artifact-name">{f}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="detail-activity">
         <label className="field-label">Activity Log</label>
         <div className="activity-log">

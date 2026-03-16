@@ -103,12 +103,12 @@ export function useRooms() {
       setRooms(roomMap);
       setChannelFilter(null);
 
-      // Load channel history for plan rooms, falling back to notifications
+      // Load channel history using plan-scoped endpoint, falling back to notifications
       const msgs: RoomMsg[] = [];
       for (const room of planRooms) {
         try {
           const chData = await apiGet<{ messages: Message[] }>(
-            `/api/rooms/${room.room_id}/channel`
+            `/api/plans/${planId}/rooms/${room.room_id}/channel`
           );
           const channelMsgs = chData.messages || [];
           if (channelMsgs.length > 0) {

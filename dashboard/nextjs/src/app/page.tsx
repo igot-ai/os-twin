@@ -89,9 +89,8 @@ export default function Dashboard() {
 
   const { connected } = useWebSocket(onWSMessage);
 
-  // Initial load
+  // Initial load — rooms are loaded by PlanLauncher (auto-selects active plan)
   useEffect(() => {
-    loadInitialRooms();
     loadNotifications();
 
     // Load release
@@ -100,7 +99,7 @@ export default function Dashboard() {
         setReleaseContent(data.content);
       }
     });
-  }, [loadInitialRooms, loadNotifications]);
+  }, [loadNotifications]);
 
   // Reload notifications when active plan changes
   useEffect(() => {

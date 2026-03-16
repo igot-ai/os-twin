@@ -63,7 +63,7 @@ module.exports = defineConfig({
 
             // Write plan .md file
             const planFile = path.join(plansDir, `${planId}.md`);
-            const content = planContent || `# Plan: Cypress Test Plan\n\n## Config\nworking_dir: ${workingDir}\n\n## Epic: EPIC-001 — Test Epic\n\nTest description.\n`;
+            const content = planContent || `# Plan: Cypress War-Room Test\n\n## Config\nworking_dir: ${workingDir}\n\n## Epic: EPIC-001 — Test Epic\n\nTest description.\n`;
             fs.writeFileSync(planFile, content, 'utf8');
 
             // Write meta.json
@@ -88,6 +88,13 @@ module.exports = defineConfig({
 
               // Write status file
               fs.writeFileSync(path.join(roomDir, 'status'), room.status || 'pending', 'utf8');
+
+              // Write task-ref file (read_room reads from this file, not config.json)
+              fs.writeFileSync(path.join(roomDir, 'task-ref'), room.taskRef || room.roomId, 'utf8');
+
+              // Write TASKS.md with goal checklist
+              const tasksContent = `# ${room.taskRef || room.roomId} — ${room.description || 'Test task'}\n\n- [ ] Implementation complete\n- [ ] Tests passing\n- [ ] Code reviewed\n`;
+              fs.writeFileSync(path.join(roomDir, 'TASKS.md'), tasksContent, 'utf8');
 
               // Write config.json with task ref
               const roomConfig = {

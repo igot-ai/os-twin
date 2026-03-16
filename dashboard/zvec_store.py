@@ -26,7 +26,7 @@ logger = logging.getLogger("zvec_store")
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
-PLANS_COLLECTION = "plans_02"
+PLANS_COLLECTION = "plans_04"
 EPICS_COLLECTION = "epics"
 
 
@@ -36,7 +36,7 @@ class OSTwinStore:
     def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
-        self.zvec_dir = warrooms_dir / ".zvec"
+        self.zvec_dir = agents_dir / ".zvec"
         self.zvec_dir.mkdir(parents=True, exist_ok=True)
         self._messages: Optional[zvec.Collection] = None
         self._metadata: Optional[zvec.Collection] = None
@@ -436,6 +436,7 @@ class OSTwinStore:
                 "status": doc.field("status"),
                 "epic_count": doc.field("epic_count"),
                 "created_at": doc.field("created_at"),
+                "working_dir": doc.field("working_dir"),
                 "filename": doc.field("filename"),
             }
         except Exception:

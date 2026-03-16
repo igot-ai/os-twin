@@ -3,7 +3,7 @@
 .agents/war-rooms/**
 .agents/.war-rooms/**
 .agents/plans/**
-.war-rooms/**
+*.war-rooms/**
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
@@ -12,16 +12,10 @@ node_modules/
 __pycache__/
 **/__pycache__/**
 
-# ── Services (vendored / generated) ───────────────────────────────────────────
-identity-service/**
-*/identity-service/**
-social-graph/**
-*/social-graph/**
-
 # ── Local data & secrets ──────────────────────────────────────────────────────
 .claude/
 .data/
 .data/**
 
 # ── Dummy project ──────────────────────────────────────────────────────────────
-quant-project/
+cypress/screenshots

@@ -41,11 +41,35 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected }: PlanLau
   const loadPlanHistory = useCallback(async () => {
     try {
       const data = await apiGet<{ plans: Plan[] }>('/api/plans');
-      setPlans(data.plans || []);
+      const loadedPlans = data.plans || [];
+      setPlans(loadedPlans);
+
+      // Auto-select the most recent launched/active plan on first load
+      if (loadedPlans.length > 0 && !activePlanId) {
+        const launched = loadedPlans.find((p) => p.status === 'launched');
+        const active = loadedPlans.find((p) => p.status === 'active');
+        const autoSelect = launched || active || loadedPlans[0];
+        if (autoSelect) {
+          // Load plan content + trigger plan-scoped room loading
+          try {
+            const planData = await apiGet<{ plan: Plan; epics: Epic[] }>(
+              `/api/plans/${autoSelect.plan_id}`
+            );
+            if (planData.plan?.content) {
+              setPlanText(planData.plan.content);
+              setActivePlanId(autoSelect.plan_id);
+              setEpics(planData.epics || []);
+            }
+            onPlanSelected?.(autoSelect.plan_id);
+          } catch {
+            // plan detail load failed, still show in history
+          }
+        }
+      }
     } catch (e) {
       console.error('Failed to load plan history:', e);
     }
-  }, []);
+  }, [activePlanId, onPlanSelected]);
 
   const loadConfig = useCallback(async () => {
     try {

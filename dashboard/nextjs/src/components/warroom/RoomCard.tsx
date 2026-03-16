@@ -10,6 +10,15 @@ interface RoomCardProps {
   onClick: () => void;
 }
 
+// Role icon mapping
+function roleIcon(role: string): string {
+  if (role.startsWith('engineer')) return '🔧';
+  if (role.startsWith('qa') || role.startsWith('tester')) return '🔍';
+  if (role.startsWith('architect')) return '📐';
+  if (role.startsWith('manager')) return '👤';
+  return '⬡';
+}
+
 export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
   const color = STATUS_COLOR[room.status] || '#555';
   const label = STATUS_LABEL[room.status] || room.status.toUpperCase();
@@ -52,6 +61,37 @@ export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
       <div className="rc-ref">{room.task_ref}</div>
       <div className="rc-desc">{trunc(room.task_description || '', 90)}</div>
 
+      {/* Role badges */}
+      {room.roles && room.roles.length > 0 && (
+        <div
+          className="rc-role-badges"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '3px',
+            marginBottom: '4px',
+          }}
+        >
+          {room.roles.map((r, i) => (
+            <span
+              key={r.instance_id || i}
+              style={{
+                fontSize: '7px',
+                padding: '1px 5px',
+                borderRadius: '8px',
+                background: 'var(--bg-tertiary, #2a2a3a)',
+                color: 'var(--text-dim)',
+                border: '1px solid var(--border-color, #333)',
+                whiteSpace: 'nowrap',
+              }}
+              title={r.filename || ''}
+            >
+              {roleIcon(r.role)} {r.role}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div
         className="rc-goal-stats"
         style={{
@@ -83,7 +123,14 @@ export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
         {room.retries > 0 && (
           <span style={{ color: '#ff9f43' }}>↻{room.retries}</span>
         )}
-        <span style={{ color: 'var(--text-dim)' }}>{fmtTime(room.last_activity)}</span>
+        {room.artifact_files && room.artifact_files.length > 0 && (
+          <span style={{ color: 'var(--text-dim)' }} title="Artifacts">
+            📄{room.artifact_files.length}
+          </span>
+        )}
+        <span style={{ color: 'var(--text-dim)' }}>
+          {fmtTime(room.state_changed_at || room.last_activity)}
+        </span>
       </div>
     </div>
   );

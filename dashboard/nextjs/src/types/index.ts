@@ -1,3 +1,20 @@
+// === Room Config (from room's config.json) ===
+export interface RoomConfig {
+  plan_id?: string;
+  task_ref?: string;
+  epic_ref?: string;
+  [key: string]: unknown;
+}
+
+// === Role Instance (from *_*.json files in room dir) ===
+export interface RoleInstance {
+  role: string;
+  instance_id: string;
+  filename?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
 // === Room ===
 export interface Room {
   room_id: string;
@@ -9,6 +26,13 @@ export interface Room {
   task_description: string | null;
   goal_total: number;
   goal_done: number;
+  // Extended metadata (present when fetched with include_metadata)
+  config?: RoomConfig;
+  roles?: RoleInstance[];
+  state_changed_at?: string | null;
+  artifact_files?: string[];
+  audit_tail?: string[];
+  working_dir?: string;
 }
 
 export type RoomStatus =
