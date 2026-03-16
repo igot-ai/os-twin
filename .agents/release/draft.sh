@@ -32,12 +32,17 @@ for room_dir in "$WARROOMS"/room-*/; do
   task_ref=$(cat "$room_dir/task-ref" 2>/dev/null || echo "UNKNOWN")
   room_id=$(basename "$room_dir")
 
+  # Skip rooms that didn't pass — they shouldn't appear in release notes
+  if [[ "$status" == "failed-final" || "$status" == "blocked" || "$status" == "pending" ]]; then
+    continue
+  fi
+
   # Read brief description (first line header)
   task_title=$(head -1 "$room_dir/brief.md" 2>/dev/null | sed 's/^# //' || echo "$task_ref")
 
   # Read QA verdict directly from channel.jsonl (Read-Messages.ps1 replaced read.sh)
   qa_verdict=$("$PYTHON" -c "
-import json, sys
+import json, sys, re
 msgs = []
 try:
     with open('$room_dir/channel.jsonl') as f:
@@ -51,8 +56,37 @@ except Exception:
     pass
 if msgs:
     body = msgs[-1].get('body', 'Approved')
-    lines = body.split('\n')[:5]
-    print('\n'.join(lines))
+    # Filter out tool-calling noise and system log lines
+    # Includes patterns for truncated/corrupted tool-call fragments
+    noise_patterns = [
+        r'^\U0001f527',              # 🔧 emoji lines
+        r'[Cc]alling tool:',         # 'Calling tool:' anywhere
+        r'^\s*\w{0,5}\s*tool:',      # truncated fragments like 'ng tool:', 'g tool:', ' tool:'
+        r'^Loading MCP',
+        r'^Running task non-interactively',
+        r'^Agent active',
+        r'^Usage Stats',
+        r'^\s*gemini-',
+        r'^. Task completed',
+        r'^System\.Management\.Automation',
+        r'^\s*Reqs\s+InputTok',      # Usage stats table header
+    ]
+    clean_lines = []
+    for ln in body.split('\n'):
+        stripped = ln.strip()
+        if not stripped:
+            continue
+        # Skip very short fragments (likely corrupted output)
+        if len(stripped) < 4:
+            continue
+        is_noise = any(re.search(p, stripped) for p in noise_patterns)
+        if not is_noise:
+            clean_lines.append(ln)
+    if clean_lines:
+        # Take first 10 meaningful lines
+        print('\n'.join(clean_lines[:10]))
+    else:
+        print('Approved (details in room artifacts)')
 else:
     print('No QA verdict recorded')
 " 2>/dev/null || echo "N/A")

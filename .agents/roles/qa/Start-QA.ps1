@@ -192,7 +192,33 @@ $result = & $invokeAgent -RoomDir $RoomDir -RoleName "qa" `
                          -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
 
 # --- Parse verdict from output ---
-$output = $result.Output
+$rawOutput = $result.Output
+
+# --- Strip tool-calling noise from agent output ---
+# deepagents --quiet still emits "🔧 Calling tool:" lines and MCP loading messages.
+# These are meaningless for channel/release notes and cause signoff rejection.
+$cleanLines = ($rawOutput -split "`n") | Where-Object {
+    $line = $_.Trim()
+    # Skip empty and very short lines (likely corrupted fragments)
+    if (-not $line -or $line.Length -lt 4) { return $false }
+    -not ($line -match '^🔧' -or
+          $line -match '[Cc]alling tool:' -or
+          $line -match '^\w{0,5}\s*tool:' -or
+          $line -match '^Loading MCP' -or
+          $line -match '^Running task non-interactively' -or
+          $line -match '^Agent active' -or
+          $line -match '^Usage Stats' -or
+          $line -match '^\s*Reqs\s+InputTok' -or
+          $line -match '^\s*gemini-' -or
+          $line -match '^✓ Task completed' -or
+          $line -match '^System\.Management\.Automation')
+}
+$output = ($cleanLines -join "`n").Trim()
+if (-not $output) {
+    # Fallback: if everything was stripped, keep the raw output
+    $output = $rawOutput
+}
+
 $verdict = ""
 
 # Strategy 1: Line starts with VERDICT:

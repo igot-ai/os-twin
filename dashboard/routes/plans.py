@@ -44,64 +44,88 @@ def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
 
 @router.get("/api/plans")
 async def list_plans(user: dict = Depends(get_current_user)):
-    """List all stored plans (from zvec, with file fallback)."""
+    """List all stored plans (disk is source of truth, zvec enriches)."""
     store = global_state.store
-    plans = []
     plans_dir = AGENTS_DIR / "plans"
-    
-    if store:
-        plans = store.get_all_plans()
-        if plans:
-            # Check for completed status based on epics
-            for p in plans:
-                epics = store.get_epics_for_plan(p["plan_id"])
-                if epics and all(e.get("status") == "passed" for e in epics):
-                    p["status"] = "completed"
-                # Merge meta.json for working_dir etc.
-                _merge_plan_meta(p, plans_dir)
-            return {"plans": plans, "count": len(plans)}
 
-    # Fallback: read from disk if zvec is empty or unavailable
     if not plans_dir.exists():
         return {"plans": [], "count": 0}
 
+    # Build a lookup of zvec-indexed plans for enrichment
+    zvec_plans: Dict[str, dict] = {}
+    if store:
+        try:
+            for p in store.get_all_plans():
+                zvec_plans[p["plan_id"]] = p
+        except Exception as e:
+            logger.warning("Failed to load plans from zvec: %s", e)
+
     plans = []
     for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+        # Skip template and .refined.md variants
         if f.stem == "PLAN.template":
+            continue
+        if f.name.endswith(".refined.md"):
             continue
         content = f.read_text()
         if not content.strip():
             continue
-        title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
-        title = title_match.group(1).strip() if title_match else f.stem
 
-        # Count epics/tasks
-        epics_found = re.findall(r"^## (Epic|Task):\s*(\S+)", content, re.MULTILINE)
-        epic_count = len(epics_found)
+        plan_id = f.stem
 
-        status_match = re.search(r"^>\s*Status:\s*(\w+)", content, re.MULTILINE)
-        status = status_match.group(1).lower() if status_match else "stored"
-        
+        # Start from zvec data if available, otherwise parse from disk
+        if plan_id in zvec_plans:
+            p = zvec_plans[plan_id].copy()
+            # Ensure disk-derived fields are present
+            if "filename" not in p or not p["filename"]:
+                p["filename"] = f.name
+            if "content" not in p or not p["content"]:
+                p["content"] = content
+        else:
+            title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+            title = title_match.group(1).strip() if title_match else plan_id
+
+            epics_found = re.findall(r"^## (Epic|Task):\s*(\S+)", content, re.MULTILINE)
+            epic_count = len(epics_found)
+
+            status_match = re.search(r"^>\s*Status:\s*(\w+)", content, re.MULTILINE)
+            status = status_match.group(1).lower() if status_match else "stored"
+
+            p = {
+                "plan_id": plan_id,
+                "title": title,
+                "content": content,
+                "status": status,
+                "epic_count": epic_count,
+                "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
+                "filename": f.name,
+            }
+
+            # Best-effort: backfill zvec index for this missing plan
+            if store:
+                try:
+                    store.index_plan(
+                        plan_id=plan_id, title=p["title"], content=content,
+                        epic_count=p.get("epic_count", 0), filename=f.name,
+                        status=p["status"], created_at=p["created_at"],
+                    )
+                    logger.info("Backfilled zvec index for plan %s", plan_id)
+                except Exception as e:
+                    logger.warning("Failed to backfill plan %s into zvec: %s", plan_id, e)
+
+        # Enrich status from zvec epics
         if store:
-            plan_meta = store.get_plan(f.stem)
-            if plan_meta:
-                status = plan_meta.get("status", "stored")
-                epics = store.get_epics_for_plan(f.stem)
+            try:
+                epics = store.get_epics_for_plan(plan_id)
                 if epics and all(e.get("status") == "passed" for e in epics):
-                    status = "completed"
+                    p["status"] = "completed"
+            except Exception:
+                pass
 
-        p = {
-            "plan_id": f.stem,
-            "title": title,
-            "content": content,
-            "status": status,
-            "epic_count": epic_count,
-            "created_at": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
-            "filename": f.name,
-        }
         # Merge meta.json for working_dir etc.
         _merge_plan_meta(p, plans_dir)
         plans.append(p)
+
     return {"plans": plans, "count": len(plans)}
 
 @router.get("/api/plans/{plan_id}")
@@ -166,7 +190,8 @@ async def create_plan(request: CreatePlanRequest):
     if store:
         try:
             store.index_plan(plan_id=plan_id, title=request.title, content=plan_file.read_text(), epic_count=1, filename=f"{plan_id}.md", status="draft", created_at=meta["created_at"])
-        except Exception: pass
+        except Exception as e:
+            logger.warning("Failed to index new plan %s in zvec: %s", plan_id, e)
     return {"plan_id": plan_id, "url": f"/plans/{plan_id}", "title": request.title, "path": request.path, "working_dir": working_dir, "filename": f"{plan_id}.md"}
 
 @router.post("/api/plans/{plan_id}/save")

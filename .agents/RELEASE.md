@@ -1,32 +1,53 @@
-# Release: v0.1.0-20260313
+# Release: v0.1.0-20260316
 
-**Date**: 2026-03-13 12:04:24 UTC
-**Status**: Approved
+**Date**: 2026-03-16 05:59:56 UTC
+**Status**: Draft
 
 ## Summary
 
-1 task(s) completed and reviewed by QA.
+2 task(s) completed and reviewed by QA.
 
 ## Tasks Completed
 
 
-### UNKNOWN — UNKNOWN
+### EPIC-001 — EPIC-001
 
-- **Room**: room-002
+- **Room**: room-001
 - **Status**: passed
-- **QA Verdict**: 🔧 Calling tool: ls
-🔧 Calling tool: write_todos
-🔧 Calling tool: read_file
-🔧 Calling tool: read_file
-🔧 Calling tool: read_file
+- **QA Verdict**: I have completed the QA review of **EPIC-001: Add Plan Refinement Phase to Manager**.
+### Review Summary
+The implementation introduces a robust plan refinement phase into the Manager pipeline. `Start-Plan.ps1` now performs a pre-parsing check to identify "underspecified" Epics based on specific criteria (missing Definition of Done, missing Acceptance Criteria, or insufficient description length). When triggered, it leverages `Expand-Plan.ps1` to automatically enhance the plan via AI, writes the results to a `.refined.md` file, and pauses for human review before proceeding.
+### Key Observations
+*   **Detection Logic**: Correctly implemented in `Start-Plan.ps1` using regex to count DoD/AC items and description bullet points.
+*   **AI Refinement**: `Expand-Plan.ps1` successfully integrates with the `deepagents` CLI to expand individual epics while preserving the original structure.
+*   **Workflow Integration**: The refined plan is seamlessly swapped in as the source of truth for the subsequent war-room creation process.
+*   **Testing**: 13 Pester tests were executed and passed, covering both the parsing logic and the refinement triggers.
+*   **User Experience**: The addition of the `=== Plan Refinement Required ===` header and the `Read-Host` approval step ensures the human remains in the loop for critical plan changes.
+### Automated Test Results
+
+### EPIC-004 — EPIC-004
+
+- **Room**: room-004
+- **Status**: passed
+- **QA Verdict**: VERDICT: PASS
+Detailed Reasoning:
+I have completed my review of **EPIC-004: Integrate into Manager Loop Startup**.
+### Review Summary
+The engineer has successfully integrated the plan expansion workflow into the manager startup sequence. The implementation includes new CLI parameters (`-Expand`, `-Review`), auto-detection of underspecified plans, configuration-driven defaults, and comprehensive integration tests. The code follows project conventions, specifically using the `Write-OstwinLog` structured logging and adhering to the existing configuration management patterns.
+### Validation of Sub-tasks
+1.  **TASK-001 & TASK-002**: `Start-Plan.ps1` correctly implements `-Expand` and `-Review` switches and wires `Expand-Plan.ps1`.
+2.  **TASK-003**: The review-pause flow using `Read-Host` is implemented and correctly triggered when underspecified plans are detected.
+3.  **TASK-004**: `config.json` and `lib/Config.psm1` were updated to support `manager.auto_expand_plan` with proper defaulting.
+4.  **TASK-005**: Logging of the expansion process and the `git diff --stat` summary provides excellent visibility.
 
 
 ## Sign-offs
 
 | Role     | Status  | Timestamp |
 |----------|---------|-----------|
-| Engineer | Approved | 2026-03-13T12:04:25Z |
-| Manager | Approved | 2026-03-13T12:04:25Z |
+| Manager | Pending | - |
+| Engineer | Pending | - |
+| QA | Pending | - |
 
 ---
 

@@ -865,7 +865,23 @@ while (-not $script:shuttingDown) {
             break
         }
         else {
-            Write-Log "ERROR" "Signoff failed. Continuing loop..."
+            if (-not (Test-Path variable:script:signoffAttempts)) {
+                $script:signoffAttempts = 0
+            }
+            $script:signoffAttempts++
+            $maxSignoffAttempts = 3
+            if ($script:signoffAttempts -ge $maxSignoffAttempts) {
+                Write-Log "WARN" "Signoff rejected $maxSignoffAttempts times. Exiting with release pending manual review."
+                Write-Host ""
+                Write-Host "============================================"
+                Write-Log "INFO" "RELEASE PENDING REVIEW: $agentsDir/RELEASE.md"
+                Write-Host "  All rooms passed but signoff was not approved after $maxSignoffAttempts attempts."
+                Write-Host "  Review RELEASE.md manually and re-run signoff."
+                Write-Host "============================================"
+                Remove-Item $managerPidFile -Force -ErrorAction SilentlyContinue
+                break
+            }
+            Write-Log "ERROR" "Signoff failed (attempt $($script:signoffAttempts)/$maxSignoffAttempts). Continuing loop..."
         }
     }
 
