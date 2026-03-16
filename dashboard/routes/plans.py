@@ -174,30 +174,7 @@ async def create_plan(request: CreatePlanRequest):
         plan_file.write_text(request.content)
     else:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        plan_file.write_text(f"""# Plan: {request.title}
-
-> Created: {now}
-> Status: draft
-> Project: {request.path}
-
-## Config
-
-working_dir: {working_dir}
-
----
-
-## Goal
-
-{request.title}
-
-## EPIC-001 - {request.title}
-
-#### Definition of Done
-- [ ] Core functionality implemented
-
-#### Tasks
-- [ ] TASK-001 — Design and plan implementation
-""")
+        plan_file.write_text(f"# Plan: {request.title}\n\n> Created: {now}\n> Status: draft\n> Project: {request.path}\n\n## Config\n\nworking_dir: {working_dir}\n\n---\n\n## Goal\n\n{request.title}\n\n## Epics\n\n### EPIC-001 — {request.title}\n\n#### Definition of Done\n- [ ] Core functionality implemented\n\n#### Tasks\n- [ ] TASK-001 — Design and plan implementation\n\ndepends_on: []\n")
 
     meta_file = plans_dir / f"{plan_id}.meta.json"
     meta = {"plan_id": plan_id, "title": request.title, "working_dir": working_dir, "warrooms_dir": str(Path(working_dir) / ".war-rooms"), "created_at": datetime.now(timezone.utc).isoformat(), "status": "draft"}

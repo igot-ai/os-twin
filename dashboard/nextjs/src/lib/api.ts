@@ -48,3 +48,22 @@ export async function apiPost<T>(
   });
   return res.json();
 }
+
+export async function apiPut<T>(
+  url: string,
+  body?: unknown
+): Promise<T> {
+  const res = await apiFetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
+export async function apiDelete<T>(url: string): Promise<T> {
+  const res = await apiFetch(url, {
+    method: 'DELETE',
+  });
+  return res.json();
+}

@@ -24,22 +24,41 @@ PLAN_FORMAT_SPEC = """\
 ## Config
 working_dir: /path/to/your/project
 
-## EPIC-001 - <Epic Title>
+## Epic: EPIC-001 — Foundation & Data Layer
 
-<Description of what the engineer should build.>
-<Be specific about modules, APIs, or structures to create.>
-<The engineer will decompose this into sub-tasks and create TASKS.md.>
-
-Acceptance criteria:
-- <Concrete, testable criterion 1>
-- <Concrete, testable criterion 2>
-
-## EPIC-002 - <Second Epic Title>
-
-<Description...>
+<Description — shared schemas, DB setup, core utilities.>
 
 Acceptance criteria:
 - <criterion>
+
+depends_on: []
+
+## Epic: EPIC-002 — Feature A (e.g. User Auth)
+
+<Description — builds on top of the data layer.>
+
+Acceptance criteria:
+- <criterion>
+
+depends_on: [EPIC-001]
+
+## Epic: EPIC-003 — Feature B (e.g. Dashboard UI)
+
+<Description — also builds on the data layer, but independent of Feature A.>
+
+Acceptance criteria:
+- <criterion>
+
+depends_on: [EPIC-001]
+
+## Epic: EPIC-004 — Integration & E2E Tests
+
+<Description — needs both Feature A and Feature B complete.>
+
+Acceptance criteria:
+- <criterion>
+
+depends_on: [EPIC-002, EPIC-003]
 """
 
 SYSTEM_PROMPT = f"""\
@@ -65,7 +84,7 @@ You MUST produce a plan in EXACTLY this format:
 5. Each Epic MUST have **Acceptance criteria:** as a bulleted list
 6. Be specific and actionable — an engineer agent reads this
 7. Do NOT include actual code — only high-level descriptions
-8. Respect dependency order — foundational epics first
+8. Add a `depends_on: [EPIC-NNN, ...]` list for each Epic. Use `depends_on: []` for independent epics. Think carefully — NOT every epic depends on the one before it. Epics that share a common foundation but are otherwise independent should BOTH list only the foundation, NOT each other. Only add a dependency when one epic genuinely cannot start until another finishes.
 9. If the user provides an existing plan, improve it while preserving their intent
 10. If the user asks to modify a specific part, change only that part
 

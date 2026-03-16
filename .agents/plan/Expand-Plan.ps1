@@ -152,7 +152,7 @@ Maximize the detail in this plan. Your output MUST be a single markdown block re
 2. **Implementation Strategy**: Provide a sequential breakdown of the phases required to build this Epic. This should serve as the "detail plan for the team".
 3. **Definition of Done (DoD)**: List at least 5 crystal-clear, verifiable conditions (e.g., "Unit test coverage >= 80%", "Lint clean", "Documentation updated").
 4. **Acceptance Criteria (AC)**: List at least 5 testable scenarios (e.g., "User can login with valid JWT", "System rejects expired tokens with 401").
-5. **Dependencies**: Identify if this depends on other EPICs from the plan (based on the reference NNN in EPIC-NNN). Format as: depends_on: [EPIC-NNN]
+5. **Dependencies**: Identify if this TRULY depends on other EPICs from the plan. Only list an EPIC as a dependency if this epic genuinely cannot start until that other epic is finished (e.g. it consumes APIs or schemas defined there). Do NOT assume every epic depends on the one before it — parallel work is preferred when possible. Format as: depends_on: [EPIC-NNN] or depends_on: [] if none.
 
 ## Format Requirement
 Return ONLY the refined markdown starting with '## $epicRef - $epicTitle'. Use a single hyphen '-' as the separator. Do NOT use '?', '—', '###', or 'Epic:'. Do not include any other text, chatter, or preamble.
