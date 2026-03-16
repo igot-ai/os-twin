@@ -13,7 +13,14 @@ _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from dashboard.api_utils import PROJECT_ROOT, AGENTS_DIR, WARROOMS_DIR, DEMO_DIR, USE_NEXTJS, NEXTJS_OUT_DIR
+from dashboard.api_utils import (
+    PROJECT_ROOT,
+    AGENTS_DIR,
+    WARROOMS_DIR,
+    DEMO_DIR,
+    USE_NEXTJS,
+    NEXTJS_OUT_DIR,
+)
 from dashboard.tasks import startup_all
 from dashboard.routes import auth, engagement, plans, rooms, system, mcp
 from dashboard.global_state import broadcaster
@@ -36,6 +43,7 @@ app.add_middleware(
 # Note: we need to import create_ws_router from the ws module in the parent directory
 try:
     from ws import create_ws_router
+
     app.include_router(create_ws_router(), prefix="/api")
 except ImportError:
     logger.warning("Could not import create_ws_router from ws.py")
@@ -50,12 +58,21 @@ app.include_router(mcp.router)
 # --- Static Frontend Serving ---
 if USE_NEXTJS:
     if (NEXTJS_OUT_DIR / "_next").exists():
-        app.mount("/_next", StaticFiles(directory=str(NEXTJS_OUT_DIR / "_next")), name="nextjs_static")
+        app.mount(
+            "/_next",
+            StaticFiles(directory=str(NEXTJS_OUT_DIR / "_next")),
+            name="nextjs_static",
+        )
     if (DEMO_DIR / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=str(DEMO_DIR / "assets")), name="assets")
+        app.mount(
+            "/assets", StaticFiles(directory=str(DEMO_DIR / "assets")), name="assets"
+        )
 else:
     if (DEMO_DIR / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=str(DEMO_DIR / "assets")), name="assets")
+        app.mount(
+            "/assets", StaticFiles(directory=str(DEMO_DIR / "assets")), name="assets"
+        )
+
 
 # --- Root Redirect/Index ---
 @app.get("/")
@@ -67,6 +84,7 @@ async def index():
         return FileResponse(str(index_file))
     return HTMLResponse("<h1>OS Twin Command Center</h1><p>index.html not found.</p>")
 
+
 # --- SPA Catch-all ---
 @app.get("/{path:path}")
 async def catch_all(path: str):
@@ -74,18 +92,29 @@ async def catch_all(path: str):
         return FileResponse(str(NEXTJS_OUT_DIR / "index.html"))
     return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
 
+
 # --- Lifecycle ---
 @app.on_event("startup")
 async def on_startup():
     await startup_all()
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Ostwin Dashboard")
     parser.add_argument("--port", type=int, default=9000, help="Port to listen on")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    parser.add_argument("--project-dir", default=None, help="Project directory to monitor")
+    parser.add_argument(
+        "--project-dir", default=None, help="Project directory to monitor"
+    )
     args = parser.parse_args()
+
+    if args.project_dir:
+        os.environ["OSTWIN_PROJECT_DIR"] = os.path.abspath(args.project_dir)
+        # We need to manually update these for the print statements since they were imported early
+        PROJECT_ROOT = Path(args.project_dir)
+        WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
     print("⬡ OS Twin Command Center (Modular)")
     print(f"  Project:   {args.project_dir or PROJECT_ROOT}")

@@ -1,6 +1,7 @@
 from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 
+
 class Room(BaseModel):
     room_id: str
     task_ref: str
@@ -12,6 +13,7 @@ class Room(BaseModel):
     goal_total: int = 0
     goal_done: int = 0
 
+
 class Message(BaseModel):
     id: str
     ts: str
@@ -21,14 +23,17 @@ class Message(BaseModel):
     ref: str
     body: str
 
+
 class RunRequest(BaseModel):
     plan: str
     plan_id: str
+
 
 class ReactionRequest(BaseModel):
     entity_id: str
     user_id: str
     reaction_type: str
+
 
 class CommentRequest(BaseModel):
     entity_id: str
@@ -36,9 +41,11 @@ class CommentRequest(BaseModel):
     body: str
     parent_id: Optional[str] = None
 
+
 class TelegramConfigRequest(BaseModel):
     bot_token: str
     chat_id: str
+
 
 class CreatePlanRequest(BaseModel):
     path: str
@@ -46,9 +53,11 @@ class CreatePlanRequest(BaseModel):
     content: Optional[str] = None
     working_dir: Optional[str] = None
 
+
 class SavePlanRequest(BaseModel):
     content: str
     change_source: str = "manual_save"  # "manual_save", "ai_refine", "expansion"
+
 
 class RefineRequest(BaseModel):
     message: str
@@ -57,7 +66,24 @@ class RefineRequest(BaseModel):
     model: str = ""
     chat_history: list = Field(default_factory=list)
 
+
 class UpdatePlanRoleConfigRequest(BaseModel):
     default_model: str | None = None
     timeout_seconds: int | None = None
     cli: str | None = None
+
+
+class StrategyParameter(BaseModel):
+    name: str
+    label: str
+    value: float | int | str | bool
+    type: str  # "int", "float", "bool", "string"
+
+
+class Strategy(BaseModel):
+    id: str
+    name: str
+    description: str
+    status: str  # "active", "inactive"
+    parameters: List[StrategyParameter]
+    last_run: Optional[str] = None

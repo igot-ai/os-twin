@@ -23,6 +23,11 @@ else:
 
 # Default war-rooms location
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
+if os.environ.get("OSTWIN_PROJECT_DIR"):
+    PROJECT_ROOT = Path(os.environ.get("OSTWIN_PROJECT_DIR"))
+    AGENTS_DIR = PROJECT_ROOT / ".agents"
+    WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
+
 DEMO_DIR = Path(__file__).parent
 
 # Next.js export detection

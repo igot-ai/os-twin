@@ -62,6 +62,9 @@ Acceptance criteria:
 - Status colors match state (blue=engineering, green=passed, red=failed)
 - SSE reconnects automatically on disconnect
 
+depends_on: []
+
+
 ## Epic: EPIC-002 — Build FastAPI backend
 
 Role: api-engineer
@@ -79,6 +82,9 @@ Acceptance criteria:
 - SSE stream emits events within 2s of state change
 - CORS allows dashboard origin
 
+depends_on: []
+
+
 ## Epic: EPIC-003 — Integration testing and documentation
 
 Role: test-engineer
@@ -94,3 +100,6 @@ End-to-end integration between frontend and backend:
 Acceptance criteria:
 - All Cypress tests pass
 - README covers installation, running, and architecture
+
+depends_on: [EPIC-001, EPIC-002]
+

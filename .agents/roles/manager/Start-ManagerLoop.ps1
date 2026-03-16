@@ -339,6 +339,63 @@ while (-not $script:shuttingDown) {
             [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
         } else { 0 }
 
+        # --- Resolve Worker Script (Static Registry vs JIT Factory) ---
+        $roomConfigFile = Join-Path $roomDir "config.json"
+        $assignedRole = "engineer"
+        if (Test-Path $roomConfigFile) {
+            $rc = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
+            if ($rc.assignment -and $rc.assignment.assigned_role) {
+                $assignedRole = $rc.assignment.assigned_role
+            }
+        }
+        $baseRole = $assignedRole -replace ':.*$', ''
+        
+        $workerScript = $null
+        $registryPath = Join-Path $agentsDir "roles" "registry.json"
+        
+        # 1. Try static registry match
+        if (Test-Path $registryPath) {
+            $registry = Get-Content $registryPath -Raw | ConvertFrom-Json
+            $matchedRole = $registry.roles | Where-Object { $_.name -eq $baseRole }
+            if ($matchedRole -and $matchedRole.runner) {
+                $runnerRel = $matchedRole.runner -replace '/', [System.IO.Path]::DirectorySeparatorChar
+                $runnerPath = Join-Path $agentsDir $runnerRel
+                if (Test-Path $runnerPath) {
+                    $workerScript = $runnerPath
+                }
+            }
+        }
+        
+        # 2. Try dynamic local role discovery (User-defined after install)
+        if (-not $workerScript) {
+            # Try project-level custom roles first, then global roles dir
+            $projectRolesDir = Join-Path $WarRoomsDir ".." "roles" $baseRole
+            $globalRolesDir = Join-Path $agentsDir "roles" $baseRole
+            
+            $discoveredRoleDir = $null
+            if (Test-Path (Join-Path $projectRolesDir "role.json")) {
+                $discoveredRoleDir = $projectRolesDir
+            } elseif (Test-Path (Join-Path $globalRolesDir "role.json")) {
+                $discoveredRoleDir = $globalRolesDir
+            }
+            
+            if ($discoveredRoleDir) {
+                # If a custom runner exists, use it. Otherwise, use a generic fallback runner
+                if (Test-Path (Join-Path $discoveredRoleDir "Start-${baseRole}.ps1")) {
+                    $workerScript = Join-Path $discoveredRoleDir "Start-${baseRole}.ps1"
+                } else {
+                    # If they just provided a role.json/ROLE.md but no runner, we use the engineer runner
+                    # because it is a generic executor that reads role.json under the hood
+                    $workerScript = Join-Path $agentsDir "roles" "engineer" "Start-Engineer.ps1"
+                }
+            }
+        }
+        
+        # 3. Fallback to JIT Ephemeral Agent (Hallucination mode) if entirely unknown
+        if (-not $workerScript) {
+            $workerScript = Join-Path $agentsDir "roles" "_base" "Start-EphemeralAgent.ps1"
+        }
+
         switch ($status) {
             'pending' {
                 $allPassed = $false
@@ -363,7 +420,7 @@ while (-not $script:shuttingDown) {
                     Start-Job -ScriptBlock {
                         param($script, $room)
                         & $script -RoomDir $room
-                    } -ArgumentList $startEngineer, $roomDir | Out-Null
+                    } -ArgumentList $workerScript, $roomDir | Out-Null
                 }
             }
 
@@ -383,7 +440,7 @@ while (-not $script:shuttingDown) {
                         Start-Job -ScriptBlock {
                             param($script, $room)
                             & $script -RoomDir $room
-                        } -ArgumentList $startEngineer, $roomDir | Out-Null
+                        } -ArgumentList $workerScript, $roomDir | Out-Null
                     }
                     else {
                         Write-Log "ERROR" "[$taskRef] Max retries exceeded after timeout."
@@ -420,7 +477,7 @@ while (-not $script:shuttingDown) {
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
                                     & $script -RoomDir $room
-                                } -ArgumentList $startEngineer, $roomDir | Out-Null
+                                } -ArgumentList $workerScript, $roomDir | Out-Null
                             }
                             else {
                                 Write-Log "ERROR" "[$taskRef] Max retries exceeded. Marking as failed."
@@ -451,7 +508,7 @@ while (-not $script:shuttingDown) {
                         Start-Job -ScriptBlock {
                             param($script, $room)
                             & $script -RoomDir $room
-                        } -ArgumentList $startEngineer, $roomDir | Out-Null
+                        } -ArgumentList $workerScript, $roomDir | Out-Null
                     }
                     else {
                         Write-RoomStatus $roomDir "failed-final"
@@ -552,7 +609,7 @@ while (-not $script:shuttingDown) {
                             Start-Job -ScriptBlock {
                                 param($script, $room)
                                 & $script -RoomDir $room
-                            } -ArgumentList $startEngineer, $roomDir | Out-Null
+                            } -ArgumentList $workerScript, $roomDir | Out-Null
                         }
                         else {
                             Write-Log "ERROR" "[$taskRef] Max retries exceeded after triage. Marking as failed."
@@ -579,7 +636,7 @@ while (-not $script:shuttingDown) {
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
                                     & $script -RoomDir $room
-                                } -ArgumentList $startEngineer, $roomDir | Out-Null
+                                } -ArgumentList $workerScript, $roomDir | Out-Null
                             } else {
                                 Write-RoomStatus $roomDir "failed-final"
                                 Set-BlockedDescendants $taskRef
@@ -622,7 +679,7 @@ while (-not $script:shuttingDown) {
                         Start-Job -ScriptBlock {
                             param($script, $room)
                             & $script -RoomDir $room
-                        } -ArgumentList $startEngineer, $roomDir | Out-Null
+                        } -ArgumentList $workerScript, $roomDir | Out-Null
                     } else {
                         Write-RoomStatus $roomDir "failed-final"
                         Set-BlockedDescendants $taskRef
@@ -656,7 +713,7 @@ while (-not $script:shuttingDown) {
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
                                     & $script -RoomDir $room
-                                } -ArgumentList $startEngineer, $roomDir | Out-Null
+                                } -ArgumentList $workerScript, $roomDir | Out-Null
                             } else {
                                 Write-RoomStatus $roomDir "failed-final"
                                 Set-BlockedDescendants $taskRef
@@ -672,7 +729,7 @@ while (-not $script:shuttingDown) {
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
                                     & $script -RoomDir $room
-                                } -ArgumentList $startEngineer, $roomDir | Out-Null
+                                } -ArgumentList $workerScript, $roomDir | Out-Null
                             } else {
                                 Write-RoomStatus $roomDir "failed-final"
                                 Set-BlockedDescendants $taskRef
@@ -701,7 +758,7 @@ while (-not $script:shuttingDown) {
                             Start-Job -ScriptBlock {
                                 param($script, $room)
                                 & $script -RoomDir $room
-                            } -ArgumentList $startEngineer, $roomDir | Out-Null
+                            } -ArgumentList $workerScript, $roomDir | Out-Null
                         } else {
                             Write-RoomStatus $roomDir "failed-final"
                             Set-BlockedDescendants $taskRef
@@ -741,7 +798,7 @@ while (-not $script:shuttingDown) {
                 Start-Job -ScriptBlock {
                     param($script, $room)
                     & $script -RoomDir $room
-                } -ArgumentList $startEngineer, $roomDir | Out-Null
+                } -ArgumentList $workerScript, $roomDir | Out-Null
             }
 
             'passed' {
@@ -793,7 +850,7 @@ while (-not $script:shuttingDown) {
                         ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
                         & $postMessage -RoomDir $rd -From "manager" -To "engineer" -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting engineer."
                         Write-RoomStatus $rd "fixing"
-                        Start-Job -ScriptBlock { param($s, $r); & $s -RoomDir $r } -ArgumentList $startEngineer, $rd | Out-Null
+                        Start-Job -ScriptBlock { param($s, $r); & $s -RoomDir $r } -ArgumentList $workerScript, $rd | Out-Null
                     }
                     else {
                         Write-RoomStatus $rd "failed-final"
@@ -816,7 +873,7 @@ while (-not $script:shuttingDown) {
                         ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
                         & $postMessage -RoomDir $rd -From "manager" -To "engineer" -Type "fix" -Ref $lt -Body "Architect review stalled during deadlock recovery. Please attempt fix."
                         Write-RoomStatus $rd "fixing"
-                        Start-Job -ScriptBlock { param($s, $r); & $s -RoomDir $r } -ArgumentList $startEngineer, $rd | Out-Null
+                        Start-Job -ScriptBlock { param($s, $r); & $s -RoomDir $r } -ArgumentList $workerScript, $rd | Out-Null
                     } else {
                         Write-RoomStatus $rd "failed-final"
                         Set-BlockedDescendants $lt

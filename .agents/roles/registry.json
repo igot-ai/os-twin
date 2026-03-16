@@ -68,5 +68,32 @@
     "auto_discover": true,
     "required_files": ["role.json"],
     "optional_files": ["ROLE.md", "skills/"]
+  },
+  "skills": {
+    "skills_dir": "skills/",
+    "auto_discover": true,
+    "required_files": ["SKILL.md"],
+    "available": [
+      {
+        "name": "lang",
+        "description": "Fetch LangGraph documentation for accurate, up-to-date guidance",
+        "path": "skills/lang/SKILL.md"
+      },
+      {
+        "name": "create-role",
+        "description": "Scaffold a new agent role — generates role.json, ROLE.md, and registers in registry.json",
+        "path": "skills/create-role/SKILL.md"
+      },
+      {
+        "name": "create-architecture",
+        "description": "Generate architecture docs for an epic — ADRs, component diagrams, data flows, tech-stack rationale",
+        "path": "skills/create-architecture/SKILL.md"
+      },
+      {
+        "name": "create-lifecycle",
+        "description": "Define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, escalation rules",
+        "path": "skills/create-lifecycle/SKILL.md"
+      }
+    ]
   }
 }

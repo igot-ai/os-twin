@@ -4,6 +4,8 @@
 .agents/.war-rooms/**
 .agents/plans/**
 *.war-rooms/**
+.agents/logs/**
+.war-rooms/**
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
@@ -19,3 +21,4 @@ __pycache__/
 
 # ── Dummy project ──────────────────────────────────────────────────────────────
 cypress/screenshots
+quant_proj/

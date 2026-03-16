@@ -132,11 +132,12 @@ cmd_install() {
   fi
 
   # Parse optional args
-  local opt_name="" opt_branch=""
+  local opt_name="" opt_branch="" opt_env=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --name)   opt_name="$2"; shift 2 ;;
       --branch) opt_branch="$2"; shift 2 ;;
+      --env)    opt_env="$2"; shift 2 ;;
       *)        warn "Unknown option: $1"; shift ;;
     esac
   done
@@ -334,6 +335,45 @@ else:
 
   # Resolve ${extensionPath} and ${AGENT_DIR} → actual absolute paths
   config_json=$(echo "$config_json" | sed "s|\${extensionPath}|$ext_path|g; s|\${AGENT_DIR}|$INSTALL_DIR|g")
+
+  # ── Merge --env file if provided ──
+  if [[ -n "$opt_env" ]]; then
+    if [[ -f "$opt_env" ]]; then
+      step "Merging environment variables from $opt_env..."
+      config_json=$(echo "$config_json" | "$PYTHON" -c "
+import json, sys, os
+
+try:
+    config = json.load(sys.stdin)
+except Exception:
+    config = {}
+
+env_dict = config.get('env', {})
+
+with open('$opt_env') as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if '=' in line:
+            k, v = line.split('=', 1)
+            v = v.strip()
+            if v.startswith('\"') and v.endswith('\"'):
+                v = v[1:-1]
+            elif v.startswith(\"'\") and v.endswith(\"'\"):
+                v = v[1:-1]
+            env_dict[k.strip()] = v
+
+if env_dict:
+    config['env'] = env_dict
+
+print(json.dumps(config))
+" 2>/dev/null || echo "$config_json")
+      ok "Environment variables merged"
+    else
+      warn "Env file '$opt_env' not found — skipping env injection"
+    fi
+  fi
 
   # ── Register in extensions.json ──
   local now
@@ -575,6 +615,7 @@ Usage:
 Options (install):
   --name NAME      Override extension name (required for git URLs)
   --branch BRANCH  Git branch to clone (default: main)
+  --env PATH       Path to a .env file to inject into the MCP configuration
 
 Examples:
   ostwin mcp catalog

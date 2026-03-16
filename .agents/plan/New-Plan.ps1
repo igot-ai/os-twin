@@ -194,6 +194,8 @@ Working_dir: .
 - [ ] TASK-003 — Write unit tests
 - [ ] TASK-004 — Documentation and cleanup
 
+depends_on: []
+
 ---
 
 ## Notes
