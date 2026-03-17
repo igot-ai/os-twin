@@ -59,7 +59,7 @@ export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
         </span>
       </div>
       <div className="rc-ref">{room.task_ref}</div>
-      <div className="rc-desc">{trunc(room.task_description || '', 90)}</div>
+      <div className="rc-desc">{trunc(room.task_description || '', 120)}</div>
 
       {/* Role badges */}
       {room.roles && room.roles.length > 0 && (
@@ -76,12 +76,12 @@ export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
             <span
               key={r.instance_id || i}
               style={{
-                fontSize: '7px',
-                padding: '1px 5px',
+                fontSize: '10px',
+                padding: '2px 7px',
                 borderRadius: '8px',
-                background: 'var(--bg-tertiary, #2a2a3a)',
-                color: 'var(--text-dim)',
-                border: '1px solid var(--border-color, #333)',
+                background: 'var(--bg-surface)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
                 whiteSpace: 'nowrap',
               }}
               title={r.filename || ''}
@@ -97,7 +97,7 @@ export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          fontSize: '8px',
+          fontSize: '10px',
           color: 'var(--text-dim)',
           marginBottom: '4px',
         }}

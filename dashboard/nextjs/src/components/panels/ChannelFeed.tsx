@@ -43,6 +43,7 @@ function FeedMessage({ roomId, msg }: { roomId: string; msg: Message }) {
 function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   const [activityLogs, setActivityLogs] = useState<Notification[]>([]);
   const [expandedGoals, setExpandedGoals] = useState<Record<number, boolean>>({});
+  const [showAllGoals, setShowAllGoals] = useState(false);
 
   const toggleGoal = (i: number) => {
     setExpandedGoals(prev => ({ ...prev, [i]: !prev[i] }));
@@ -194,9 +195,9 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
         </div>
       </div>
       <div className="detail-goals">
-        <label className="field-label">Goal Checklist</label>
+        <label className="field-label">Goal Checklist ({goals.length})</label>
         <div className="goal-list">
-          {goals.map((g, i) => (
+          {(showAllGoals ? goals : goals.slice(0, 10)).map((g, i) => (
             <div key={i} className="goal-item" onClick={() => toggleGoal(i)} style={{ cursor: 'pointer' }} title={expandedGoals[i] ? "Click to collapse" : "Click to view full text"}>
               <span
                 className={`goal-checkbox${g.checked ? ' checked' : ''}${g.failed ? ' failed' : ''}`}
@@ -207,6 +208,25 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
             </div>
           ))}
         </div>
+        {goals.length > 10 && (
+          <button
+            onClick={() => setShowAllGoals(v => !v)}
+            style={{
+              marginTop: '6px',
+              background: 'none',
+              border: '1px solid var(--border)',
+              color: 'var(--text-dim)',
+              fontSize: '9px',
+              padding: '2px 8px',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              width: '100%',
+              letterSpacing: '1px',
+            }}
+          >
+            {showAllGoals ? `▴ show less` : `▾ show all ${goals.length} goals`}
+          </button>
+        )}
       </div>
 
       {/* --- Artifacts --- */}
@@ -262,6 +282,7 @@ interface ChannelFeedProps {
   onClearFeed: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  style?: React.CSSProperties;
 }
 
 export default function ChannelFeed({
@@ -272,6 +293,7 @@ export default function ChannelFeed({
   onClearFeed,
   isCollapsed,
   onToggleCollapse,
+  style,
 }: ChannelFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -283,7 +305,7 @@ export default function ChannelFeed({
   }, [feedMessages.length]);
 
   return (
-    <aside className={`panel panel-right ${isCollapsed ? 'collapsed' : ''}`}>
+    <aside className={`panel panel-right ${isCollapsed ? 'collapsed' : ''}`} style={style}>
       <div className="panel-header">
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
           {onToggleCollapse && (

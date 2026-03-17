@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { WSEvent } from '@/types';
 import { apiGet } from '@/lib/api';
 
@@ -59,6 +59,61 @@ export default function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  // Resizable panel widths
+  const [leftWidth, setLeftWidth] = useState(220);
+  const [rightWidth, setRightWidth] = useState(380);
+
+  // Drag handlers — each uses private closure state, no shared refs
+  const onLeftDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    let startW = 0;
+    // Read current left width from state via setter pattern
+    setLeftWidth(w => { startW = w; return w; });
+    // Use a local captured value for the drag
+    const capturedStartW = leftWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX;
+      const newW = Math.max(48, Math.min(480, capturedStartW + delta));
+      setLeftWidth(newW);
+      setLeftCollapsed(newW <= 48);
+    };
+    const onUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leftWidth]);
+
+  const onRightDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const capturedStartW = rightWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev: MouseEvent) => {
+      // drag handle LEFT = increase right panel width
+      const delta = startX - ev.clientX;
+      const newW = Math.max(48, Math.min(700, capturedStartW + delta));
+      setRightWidth(newW);
+      setRightCollapsed(newW <= 48);
+    };
+    const onUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rightWidth]);
 
   // Path detection for /plans/abc
   useEffect(() => {
@@ -139,11 +194,22 @@ export default function Dashboard() {
 
       <PipelineBar rooms={roomList} />
 
-      <main className={`main-layout ${leftCollapsed ? 'layout-left-collapsed' : ''} ${rightCollapsed ? 'layout-right-collapsed' : ''}`}>
+      <main className="main-layout" style={{ display: 'flex' }}>
         <PlanLauncher
           onPlanSelected={loadPlanRooms}
           isCollapsed={leftCollapsed}
-          onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
+          onToggleCollapse={() => {
+            if (leftCollapsed) { setLeftCollapsed(false); setLeftWidth(220); }
+            else { setLeftCollapsed(true); setLeftWidth(48); }
+          }}
+          style={{ width: leftCollapsed ? 48 : leftWidth, flexShrink: 0 }}
+        />
+
+        {/* Left drag handle */}
+        <div
+          className="resize-handle resize-handle-left"
+          onMouseDown={onLeftDragStart}
+          title="Drag to resize"
         />
 
         <WarRoomGrid
@@ -151,6 +217,14 @@ export default function Dashboard() {
           summary={summary}
           channelFilter={channelFilter}
           onSelectRoom={selectRoom}
+          style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}
+        />
+
+        {/* Right drag handle */}
+        <div
+          className="resize-handle resize-handle-right"
+          onMouseDown={onRightDragStart}
+          title="Drag to resize"
         />
 
         <ChannelFeed
@@ -160,7 +234,11 @@ export default function Dashboard() {
           activePlanId={activePlanId}
           onClearFeed={clearFeed}
           isCollapsed={rightCollapsed}
-          onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
+          onToggleCollapse={() => {
+            if (rightCollapsed) { setRightCollapsed(false); setRightWidth(380); }
+            else { setRightCollapsed(true); setRightWidth(48); }
+          }}
+          style={{ width: rightCollapsed ? 48 : rightWidth, flexShrink: 0 }}
         />
       </main>
 

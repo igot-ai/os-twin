@@ -11,9 +11,10 @@ interface PlanLauncherProps {
   onPlanSelected?: (planId: string | null) => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  style?: React.CSSProperties;
 }
 
-export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollapsed, onToggleCollapse }: PlanLauncherProps) {
+export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollapsed, onToggleCollapse, style }: PlanLauncherProps) {
   const [planText, setPlanText] = useState(TEMPLATES.hello);
   const [launchStatus, setLaunchStatus] = useState('');
   const [launchColor, setLaunchColor] = useState('');
@@ -218,7 +219,7 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollaps
   }, [selectedPath, npTitle, npContent]);
 
   return (
-    <aside className={`panel panel-left ${isCollapsed ? 'collapsed' : ''}`}>
+    <aside className={`panel panel-left ${isCollapsed ? 'collapsed' : ''}`} style={style}>
       <div className="panel-header">
         <span className="panel-title">{isCollapsed ? '▶' : '▶ PLAN LAUNCHER'}</span>
         <div style={{ display: 'flex', gap: '4px' }}>

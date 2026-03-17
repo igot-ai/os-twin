@@ -18,6 +18,7 @@ interface WarRoomGridProps {
   };
   channelFilter: string | null;
   onSelectRoom: (roomId: string) => void;
+  style?: React.CSSProperties;
 }
 
 export default function WarRoomGrid({
@@ -25,11 +26,12 @@ export default function WarRoomGrid({
   summary,
   channelFilter,
   onSelectRoom,
+  style,
 }: WarRoomGridProps) {
   const [view, setView] = useState<'grid' | 'matrix' | 'tasks'>('grid');
 
   return (
-    <section className="panel panel-center">
+    <section className="panel panel-center" style={style}>
       <div className="panel-header">
         <div className="header-left">
           <span className="panel-title">⬡ WAR-ROOMS</span>

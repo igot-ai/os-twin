@@ -18,18 +18,30 @@ export function trunc(s: string | null | undefined, n: number): string {
 }
 
 /**
- * Format an ISO timestamp to HH:MM:SS
+ * Format an ISO timestamp or Unix epoch to HH:MM:SS
+ * Returns empty string for null/undefined, never returns 'Invalid Date'.
  */
 export function fmtTime(ts: string | null | undefined): string {
   if (!ts) return '';
-  try {
-    return new Date(ts).toLocaleTimeString('en', {
+  let d: Date;
+  // Check if it's a Unix epoch (numeric only string)
+  if (/^\d{9,13}$/.test(ts.trim())) {
+    // 9-10 digits = seconds, 13 digits = millis
+    const n = Number(ts.trim());
+    d = new Date(ts.trim().length >= 13 ? n : n * 1000);
+  } else {
+    d = new Date(ts);
+  }
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleTimeString('en', {
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
     });
-  } catch {
-    return String(ts).slice(11, 19);
   }
+  // Fallback: try to pull HH:MM:SS from string directly (e.g. "03/16/26 22:39:19")
+  const m = String(ts).match(/(\d{2}:\d{2}:\d{2})/);
+  if (m) return m[1];
+  return '';
 }

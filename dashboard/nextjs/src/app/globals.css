@@ -71,7 +71,7 @@ body {
   background: var(--bg-surface);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.18);
   display: flex;
   align-items: center;
   padding: 0 16px;
@@ -188,7 +188,7 @@ body {
   background: var(--bg-surface);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -238,40 +238,53 @@ body {
 /* === Main Layout === */
 .main-layout {
   flex: 1;
-  display: grid;
-  grid-template-columns: 220px 1fr minmax(350px, 35vw);
-  gap: 0;
+  display: flex;
   overflow: hidden;
   min-height: 0;
-  transition: grid-template-columns 0.3s ease;
 }
 
-.main-layout.layout-left-collapsed {
-  grid-template-columns: 48px 1fr minmax(350px, 35vw);
+/* Drag resize handle between panels */
+.resize-handle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s;
 }
 
-.main-layout.layout-right-collapsed {
-  grid-template-columns: 220px 1fr 48px;
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  left: 2px;
+  width: 1px;
+  background: rgba(0, 212, 255, 0.18);
+  transition: background 0.15s, width 0.15s, left 0.15s;
 }
 
-.main-layout.layout-left-collapsed.layout-right-collapsed {
-  grid-template-columns: 48px 1fr 48px;
+.resize-handle:hover::after,
+.resize-handle:active::after {
+  background: rgba(0, 212, 255, 0.65);
+  width: 3px;
+  left: 1px;
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.3);
 }
 
 /* === Panels === */
 .panel {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   overflow: hidden;
   min-height: 0;
 }
 
-.panel:last-child { border-right: none; }
+.panel:last-child { }
 
 .panel-header {
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.18);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -542,6 +555,7 @@ body {
 .goal-text.truncated {
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1221,23 +1235,23 @@ body {
   margin-bottom: 4px;
 }
 .rc-id {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-dim);
   letter-spacing: 0.5px;
 }
 .rc-chip {
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 8px;
   border: 1px solid transparent;
   letter-spacing: 0.5px;
-  background: rgba(255,255,255,0.04);
+  background: var(--bg-surface);
 }
 .rc-chip.chip-pulse { animation: chipPulse 1.5s ease-in-out infinite; }
 
 .rc-ref {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text);
   margin-bottom: 4px;
@@ -1246,12 +1260,13 @@ body {
   text-overflow: ellipsis;
 }
 .rc-desc {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-dim);
   margin-bottom: 8px;
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1270,7 +1285,7 @@ body {
 .rc-foot {
   display: flex;
   gap: 8px;
-  font-size: 9px;
+  font-size: 11px;
   justify-content: space-between;
 }
 
@@ -1505,17 +1520,17 @@ body {
   top: 100%;
   right: 0;
   margin-top: 10px;
-  width: 320px;
-  max-height: 400px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
+  width: 360px;
+  max-height: 420px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(0, 212, 255, 0.18);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
   z-index: 1000;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .notification-header {
