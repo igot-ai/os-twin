@@ -9,9 +9,11 @@ import { trunc, fmtTime } from '@/lib/utils';
 interface PlanLauncherProps {
   onPlanLaunched?: () => void;
   onPlanSelected?: (planId: string | null) => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export default function PlanLauncher({ onPlanLaunched, onPlanSelected }: PlanLauncherProps) {
+export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollapsed, onToggleCollapse }: PlanLauncherProps) {
   const [planText, setPlanText] = useState(TEMPLATES.hello);
   const [launchStatus, setLaunchStatus] = useState('');
   const [launchColor, setLaunchColor] = useState('');
@@ -216,21 +218,31 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected }: PlanLau
   }, [selectedPath, npTitle, npContent]);
 
   return (
-    <aside className="panel panel-left">
+    <aside className={`panel panel-left ${isCollapsed ? 'collapsed' : ''}`}>
       <div className="panel-header">
-        <span className="panel-title">▶ PLAN LAUNCHER</span>
-        <button
-          className="action-btn"
-          style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-          onClick={() => {
-            setShowNewProject((v) => !v);
-            if (!showNewProject) browseFolder(null);
-          }}
-        >
-          + New Project
-        </button>
+        <span className="panel-title">{isCollapsed ? '▶' : '▶ PLAN LAUNCHER'}</span>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {!isCollapsed && (
+            <button
+              className="action-btn"
+              style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+              onClick={() => {
+                setShowNewProject((v) => !v);
+                if (!showNewProject) browseFolder(null);
+              }}
+            >
+              + New Project
+            </button>
+          )}
+          {onToggleCollapse && (
+            <button className="action-btn" onClick={onToggleCollapse} style={{ padding: '4px 8px' }}>
+              {isCollapsed ? '›' : '‹'}
+            </button>
+          )}
+        </div>
       </div>
 
+      {!isCollapsed && (
       <div className="panel-body">
         {/* New Project Modal */}
         {showNewProject && (
@@ -631,6 +643,7 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected }: PlanLau
           </div>
         </div>
       </div>
+      )}
     </aside>
   );
 }

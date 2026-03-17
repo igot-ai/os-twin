@@ -111,10 +111,15 @@ if ($isEpic) {
     }
 }
 
-# --- Read role prompt ---
-$rolePrompt = if (Test-Path (Join-Path $scriptDir "ROLE.md")) {
-    Get-Content (Join-Path $scriptDir "ROLE.md") -Raw
-} else { "" }
+# --- Read role prompt (supports both ROLE.md and SKILL.md) ---
+$rolePrompt = ""
+foreach ($promptFile in @("ROLE.md", "SKILL.md")) {
+    $promptPath = Join-Path $scriptDir $promptFile
+    if (Test-Path $promptPath) {
+        $rolePrompt = Get-Content $promptPath -Raw
+        break
+    }
+}
 
 # --- Build Epic-specific sections ---
 $tasksSection = ""

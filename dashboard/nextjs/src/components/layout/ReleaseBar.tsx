@@ -7,7 +7,7 @@ interface ReleaseBarProps {
 }
 
 export default function ReleaseBar({ content }: ReleaseBarProps) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const toggleRelease = useCallback(() => {
     setExpanded((prev) => !prev);

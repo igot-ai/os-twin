@@ -42,6 +42,11 @@ function FeedMessage({ roomId, msg }: { roomId: string; msg: Message }) {
 // Room Detail sub-component
 function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   const [activityLogs, setActivityLogs] = useState<Notification[]>([]);
+  const [expandedGoals, setExpandedGoals] = useState<Record<number, boolean>>({});
+
+  const toggleGoal = (i: number) => {
+    setExpandedGoals(prev => ({ ...prev, [i]: !prev[i] }));
+  };
 
   const color = STATUS_COLOR[room.status] || '#555';
   const pct = PROGRESS_PCT[room.status] ?? 0;
@@ -192,13 +197,13 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
         <label className="field-label">Goal Checklist</label>
         <div className="goal-list">
           {goals.map((g, i) => (
-            <div key={i} className="goal-item">
+            <div key={i} className="goal-item" onClick={() => toggleGoal(i)} style={{ cursor: 'pointer' }} title={expandedGoals[i] ? "Click to collapse" : "Click to view full text"}>
               <span
                 className={`goal-checkbox${g.checked ? ' checked' : ''}${g.failed ? ' failed' : ''}`}
               >
                 {g.checked ? '✓' : g.failed ? '✗' : ''}
               </span>
-              <span className="goal-text">{g.text}</span>
+              <span className={`goal-text ${expandedGoals[i] ? 'expanded' : 'truncated'}`}>{g.text}</span>
             </div>
           ))}
         </div>
@@ -255,6 +260,8 @@ interface ChannelFeedProps {
   selectedRoom: Room | null;
   activePlanId: string | null;
   onClearFeed: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export default function ChannelFeed({
@@ -263,6 +270,8 @@ export default function ChannelFeed({
   selectedRoom,
   activePlanId,
   onClearFeed,
+  isCollapsed,
+  onToggleCollapse,
 }: ChannelFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -274,16 +283,28 @@ export default function ChannelFeed({
   }, [feedMessages.length]);
 
   return (
-    <aside className="panel panel-right">
+    <aside className={`panel panel-right ${isCollapsed ? 'collapsed' : ''}`}>
       <div className="panel-header">
-        <span className="panel-title">
-          {channelFilter ? `▸ ${channelFilter}` : '▸ CHANNEL FEED'}
-        </span>
-        <button className="clear-btn" onClick={onClearFeed}>
-          clear
-        </button>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          {onToggleCollapse && (
+            <button className="action-btn" onClick={onToggleCollapse} style={{ padding: '4px 8px' }}>
+              {isCollapsed ? '‹' : '›'}
+            </button>
+          )}
+          {!isCollapsed && (
+            <span className="panel-title">
+              {channelFilter ? `▸ ${channelFilter}` : '▸ CHANNEL FEED'}
+            </span>
+          )}
+        </div>
+        {!isCollapsed && (
+          <button className="clear-btn" onClick={onClearFeed}>
+            clear
+          </button>
+        )}
       </div>
 
+      {!isCollapsed && (
       <div className="panel-body">
         {selectedRoom && <RoomDetail room={selectedRoom} planId={activePlanId} />}
 
@@ -297,6 +318,7 @@ export default function ChannelFeed({
           )}
         </div>
       </div>
+      )}
     </aside>
   );
 }

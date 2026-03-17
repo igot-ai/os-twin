@@ -57,6 +57,8 @@ export default function Dashboard() {
   const [editorContent, setEditorContent] = useState<string>(''); // State to hold editor content
   const [aiError, setAiError] = useState<string | null>(null); // State to hold AI error
   const [showSettings, setShowSettings] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
 
   // Path detection for /plans/abc
   useEffect(() => {
@@ -137,8 +139,12 @@ export default function Dashboard() {
 
       <PipelineBar rooms={roomList} />
 
-      <main className="main-layout">
-        <PlanLauncher onPlanSelected={loadPlanRooms} />
+      <main className={`main-layout ${leftCollapsed ? 'layout-left-collapsed' : ''} ${rightCollapsed ? 'layout-right-collapsed' : ''}`}>
+        <PlanLauncher
+          onPlanSelected={loadPlanRooms}
+          isCollapsed={leftCollapsed}
+          onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
+        />
 
         <WarRoomGrid
           rooms={roomList}
@@ -153,6 +159,8 @@ export default function Dashboard() {
           selectedRoom={selectedRoom}
           activePlanId={activePlanId}
           onClearFeed={clearFeed}
+          isCollapsed={rightCollapsed}
+          onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
         />
       </main>
 
