@@ -136,159 +136,159 @@ foreach ($em in $epicMatchesCheck) {
     }
 }
 
-$shouldExpand = $Expand -or ($config.manager -and $config.manager.auto_expand_plan -eq $true) -or $hasUnderspecified
+# $shouldExpand = $Expand -or ($config.manager -and $config.manager.auto_expand_plan -eq $true) -or $hasUnderspecified
 
-if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
-    $expandScript = Join-Path $agentsDir "plan" "Expand-Plan.ps1"
-    if (Test-Path $expandScript) {
-        # --- Always expand in-place (no .refined.md) ---
-        $expandArgs = @{
-            PlanFile = $PlanFile
-            OutFile  = $PlanFile   # in-place
-        }
-        if ($DryRun) { $expandArgs.Add("DryRun", $true) }
+# if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$')) {
+#     $expandScript = Join-Path $agentsDir "plan" "Expand-Plan.ps1"
+#     if (Test-Path $expandScript) {
+#         # --- Always expand in-place (no .refined.md) ---
+#         $expandArgs = @{
+#             PlanFile = $PlanFile
+#             OutFile  = $PlanFile   # in-place
+#         }
+#         if ($DryRun) { $expandArgs.Add("DryRun", $true) }
 
-        if ($hasUnderspecified) {
-            Write-Host ""
-            Write-Host "=== Plan Refinement Required ===" -ForegroundColor Yellow
-            Write-Host "Detected underspecified epics. Auto-triggering plan refinement..." -ForegroundColor Yellow
-            $Review = $true
-        } else {
-            Write-OstwinLog -Message "Auto-expanding plan in-place: $PlanFile" -Level "INFO" -Caller "manager"
-        }
+#         if ($hasUnderspecified) {
+#             Write-Host ""
+#             Write-Host "=== Plan Refinement Required ===" -ForegroundColor Yellow
+#             Write-Host "Detected underspecified epics. Auto-triggering plan refinement..." -ForegroundColor Yellow
+#             $Review = $true
+#         } else {
+#             Write-OstwinLog -Message "Auto-expanding plan in-place: $PlanFile" -Level "INFO" -Caller "manager"
+#         }
 
-        # Capture pre-expansion content for diff
-        $preExpansionContent = Get-Content $PlanFile -Raw
+#         # Capture pre-expansion content for diff
+#         $preExpansionContent = Get-Content $PlanFile -Raw
 
-        & $expandScript @expandArgs
+#         & $expandScript @expandArgs
 
-        if ($LASTEXITCODE -ne 0 -and $?) {
-            Write-Error "Failed to expand plan."
-            exit 1
-        }
+#         if ($LASTEXITCODE -ne 0 -and $?) {
+#             Write-Error "Failed to expand plan."
+#             exit 1
+#         }
 
-        if (-not $DryRun) {
-            $postExpansionContent = Get-Content $PlanFile -Raw
-            $diffSummary = "(diff not available)"
-            $tempOld = [IO.Path]::GetTempFileName()
-            $tempNew = [IO.Path]::GetTempFileName()
-            try {
-                $preExpansionContent | Out-File $tempOld -Encoding utf8
-                $postExpansionContent | Out-File $tempNew -Encoding utf8
-                $diffSummary = git diff --no-index --stat $tempOld $tempNew | Out-String
-            } catch { }
-            finally {
-                Remove-Item $tempOld, $tempNew -Force -ErrorAction SilentlyContinue
-            }
-            if (-not $diffSummary) { $diffSummary = "No changes" }
-            Write-OstwinLog -Message "Plan expansion diff:`n$diffSummary" -Level "INFO" -Caller "manager"
+#         if (-not $DryRun) {
+#             $postExpansionContent = Get-Content $PlanFile -Raw
+#             $diffSummary = "(diff not available)"
+#             $tempOld = [IO.Path]::GetTempFileName()
+#             $tempNew = [IO.Path]::GetTempFileName()
+#             try {
+#                 $preExpansionContent | Out-File $tempOld -Encoding utf8
+#                 $postExpansionContent | Out-File $tempNew -Encoding utf8
+#                 $diffSummary = git diff --no-index --stat $tempOld $tempNew | Out-String
+#             } catch { }
+#             finally {
+#                 Remove-Item $tempOld, $tempNew -Force -ErrorAction SilentlyContinue
+#             }
+#             if (-not $diffSummary) { $diffSummary = "No changes" }
+#             Write-OstwinLog -Message "Plan expansion diff:`n$diffSummary" -Level "INFO" -Caller "manager"
 
-            if ($Review) {
-                # --- Push updated plan content to dashboard via save (NOT create) ---
-                $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
-                $dashboardBase = "http://localhost:$dashboardPort"
-                $planContentForApi = Get-Content $PlanFile -Raw
-                $planTitle = "Untitled Plan"
-                $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
-                if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
+#             if ($Review) {
+#                 # --- Push updated plan content to dashboard via save (NOT create) ---
+#                 $dashboardPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { 9000 }
+#                 $dashboardBase = "http://localhost:$dashboardPort"
+#                 $planContentForApi = Get-Content $PlanFile -Raw
+#                 $planTitle = "Untitled Plan"
+#                 $titleMatch = [regex]::Match($planContentForApi, '(?m)^# Plan:\s*(.+)$')
+#                 if ($titleMatch.Success) { $planTitle = $titleMatch.Groups[1].Value.Trim() }
 
-                $planUrl = $null
-                # plan_id is the filename stem (e.g. 42e07f8b2738)
-                $planId = [IO.Path]::GetFileNameWithoutExtension($PlanFile)
-                try {
-                    # Update existing plan in-place via /save (no new plan created)
-                    $saveBody = @{
-                        content       = $planContentForApi
-                        change_source = "expansion"
-                    } | ConvertTo-Json -Depth 5
+#                 $planUrl = $null
+#                 # plan_id is the filename stem (e.g. 42e07f8b2738)
+#                 $planId = [IO.Path]::GetFileNameWithoutExtension($PlanFile)
+#                 try {
+#                     # Update existing plan in-place via /save (no new plan created)
+#                     $saveBody = @{
+#                         content       = $planContentForApi
+#                         change_source = "expansion"
+#                     } | ConvertTo-Json -Depth 5
 
-                    Invoke-RestMethod -Uri "$dashboardBase/api/plans/$planId/save" `
-                        -Method Post -ContentType 'application/json' -Body $saveBody -ErrorAction Stop | Out-Null
+#                     Invoke-RestMethod -Uri "$dashboardBase/api/plans/$planId/save" `
+#                         -Method Post -ContentType 'application/json' -Body $saveBody -ErrorAction Stop | Out-Null
 
-                    $planUrl = "$dashboardBase/plans/$planId"
-                    Write-Host ""
-                    Write-Host "Plan updated on dashboard: $planTitle" -ForegroundColor Cyan
-                    Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
-                }
-                catch {
-                    # Plan not on dashboard yet — create it (first-time push)
-                    try {
-                        $createBody = @{
-                            path        = $ProjectDir
-                            title       = $planTitle
-                            content     = $planContentForApi
-                            working_dir = $ProjectDir
-                        } | ConvertTo-Json -Depth 5
+#                     $planUrl = "$dashboardBase/plans/$planId"
+#                     Write-Host ""
+#                     Write-Host "Plan updated on dashboard: $planTitle" -ForegroundColor Cyan
+#                     Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
+#                 }
+#                 catch {
+#                     # Plan not on dashboard yet — create it (first-time push)
+#                     try {
+#                         $createBody = @{
+#                             path        = $ProjectDir
+#                             title       = $planTitle
+#                             content     = $planContentForApi
+#                             working_dir = $ProjectDir
+#                         } | ConvertTo-Json -Depth 5
 
-                        $response = Invoke-RestMethod -Uri "$dashboardBase/api/plans/create" `
-                            -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
+#                         $response = Invoke-RestMethod -Uri "$dashboardBase/api/plans/create" `
+#                             -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
 
-                        $planUrl = "$dashboardBase/plans/$($response.plan_id)"
-                        Write-Host ""
-                        Write-Host "Plan pushed to dashboard: $planTitle" -ForegroundColor Cyan
-                        Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
-                    }
-                    catch {
-                        Write-Warning "Could not push plan to dashboard ($($_.Exception.Message)). Review the file directly."
-                        $planUrl = $null
-                    }
-                }
+#                         $planUrl = "$dashboardBase/plans/$($response.plan_id)"
+#                         Write-Host ""
+#                         Write-Host "Plan pushed to dashboard: $planTitle" -ForegroundColor Cyan
+#                         Write-Host "  Review it here → $planUrl" -ForegroundColor Cyan
+#                     }
+#                     catch {
+#                         Write-Warning "Could not push plan to dashboard ($($_.Exception.Message)). Review the file directly."
+#                         $planUrl = $null
+#                     }
+#                 }
 
-                Write-Host ""
-                Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
-                if ($planUrl) {
-                    Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
-                }
-                Write-Host "Please review the expanded plan." -ForegroundColor Green
+#                 Write-Host ""
+#                 Write-Host "Plan expanded to: $PlanFile" -ForegroundColor Green
+#                 if ($planUrl) {
+#                     Write-Host "Open in browser:  $planUrl" -ForegroundColor Green
+#                 }
+#                 Write-Host "Please review the expanded plan." -ForegroundColor Green
 
-                # --- Create room-plan for channel-based approval ---
-                $roomPlanDir = Join-Path $warRoomsDir "room-plan"
-                if (-not (Test-Path $roomPlanDir)) {
-                    & $newWarRoom -RoomId "room-plan" -TaskRef "PLAN-REVIEW" -TaskDescription "Review refined plan: $planTitle" -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir | Out-Null
-                }
-                & $postMessage -RoomDir $roomPlanDir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContentForApi | Out-Null
+#                 # --- Create room-plan for channel-based approval ---
+#                 $roomPlanDir = Join-Path $warRoomsDir "room-plan"
+#                 if (-not (Test-Path $roomPlanDir)) {
+#                     & $newWarRoom -RoomId "room-plan" -TaskRef "PLAN-REVIEW" -TaskDescription "Review refined plan: $planTitle" -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir | Out-Null
+#                 }
+#                 & $postMessage -RoomDir $roomPlanDir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContentForApi | Out-Null
 
-                # Configurable approval timeout
-                $reviewTimeoutSec = if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) { [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS } else { 300 }
-                $reviewDeadline   = if ($reviewTimeoutSec -gt 0) { (Get-Date).AddSeconds($reviewTimeoutSec) } else { $null }
-                Write-Host "Waiting for plan approval (timeout: $(if ($reviewTimeoutSec -gt 0) { "${reviewTimeoutSec}s" } else { 'none' }))..." -ForegroundColor Cyan
-                Write-Host "  Press Enter to approve manually, or post 'plan-approve' to the room-plan channel." -ForegroundColor Cyan
+#                 # Configurable approval timeout
+#                 $reviewTimeoutSec = if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) { [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS } else { 300 }
+#                 $reviewDeadline   = if ($reviewTimeoutSec -gt 0) { (Get-Date).AddSeconds($reviewTimeoutSec) } else { $null }
+#                 Write-Host "Waiting for plan approval (timeout: $(if ($reviewTimeoutSec -gt 0) { "${reviewTimeoutSec}s" } else { 'none' }))..." -ForegroundColor Cyan
+#                 Write-Host "  Press Enter to approve manually, or post 'plan-approve' to the room-plan channel." -ForegroundColor Cyan
 
-                $canReadKey = $false
-                try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { }
+#                 $canReadKey = $false
+#                 try { $null = $Host.UI.RawUI.KeyAvailable; $canReadKey = $true } catch { }
 
-                $approved = $false
-                while (-not $approved) {
-                    if ($canReadKey) {
-                        try {
-                            if ($Host.UI.RawUI.KeyAvailable) {
-                                $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                                if ($key.VirtualKeyCode -eq 13) { $approved = $true; Write-Host "Approved manually." }
-                            }
-                        } catch { $canReadKey = $false }
-                    }
+#                 $approved = $false
+#                 while (-not $approved) {
+#                     if ($canReadKey) {
+#                         try {
+#                             if ($Host.UI.RawUI.KeyAvailable) {
+#                                 $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+#                                 if ($key.VirtualKeyCode -eq 13) { $approved = $true; Write-Host "Approved manually." }
+#                             }
+#                         } catch { $canReadKey = $false }
+#                     }
 
-                    if (-not $approved) {
-                        $msgs = & (Join-Path $agentsDir "channel" "Read-Messages.ps1") -RoomDir $roomPlanDir -FilterType "plan-approve" -Last 1 -AsObject
-                        if ($msgs -and $msgs.Count -gt 0) {
-                            $approved = $true
-                            Write-Host "Approved via channel message!" -ForegroundColor Green
-                        }
-                    }
+#                     if (-not $approved) {
+#                         $msgs = & (Join-Path $agentsDir "channel" "Read-Messages.ps1") -RoomDir $roomPlanDir -FilterType "plan-approve" -Last 1 -AsObject
+#                         if ($msgs -and $msgs.Count -gt 0) {
+#                             $approved = $true
+#                             Write-Host "Approved via channel message!" -ForegroundColor Green
+#                         }
+#                     }
 
-                    if (-not $approved -and $reviewDeadline -and (Get-Date) -gt $reviewDeadline) {
-                        Write-Warning "Plan review timed out after ${reviewTimeoutSec}s. Auto-approving and continuing."
-                        $approved = $true
-                    }
+#                     if (-not $approved -and $reviewDeadline -and (Get-Date) -gt $reviewDeadline) {
+#                         Write-Warning "Plan review timed out after ${reviewTimeoutSec}s. Auto-approving and continuing."
+#                         $approved = $true
+#                     }
 
-                    if (-not $approved) { Start-Sleep -Seconds 1 }
-                }
-            }
-        }
-    } else {
-        Write-Warning "Expand-Plan.ps1 not found at $expandScript, skipping expansion."
-    }
-}
+#                     if (-not $approved) { Start-Sleep -Seconds 1 }
+#                 }
+#             }
+#         }
+#     } else {
+#         Write-Warning "Expand-Plan.ps1 not found at $expandScript, skipping expansion."
+#     }
+# }
 
 $planContent = Get-Content $PlanFile -Raw
 
@@ -314,9 +314,12 @@ $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
 $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
 $depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
 
-# Patterns for per-epic metadata
-$rolesPattern = '(?m)^Roles:\s*(.+)$'
+# Patterns for per-epic metadata (accept both singular Role: and plural Roles:)
+$rolesPattern = '(?m)^Roles?:\s*(.+)$'
+$objectivePattern = '(?m)^Objective:\s*(.+)$'
 $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
+$pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
+$capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
 
 # Extract epics
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
@@ -332,12 +335,19 @@ foreach ($em in $epicMatches) {
     $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
 
     # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
+    # Supports both singular "Role:" and plural "Roles:"
     $roles = @()
     if ($epicSection -match $rolesPattern) {
         $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     }
     # Default to "engineer" if no roles specified
     if ($roles.Count -eq 0) { $roles = @("engineer") }
+
+    # Extract Objective (per-epic mission directive)
+    $epicObjective = ""
+    if ($epicSection -match $objectivePattern) {
+        $epicObjective = $Matches[1].Trim()
+    }
 
     # Extract per-epic working directory override
     $epicWorkingDir = ""
@@ -352,18 +362,16 @@ foreach ($em in $epicMatches) {
         $descBody = $Matches[1].Trim()
     }
 
-    # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
-    $roles = @()
-    if ($epicSection -match $rolesPattern) {
-        $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    # Extract Pipeline directive
+    $epicPipeline = ""
+    if ($epicSection -match $pipelinePattern) {
+        $epicPipeline = $Matches[1].Trim()
     }
-    # Default to "engineer" if no roles specified
-    if ($roles.Count -eq 0) { $roles = @("engineer") }
 
-    # Extract per-epic working directory override
-    $epicWorkingDir = ""
-    if ($epicSection -match $workingDirPattern) {
-        $epicWorkingDir = $Matches[1].Trim()
+    # Extract Capabilities directive
+    $epicCapabilities = @()
+    if ($epicSection -match $capabilitiesPattern) {
+        $epicCapabilities = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     }
 
     # Extract DoD
@@ -390,16 +398,19 @@ foreach ($em in $epicMatches) {
     }
 
     $parsed.Add([PSCustomObject]@{
-        RoomId      = "room-$('{0:D3}' -f $roomIndex)"
-        TaskRef     = $epicRef
-        Description = $epicDesc
-        DescBody    = $descBody
-        DoD         = $dod
-        AC          = $ac
-        DependsOn   = $depsOn
-        Type        = 'epic'
-        Roles       = $roles
+        RoomId         = "room-$('{0:D3}' -f $roomIndex)"
+        TaskRef        = $epicRef
+        Description    = $epicDesc
+        DescBody       = $descBody
+        Objective      = $epicObjective
+        DoD            = $dod
+        AC             = $ac
+        DependsOn      = $depsOn
+        Type           = 'epic'
+        Roles          = $roles
         EpicWorkingDir = $epicWorkingDir
+        Pipeline       = $epicPipeline
+        Capabilities   = $epicCapabilities
     })
     $roomIndex++
 }
@@ -508,6 +519,9 @@ if ($Resume) {
         $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
 
         $fullDesc = $entry.Description
+        if ($entry.Objective) {
+            $fullDesc = "Objective: $($entry.Objective)`n`n$fullDesc"
+        }
         if ($entry.DescBody) {
             $fullDesc = "$fullDesc`n`n$($entry.DescBody)"
         }
@@ -530,6 +544,12 @@ if ($Resume) {
         }
         if ($entry.DependsOn -and $entry.DependsOn.Count -gt 0) {
             $roomArgs['DependsOn'] = $entry.DependsOn
+        }
+        if ($entry.Pipeline) {
+            $roomArgs['Pipeline'] = $entry.Pipeline
+        }
+        if ($entry.Capabilities -and $entry.Capabilities.Count -gt 0) {
+            $roomArgs['RequiredCapabilities'] = $entry.Capabilities
         }
 
         & $newWarRoom @roomArgs

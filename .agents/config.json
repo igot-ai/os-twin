@@ -8,7 +8,11 @@
     "max_engineer_retries": 3,
     "auto_approve_tools": true,
     "state_timeout_seconds": 900,
-    "auto_expand_plan": false
+    "auto_expand_plan": false,
+    "smart_assignment": false,
+    "dynamic_pipelines": true,
+    "capability_matching": true,
+    "external_roles_dirs": []
   },
   "architect": {
     "default_model": "gemini-3.1-pro-preview",

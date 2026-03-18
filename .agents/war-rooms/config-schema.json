@@ -35,7 +35,8 @@
         "description": { "type": "string" },
         "assigned_role": {
           "type": "string",
-          "enum": ["engineer", "qa", "architect", "devops", "tech-writer", "security", "product-owner"]
+          "pattern": "^[a-z][a-z0-9-]*(:[a-z0-9-]+)?$",
+          "description": "Any role name, optionally with instance suffix (e.g., engineer:fe, security-auditor)"
         },
         "type": {
           "type": "string",
@@ -104,7 +105,8 @@
       "properties": {
         "current": {
           "type": "string",
-          "enum": ["pending", "engineering", "qa-review", "fixing", "passed", "failed-final"]
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Current pipeline state — dynamic per lifecycle definition"
         },
         "retries": {
           "type": "integer",

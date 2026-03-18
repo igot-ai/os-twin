@@ -16,83 +16,42 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 logger = logging.getLogger(__name__)
 
-# ── Plan format specification ──────────────────────────────────────
+def get_system_prompt(plans_dir: Optional[Path] = None) -> str:
+    """Generate the system prompt dynamically based on the plan template."""
+    plan_format_spec = "Error: Template not found."
+    if plans_dir:
+        template_path = plans_dir / "PLAN.template.md"
+        if template_path.exists():
+            plan_format_spec = template_path.read_text()
+        else:
+            logger.warning(f"Plan template not found at {template_path}")
+            plan_format_spec = f"Template not found at {template_path}"
+    else:
+        logger.warning("plans_dir not provided, cannot load PLAN.template.md")
+        plan_format_spec = "Plans directory not configured."
 
-PLAN_FORMAT_SPEC = """\
-# Plan: <Title>
-
-## Config
-working_dir: /path/to/your/project
-
-## Epic: EPIC-001 — Foundation & Data Layer
-
-<Description — shared schemas, DB setup, core utilities.>
-
-Acceptance criteria:
-- <criterion>
-
-depends_on: []
-
-## Epic: EPIC-002 — Feature A (e.g. User Auth)
-
-<Description — builds on top of the data layer.>
-
-Acceptance criteria:
-- <criterion>
-
-depends_on: [EPIC-001]
-
-## Epic: EPIC-003 — Feature B (e.g. Dashboard UI)
-
-<Description — also builds on the data layer, but independent of Feature A.>
-
-Acceptance criteria:
-- <criterion>
-
-depends_on: [EPIC-001]
-
-## Epic: EPIC-004 — Integration & E2E Tests
-
-<Description — needs both Feature A and Feature B complete.>
-
-Acceptance criteria:
-- <criterion>
-
-depends_on: [EPIC-002, EPIC-003]
-"""
-
-SYSTEM_PROMPT = f"""\
+    return f"""\
 You are a **Plan Architect** for OS Twin — an AI-powered development orchestration system.
 
 Your job is to take the user's rough idea and refine it into a structured plan that can be
-executed by autonomous engineer and QA agents.
+executed by autonomous agents inside **war-rooms**.
 
-## OUTPUT FORMAT
+## OUTPUT FORMAT AND INSTRUCTIONS
 
-You MUST produce a plan in EXACTLY this format:
+You MUST produce a plan strictly following the format and rules defined in the template below.
+The template includes both instructions (in HTML comments or text) and the exact structure to use.
+Pay special attention to the dynamic Roles and Lifecycle sections.
 
+```markdown
+{plan_format_spec}
 ```
-{PLAN_FORMAT_SPEC}
-```
 
-## RULES
+## ADDITIONAL RULES
 
-1. Every plan MUST start with `# Plan: <Title>`
-2. Every plan MUST have `## Config` with `working_dir:` (use `.` if not specified)
-3. Break the work into **2–5 Epics** (`## EPIC-XXX - Title`)
-4. Number epics sequentially: EPIC-001, EPIC-002, etc.
-5. Each Epic MUST have **Acceptance criteria:** as a bulleted list
-6. Be specific and actionable — an engineer agent reads this
-7. Do NOT include actual code — only high-level descriptions
-8. Add a `depends_on: [EPIC-NNN, ...]` list for each Epic. Use `depends_on: []` for independent epics. Think carefully — NOT every epic depends on the one before it. Epics that share a common foundation but are otherwise independent should BOTH list only the foundation, NOT each other. Only add a dependency when one epic genuinely cannot start until another finishes.
-9. If the user provides an existing plan, improve it while preserving their intent
-10. If the user asks to modify a specific part, change only that part
-
-## TONE
-
-Be concise, technical, and precise. Write like a senior engineering lead scoping work.
+1. If the user provides an existing plan, improve it while preserving their intent.
+2. If the user asks to modify a specific part, change only that part.
+3. Be concise, technical, and precise. Write like a senior engineering lead scoping work.
 """
-
 
 # ── Auto-detect available AI provider ──────────────────────────────
 
@@ -187,7 +146,7 @@ def create_plan_agent(
     agent = create_deep_agent(
         model=chat_model,
         tools=[read_existing_plan],
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=get_system_prompt(plans_dir),
     )
 
     return agent

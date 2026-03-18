@@ -58,15 +58,22 @@ elseif (Test-Path $yamlFile) {
     $roleData = ConvertFrom-SimpleYaml -Content $yamlContent
 }
 else {
-    # Generate a default role definition from ROLE.md if it exists
+    # Generate a default role definition from ROLE.md or SKILL.md if either exists
     $roleMd = Join-Path $RolePath "ROLE.md"
+    $skillMd = Join-Path $RolePath "SKILL.md"
     $displayName = if ($RoleName) { $RoleName } else { Split-Path $RolePath -Leaf }
+
+    # Determine which prompt file to use (ROLE.md preferred, SKILL.md as fallback)
+    $promptFile = if (Test-Path $roleMd) { "ROLE.md" }
+                  elseif (Test-Path $skillMd) { "SKILL.md" }
+                  else { $null }
+    $promptFilePath = if ($promptFile) { Join-Path $RolePath $promptFile } else { $null }
 
     $roleData = [PSCustomObject]@{
         name         = $displayName
-        description  = if (Test-Path $roleMd) { (Get-Content $roleMd -TotalCount 1) -replace '^#\s*', '' } else { "$displayName role" }
+        description  = if ($promptFilePath) { (Get-Content $promptFilePath -TotalCount 1) -replace '^#\s*', '' } else { "$displayName role" }
         capabilities = @("code-generation", "file-editing", "shell-execution")
-        prompt_file  = if (Test-Path $roleMd) { "ROLE.md" } else { $null }
+        prompt_file  = $promptFile
         quality_gates = @()
         skills       = @()
         cli          = "deepagents"

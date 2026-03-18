@@ -131,64 +131,61 @@ $(Get-ChildItem -Path (Join-Path $agentsDir "skills") -Directory | Select-Object
     Write-Log "INFO" "Loaded cached agent role: $($AgentSpec.role_id)"
 }
 
-# --- PHASE 2: Execution (The Specialized Agent) ---
+# --- PHASE 1.5: Persist the role on disk (fast scaffolding, no LLM) ---
+$newDynamicRole = Join-Path $agentsDir "roles" "_base" "New-DynamicRole.ps1"
+$roleDir = Join-Path $agentsDir "roles" $AgentSpec.role_id
 
-$AgentPrompt = @"
-You are a highly specialized, ephemeral AI agent.
-Role ID: $($AgentSpec.role_id)
-Purpose: $($AgentSpec.purpose)
+if ((Test-Path $newDynamicRole) -and -not (Test-Path (Join-Path $roleDir "role.json"))) {
+    Write-Log "INFO" "Scaffolding persistent role: $($AgentSpec.role_id)..."
 
-You must operate entirely within the workspace: $WorkingDir
+    # Build a ROLE.md prompt from the synthesized spec + skills
+    $rolePromptContent = @"
+# $($AgentSpec.role_id)
 
-=== YOUR OBJECTIVE ===
-Title: $TaskTitle
-$TaskDesc
+$($AgentSpec.purpose)
 
-$($latestFix ? "`n=== URGENT FIX / FEEDBACK ===`n$latestFix`n" : "")
-
-CRITICAL RULES:
-1. Complete the objective thoroughly using your tools.
-2. If tests exist, run them. If tests fail, fix your code.
-3. When the objective is complete, DO NOT ask for permission to stop.
-4. Output a brief, concise summary of exactly what you accomplished.
+You are a highly specialized AI agent. Complete your objective thoroughly using your tools.
+If tests exist, run them. If tests fail, fix your code.
+When the objective is complete, output a brief, concise summary of exactly what you accomplished.
 "@
 
-# Inject Skills dynamically
-$SkillsDir = Join-Path $agentsDir "skills"
-$InjectedSkills = @()
-
-if ($AgentSpec.required_skills) {
-    $AgentPrompt += "`n`n=== EQUIPPED SKILLS ===`n"
-    foreach ($skill in $AgentSpec.required_skills) {
-        $SkillPath = Join-Path $SkillsDir $skill "SKILL.md"
-        if (Test-Path $SkillPath) {
-            $SkillContent = Get-Content $SkillPath -Raw
-            $AgentPrompt += "`n--- Skill: $skill ---`n$SkillContent`n"
-            $InjectedSkills += $skill
-        } else {
-            Write-Log "WARN" "Requested skill '$skill' not found. Skipping."
+    # Inject skills into the ROLE.md
+    $SkillsDir = Join-Path $agentsDir "skills"
+    if ($AgentSpec.required_skills) {
+        $rolePromptContent += "`n`n## Equipped Skills`n"
+        foreach ($skill in $AgentSpec.required_skills) {
+            $SkillPath = Join-Path $SkillsDir $skill "SKILL.md"
+            if (Test-Path $SkillPath) {
+                $SkillContent = Get-Content $SkillPath -Raw
+                $rolePromptContent += "`n### Skill: $skill`n$SkillContent`n"
+            }
         }
     }
+
+    $scaffoldArgs = @{
+        RoleName      = $AgentSpec.role_id
+        AgentsDir     = $agentsDir
+        Description   = $AgentSpec.purpose
+        PromptContent = $rolePromptContent
+    }
+    if ($AgentSpec.required_capabilities) {
+        $scaffoldArgs['Capabilities'] = @($AgentSpec.required_capabilities)
+    }
+    if ($AgentSpec.required_skills) {
+        $scaffoldArgs['Skills'] = @($AgentSpec.required_skills)
+    }
+
+    & $newDynamicRole @scaffoldArgs
 }
 
-Write-Log "INFO" "Executing ephemeral agent task..."
+# --- Update room config to use the synthesized role ---
+$roomConfig.assignment.assigned_role = $AgentSpec.role_id
+$roomConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8
 
-# Pass directly to base execution engine
-$ExecutionResult = & $invokeAgent -RoomDir $RoomDir `
-    -RoleName "engineer" `
-    -Prompt $AgentPrompt `
-    -Model "gemini-3.1-pro-preview" `
-    -TimeoutSeconds $TimeoutSeconds `
-    -WorkingDir $WorkingDir `
-    -InstanceId "ephemeral"
+# --- PHASE 2: Delegate to Start-DynamicRole.ps1 ---
+Write-Log "INFO" "Delegating to Start-DynamicRole.ps1 for '$($AgentSpec.role_id)'..."
 
-if ($ExecutionResult.ExitCode -ne 0) {
-    Cleanup-And-Exit 1 "Task failed: $($ExecutionResult.Output)"
-}
-
-# Output success
-$Summary = $ExecutionResult.Output
-if (-not $Summary) { $Summary = "Task completed successfully by $($AgentSpec.role_id)." }
-
-& $postMessage -RoomDir $RoomDir -From "engineer" -To "manager" -Type "done" -Ref $TaskRef -Body $Summary
-Cleanup-And-Exit 0
+$dynamicRunner = Join-Path $agentsDir "roles" "_base" "Start-DynamicRole.ps1"
+Remove-Item $pidFile -Force -ErrorAction SilentlyContinue  # Let the dynamic runner manage its own PID
+& $dynamicRunner -RoomDir $RoomDir -RoleName $AgentSpec.role_id -TimeoutSeconds $TimeoutSeconds
+exit $LASTEXITCODE

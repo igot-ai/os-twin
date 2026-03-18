@@ -63,8 +63,9 @@ export default function AIChatPanel({
 
   // Extract plan markdown from assistant response
   const extractPlan = (content: string): string => {
-    // Try to find markdown code block first
-    const codeBlockMatch = content.match(/```(?:markdown)?\n([\s\S]*?)```/);
+    // Try to find markdown code block — use greedy match so inner fenced blocks
+    // (e.g. ```text Lifecycle diagrams) don't prematurely end the outer wrapper.
+    const codeBlockMatch = content.match(/```(?:markdown)?\n([\s\S]*)```/);
     if (codeBlockMatch) return codeBlockMatch[1].trim();
 
     // Otherwise if it starts with "# Plan:", use the whole content

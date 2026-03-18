@@ -11,14 +11,7 @@ Cypress.on('uncaught:exception', (err) => {
 let authToken = null;
 
 before(() => {
-  cy.request({
-    method: 'POST',
-    url: '/api/auth/token',
-    form: true,
-    body: { username: 'admin', password: 'admin' }
-  }).then(res => {
-    authToken = res.body.access_token;
-  });
+  // Skipping global auth for simple pipeline test
 });
 
 beforeEach(() => {
