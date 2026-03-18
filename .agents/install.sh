@@ -456,6 +456,24 @@ setup_venv() {
     fi
     ok "Dashboard dependencies up to date"
   fi
+
+  # Install role-specific requirements (e.g. roles/reporter/requirements.txt)
+  local roles_dir="$INSTALL_DIR/roles"
+  if [[ -d "$roles_dir" ]]; then
+    for role_reqs in "$roles_dir"/*/requirements.txt; do
+      [[ -f "$role_reqs" ]] || continue
+      local role_name
+      role_name=$(basename "$(dirname "$role_reqs")")
+      step "Syncing $role_name role dependencies..."
+      if check_uv; then
+        TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
+          --python "$VENV_DIR/bin/python" -r "$role_reqs"
+      else
+        "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$role_reqs"
+      fi
+      ok "$role_name role dependencies up to date"
+    done
+  fi
 }
 
 # ─── .env setup ───────────────────────────────────────────────────────────────

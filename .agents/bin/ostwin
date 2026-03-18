@@ -117,15 +117,23 @@ resolve_plan_id() {
       api_response=$(curl -sf "${DASHBOARD_URL}/api/plans/${arg}" 2>&1)
       if [[ $? -eq 0 && -n "$api_response" ]]; then
         RESOLVED_PLAN_FILE=$(echo "$api_response" | "$PYTHON" -c "
-import sys, json
+import sys, json, os
 data = json.load(sys.stdin)
 plan = data.get('plan', {})
-working_dir = plan.get('working_dir', plan.get('meta', {}).get('working_dir', ''))
 filename = plan.get('filename', '')
 if filename:
-    import os
-    # Plan files stored in AGENTS_DIR/plans/
-    print(os.path.join('$AGENTS_DIR', 'plans', filename))
+    # Try project-local AGENTS_DIR/plans/ first, then global ~/.ostwin/plans/
+    candidates = [
+        os.path.join('$AGENTS_DIR', 'plans', filename),
+        os.path.join(os.path.expanduser('~'), '.ostwin', 'plans', filename),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            print(c)
+            break
+    else:
+        # None found — print first candidate for error message
+        print(candidates[0])
 else:
     print('')
 " 2>/dev/null)
@@ -143,7 +151,8 @@ print(plan.get('working_dir', plan.get('meta', {}).get('working_dir', '')))
           fi
           return 0
         else
-          echo "✗ Plan file not found for plan_id '$arg': $RESOLVED_PLAN_FILE" >&2
+          echo "✗ Plan file not found for plan_id '$arg'" >&2
+          echo "  Searched: $AGENTS_DIR/plans/ and ~/.ostwin/plans/" >&2
           return 1
         fi
       else
