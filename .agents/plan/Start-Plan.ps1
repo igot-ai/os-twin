@@ -314,9 +314,12 @@ $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
 $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
 $depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
 
-# Patterns for per-epic metadata
-$rolesPattern = '(?m)^Roles:\s*(.+)$'
+# Patterns for per-epic metadata (accept both singular Role: and plural Roles:)
+$rolesPattern = '(?m)^Roles?:\s*(.+)$'
+$objectivePattern = '(?m)^Objective:\s*(.+)$'
 $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
+$pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
+$capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
 
 # Extract epics
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
@@ -332,12 +335,19 @@ foreach ($em in $epicMatches) {
     $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
 
     # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
+    # Supports both singular "Role:" and plural "Roles:"
     $roles = @()
     if ($epicSection -match $rolesPattern) {
         $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     }
     # Default to "engineer" if no roles specified
     if ($roles.Count -eq 0) { $roles = @("engineer") }
+
+    # Extract Objective (per-epic mission directive)
+    $epicObjective = ""
+    if ($epicSection -match $objectivePattern) {
+        $epicObjective = $Matches[1].Trim()
+    }
 
     # Extract per-epic working directory override
     $epicWorkingDir = ""
@@ -352,18 +362,16 @@ foreach ($em in $epicMatches) {
         $descBody = $Matches[1].Trim()
     }
 
-    # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
-    $roles = @()
-    if ($epicSection -match $rolesPattern) {
-        $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    # Extract Pipeline directive
+    $epicPipeline = ""
+    if ($epicSection -match $pipelinePattern) {
+        $epicPipeline = $Matches[1].Trim()
     }
-    # Default to "engineer" if no roles specified
-    if ($roles.Count -eq 0) { $roles = @("engineer") }
 
-    # Extract per-epic working directory override
-    $epicWorkingDir = ""
-    if ($epicSection -match $workingDirPattern) {
-        $epicWorkingDir = $Matches[1].Trim()
+    # Extract Capabilities directive
+    $epicCapabilities = @()
+    if ($epicSection -match $capabilitiesPattern) {
+        $epicCapabilities = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     }
 
     # Extract DoD
@@ -390,16 +398,19 @@ foreach ($em in $epicMatches) {
     }
 
     $parsed.Add([PSCustomObject]@{
-        RoomId      = "room-$('{0:D3}' -f $roomIndex)"
-        TaskRef     = $epicRef
-        Description = $epicDesc
-        DescBody    = $descBody
-        DoD         = $dod
-        AC          = $ac
-        DependsOn   = $depsOn
-        Type        = 'epic'
-        Roles       = $roles
+        RoomId         = "room-$('{0:D3}' -f $roomIndex)"
+        TaskRef        = $epicRef
+        Description    = $epicDesc
+        DescBody       = $descBody
+        Objective      = $epicObjective
+        DoD            = $dod
+        AC             = $ac
+        DependsOn      = $depsOn
+        Type           = 'epic'
+        Roles          = $roles
         EpicWorkingDir = $epicWorkingDir
+        Pipeline       = $epicPipeline
+        Capabilities   = $epicCapabilities
     })
     $roomIndex++
 }
@@ -508,6 +519,9 @@ if ($Resume) {
         $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
 
         $fullDesc = $entry.Description
+        if ($entry.Objective) {
+            $fullDesc = "Objective: $($entry.Objective)`n`n$fullDesc"
+        }
         if ($entry.DescBody) {
             $fullDesc = "$fullDesc`n`n$($entry.DescBody)"
         }
@@ -530,6 +544,12 @@ if ($Resume) {
         }
         if ($entry.DependsOn -and $entry.DependsOn.Count -gt 0) {
             $roomArgs['DependsOn'] = $entry.DependsOn
+        }
+        if ($entry.Pipeline) {
+            $roomArgs['Pipeline'] = $entry.Pipeline
+        }
+        if ($entry.Capabilities -and $entry.Capabilities.Count -gt 0) {
+            $roomArgs['RequiredCapabilities'] = $entry.Capabilities
         }
 
         & $newWarRoom @roomArgs

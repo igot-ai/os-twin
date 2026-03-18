@@ -1,19 +1,37 @@
 {
   "name": "semester-planner",
   "version": "1.0.0",
+  "type": "module",
   "description": "A simple semester planner application",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "cypress run"
+    "test": "NODE_ENV=test npx c8 --check-coverage --lines 80 --functions 80 --branches 80 node --test test/*.test.js",
+    "test:cypress": "cypress run --spec 'cypress/e2e/00-api-check.cy.js,cypress/e2e/99-pipeline.cy.js'",
+    "lint": "eslint ."
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "autoprefixer": "^10.4.27",
+    "c8": "^11.0.0",
+    "chai": "^6.2.2",
     "cypress": "^15.12.0",
+    "eslint": "^10.0.3",
+    "mocha": "^11.3.0",
+    "nyc": "^18.0.0",
     "postcss": "^8.5.8",
+    "supertest": "^7.2.2",
     "tailwindcss": "^4.2.1"
+  },
+  "overrides": {
+    "serialize-javascript": "7.0.4",
+    "diff": "8.0.3"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.20.0"
   }
 }

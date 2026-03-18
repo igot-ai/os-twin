@@ -13,9 +13,22 @@
       "prompt": "roles/engineer/ROLE.md",
       "default_assignment": true,
       "instance_support": true,
-      "supported_task_types": ["task", "epic"],
-      "capabilities": ["code-generation", "file-editing", "shell-execution", "testing", "refactoring"],
-      "quality_gates": ["unit-tests", "lint-clean", "no-hardcoded-secrets"],
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "code-generation",
+        "file-editing",
+        "shell-execution",
+        "testing",
+        "refactoring"
+      ],
+      "quality_gates": [
+        "unit-tests",
+        "lint-clean",
+        "no-hardcoded-secrets"
+      ],
       "default_model": "gemini-3-flash-preview"
     },
     {
@@ -26,9 +39,19 @@
       "definition": "roles/qa/role.json",
       "prompt": "roles/qa/ROLE.md",
       "default_assignment": false,
-      "supported_task_types": ["review"],
-      "capabilities": ["code-review", "test-execution", "shell-execution", "security-review"],
-      "quality_gates": ["verdict-required", "evidence-based-review"],
+      "supported_task_types": [
+        "review"
+      ],
+      "capabilities": [
+        "code-review",
+        "test-execution",
+        "shell-execution",
+        "security-review"
+      ],
+      "quality_gates": [
+        "verdict-required",
+        "evidence-based-review"
+      ],
       "default_model": "gemini-3-flash-preview"
     },
     {
@@ -38,9 +61,22 @@
       "definition": "roles/architect/role.json",
       "prompt": "roles/architect/ROLE.md",
       "default_assignment": false,
-      "supported_task_types": ["design", "review", "epic"],
-      "capabilities": ["architecture-design", "code-review", "documentation", "technical-decisions"],
-      "quality_gates": ["design-review", "scalability-check", "security-review"],
+      "supported_task_types": [
+        "design",
+        "review",
+        "epic"
+      ],
+      "capabilities": [
+        "architecture-design",
+        "code-review",
+        "documentation",
+        "technical-decisions"
+      ],
+      "quality_gates": [
+        "design-review",
+        "scalability-check",
+        "security-review"
+      ],
       "default_model": "gemini-3-flash-preview"
     },
     {
@@ -51,8 +87,15 @@
       "definition": null,
       "prompt": null,
       "default_assignment": false,
-      "supported_task_types": ["orchestration"],
-      "capabilities": ["task-routing", "retry-management", "release-coordination", "deadlock-detection"],
+      "supported_task_types": [
+        "orchestration"
+      ],
+      "capabilities": [
+        "task-routing",
+        "retry-management",
+        "release-coordination",
+        "deadlock-detection"
+      ],
       "quality_gates": [],
       "default_model": "gemini-3.1-pro-preview"
     }
@@ -66,13 +109,45 @@
   "extensibility": {
     "custom_roles_dir": "roles/",
     "auto_discover": true,
-    "required_files": ["role.json"],
-    "optional_files": ["ROLE.md", "skills/"]
+    "required_files": [
+      "role.json"
+    ],
+    "optional_files": [
+      "ROLE.md",
+      "skills/"
+    ],
+    "capability_aliases": {
+      "db": "database",
+      "sql": "database",
+      "postgres": "database",
+      "mysql": "database",
+      "mongo": "database",
+      "react": "frontend",
+      "vue": "frontend",
+      "angular": "frontend",
+      "css": "frontend",
+      "ui": "frontend",
+      "ux": "frontend",
+      "devops": "infrastructure",
+      "ci-cd": "infrastructure",
+      "ci/cd": "infrastructure",
+      "docker": "infrastructure",
+      "k8s": "infrastructure",
+      "kubernetes": "infrastructure",
+      "auth": "security",
+      "owasp": "security",
+      "encryption": "security",
+      "a11y": "accessibility",
+      "wcag": "accessibility",
+      "screen-reader": "accessibility"
+    }
   },
   "skills": {
     "skills_dir": "skills/",
     "auto_discover": true,
-    "required_files": ["SKILL.md"],
+    "required_files": [
+      "SKILL.md"
+    ],
     "available": [
       {
         "name": "lang",

@@ -26,9 +26,8 @@ logger = logging.getLogger("zvec_store")
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
-PLANS_COLLECTION = "plans_04"
+PLANS_COLLECTION = "plans"
 EPICS_COLLECTION = "epics"
-PLAN_VERSIONS_COLLECTION = "plan_versions"
 
 
 class OSTwinStore:
@@ -37,13 +36,12 @@ class OSTwinStore:
     def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
-        self.zvec_dir = agents_dir / ".zvec"
+        self.zvec_dir = warrooms_dir / ".zvec"
         self.zvec_dir.mkdir(parents=True, exist_ok=True)
         self._messages: Optional[zvec.Collection] = None
         self._metadata: Optional[zvec.Collection] = None
         self._plans: Optional[zvec.Collection] = None
         self._epics: Optional[zvec.Collection] = None
-        self._plan_versions: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
@@ -56,7 +54,6 @@ class OSTwinStore:
         self._metadata = self._open_or_create_metadata()
         self._plans = self._open_or_create_plans()
         self._epics = self._open_or_create_epics()
-        self._plan_versions = self._open_or_create_plan_versions()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def _open_or_create_messages(self) -> zvec.Collection:
@@ -182,34 +179,6 @@ class OSTwinStore:
                         m=16,
                         ef_construction=200,
                     ),
-                ),
-            )
-            return zvec.create_and_open(path=path, schema=schema)
-
-    def _open_or_create_plan_versions(self) -> zvec.Collection:
-        path = str(self.zvec_dir / PLAN_VERSIONS_COLLECTION)
-        try:
-            return zvec.open(path)
-        except Exception:
-            schema = zvec.CollectionSchema(
-                name=PLAN_VERSIONS_COLLECTION,
-                fields=[
-                    zvec.FieldSchema("plan_id", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("version", zvec.DataType.INT32),
-                    zvec.FieldSchema("content", zvec.DataType.STRING),
-                    zvec.FieldSchema("title", zvec.DataType.STRING),
-                    zvec.FieldSchema("epic_count", zvec.DataType.INT32),
-                    zvec.FieldSchema("created_at", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("change_source", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                ],
-                vectors=zvec.VectorSchema(
-                    "_placeholder",
-                    zvec.DataType.VECTOR_FP32,
-                    1,
-                    index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
                 ),
             )
             return zvec.create_and_open(path=path, schema=schema)
@@ -467,7 +436,6 @@ class OSTwinStore:
                 "status": doc.field("status"),
                 "epic_count": doc.field("epic_count"),
                 "created_at": doc.field("created_at"),
-                "working_dir": doc.field("working_dir"),
                 "filename": doc.field("filename"),
             }
         except Exception:
@@ -477,30 +445,16 @@ class OSTwinStore:
         """Fetch all plans. Returns list sorted by created_at desc."""
         if self._plans is None:
             return []
-
         results = []
-
-        # Primary: query all plans directly from the zvec collection
-        try:
-            docs = self._plans.query(
-                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
-                topk=200,
-                output_fields=["title", "content", "status", "epic_count",
-                                "created_at", "filename"],
-            )
-            for doc in docs:
-                results.append({
-                    "plan_id": doc.id,
-                    "title": doc.field("title"),
-                    "content": doc.field("content"),
-                    "status": doc.field("status"),
-                    "epic_count": doc.field("epic_count"),
-                    "created_at": doc.field("created_at"),
-                    "filename": doc.field("filename"),
-                })
-        except Exception as e:
-            logger.warning("Failed to query plans collection: %s", e)
-
+        # Scan plans directory on disk to discover plan IDs
+        plans_dir = self._plans_dir()
+        if not plans_dir.exists():
+            return results
+        for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+            plan_id = f.stem
+            plan = self.get_plan(plan_id)
+            if plan:
+                results.append(plan)
         return results
 
     def get_epics_for_plan(self, plan_id: str) -> list[dict]:
@@ -588,105 +542,6 @@ class OSTwinStore:
         except Exception as e:
             logger.error("Epic search failed: %s", e)
             return []
-
-    # ── Plan Versions ────────────────────────────────────────────────────
-
-    def save_plan_version(self, plan_id: str, content: str, title: str,
-                          epic_count: int, change_source: str = "manual_save") -> int:
-        """Snapshot the current plan content as a new version.
-
-        Returns the new version number, or -1 on failure.
-        """
-        if self._plan_versions is None:
-            return -1
-
-        # Determine next version number
-        existing = self.get_plan_versions(plan_id)
-        next_version = max((v["version"] for v in existing), default=0) + 1
-
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
-
-        content_clean = content.encode("ascii", errors="replace").decode("ascii")
-        doc_id = f"{plan_id}--v{next_version}"
-
-        doc = zvec.Doc(
-            id=doc_id,
-            fields={
-                "plan_id": plan_id,
-                "version": next_version,
-                "content": content_clean,
-                "title": title,
-                "epic_count": epic_count,
-                "created_at": now,
-                "change_source": change_source,
-            },
-            vectors={"_placeholder": [0.0]},
-        )
-        try:
-            s = self._plan_versions.upsert(doc)
-            self._plan_versions.flush()
-            if s.ok():
-                logger.info("Saved plan version %s v%d (%s)", plan_id, next_version, change_source)
-                return next_version
-            return -1
-        except Exception as e:
-            logger.warning("Failed to save plan version %s: %s", plan_id, e)
-            return -1
-
-    def get_plan_versions(self, plan_id: str) -> list[dict]:
-        """Get all versions for a plan, sorted by version desc."""
-        if self._plan_versions is None:
-            return []
-        try:
-            docs = self._plan_versions.query(
-                vectors=zvec.VectorQuery("_placeholder", vector=[0.0]),
-                topk=200,
-                filter=f"plan_id = '{plan_id}'",
-                output_fields=["plan_id", "version", "title", "epic_count",
-                               "created_at", "change_source"],
-            )
-            results = []
-            for doc in docs:
-                results.append({
-                    "id": doc.id,
-                    "plan_id": doc.field("plan_id"),
-                    "version": doc.field("version"),
-                    "title": doc.field("title"),
-                    "epic_count": doc.field("epic_count"),
-                    "created_at": doc.field("created_at"),
-                    "change_source": doc.field("change_source"),
-                })
-            # Sort descending by version
-            results.sort(key=lambda v: v["version"], reverse=True)
-            return results
-        except Exception as e:
-            logger.warning("Failed to get plan versions for %s: %s", plan_id, e)
-            return []
-
-    def get_plan_version(self, plan_id: str, version: int) -> dict | None:
-        """Fetch a specific plan version with full content."""
-        if self._plan_versions is None:
-            return None
-        doc_id = f"{plan_id}--v{version}"
-        try:
-            result = self._plan_versions.fetch(doc_id)
-            if doc_id not in result:
-                return None
-            doc = result[doc_id]
-            return {
-                "id": doc_id,
-                "plan_id": doc.field("plan_id"),
-                "version": doc.field("version"),
-                "content": doc.field("content"),
-                "title": doc.field("title"),
-                "epic_count": doc.field("epic_count"),
-                "created_at": doc.field("created_at"),
-                "change_source": doc.field("change_source"),
-            }
-        except Exception as e:
-            logger.warning("Failed to get plan version %s v%d: %s", plan_id, version, e)
-            return None
 
     # ── Search ─────────────────────────────────────────────────────────
 
@@ -923,22 +778,17 @@ class OSTwinStore:
         config_match = re.search(r"working_dir:\s*(.+)", content)
         working_dir = config_match.group(1).strip() if config_match else "."
 
-        # Detect format — new: '## EPIC-NNN', legacy: '## Epic: EPIC-NNN'
-        has_epics = bool(re.search(r"^## EPIC-", content, re.MULTILINE))
-        has_epics_legacy = bool(re.search(r"^## Epic:", content, re.MULTILINE))
+        # Detect format
+        has_epics = bool(re.search(r"^## Epic:", content, re.MULTILINE))
         has_tasks = bool(re.search(r"^## Task:", content, re.MULTILINE))
 
         if has_epics:
-            split_pattern = r"^## EPIC-"
-            ref_pattern = r"(EPIC-\d+)\s*[-—]\s*(.*)"
-            default_prefix = "EPIC"
-        elif has_epics_legacy:
             split_pattern = r"^## Epic:\s*"
-            ref_pattern = r"(EPIC-\d+)\s*[-—]\s*(.*)"
+            ref_pattern = r"(EPIC-\d+)\s*[—\-]\s*(.*)"
             default_prefix = "EPIC"
         elif has_tasks:
             split_pattern = r"^## Task:\s*"
-            ref_pattern = r"(TASK-\d+)\s*[-—]\s*(.*)"
+            ref_pattern = r"(TASK-\d+)\s*[—\-]\s*(.*)"
             default_prefix = "TASK"
         else:
             return []
@@ -981,8 +831,6 @@ class OSTwinStore:
             self._plans.flush()
         if self._epics:
             self._epics.flush()
-        if self._plan_versions:
-            self._plan_versions.flush()
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

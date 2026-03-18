@@ -56,7 +56,21 @@ param(
 )
 
 # --- Constants ---
-$ValidRoles = @('manager', 'engineer', 'qa', 'architect', 'devops', 'tech-writer', 'security', 'product-owner')
+# Dynamic role discovery — any role with a role.json is valid
+$ValidRoles = @('manager')  # Manager is always valid
+$agentsDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$getAvailableRoles = Join-Path $agentsDir "roles" "_base" "Get-AvailableRoles.ps1"
+if (Test-Path $getAvailableRoles) {
+    try {
+        $discovered = & $getAvailableRoles -AgentsDir $agentsDir
+        $ValidRoles += ($discovered | ForEach-Object { $_.Name })
+    } catch {
+        # Fallback to legacy list if discovery fails
+        $ValidRoles = @('manager', 'engineer', 'qa', 'architect', 'devops', 'tech-writer', 'security', 'product-owner')
+    }
+} else {
+    $ValidRoles = @('manager', 'engineer', 'qa', 'architect', 'devops', 'tech-writer', 'security', 'product-owner')
+}
 $DefaultMaxMessageSize = 65536
 
 # --- Resolve config ---
