@@ -499,6 +499,21 @@ if ($Resume) {
             $qaRetriesFile = Join-Path $rd.FullName "qa_retries"
             if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
         }
+
+        # Reset failed-final rooms to pending so they can be retried
+        if ($status -eq 'failed-final') {
+            Write-Host "    → Resetting failed-final to pending (retries cleared)" -ForegroundColor Yellow
+            if (Get-Command Set-WarRoomStatus -ErrorAction SilentlyContinue) {
+                Set-WarRoomStatus -RoomDir $rd.FullName -NewStatus "pending"
+            } else {
+                "pending" | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
+            }
+            # Reset retry counters
+            $retriesFile = Join-Path $rd.FullName "retries"
+            if (Test-Path $retriesFile) { "0" | Out-File -FilePath $retriesFile -Encoding utf8 -NoNewline }
+            $qaRetriesFile = Join-Path $rd.FullName "qa_retries"
+            if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
+        }
     }
     Write-Host ""
 } else {
