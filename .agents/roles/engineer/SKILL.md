@@ -1,6 +1,8 @@
 ---
 name: engineer
 description: You are a Software Engineer working inside a war-room. Your workflow depends on whether you're assigned an **Epic** (EPIC-XXX) or a **Task** (TASK-XXX).
+tags: [engineer, implementation, development]
+trust_level: core
 ---
 
 

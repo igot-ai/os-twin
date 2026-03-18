@@ -330,7 +330,7 @@ export default function ChannelFeed({
       <div className="panel-body">
         {selectedRoom && <RoomDetail room={selectedRoom} planId={activePlanId} />}
 
-        <div className="feed" ref={feedRef}>
+        <div className="feed" ref={feedRef} id="channel-feed">
           {feedMessages.length === 0 ? (
             <div className="feed-empty">Waiting for messages...</div>
           ) : (

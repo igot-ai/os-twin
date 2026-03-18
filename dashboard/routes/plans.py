@@ -646,8 +646,12 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
         if room_config_file.exists():
             try:
                 rc = json.loads(room_config_file.read_text())
-                if rc.get("plan_id") and rc["plan_id"] != plan_id: continue
+                # Scoped view requires plan_id match
+                if rc.get("plan_id") != plan_id: continue
             except json.JSONDecodeError: continue
+        else:
+            # Skip rooms without config in plan-scoped view
+            continue
         # Use enhanced read_room with metadata for rich data
         room_data = read_room(room_dir, include_metadata=True)
         rooms.append(room_data)

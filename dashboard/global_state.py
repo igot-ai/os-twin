@@ -1,7 +1,7 @@
 import json
 import asyncio
 from typing import List
-from dashboard.ws import manager
+from dashboard.ws_router import manager
 
 class Broadcaster:
     def __init__(self):

@@ -3,7 +3,11 @@ import json
 import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, AsyncIterator, Optional, Any
+from typing import List, AsyncIterator, Optional, Any, Dict
+import re
+import yaml
+
+from dashboard.models import Skill
 
 # === Paths ===
 # Resolved relative to this file
@@ -23,6 +27,11 @@ else:
 
 # Default war-rooms location
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
+SKILLS_DIRS = [
+    PROJECT_ROOT / ".agents" / "skills",
+    PROJECT_ROOT / ".deepagents" / "skills",
+    Path("~/.deepagents/agent/skills").expanduser(),
+]
 if os.environ.get("OSTWIN_PROJECT_DIR"):
     PROJECT_ROOT = Path(os.environ.get("OSTWIN_PROJECT_DIR"))
     AGENTS_DIR = PROJECT_ROOT / ".agents"
@@ -110,7 +119,7 @@ def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
         "retries": retries,
         "message_count": message_count,
         "last_activity": last_activity,
-        "task_description": task_md,
+        "task_description": task_md or "",
         "goal_total": goal_total,
         "goal_done": goal_done,
     }
@@ -195,6 +204,186 @@ async def process_notification(event_type: str, data: dict):
     log_entry = json.dumps({"ts": timestamp, "event": event_type, "data": data})
     with open(notifications_file, "a") as f:
         f.write(log_entry + "\n")
+
+def parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
+    """Parse SKILL.md for metadata and content using YAML frontmatter."""
+    skill_file = path / "SKILL.md"
+    if not skill_file.exists():
+        return None
+    
+    content = skill_file.read_text(encoding="utf-8")
+    name = path.name
+    description = ""
+    tags = []
+    body = content
+    trust_level = "experimental"  # Model default fallback
+    
+    # Check for YAML frontmatter
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            try:
+                meta = yaml.safe_load(parts[1])
+                if isinstance(meta, dict):
+                    name = meta.get("name", name)
+                    description = meta.get("description", description)
+                    tags = meta.get("tags", tags)
+                    if isinstance(tags, str):
+                        tags = [t.strip() for t in tags.split(",")]
+                    elif not isinstance(tags, list):
+                        tags = []
+                    trust_level = meta.get("trust_level", trust_level)
+                    body = parts[2].strip()
+            except Exception as e:
+                import logging
+                logging.getLogger("api_utils").warning(f"Failed to parse YAML frontmatter in {skill_file}: {e}")
+
+    # Determine source based on path
+    source = "project"
+    if str(PROJECT_ROOT / ".agents") in str(path) or str(PROJECT_ROOT / ".deepagents") in str(path):
+        source = "project"
+    elif str(Path("~").expanduser()) in str(path):
+        source = "user"
+    else:
+        source = "local"
+
+    return {
+        "name": name,
+        "description": description,
+        "tags": tags,
+        "path": str(path),
+        "content": body,
+        "trust_level": trust_level,
+        "source": source
+    }
+
+def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]:
+    """Synchronize vector store with SKILL.md files on disk, handling additions, updates, and removals."""
+    added = []
+    updated = []
+    removed = []
+    synced_count = 0
+
+    # 1. Collect current skills from disk (recursive glob)
+    disk_skills = {}
+    for sdir in skills_dirs:
+        if not sdir.exists():
+            continue
+        for skill_md in sdir.rglob("SKILL.md"):
+            skill_dir = skill_md.parent
+            skill_data = parse_skill_md(skill_dir)
+            if skill_data:
+                disk_skills[skill_data["name"]] = skill_data
+
+    # 2. Fetch all indexed skill names from the zvec store
+    try:
+        indexed_skills = store.get_all_skills(limit=1000)
+        indexed_names = {s["name"] for s in indexed_skills}
+    except Exception as e:
+        import logging
+        logging.getLogger("api_utils").warning(f"Failed to fetch indexed skills during sync: {e}")
+        indexed_names = set()
+
+    # 3. Handle Additions and Updates
+    for name, data in disk_skills.items():
+        existing = store.get_skill(name)
+        # Compare sanitized content to avoid unnecessary re-indexing
+        # index_skill sanitizes on write
+        content_ascii = data["content"].encode("ascii", errors="replace").decode("ascii")
+        if existing and existing["content"] == content_ascii:
+            continue
+        
+        if store.index_skill(
+            name=data["name"],
+            description=data["description"],
+            tags=data.get("tags", []),
+            path=data["path"],
+            trust_level=data.get("trust_level", "experimental"),
+            source=data["source"],
+            content=data["content"]
+        ):
+            synced_count += 1
+            if not existing:
+                added.append(name)
+            else:
+                updated.append(name)
+
+    # 4. Handle Removals
+    disk_names = set(disk_skills.keys())
+    for name in indexed_names:
+        if name not in disk_names:
+            if store.delete_skill(name):
+                removed.append(name)
+
+    return {
+        "synced_count": synced_count,
+        "added": added,
+        "updated": updated,
+        "removed": removed
+    }
+
+def build_skills_list(
+    query: Optional[str] = None, 
+    role: Optional[str] = None, 
+    tags: List[str] = []
+) -> List[Skill]:
+    """Helper to build and filter skills list from zvec and disk."""
+    from dashboard import global_state
+    store = getattr(global_state, "store", None)
+    skills = []
+
+    # 1. Semantic search or fetch all from zvec
+    if store:
+        try:
+            if query:
+                results = store.search_skills(query, limit=50)
+                skills = [Skill(**res) for res in results]
+            else:
+                results = store.get_all_skills(limit=100)
+                skills = [Skill(**res) for res in results]
+        except Exception as e:
+            import logging
+            logging.getLogger("api_utils").error("Skill store fetch failed: %s", e)
+
+    # 2. Fallback/Enrich from disk if zvec is empty or unavailable
+    # Also useful to catch newly added skills before sync
+    skills_map = {s.name: s for s in skills}
+    for sdir in SKILLS_DIRS:
+        if not sdir.exists():
+            continue
+        try:
+            for skill_md in sdir.rglob("SKILL.md"):
+                path = skill_md.parent
+                skill_data = parse_skill_md(path)
+                if skill_data and skill_data["name"] not in skills_map:
+                    skills_map[skill_data["name"]] = Skill(**skill_data)
+        except Exception:
+            pass
+    skills = list(skills_map.values())
+
+    # 3. Apply post-filters
+    filtered = []
+    for s in skills:
+        # Role match
+        if role:
+            role_l = role.lower()
+            # Try exact tag match, then word-boundary match in description or content
+            in_tags = any(role_l == t.lower() for t in s.tags)
+            in_desc = bool(re.search(rf"\b{re.escape(role_l)}\b", s.description.lower()))
+            in_content = s.content and bool(re.search(rf"\b{re.escape(role_l)}\b", s.content.lower()))
+            if not (in_tags or in_desc or in_content):
+                continue
+            
+        if tags and not any(t.lower() in [st.lower() for st in s.tags] for t in tags):
+            continue
+            
+        filtered.append(s)
+    
+    # Sort results if not already ranked by search
+    if not query:
+        filtered.sort(key=lambda x: x.name)
+    
+    return filtered
 
 # Router helpers
 def resolve_plan_warrooms_dir(plan_id: str) -> Path:

@@ -38,6 +38,7 @@ param(
 
     [string]$FilterFrom = '',
     [string]$FilterRef = '',
+    [string]$After = '',
     [int]$TimeoutSeconds = 0,
     [int]$PollIntervalSeconds = 3
 )
@@ -56,6 +57,7 @@ while ($true) {
         }
         if ($FilterFrom) { $readArgs['FilterFrom'] = $FilterFrom }
         if ($FilterRef) { $readArgs['FilterRef'] = $FilterRef }
+        if ($After) { $readArgs['After'] = $After }
 
         $msgs = & $ReadMessages @readArgs
 

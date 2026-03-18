@@ -1,6 +1,8 @@
 ---
 name: qa
 description: You are a QA Engineer reviewing code changes in a war-room. Your review scope depends on whether the assignment is an **Epic** (EPIC-XXX) or a **Task** (TASK-XXX).
+tags: [qa, testing, verification]
+trust_level: core
 ---
 
 

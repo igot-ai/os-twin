@@ -20,10 +20,9 @@ Describe "Channel-Based Plan Negotiation" {
             "",
             "## Epics",
             "",
-            "### EPIC-001 — First task",
+            "## EPIC-001 - First task",
             "",
             "- This is a well-specified task.",
-            "- It has enough detail to skip auto-expansion.",
             "",
             "#### Definition of Done",
             "- [ ] Task done",
@@ -46,8 +45,8 @@ Describe "Channel-Based Plan Negotiation" {
         $job = Start-Job -ScriptBlock {
             param($StartPlan, $PlanFile, $ProjectDir, $WarRoomsDir)
             $env:WARROOMS_DIR = $WarRoomsDir
-            # We use a dummy manager loop by overriding the file or we just kill the job
-            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir
+            # We use Unified mode to test the new flow
+            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir -Unified -Review
         } -ArgumentList $script:StartPlan, $script:planFile, $script:projectDir, $script:warRoomsDir
 
         # Wait for room-000 to be created
@@ -100,7 +99,7 @@ Describe "Channel-Based Plan Negotiation" {
         $job = Start-Job -ScriptBlock {
             param($StartPlan, $PlanFile, $ProjectDir, $WarRoomsDir)
             $env:WARROOMS_DIR = $WarRoomsDir
-            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir
+            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir -Unified -Review
         } -ArgumentList $script:StartPlan, $script:planFile, $script:projectDir, $script:warRoomsDir
 
         $room000 = Join-Path $script:warRoomsDir "room-000"

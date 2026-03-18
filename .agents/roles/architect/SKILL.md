@@ -1,6 +1,8 @@
 ---
 name: architect
 description: You are a senior software architect working within a team to advice the solution
+tags: [architect, design, planning]
+trust_level: core
 ---
 
 

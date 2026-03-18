@@ -17,8 +17,9 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
+import yaml
 import zvec
 
 logger = logging.getLogger("zvec_store")
@@ -29,6 +30,7 @@ METADATA_COLLECTION = "metadata"
 PLANS_COLLECTION = "plans_04"
 EPICS_COLLECTION = "epics"
 PLAN_VERSIONS_COLLECTION = "plan_versions"
+SKILLS_COLLECTION = "skills"
 
 
 class OSTwinStore:
@@ -44,6 +46,7 @@ class OSTwinStore:
         self._plans: Optional[zvec.Collection] = None
         self._epics: Optional[zvec.Collection] = None
         self._plan_versions: Optional[zvec.Collection] = None
+        self._skills: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
@@ -57,6 +60,7 @@ class OSTwinStore:
         self._plans = self._open_or_create_plans()
         self._epics = self._open_or_create_epics()
         self._plan_versions = self._open_or_create_plan_versions()
+        self._skills = self._open_or_create_skills()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def _open_or_create_messages(self) -> zvec.Collection:
@@ -214,6 +218,40 @@ class OSTwinStore:
             )
             return zvec.create_and_open(path=path, schema=schema)
 
+    def _open_or_create_skills(self) -> zvec.Collection:
+        path = str(self.zvec_dir / SKILLS_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=SKILLS_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("name", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("description", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("tags", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("path", zvec.DataType.STRING),
+                    zvec.FieldSchema("trust_level", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("source", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("content", zvec.DataType.STRING),
+                ],
+                vectors=zvec.VectorSchema(
+                    "embedding",
+                    zvec.DataType.VECTOR_FP32,
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
     # ── Embedding ──────────────────────────────────────────────────────
 
     def _get_embed_fn(self):
@@ -245,6 +283,146 @@ class OSTwinStore:
         except Exception as e:
             logger.debug("Embedding failed for text: %s", e)
             return None
+
+    def index_skill(self, name: str, description: str, tags: list[str],
+                    path: str, content: str, trust_level: str = "experimental",
+                    source: str = "local") -> bool:
+        """Index a single skill. Returns True on success."""
+        if self._skills is None:
+            return False
+
+        tags_str = ",".join(tags)
+        # Sanitize content for zvec
+        content_clean = content.encode("ascii", errors="replace").decode("ascii")
+        description_clean = description.encode("ascii", errors="replace").decode("ascii")
+
+        # Embedding: name + description + first part of content
+        embed_text = f"{name} {description_clean} {content_clean[:1000]}"
+        embedding = self._embed_text(embed_text)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
+        doc = zvec.Doc(
+            id=name,
+            fields={
+                "name": name,
+                "description": description_clean,
+                "tags": tags_str,
+                "path": str(path),
+                "trust_level": trust_level,
+                "source": source,
+                "content": content_clean,
+            },
+            vectors={"embedding": embedding},
+        )
+        try:
+            s = self._skills.upsert(doc)
+            self._skills.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to index skill %s: %s", name, e)
+            return False
+
+    def get_skill(self, name: str) -> dict | None:
+        """Fetch a single skill by name."""
+        if self._skills is None:
+            return None
+        try:
+            result = self._skills.fetch(name)
+            if name not in result:
+                return None
+            doc = result[name]
+            return {
+                "name": doc.field("name"),
+                "description": doc.field("description"),
+                "tags": doc.field("tags").split(",") if doc.field("tags") else [],
+                "path": doc.field("path"),
+                "trust_level": doc.field("trust_level"),
+                "source": doc.field("source"),
+                "content": doc.field("content"),
+            }
+        except Exception:
+            return None
+
+    def search_skills(self, query: str, limit: int = 5) -> list[dict]:
+        """Semantic search for skills."""
+        if self._skills is None:
+            return []
+
+        embedding = self._embed_text(query)
+        if embedding is None:
+            # If no query, return all (up to limit)
+            return self.get_all_skills(limit=limit)
+
+        try:
+            docs = self._skills.query(
+                vectors=zvec.VectorQuery("embedding", vector=embedding),
+                topk=limit,
+                output_fields=["name", "description", "tags", "path", "trust_level", "source", "content"],
+            )
+            results = []
+            for doc in docs:
+                results.append({
+                    "name": doc.field("name"),
+                    "description": doc.field("description"),
+                    "tags": doc.field("tags").split(",") if doc.field("tags") else [],
+                    "path": doc.field("path"),
+                    "trust_level": doc.field("trust_level"),
+                    "source": doc.field("source"),
+                    "content": doc.field("content"),
+                    "score": doc.score,
+                })
+            return results
+        except Exception as e:
+            logger.warning("Skill search failed: %s", e)
+            return []
+
+    def delete_skill(self, name: str) -> bool:
+        """Remove a skill from the vector store. Returns True on success."""
+        if self._skills is None:
+            return False
+        try:
+            s = self._skills.delete(name)
+            self._skills.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to delete skill %s: %s", name, e)
+            return False
+
+    def sync_skills(self, skills_dirs: list[Path]) -> dict[str, Any]:
+        """Synchronize vector store with SKILL.md files on disk.
+        
+        This delegates to the sync_skills_from_disk helper in api_utils.
+        """
+        from dashboard.api_utils import sync_skills_from_disk
+        return sync_skills_from_disk(self, skills_dirs)
+
+    def get_all_skills(self, limit: int = 100) -> list[dict]:
+        """Fetch all indexed skills."""
+        if self._skills is None:
+            return []
+        try:
+            docs = self._skills.query(
+                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
+                topk=limit,
+                output_fields=["name", "description", "tags", "path", "trust_level", "source", "content"],
+            )
+            results = []
+            for doc in docs:
+                results.append({
+                    "name": doc.field("name"),
+                    "description": doc.field("description"),
+                    "tags": doc.field("tags").split(",") if doc.field("tags") else [],
+                    "path": doc.field("path"),
+                    "trust_level": doc.field("trust_level"),
+                    "source": doc.field("source"),
+                    "content": doc.field("content"),
+                    "score": 0.0,
+                })
+            return results
+        except Exception as e:
+            logger.warning("Failed to get all skills: %s", e)
+            return []
 
     # ── Message Indexing ───────────────────────────────────────────────
 
@@ -822,6 +1000,11 @@ class OSTwinStore:
 
         # Sync plans from disk
         plans_synced = self._sync_plans_from_disk()
+
+        # Sync skills from disk
+        from dashboard.api_utils import SKILLS_DIRS
+        skills_sync_res = self.sync_skills(SKILLS_DIRS)
+        skills_synced = skills_sync_res["synced_count"]
 
         if self._messages:
             self._messages.flush()

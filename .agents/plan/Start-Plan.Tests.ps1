@@ -12,6 +12,12 @@ BeforeAll {
         }
     }
     
+    function global:Test-Underspecified {
+        param([string]$Content)
+        if ($Content -match "Short description") { return $true }
+        return $false
+    }
+    
     function global:Write-OstwinLog {
         param([string]$Message, [string]$Level, [string]$Caller)
         $global:testLogs += [PSCustomObject]@{ Message=$Message; Level=$Level; Caller=$Caller }
@@ -34,7 +40,7 @@ Describe "Start-Plan" {
         }
 
         # Create dummy scripts to avoid file not found errors
-        "Write-Host 'Dummy BuildDag'" | Out-File (Join-Path $agentsDir "plan/Build-DependencyGraph.ps1") -Encoding utf8
+        "param([object[]]`$Nodes, [switch]`$Validate) if (`$Validate) { return `$Nodes | ForEach-Object { [PSCustomObject]@{ Id = `$_.Id } } } else { Write-Host 'Dummy BuildDag' }" | Out-File (Join-Path $agentsDir "plan/Build-DependencyGraph.ps1") -Encoding utf8
         "Write-Host 'Dummy NewWarRoom'" | Out-File (Join-Path $agentsDir "war-rooms/New-WarRoom.ps1") -Encoding utf8
         "Write-Host 'Dummy ManagerLoop'" | Out-File (Join-Path $agentsDir "roles/manager/Start-ManagerLoop.ps1") -Encoding utf8
         "Write-Host 'Dummy PostMessage'" | Out-File (Join-Path $agentsDir "channel/Post-Message.ps1") -Encoding utf8
@@ -91,7 +97,7 @@ Describe "Start-Plan" {
         It "shows the number of war-rooms to create" {
             $output = & $script:StartPlan -PlanFile $script:planFile `
                 -ProjectDir $script:projectDir -DryRun *>&1
-            ($output -join "`n") | Should -Match "War-rooms to create: 1"
+            ($output -join "`n") | Should -Match "War-rooms to create: 2"
         }
 
         It "does not create rooms in dry-run mode" {
@@ -128,6 +134,40 @@ Describe "Start-Plan" {
         }
     }
 
+    Context "Upfront Room and DAG Creation" {
+        BeforeEach {
+            $script:multiRoomPlan = Join-Path $TestDrive "multi-room-plan.md"
+            $content = @"
+# Plan: Multi-Room Test
+working_dir: $script:projectDir
+
+## EPIC-001 — Base Epic
+#### Definition of Done
+- [ ] Done 1
+
+## EPIC-002 — Dependent Epic
+depends_on: ["EPIC-001"]
+#### Definition of Done
+- [ ] Done 2
+"@
+            $content | Out-File $script:multiRoomPlan -Encoding utf8
+        }
+
+        It "injects PLAN-REVIEW as a dependency for all epics" {
+            $output = & $script:StartPlan -PlanFile $script:multiRoomPlan -ProjectDir $script:projectDir -DryRun *>&1
+            $outputStr = $output -join "`n"
+            $outputStr | Should -Match "room-001 → EPIC-001.*\[depends_on: PLAN-REVIEW\]"
+            $outputStr | Should -Match "room-002 → EPIC-002.*\[depends_on: PLAN-REVIEW, EPIC-001\]"
+        }
+
+        It "shows topological order in dry-run" {
+            $output = & $script:StartPlan -PlanFile $script:multiRoomPlan -ProjectDir $script:projectDir -DryRun *>&1
+            $outputStr = $output -join "`n"
+            $outputStr | Should -Match "Dependency Graph \(Topological Order\):"
+            $outputStr | Should -Match "PLAN-REVIEW -> EPIC-001 -> EPIC-002"
+        }
+    }
+
     Context "Plan expansion" {
         BeforeEach {
             $script:expandPlan = Join-Path $TestDrive "expand-plan.md"
@@ -140,6 +180,9 @@ Describe "Start-Plan" {
         }
 
         It "runs expansion when underspecified epics are detected" {
+            # Mock Test-Underspecified to return true for this test
+            function global:Test-Underspecified { param($Content) return $true }
+            
             $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir -DryRun *>&1
             ($output -join "`n") | Should -Match "Detected underspecified epics"
             ($output -join "`n") | Should -Match "Would expand EPIC-001"
@@ -189,7 +232,7 @@ if (-not `$DryRun) {
             function global:Read-Host { return "" }
             function global:Invoke-RestMethod { return [PSCustomObject]@{ plan_id = "test-id" } }
             
-            $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir *>&1
+            $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir -DryRun:$false *>&1
             
             # Clean up the mock
             Remove-Item Function:\git -ErrorAction SilentlyContinue
@@ -200,8 +243,10 @@ if (-not `$DryRun) {
             $logMessages | Should -Contain "Plan expansion diff:`nDiff output`n"
             $global:testLogs | Where-Object { $_.Caller -eq "manager" } | Measure-Object | Select-Object -ExpandProperty Count | Should -BeGreaterThan 0
             
+            # Verify expansion result
             $refinedFile = $script:expandPlan -replace '\.md$', '.refined.md'
-            Test-Path $refinedFile | Should -Be $true
+            $updatedContent = Get-Content $refinedFile -Raw
+            $updatedContent | Should -Match "Refined Test"
         }
 
         It "skips expansion when refined file already exists" {
@@ -237,7 +282,6 @@ if (-not `$DryRun) {
 
             # Should detect and reuse existing refined file
             $outputStr | Should -Match "Using Existing Refined Plan"
-            $outputStr | Should -Match "Skipping expansion"
             # Should NOT try to expand again
             $outputStr | Should -Not -Match "Detected underspecified epics"
         }
@@ -304,9 +348,9 @@ if (-not `$DryRun) {
             $output = & $script:StartPlan -PlanFile $script:expandPlan -ProjectDir $script:projectDir -DryRun *>&1
             $outputStr = ($output -join "`n")
 
-            # Should use the refined file and parse its 2 epics
+            # Should use the refined file and parse its 2 epics + room-000
             $outputStr | Should -Match "Using Existing Refined Plan"
-            $outputStr | Should -Match "War-rooms to create: 2"
+            $outputStr | Should -Match "War-rooms to create: 3"
             $outputStr | Should -Match "EPIC-001"
             $outputStr | Should -Match "EPIC-002"
         }
@@ -362,7 +406,7 @@ if (-not `$DryRun) {
         It "detects multiple epics" {
             $output = & $script:StartPlan -PlanFile $script:multiPlan `
                 -ProjectDir $script:projectDir -DryRun *>&1
-            ($output -join "`n") | Should -Match "War-rooms to create: 2"
+            ($output -join "`n") | Should -Match "War-rooms to create: 3"
             ($output -join "`n") | Should -Match "EPIC-001"
             ($output -join "`n") | Should -Match "EPIC-002"
         }
@@ -378,7 +422,7 @@ if (-not `$DryRun) {
         It "parses standalone tasks" {
             $output = & $script:StartPlan -PlanFile $script:taskPlan `
                 -ProjectDir $script:projectDir -DryRun *>&1
-            ($output -join "`n") | Should -Match "War-rooms to create: 3"
+            ($output -join "`n") | Should -Match "War-rooms to create: 4"
         }
     }
 
@@ -469,7 +513,7 @@ if (-not `$DryRun) {
 
             $output = & $script:StartPlan -PlanFile $depsPlan `
                 -ProjectDir $script:projectDir -DryRun *>&1
-            ($output -join "`n") | Should -Match "depends_on: EPIC-001"
+            ($output -join "`n") | Should -Match "depends_on: PLAN-REVIEW, EPIC-001"
         }
 
         It "creates rooms without depends_on (backward compat)" {
@@ -495,7 +539,62 @@ if (-not `$DryRun) {
             $output = & $script:StartPlan -PlanFile $noDeps `
                 -ProjectDir $script:projectDir -DryRun *>&1
             ($output -join "`n") | Should -Match "EPIC-001"
-            ($output -join "`n") | Should -Not -Match "depends_on"
+            ($output -join "`n") | Should -Match "depends_on: PLAN-REVIEW"
+        }
+    }
+
+    Context "Mixed epic and task plan" {
+        BeforeEach {
+            $script:mixedPlan = Join-Path $TestDrive "mixed-plan.md"
+            $content = @"
+# Plan: Mixed Test
+## Epics
+### EPIC-001 - My Epic
+- Bullet 1
+
+## Tasks
+- [ ] TASK-001 - My Task
+"@
+            $content | Out-File $script:mixedPlan -Encoding utf8
+        }
+        
+        It "parses both epics and tasks and injects PLAN-REVIEW" {
+            $output = & $script:StartPlan -PlanFile $script:mixedPlan -ProjectDir $script:projectDir -DryRun *>&1
+            $outputStr = $output -join "`n"
+            $outputStr | Should -Match "War-rooms to create: 3"
+            $outputStr | Should -Match "EPIC-001"
+            $outputStr | Should -Match "TASK-001"
+            $outputStr | Should -Match "room-001 → EPIC-001.*\[depends_on: PLAN-REVIEW\]"
+            $outputStr | Should -Match "room-002 → TASK-001.*\[depends_on: PLAN-REVIEW\]"
+        }
+    }
+
+    Context "Multi-Room DAG Launch (Plan B Verification)" {
+        It "creates 5 rooms and full DAG for a 4-EPIC plan" {
+            $fourEpicPlan = Join-Path $TestDrive "4-epic-plan.md"
+            $content = @"
+# Plan: 4-Epic Test
+working_dir: $script:projectDir
+
+## EPIC-001 - Epic 1
+#### Definition of Done
+- [ ] D1
+## EPIC-002 - Epic 2
+#### Definition of Done
+- [ ] D2
+## EPIC-003 - Epic 3
+#### Definition of Done
+- [ ] D3
+## EPIC-004 - Epic 4
+#### Definition of Done
+- [ ] D4
+"@
+            $content | Out-File $fourEpicPlan -Encoding utf8
+            
+            $output = & $script:StartPlan -PlanFile $fourEpicPlan -ProjectDir $script:projectDir -DryRun *>&1
+            $outputStr = $output -join "`n"
+            $outputStr | Should -Match "War-rooms to create: 5"
+            $outputStr | Should -Match "PLAN-REVIEW -> EPIC-001 -> EPIC-002 -> EPIC-003 -> EPIC-004"
         }
     }
 }

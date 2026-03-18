@@ -55,10 +55,14 @@ process {
             $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
             $taskRef = $cfg.task_ref
             $roomDeps = if ($cfg.depends_on) { @($cfg.depends_on) } else { @() }
+            $assignedRole = if ($cfg.assignment -and $cfg.assignment.assigned_role) { $cfg.assignment.assigned_role } else { "engineer" }
+            $candidateRoles = if ($cfg.assignment -and $cfg.assignment.candidate_roles) { @($cfg.assignment.candidate_roles) } else { @($assignedRole) }
             $Nodes += @{
-                Id        = $taskRef
-                DependsOn = $roomDeps
-                RoomId    = $rd.Name
+                Id              = $taskRef
+                DependsOn       = $roomDeps
+                RoomId          = $rd.Name
+                Role            = $assignedRole
+                CandidateRoles  = $candidateRoles
             }
         }
     }
@@ -222,6 +226,8 @@ process {
             Depth          = $depth[$id]
             OnCriticalPath = [bool]$onCriticalPath[$id]
             RoomId         = if ($orig.RoomId) { $orig.RoomId } else { "" }
+            Role           = if ($orig.Role) { $orig.Role } else { "engineer" }
+            CandidateRoles = if ($orig.CandidateRoles) { @($orig.CandidateRoles) } else { @("engineer") }
         }
         $result.Add($enriched)
     }
@@ -239,6 +245,8 @@ process {
         foreach ($r in $result) {
             $nodesHash[$r.Id] = [ordered]@{
                 room_id          = $r.RoomId
+                role             = $r.Role
+                candidate_roles  = $r.CandidateRoles
                 depends_on       = $r.DependsOn
                 dependents       = $r.Dependents
                 depth            = $r.Depth

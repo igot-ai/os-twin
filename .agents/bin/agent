@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# agent — bash entry point for Agent OS CLI
+#
+# Wraps cli.py with environment resolution so roles can invoke via:
+#   ostwin agent [args...]
+#   .agents/bin/agent [args...]
+#
+# Environment variables (set automatically by Invoke-Agent.ps1):
+#   AGENT_OS_ROLE       — active role name (engineer, qa, etc.)
+#   AGENT_OS_SKILLS_DIR — isolated skills directory for this invocation
+#   AGENT_OS_ROOM_DIR   — war-room directory path
+
+set -euo pipefail
+
+# --- Resolve AGENTS_DIR ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# --- Resolve Python interpreter ---
+PYTHON="${AGENTS_DIR}/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="python3"
+
+# Prefer the Python that has deepagents_cli installed
+if command -v deepagents &>/dev/null; then
+  _DA_BIN="$(command -v deepagents)"
+  _DA_SHEBANG_PY="$(head -1 "$_DA_BIN" 2>/dev/null | sed 's|^#!||')"
+  if [[ -x "$_DA_SHEBANG_PY" ]]; then
+    PYTHON="$_DA_SHEBANG_PY"
+  else
+    _DA_BIN_DIR="$(dirname "$(realpath "$_DA_BIN" 2>/dev/null || echo "$_DA_BIN")")"
+    if [[ -x "$_DA_BIN_DIR/python3" ]]; then
+      PYTHON="$_DA_BIN_DIR/python3"
+    elif [[ -x "$_DA_BIN_DIR/python" ]]; then
+      PYTHON="$_DA_BIN_DIR/python"
+    fi
+  fi
+fi
+
+# --- Load .env files ---
+_load_env_file() {
+  local envfile="$1"
+  [[ -f "$envfile" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// /}" ]] && continue
+    local key="${line%%=*}"
+    local val="${line#*=}"
+    key="${key// /}"
+    val="${val#\"}" ; val="${val%\"}"
+    val="${val#\'}" ; val="${val%\'}"
+    if [[ -n "$key" && -z "${!key+x}" ]]; then
+      export "$key=$val"
+    fi
+  done < "$envfile"
+}
+_load_env_file "$HOME/.ostwin/.env"
+_load_env_file "$AGENTS_DIR/.env"
+
+# --- Execute cli.py with all arguments ---
+exec "$PYTHON" "$AGENTS_DIR/bin/cli.py" "$@"

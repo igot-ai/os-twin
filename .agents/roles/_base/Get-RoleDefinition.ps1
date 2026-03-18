@@ -69,6 +69,7 @@ else {
         prompt_file  = if (Test-Path $roleMd) { "ROLE.md" } else { $null }
         quality_gates = @()
         skills       = @()
+        skill_refs   = @()
         cli          = "deepagents"
         model        = $null
         timeout      = 600
@@ -137,6 +138,8 @@ $role = [PSCustomObject]@{
     PromptTemplate = $null
     QualityGates  = if ($roleData.quality_gates) { @($roleData.quality_gates) } else { @() }
     Skills        = if ($roleData.skills) { @($roleData.skills) } else { @() }
+    skill_refs    = if ($roleData.skill_refs) { @($roleData.skill_refs) } else { @() }
+    SkillRefs     = if ($roleData.skill_refs) { @($roleData.skill_refs) } else { @() }
     CLI           = if ($roleData.cli) { $roleData.cli } else { "deepagents" }
     Model         = $roleData.model
     Timeout       = if ($roleData.timeout) { $roleData.timeout } else { 600 }

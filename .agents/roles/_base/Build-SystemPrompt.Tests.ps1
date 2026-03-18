@@ -64,15 +64,18 @@ Describe "Build-SystemPrompt" {
             $rolePath = Join-Path $TestDrive "role-sk-$(Get-Random)"
             New-Item -ItemType Directory -Path $rolePath -Force | Out-Null
 
+            # Create global skill to ensure resolution works
+            $skillsDir = Join-Path $TestDrive "skills"
+            New-Item -ItemType Directory -Path (Join-Path $skillsDir "global" "test-skill") -Force | Out-Null
+            "Test Skill content" | Out-File (Join-Path $skillsDir "global" "test-skill" "SKILL.md")
+
             @{
                 name   = "sk-role"
-                skills = @("python", "javascript", "sql")
             } | ConvertTo-Json -Depth 3 | Out-File (Join-Path $rolePath "role.json") -Encoding utf8
 
-            $prompt = & $script:BuildPrompt -RolePath $rolePath
+            $prompt = & $script:BuildPrompt -RolePath $rolePath -ExtraContext "FORCE_SKILLS_DIR=$skillsDir"
             $prompt | Should -Match "Skills"
-            $prompt | Should -Match "python"
-            $prompt | Should -Match "sql"
+            $prompt | Should -Match "test-skill"
         }
     }
 

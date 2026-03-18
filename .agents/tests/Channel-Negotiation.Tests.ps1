@@ -14,22 +14,55 @@ Describe "Channel-Based Plan Negotiation" {
         New-Item -ItemType Directory -Path $script:projectDir -Force | Out-Null
         $script:warRoomsDir = Join-Path $script:projectDir ".war-rooms"
         
+        # Create necessary subdirectories
+        $subDirs = @("plan", "war-rooms", "channel", "lib", "roles/manager")
+        foreach ($sd in $subDirs) {
+            New-Item -ItemType Directory -Path (Join-Path $script:projectDir ".agents/$sd") -Force | Out-Null
+        }
+        
+        # Create dummy Expand-Plan.ps1 that just updates the file
+        $dummyExpand = @"
+param(`$PlanFile, `$OutFile, `$Feedback)
+`$content = Get-Content `$PlanFile -Raw
+Set-Content -Path `$OutFile -Value (`$content + \"`n`n# Refined with feedback: `$Feedback\")
+exit 0
+"@
+        $dummyExpand | Out-File (Join-Path $script:projectDir ".agents/plan/Expand-Plan.ps1") -Encoding utf8
+        
+        # Copy real scripts that we need in the project dir to avoid falling back to installDir
+        Copy-Item -Path (Join-Path $script:agentsDir "war-rooms/New-WarRoom.ps1") -Destination (Join-Path $script:projectDir ".agents/war-rooms/")
+        Copy-Item -Path (Join-Path $script:agentsDir "channel/Post-Message.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
+        Copy-Item -Path (Join-Path $script:agentsDir "channel/Wait-ForMessage.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
+        Copy-Item -Path (Join-Path $script:agentsDir "channel/Read-Messages.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
+        Copy-Item -Path (Join-Path $script:agentsDir "plan/Build-DependencyGraph.ps1") -Destination (Join-Path $script:projectDir ".agents/plan/")
+        Copy-Item -Path (Join-Path $script:agentsDir "lib/Utils.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
+        Copy-Item -Path (Join-Path $script:agentsDir "lib/Log.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
+        Copy-Item -Path (Join-Path $script:agentsDir "lib/Config.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
+        # We need a dummy config.json too
+        '{"manager":{"poll_interval_seconds":1,"max_engineer_retries":1,"max_concurrent_rooms":5}}' | Out-File (Join-Path $script:projectDir ".agents/config.json") -Encoding utf8
+        
+        # We need a dummy Start-ManagerLoop.ps1 too
+        "Write-Host 'Dummy Manager Loop'" | Out-File (Join-Path $script:projectDir ".agents/roles/manager/Start-ManagerLoop.ps1") -Encoding utf8 -Force
+        
         $script:planFile = Join-Path $TestDrive "test-plan-negotiation.md"
         $lines = @(
             "# Plan: Negotiation Test",
             "",
             "## Epics",
             "",
-            "### EPIC-001 — First task",
+            "## EPIC-001 - First task",
             "",
-            "- This is a well-specified task.",
-            "- It has enough detail to skip auto-expansion.",
+            "* Bullet 1",
+            "* Bullet 2",
+            "* Bullet 3",
+            "* Bullet 4",
+            "* Bullet 5",
             "",
             "#### Definition of Done",
-            "- [ ] Task done",
+            "- [ ] D1", "- [ ] D2", "- [ ] D3", "- [ ] D4", "- [ ] D5", "- [ ] D6", "- [ ] D7", "- [ ] D8", "- [ ] D9", "- [ ] D10",
             "",
             "#### Acceptance Criteria",
-            "- [ ] Test passes"
+            "- [ ] A1", "- [ ] A2", "- [ ] A3", "- [ ] A4", "- [ ] A5", "- [ ] A6", "- [ ] A7", "- [ ] A8", "- [ ] A9", "- [ ] A10"
         )
         $lines | Out-File $script:planFile -Encoding utf8
     }
@@ -47,7 +80,7 @@ Describe "Channel-Based Plan Negotiation" {
             param($StartPlan, $PlanFile, $ProjectDir, $WarRoomsDir)
             $env:WARROOMS_DIR = $WarRoomsDir
             # We use a dummy manager loop by overriding the file or we just kill the job
-            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir
+            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir -Review
         } -ArgumentList $script:StartPlan, $script:planFile, $script:projectDir, $script:warRoomsDir
 
         # Wait for room-000 to be created
@@ -94,13 +127,13 @@ Describe "Channel-Based Plan Negotiation" {
         Remove-Job $job
     }
     
-    It "aborts if plan is rejected" {
+    It "handles plan rejection by looping back" {
         $env:WARROOMS_DIR = $script:warRoomsDir
         
         $job = Start-Job -ScriptBlock {
             param($StartPlan, $PlanFile, $ProjectDir, $WarRoomsDir)
             $env:WARROOMS_DIR = $WarRoomsDir
-            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir
+            & $StartPlan -PlanFile $PlanFile -ProjectDir $ProjectDir -Review
         } -ArgumentList $script:StartPlan, $script:planFile, $script:projectDir, $script:warRoomsDir
 
         $room000 = Join-Path $script:warRoomsDir "room-000"
@@ -118,24 +151,45 @@ Describe "Channel-Based Plan Negotiation" {
             Receive-Job $job | Write-Host
             throw "room-000 was not created!"
         }
-        Test-Path $channel000 | Should -BeTrue
 
-        # Post plan-reject
-        & $script:PostMessage -RoomDir $room000 -From "team" -To "manager" -Type "plan-reject" -Ref "PLAN-REVIEW" -Body "Needs changes" | Out-Null
+        # Read the first plan-review message
+        $msgs = @(& $script:ReadMessages -RoomDir $room000 -FilterType "plan-review" -AsObject)
+        $msgs.Count | Should -Be 1
+        $firstMsgId = $msgs[0].id
         
-        # Wait for job to complete (it should exit with code 1)
+        # Post plan-reject
+        & $script:PostMessage -RoomDir $room000 -From "team" -To "manager" -Type "plan-reject" -Ref "PLAN-REVIEW" -Body "Too vague" | Out-Null
+        
+        # Wait for the second plan-review message
         $waited = 0
-        while ($job.State -eq 'Running' -and $waited -lt $maxWaits) {
+        $secondReviewFound = $false
+        while ($waited -lt $maxWaits) {
+            $msgs = @(& $script:ReadMessages -RoomDir $room000 -FilterType "plan-review" -After $firstMsgId -AsObject)
+            if ($msgs.Count -gt 0) {
+                $secondReviewFound = $true
+                break
+            }
             Start-Sleep -Milliseconds 500
             $waited++
         }
         
-        $job.State | Should -Be 'Completed'
+        $secondReviewFound | Should -BeTrue
         
-        # room-001 should not exist
+        # Now post plan-approve
+        & $script:PostMessage -RoomDir $room000 -From "team" -To "manager" -Type "plan-approve" -Ref "PLAN-REVIEW" -Body "Approved" | Out-Null
+        
+        # Wait for room-001 to be created (indicates loop finished)
         $room001 = Join-Path $script:warRoomsDir "room-001"
-        Test-Path $room001 | Should -BeFalse
+        $waited = 0
+        while (-not (Test-Path $room001) -and $waited -lt $maxWaits) {
+            Start-Sleep -Milliseconds 500
+            $waited++
+        }
         
+        Test-Path $room001 | Should -BeTrue
+        
+        # Cleanup
+        Stop-Job $job
         Remove-Job $job
     }
 }

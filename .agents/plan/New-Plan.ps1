@@ -1,7 +1,6 @@
 <#
 .SYNOPSIS
     Creates a new development plan with AI-assisted ideation.
-
 .DESCRIPTION
     Provides interactive or non-interactive plan creation. Supports AI ideation
     to generate epics and tasks from project goals, with feedback loops for
@@ -94,6 +93,8 @@ if (-not $PlanFile) {
     if ($slug.Length -gt 40) { $slug = $slug.Substring(0, 40) -replace '-$', '' }
     if (-not $slug) { $slug = "plan-$(Get-Date -Format 'yyyyMMdd-HHmmss')" }
     
+    $plansDir = Join-Path $ProjectDir "plans"
+    if (-not (Test-Path $plansDir)) { New-Item -ItemType Directory -Path $plansDir -Force | Out-Null }
     $defaultPlanFile = Join-Path $plansDir "$slug.md"
     
     if (-not $NonInteractive) {
@@ -119,7 +120,7 @@ if (-not $PlanFile) {
 # --- Ensure custom plan directory exists if they changed it ---
 $customPlanDir = Split-Path $PlanFile
 if (-not (Test-Path $customPlanDir)) {
-    New-Item -ItemType Directory -Path $customPlanDir -Force | Out-Null
+    [void](New-Item -ItemType Directory -Path $customPlanDir -Force)
 }
 
 # --- Build plan structure ---
@@ -160,12 +161,12 @@ You are NOT limited to the roles above. For each epic, define the best-fit agent
 for the job. The more specific the role, the better the agent performs.
 
 Per-epic format:
-``````
+```
 Role: <role-name>            (preset name OR any custom role you invent)
 Objective: <mission>         (what this agent must achieve — be specific)
 Skills: <capabilities>       (comma-separated, guides the agent's focus)
 Working_dir: <path>          (scope the agent to a subdirectory)
-``````
+```
 
 Think: **"What kind of expert would I hire specifically for this epic?"**
 
@@ -212,11 +213,12 @@ $planContent | Out-File -FilePath $PlanFile -Encoding utf8
 
 # --- Push plan to dashboard API ---
 $dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { "http://localhost:9000" }
-$planId = ""
+$registeredPlanId = ""
+$metadataPlanId = [guid]::NewGuid().ToString().Replace("-", "").Substring(0, 12)
 
 try {
     # Check if dashboard is reachable
-    $statusCheck = Invoke-RestMethod -Uri "$dashboardUrl/api/status" -TimeoutSec 3 -ErrorAction Stop
+    $null = Invoke-RestMethod -Uri "$dashboardUrl/api/status" -TimeoutSec 3 -ErrorAction Stop
 
     # POST to create the plan via API
     $createBody = @{
@@ -229,16 +231,16 @@ try {
     if ($initContent) {
         $createBody['content'] = $initContent
     }
-    $createBody = $createBody | ConvertTo-Json -Depth 5
+    $createBodyJson = $createBody | ConvertTo-Json -Depth 5
 
     $response = Invoke-RestMethod -Uri "$dashboardUrl/api/plans/create" `
-        -Method Post -ContentType 'application/json' -Body $createBody -ErrorAction Stop
+        -Method Post -ContentType 'application/json' -Body $createBodyJson -ErrorAction Stop
 
-    $planId = $response.plan_id
-
-    if ($planId) {
+    if ($response.plan_id) {
+        $registeredPlanId = $response.plan_id
+        $metadataPlanId = $registeredPlanId
         Write-Host ""
-        Write-Host "[PLAN] Registered with API: plan_id = $planId" -ForegroundColor Cyan
+        Write-Host "[PLAN] Registered with API: plan_id = $registeredPlanId" -ForegroundColor Cyan
     }
 }
 catch {
@@ -247,31 +249,53 @@ catch {
     Write-Host "[PLAN]   Start the dashboard with: ostwin dashboard" -ForegroundColor Yellow
 }
 
+# --- Update file with embedded config ---
+$configBlock = @"
+
+<!-- CONFIG
+{
+  "plan_id": "$metadataPlanId",
+  "goals": {
+    "definition_of_done": [
+      "Core functionality implemented",
+      "Unit tests passing with >= 80% coverage",
+      "Code reviewed and documented"
+    ],
+    "acceptance_criteria": [
+      "All specified features are working",
+      "No critical or high-severity bugs",
+      "Performance meets requirements"
+    ]
+  }
+}
+-->
+"@
+Add-Content -Path $PlanFile -Value $configBlock
+
 Write-Host ""
 Write-Host "[PLAN] Created: $PlanFile" -ForegroundColor Green
 Write-Host "[PLAN] Goal: $Goal"
 if ($InitFile) {
     Write-Host "[PLAN] Source: $InitFile" -ForegroundColor DarkGray
 }
-if ($planId) {
-    Write-Host "[PLAN] Plan ID: $planId" -ForegroundColor Cyan
+if ($registeredPlanId) {
+    Write-Host "[PLAN] Plan ID: $registeredPlanId" -ForegroundColor Cyan
 }
 Write-Host "[PLAN] Epics: 1"
 Write-Host "[PLAN] Tasks: 4"
+
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Review and edit the plan"
-if ($planId) {
-    Write-Host "  2. Run: ostwin run $planId"
+if ($registeredPlanId) {
+    Write-Host "  2. Run: ostwin run $registeredPlanId"
 } else {
     Write-Host "  2. Run: ./.agents/plan/Start-Plan.ps1 -PlanFile '$PlanFile'"
 }
 
 # --- Return plan info ---
-if ($planId) {
-    Write-Output $planId
+if ($registeredPlanId) {
+    Write-Output $registeredPlanId
 } else {
     Write-Output $PlanFile
 }
-
-

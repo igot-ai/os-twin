@@ -87,3 +87,35 @@ class Strategy(BaseModel):
     status: str  # "active", "inactive"
     parameters: List[StrategyParameter]
     last_run: Optional[str] = None
+
+
+class Skill(BaseModel):
+    name: str
+    description: str
+    tags: List[str] = Field(default_factory=list)
+    trust_level: str = "experimental"
+    source: str = "project"
+    path: Optional[str] = None
+    content: Optional[str] = None
+
+
+class SkillSearchResponse(BaseModel):
+    skills: List[Skill]
+    total: int
+
+
+class SkillInstallRequest(BaseModel):
+    path: str
+
+
+class SkillSearchRequest(BaseModel):
+    query: str
+    role: Optional[str] = None
+    tags: List[str] = []
+
+
+class SkillSyncResponse(BaseModel):
+    synced_count: int
+    added: List[str]
+    updated: List[str]
+    removed: List[str]

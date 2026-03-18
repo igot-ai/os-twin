@@ -8,18 +8,19 @@
     "max_engineer_retries": 3,
     "auto_approve_tools": true,
     "state_timeout_seconds": 900,
-    "auto_expand_plan": false
+    "auto_expand_plan": false,
+    "preflight_skill_check": "warn"
   },
   "architect": {
     "default_model": "gemini-3.1-pro-preview",
-    "cli": "deepagents",
+    "cli": "agent",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 600,
     "max_prompt_bytes": 102400
   },
   "engineer": {
-    "cli": "deepagents",
+    "cli": "agent",
     "default_model": "gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
@@ -53,7 +54,7 @@
     }
   },
   "qa": {
-    "cli": "deepagents",
+    "cli": "agent",
     "default_model": "gemini-3-flash-preview",
     "approval_mode": "auto-approve",
     "timeout_seconds": 600

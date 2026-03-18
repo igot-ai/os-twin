@@ -1,9 +1,5 @@
 
-$testPaths = @(
-    "/Users/paulaan/PycharmProjects/agent-os/.agents/plan/",
-    "/Users/paulaan/PycharmProjects/agent-os/.agents/tests/"
-)
-Invoke-Pester -Path $testPaths -Output Detailed
+python3 /Users/paulaan/PycharmProjects/agent-os/dashboard/test_epic4_models.py
 
 
 

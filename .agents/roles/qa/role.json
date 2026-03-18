@@ -12,13 +12,9 @@
     "verdict-required",
     "evidence-based-review"
   ],
-  "skills": [
-    "testing",
-    "security-audit",
-    "code-review",
-    "regression-testing"
-  ],
-  "cli": "deepagents",
+  "skill_refs": [],
+  "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 300
 }
+

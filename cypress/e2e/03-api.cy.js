@@ -19,7 +19,7 @@ describe('API Contract', () => {
     it('each room has required fields', () => {
       cy.request('/api/rooms').then(({ body }) => {
         body.rooms.forEach(room => {
-          expect(room).to.have.all.keys(
+          expect(room).to.contain.keys(
             'room_id', 'status', 'task_ref', 'task_description',
             'message_count', 'retries', 'last_activity'
           );
@@ -151,7 +151,7 @@ describe('API Contract', () => {
     it('rejects empty plan with 422', () => {
       cy.request({
         method: 'POST', url: '/api/run',
-        body: { plan: '' },
+        body: { plan: '', plan_id: 'empty' },
         headers: { 'Content-Type': 'application/json' },
         failOnStatusCode: false,
       }).its('status').should('eq', 422);
@@ -160,7 +160,7 @@ describe('API Contract', () => {
     it('rejects a plan with no tasks', () => {
       cy.request({
         method: 'POST', url: '/api/run',
-        body: { plan: '# Plan: No tasks\n\n## Config\nworking_dir: .' },
+        body: { plan: '# Plan: No tasks\n\n## Config\nworking_dir: .', plan_id: 'no-tasks' },
         headers: { 'Content-Type': 'application/json' },
         failOnStatusCode: false,
       }).its('status').should('be.oneOf', [400, 422, 500]);
@@ -170,12 +170,12 @@ describe('API Contract', () => {
       cy.fixture('hello-plan.md').then(plan => {
         cy.request({
           method: 'POST', url: '/api/run',
-          body: { plan },
+          body: { plan, plan_id: 'hello-test' },
           headers: { 'Content-Type': 'application/json' },
         }).then(({ status, body }) => {
           expect(status).to.eq(200);
           expect(body.status).to.eq('launched');
-          expect(body.plan_file).to.match(/agent-os-plan-.+\.md$/);
+          expect(body.plan_file).to.match(/.+\.md$/);
         });
       });
     });

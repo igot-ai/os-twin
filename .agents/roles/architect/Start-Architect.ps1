@@ -134,20 +134,13 @@ foreach ($promptFile in @("ROLE.md", "SKILL.md")) {
     }
 }
 
-# --- Build the full prompt ---
-$prompt = @"
-$rolePrompt
-
----
-
+# --- Assemble final prompt using Build-SystemPrompt.ps1 ---
+$buildPrompt = Join-Path $agentsDir "roles" "_base" "Build-SystemPrompt.ps1"
+$extraContext = @"
 ## Context: QA Failure Triage for $taskRef
 
 You are being called in because QA has failed the engineer's implementation,
 and the manager has classified this as a potential design or scope issue.
-
-## Original Brief
-
-$taskDesc
 
 ## Engineer's Submission
 
@@ -178,6 +171,10 @@ Follow with detailed guidance:
 - For REDESIGN: the new architectural approach to follow
 - For REPLAN: what needs to change in the brief, DoD, or acceptance criteria
 "@
+
+$prompt = & $buildPrompt -RoleName "architect" -RolePath $scriptDir `
+                         -RoomDir $RoomDir -TaskRef $taskRef `
+                         -ExtraContext $extraContext
 
 # --- Log start ---
 if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {

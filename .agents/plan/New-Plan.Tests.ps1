@@ -105,11 +105,14 @@ Describe "New-Plan" {
     }
 
     Context "Output" {
-        It "returns the plan file path" {
+        It "returns the plan file path or registered plan_id" {
             $planFile = Join-Path $TestDrive "plan-output.md"
             $result = & $script:NewPlan -ProjectDir $script:projectDir -Goal "Output test" `
                                         -PlanFile $planFile -NonInteractive
-            $result | Should -Contain $planFile
+            # New-Plan returns the plan_id when dashboard is reachable,
+            # or the plan file path when it is not.
+            $lastOutput = ($result | Select-Object -Last 1).ToString().Trim()
+            ($lastOutput -eq $planFile -or $lastOutput -match '^[0-9a-f]{8,}$') | Should -BeTrue
         }
     }
 }

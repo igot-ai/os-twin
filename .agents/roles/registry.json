@@ -10,7 +10,7 @@
       "runner": "roles/engineer/Start-Engineer.ps1",
       "runner_legacy": "roles/engineer/run.sh",
       "definition": "roles/engineer/role.json",
-      "prompt": "roles/engineer/ROLE.md",
+      "prompt": "roles/engineer/SKILL.md",
       "default_assignment": true,
       "instance_support": true,
       "supported_task_types": ["task", "epic"],
@@ -24,7 +24,7 @@
       "runner": "roles/qa/Start-QA.ps1",
       "runner_legacy": "roles/qa/run.sh",
       "definition": "roles/qa/role.json",
-      "prompt": "roles/qa/ROLE.md",
+      "prompt": "roles/qa/SKILL.md",
       "default_assignment": false,
       "supported_task_types": ["review"],
       "capabilities": ["code-review", "test-execution", "shell-execution", "security-review"],
@@ -36,7 +36,7 @@
       "description": "Software architect — designs systems, reviews architecture, makes technical decisions",
       "runner": "roles/architect/Start-Architect.ps1",
       "definition": "roles/architect/role.json",
-      "prompt": "roles/architect/ROLE.md",
+      "prompt": "roles/architect/SKILL.md",
       "default_assignment": false,
       "supported_task_types": ["design", "review", "epic"],
       "capabilities": ["architecture-design", "code-review", "documentation", "technical-decisions"],
@@ -45,14 +45,14 @@
     },
     {
       "name": "manager",
-      "description": "Manager — orchestrates war-rooms, routes work, handles retries and release",
+      "description": "Manager — orchestrates war-rooms, routes work, handles retries, skill discovery, and release",
       "runner": "roles/manager/Start-ManagerLoop.ps1",
       "runner_legacy": "roles/manager/loop.sh",
-      "definition": null,
-      "prompt": null,
+      "definition": "roles/manager/role.json",
+      "prompt": "roles/manager/SKILL.md",
       "default_assignment": false,
       "supported_task_types": ["orchestration"],
-      "capabilities": ["task-routing", "retry-management", "release-coordination", "deadlock-detection"],
+      "capabilities": ["task-routing", "retry-management", "release-coordination", "deadlock-detection", "skill-search", "skill-install"],
       "quality_gates": [],
       "default_model": "gemini-3.1-pro-preview"
     }
@@ -77,23 +77,36 @@
       {
         "name": "lang",
         "description": "Fetch LangGraph documentation for accurate, up-to-date guidance",
-        "path": "skills/lang/SKILL.md"
+        "path": "skills/global/lang/SKILL.md",
+        "skills": "engineer, python, code-generation",
+        "tags": ["engineer", "python", "code-generation"],
+        "trust_level": "core"
       },
       {
         "name": "create-role",
         "description": "Scaffold a new agent role — generates role.json, ROLE.md, and registers in registry.json",
-        "path": "skills/create-role/SKILL.md"
+        "path": "skills/roles/architect/create-role/SKILL.md",
+        "skills": "architect, manager, scaffolding",
+        "tags": ["architect", "manager", "scaffolding"],
+        "trust_level": "core"
       },
       {
         "name": "create-architecture",
         "description": "Generate architecture docs for an epic — ADRs, component diagrams, data flows, tech-stack rationale",
-        "path": "skills/create-architecture/SKILL.md"
+        "path": "skills/global/create-architecture/SKILL.md",
+        "skills": "architect, documentation, design",
+        "tags": ["architect", "documentation", "design"],
+        "trust_level": "core"
       },
       {
         "name": "create-lifecycle",
         "description": "Define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, escalation rules",
-        "path": "skills/create-lifecycle/SKILL.md"
+        "path": "skills/global/create-lifecycle/SKILL.md",
+        "skills": "architect, manager, process",
+        "tags": ["architect", "manager", "process"],
+        "trust_level": "core"
       }
     ]
   }
 }
+

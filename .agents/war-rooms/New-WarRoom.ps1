@@ -61,6 +61,8 @@ param(
 
     [string]$AssignedRole = 'engineer',
 
+    [string[]]$CandidateRoles = @(),
+
     [int]$MaxRetries = 3,
 
     [int]$TimeoutSeconds = 900
@@ -104,10 +106,11 @@ $config = [ordered]@{
     working_dir = (Resolve-Path $WorkingDir -ErrorAction SilentlyContinue).Path
 
     assignment = [ordered]@{
-        title       = ($TaskDescription -split "`n")[0].Trim()
-        description = $TaskDescription
-        assigned_role = $AssignedRole
-        type        = $assignmentType
+        title           = ($TaskDescription -split "`n")[0].Trim()
+        description     = $TaskDescription
+        assigned_role   = $AssignedRole
+        candidate_roles = if ($CandidateRoles.Count -gt 0) { $CandidateRoles } else { @($AssignedRole) }
+        type            = $assignmentType
     }
 
     goals = [ordered]@{

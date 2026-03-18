@@ -171,6 +171,7 @@ Usage:
   ostwin <command> [options]
 
 Commands:
+  agent [args...]    Run the Agent OS CLI (role-aware deepagents wrapper)
   chat [options]    Interactive AI chat session
                     Options: -a AGENT, -M MODEL, -m MSG, --auto-approve, -r [ID]
   run <plan_id|file> Execute a plan by ID or file path
@@ -264,6 +265,10 @@ ps_dispatch() {
 }
 
 case "${1:-}" in
+  agent)
+    shift
+    exec "$AGENTS_DIR/bin/agent" "$@"
+    ;;
   chat)
     shift
     exec "$DEEPAGENTS_PYTHON" "$AGENTS_DIR/bin/chat.py" "$@"
