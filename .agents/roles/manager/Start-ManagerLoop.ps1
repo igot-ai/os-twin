@@ -499,7 +499,7 @@ while (-not $script:shuttingDown) {
                     Stop-RoomProcesses $roomDir
                     if ($retries -lt $maxRetries) {
                         ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body "Previous attempt timed out after ${stateTimeout}s. Please try again."
+                        & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "Previous attempt timed out after ${stateTimeout}s. Please try again."
                         Write-RoomStatus $roomDir "fixing"
                         Start-Job -ScriptBlock {
                             param($script, $room)
@@ -527,7 +527,12 @@ while (-not $script:shuttingDown) {
                 }
                 else {
                     # Check if engineer process is alive
-                    $engPidFile = Join-Path $roomDir "pids" "engineer.pid"
+                    $engPidFile = Join-Path $roomDir "pids" "$baseRole.pid"
+                    # Backward compat: also check engineer.pid for rooms created before dynamic role support
+                    if (-not (Test-Path $engPidFile)) {
+                        $legacyPid = Join-Path $roomDir "pids" "engineer.pid"
+                        if (Test-Path $legacyPid) { $engPidFile = $legacyPid }
+                    }
                     if (-not (Test-PidAlive $engPidFile)) {
                         $errorCount = Get-MsgCount $roomDir "error"
                         if ($errorCount -gt 0) {
@@ -536,7 +541,7 @@ while (-not $script:shuttingDown) {
                             if ($retries -lt $maxRetries) {
                                 Write-Log "INFO" "[$taskRef] Retrying (attempt $($retries + 1)/$maxRetries)..."
                                 ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body "Previous attempt failed: $errorBody. Please try again."
+                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "Previous attempt failed: $errorBody. Please try again."
                                 Write-RoomStatus $roomDir "fixing"
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
@@ -572,7 +577,7 @@ while (-not $script:shuttingDown) {
                     Stop-RoomProcesses $roomDir
                     if ($retries -lt $maxRetries) {
                         ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body "QA review timed out. Please review and fix."
+                        & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "QA review timed out. Please review and fix."
                         Write-RoomStatus $roomDir "fixing"
                         Start-Job -ScriptBlock {
                             param($script, $room)
@@ -674,7 +679,7 @@ while (-not $script:shuttingDown) {
                             Write-Log "INFO" "[$taskRef] Implementation bug. Routing fix to engineer (retry $($retries + 1)/$maxRetries)..."
                             ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
                             Write-TriageContext -RoomDir $roomDir -Classification $classification -QaFeedback $feedback -ManagerNotes "Classified as implementation bug. Engineer should fix the specific issues."
-                            & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body $feedback
+                            & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $feedback
                             Write-RoomStatus $roomDir "fixing"
                             Start-Job -ScriptBlock {
                                 param($script, $room)
@@ -701,7 +706,7 @@ while (-not $script:shuttingDown) {
                             Write-TriageContext -RoomDir $roomDir -Classification $classification -QaFeedback $feedback -ManagerNotes "Design issue detected but architect unavailable. Engineer should attempt redesign."
                             if ($retries -lt $maxRetries) {
                                 ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body $feedback
+                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $feedback
                                 Write-RoomStatus $roomDir "fixing"
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
@@ -744,7 +749,7 @@ while (-not $script:shuttingDown) {
                     Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $feedback -ManagerNotes "Architect review timed out. Engineer should attempt best-effort fix."
                     if ($retries -lt $maxRetries) {
                         ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body $feedback
+                        & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $feedback
                         Write-RoomStatus $roomDir "fixing"
                         Start-Job -ScriptBlock {
                             param($script, $room)
@@ -778,7 +783,7 @@ while (-not $script:shuttingDown) {
                             Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $qaFeedback -ArchitectGuidance $guidance -ManagerNotes "Architect reviewed and recommends targeted fix."
                             if ($retries -lt $maxRetries) {
                                 ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body $guidance
+                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $guidance
                                 Write-RoomStatus $roomDir "fixing"
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
@@ -794,7 +799,7 @@ while (-not $script:shuttingDown) {
                             Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $qaFeedback -ArchitectGuidance $guidance -ManagerNotes "Architect recommends redesign. Engineer must follow architect's approach."
                             if ($retries -lt $maxRetries) {
                                 ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body $guidance
+                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $guidance
                                 Write-RoomStatus $roomDir "fixing"
                                 Start-Job -ScriptBlock {
                                     param($script, $room)
@@ -851,7 +856,7 @@ while (-not $script:shuttingDown) {
                 $qaRetriesFile = Join-Path $roomDir "qa_retries"
                 if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
 
-                & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "plan-update" -Ref $taskRef -Body "Brief has been revised. Please re-read brief.md and implement accordingly."
+                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "plan-update" -Ref $taskRef -Body "Brief has been revised. Please re-read brief.md and implement accordingly."
                 Write-RoomStatus $roomDir "engineering"
                 Start-Job -ScriptBlock {
                     param($script, $room)
@@ -894,9 +899,119 @@ while (-not $script:shuttingDown) {
             }
 
             default {
-                Write-Log "WARN" "Unknown status '$status' for $roomId"
-                $allPassed = $false
-                $allTerminal = $false
+                # --- GENERIC LIFECYCLE-AWARE STATE HANDLER ---
+                # Handles any custom state defined in lifecycle.json (e.g., security-review, schema-review)
+                if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status) {
+                    $customStateDef = $lifecycle.states.$status
+                    $allPassed = $false
+                    $allTerminal = $false
+                    $totalActive++
+
+                    # Check for state timeout
+                    if (Test-StateTimedOut $roomDir) {
+                        Write-Log "ERROR" "[$taskRef] Custom state '$status' timed out after ${stateTimeout}s."
+                        Stop-RoomProcesses $roomDir
+                        if ($customStateDef.transitions.fail) {
+                            Write-RoomStatus $roomDir $customStateDef.transitions.fail
+                        } elseif ($retries -lt $maxRetries) {
+                            ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
+                            & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "State '$status' timed out after ${stateTimeout}s. Please try again."
+                            Write-RoomStatus $roomDir "fixing"
+                            Start-Job -ScriptBlock {
+                                param($script, $room)
+                                & $script -RoomDir $room
+                            } -ArgumentList $workerScript, $roomDir | Out-Null
+                        } else {
+                            Write-Log "ERROR" "[$taskRef] Max retries exceeded after custom state timeout."
+                            Write-RoomStatus $roomDir "failed-final"
+                            Set-BlockedDescendants $taskRef
+                        }
+                        continue
+                    }
+
+                    $stateRole = if ($customStateDef.role) { $customStateDef.role } else { $baseRole }
+                    $stateBaseRole = $stateRole -replace ':.*$', ''
+
+                    if ($customStateDef.type -eq 'review' -or $status -match '(review|audit|check|verify)') {
+                        # --- REVIEW STATE: expects pass/fail/escalate ---
+                        $passCount = Get-MsgCount $roomDir "pass"
+                        $failCount = Get-MsgCount $roomDir "fail"
+                        $escalateCount = Get-MsgCount $roomDir "escalate"
+
+                        if ($passCount -gt 0) {
+                            $nextState = if ($customStateDef.transitions.pass) { $customStateDef.transitions.pass } else { 'passed' }
+                            Write-Log "INFO" "[$taskRef] Custom review '$status' by '$stateRole' PASSED. Transitioning to $nextState."
+                            Write-RoomStatus $roomDir $nextState
+                        }
+                        elseif ($failCount -gt 0 -or $escalateCount -gt 0) {
+                            $feedback = if ($escalateCount -gt 0) { Get-LatestBody $roomDir "escalate" } else { Get-LatestBody $roomDir "fail" }
+                            $nextState = if ($customStateDef.transitions.fail) { $customStateDef.transitions.fail } else { 'manager-triage' }
+                            Write-Log "INFO" "[$taskRef] Custom review '$status' by '$stateRole' FAILED. Transitioning to $nextState."
+                            # Save triage input
+                            $artifactsDir = Join-Path $roomDir "artifacts"
+                            if (-not (Test-Path $artifactsDir)) { New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null }
+                            "# $status Report`n`n$feedback" | Out-File -FilePath (Join-Path $artifactsDir "triage-input.md") -Encoding utf8 -Force
+                            Write-RoomStatus $roomDir $nextState
+                        }
+                        else {
+                            # Check if review agent is alive, spawn if needed
+                            $reviewPidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
+                            if (-not (Test-PidAlive $reviewPidFile)) {
+                                # Resolve the reviewer's runner script
+                                if (Test-Path $resolveRoleScript) {
+                                    $reviewResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                    Write-Log "INFO" "[$taskRef] Starting '$stateRole' for custom review state '$status'..."
+                                    Start-Job -ScriptBlock {
+                                        param($script, $room)
+                                        & $script -RoomDir $room
+                                    } -ArgumentList $reviewResolved.Runner, $roomDir | Out-Null
+                                } else {
+                                    Write-Log "WARN" "[$taskRef] Cannot resolve runner for '$stateRole'. Resolve-Role.ps1 not found."
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        # --- WORKER STATE: expects done ---
+                        $doneCount = Get-MsgCount $roomDir "done"
+                        if ($doneCount -ge ($retries + 1)) {
+                            $nextState = if ($customStateDef.transitions.done) { $customStateDef.transitions.done } else { 'qa-review' }
+                            Write-Log "INFO" "[$taskRef] Custom worker '$status' by '$stateRole' done. Transitioning to $nextState."
+                            Write-RoomStatus $roomDir $nextState
+
+                            # If next state needs a different agent, resolve and spawn it
+                            if ($lifecycle.states.$nextState) {
+                                $nextDef = $lifecycle.states.$nextState
+                                if ($nextDef.role -and $nextDef.role -ne $stateRole) {
+                                    if (Test-Path $resolveRoleScript) {
+                                        $nextResolved = & $resolveRoleScript -RoleName $nextDef.role -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                        Write-Log "INFO" "[$taskRef] Auto-spawning '$($nextDef.role)' for state '$nextState'..."
+                                        Start-Job -ScriptBlock {
+                                            param($script, $room)
+                                            & $script -RoomDir $room
+                                        } -ArgumentList $nextResolved.Runner, $roomDir | Out-Null
+                                    }
+                                }
+                            }
+                        }
+                        else {
+                            # Check if worker is alive, spawn if needed
+                            $workerPidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
+                            if (-not (Test-PidAlive $workerPidFile)) {
+                                Write-Log "INFO" "[$taskRef] Starting '$stateRole' for custom worker state '$status'..."
+                                Start-Job -ScriptBlock {
+                                    param($script, $room)
+                                    & $script -RoomDir $room
+                                } -ArgumentList $workerScript, $roomDir | Out-Null
+                            }
+                        }
+                    }
+                }
+                else {
+                    Write-Log "WARN" "Unknown status '$status' for $roomId (no lifecycle definition found)"
+                    $allPassed = $false
+                    $allTerminal = $false
+                }
             }
         }
     }
@@ -927,7 +1042,7 @@ while (-not $script:shuttingDown) {
                     if ($lr -lt $maxRetries) {
                         Write-Log "WARN" "[$lt] Deadlock recovery: restarting engineer via transition to fixing."
                         ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $rd -From "manager" -To "engineer" -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting engineer."
+                        & $postMessage -RoomDir $rd -From "manager" -To $baseRole -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting engineer."
                         Write-RoomStatus $rd "fixing"
                         # Worker will be started by main loop in next iteration
                     }

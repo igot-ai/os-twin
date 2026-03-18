@@ -75,7 +75,7 @@ foreach ($searchDir in $searchDirs) {
  
         $runnerPath = Join-Path $_.FullName "Start-$roleName.ps1"
         if (-not (Test-Path $runnerPath)) {
-            $runnerPath = Join-Path $AgentsDir "roles" "engineer" "Start-Engineer.ps1"
+            $runnerPath = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
         }
  
         $roles.Add([PSCustomObject]@{

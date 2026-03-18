@@ -89,8 +89,8 @@ if (-not $result.Runner) {
                 if (Test-Path $customRunner) {
                     $result.Runner = $customRunner
                 } else {
-                    # Use generic engineer runner as fallback for discovered roles
-                    $result.Runner = Join-Path $AgentsDir "roles" "engineer" "Start-Engineer.ps1"
+                    # Use universal dynamic runner as fallback for discovered roles
+                    $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
                 }
                 $result.Source = 'discovered'
                 break
