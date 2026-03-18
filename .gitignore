@@ -2,6 +2,7 @@
 .env
 *pid
 .agents/plans/**
+.agents/.zvec/**
 *.war-rooms/**
 .agents/logs/**
 .war-rooms/**
