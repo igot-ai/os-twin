@@ -366,7 +366,6 @@ if ($shouldExpand -and ($PlanFile -notmatch '\.refined\.md$') -and -not $Resume)
 #         Write-Warning "Expand-Plan.ps1 not found at $expandScript, skipping expansion."
 #     }
 # }
->>>>>>> origin/main
 
 # --- Parse plan: extract ALL epics and tasks (Requirement 1) ---
 # Parse global working_dir from PLAN.md
