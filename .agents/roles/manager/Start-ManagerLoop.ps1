@@ -140,7 +140,7 @@ function Resolve-RoomSkills {
             $skillNames = @($response | ForEach-Object { $_.name })
             $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
             $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
-            Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for $AssignedRole: $($skillNames -join ', ')"
+            Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for ${AssignedRole}: $($skillNames -join ', ')"
         }
     }
     catch {

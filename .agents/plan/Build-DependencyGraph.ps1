@@ -84,6 +84,34 @@ process {
         $nodeMap[$id] = $node
     }
 
+    # --- Auto-inject well-known virtual nodes ---
+    # PLAN-REVIEW is always injected by Start-Plan.ps1 as a universal dependency.
+    # When Build-DependencyGraph is called in WarRooms mode, room-000 (the plan
+    # review room) may not have a config.json, so PLAN-REVIEW won't appear in
+    # the scanned nodes. We auto-inject it as a virtual root node (depth 0,
+    # no dependencies) so the graph stays valid.
+    $virtualNodeIds = @('PLAN-REVIEW')
+    foreach ($node in $Nodes) {
+        $deps = $node.DependsOn
+        if ($null -ne $deps) {
+            if ($deps -is [string]) { $deps = @($deps) }
+            foreach ($dep in $deps) {
+                if (-not $nodeMap.ContainsKey($dep) -and $dep -in $virtualNodeIds) {
+                    $virtualNode = @{
+                        Id              = $dep
+                        DependsOn       = @()
+                        RoomId          = "room-000"
+                        Role            = "architect"
+                        CandidateRoles  = @("manager", "architect")
+                        Virtual         = $true
+                    }
+                    $nodeMap[$dep] = $virtualNode
+                    Write-Verbose "[DAG] Auto-injected virtual node '$dep' (referenced but not in node list)"
+                }
+            }
+        }
+    }
+
     # Prepare for Kahn's algorithm
     $inDegree = @{}
     $adjacencyList = @{} # Maps dependency -> list of dependents
@@ -95,7 +123,7 @@ process {
     }
 
     # Build graph
-    foreach ($node in $Nodes) {
+    foreach ($node in @($nodeMap.Values)) {
         $id = $node.Id
         $deps = $node.DependsOn
 

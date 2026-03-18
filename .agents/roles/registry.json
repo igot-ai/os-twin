@@ -100,6 +100,29 @@
       ],
       "quality_gates": [],
       "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "reporter",
+      "description": "Report generator — creates structured PDF reports from data specs",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/reporter/role.json",
+      "prompt": "roles/reporter/SKILL.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "report-generation",
+        "data-visualization",
+        "document-composition",
+        "pdf-output"
+      ],
+      "quality_gates": [
+        "report-renders",
+        "no-empty-pages"
+      ],
+      "default_model": "gemini-3-flash-preview"
     }
   ],
   "assignment_rules": {

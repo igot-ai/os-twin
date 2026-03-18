@@ -1,0 +1,19 @@
+{
+  "name": "reporter",
+  "description": "Report generator — creates structured PDF reports from data specs",
+  "capabilities": [
+    "report-generation",
+    "data-visualization",
+    "document-composition",
+    "pdf-output"
+  ],
+  "prompt_file": "SKILL.md",
+  "quality_gates": [
+    "report-renders",
+    "no-empty-pages"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}
