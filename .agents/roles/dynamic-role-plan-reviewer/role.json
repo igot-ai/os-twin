@@ -1,0 +1,17 @@
+{
+  "name": "dynamic-role-plan-reviewer",
+  "description": "Review the refined execution plan for the Dynamic Role Test to ensure completeness, feasibility, and alignment with the system's dynamic role capabilities.",
+  "capabilities": [
+    "plan analysis",
+    "test strategy evaluation",
+    "technical review"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "create-role"
+  ],
+  "cli": "deepagents",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

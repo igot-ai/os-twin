@@ -5,11 +5,15 @@
     "default_model": "gemini-3.1-pro-preview",
     "poll_interval_seconds": 5,
     "max_concurrent_rooms": 50,
-    "max_engineer_retries": 3,
+    "max_engineer_retries": 10,
     "auto_approve_tools": true,
     "state_timeout_seconds": 900,
     "auto_expand_plan": false,
-    "preflight_skill_check": "warn"
+    "preflight_skill_check": "warn",
+    "smart_assignment": false,
+    "dynamic_pipelines": true,
+    "capability_matching": true,
+    "external_roles_dirs": []
   },
   "architect": {
     "default_model": "gemini-3.1-pro-preview",

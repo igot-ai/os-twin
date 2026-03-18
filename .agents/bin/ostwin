@@ -293,6 +293,63 @@ case "${1:-}" in
         RUN_ARGS+=("$a")
       fi
     done
+
+    # Check for missing roles in the plan and generate a script if needed
+    if [[ "$PLAN_ARG_RESOLVED" == true && -f "$RESOLVED_PLAN_FILE" ]]; then
+      # Extract roles defined as "Role: role-name"
+      NEEDED_ROLES=$(awk -F': ' '/^Role:/ {print $2}' "$RESOLVED_PLAN_FILE" | sed 's/^[[:space:]]*//;s/[[:space:]].*//' | sort -u)
+      MISSING_ROLES=()
+      for r in $NEEDED_ROLES; do
+        if [[ "$r" == "<role-name>" || -z "$r" ]]; then continue; fi
+        if [[ ! -d "$AGENTS_DIR/roles/$r" && ! -d "$HOME/.ostwin/roles/$r" ]]; then
+          MISSING_ROLES+=("$r")
+        fi
+      done
+      
+      if [[ ${#MISSING_ROLES[@]} -gt 0 ]]; then
+        echo "⚠ Found missing roles needed by the plan: ${MISSING_ROLES[*]}"
+        
+        IS_INTERACTIVE=true
+        if [[ ! -t 0 ]] || [[ " ${RUN_ARGS[*]} " =~ " --non-interactive " ]] || [[ " ${RUN_ARGS[*]} " =~ " -n " ]]; then
+          IS_INTERACTIVE=false
+        fi
+
+        if [[ "$IS_INTERACTIVE" == true ]]; then
+          read -p "Do you want the manager agent to automatically create these roles now? [Y/n] " -n 1 -r
+          echo ""
+        else
+          echo "Non-interactive mode. Auto-creating missing roles..."
+          REPLY="y"
+        fi
+        
+        if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+            echo "Running manager agent to scaffold roles..."
+            for mr in "${MISSING_ROLES[@]}"; do
+              ( ps_dispatch "$AGENTS_DIR/bin/Auto-CreateRole.ps1" "$AGENTS_DIR/bin/auto_create_role.sh" "$mr" "$AGENTS_DIR" )
+            done
+            
+            # Verify creation
+            FAILED_ROLES=()
+            for mr in "${MISSING_ROLES[@]}"; do
+              if [[ ! -d "$AGENTS_DIR/roles/$mr" && ! -d "$HOME/.ostwin/roles/$mr" ]]; then
+                FAILED_ROLES+=("$mr")
+              fi
+            done
+            
+            if [[ ${#FAILED_ROLES[@]} -gt 0 ]]; then
+              echo "✗ Failed to create roles: ${FAILED_ROLES[*]}. Aborting."
+              exit 1
+            else
+              echo "✓ Successfully created all missing roles."
+              echo ""
+            fi
+        else
+            echo "Aborting run. Please create the missing roles manually."
+            exit 1
+        fi
+      fi
+    fi
+
     ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "${RUN_ARGS[@]}"
     ;;
   resume)

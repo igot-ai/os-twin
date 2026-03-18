@@ -74,15 +74,18 @@ No external infrastructure needed. Just files.
 | `signoff` | any → manager       | Role approves the final release          |
 | `release` | manager → all       | Release is finalized                     |
 
-## War-Room Lifecycle
+## Hello World Script
 
-```
-create → pending → engineering → qa-review ─┬─► passed → signoff
-                       ▲                     │
-                       └──── fixing ◄────────┘ (on fail)
+To execute the `hello.py` script, run the following command in the project root:
+
+```bash
+python3 hello.py
 ```
 
-## Directory Structure
+Expected output:
+```
+Hello from OS Twin
+```
 
 ```
 .agents/

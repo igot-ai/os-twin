@@ -65,7 +65,11 @@ param(
 
     [int]$MaxRetries = 3,
 
-    [int]$TimeoutSeconds = 900
+    [int]$TimeoutSeconds = 900,
+ 
+    [string]$Pipeline = '',
+ 
+    [string[]]$RequiredCapabilities = @()
 )
 
 # --- Resolve war-rooms directory ---
@@ -226,6 +230,23 @@ $($config.working_dir)
 $ts
 "@
 $briefContent | Out-File -FilePath (Join-Path $roomDir "brief.md") -Encoding utf8
+
+# --- Generate per-room lifecycle (if Pipeline or Capabilities provided) ---
+if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)) {
+    $resolvePipeline = Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")).Path "lifecycle" "Resolve-Pipeline.ps1"
+    if (Test-Path $resolvePipeline) {
+        $pipelineArgs = @{
+            AssignedRole = $AssignedRole
+            AgentsDir    = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+        }
+        if ($Pipeline) { $pipelineArgs['PipelineString'] = $Pipeline }
+        if ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0) {
+            $pipelineArgs['RequiredCapabilities'] = $RequiredCapabilities
+        }
+        $pipelineArgs['OutputPath'] = Join-Path $roomDir "lifecycle.json"
+        & $resolvePipeline @pipelineArgs
+    }
+}
 
 # --- Initialize status ---
 "pending" | Out-File -FilePath (Join-Path $roomDir "status") -Encoding utf8 -NoNewline

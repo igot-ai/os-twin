@@ -17,9 +17,8 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Optional, Dict
+from typing import Any, Optional
 
-import yaml
 import zvec
 
 logger = logging.getLogger("zvec_store")
@@ -27,10 +26,8 @@ logger = logging.getLogger("zvec_store")
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
-PLANS_COLLECTION = "plans_04"
+PLANS_COLLECTION = "plans"
 EPICS_COLLECTION = "epics"
-PLAN_VERSIONS_COLLECTION = "plan_versions"
-SKILLS_COLLECTION = "skills"
 
 
 class OSTwinStore:
@@ -39,14 +36,12 @@ class OSTwinStore:
     def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
-        self.zvec_dir = agents_dir / ".zvec"
+        self.zvec_dir = warrooms_dir / ".zvec"
         self.zvec_dir.mkdir(parents=True, exist_ok=True)
         self._messages: Optional[zvec.Collection] = None
         self._metadata: Optional[zvec.Collection] = None
         self._plans: Optional[zvec.Collection] = None
         self._epics: Optional[zvec.Collection] = None
-        self._plan_versions: Optional[zvec.Collection] = None
-        self._skills: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
@@ -59,8 +54,6 @@ class OSTwinStore:
         self._metadata = self._open_or_create_metadata()
         self._plans = self._open_or_create_plans()
         self._epics = self._open_or_create_epics()
-        self._plan_versions = self._open_or_create_plan_versions()
-        self._skills = self._open_or_create_skills()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def _open_or_create_messages(self) -> zvec.Collection:
@@ -190,68 +183,6 @@ class OSTwinStore:
             )
             return zvec.create_and_open(path=path, schema=schema)
 
-    def _open_or_create_plan_versions(self) -> zvec.Collection:
-        path = str(self.zvec_dir / PLAN_VERSIONS_COLLECTION)
-        try:
-            return zvec.open(path)
-        except Exception:
-            schema = zvec.CollectionSchema(
-                name=PLAN_VERSIONS_COLLECTION,
-                fields=[
-                    zvec.FieldSchema("plan_id", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("version", zvec.DataType.INT32),
-                    zvec.FieldSchema("content", zvec.DataType.STRING),
-                    zvec.FieldSchema("title", zvec.DataType.STRING),
-                    zvec.FieldSchema("epic_count", zvec.DataType.INT32),
-                    zvec.FieldSchema("created_at", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("change_source", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                ],
-                vectors=zvec.VectorSchema(
-                    "_placeholder",
-                    zvec.DataType.VECTOR_FP32,
-                    1,
-                    index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
-                ),
-            )
-            return zvec.create_and_open(path=path, schema=schema)
-
-    def _open_or_create_skills(self) -> zvec.Collection:
-        path = str(self.zvec_dir / SKILLS_COLLECTION)
-        try:
-            return zvec.open(path)
-        except Exception:
-            schema = zvec.CollectionSchema(
-                name=SKILLS_COLLECTION,
-                fields=[
-                    zvec.FieldSchema("name", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("description", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("tags", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("path", zvec.DataType.STRING),
-                    zvec.FieldSchema("trust_level", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("source", zvec.DataType.STRING,
-                                     index_param=zvec.InvertIndexParam()),
-                    zvec.FieldSchema("content", zvec.DataType.STRING),
-                ],
-                vectors=zvec.VectorSchema(
-                    "embedding",
-                    zvec.DataType.VECTOR_FP32,
-                    EMBEDDING_DIM,
-                    index_param=zvec.HnswIndexParam(
-                        metric_type=zvec.MetricType.COSINE,
-                        m=16,
-                        ef_construction=200,
-                    ),
-                ),
-            )
-            return zvec.create_and_open(path=path, schema=schema)
-
     # ── Embedding ──────────────────────────────────────────────────────
 
     def _get_embed_fn(self):
@@ -283,146 +214,6 @@ class OSTwinStore:
         except Exception as e:
             logger.debug("Embedding failed for text: %s", e)
             return None
-
-    def index_skill(self, name: str, description: str, tags: list[str],
-                    path: str, content: str, trust_level: str = "experimental",
-                    source: str = "local") -> bool:
-        """Index a single skill. Returns True on success."""
-        if self._skills is None:
-            return False
-
-        tags_str = ",".join(tags)
-        # Sanitize content for zvec
-        content_clean = content.encode("ascii", errors="replace").decode("ascii")
-        description_clean = description.encode("ascii", errors="replace").decode("ascii")
-
-        # Embedding: name + description + first part of content
-        embed_text = f"{name} {description_clean} {content_clean[:1000]}"
-        embedding = self._embed_text(embed_text)
-        if embedding is None:
-            embedding = [0.0] * EMBEDDING_DIM
-
-        doc = zvec.Doc(
-            id=name,
-            fields={
-                "name": name,
-                "description": description_clean,
-                "tags": tags_str,
-                "path": str(path),
-                "trust_level": trust_level,
-                "source": source,
-                "content": content_clean,
-            },
-            vectors={"embedding": embedding},
-        )
-        try:
-            s = self._skills.upsert(doc)
-            self._skills.flush()
-            return s.ok()
-        except Exception as e:
-            logger.warning("Failed to index skill %s: %s", name, e)
-            return False
-
-    def get_skill(self, name: str) -> dict | None:
-        """Fetch a single skill by name."""
-        if self._skills is None:
-            return None
-        try:
-            result = self._skills.fetch(name)
-            if name not in result:
-                return None
-            doc = result[name]
-            return {
-                "name": doc.field("name"),
-                "description": doc.field("description"),
-                "tags": doc.field("tags").split(",") if doc.field("tags") else [],
-                "path": doc.field("path"),
-                "trust_level": doc.field("trust_level"),
-                "source": doc.field("source"),
-                "content": doc.field("content"),
-            }
-        except Exception:
-            return None
-
-    def search_skills(self, query: str, limit: int = 5) -> list[dict]:
-        """Semantic search for skills."""
-        if self._skills is None:
-            return []
-
-        embedding = self._embed_text(query)
-        if embedding is None:
-            # If no query, return all (up to limit)
-            return self.get_all_skills(limit=limit)
-
-        try:
-            docs = self._skills.query(
-                vectors=zvec.VectorQuery("embedding", vector=embedding),
-                topk=limit,
-                output_fields=["name", "description", "tags", "path", "trust_level", "source", "content"],
-            )
-            results = []
-            for doc in docs:
-                results.append({
-                    "name": doc.field("name"),
-                    "description": doc.field("description"),
-                    "tags": doc.field("tags").split(",") if doc.field("tags") else [],
-                    "path": doc.field("path"),
-                    "trust_level": doc.field("trust_level"),
-                    "source": doc.field("source"),
-                    "content": doc.field("content"),
-                    "score": doc.score,
-                })
-            return results
-        except Exception as e:
-            logger.warning("Skill search failed: %s", e)
-            return []
-
-    def delete_skill(self, name: str) -> bool:
-        """Remove a skill from the vector store. Returns True on success."""
-        if self._skills is None:
-            return False
-        try:
-            s = self._skills.delete(name)
-            self._skills.flush()
-            return s.ok()
-        except Exception as e:
-            logger.warning("Failed to delete skill %s: %s", name, e)
-            return False
-
-    def sync_skills(self, skills_dirs: list[Path]) -> dict[str, Any]:
-        """Synchronize vector store with SKILL.md files on disk.
-        
-        This delegates to the sync_skills_from_disk helper in api_utils.
-        """
-        from dashboard.api_utils import sync_skills_from_disk
-        return sync_skills_from_disk(self, skills_dirs)
-
-    def get_all_skills(self, limit: int = 100) -> list[dict]:
-        """Fetch all indexed skills."""
-        if self._skills is None:
-            return []
-        try:
-            docs = self._skills.query(
-                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
-                topk=limit,
-                output_fields=["name", "description", "tags", "path", "trust_level", "source", "content"],
-            )
-            results = []
-            for doc in docs:
-                results.append({
-                    "name": doc.field("name"),
-                    "description": doc.field("description"),
-                    "tags": doc.field("tags").split(",") if doc.field("tags") else [],
-                    "path": doc.field("path"),
-                    "trust_level": doc.field("trust_level"),
-                    "source": doc.field("source"),
-                    "content": doc.field("content"),
-                    "score": 0.0,
-                })
-            return results
-        except Exception as e:
-            logger.warning("Failed to get all skills: %s", e)
-            return []
 
     # ── Message Indexing ───────────────────────────────────────────────
 
@@ -645,7 +436,6 @@ class OSTwinStore:
                 "status": doc.field("status"),
                 "epic_count": doc.field("epic_count"),
                 "created_at": doc.field("created_at"),
-                "working_dir": doc.field("working_dir"),
                 "filename": doc.field("filename"),
             }
         except Exception:
@@ -655,30 +445,16 @@ class OSTwinStore:
         """Fetch all plans. Returns list sorted by created_at desc."""
         if self._plans is None:
             return []
-
         results = []
-
-        # Primary: query all plans directly from the zvec collection
-        try:
-            docs = self._plans.query(
-                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
-                topk=200,
-                output_fields=["title", "content", "status", "epic_count",
-                                "created_at", "filename"],
-            )
-            for doc in docs:
-                results.append({
-                    "plan_id": doc.id,
-                    "title": doc.field("title"),
-                    "content": doc.field("content"),
-                    "status": doc.field("status"),
-                    "epic_count": doc.field("epic_count"),
-                    "created_at": doc.field("created_at"),
-                    "filename": doc.field("filename"),
-                })
-        except Exception as e:
-            logger.warning("Failed to query plans collection: %s", e)
-
+        # Scan plans directory on disk to discover plan IDs
+        plans_dir = self._plans_dir()
+        if not plans_dir.exists():
+            return results
+        for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+            plan_id = f.stem
+            plan = self.get_plan(plan_id)
+            if plan:
+                results.append(plan)
         return results
 
     def get_epics_for_plan(self, plan_id: str) -> list[dict]:
@@ -766,105 +542,6 @@ class OSTwinStore:
         except Exception as e:
             logger.error("Epic search failed: %s", e)
             return []
-
-    # ── Plan Versions ────────────────────────────────────────────────────
-
-    def save_plan_version(self, plan_id: str, content: str, title: str,
-                          epic_count: int, change_source: str = "manual_save") -> int:
-        """Snapshot the current plan content as a new version.
-
-        Returns the new version number, or -1 on failure.
-        """
-        if self._plan_versions is None:
-            return -1
-
-        # Determine next version number
-        existing = self.get_plan_versions(plan_id)
-        next_version = max((v["version"] for v in existing), default=0) + 1
-
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
-
-        content_clean = content.encode("ascii", errors="replace").decode("ascii")
-        doc_id = f"{plan_id}--v{next_version}"
-
-        doc = zvec.Doc(
-            id=doc_id,
-            fields={
-                "plan_id": plan_id,
-                "version": next_version,
-                "content": content_clean,
-                "title": title,
-                "epic_count": epic_count,
-                "created_at": now,
-                "change_source": change_source,
-            },
-            vectors={"_placeholder": [0.0]},
-        )
-        try:
-            s = self._plan_versions.upsert(doc)
-            self._plan_versions.flush()
-            if s.ok():
-                logger.info("Saved plan version %s v%d (%s)", plan_id, next_version, change_source)
-                return next_version
-            return -1
-        except Exception as e:
-            logger.warning("Failed to save plan version %s: %s", plan_id, e)
-            return -1
-
-    def get_plan_versions(self, plan_id: str) -> list[dict]:
-        """Get all versions for a plan, sorted by version desc."""
-        if self._plan_versions is None:
-            return []
-        try:
-            docs = self._plan_versions.query(
-                vectors=zvec.VectorQuery("_placeholder", vector=[0.0]),
-                topk=200,
-                filter=f"plan_id = '{plan_id}'",
-                output_fields=["plan_id", "version", "title", "epic_count",
-                               "created_at", "change_source"],
-            )
-            results = []
-            for doc in docs:
-                results.append({
-                    "id": doc.id,
-                    "plan_id": doc.field("plan_id"),
-                    "version": doc.field("version"),
-                    "title": doc.field("title"),
-                    "epic_count": doc.field("epic_count"),
-                    "created_at": doc.field("created_at"),
-                    "change_source": doc.field("change_source"),
-                })
-            # Sort descending by version
-            results.sort(key=lambda v: v["version"], reverse=True)
-            return results
-        except Exception as e:
-            logger.warning("Failed to get plan versions for %s: %s", plan_id, e)
-            return []
-
-    def get_plan_version(self, plan_id: str, version: int) -> dict | None:
-        """Fetch a specific plan version with full content."""
-        if self._plan_versions is None:
-            return None
-        doc_id = f"{plan_id}--v{version}"
-        try:
-            result = self._plan_versions.fetch(doc_id)
-            if doc_id not in result:
-                return None
-            doc = result[doc_id]
-            return {
-                "id": doc_id,
-                "plan_id": doc.field("plan_id"),
-                "version": doc.field("version"),
-                "content": doc.field("content"),
-                "title": doc.field("title"),
-                "epic_count": doc.field("epic_count"),
-                "created_at": doc.field("created_at"),
-                "change_source": doc.field("change_source"),
-            }
-        except Exception as e:
-            logger.warning("Failed to get plan version %s v%d: %s", plan_id, version, e)
-            return None
 
     # ── Search ─────────────────────────────────────────────────────────
 
@@ -1001,11 +678,6 @@ class OSTwinStore:
         # Sync plans from disk
         plans_synced = self._sync_plans_from_disk()
 
-        # Sync skills from disk
-        from dashboard.api_utils import SKILLS_DIRS
-        skills_sync_res = self.sync_skills(SKILLS_DIRS)
-        skills_synced = skills_sync_res["synced_count"]
-
         if self._messages:
             self._messages.flush()
             # Build HNSW index for search after bulk insert
@@ -1106,22 +778,17 @@ class OSTwinStore:
         config_match = re.search(r"working_dir:\s*(.+)", content)
         working_dir = config_match.group(1).strip() if config_match else "."
 
-        # Detect format — new: '## EPIC-NNN', legacy: '## Epic: EPIC-NNN'
-        has_epics = bool(re.search(r"^## EPIC-", content, re.MULTILINE))
-        has_epics_legacy = bool(re.search(r"^## Epic:", content, re.MULTILINE))
+        # Detect format
+        has_epics = bool(re.search(r"^## Epic:", content, re.MULTILINE))
         has_tasks = bool(re.search(r"^## Task:", content, re.MULTILINE))
 
         if has_epics:
-            split_pattern = r"^## EPIC-"
-            ref_pattern = r"(EPIC-\d+)\s*[-—]\s*(.*)"
-            default_prefix = "EPIC"
-        elif has_epics_legacy:
             split_pattern = r"^## Epic:\s*"
-            ref_pattern = r"(EPIC-\d+)\s*[-—]\s*(.*)"
+            ref_pattern = r"(EPIC-\d+)\s*[—\-]\s*(.*)"
             default_prefix = "EPIC"
         elif has_tasks:
             split_pattern = r"^## Task:\s*"
-            ref_pattern = r"(TASK-\d+)\s*[-—]\s*(.*)"
+            ref_pattern = r"(TASK-\d+)\s*[—\-]\s*(.*)"
             default_prefix = "TASK"
         else:
             return []
@@ -1164,8 +831,6 @@ class OSTwinStore:
             self._plans.flush()
         if self._epics:
             self._epics.flush()
-        if self._plan_versions:
-            self._plan_versions.flush()
 
     # ── Helpers ─────────────────────────────────────────────────────────
 
