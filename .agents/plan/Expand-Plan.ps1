@@ -66,7 +66,7 @@ if (-not $OutFile) {
 }
 
 # Accept - (single hyphen) as separator; also accept —, – for legacy
-$epicPattern = '(?m)^## (EPIC-\d+)\s*[-—–]\s*(.+)$'
+$epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–]\s*(.+)$'
 
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
 if ($epicMatches.Count -eq 0) {
@@ -97,6 +97,9 @@ $expansionRoom = if ($RoomDir) { $RoomDir } else {
 foreach ($em in $epicMatches) {
     $epicRef = $em.Groups[1].Value
     $epicTitle = $em.Groups[2].Value.Trim()
+
+    # Detect heading level (## or ###)
+    $headingPrefix = if ($em.Value -match '^(#{2,3})') { $Matches[1] } else { '##' }
 
     # Find epic section
     $epicStart = $em.Index
@@ -137,10 +140,10 @@ Maximize the detail in this plan. Your output MUST be a single markdown block re
 5. **Dependencies**: Identify if this TRULY depends on other EPICs from the plan. Only list an EPIC as a dependency if this epic genuinely cannot start until that other epic is finished (e.g. it consumes APIs or schemas defined there). Do NOT assume every epic depends on the one before it — parallel work is preferred when possible. Format as: depends_on: [EPIC-NNN] or depends_on: [] if none.
 
 ## Format Requirement
-Return ONLY the refined markdown starting with '## $epicRef - $epicTitle'. Use a single hyphen '-' as the separator. Do NOT use '?', '—', '###', or 'Epic:'. Do not include any other text, chatter, or preamble.
+Return ONLY the refined markdown starting with '$headingPrefix $epicRef - $epicTitle'. Use a single hyphen '-' as the separator. Do NOT use '?', '—', or 'Epic:'. Do not include any other text, chatter, or preamble.
 
 ### EXAMPLE OUTPUT
-## EPIC-001 - Build Auth Module
+$headingPrefix EPIC-001 - Build Auth Module
 
 [Detailed Description here...]
 
@@ -188,7 +191,7 @@ depends_on: []
         }
         if ($metaLines.Count -gt 0) {
             # Insert metadata right after the ## header line
-            $headerEnd = [regex]::Match($expanded, '(?m)^## .+$')
+            $headerEnd = [regex]::Match($expanded, '(?m)^#{2,3}\s+.+$')
             if ($headerEnd.Success) {
                 $insertAt = $headerEnd.Index + $headerEnd.Length
                 $metaBlock = "`n" + ($metaLines -join "`n")
@@ -216,12 +219,12 @@ $newPlanContent = $planContent
 
 foreach ($ref in $refinedEpics.Keys) {
     # Find the original epic section again to replace it
-    $targetMatch = [regex]::Match($newPlanContent, "(?m)^## ${ref}\s*[-—–]\s*.+$")
+    $targetMatch = [regex]::Match($newPlanContent, "(?m)^#{2,3}\s+${ref}\s*[-—–]\s*.+$")
     if ($targetMatch.Success) {
         $start = $targetMatch.Index
-        # Find end of section: next ## EPIC- header or horizontal rule
+        # Find end of section: next ## or ### EPIC- header or horizontal rule
         $afterRef = $newPlanContent.Substring($start + $targetMatch.Length)
-        $nextSectionMatch = [regex]::Match($afterRef, "(?m)^(## EPIC-|---)")
+        $nextSectionMatch = [regex]::Match($afterRef, "(?m)^(#{2,3}\s+EPIC-|---)")
         $end = if ($nextSectionMatch.Success) { $start + $targetMatch.Length + $nextSectionMatch.Index } else { $newPlanContent.Length }
         
         $newPlanContent = $newPlanContent.Remove($start, $end - $start).Insert($start, $refinedEpics[$ref] + "`n")
@@ -229,7 +232,7 @@ foreach ($ref in $refinedEpics.Keys) {
 }
 
 # Normalize epic header separators: replace —, – with single -
-$newPlanContent = $newPlanContent -replace '(?m)^(## EPIC-\d+)\s*[—–?]\s*', '$1 - '
+$newPlanContent = $newPlanContent -replace '(?m)^(#{2,3}\s+EPIC-\d+)\s*[—–?]\s*', '$1 - '
 $newPlanContent | Out-File -FilePath $OutFile -Encoding utf8
 
 Write-Host ""
