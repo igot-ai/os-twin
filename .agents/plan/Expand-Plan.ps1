@@ -84,6 +84,7 @@ Write-Host ""
 $refinedEpics = @{}
 
 # Create a temporary room for expansion if not provided
+$ownsTempRoom = $false
 $expansionRoom = if ($RoomDir) { $RoomDir } else {
     $warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
                    else { Join-Path (Split-Path $agentsDir) ".war-rooms" }
@@ -91,6 +92,7 @@ $expansionRoom = if ($RoomDir) { $RoomDir } else {
     if (-not (Test-Path $er)) {
         New-Item -ItemType Directory -Path $er -Force | Out-Null
     }
+    $ownsTempRoom = $true
     $er
 }
 
@@ -254,5 +256,7 @@ if (-not $DryRun) {
     }
 }
 
-# Clean up temporary room
-Remove-Item $expansionRoom -Recurse -Force -ErrorAction SilentlyContinue
+# Clean up temporary room (only if we created it — never delete an externally provided RoomDir)
+if ($ownsTempRoom) {
+    Remove-Item $expansionRoom -Recurse -Force -ErrorAction SilentlyContinue
+}
