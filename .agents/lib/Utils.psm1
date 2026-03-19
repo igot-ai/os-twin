@@ -140,7 +140,13 @@ function Test-SingleEpicUnderspecified {
 
     $bulletCount = 0
     if ($descBody) {
-        $bulletCount = ([regex]::Matches($descBody, '(?m)^[-*]\s+')).Count
+        # Count structured content: dash/asterisk bullets, numbered items, OR paragraphs (50+ char lines)
+        $bulletCount = ([regex]::Matches($descBody, '(?m)^([-*]\s+|\d+\.\s+)')).Count
+        if ($bulletCount -lt $MinBullets) {
+            # Fall back to counting substantial paragraphs (lines with 50+ chars)
+            $paraCount = ([regex]::Matches($descBody, '(?m)^.{50,}')).Count
+            if ($paraCount -gt $bulletCount) { $bulletCount = $paraCount }
+        }
     }
     
     return ($dodCount -lt $MinDod -or $acCount -lt $MinAc -or $bulletCount -lt $MinBullets)

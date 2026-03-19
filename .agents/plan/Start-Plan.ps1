@@ -400,7 +400,7 @@ foreach ($em in $epicMatches) {
     # Supports both singular "Role:" and plural "Roles:"
     $roles = @()
     if ($epicSection -match $rolesPattern) {
-        $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        $roles = @(($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     }
     if ($roles.Count -eq 0) { $roles = @("engineer") }
 
@@ -585,7 +585,7 @@ function New-PlanWarRooms {
     $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
-    $rolesPattern = '(?m)^Roles:\s*(.+)$'
+    $rolesPattern = '(?m)^Roles?:\s*(.+)$'
     $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
     $descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
 
@@ -599,7 +599,7 @@ function New-PlanWarRooms {
         $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
         $roles = @()
         if ($epicSection -match $rolesPattern) {
-            $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            $roles = @(($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         }
         if ($roles.Count -eq 0) { $roles = @("engineer") }
         $epicWorkingDir = ""
