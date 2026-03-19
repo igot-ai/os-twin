@@ -69,6 +69,20 @@ foreach ($depRef in $depsOn) {
     $depRoomDir = Join-Path $WarRoomsDir $depNode.room_id
     $depStatusFile = Join-Path $depRoomDir "status"
 
+    # If the room directory doesn't exist at all, handle gracefully
+    if (-not (Test-Path $depRoomDir)) {
+        if ($depRef -eq 'PLAN-REVIEW') {
+            # PLAN-REVIEW is implicitly approved when Start-Plan runs without --review
+            # The room may not have been scaffolded if $warRoomsDir resolved differently
+            continue
+        }
+        return @{
+            Ready     = $false
+            Reason    = 'waiting'
+            WaitingOn = $depRef
+        }
+    }
+
     $depStatus = if (Test-Path $depStatusFile) {
         (Get-Content $depStatusFile -Raw).Trim()
     } else { "pending" }
