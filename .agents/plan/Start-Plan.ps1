@@ -400,7 +400,7 @@ foreach ($em in $epicMatches) {
     # Supports both singular "Role:" and plural "Roles:"
     $roles = @()
     if ($epicSection -match $rolesPattern) {
-        $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        $roles = @(($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     }
     if ($roles.Count -eq 0) { $roles = @("engineer") }
 
@@ -602,7 +602,7 @@ function New-PlanWarRooms {
         $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
         $roles = @()
         if ($epicSection -match $rolesPattern) {
-            $roles = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            $roles = @(($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         }
         if ($roles.Count -eq 0) { $roles = @("engineer") }
         $epicWorkingDir = ""

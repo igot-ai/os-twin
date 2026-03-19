@@ -104,7 +104,7 @@
     {
       "name": "reporter",
       "description": "Report generator — creates structured PDF reports from data specs",
-      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "runner": "roles/reporter/Start-Reporter.ps1",
       "definition": "roles/reporter/role.json",
       "prompt": "roles/reporter/SKILL.md",
       "default_assignment": false,

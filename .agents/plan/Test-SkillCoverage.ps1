@@ -27,7 +27,8 @@ $missingSkills = [System.Collections.Generic.List[string]]::new()
 $rolesDir = Join-Path $agentsDir "roles"
 
 foreach ($entry in $PlanParsed) {
-    $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
+    $entryRoles = @($entry.Roles)
+    $primaryRole = if ($entryRoles.Count -gt 0) { $entryRoles[0] } else { "engineer" }
     
     # Check if role exists
     $rolePath = Join-Path $rolesDir $primaryRole

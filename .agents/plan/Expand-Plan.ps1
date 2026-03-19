@@ -165,7 +165,38 @@ depends_on: []
     }
 
     if ($result.ExitCode -eq 0) {
-        $refinedEpics[$epicRef] = $result.Output.Trim()
+        $expanded = $result.Output.Trim()
+
+        # Preserve per-epic metadata lines (Role/Roles, Objective, Working_dir,
+        # Capabilities, Pipeline) that the AI may have dropped during expansion.
+        $metaLines = @()
+        foreach ($metaPattern in @(
+            '(?m)^Roles?:\s*.+$',
+            '(?m)^Objective:\s*.+$',
+            '(?m)^Working_dir:\s*.+$',
+            '(?m)^Capabilities:\s*.+$',
+            '(?m)^Pipeline:\s*.+$'
+        )) {
+            $metaMatch = [regex]::Match($epicSection, $metaPattern)
+            if ($metaMatch.Success) {
+                $metaVal = $metaMatch.Value
+                # Only inject if the expanded output doesn't already contain it
+                if ($expanded -notmatch [regex]::Escape($metaVal)) {
+                    $metaLines += $metaVal
+                }
+            }
+        }
+        if ($metaLines.Count -gt 0) {
+            # Insert metadata right after the ## header line
+            $headerEnd = [regex]::Match($expanded, '(?m)^## .+$')
+            if ($headerEnd.Success) {
+                $insertAt = $headerEnd.Index + $headerEnd.Length
+                $metaBlock = "`n" + ($metaLines -join "`n")
+                $expanded = $expanded.Insert($insertAt, $metaBlock)
+            }
+        }
+
+        $refinedEpics[$epicRef] = $expanded
         Write-Host " [DONE]" -ForegroundColor Green
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
