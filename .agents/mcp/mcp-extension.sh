@@ -569,12 +569,13 @@ with open('$CONFIG_FILE', 'w') as f:
     f.write('\n')
 "
 
-  # Post-process: resolve ${AGENT_DIR} → real INSTALL_DIR path so server
+  # Post-process: resolve placeholders → real paths so server
   # paths in mcp-config.json are always absolute.
   "$PYTHON" - <<PYEOF
 with open('$CONFIG_FILE') as _f:
     _raw = _f.read()
 _raw = _raw.replace('\${AGENT_DIR}', '$INSTALL_DIR')
+_raw = _raw.replace('OSTWIN_VENV_PYTHON', '$INSTALL_DIR/.venv/bin/python')
 with open('$CONFIG_FILE', 'w') as _f:
     _f.write(_raw)
 PYEOF

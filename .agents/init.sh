@@ -35,7 +35,57 @@ mkdir -p "$TARGET_AGENTS/plans"
 # Copy entire .agents content, excluding the plans folder
 rsync -a --exclude='plans/' "$SOURCE_AGENTS/" "$TARGET_AGENTS/"
 
-# Copy only the plan template (not any actual plans)
+# Copy channel tools (bash + PowerShell)
+for script in post.sh read.sh wait-for.sh Post-Message.ps1 Read-Messages.ps1 Wait-ForMessage.ps1; do
+  [[ -f "$SOURCE_AGENTS/channel/$script" ]] && cp "$SOURCE_AGENTS/channel/$script" "$TARGET_AGENTS/channel/$script"
+done
+
+# Copy plan tools (bash + PowerShell)
+mkdir -p "$TARGET_AGENTS/plan"
+for script in New-Plan.ps1 Start-Plan.ps1 New-Plan.Tests.ps1 Start-Plan.Tests.ps1; do
+  [[ -f "$SOURCE_AGENTS/plan/$script" ]] && cp "$SOURCE_AGENTS/plan/$script" "$TARGET_AGENTS/plan/$script"
+done
+
+# Copy role definitions and runners (bash + PowerShell)
+mkdir -p "$TARGET_AGENTS/roles/_base"
+for role in manager engineer qa architect; do
+  mkdir -p "$TARGET_AGENTS/roles/$role"
+  for file in ROLE.md run.sh loop.sh deepagents-cli.md role.json Start-*.ps1; do
+    for src in "$SOURCE_AGENTS/roles/$role/"$file; do
+      [[ -f "$src" ]] && cp "$src" "$TARGET_AGENTS/roles/$role/$(basename "$src")"
+    done
+  done
+done
+# Copy _base role engine
+for file in "$SOURCE_AGENTS/roles/_base/"*.ps1; do
+  [[ -f "$file" ]] && cp "$file" "$TARGET_AGENTS/roles/_base/$(basename "$file")"
+done
+# Copy role registry
+[[ -f "$SOURCE_AGENTS/roles/registry.json" ]] && cp "$SOURCE_AGENTS/roles/registry.json" "$TARGET_AGENTS/roles/registry.json"
+
+# Copy release tools
+for script in draft.sh signoff.sh; do
+  [[ -f "$SOURCE_AGENTS/release/$script" ]] && cp "$SOURCE_AGENTS/release/$script" "$TARGET_AGENTS/release/$script"
+done
+[[ -f "$SOURCE_AGENTS/release/RELEASE.template.md" ]] && cp "$SOURCE_AGENTS/release/RELEASE.template.md" "$TARGET_AGENTS/release/RELEASE.template.md"
+
+# Copy libraries (bash + PowerShell modules)
+for lib in utils.sh log.sh; do
+  [[ -f "$SOURCE_AGENTS/lib/$lib" ]] && cp "$SOURCE_AGENTS/lib/$lib" "$TARGET_AGENTS/lib/$lib"
+done
+for lib in "$SOURCE_AGENTS/lib/"*.psm1; do
+  [[ -f "$lib" ]] && cp "$lib" "$TARGET_AGENTS/lib/$(basename "$lib")"
+done
+
+# Copy CLI entry point and Python scripts
+for bin_file in ostwin chat.py cli.py; do
+  [[ -f "$SOURCE_AGENTS/bin/$bin_file" ]] && cp "$SOURCE_AGENTS/bin/$bin_file" "$TARGET_AGENTS/bin/$bin_file"
+done
+
+# Copy config
+cp "$SOURCE_AGENTS/config.json" "$TARGET_AGENTS/config.json"
+
+# Copy plan template
 [[ -f "$SOURCE_AGENTS/plans/PLAN.template.md" ]] && cp "$SOURCE_AGENTS/plans/PLAN.template.md" "$TARGET_AGENTS/plans/PLAN.template.md"
 
 # Copy dashboard from sibling directory (source repo layout: dashboard/ is sibling to .agents/)

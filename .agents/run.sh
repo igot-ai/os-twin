@@ -43,4 +43,3 @@ fi
 AGENTS_DIR=$(dirname "$0")
 pwsh -NoProfile -File "$AGENTS_DIR/plan/Start-Plan.ps1" -PlanFile "$PLAN_FILE" -ProjectDir "$PROJECT_DIR" "${@:2}"
 exit $?
-

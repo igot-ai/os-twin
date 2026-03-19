@@ -8,6 +8,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 
+# Load ~/.ostwin/.env so spawned subprocesses (run.sh → deepagents) inherit API keys.
+# Uses stdlib only — python-dotenv may not be installed in the system Python.
+_ostwin_env = Path(os.environ.get("OSTWIN_HOME", Path.home() / ".ostwin")) / ".env"
+if _ostwin_env.is_file():
+    with open(_ostwin_env) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _k, _, _v = _line.partition("=")
+            _k = _k.strip()
+            _v = _v.strip().strip("\"").strip("'")
+            if _k and _k not in os.environ:
+                os.environ[_k] = _v
+
 # Add the project root and dashboard dir to sys.path
 _dashboard_dir = os.path.dirname(os.path.abspath(__file__))
 _root = os.path.dirname(_dashboard_dir)

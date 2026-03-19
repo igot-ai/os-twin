@@ -187,6 +187,10 @@ check_deepagents() {
   command -v deepagents &>/dev/null
 }
 
+check_ripgrep() {
+  command -v rg &>/dev/null
+}
+
 check_brew() {
   command -v brew &>/dev/null
 }
@@ -342,6 +346,46 @@ install_pwsh() {
           else
             fail "Cannot install PowerShell: no supported method found"
             echo "    See: https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-linux"
+            return 1
+          fi
+          ;;
+      esac
+      ;;
+  esac
+}
+
+install_ripgrep() {
+  case "$OS" in
+    macos)
+      if check_brew; then
+        step "Installing ripgrep via Homebrew..."
+        brew install ripgrep
+      else
+        fail "Cannot install ripgrep: Homebrew not available"
+        return 1
+      fi
+      ;;
+    linux)
+      case "$PKG_MGR" in
+        apt)
+          step "Installing ripgrep via apt..."
+          sudo apt-get install -y -qq ripgrep
+          ;;
+        dnf|yum)
+          step "Installing ripgrep via $PKG_MGR..."
+          sudo $PKG_MGR install -y ripgrep
+          ;;
+        pacman)
+          step "Installing ripgrep via pacman..."
+          sudo pacman -S --noconfirm ripgrep
+          ;;
+        *)
+          step "Installing ripgrep via cargo..."
+          if command -v cargo &>/dev/null; then
+            cargo install ripgrep
+          else
+            fail "Cannot install ripgrep: no supported method found"
+            info "Install manually: https://github.com/BurntSushi/ripgrep#installation"
             return 1
           fi
           ;;
@@ -849,6 +893,24 @@ else
   install_deepagents
 fi
 
+# --- ripgrep ---
+if check_ripgrep; then
+  RG_VERSION=$(rg --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  ok "ripgrep $RG_VERSION"
+else
+  warn "ripgrep not found (required by deepagents for fast grep)"
+  if ask "Install ripgrep?"; then
+    install_ripgrep
+    if check_ripgrep; then
+      ok "ripgrep installed"
+    else
+      warn "ripgrep installation failed — deepagents will use slower fallback"
+    fi
+  else
+    warn "Skipping — deepagents grep will use a slower fallback"
+  fi
+fi
+
 echo ""
 
 # ─── 3. Build Next.js dashboard ─────────────────────────────────────────────
@@ -865,6 +927,11 @@ install_files
 
 header "5. Setting up Python environment"
 setup_venv
+
+# Generate mcp-config.json from builtin + extensions, then patch placeholders
+if [[ -f "$INSTALL_DIR/mcp/mcp-extension.sh" ]]; then
+  bash "$INSTALL_DIR/mcp/mcp-extension.sh" sync 2>/dev/null || true
+fi
 patch_mcp_config
 
 # ─── 5b. Environment variables (.env) ────────────────────────────────────────
@@ -918,6 +985,12 @@ if check_deepagents; then
   echo -e "    deepagents-cli:   ${GREEN}✅ $(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
 else
   echo -e "    deepagents-cli:   ${YELLOW}⚠️  not in PATH${NC}"
+fi
+
+if check_ripgrep; then
+  echo -e "    ripgrep:          ${GREEN}✅ $(rg --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)${NC}"
+else
+  echo -e "    ripgrep:          ${YELLOW}⚠️  not installed${NC}"
 fi
 
 if [[ -d "$VENV_DIR" ]]; then

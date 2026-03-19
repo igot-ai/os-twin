@@ -2,7 +2,7 @@
 import re
 from pathlib import Path
 
-content = Path("plan-20260313-211747.md").read_text()
+content = (Path(__file__).parent / "plan-20260313-211747.md").read_text()
 status_match = re.search(r"> Status:\s*(.*)", content)
 created_match = re.search(r"> Created:\s*(.*)", content)
 
