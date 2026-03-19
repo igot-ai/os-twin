@@ -585,8 +585,11 @@ function New-PlanWarRooms {
     $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
-    $rolesPattern = '(?m)^Roles:\s*(.+)$'
+    $rolesPattern = '(?m)^Roles?:\s*(.+)$'
     $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
+    $objectivePattern = '(?m)^Objective:\s*(.+)$'
+    $pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
+    $capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
     $descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
 
     $epicMatches = [regex]::Matches($planContent, $epicPattern)
@@ -604,6 +607,14 @@ function New-PlanWarRooms {
         if ($roles.Count -eq 0) { $roles = @("engineer") }
         $epicWorkingDir = ""
         if ($epicSection -match $workingDirPattern) { $epicWorkingDir = $Matches[1].Trim() }
+        $epicObjective = ""
+        if ($epicSection -match $objectivePattern) { $epicObjective = $Matches[1].Trim() }
+        $epicPipeline = ""
+        if ($epicSection -match $pipelinePattern) { $epicPipeline = $Matches[1].Trim() }
+        $epicCapabilities = @()
+        if ($epicSection -match $capabilitiesPattern) {
+            $epicCapabilities = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        }
         $descBody = ""
         if ($epicSection -match $descPattern) { $descBody = $Matches[1].Trim() }
         $dod = @()
@@ -634,6 +645,9 @@ function New-PlanWarRooms {
             Type        = 'epic'
             Roles       = $roles
             EpicWorkingDir = $epicWorkingDir
+            Objective   = $epicObjective
+            Pipeline    = $epicPipeline
+            Capabilities = $epicCapabilities
         })
         $roomIndex++
     }
@@ -677,11 +691,31 @@ function New-PlanWarRooms {
         }
     }
 
-    # --- Create missing war-rooms ---
+    # --- Create missing war-rooms or reconcile existing ones ---
     $newWarRoom = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
     foreach ($entry in $parsed) {
         $roomPath = Join-Path $warRoomsDir $entry.RoomId
-        if (Test-Path $roomPath) { continue }
+        if (Test-Path $roomPath) {
+            # --- RECONCILE: update existing room's role assignment from plan ---
+            $existingConfigPath = Join-Path $roomPath "config.json"
+            if (Test-Path $existingConfigPath) {
+                $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
+                $candidateRoles = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") }
+                try {
+                    $existingConfig = Get-Content $existingConfigPath -Raw | ConvertFrom-Json
+                    $currentRole = if ($existingConfig.assignment.assigned_role) { $existingConfig.assignment.assigned_role } else { "engineer" }
+                    if ($currentRole -ne $primaryRole) {
+                        Write-Host "    [RECONCILE] $($entry.RoomId): role $currentRole → $primaryRole (from plan Roles: directive)" -ForegroundColor Yellow
+                        $existingConfig.assignment.assigned_role = $primaryRole
+                        $existingConfig.assignment.candidate_roles = $candidateRoles
+                        $existingConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $existingConfigPath -Encoding utf8
+                    }
+                } catch {
+                    Write-Host "    [WARN] Failed to reconcile $($entry.RoomId): $_" -ForegroundColor Yellow
+                }
+            }
+            continue
+        }
 
         $resolvedWorkingDir = $ProjectDir
         if ($entry.EpicWorkingDir) {
