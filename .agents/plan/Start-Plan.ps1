@@ -75,6 +75,7 @@ if ($env:OSTWIN_HOME -and (Test-Path $env:OSTWIN_HOME)) {
 $newWarRoom = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
 $managerLoop = Join-Path $agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
 $buildDag = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
+$buildPlanningDag = Join-Path $agentsDir "plan" "Build-PlanningDAG.ps1"
 $postMessage = Join-Path $agentsDir "channel" "Post-Message.ps1"
 $waitForMessage = Join-Path $agentsDir "channel" "Wait-ForMessage.ps1"
 
@@ -200,8 +201,10 @@ foreach ($em in $epicMatches) {
     # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
     # Supports both singular "Role:" and plural "Roles:"
     $roles = @()
+    $hasExplicitRoles = $false
     if ($epicSection -match $rolesPattern) {
         $roles = @(($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $hasExplicitRoles = $true
     }
     if ($roles.Count -eq 0) { $roles = @("engineer") }
 
@@ -260,19 +263,20 @@ foreach ($em in $epicMatches) {
     }
     
     $parsed.Add([PSCustomObject]@{
-        RoomId         = "room-$('{0:D3}' -f $roomIndex)"
-        TaskRef        = $epicRef
-        Description    = $epicDesc
-        DescBody       = $descBody
-        Objective      = $epicObjective
-        DoD            = $dod
-        AC             = $ac
-        DependsOn      = $depsOn
-        Type           = 'epic'
-        Roles          = $roles
-        EpicWorkingDir = $epicWorkingDir
-        Pipeline       = $epicPipeline
-        Capabilities   = $epicCapabilities
+        RoomId           = "room-$('{0:D3}' -f $roomIndex)"
+        TaskRef          = $epicRef
+        Description      = $epicDesc
+        DescBody         = $descBody
+        Objective        = $epicObjective
+        DoD              = $dod
+        AC               = $ac
+        DependsOn        = $depsOn
+        Type             = 'epic'
+        Roles            = $roles
+        HasExplicitRoles = $hasExplicitRoles
+        EpicWorkingDir   = $epicWorkingDir
+        Pipeline         = $epicPipeline
+        Capabilities     = $epicCapabilities
     })
     $roomIndex++
 }
@@ -320,6 +324,33 @@ if ($parsed.Count -eq 0) {
 foreach ($item in $parsed) {
     if ($item.DependsOn -notcontains "PLAN-REVIEW") {
         $item.DependsOn = @("PLAN-REVIEW") + $item.DependsOn
+    }
+}
+
+# --- Generate / load planning-DAG.json for advisory role assignment ---
+$planningDagFile = Join-Path (Split-Path $PlanFile) ".planning-DAG.json"
+if (-not $DryRun -and (Test-Path $buildPlanningDag)) {
+    if (-not (Test-Path $planningDagFile) -or $Expand) {
+        Write-Host "[PLANNING-DAG] Generating advisory DAG from plan content..." -ForegroundColor Cyan
+        & $buildPlanningDag -PlanFile $PlanFile -OutFile $planningDagFile
+    }
+    # Merge planning-DAG roles into parsed entries (advisory: only where no explicit Roles: found)
+    if (Test-Path $planningDagFile) {
+        try {
+            $planningDag = Get-Content $planningDagFile -Raw | ConvertFrom-Json
+            foreach ($pdNode in $planningDag.nodes) {
+                $matchedEntry = $parsed | Where-Object { $_.TaskRef -eq $pdNode.task_ref }
+                if ($matchedEntry -and -not $matchedEntry.HasExplicitRoles) {
+                    # Only override entries that defaulted (no explicit Roles: directive in markdown)
+                    if ($pdNode.role) {
+                        Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): role $($matchedEntry.Roles[0]) → $($pdNode.role) (advisory)" -ForegroundColor Yellow
+                        $matchedEntry.Roles = @($pdNode.candidate_roles)
+                    }
+                }
+            }
+        } catch {
+            Write-Warning "Failed to read planning-DAG.json: $_"
+        }
     }
 }
 
@@ -528,7 +559,7 @@ function New-PlanWarRooms {
             $existingConfigPath = Join-Path $roomPath "config.json"
             if (Test-Path $existingConfigPath) {
                 $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
-                $candidateRoles = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") }
+                $candidateRoles = @(if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") })
                 try {
                     $existingConfig = Get-Content $existingConfigPath -Raw | ConvertFrom-Json
                     $currentRole = if ($existingConfig.assignment.assigned_role) { $existingConfig.assignment.assigned_role } else { "engineer" }
@@ -561,7 +592,7 @@ function New-PlanWarRooms {
             $fullDesc = "$fullDesc`n`n$($entry.DescBody)"
         }
 
-        $candidateRoles = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") }
+        $candidateRoles = @(if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") })
         $roomArgs = @{
             RoomId           = $entry.RoomId
             TaskRef          = $entry.TaskRef

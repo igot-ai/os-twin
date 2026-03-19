@@ -56,7 +56,7 @@ process {
             $taskRef = $cfg.task_ref
             $roomDeps = if ($cfg.depends_on) { @($cfg.depends_on) } else { @() }
             $assignedRole = if ($cfg.assignment -and $cfg.assignment.assigned_role) { $cfg.assignment.assigned_role } else { "engineer" }
-            $candidateRoles = if ($cfg.assignment -and $cfg.assignment.candidate_roles) { @($cfg.assignment.candidate_roles) } else { @($assignedRole) }
+            $candidateRoles = @(if ($cfg.assignment -and $cfg.assignment.candidate_roles) { @($cfg.assignment.candidate_roles) } else { @($assignedRole) })
             $Nodes += @{
                 Id              = $taskRef
                 DependsOn       = $roomDeps
@@ -255,7 +255,7 @@ process {
             OnCriticalPath = [bool]$onCriticalPath[$id]
             RoomId         = if ($orig.RoomId) { $orig.RoomId } else { "" }
             Role           = if ($orig.Role) { $orig.Role } else { "engineer" }
-            CandidateRoles = if ($orig.CandidateRoles) { @($orig.CandidateRoles) } else { @("engineer") }
+            CandidateRoles = @(if ($orig.CandidateRoles) { @($orig.CandidateRoles) } else { @("engineer") })
         }
         $result.Add($enriched)
     }

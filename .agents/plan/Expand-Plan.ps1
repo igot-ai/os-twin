@@ -256,6 +256,16 @@ if (-not $DryRun) {
     }
 }
 
+# --- Generate planning-DAG.json from enriched plan content ---
+if (-not $DryRun) {
+    $buildPlanningDag = Join-Path $scriptDir "Build-PlanningDAG.ps1"
+    if (Test-Path $buildPlanningDag) {
+        $planningDagOut = Join-Path $planDir ".planning-DAG.json"
+        Write-Host "[EXPAND] Generating planning-DAG.json from expanded plan..." -ForegroundColor Cyan
+        & $buildPlanningDag -PlanFile $OutFile -OutFile $planningDagOut -RoomDir $expansionRoom
+    }
+}
+
 # Clean up temporary room (only if we created it — never delete an externally provided RoomDir)
 if ($ownsTempRoom) {
     Remove-Item $expansionRoom -Recurse -Force -ErrorAction SilentlyContinue

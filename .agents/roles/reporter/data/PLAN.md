@@ -14,6 +14,7 @@ Build an automated pipeline where the **engineer** parses `sales-performance.csv
 # Epics
 
 ### EPIC-1 — Data Ingestion (Engineer)
+Roles: engineer
 Build a Python script `data/build_sales_spec.py` that:
 1. Reads `sales-performance.csv`
 2. Aggregates metrics (total revenue, units, close rate, Q-over-Q trends)
@@ -28,6 +29,7 @@ Build a Python script `data/build_sales_spec.py` that:
 ---
 
 ## EPIC-2 — Report Spec Template (Reporter)
+Roles: reporter
 Define the spec structure for the sales performance report using the engine's 13 components:
 
 | Page | Component | Data From CSV |
@@ -44,36 +46,10 @@ Define the spec structure for the sales performance report using the engine's 13
 | 10 | `timeline` | Quarterly milestones |
 
 **Acceptance Criteria:**
-- All 10 pages render without errors
+- All pdf report with full data render without errors
 - Charts labeled with proper data
 - Consistent brand styling via `brand.json`
 
----
-
-## EPIC-3 — End-to-End Pipeline (Engineer + Reporter)
-Wire it together:
-```bash
-# 1. Engineer generates the spec from CSV
-python data/build_sales_spec.py --csv data/sales-performance.csv --output data/sales-report-spec.json
-
-# 2. Reporter generates the PDF from spec
-python -m reporter generate data/sales-report-spec.json -o sales-performance-report.pdf
-```
-
-**Acceptance Criteria:**
-- Single `make report` or shell script runs both steps
-- PDF is ≥ 10 pages, all data sourced from CSV
-- Modifying CSV data → regenerate → different report (no code changes)
-
----
-
-## Definition of Done
-
-- [ ] `build_sales_spec.py` parses CSV → JSON spec (zero hardcoded values)
-- [ ] Report spec uses ≥ 6 different component types
-- [ ] PDF renders all pages without errors
-- [ ] Pipeline is reproducible: change CSV → get new report
-- [ ] QA reviewed in `QA.md`
 
 ## Tasks
 
