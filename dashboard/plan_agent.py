@@ -7,6 +7,7 @@ and working directories.
 """
 
 import os
+import json
 import logging
 from pathlib import Path
 from typing import Optional, AsyncIterator
@@ -16,7 +17,39 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 logger = logging.getLogger(__name__)
 
-def get_system_prompt(plans_dir: Optional[Path] = None) -> str:
+def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
+    """Read roles from registry.json and format them for the prompt."""
+    if not agents_dir:
+        return "Available roles: engineer, qa, architect, or any custom role you define."
+
+    registry_file = agents_dir / "roles" / "registry.json"
+    if not registry_file.exists():
+        return "Available roles: engineer, qa, architect, or any custom role you define."
+
+    try:
+        registry = json.loads(registry_file.read_text())
+        roles = registry.get("roles", [])
+        if not roles:
+            return "Available roles: engineer, qa, architect, or any custom role you define."
+
+        lines = ["Available registered roles (PREFER these when they fit):"]
+        for role in roles:
+            name = role.get("name", "unknown")
+            desc = role.get("description", "")
+            caps = role.get("capabilities", [])
+            caps_str = f" — capabilities: {', '.join(caps)}" if caps else ""
+            lines.append(f"  - **{name}**: {desc}{caps_str}")
+
+        lines.append("")
+        lines.append("You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs.")
+        lines.append("Custom roles will be dynamically resolved at runtime via the ephemeral agent system.")
+        return "\n".join(lines)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to read roles registry: {e}")
+        return "Available roles: engineer, qa, architect, or any custom role you define."
+
+
+def get_system_prompt(plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None) -> str:
     """Generate the system prompt dynamically based on the plan template."""
     plan_format_spec = "Error: Template not found."
     if plans_dir:
@@ -29,6 +62,14 @@ def get_system_prompt(plans_dir: Optional[Path] = None) -> str:
     else:
         logger.warning("plans_dir not provided, cannot load PLAN.template.md")
         plan_format_spec = "Plans directory not configured."
+
+    # Resolve agents_dir from plans_dir if not provided
+    if not agents_dir and plans_dir:
+        agents_dir = plans_dir.parent
+
+    # Substitute {{AVAILABLE_ROLES}} placeholder with dynamic roles
+    roles_text = _load_available_roles(agents_dir)
+    plan_format_spec = plan_format_spec.replace("{{AVAILABLE_ROLES}}", roles_text)
 
     return f"""\
 You are a **Plan Architect** for OS Twin — an AI-powered development orchestration system.
@@ -45,6 +86,13 @@ Pay special attention to the dynamic Roles and Lifecycle sections.
 ```markdown
 {plan_format_spec}
 ```
+
+## ROLE SELECTION RULES
+
+1. **Always prefer** using the available registered roles listed in the template above.
+2. You MAY define custom roles (e.g., "researcher", "technical-writer", "data-scientist") when no registered role fits the epic's needs.
+3. Custom roles will be dynamically resolved at runtime via the ephemeral agent system.
+4. Lifecycle state names MUST match the role names used in the Roles: directive.
 
 ## ADDITIONAL RULES
 
@@ -143,10 +191,13 @@ def create_plan_agent(
     chat_model = _resolve_model(model)
     logger.info("Plan agent using model: %s", type(chat_model).__name__)
 
+    # Resolve agents_dir from plans_dir
+    agents_dir = plans_dir.parent if plans_dir else None
+
     agent = create_deep_agent(
         model=chat_model,
         tools=[read_existing_plan],
-        system_prompt=get_system_prompt(plans_dir),
+        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir),
     )
 
     return agent
