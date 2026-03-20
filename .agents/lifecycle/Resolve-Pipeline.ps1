@@ -156,11 +156,16 @@ elseif ($RequiredCapabilities.Count -gt 0) {
         }
     }
  
-    # Always end with QA
+    # Always end with QA and Reporting
     $stages.Add([PSCustomObject]@{
         StateName = 'qa-review'
         Role      = 'qa'
         Type      = 'review'
+    })
+    $stages.Add([PSCustomObject]@{
+        StateName = 'reporting'
+        Role      = 'reporter'
+        Type      = 'worker'
     })
  
     $lifecycle = New-LinearPipeline -Stages $stages.ToArray()
@@ -175,7 +180,8 @@ else {
         # Hardcoded minimal default
         $lifecycle = New-LinearPipeline -Stages @(
             [PSCustomObject]@{ StateName = 'engineering'; Role = $AssignedRole; Type = 'worker' },
-            [PSCustomObject]@{ StateName = 'qa-review';   Role = 'qa';         Type = 'review' }
+            [PSCustomObject]@{ StateName = 'qa-review';   Role = 'qa';         Type = 'review' },
+            [PSCustomObject]@{ StateName = 'reporting';   Role = 'reporter';   Type = 'worker' }
         )
     }
 }

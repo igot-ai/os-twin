@@ -69,7 +69,9 @@ param(
  
     [string]$Pipeline = '',
  
-    [string[]]$RequiredCapabilities = @()
+    [string[]]$RequiredCapabilities = @(),
+
+    [string]$Lifecycle = ''
 )
 
 # --- Resolve war-rooms directory ---
@@ -246,6 +248,11 @@ if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)
         $pipelineArgs['OutputPath'] = Join-Path $roomDir "lifecycle.json"
         & $resolvePipeline @pipelineArgs
     }
+}
+
+# --- Store extracted lifecycle block ---
+if ($Lifecycle) {
+    $Lifecycle | Out-File -FilePath (Join-Path $roomDir "lifecycle.md") -Encoding utf8
 }
 
 # --- Initialize status ---

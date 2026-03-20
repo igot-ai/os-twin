@@ -50,6 +50,7 @@ param(
     [switch]$Unified
 )
 
+$DryRun = $true
 # --- Resolve paths ---
 # The agentsDir must point to the Ostwin *installation* (where scripts like
 # New-WarRoom.ps1 and Start-ManagerLoop.ps1 live), NOT the target project's
@@ -100,8 +101,14 @@ if (Test-Path $configModule) {
 # (Test-Underspecified now in Utils.psm1)
 
 # --- Validate plan file ---
-if (-not (Test-Path $PlanFile)) {
-    Write-Error "Plan file not found: $PlanFile"
+if (-not (Test-Path $PlanFile -PathType Leaf)) {
+    Write-Error "Plan file not found or is not a file: $PlanFile"
+    exit 1
+}
+
+# --- Validate project dir ---
+if (-not (Test-Path $ProjectDir -PathType Container)) {
+    Write-Error "-ProjectDir must be a directory. It is currently set to: $ProjectDir. If you passed multiple files to 'ostwin run', the second file was interpreted as the ProjectDir."
     exit 1
 }
 
@@ -164,6 +171,7 @@ $objectivePattern = '(?m)^Objective:\s*(.+)$'
 $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
 $pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
 $capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
+$lifecyclePattern = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*?)\r?\n[^\S\r\n]*```'
 
 # --- Plan Expansion Logic (Requirement 6) ---
 $planContent = Get-Content $PlanFile -Raw
@@ -198,14 +206,20 @@ foreach ($em in $epicMatches) {
     $epicEnd = if ($nextEpicMatch) { $nextEpicMatch.Index } else { $planContent.Length }
     $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
 
-    # Extract Roles (comma-separated, e.g. "engineer:fe" or "engineer:fe, engineer:be")
+    # Extract Roles (comma-separated or multiple lines, stripping comments and placeholders)
     # Supports both singular "Role:" and plural "Roles:"
     $roles = @()
     $hasExplicitRoles = $false
-    if ($epicSection -match $rolesPattern) {
-        $roles = @(($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $roleMatches = [regex]::Matches($epicSection, $rolesPattern)
+    if ($roleMatches.Count -gt 0) {
         $hasExplicitRoles = $true
     }
+    foreach ($rm in $roleMatches) {
+        $line = $rm.Groups[1].Value
+        $line = $line -replace '\(.*$', ''
+        $roles += ($line -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '[a-zA-Z0-9]' -and $_ -notmatch '^<.*>$' }
+    }
+    $roles = $roles | Select-Object -Unique | Where-Object { $_ }
     if ($roles.Count -eq 0) { $roles = @("engineer") }
 
     # Extract Objective (per-epic mission directive)
@@ -237,6 +251,12 @@ foreach ($em in $epicMatches) {
     $epicCapabilities = @()
     if ($epicSection -match $capabilitiesPattern) {
         $epicCapabilities = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    }
+
+    # Extract Lifecycle directive
+    $epicLifecycle = ""
+    if ($epicSection -match $lifecyclePattern) {
+        $epicLifecycle = $Matches[1].Trim()
     }
 
     # Extract DoD
@@ -277,6 +297,7 @@ foreach ($em in $epicMatches) {
         EpicWorkingDir   = $epicWorkingDir
         Pipeline         = $epicPipeline
         Capabilities     = $epicCapabilities
+        Lifecycle        = $epicLifecycle
     })
     $roomIndex++
 }
@@ -363,7 +384,7 @@ if ($planContent -match '"plan_id"\s*:\s*"([^"]+)"') {
 # --- Manager Pre-flight skill coverage check ---
 $testSkillCoverage = Join-Path $agentsDir "plan" "Test-SkillCoverage.ps1"
 if (Test-Path $testSkillCoverage) {
-    & $testSkillCoverage -PlanParsed $parsed -ProjectDir $ProjectDir -RoomDir $room000Dir
+    & $testSkillCoverage -PlanParsed $parsed -ProjectDir $ProjectDir -RoomDir $room000Dir | Out-Null
 }
 
 # --- Display what will be created ---
@@ -437,6 +458,7 @@ function New-PlanWarRooms {
     $pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
     $capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
     $descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
+    $lifecyclePattern = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*?)\r?\n[^\S\r\n]*```'
 
     $epicMatches = [regex]::Matches($planContent, $epicPattern)
     foreach ($em in $epicMatches) {
@@ -447,9 +469,13 @@ function New-PlanWarRooms {
         $epicEnd = if ($nextEpicMatch) { $nextEpicMatch.Index } else { $planContent.Length }
         $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
         $roles = @()
-        if ($epicSection -match $rolesPattern) {
-            $roles = @(($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $roleMatches = [regex]::Matches($epicSection, $rolesPattern)
+        foreach ($rm in $roleMatches) {
+            $line = $rm.Groups[1].Value
+            $line = $line -replace '\(.*$', ''
+            $roles += ($line -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '[a-zA-Z0-9]' -and $_ -notmatch '^<.*>$' }
         }
+        $roles = $roles | Select-Object -Unique | Where-Object { $_ }
         if ($roles.Count -eq 0) { $roles = @("engineer") }
         $epicWorkingDir = ""
         if ($epicSection -match $workingDirPattern) { $epicWorkingDir = $Matches[1].Trim() }
@@ -463,6 +489,8 @@ function New-PlanWarRooms {
         }
         $descBody = ""
         if ($epicSection -match $descPattern) { $descBody = $Matches[1].Trim() }
+        $epicLifecycle = ""
+        if ($epicSection -match $lifecyclePattern) { $epicLifecycle = $Matches[1].Trim() }
         $dod = @()
         if ($epicSection -match $dodPattern) {
             $dodBlock = $Matches[1]
@@ -494,6 +522,7 @@ function New-PlanWarRooms {
             Objective   = $epicObjective
             Pipeline    = $epicPipeline
             Capabilities = $epicCapabilities
+            Lifecycle   = $epicLifecycle
         })
         $roomIndex++
     }
@@ -570,7 +599,7 @@ function New-PlanWarRooms {
                         $existingConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $existingConfigPath -Encoding utf8
                     }
                 } catch {
-                    Write-Host "    [WARN] Failed to reconcile $($entry.RoomId): $_" -ForegroundColor Yellow
+                    Write-Host "    [WARN] Failed to reconcile $($entry.RoomId): $($_.Exception.Message)" -ForegroundColor Yellow
                 }
             }
             continue
@@ -616,8 +645,11 @@ function New-PlanWarRooms {
         if ($entry.Pipeline) {
             $roomArgs['Pipeline'] = $entry.Pipeline
         }
-        if ($entry.Capabilities -and $entry.Capabilities.Count -gt 0) {
-            $roomArgs['RequiredCapabilities'] = $entry.Capabilities
+        if ($entry.RequiredCapabilities -and $entry.RequiredCapabilities.Count -gt 0) {
+            $roomArgs['RequiredCapabilities'] = $entry.RequiredCapabilities
+        }
+        if ($entry.Lifecycle) {
+            $roomArgs['Lifecycle'] = $entry.Lifecycle
         }
 
         & $newWarRoom @roomArgs

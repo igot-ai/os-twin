@@ -607,12 +607,17 @@ while (-not $script:shuttingDown) {
                     Handle-PlanApproval -TaskRef $taskRef
                 }
                 elseif ($doneCount -ge $expected) {
-                    Write-Log "INFO" "[$taskRef] Engineer done. Routing to QA..."
-                    Write-RoomStatus $roomDir "qa-review"
-                    Start-Job -ScriptBlock {
-                        param($script, $room)
-                        & $script -RoomDir $room
-                    } -ArgumentList $startQA, $roomDir | Out-Null
+                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.'engineering' -and $lifecycle.states.'engineering'.transitions.done) {
+                        $lifecycle.states.'engineering'.transitions.done
+                    } else { "qa-review" }
+                    Write-Log "INFO" "[$taskRef] Engineer done. Transitioning to $nextState..."
+                    Write-RoomStatus $roomDir $nextState
+                    if ($nextState -eq "qa-review") {
+                        Start-Job -ScriptBlock {
+                            param($script, $room)
+                            & $script -RoomDir $room
+                        } -ArgumentList $startQA, $roomDir | Out-Null
+                    }
                 }
                 else {
                     # Check if worker process is alive
@@ -727,8 +732,11 @@ while (-not $script:shuttingDown) {
                 $passCount = Get-MsgCount $roomDir "pass"
                 $approveCount = if ($taskRef -eq 'PLAN-REVIEW') { Get-MsgCount $roomDir "plan-approve" } else { 0 }
                 if ($passCount -gt 0 -or $approveCount -gt 0) {
-                    Write-Log "INFO" "[$taskRef] QA PASSED or Plan APPROVED! Room $roomId complete."
-                    Write-RoomStatus $roomDir "passed"
+                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.'qa-review' -and $lifecycle.states.'qa-review'.transitions.pass) {
+                        $lifecycle.states.'qa-review'.transitions.pass
+                    } else { "passed" }
+                    Write-Log "INFO" "[$taskRef] QA PASSED or Plan APPROVED! Transitioning to $nextState."
+                    Write-RoomStatus $roomDir $nextState
                     Handle-PlanApproval -TaskRef $taskRef
                 }
                 else {
