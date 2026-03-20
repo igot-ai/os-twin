@@ -25,3 +25,5 @@ dashboard/.war-rooms
 cypress/screenshots
 quant_proj/
 os-twin-twin/**
+plans/*/**
+.next/
