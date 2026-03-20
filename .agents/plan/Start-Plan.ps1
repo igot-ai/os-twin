@@ -159,7 +159,7 @@ if ((-not $Expand) -and (Test-Path $refinedFile) -and ($PlanFile -notmatch '\.re
 
 # --- Patterns for parsing ---
 # Pattern: ## EPIC-NNN - Description (supports ## and ###)
-$epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–]\s*(.+)$'
+$epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–?]\s*(.+)$'
 $taskPattern = '(?m)^\s*[-*]\s+\[[ x]\]\s+(TASK-\d+)\s*[-—–]\s*(.+)$'
 $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
 $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
@@ -171,6 +171,7 @@ $objectivePattern = '(?m)^Objective:\s*(.+)$'
 $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
 $pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
 $capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
+$descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–?]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
 $lifecyclePattern = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*?)\r?\n[^\S\r\n]*```'
 
 # --- Plan Expansion Logic (Requirement 6) ---
@@ -447,7 +448,7 @@ function New-PlanWarRooms {
     $parsed = [System.Collections.Generic.List[PSObject]]::new()
     $roomIndex = 1
     # Patterns needed for re-parsing
-    $epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–]\s*(.+)$'
+    $epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–?]\s*(.+)$'
     $taskPattern = '(?m)^\s*[-*]\s+\[[ x]\]\s+(TASK-\d+)\s*[-—–]\s*(.+)$'
     $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
@@ -457,7 +458,7 @@ function New-PlanWarRooms {
     $objectivePattern = '(?m)^Objective:\s*(.+)$'
     $pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
     $capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
-    $descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
+    $descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–?]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $lifecyclePattern = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*?)\r?\n[^\S\r\n]*```'
 
     $epicMatches = [regex]::Matches($planContent, $epicPattern)

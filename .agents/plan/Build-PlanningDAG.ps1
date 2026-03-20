@@ -65,7 +65,7 @@ if (-not $OutFile) {
 }
 
 # --- Quick-parse epics for reference ---
-$epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–]\s*(.+)$'
+$epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–?]\s*(.+)$'
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
 if ($epicMatches.Count -eq 0) {
     Write-Host "[PLANNING-DAG] No epics found in $PlanFile" -ForegroundColor Yellow
