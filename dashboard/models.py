@@ -96,6 +96,7 @@ class Skill(BaseModel):
     trust_level: str = "experimental"
     source: str = "project"
     path: Optional[str] = None
+    relative_path: Optional[str] = None
     content: Optional[str] = None
 
 

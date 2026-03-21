@@ -74,6 +74,7 @@ async def install_skill(req: SkillInstallRequest, user: dict = Depends(get_curre
             description=data["description"],
             tags=data["tags"],
             path=data["path"],
+            relative_path=data.get("relative_path", ""),
             trust_level=data["trust_level"],
             source=data["source"],
             content=data["content"]

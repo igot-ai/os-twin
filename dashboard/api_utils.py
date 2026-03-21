@@ -28,6 +28,7 @@ else:
 # Default war-rooms location
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 SKILLS_DIRS = [
+    AGENTS_DIR / "skills",
     PROJECT_ROOT / ".agents" / "skills",
     PROJECT_ROOT / ".deepagents" / "skills",
     Path("~/.deepagents/agent/skills").expanduser(),
@@ -247,11 +248,31 @@ def parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
     else:
         source = "local"
 
+    # Compute relative_path: path relative to the closest SKILLS_DIRS parent
+    # e.g. "skills/roles/engineer/write-tests" for searchability
+    relative_path = None
+    resolved_path = path.resolve()
+    for sdir in SKILLS_DIRS:
+        try:
+            resolved_sdir = sdir.resolve()
+            if resolved_path.is_relative_to(resolved_sdir):
+                # Get the path below the skills dir (e.g. "roles/engineer/write-tests")
+                sub_path = resolved_path.relative_to(resolved_sdir)
+                # Prefix with "skills/" so manager can search by this path
+                relative_path = f"skills/{sub_path}"
+                break
+        except (ValueError, OSError):
+            continue
+    # Fallback: use the directory name as relative_path
+    if not relative_path:
+        relative_path = f"skills/{path.name}"
+
     return {
         "name": name,
         "description": description,
         "tags": tags,
         "path": str(path),
+        "relative_path": relative_path,
         "content": body,
         "trust_level": trust_level,
         "source": source
@@ -298,6 +319,7 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
             description=data["description"],
             tags=data.get("tags", []),
             path=data["path"],
+            relative_path=data.get("relative_path", ""),
             trust_level=data.get("trust_level", "experimental"),
             source=data["source"],
             content=data["content"]
