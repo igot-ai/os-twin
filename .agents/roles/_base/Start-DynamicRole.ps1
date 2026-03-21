@@ -72,8 +72,19 @@ $assignedRole = if ($roomConfig.assignment -and $roomConfig.assignment.assigned_
 $baseRole = $assignedRole -replace ':.*$', ''
 $instanceSuffix = if ($assignedRole -match ':(.+)$') { $Matches[1] } else { '' }
 
+# --- Override detection (EPIC-006) ---
+$overrideDir = Join-Path $RoomDir (Join-Path "overrides" $baseRole)
+$roleWorkingDir = if (Test-Path $overrideDir) {
+    if ((Test-Path (Join-Path $overrideDir "subcommands.json")) -or (Test-Path (Join-Path $overrideDir "role.json"))) { $overrideDir } 
+    else { Join-Path $agentsDir (Join-Path "roles" $baseRole) }
+} else { Join-Path $agentsDir (Join-Path "roles" $baseRole) }
+
 # Allow parameter override
-if ($RoleName) { $baseRole = $RoleName }
+if ($RoleName) { 
+    $baseRole = $RoleName 
+    $overrideDir = Join-Path $RoomDir (Join-Path "overrides" $baseRole)
+    if (Test-Path $overrideDir) { $roleWorkingDir = $overrideDir }
+}
 
 $taskRef = if (Test-Path (Join-Path $RoomDir "task-ref")) {
     (Get-Content (Join-Path $RoomDir "task-ref") -Raw).Trim()
@@ -125,7 +136,7 @@ if (Test-Path $configPath) {
 
 # --- Load role definition for model/timeout defaults ---
 $roleDef = $null
-$rolePath = Join-Path $agentsDir "roles" $baseRole
+$rolePath = $roleWorkingDir
 if (Test-Path $getRoleDef) {
     if (Test-Path $rolePath) {
         $roleDef = & $getRoleDef -RolePath $rolePath

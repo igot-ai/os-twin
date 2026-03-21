@@ -9,7 +9,7 @@
     "skill-search",
     "skill-install"
   ],
-  "prompt_file": "SKILL.md",
+  "prompt_file": "ROLE.md",
   "quality_gates": [],
   "skill_refs": [],
   "cli": "agent",

@@ -23,6 +23,7 @@ param(
     [Parameter(Mandatory)]
     [string]$AgentsDir,
     [string]$WarRoomsDir = '',
+    [string]$RolePath = '',
     [array]$AvailableRoles = $null
 )
  
@@ -37,6 +38,25 @@ $result = [PSCustomObject]@{
     Timeout      = 600
     Capabilities = @()
     Source       = 'ephemeral'
+}
+ 
+# --- Tier 0: Explicit RolePath override (EPIC-006) ---
+if ($RolePath -and (Test-Path $RolePath)) {
+    if (Test-Path (Join-Path $RolePath "role.json")) {
+        $roleJson = Get-Content (Join-Path $RolePath "role.json") -Raw | ConvertFrom-Json
+        $result.Capabilities = if ($roleJson.capabilities) { @($roleJson.capabilities) } else { @() }
+        if ($roleJson.model) { $result.Model = $roleJson.model }
+        if ($roleJson.timeout_seconds) { $result.Timeout = $roleJson.timeout_seconds }
+    }
+    
+    $customRunner = Join-Path $RolePath "Start-$baseRole.ps1"
+    if (Test-Path $customRunner) {
+        $result.Runner = $customRunner
+    } else {
+        $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
+    }
+    $result.Source = 'override'
+    return $result
 }
  
 # --- Tier 1 & 2 Fast Path: Use AvailableRoles cache if provided ---

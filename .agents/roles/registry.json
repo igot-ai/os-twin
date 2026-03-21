@@ -10,7 +10,7 @@
       "runner": "roles/engineer/Start-Engineer.ps1",
       "runner_legacy": "roles/engineer/run.sh",
       "definition": "roles/engineer/role.json",
-      "prompt": "roles/engineer/SKILL.md",
+      "prompt": "roles/engineer/ROLE.md",
       "default_assignment": true,
       "instance_support": true,
       "supported_task_types": [
@@ -37,7 +37,7 @@
       "runner": "roles/qa/Start-QA.ps1",
       "runner_legacy": "roles/qa/run.sh",
       "definition": "roles/qa/role.json",
-      "prompt": "roles/qa/SKILL.md",
+      "prompt": "roles/qa/ROLE.md",
       "default_assignment": false,
       "supported_task_types": [
         "review"
@@ -59,7 +59,7 @@
       "description": "Software architect — designs systems, reviews architecture, makes technical decisions",
       "runner": "roles/architect/Start-Architect.ps1",
       "definition": "roles/architect/role.json",
-      "prompt": "roles/architect/SKILL.md",
+      "prompt": "roles/architect/ROLE.md",
       "default_assignment": false,
       "supported_task_types": [
         "design",
@@ -85,7 +85,7 @@
       "runner": "roles/manager/Start-ManagerLoop.ps1",
       "runner_legacy": "roles/manager/loop.sh",
       "definition": "roles/manager/role.json",
-      "prompt": "roles/manager/SKILL.md",
+      "prompt": "roles/manager/ROLE.md",
       "default_assignment": false,
       "supported_task_types": [
         "orchestration"
@@ -106,7 +106,7 @@
       "description": "Report generator — creates structured PDF reports from data specs",
       "runner": "roles/reporter/Start-Reporter.ps1",
       "definition": "roles/reporter/role.json",
-      "prompt": "roles/reporter/SKILL.md",
+      "prompt": "roles/reporter/ROLE.md",
       "default_assignment": false,
       "supported_task_types": [
         "task",

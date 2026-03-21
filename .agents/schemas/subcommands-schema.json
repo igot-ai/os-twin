@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Subcommand Manifest Schema",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string"
+    },
+    "language": {
+      "enum": ["python", "powershell", "bash", "node"]
+    },
+    "module_root": {
+      "type": "string",
+      "default": "."
+    },
+    "subcommands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": ["cli", "script", "function"]
+          },
+          "entrypoint": {
+            "type": "string"
+          },
+          "invoke": {
+            "type": "string",
+            "description": "Shell template with {args} placeholder"
+          },
+          "description": {
+            "type": "string"
+          },
+          "args_schema": {
+            "type": "object",
+            "properties": {
+              "positional": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "optional": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": ["name", "type", "entrypoint", "invoke"]
+      }
+    }
+  },
+  "required": ["role", "language", "subcommands"]
+}

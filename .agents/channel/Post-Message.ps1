@@ -42,7 +42,7 @@ param(
     [string]$To,
 
     [Parameter(Mandatory)]
-    [ValidateSet('task', 'done', 'review', 'pass', 'fail', 'fix', 'error', 'signoff', 'release', 'plan-review', 'plan-approve', 'plan-reject', 'escalate', 'design-review', 'design-guidance', 'plan-update')]
+    [ValidateSet('task', 'done', 'review', 'pass', 'fail', 'fix', 'error', 'signoff', 'release', 'plan-review', 'plan-approve', 'plan-reject', 'escalate', 'design-review', 'design-guidance', 'plan-update', 'redesign-done', 'subcommand-redesigned')]
     [string]$Type,
 
     [Parameter(Mandatory)]

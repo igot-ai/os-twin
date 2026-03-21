@@ -1,0 +1,20 @@
+{
+  "name": "qa-automation-engineer",
+  "description": "Design and implement comprehensive Pester test suites for the ostwin CLI, ensuring zero regressions and validating subcommand, cloning, error analysis, and redesign workflows.",
+  "capabilities": [
+    "powershell-scripting",
+    "pester-testing",
+    "cli-automation",
+    "json-validation",
+    "mocking-and-stubbing"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

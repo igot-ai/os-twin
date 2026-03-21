@@ -1,0 +1,14 @@
+{
+  "role": "{{role_name}}",
+  "language": "python",
+  "module_root": ".",
+  "subcommands": [
+    {
+      "name": "example",
+      "type": "cli",
+      "entrypoint": "cli.py::main",
+      "invoke": "python -m {{role_name}} example {args}",
+      "description": "An example subcommand."
+    }
+  ]
+}

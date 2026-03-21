@@ -112,7 +112,7 @@ be aware of overrides and the new `subcommand-redesign` state.
 - [ ] `[manager-role]` **New state: `subcommand-redesign`** — Add to the state machine in `Start-ManagerLoop.ps1`: on `subcommand-failure` classification → transition to `subcommand-redesign` state → call `Redesign-Subcommand.ps1` with room context → on success → transition to `engineering` (re-run the task) → on failure → transition to `failed-final`. Add a max-redesign counter (default 2) to prevent infinite redesign loops.
 - [ ] `[manager-role]` **Override detection in `Start-ManagerLoop.ps1`** — Before spawning any role, check `$RoomDir/overrides/$RoleName/`. If the directory exists and contains a valid `subcommands.json` or `role.json`, set `$EffectiveRoleDir = "$RoomDir/overrides/$RoleName"` and pass it as the working directory to the role runner.
 - [ ] `[manager-role]` **Override detection in `Start-DynamicRole.ps1`** — Before loading the role definition from `$AGENTS_DIR/roles/$baseRole`, check `$RoomDir/overrides/$baseRole/`. If present, set `$roleWorkingDir` to the override path. All subsequent file reads (`role.json`, `subcommands.json`, entrypoint scripts) use this path.
-- [ ] `[manager-role]` **State machine documentation** — Update the ASCII state diagram in the manager's `SKILL.md` to include the new `subcommand-redesign` state and its transitions:
+- [ ] `[manager-role]` **State machine documentation** — Update the ASCII state diagram in the manager's `ROLE.md` to include the new `subcommand-redesign` state and its transitions:
   ```
   engineering → failed → [triage] →
     ├─ subcommand-failure → subcommand-redesign → engineering (retry)
@@ -125,12 +125,12 @@ be aware of overrides and the new `subcommand-redesign` state.
 ---
  
 ## EPIC-007 — Config Schema & Metadata Updates
-**Goal**: Update `config-schema.json` and `SKILL.md` so the new
+**Goal**: Update `config-schema.json` and `ROLE.md` so the new
 capabilities are documented and discoverable.
  
 **Tasks:**
 - [ ] `[roles-infra]` **`config-schema.json`** — Add an optional `overrides` property to the room config object: `"overrides": { "type": "object", "additionalProperties": { "type": "object", "properties": { "path": { "type": "string" }, "cloned_from": { "type": "string" }, "cloned_at": { "type": "string", "format": "date-time" } } } }`. This tracks which roles have been cloned into a room's override directory.
-- [ ] `[manager-role]` **`SKILL.md`** — Add a new section "Subcommand-Aware Self-Healing" documenting: the `subcommand-redesign` state, the error classification taxonomy (subcommand-bug, subcommand-missing, environment-error, input-error), the redesign workflow, and the override search path. Include the CLI examples: `ostwin role manager redesign --room ... --role ... --subcommand ...`.
+- [ ] `[manager-role]` **`ROLE.md`** — Add a new section "Subcommand-Aware Self-Healing" documenting: the `subcommand-redesign` state, the error classification taxonomy (subcommand-bug, subcommand-missing, environment-error, input-error), the redesign workflow, and the override search path. Include the CLI examples: `ostwin role manager redesign --room ... --role ... --subcommand ...`.
 - [ ] `[roles-infra]` **`CHANGELOG.md`** — Append an entry for this release describing: new `ostwin role` command, `subcommands.json` manifest format, project-local overrides, error classification, and self-healing redesign loop.
  
 ---

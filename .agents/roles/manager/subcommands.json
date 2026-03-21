@@ -1,0 +1,28 @@
+{
+  "role": "manager",
+  "language": "powershell",
+  "module_root": ".",
+  "subcommands": [
+    {
+      "name": "start",
+      "type": "script",
+      "entrypoint": "Start-ManagerLoop.ps1",
+      "invoke": "pwsh -NoProfile -File Start-ManagerLoop.ps1 {args}",
+      "description": "Start the manager loop."
+    },
+    {
+      "name": "triage",
+      "type": "script",
+      "entrypoint": "Triage-Room.ps1",
+      "invoke": "pwsh -NoProfile -File Triage-Room.ps1 {args}",
+      "description": "Triage a room."
+    },
+    {
+      "name": "redesign",
+      "type": "script",
+      "entrypoint": "Redesign-Subcommand.ps1",
+      "invoke": "pwsh -NoProfile -File Redesign-Subcommand.ps1 {args}",
+      "description": "Redesign a subcommand."
+    }
+  ]
+}

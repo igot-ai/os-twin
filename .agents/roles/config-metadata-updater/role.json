@@ -1,0 +1,19 @@
+{
+  "name": "config-metadata-updater",
+  "description": "Update system configuration schemas, skill documentation, and release changelogs to accurately reflect new subcommand, override, and self-healing capabilities.",
+  "capabilities": [
+    "json-schema-modification",
+    "markdown-editing",
+    "technical-documentation",
+    "changelog-management"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "roles",
+    "global"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

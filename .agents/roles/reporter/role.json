@@ -7,7 +7,7 @@
     "document-composition",
     "pdf-output"
   ],
-  "prompt_file": "SKILL.md",
+  "prompt_file": "ROLE.md",
   "quality_gates": [
     "report-renders",
     "no-empty-pages"

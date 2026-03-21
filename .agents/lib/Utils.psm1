@@ -167,7 +167,7 @@ function Set-WarRoomStatus {
         [string]$RoomDir,
 
         [Parameter(Mandatory)]
-        [ValidateSet('pending', 'engineering', 'qa-review', 'fixing', 'passed', 'failed-final', 'blocked', 'manager-triage', 'architect-review', 'plan-revision')]
+        [ValidatePattern('^[a-z][a-z0-9-]*$')]
         [string]$NewStatus
     )
 

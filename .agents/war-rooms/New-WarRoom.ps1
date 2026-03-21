@@ -250,6 +250,76 @@ if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)
     }
 }
 
+# --- FALLBACK: Generate default lifecycle from CandidateRoles ---
+# Purely derived from candidate_roles — no hardcoded states.
+# Each candidate role maps to a lifecycle stage:
+#   candidate_roles[0]    → engineering (worker) + fixing
+#   candidate_roles[1..N] → review stages (named by role)
+# Only roles present in candidate_roles appear in the lifecycle.
+$lifecyclePath = Join-Path $roomDir "lifecycle.json"
+if (-not (Test-Path $lifecyclePath)) {
+    $effectiveCandidates = @(if ($CandidateRoles.Count -gt 0) { $CandidateRoles } else { $AssignedRole })
+    $primaryRole = $effectiveCandidates[0]
+
+    # Role → state name mapping for review stages
+    $roleStateMap = @{
+        'qa'                   = 'qa-review'
+        'architect'            = 'architect-review'
+        'database-architect'   = 'schema-review'
+        'security-auditor'     = 'security-review'
+        'devops'               = 'infra-review'
+        'reporter'             = 'reporting'
+    }
+
+    $states = [ordered]@{}
+    $stageOrder = [System.Collections.Generic.List[string]]::new()
+
+    # Stage 1: engineering — primary role does the work
+    $stageOrder.Add('engineering')
+
+    # Additional stages from candidate_roles[1..N]
+    $reviewRoles = @(if ($effectiveCandidates.Count -gt 1) { $effectiveCandidates[1..($effectiveCandidates.Count - 1)] })
+    foreach ($role in $reviewRoles) {
+        $stateName = if ($roleStateMap.ContainsKey($role)) { $roleStateMap[$role] } else { "$role-review" }
+        $stageOrder.Add($stateName)
+    }
+
+    # Build state definitions with transitions chained in order → last → passed
+    for ($i = 0; $i -lt $stageOrder.Count; $i++) {
+        $stateName = $stageOrder[$i]
+        $nextState = if ($i -lt ($stageOrder.Count - 1)) { $stageOrder[$i + 1] } else { 'passed' }
+
+        if ($i -eq 0) {
+            # Engineering: worker stage
+            $states[$stateName] = [ordered]@{
+                type = 'agent'; role = $primaryRole
+                transitions = [ordered]@{ done = $nextState }
+            }
+        } else {
+            # Review stages
+            $reviewRole = $reviewRoles[$i - 1]
+            $states[$stateName] = [ordered]@{
+                type = 'agent'; role = $reviewRole
+                transitions = [ordered]@{ pass = $nextState; fail = 'manager-triage'; escalate = 'manager-triage' }
+            }
+        }
+    }
+
+    # Builtin states (always present)
+    $states['manager-triage'] = [ordered]@{ type = 'builtin'; role = 'manager'; transitions = [ordered]@{} }
+    $states['plan-revision']  = [ordered]@{ type = 'builtin'; role = 'manager'; transitions = [ordered]@{} }
+
+    # Fixing state — routes back to first review stage (or passed if none)
+    $firstReviewState = if ($stageOrder.Count -gt 1) { $stageOrder[1] } else { 'passed' }
+    $states['fixing'] = [ordered]@{
+        type = 'agent'; role = $primaryRole
+        transitions = [ordered]@{ done = $firstReviewState }
+    }
+
+    $defaultLifecycle = [ordered]@{ initial_state = 'engineering'; states = $states }
+    $defaultLifecycle | ConvertTo-Json -Depth 10 | Out-File -FilePath $lifecyclePath -Encoding utf8 -Force
+}
+
 # --- Store extracted lifecycle block ---
 if ($Lifecycle) {
     $Lifecycle | Out-File -FilePath (Join-Path $roomDir "lifecycle.md") -Encoding utf8

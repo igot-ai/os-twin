@@ -1,0 +1,20 @@
+{
+  "name": "data-transformation-engineer",
+  "description": "Develop an efficient Python script to parse sales CSV data, compute exploratory metrics, and generate a validated JSON report specification without timing out.",
+  "capabilities": [
+    "python",
+    "pandas",
+    "data-analysis",
+    "json-generation",
+    "cli-development"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

@@ -63,6 +63,7 @@ $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 $maxConcurrent = $config.manager.max_concurrent_rooms
 $pollInterval = $config.manager.poll_interval_seconds
 $maxRetries = $config.manager.max_engineer_retries
+$maxRedesigns = if ($config.manager.max_redesigns) { $config.manager.max_redesigns } else { 2 }
 $stateTimeout = if ($config.manager.state_timeout_seconds) { $config.manager.state_timeout_seconds } else { 900 }
 
 # --- Resolve war-rooms dir ---
@@ -290,6 +291,43 @@ function Invoke-ManagerTriage {
     # --- Capability-aware routing (NEW) ---
     $capabilityMatching = $true
     if ($null -ne $config.manager.capability_matching) { $capabilityMatching = $config.manager.capability_matching }
+    
+    # --- Subcommand-aware routing (EPIC-006) ---
+    $roomConfigFile = Join-Path $RoomDir "config.json"
+    if (Test-Path $roomConfigFile) {
+        $rc = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
+        $assignedRole = if ($rc.assignment -and $rc.assignment.assigned_role) { $rc.assignment.assigned_role } else { "engineer" }
+        $baseRole = $assignedRole -replace ':.*$', ''
+        
+        # Check for overrides first (EPIC-006)
+        $overrideDir = Join-Path $RoomDir (Join-Path "overrides" $baseRole)
+        $roleDir = if (Test-Path $overrideDir) { $overrideDir } else { Join-Path $agentsDir (Join-Path "roles" $baseRole) }
+        $subcommandsFile = Join-Path $roleDir "subcommands.json"
+        
+        if (Test-Path $subcommandsFile) {
+            $subcommands = Get-Content $subcommandsFile -Raw | ConvertFrom-Json
+            # Load subcommand-failure analysis script (similar to Analyze-TaskRequirements)
+            $analyzeSubcommandScript = Join-Path $agentsDir "roles" "_base" "Analyze-SubcommandFailure.ps1"
+            if (Test-Path $analyzeSubcommandScript) {
+                try {
+                    $analysis = & $analyzeSubcommandScript -QaFeedback $QaFeedback -Subcommands $subcommands
+                    if ($analysis.Confidence -ge 0.7 -and $analysis.SubcommandName) {
+                        return "subcommand-failure:$($analysis.SubcommandName)"
+                    }
+                } catch { }
+            } else {
+                # Fallback: simple keyword matching for subcommand entrypoints
+                foreach ($sc in $subcommands.subcommands.PSObject.Properties) {
+                    $scName = $sc.Name
+                    $scEntry = $sc.Value.entrypoint
+                    if ($QaFeedback -match $scName -or ($scEntry -and $QaFeedback -match (Split-Path $scEntry -Leaf))) {
+                        return "subcommand-failure:$scName"
+                    }
+                }
+            }
+        }
+    }
+
     if ($capabilityMatching) {
         $analyzeScript = Join-Path $agentsDir "roles" "_base" "Analyze-TaskRequirements.ps1"
         if (Test-Path $analyzeScript) {
@@ -465,12 +503,21 @@ while (-not $script:shuttingDown) {
         }
         $baseRole = $assignedRole -replace ':.*$', ''
  
+        # --- Override detection (EPIC-006) ---
+        $overrideDir = Join-Path $roomDir (Join-Path "overrides" $baseRole)
+        $effectiveRoleDir = if (Test-Path $overrideDir) {
+            if ((Test-Path (Join-Path $overrideDir "subcommands.json")) -or (Test-Path (Join-Path $overrideDir "role.json"))) { $overrideDir } else { $null }
+        } else { $null }
+
         $resolveRoleScript = Join-Path $agentsDir "roles" "_base" "Resolve-Role.ps1"
         if (Test-Path $resolveRoleScript) {
             $resolveArgs = @{
                 RoleName    = $assignedRole
                 AgentsDir   = $agentsDir
                 WarRoomsDir = $WarRoomsDir
+            }
+            if ($effectiveRoleDir) {
+                $resolveArgs['RolePath'] = $effectiveRoleDir
             }
             if ($script:rolesCache) {
                 $resolveArgs['AvailableRoles'] = $script:rolesCache
@@ -925,6 +972,34 @@ while (-not $script:shuttingDown) {
                         }
                     }
                 }
+
+                if ($classification -match '^subcommand-failure:(.+)$') {
+                    $subcommand = $Matches[1]
+                    $redesigns = if (Test-Path (Join-Path $roomDir "redesigns")) {
+                        [int](Get-Content (Join-Path $roomDir "redesigns") -Raw).Trim()
+                    } else { 0 }
+
+                    if ($redesigns -lt $maxRedesigns) {
+                        Write-Log "INFO" "[$taskRef] Subcommand failure detected ($subcommand). Routing to subcommand redesign (retry $($redesigns + 1)/$maxRedesigns)..."
+                        ($redesigns + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "redesigns") -Encoding utf8 -NoNewline
+                        Write-RoomStatus $roomDir "subcommand-redesign"
+                        
+                        $redesignScript = Join-Path $agentsDir "roles" "manager" "Redesign-Subcommand.ps1"
+                        if (Test-Path $redesignScript) {
+                            Start-Job -ScriptBlock {
+                                param($script, $room, $role, $sc, $feedback, $ref)
+                                & $script -RoomDir $room -RoleName $role -SubcommandName $sc -ErrorContext $feedback -TaskRef $ref
+                            } -ArgumentList $redesignScript, $roomDir, $baseRole, $subcommand, $feedback, $taskRef | Out-Null
+                        } else {
+                            Write-Log "ERROR" "[$taskRef] Redesign-Subcommand.ps1 not found. Failing."
+                            Write-RoomStatus $roomDir "failed-final"
+                        }
+                    } else {
+                        Write-Log "ERROR" "[$taskRef] Max subcommand redesigns exceeded ($maxRedesigns)."
+                        Write-RoomStatus $roomDir "failed-final"
+                        Set-BlockedDescendants $taskRef
+                    }
+                }
             }
 
             'architect-review' {
@@ -1073,6 +1148,35 @@ while (-not $script:shuttingDown) {
 
             'passed' {
                 # Good — this room is done
+            }
+
+            'subcommand-redesign' {
+                $allPassed = $false
+                $allTerminal = $false
+                $totalActive++
+
+                if (Test-StateTimedOut $roomDir) {
+                    Write-Log "ERROR" "[$taskRef] Subcommand redesign timed out."
+                    Write-RoomStatus $roomDir "failed-final"
+                    continue
+                }
+
+                $redesignDone = Get-MsgCount $roomDir "redesign-done"
+                if ($redesignDone -gt 0) {
+                    Write-Log "INFO" "[$taskRef] Subcommand redesign complete. Retrying engineering."
+                    Write-RoomStatus $roomDir "engineering"
+                    & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "task" -Ref $taskRef -Body "Subcommand redesign complete. Please retry the task with updated subcommands."
+                    Start-Job -ScriptBlock {
+                        param($script, $room)
+                        & $script -RoomDir $room
+                    } -ArgumentList $workerScript, $roomDir | Out-Null
+                } else {
+                    $redesignError = Get-MsgCount $roomDir "error"
+                    if ($redesignError -gt 0) {
+                        Write-Log "ERROR" "[$taskRef] Subcommand redesign failed."
+                        Write-RoomStatus $roomDir "failed-final"
+                    }
+                }
             }
 
             'failed-final' {

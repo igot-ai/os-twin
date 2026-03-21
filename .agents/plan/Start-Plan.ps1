@@ -50,7 +50,6 @@ param(
     [switch]$Unified
 )
 
-$DryRun = $true
 # --- Resolve paths ---
 # The agentsDir must point to the Ostwin *installation* (where scripts like
 # New-WarRoom.ps1 and Start-ManagerLoop.ps1 live), NOT the target project's
