@@ -44,7 +44,7 @@ export default function TopBar({
       <div className="topbar-logo">
         <Image src="/assets/logo.svg" className="logo-img" alt="OS Twin AI" width={20} height={20} />
         <span className="logo-text">
-          AGENT<span className="logo-accent">OS</span>
+          OS<span className="logo-accent">Twin</span>
         </span>
         <span className="logo-version">v0.1.0</span>
       </div>

@@ -95,6 +95,12 @@ VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.js
 # Dashboard URL
 DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
 
+# Build curl auth args from OSTWIN_API_KEY (array to preserve quoting)
+CURL_AUTH=()
+if [[ -n "${OSTWIN_API_KEY:-}" ]]; then
+  CURL_AUTH=(-H "X-API-Key: ${OSTWIN_API_KEY}")
+fi
+
 # Resolve a plan_id to a plan file path + working_dir.
 # If the argument looks like a hex plan_id (not a file path), resolve via the API.
 # Sets: RESOLVED_PLAN_FILE and RESOLVED_WORKING_DIR
@@ -112,9 +118,9 @@ resolve_plan_id() {
   # If it looks like a hex plan_id (8-64 hex characters, no slashes/dots)
   if [[ "$arg" =~ ^[0-9a-fA-F]{8,64}$ ]]; then
     # Try to resolve from the API
-    if curl -sf "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
+    if curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
       local api_response
-      api_response=$(curl -sf "${DASHBOARD_URL}/api/plans/${arg}" 2>&1)
+      api_response=$(curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/plans/${arg}" 2>&1)
       if [[ $? -eq 0 && -n "$api_response" ]]; then
         RESOLVED_PLAN_FILE=$(echo "$api_response" | "$PYTHON" -c "
 import sys, json, os
@@ -455,7 +461,7 @@ else:
         PLAN_TITLE="${PLAN_TITLE:-Untitled}"
 
         # Check dashboard is reachable
-        if ! curl -sf "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
+        if ! curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
           echo "⚠  Dashboard not reachable at ${DASHBOARD_URL}" >&2
           echo "   Start it with: ostwin dashboard" >&2
           exit 1
@@ -472,7 +478,7 @@ print(json.dumps(payload))
 " <<< "$INIT_CONTENT" 2>/dev/null)
 
         # Create plan via API
-        RESPONSE=$(curl -sf -X POST "${DASHBOARD_URL}/api/plans/create" \
+        RESPONSE=$(curl -sf -X POST "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/plans/create" \
           -H "Content-Type: application/json" \
           -d "$JSON_PAYLOAD" 2>&1) || {
           echo "✗ Failed to create plan: ${RESPONSE}" >&2
@@ -532,8 +538,8 @@ print(json.dumps(payload))
       list)
         # Quick list via API
         DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
-        if curl -sf "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
-          curl -sf "${DASHBOARD_URL}/api/plans" | "$PYTHON" -c "
+        if curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
+          curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/plans" | "$PYTHON" -c "
 import sys, json
 data = json.load(sys.stdin)
 plans = data.get('plans', [])
