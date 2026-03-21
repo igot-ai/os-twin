@@ -216,9 +216,14 @@ $dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { "http://lo
 $registeredPlanId = ""
 $metadataPlanId = [guid]::NewGuid().ToString().Replace("-", "").Substring(0, 12)
 
+# Load API auth headers
+$utilsModule = Join-Path $agentsDir "lib" "Utils.psm1"
+if (Test-Path $utilsModule) { Import-Module $utilsModule -Force }
+$apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
+
 try {
     # Check if dashboard is reachable
-    $null = Invoke-RestMethod -Uri "$dashboardUrl/api/status" -TimeoutSec 3 -ErrorAction Stop
+    $null = Invoke-RestMethod -Uri "$dashboardUrl/api/status" -Headers $apiHeaders -TimeoutSec 3 -ErrorAction Stop
 
     # POST to create the plan via API
     $createBody = @{
@@ -234,7 +239,7 @@ try {
     $createBodyJson = $createBody | ConvertTo-Json -Depth 5
 
     $response = Invoke-RestMethod -Uri "$dashboardUrl/api/plans/create" `
-        -Method Post -ContentType 'application/json' -Body $createBodyJson -ErrorAction Stop
+        -Method Post -ContentType 'application/json' -Body $createBodyJson -Headers $apiHeaders -ErrorAction Stop
 
     if ($response.plan_id) {
         $registeredPlanId = $response.plan_id
@@ -245,8 +250,8 @@ try {
 }
 catch {
     Write-Host ""
-    Write-Host "[PLAN] ⚠ Dashboard not reachable at $dashboardUrl — plan created locally only." -ForegroundColor Yellow
-    Write-Host "[PLAN]   Start the dashboard with: ostwin dashboard" -ForegroundColor Yellow
+    Write-Host "[PLAN] ⚠  Dashboard not reachable at $dashboardUrl" -ForegroundColor Yellow
+    Write-Host "[PLAN]   Start it with: ostwin dashboard" -ForegroundColor Yellow
 }
 
 # --- Update file with embedded config ---

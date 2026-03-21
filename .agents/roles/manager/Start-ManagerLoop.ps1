@@ -136,7 +136,8 @@ function Resolve-RoomSkills {
         $encodedQuery = [System.Uri]::EscapeDataString($query)
         $encodedRole = [System.Uri]::EscapeDataString($AssignedRole)
         $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}"
-        $response = Invoke-RestMethod -Uri $url -Method GET -TimeoutSec 5 -ErrorAction Stop
+        $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
+        $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
         if ($response -and $response.Count -gt 0) {
             $skillNames = @($response | ForEach-Object { $_.name })
             $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force

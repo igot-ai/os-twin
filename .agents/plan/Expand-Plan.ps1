@@ -245,10 +245,11 @@ Write-Host ""
 if (-not $DryRun) {
     $resolvedPlanId = if ($PlanId) { $PlanId } else { [IO.Path]::GetFileNameWithoutExtension($OutFile) }
     $dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { 'http://localhost:9000' }
+    $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
     try {
         $saveBody = @{ content = $newPlanContent; change_source = 'expansion' } | ConvertTo-Json -Depth 5
         Invoke-RestMethod -Uri "$dashboardUrl/api/plans/$resolvedPlanId/save" `
-            -Method Post -ContentType 'application/json' -Body $saveBody -ErrorAction Stop | Out-Null
+            -Method Post -ContentType 'application/json' -Body $saveBody -Headers $apiHeaders -ErrorAction Stop | Out-Null
         Write-Host "[PLAN] Synced to dashboard: $dashboardUrl/plans/$resolvedPlanId" -ForegroundColor Cyan
     }
     catch {

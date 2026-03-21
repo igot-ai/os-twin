@@ -276,4 +276,36 @@ function Get-OstwinAgentsDir {
     return $dir
 }
 
-Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Get-TruncatedText, Get-OstwinAgentsDir, Test-Underspecified, Test-SingleEpicUnderspecified
+function Get-OstwinApiHeaders {
+    <#
+    .SYNOPSIS
+        Returns a hashtable of HTTP headers for authenticated API calls.
+    .DESCRIPTION
+        Reads OSTWIN_API_KEY from environment variable or from ~/.ostwin/.env.
+        Returns @{ 'X-API-Key' = '<key>' } if found, or empty hashtable if not.
+    .OUTPUTS
+        [hashtable] Headers to splat into Invoke-RestMethod -Headers.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $apiKey = $env:OSTWIN_API_KEY
+
+    # Fallback: read from .env file
+    if (-not $apiKey) {
+        $envFile = Join-Path $HOME ".ostwin" ".env"
+        if (Test-Path $envFile) {
+            $match = Select-String -Path $envFile -Pattern '^OSTWIN_API_KEY=(.+)$' | Select-Object -First 1
+            if ($match) {
+                $apiKey = $match.Matches[0].Groups[1].Value.Trim()
+            }
+        }
+    }
+
+    if ($apiKey) {
+        return @{ 'X-API-Key' = $apiKey }
+    }
+    return @{}
+}
+
+Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Get-TruncatedText, Get-OstwinAgentsDir, Test-Underspecified, Test-SingleEpicUnderspecified, Get-OstwinApiHeaders

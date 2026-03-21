@@ -846,13 +846,7 @@ if check_deepagents; then
   DA_VERSION=$(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
   ok "deepagents-cli $DA_VERSION"
 else
-  warn "deepagents-cli not found"
-  if ask "Install deepagents-cli? (agent execution engine)"; then
-    install_deepagents
-  else
-    warn "Skipping — agents won't run without deepagents-cli"
-    info "Install later: pip install deepagents-cli"
-  fi
+  install_deepagents
 fi
 
 echo ""
