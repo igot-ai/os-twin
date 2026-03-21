@@ -266,52 +266,11 @@ if (Test-Path $triageFile) {
     $triageContext = Get-Content $triageFile -Raw
 }
 
-# --- Assemble final prompt ---
-$triageSection = ""
-if ($triageContext) {
-    $triageSection = @"
-
-## Triage Context (Manager Analysis)
-
-$triageContext
-"@
-}
-
-$prompt = @"
-$rolePrompt
-
----
-
-## Your Task
-
-$taskDesc
-
-## Latest Instruction
-
-$latestBody
-$triageSection
-## War-Room
-
-Room: $roomName
-Task Ref: $taskRef
-Working Directory: $workingDir
-$predecessorSection
-## Instructions
-
-$instructions
-"@
-
-# --- Prompt size guard ---
-if ($prompt.Length -gt $maxPromptBytes) {
-    $originalSize = $prompt.Length
-    $prompt = $prompt.Substring(0, $maxPromptBytes) + @"
-
-[TRUNCATED: prompt was $originalSize bytes, max is $maxPromptBytes. Full task description in: $RoomDir/brief.md]
-"@
-    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-        Write-OstwinLog -Level WARN -Message "Prompt truncated from $originalSize to $maxPromptBytes bytes for $taskRef"
-    }
-}
+# --- Assemble final prompt using Build-SystemPrompt.ps1 ---
+$buildPrompt = Join-Path $agentsDir "roles" "_base" "Build-SystemPrompt.ps1"
+$prompt = & $buildPrompt -RoleName "engineer" -RolePath $scriptDir `
+                         -RoomDir $RoomDir -TaskRef $taskRef -TaskBody $latestBody `
+                         -ExtraContext $instructions
 
 # --- Log start ---
 if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {

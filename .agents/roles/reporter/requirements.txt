@@ -1,0 +1,2 @@
+# Reporter role — Python dependencies
+reportlab>=4.0

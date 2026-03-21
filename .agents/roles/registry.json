@@ -81,11 +81,11 @@
     },
     {
       "name": "manager",
-      "description": "Manager — orchestrates war-rooms, routes work, handles retries and release",
+      "description": "Manager — orchestrates war-rooms, routes work, handles retries, skill discovery, and release",
       "runner": "roles/manager/Start-ManagerLoop.ps1",
       "runner_legacy": "roles/manager/loop.sh",
-      "definition": null,
-      "prompt": null,
+      "definition": "roles/manager/role.json",
+      "prompt": "roles/manager/ROLE.md",
       "default_assignment": false,
       "supported_task_types": [
         "orchestration"
@@ -94,10 +94,35 @@
         "task-routing",
         "retry-management",
         "release-coordination",
-        "deadlock-detection"
+        "deadlock-detection",
+        "skill-search",
+        "skill-install"
       ],
       "quality_gates": [],
       "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "reporter",
+      "description": "Report generator — creates structured PDF reports from data specs",
+      "runner": "roles/reporter/Start-Reporter.ps1",
+      "definition": "roles/reporter/role.json",
+      "prompt": "roles/reporter/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "report-generation",
+        "data-visualization",
+        "document-composition",
+        "pdf-output"
+      ],
+      "quality_gates": [
+        "report-renders",
+        "no-empty-pages"
+      ],
+      "default_model": "gemini-3-flash-preview"
     }
   ],
   "assignment_rules": {
@@ -152,23 +177,36 @@
       {
         "name": "lang",
         "description": "Fetch LangGraph documentation for accurate, up-to-date guidance",
-        "path": "skills/lang/SKILL.md"
+        "path": "skills/global/lang/SKILL.md",
+        "skills": "engineer, python, code-generation",
+        "tags": ["engineer", "python", "code-generation"],
+        "trust_level": "core"
       },
       {
         "name": "create-role",
         "description": "Scaffold a new agent role — generates role.json, ROLE.md, and registers in registry.json",
-        "path": "skills/create-role/SKILL.md"
+        "path": "skills/roles/architect/create-role/SKILL.md",
+        "skills": "architect, manager, scaffolding",
+        "tags": ["architect", "manager", "scaffolding"],
+        "trust_level": "core"
       },
       {
         "name": "create-architecture",
         "description": "Generate architecture docs for an epic — ADRs, component diagrams, data flows, tech-stack rationale",
-        "path": "skills/create-architecture/SKILL.md"
+        "path": "skills/global/create-architecture/SKILL.md",
+        "skills": "architect, documentation, design",
+        "tags": ["architect", "documentation", "design"],
+        "trust_level": "core"
       },
       {
         "name": "create-lifecycle",
         "description": "Define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, escalation rules",
-        "path": "skills/create-lifecycle/SKILL.md"
+        "path": "skills/global/create-lifecycle/SKILL.md",
+        "skills": "architect, manager, process",
+        "tags": ["architect", "manager", "process"],
+        "trust_level": "core"
       }
     ]
   }
 }
+

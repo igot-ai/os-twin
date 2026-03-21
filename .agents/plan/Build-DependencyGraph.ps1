@@ -55,10 +55,14 @@ process {
             $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
             $taskRef = $cfg.task_ref
             $roomDeps = if ($cfg.depends_on) { @($cfg.depends_on) } else { @() }
+            $assignedRole = if ($cfg.assignment -and $cfg.assignment.assigned_role) { $cfg.assignment.assigned_role } else { "engineer" }
+            $candidateRoles = @(if ($cfg.assignment -and $cfg.assignment.candidate_roles) { @($cfg.assignment.candidate_roles) } else { @($assignedRole) })
             $Nodes += @{
-                Id        = $taskRef
-                DependsOn = $roomDeps
-                RoomId    = $rd.Name
+                Id              = $taskRef
+                DependsOn       = $roomDeps
+                RoomId          = $rd.Name
+                Role            = $assignedRole
+                CandidateRoles  = $candidateRoles
             }
         }
     }
@@ -80,6 +84,34 @@ process {
         $nodeMap[$id] = $node
     }
 
+    # --- Auto-inject well-known virtual nodes ---
+    # PLAN-REVIEW is always injected by Start-Plan.ps1 as a universal dependency.
+    # When Build-DependencyGraph is called in WarRooms mode, room-000 (the plan
+    # review room) may not have a config.json, so PLAN-REVIEW won't appear in
+    # the scanned nodes. We auto-inject it as a virtual root node (depth 0,
+    # no dependencies) so the graph stays valid.
+    $virtualNodeIds = @('PLAN-REVIEW')
+    foreach ($node in $Nodes) {
+        $deps = $node.DependsOn
+        if ($null -ne $deps) {
+            if ($deps -is [string]) { $deps = @($deps) }
+            foreach ($dep in $deps) {
+                if (-not $nodeMap.ContainsKey($dep) -and $dep -in $virtualNodeIds) {
+                    $virtualNode = @{
+                        Id              = $dep
+                        DependsOn       = @()
+                        RoomId          = "room-000"
+                        Role            = "architect"
+                        CandidateRoles  = @("manager", "architect")
+                        Virtual         = $true
+                    }
+                    $nodeMap[$dep] = $virtualNode
+                    Write-Verbose "[DAG] Auto-injected virtual node '$dep' (referenced but not in node list)"
+                }
+            }
+        }
+    }
+
     # Prepare for Kahn's algorithm
     $inDegree = @{}
     $adjacencyList = @{} # Maps dependency -> list of dependents
@@ -91,7 +123,7 @@ process {
     }
 
     # Build graph
-    foreach ($node in $Nodes) {
+    foreach ($node in @($nodeMap.Values)) {
         $id = $node.Id
         $deps = $node.DependsOn
 
@@ -222,6 +254,8 @@ process {
             Depth          = $depth[$id]
             OnCriticalPath = [bool]$onCriticalPath[$id]
             RoomId         = if ($orig.RoomId) { $orig.RoomId } else { "" }
+            Role           = if ($orig.Role) { $orig.Role } else { "engineer" }
+            CandidateRoles = @(if ($orig.CandidateRoles) { @($orig.CandidateRoles) } else { @("engineer") })
         }
         $result.Add($enriched)
     }
@@ -239,6 +273,8 @@ process {
         foreach ($r in $result) {
             $nodesHash[$r.Id] = [ordered]@{
                 room_id          = $r.RoomId
+                role             = $r.Role
+                candidate_roles  = $r.CandidateRoles
                 depends_on       = $r.DependsOn
                 dependents       = $r.Dependents
                 depth            = $r.Depth

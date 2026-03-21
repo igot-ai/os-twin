@@ -122,6 +122,25 @@
           "format": "date-time"
         }
       }
+    },
+    "overrides": {
+      "type": "object",
+      "description": "Tracks which roles have been cloned into a room's override directory",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "cloned_from": {
+            "type": "string"
+          },
+          "cloned_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
     }
   }
 }

@@ -1,0 +1,122 @@
+{
+  "title": "igot.ai",
+  "subtitle": "Brand Guidelines",
+  "author": "igot.ai",
+  "subject": "Brand Guidelines v1.0",
+  "brand_file": "brand.json",
+  "page_size": "A4",
+  "output": "igot-ai-brand-guidelines.pdf",
+  "pages": [
+    {
+      "type": "cover",
+      "title": "igot.ai",
+      "subtitle": "Brand Guidelines",
+      "version_line": "Version 1.0  |  March 2026  |  Confidential"
+    },
+    {
+      "type": "toc",
+      "items": [
+        { "num": "01", "title": "Brand Overview", "desc": "Mission, vision, and brand essence" },
+        { "num": "02", "title": "Logo", "desc": "Primary mark, variations, and construction" },
+        { "num": "03", "title": "Color Palette", "desc": "Primary, secondary, and usage guidelines" },
+        { "num": "04", "title": "Typography", "desc": "Typefaces, hierarchy, and usage" },
+        { "num": "05", "title": "Clear Space & Sizing", "desc": "Minimum sizes and spacing rules" },
+        { "num": "06", "title": "Logo Misuse", "desc": "What to avoid" }
+      ]
+    },
+    {
+      "type": "text_section",
+      "heading": "Brand Overview",
+      "subtitle": "Our identity and what we stand for",
+      "blocks": [
+        {
+          "title": "Mission",
+          "body": "To democratize AI operations by providing an intuitive platform\nfor managing ML models, datasets, and data annotation workflows."
+        },
+        {
+          "title": "Brand Essence",
+          "body": "igot.ai represents the convergence of data intelligence and\naccessibility. Our visual identity reflects precision, connectivity,\nand the dynamic nature of AI-driven insights."
+        },
+        {
+          "title": "Brand Personality",
+          "body": "Innovative  \u2022  Trustworthy  \u2022  Precise  \u2022  Accessible"
+        },
+        {
+          "title": "Voice & Tone",
+          "body": "Professional yet approachable. We communicate complex\ntechnologies in clear, human-centered language."
+        }
+      ]
+    },
+    {
+      "type": "logo_usage",
+      "heading": "Logo",
+      "subtitle": "Primary brand mark and wordmark"
+    },
+    {
+      "type": "color_palette",
+      "heading": "Color Palette",
+      "subtitle": "Primary and secondary brand colors",
+      "primary": [
+        { "name": "Dark Navy", "hex": "#1E3F7A", "usage": "Primary text,\nheadings, dark UI" },
+        { "name": "Mid Blue", "hex": "#3375B5", "usage": "Links, buttons,\ninteractive elements" },
+        { "name": "Teal", "hex": "#38A3A5", "usage": "Accents, highlights,\nsecondary actions" },
+        { "name": "Brand Navy", "hex": "#1B2D4F", "usage": "Wordmark text,\nhero sections" }
+      ],
+      "secondary": [
+        { "name": "White", "hex": "#FFFFFF", "border": true },
+        { "name": "Light Gray", "hex": "#F5F7FA", "border": false },
+        { "name": "Mid Gray", "hex": "#6B7280", "border": false },
+        { "name": "Border Gray", "hex": "#E5E7EB", "border": false }
+      ],
+      "show_gradient": true
+    },
+    {
+      "type": "typography",
+      "heading": "Typography",
+      "subtitle": "Typeface selection and hierarchy",
+      "font_stack": "-apple-system, BlinkMacSystemFont, 'Segoe UI',\nRoboto, 'Helvetica Neue', Arial, sans-serif",
+      "scales": [
+        { "label": "Display", "font": "Helvetica-Bold", "size": 36, "usage": "Hero headings, landing pages" },
+        { "label": "H1", "font": "Helvetica-Bold", "size": 28, "usage": "Page titles" },
+        { "label": "H2", "font": "Helvetica-Bold", "size": 22, "usage": "Section headings" },
+        { "label": "H3", "font": "Helvetica-Bold", "size": 16, "usage": "Subsections, card titles" },
+        { "label": "Body", "font": "Helvetica", "size": 14, "usage": "Primary body text" },
+        { "label": "Caption", "font": "Helvetica", "size": 11, "usage": "Labels, metadata, secondary text" }
+      ],
+      "weights": [
+        { "name": "Bold (700)", "desc": "Headings, brand name, CTAs, emphasis" },
+        { "name": "Regular (400)", "desc": "Body text, descriptions, secondary content" }
+      ]
+    },
+    {
+      "type": "clear_space",
+      "heading": "Clear Space & Sizing",
+      "subtitle": "Minimum sizes and protective spacing"
+    },
+    {
+      "type": "checklist",
+      "heading": "Logo Misuse",
+      "subtitle": "Maintain brand integrity by avoiding these",
+      "dont_heading": "Never modify the logo in ways that compromise its integrity or recognition.",
+      "dont": [
+        "Do not stretch or distort the logo proportions",
+        "Do not change the logo colors to unapproved colors",
+        "Do not add drop shadows, bevels, or other effects",
+        "Do not place the logo on busy or low-contrast backgrounds",
+        "Do not rotate or tilt the logo",
+        "Do not rearrange the logo elements",
+        "Do not use the logo at sizes below the minimum",
+        "Do not add a border or outline around the logo",
+        "Do not crop or clip any part of the logo",
+        "Do not use the old logo or any unofficial variations"
+      ],
+      "do_heading": "Best Practices",
+      "do": [
+        "Always use the logo files provided in the brand assets kit",
+        "Ensure sufficient contrast between logo and background",
+        "Maintain the required clear space at all times",
+        "Use the full-color version whenever possible"
+      ]
+    }
+  ]
+}

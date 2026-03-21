@@ -117,15 +117,23 @@ resolve_plan_id() {
       api_response=$(curl -sf "${DASHBOARD_URL}/api/plans/${arg}" 2>&1)
       if [[ $? -eq 0 && -n "$api_response" ]]; then
         RESOLVED_PLAN_FILE=$(echo "$api_response" | "$PYTHON" -c "
-import sys, json
+import sys, json, os
 data = json.load(sys.stdin)
 plan = data.get('plan', {})
-working_dir = plan.get('working_dir', plan.get('meta', {}).get('working_dir', ''))
 filename = plan.get('filename', '')
 if filename:
-    import os
-    # Plan files stored in AGENTS_DIR/plans/
-    print(os.path.join('$AGENTS_DIR', 'plans', filename))
+    # Try project-local AGENTS_DIR/plans/ first, then global ~/.ostwin/plans/
+    candidates = [
+        os.path.join('$AGENTS_DIR', 'plans', filename),
+        os.path.join(os.path.expanduser('~'), '.ostwin', 'plans', filename),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            print(c)
+            break
+    else:
+        # None found — print first candidate for error message
+        print(candidates[0])
 else:
     print('')
 " 2>/dev/null)
@@ -143,7 +151,8 @@ print(plan.get('working_dir', plan.get('meta', {}).get('working_dir', '')))
           fi
           return 0
         else
-          echo "✗ Plan file not found for plan_id '$arg': $RESOLVED_PLAN_FILE" >&2
+          echo "✗ Plan file not found for plan_id '$arg'" >&2
+          echo "  Searched: $AGENTS_DIR/plans/ and ~/.ostwin/plans/" >&2
           return 1
         fi
       else
@@ -171,6 +180,7 @@ Usage:
   ostwin <command> [options]
 
 Commands:
+  agent [args...]    Run the Agent OS CLI (role-aware deepagents wrapper)
   chat [options]    Interactive AI chat session
                     Options: -a AGENT, -M MODEL, -m MSG, --auto-approve, -r [ID]
   run <plan_id|file> Execute a plan by ID or file path
@@ -188,10 +198,16 @@ Commands:
                     Options: --force
   dashboard         Launch web dashboard
                     Options: --port PORT, --project-dir PATH
+  clone-role <role> Clone a role to project-local for override
+                    Options: --project-dir PATH
   orphans           Manage orphaned agent processes
                     Options: --list, --kill, --json
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
+  role <name> [sub]  Run a role's subcommand
+                       Options: ostwin role (list roles)
+                                ostwin role <name> (show subcommands)
+                                ostwin role <name> <sub> [args...]
   health            Check system health
   mcp               Manage MCP extensions
                     Subcommands: install, list, catalog, remove, sync
@@ -264,6 +280,10 @@ ps_dispatch() {
 }
 
 case "${1:-}" in
+  agent)
+    shift
+    exec "$AGENTS_DIR/bin/agent" "$@"
+    ;;
   chat)
     shift
     exec "$DEEPAGENTS_PYTHON" "$AGENTS_DIR/bin/chat.py" "$@"
@@ -562,6 +582,34 @@ else:
     else
       exec "$AGENTS_DIR/dashboard.sh" "$@"
     fi
+    ;;
+  clone-role)
+    shift
+    ROLE="$1"
+    shift || { echo "Usage: ostwin clone-role <role> [--project-dir <path>]"; exit 1; }
+    
+    PROJECT_DIR="$(pwd)"
+    # Simple parse for --project-dir
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --project-dir)
+          shift
+          PROJECT_DIR="$1"
+          shift
+          ;;
+        *)
+          # Ignore other args for now or pass them
+          shift
+          ;;
+      esac
+    done
+    
+    # Delegate to manager role clone
+    # This assumes EPIC-002's "ostwin role" is implemented or we call the script directly.
+    # Since EPIC-002 might not be fully done in this environment, let's use the dispatch logic if possible.
+    # Actually, the instructions say: delegates to `ostwin role manager clone -RoleName <role> -ProjectDir <path>`.
+    # Let's use that exact command.
+    exec "$0" role manager clone -RoleName "$ROLE" -ProjectDir "$PROJECT_DIR"
     ;;
   orphans)
     shift

@@ -1,0 +1,34 @@
+{
+  "role": "reporter",
+  "language": "python",
+  "module_root": ".",
+  "subcommands": [
+    {
+      "name": "generate",
+      "type": "cli",
+      "entrypoint": "reporter.py::main",
+      "invoke": "python -m reporter generate {args}",
+      "description": "Generate a report based on a specification file.",
+      "args_schema": {
+        "positional": ["spec_file"],
+        "optional": {
+          "-o|--output": "Output PDF path"
+        }
+      }
+    },
+    {
+      "name": "validate",
+      "type": "cli",
+      "entrypoint": "reporter.py::validate",
+      "invoke": "python -m reporter validate {args}",
+      "description": "Validate a report specification file."
+    },
+    {
+      "name": "list-components",
+      "type": "cli",
+      "entrypoint": "reporter.py::list_components",
+      "invoke": "python -m reporter list-components",
+      "description": "List all available report components."
+    }
+  ]
+}

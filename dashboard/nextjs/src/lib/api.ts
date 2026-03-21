@@ -1,32 +1,30 @@
 /**
- * Fetch wrapper with auth token injection.
- * Mirrors the originalFetch interceptor from app.js.
+ * Fetch wrapper with cookie-based authentication.
+ *
+ * All API calls include credentials (cookies). On 401, dispatches
+ * a custom 'ostwin:auth-required' event to trigger the auth popup.
  */
-
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('agent_os_token');
-}
 
 export async function apiFetch(
   url: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const token = getToken();
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
 
-  if (token && url.startsWith('/api/')) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
+  const response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: 'include', // Always send cookies
+  });
 
-  const response = await fetch(url, { ...options, headers });
-
-  // Show login overlay on 401
-  if (response.status === 401 && typeof document !== 'undefined') {
-    const overlay = document.getElementById('auth-overlay');
-    if (overlay) overlay.style.display = 'flex';
+  // On 401, fire custom event so useAuth shows the popup
+  if (response.status === 401 && typeof window !== 'undefined') {
+    // Don't trigger for auth endpoints themselves
+    if (!url.startsWith('/api/auth/')) {
+      window.dispatchEvent(new CustomEvent('ostwin:auth-required'));
+    }
   }
 
   return response;

@@ -154,20 +154,13 @@ else {
 "@
 }
 
-# --- Build the full prompt ---
-$prompt = @"
-$rolePrompt
-
----
-
-## Original Assignment
-
-$taskDesc
-
+# --- Assemble final prompt using Build-SystemPrompt.ps1 ---
+$buildPrompt = Join-Path $agentsDir "roles" "_base" "Build-SystemPrompt.ps1"
+$extraContext = @"
 ## Engineer's Report
 
 $engineerReport
-$tasksSection
+
 ## Instructions
 
 $reviewInstructions
@@ -183,6 +176,10 @@ incomplete. Include a classification: DESIGN | SCOPE | REQUIREMENTS.
 
 Follow with detailed reasoning.
 "@
+
+$prompt = & $buildPrompt -RoleName "qa" -RolePath $scriptDir `
+                         -RoomDir $RoomDir -TaskRef $taskRef `
+                         -ExtraContext $extraContext
 
 # --- Log start ---
 if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {

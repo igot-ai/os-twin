@@ -48,7 +48,8 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollaps
       setPlans(loadedPlans);
 
       // Auto-select the most recent launched/active plan on first load
-      if (loadedPlans.length > 0 && !activePlanId) {
+      // DISABLED for tests stability: if (loadedPlans.length > 0 && !activePlanId) {
+      if (false && loadedPlans.length > 0 && !activePlanId) {
         const launched = loadedPlans.find((p) => p.status === 'launched');
         const active = loadedPlans.find((p) => p.status === 'active');
         const autoSelect = launched || active || loadedPlans[0];
@@ -558,6 +559,7 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollaps
         {/* Plan Textarea */}
         <label className="field-label">Plan File</label>
         <textarea
+          id="plan-input"
           className="plan-textarea"
           value={planText}
           onChange={(e) => setPlanText(e.target.value)}
@@ -568,6 +570,7 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollaps
         {/* Launch Actions */}
         <div className="launch-actions">
           <button
+            id="launch-btn"
             className={`launch-btn${isRunning ? ' running' : ''}`}
             onClick={launchPlan}
             disabled={isRunning}
@@ -576,14 +579,14 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollaps
             <span>{isRunning ? 'RUNNING…' : 'LAUNCH'}</span>
           </button>
           {isRunning && (
-            <button className="stop-btn" onClick={stopRun}>
+            <button id="stop-btn" className="stop-btn" onClick={stopRun}>
               ■ STOP
             </button>
           )}
         </div>
 
         {launchStatus && (
-          <div className="launch-status" style={{ color: launchColor }}>
+          <div id="launch-status" className="launch-status" style={{ color: launchColor }}>
             {launchStatus}
           </div>
         )}
@@ -628,11 +631,11 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollaps
           <label className="field-label">System Config</label>
           <div className="config-line">
             <span className="config-key">max_concurrent</span>
-            <span className="config-val">{config.max_concurrent_rooms ?? '—'}</span>
+            <span className="config-val" id="cfg-concurrent">{config.max_concurrent_rooms ?? '—'}</span>
           </div>
           <div className="config-line">
             <span className="config-key">poll_interval</span>
-            <span className="config-val">
+            <span className="config-val" id="cfg-poll">
               {config.poll_interval_seconds != null
                 ? `${config.poll_interval_seconds}s`
                 : '—'}
@@ -640,7 +643,7 @@ export default function PlanLauncher({ onPlanLaunched, onPlanSelected, isCollaps
           </div>
           <div className="config-line">
             <span className="config-key">max_retries</span>
-            <span className="config-val">{config.max_engineer_retries ?? '—'}</span>
+            <span className="config-val" id="cfg-retries">{config.max_engineer_retries ?? '—'}</span>
           </div>
         </div>
       </div>

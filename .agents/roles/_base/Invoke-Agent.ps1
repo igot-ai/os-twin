@@ -66,6 +66,10 @@ $Quiet = $true
 # --- Resolve paths ---
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
 
+# Ensure RoomDir is absolute for bash wrapper consistency (EPIC-002)
+# Using GetUnresolvedProviderPathFromPSPath to handle non-existent paths (unlikely but safe)
+$absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RoomDir)
+
 # --- Load config ---
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
               else { Join-Path $agentsDir "config.json" }
@@ -114,10 +118,16 @@ if (Test-Path $configPath) {
         $WorkingDir = $instanceConfig.working_dir
     }
 
-    # CLI: role → default
+    # --- CLI resolution: local wrapper → role config → global fallback ---
     if (-not $AgentCmd) {
-        $AgentCmd = $config.$RoleName.cli
-        if (-not $AgentCmd) { $AgentCmd = "deepagents" }
+        $localAgent = Join-Path $agentsDir "bin" "agent"
+        if (Test-Path $localAgent) {
+            $AgentCmd = "'$localAgent'"
+        }
+        else {
+            $AgentCmd = $config.$RoleName.cli
+            if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or (-not $AgentCmd)) { $AgentCmd = "deepagents" }
+        }
     }
 }
 
@@ -130,10 +140,51 @@ $envCmd = [System.Environment]::GetEnvironmentVariable($envCmdVar)
 if ($envCmd) { $AgentCmd = $envCmd }
 
 # --- Prepare output directory ---
-$artifactsDir = Join-Path $RoomDir "artifacts"
-$pidsDir = Join-Path $RoomDir "pids"
+$artifactsDir = Join-Path $absRoomDir "artifacts"
+$pidsDir = Join-Path $absRoomDir "pids"
 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
 New-Item -ItemType Directory -Path $pidsDir -Force | Out-Null
+
+# --- Skill Isolation (EPIC-002) ---
+$isolatedSkillsDir = Join-Path $artifactsDir "skills"
+
+# Clear isolated skills for each invocation to ensure no stale skills remain
+if (Test-Path $isolatedSkillsDir) {
+    Remove-Item -Path $isolatedSkillsDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
+
+$rolePath = Join-Path $agentsDir "roles" $RoleName
+$resolveSkillsScript = Join-Path $PSScriptRoot "Resolve-RoleSkills.ps1"
+
+if (Test-Path $resolveSkillsScript) {
+    try {
+        $skills = & $resolveSkillsScript -RoleName $RoleName -RolePath $rolePath -ErrorAction Stop
+        foreach ($skill in $skills) {
+            if ($skill.Path -and (Test-Path $skill.Path)) {
+                # Copy the entire skill directory content to the isolated location
+                $skillSrcDir = Split-Path $skill.Path -Parent
+                $skillName = Split-Path $skillSrcDir -Leaf
+                $destPath = Join-Path $isolatedSkillsDir $skillName
+                
+                # Ensure the destination skill directory exists and is clean
+                if (Test-Path $destPath) {
+                    Remove-Item -Path $destPath -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                New-Item -ItemType Directory -Path $destPath -Force | Out-Null
+                
+                # Copy contents specifically to avoid nested directory issues
+                Copy-Item -Path (Join-Path $skillSrcDir "*") -Destination $destPath -Recurse -Force
+            }
+            else {
+                Write-Warning "Skill source path not found for '$($skill.Name)': $($skill.Path)"
+            }
+        }
+    }
+    catch {
+        Write-Warning "Failed to resolve or copy skills: $($_.Exception.Message)"
+    }
+}
 
 $outputFile = Join-Path $artifactsDir "$RoleName-output.txt"
 $pidFile = Join-Path $pidsDir "$RoleName.pid"
@@ -155,6 +206,7 @@ try {
 
     # Build non-prompt CLI args safely
     $extraCliArgs = @()
+    if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
     if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
     if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
     if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
@@ -189,13 +241,17 @@ try {
     $safeOutput = $outputFile -replace "'", "'\''"
     $safePrompt = $promptFile -replace "'", "'\''"
     $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
+    $safeRoomDir = $absRoomDir.Replace('\', '/').Replace("'", "'\''")
+    $safeSkillsDir = $isolatedSkillsDir.Replace('\', '/').Replace("'", "'\''")
+    $safeRole = $RoleName -replace "'", "'\''"
 
     $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
     $scriptContent = @"
 #!/bin/bash
-export AGENT_OS_ROOM_DIR='$RoomDir'
-export AGENT_OS_ROLE='$RoleName'
+export AGENT_OS_ROOM_DIR='$safeRoomDir'
+export AGENT_OS_ROLE='$safeRole'
 export AGENT_OS_PARENT_PID='$PID'
+export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 $cwdLine
 $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
 "@
@@ -233,9 +289,9 @@ $output = if (Test-Path $outputFile) {
 }
 else { "No output captured" }
 
-# --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
-Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
-Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
+    # --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
+    Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
+    Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
 # Remove resolved MCP config copy if one was generated
 if ($tempMcpConfig -and (Test-Path $tempMcpConfig)) {
     Remove-Item $tempMcpConfig -Force -ErrorAction SilentlyContinue

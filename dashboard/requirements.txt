@@ -2,8 +2,8 @@ fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
 websockets>=11.0
 zvec>=0.2.0
-sentence-transformers>=2.2.0
 deepagents>=0.4.0
+sentence-transformers==5.2.3
 python-dotenv>=1.0.0
 httpx
 mcp[cli]>=1.1.3

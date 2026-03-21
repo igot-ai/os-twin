@@ -1,0 +1,5 @@
+import sys
+print("ARGS_START")
+for arg in sys.argv:
+    print(arg)
+print("ARGS_END")

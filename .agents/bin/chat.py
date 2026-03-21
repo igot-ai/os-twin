@@ -28,7 +28,6 @@ load_dotenv("~/.ostwin/.env")
 
 from os import getenv
 
-print(getenv("DATALOG_API_KEY"))
 logger = logging.getLogger(__name__)
 
 # Add bin/ parent to path so we can import cli module

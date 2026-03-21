@@ -48,7 +48,7 @@ param(
     [string[]]$Skills = @(),
     [string]$Model = 'gemini-3-flash-preview',
     [int]$Timeout = 600,
-    [string]$CLI = 'deepagents',
+    [string]$CLI = 'agent',
     [string]$PromptContent = ''
 )
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Optional
 
@@ -215,6 +216,54 @@ class OSTwinStore:
             logger.debug("Embedding failed for text: %s", e)
             return None
 
+    # ── Text Sanitization ──────────────────────────────────────────────
+
+    @staticmethod
+    def _sanitize_text(text: str) -> str:
+        """Sanitize text for zvec storage.
+
+        Preserves common Unicode punctuation (em-dashes, smart quotes, etc.)
+        by translating them to ASCII equivalents, and strips only truly
+        problematic characters (emoji, control chars, etc.).
+        """
+        if not text:
+            return text
+        # Map common Unicode punctuation to ASCII equivalents
+        replacements = {
+            '\u2014': '--',   # em-dash
+            '\u2013': '-',    # en-dash
+            '\u2015': '--',   # horizontal bar
+            '\u2018': "'",    # left single quote
+            '\u2019': "'",    # right single quote
+            '\u201C': '"',    # left double quote
+            '\u201D': '"',    # right double quote
+            '\u2026': '...',  # ellipsis
+            '\u00A0': ' ',    # non-breaking space
+            '\u2022': '*',    # bullet
+            '\u00B7': '*',    # middle dot
+            '\u2011': '-',    # non-breaking hyphen
+            '\u2010': '-',    # hyphen
+            '\u2212': '-',    # minus sign
+            '\u00AB': '<<',   # left guillemet
+            '\u00BB': '>>',   # right guillemet
+            '\u2039': '<',    # single left guillemet
+            '\u203A': '>',    # single right guillemet
+        }
+        for uc, ascii_eq in replacements.items():
+            text = text.replace(uc, ascii_eq)
+        # For remaining non-ASCII: try NFKD normalization then drop unsupported
+        result = []
+        for ch in text:
+            if ord(ch) < 128:
+                result.append(ch)
+            else:
+                decomposed = unicodedata.normalize('NFKD', ch)
+                ascii_part = decomposed.encode('ascii', errors='ignore').decode('ascii')
+                if ascii_part:
+                    result.append(ascii_part)
+                # else: character is dropped (emoji, CJK, etc.)
+        return ''.join(result)
+
     # ── Message Indexing ───────────────────────────────────────────────
 
     def index_message(self, room_id: str, msg: dict) -> bool:
@@ -227,8 +276,7 @@ class OSTwinStore:
 
         body = str(msg.get("body", ""))
         # Sanitize: zvec C++ layer can't handle some Unicode chars (emoji etc.)
-        # Encode to ascii with replacement, then decode back
-        body_clean = body.encode("ascii", errors="replace").decode("ascii")
+        body_clean = self._sanitize_text(body)
         embedding = self._embed_text(body)
 
         # zvec requires the vector field — use zero vector as fallback
@@ -330,7 +378,7 @@ class OSTwinStore:
         if self._plans is None:
             return False
 
-        content_clean = content.encode("ascii", errors="replace").decode("ascii")
+        content_clean = self._sanitize_text(content)
         embedding = self._embed_text(f"{title} {content_clean[:1000]}")
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
@@ -362,7 +410,7 @@ class OSTwinStore:
         if self._epics is None:
             return False
 
-        body_clean = body.encode("ascii", errors="replace").decode("ascii")
+        body_clean = self._sanitize_text(body)
         embed_text = f"{epic_ref} {title} {body_clean[:1000]}"
         embedding = self._embed_text(embed_text)
         if embedding is None:

@@ -31,6 +31,12 @@ param(
 
     [string]$AgentCmd = '',
 
+    # Optional feedback from rejection to apply to refinement.
+    [string]$Feedback = '',
+
+    # Optional room directory for AI context. Default uses a temp room.
+    [string]$RoomDir = '',
+
     # Dashboard plan ID to sync after expansion.
     # Defaults to the filename stem of $OutFile (e.g. 'c0d5ec36aa48' from 'c0d5ec36aa48.md').
     [string]$PlanId = ''
@@ -60,7 +66,7 @@ if (-not $OutFile) {
 }
 
 # Accept - (single hyphen) as separator; also accept —, – for legacy
-$epicPattern = '(?m)^## (EPIC-\d+)\s*[-—–]\s*(.+)$'
+$epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–?]\s*(.+)$'
 
 $epicMatches = [regex]::Matches($planContent, $epicPattern)
 if ($epicMatches.Count -eq 0) {
@@ -77,17 +83,25 @@ Write-Host ""
 # --- Refinement loop ---
 $refinedEpics = @{}
 
-# Create a temporary room for expansion
-$warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
-               else { Join-Path (Split-Path $agentsDir) ".war-rooms" }
-$expansionRoom = Join-Path $warRoomsDir "room-expansion"
-if (-not (Test-Path $expansionRoom)) {
-    New-Item -ItemType Directory -Path $expansionRoom -Force | Out-Null
+# Create a temporary room for expansion if not provided
+$ownsTempRoom = $false
+$expansionRoom = if ($RoomDir) { $RoomDir } else {
+    $warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
+                   else { Join-Path (Split-Path $agentsDir) ".war-rooms" }
+    $er = Join-Path $warRoomsDir "room-expansion"
+    if (-not (Test-Path $er)) {
+        New-Item -ItemType Directory -Path $er -Force | Out-Null
+    }
+    $ownsTempRoom = $true
+    $er
 }
 
 foreach ($em in $epicMatches) {
     $epicRef = $em.Groups[1].Value
     $epicTitle = $em.Groups[2].Value.Trim()
+
+    # Detect heading level (## or ###)
+    $headingPrefix = if ($em.Value -match '^(#{2,3})') { $Matches[1] } else { '##' }
 
     # Find epic section
     $epicStart = $em.Index
@@ -96,38 +110,8 @@ foreach ($em in $epicMatches) {
     $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
 
     # --- Check if already well-specified ---
-    $dodPatternCheck = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
-    $acPatternCheck  = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
-
-    # Extract description body: everything between the header line and the first ####
-    # Using string split is more reliable than a multiline regex across PowerShell versions
-    $descBody = ""
-    $firstSubheader = $epicSection.IndexOf("`n####")
-    if ($firstSubheader -gt 0) {
-        # Skip the first line (the ## EPIC- header itself) then take up to the first ####
-        $firstNewline = $epicSection.IndexOf("`n")
-        if ($firstNewline -ge 0 -and $firstNewline -lt $firstSubheader) {
-            $descBody = $epicSection.Substring($firstNewline + 1, $firstSubheader - $firstNewline - 1).Trim()
-        }
-    }
-    
-    $dodCount = 0
-    if ($epicSection -match $dodPatternCheck) {
-        $dodCount = ([regex]::Matches($Matches[1], '- \[[ x]\]\s*(.+)')).Count
-    }
-    
-    $acCount = 0
-    if ($epicSection -match $acPatternCheck) {
-        $acCount = ([regex]::Matches($Matches[1], '- \[[ x]\]\s*(.+)')).Count
-    }
-
-    $bulletCount = 0
-    if ($descBody) {
-        $bulletCount = ([regex]::Matches($descBody, '(?m)^[-*]\s+')).Count
-    }
-
-    # Threshold: same as Start-Plan.ps1 — 5 DoD, 5 AC, 2 description bullets
-    if ($dodCount -ge 5 -and $acCount -ge 5 -and $bulletCount -ge 2) {
+    # If feedback is provided, we must refine even if already well-specified.
+    if (-not $Feedback -and -not (Test-Underspecified -Content $epicSection)) {
         Write-Host "  ${epicRef} is already well-specified. Skipping."
         continue
     }
@@ -139,26 +123,29 @@ foreach ($em in $epicMatches) {
 
     Write-Host "  Expanding ${epicRef}: ${epicTitle}..." -NoNewline
 
+    $feedbackHeader = if ($Feedback) { "## Feedback to Address`n$Feedback`n" } else { "" }
+
     $prompt = @"
 You are a Senior Software Architect. Your task is to REFINE and EXPAND a high-level Epic into a detailed implementation plan.
 
+$feedbackHeader
 ## Original Epic
 $epicSection
 
 ## Instructions
 Maximize the detail in this plan. Your output MUST be a single markdown block representing the expansion of this Epic, following the Ostwin template:
 
-1. **Description**: Expand the 1-2 line description into 3-5 paragraphs. Cover technical approach, key components, and potential risks.
+1. **Description**: Expand the 1-2 line description into 3-5 paragraphs. Cover technical approach, key components, and potential risks. If feedback is provided above, ensure it is fully addressed in the refined content.
 2. **Implementation Strategy**: Provide a sequential breakdown of the phases required to build this Epic. This should serve as the "detail plan for the team".
 3. **Definition of Done (DoD)**: List at least 5 crystal-clear, verifiable conditions (e.g., "Unit test coverage >= 80%", "Lint clean", "Documentation updated").
 4. **Acceptance Criteria (AC)**: List at least 5 testable scenarios (e.g., "User can login with valid JWT", "System rejects expired tokens with 401").
 5. **Dependencies**: Identify if this TRULY depends on other EPICs from the plan. Only list an EPIC as a dependency if this epic genuinely cannot start until that other epic is finished (e.g. it consumes APIs or schemas defined there). Do NOT assume every epic depends on the one before it — parallel work is preferred when possible. Format as: depends_on: [EPIC-NNN] or depends_on: [] if none.
 
 ## Format Requirement
-Return ONLY the refined markdown starting with '## $epicRef - $epicTitle'. Use a single hyphen '-' as the separator. Do NOT use '?', '—', '###', or 'Epic:'. Do not include any other text, chatter, or preamble.
+Return ONLY the refined markdown starting with '$headingPrefix $epicRef - $epicTitle'. Use a single hyphen '-' as the separator. Do not include any other text, chatter, or preamble.
 
 ### EXAMPLE OUTPUT
-## EPIC-001 - Build Auth Module
+$headingPrefix EPIC-001 - Build Auth Module
 
 [Detailed Description here...]
 
@@ -183,7 +170,38 @@ depends_on: []
     }
 
     if ($result.ExitCode -eq 0) {
-        $refinedEpics[$epicRef] = $result.Output.Trim()
+        $expanded = $result.Output.Trim()
+
+        # Preserve per-epic metadata lines (Role/Roles, Objective, Working_dir,
+        # Capabilities, Pipeline) that the AI may have dropped during expansion.
+        $metaLines = @()
+        foreach ($metaPattern in @(
+            '(?m)^Roles?:\s*.+$',
+            '(?m)^Objective:\s*.+$',
+            '(?m)^Working_dir:\s*.+$',
+            '(?m)^Capabilities:\s*.+$',
+            '(?m)^Pipeline:\s*.+$'
+        )) {
+            $metaMatch = [regex]::Match($epicSection, $metaPattern)
+            if ($metaMatch.Success) {
+                $metaVal = $metaMatch.Value
+                # Only inject if the expanded output doesn't already contain it
+                if ($expanded -notmatch [regex]::Escape($metaVal)) {
+                    $metaLines += $metaVal
+                }
+            }
+        }
+        if ($metaLines.Count -gt 0) {
+            # Insert metadata right after the ## header line
+            $headerEnd = [regex]::Match($expanded, '(?m)^#{2,3}\s+.+$')
+            if ($headerEnd.Success) {
+                $insertAt = $headerEnd.Index + $headerEnd.Length
+                $metaBlock = "`n" + ($metaLines -join "`n")
+                $expanded = $expanded.Insert($insertAt, $metaBlock)
+            }
+        }
+
+        $refinedEpics[$epicRef] = $expanded
         Write-Host " [DONE]" -ForegroundColor Green
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
@@ -203,12 +221,12 @@ $newPlanContent = $planContent
 
 foreach ($ref in $refinedEpics.Keys) {
     # Find the original epic section again to replace it
-    $targetMatch = [regex]::Match($newPlanContent, "(?m)^## ${ref}\s*[-—–]\s*.+$")
+    $targetMatch = [regex]::Match($newPlanContent, "(?m)^#{2,3}\s+${ref}\s*[-—–]\s*.+$")
     if ($targetMatch.Success) {
         $start = $targetMatch.Index
-        # Find end of section: next ## EPIC- header or horizontal rule
+        # Find end of section: next ## or ### EPIC- header or horizontal rule
         $afterRef = $newPlanContent.Substring($start + $targetMatch.Length)
-        $nextSectionMatch = [regex]::Match($afterRef, "(?m)^(^## EPIC-|---)")
+        $nextSectionMatch = [regex]::Match($afterRef, "(?m)^(#{2,3}\s+EPIC-|---)")
         $end = if ($nextSectionMatch.Success) { $start + $targetMatch.Length + $nextSectionMatch.Index } else { $newPlanContent.Length }
         
         $newPlanContent = $newPlanContent.Remove($start, $end - $start).Insert($start, $refinedEpics[$ref] + "`n")
@@ -216,7 +234,7 @@ foreach ($ref in $refinedEpics.Keys) {
 }
 
 # Normalize epic header separators: replace —, – with single -
-$newPlanContent = $newPlanContent -replace '(?m)^(## EPIC-\d+)\s*[—–?]\s*', '$1 - '
+$newPlanContent = $newPlanContent -replace '(?m)^(#{2,3}\s+EPIC-\d+)\s*[—–]\s*', '$1 - '
 $newPlanContent | Out-File -FilePath $OutFile -Encoding utf8
 
 Write-Host ""
@@ -238,5 +256,17 @@ if (-not $DryRun) {
     }
 }
 
-# Clean up temporary room
-Remove-Item $expansionRoom -Recurse -Force -ErrorAction SilentlyContinue
+# --- Generate planning-DAG.json from enriched plan content ---
+if (-not $DryRun) {
+    $buildPlanningDag = Join-Path $scriptDir "Build-PlanningDAG.ps1"
+    if (Test-Path $buildPlanningDag) {
+        $planningDagOut = Join-Path $planDir ".planning-DAG.json"
+        Write-Host "[EXPAND] Generating planning-DAG.json from expanded plan..." -ForegroundColor Cyan
+        & $buildPlanningDag -PlanFile $OutFile -OutFile $planningDagOut -RoomDir $expansionRoom
+    }
+}
+
+# Clean up temporary room (only if we created it — never delete an externally provided RoomDir)
+if ($ownsTempRoom) {
+    Remove-Item $expansionRoom -Recurse -Force -ErrorAction SilentlyContinue
+}

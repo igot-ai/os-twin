@@ -14,16 +14,8 @@
     "lint-clean",
     "no-hardcoded-secrets"
   ],
-  "skills": [
-    "python",
-    "javascript",
-    "typescript",
-    "powershell",
-    "bash",
-    "sql",
-    "docker"
-  ],
-  "cli": "deepagents",
+  "skill_refs": [],
+  "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 600
 }

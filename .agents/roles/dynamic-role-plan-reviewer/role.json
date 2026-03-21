@@ -11,7 +11,7 @@
   "skills": [
     "create-role"
   ],
-  "cli": "deepagents",
+  "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 600
 }

@@ -18,19 +18,19 @@ export default function SummaryChips({
   return (
     <div className="summary-chips">
       <span className="summary-chip chip-pending">
-        pending: <span>{pending}</span>
+        pending: <span id="sum-pending">{pending}</span>
       </span>
       <span className="summary-chip chip-eng">
-        eng: <span>{eng}</span>
+        eng: <span id="sum-eng">{eng}</span>
       </span>
       <span className="summary-chip chip-qa">
-        qa: <span>{qa}</span>
+        qa: <span id="sum-qa">{qa}</span>
       </span>
       <span className="summary-chip chip-passed">
-        passed: <span>{passed}</span>
+        passed: <span id="sum-passed">{passed}</span>
       </span>
       <span className="summary-chip chip-failed">
-        failed: <span>{failed}</span>
+        failed: <span id="sum-failed">{failed}</span>
       </span>
     </div>
   );

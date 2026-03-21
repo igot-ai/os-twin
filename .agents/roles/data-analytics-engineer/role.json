@@ -1,0 +1,19 @@
+{
+  "name": "data-analytics-engineer",
+  "description": "Write an efficient Python script to parse sales performance data, compute required KPI metrics and trends, and generate a validated JSON report specification.",
+  "capabilities": [
+    "python-programming",
+    "data-manipulation",
+    "json-serialization",
+    "cli-execution"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

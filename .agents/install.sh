@@ -456,6 +456,24 @@ setup_venv() {
     fi
     ok "Dashboard dependencies up to date"
   fi
+
+  # Install role-specific requirements (e.g. roles/reporter/requirements.txt)
+  local roles_dir="$INSTALL_DIR/roles"
+  if [[ -d "$roles_dir" ]]; then
+    for role_reqs in "$roles_dir"/*/requirements.txt; do
+      [[ -f "$role_reqs" ]] || continue
+      local role_name
+      role_name=$(basename "$(dirname "$role_reqs")")
+      step "Syncing $role_name role dependencies..."
+      if check_uv; then
+        TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
+          --python "$VENV_DIR/bin/python" -r "$role_reqs"
+      else
+        "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$role_reqs"
+      fi
+      ok "$role_name role dependencies up to date"
+    done
+  fi
 }
 
 # ─── .env setup ───────────────────────────────────────────────────────────────
@@ -473,7 +491,11 @@ setup_env() {
   step "Creating .env file at $env_file..."
   mkdir -p "$INSTALL_DIR"
 
-  cat > "$env_file" << 'EOF'
+  # Generate a secure API key for dashboard auth
+  local generated_api_key
+  generated_api_key="ostwin_$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
+
+  cat > "$env_file" << ENVEOF
 # Ostwin — Environment Variables
 # Edit this file and re-start the dashboard (ostwin stop && ostwin start)
 # Lines starting with # are comments.
@@ -487,9 +509,13 @@ setup_env() {
 # DASHBOARD_PORT=9000
 # DASHBOARD_HOST=0.0.0.0
 
+# ── Dashboard Authentication ────────────────────────────────────────────────
+# API key for CLI ↔ Dashboard communication. Auto-generated on first install.
+OSTWIN_API_KEY=${generated_api_key}
+
 # ── Agent OS settings ───────────────────────────────────────────────────────
 # OSTWIN_LOG_LEVEL=INFO
-EOF
+ENVEOF
 
   chmod 600 "$env_file"   # Protect API keys
   ok ".env created — edit $env_file to add your API keys"
@@ -938,14 +964,19 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
   DASHBOARD_PID=$!
   echo "$DASHBOARD_PID" > "$INSTALL_DIR/dashboard.pid"
 
+  # Read OSTWIN_API_KEY for auth headers
+  OSTWIN_API_KEY="${OSTWIN_API_KEY:-}"
+
   # Health-check: poll /api/status up to 10s
   step "Waiting for dashboard to be healthy..."
   DASH_OK=false
   for _i in $(seq 1 10); do
-    if curl -sf "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1; then
-      DASH_OK=true
-      break
+    if [[ -n "$OSTWIN_API_KEY" ]]; then
+      curl -sf -H "X-API-Key: $OSTWIN_API_KEY" "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1 && DASH_OK=true
+    else
+      curl -sf "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1 && DASH_OK=true
     fi
+    if $DASH_OK; then break; fi
     sleep 1
   done
 
@@ -954,6 +985,26 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
   else
     warn "Dashboard did not respond in 10s — check $INSTALL_DIR/logs/dashboard.log"
     info "Start manually: bash $DASHBOARD_SCRIPT"
+  fi
+
+  # ─── 9b. Publish skills to backend ───────────────────────────────────────
+  if $DASH_OK; then
+    header "9b. Publishing skills to backend"
+    step "Syncing on-disk skills to vector store..."
+    sync_result=""
+    if [[ -n "$OSTWIN_API_KEY" ]]; then
+      sync_result=$(curl -sf -X POST -H "X-API-Key: $OSTWIN_API_KEY" "http://localhost:${DASHBOARD_PORT}/api/skills/sync" 2>&1) || true
+    else
+      sync_result=$(curl -sf -X POST "http://localhost:${DASHBOARD_PORT}/api/skills/sync" 2>&1) || true
+    fi
+    if [[ -n "$sync_result" ]]; then
+      # Parse synced_count from JSON response
+      synced_count=$(echo "$sync_result" | grep -o '"synced_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
+      ok "Skills published ($synced_count synced)"
+      info "$sync_result"
+    else
+      warn "Skills sync returned empty — vector store may be unavailable"
+    fi
   fi
 else
   warn "Dashboard not found — skipping auto-start"
@@ -980,7 +1031,25 @@ echo -e "  ${BOLD}Dashboard:${NC}"
 echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
 echo ""
-echo -e "  ${BOLD}API Key Setup:${NC}"
+
+# Display OSTWIN_API_KEY for frontend authentication
+OSTWIN_API_KEY="${OSTWIN_API_KEY:-}"
+if [[ -z "$OSTWIN_API_KEY" ]]; then
+  # Try reading from .env
+  OSTWIN_API_KEY=$(grep -E '^OSTWIN_API_KEY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d'=' -f2-)
+fi
+if [[ -n "$OSTWIN_API_KEY" ]]; then
+  echo -e "  ${BOLD}🔑 Dashboard Authentication Key:${NC}"
+  echo ""
+  echo -e "    ${YELLOW}${BOLD}${OSTWIN_API_KEY}${NC}"
+  echo ""
+  echo -e "    ${DIM}Use this key to authenticate with the dashboard frontend.${NC}"
+  echo -e "    ${DIM}The frontend will prompt you to enter this key on first visit.${NC}"
+  echo -e "    ${DIM}Stored in: ${INSTALL_DIR}/.env${NC}"
+  echo ""
+fi
+
+echo -e "  ${BOLD}AI Provider Keys:${NC}"
 echo -e "    ${DIM}Edit your .env file (keys auto-migrated if already in shell):${NC}"
 echo -e "    nano ${INSTALL_DIR}/.env"
 echo -e "    ${DIM}Then restart dashboard: ostwin stop && ostwin start${NC}"

@@ -56,6 +56,102 @@ function Read-OstwinConfig {
     return $current
 }
 
+function Test-Underspecified {
+    <#
+    .SYNOPSIS
+        Checks if a plan or epic section is underspecified.
+    .PARAMETER Content
+        The markdown content of the full plan or a single epic section.
+    .PARAMETER MinDod
+        Minimum number of checkboxes in Definition of Done. Default: 5.
+    .PARAMETER MinAc
+        Minimum number of checkboxes in Acceptance Criteria. Default: 5.
+    .PARAMETER MinBullets
+        Minimum number of bullet points in description. Default: 2.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Content,
+        [int]$MinDod = 5,
+        [int]$MinAc = 5,
+        [int]$MinBullets = 2
+    )
+
+    $epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–]\s*(.+)$'
+    
+    # If the content contains multiple "## EPIC-NNN" headers, iterate through them
+    $epicMatches = [regex]::Matches($Content, $epicPattern)
+    
+    if ($epicMatches.Count -gt 0) {
+        foreach ($em in $epicMatches) {
+            $epicStart = $em.Index
+            $nextMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
+            $epicEnd = if ($nextMatch) { $nextMatch.Index } else { $Content.Length }
+            $epicSection = $Content.Substring($epicStart, $epicEnd - $epicStart)
+            
+            if (Test-SingleEpicUnderspecified -EpicSection $epicSection -MinDod $MinDod -MinAc $MinAc -MinBullets $MinBullets) {
+                return $true
+            }
+        }
+        return $false
+    }
+    else {
+        # Check as a single epic section
+        return Test-SingleEpicUnderspecified -EpicSection $Content -MinDod $MinDod -MinAc $MinAc -MinBullets $MinBullets
+    }
+}
+
+function Test-SingleEpicUnderspecified {
+    param([string]$EpicSection, [int]$MinDod, [int]$MinAc, [int]$MinBullets)
+    
+    $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
+    $acPattern  = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^## EPIC-|---|\z)'
+    
+    # Extract description body: from first newline after header to first subheader or end
+    $descBody = ""
+    $firstNewline = $EpicSection.IndexOf("`n")
+    if ($firstNewline -ge 0) {
+        $firstSubheader = $EpicSection.IndexOf("`n####", $firstNewline)
+        if ($firstSubheader -gt 0) {
+            $descBody = $EpicSection.Substring($firstNewline + 1, $firstSubheader - $firstNewline - 1).Trim()
+        } else {
+            # Check for the start of the next EPIC or a horizontal rule if not already handled
+            $nextEpic = $EpicSection.IndexOf("`n## EPIC-", $firstNewline)
+            $hr = $EpicSection.IndexOf("`n---", $firstNewline)
+            $endIndex = $EpicSection.Length
+            if ($nextEpic -gt 0 -and $nextEpic -lt $endIndex) { $endIndex = $nextEpic }
+            if ($hr -gt 0 -and $hr -lt $endIndex) { $endIndex = $hr }
+            $descBody = $EpicSection.Substring($firstNewline + 1, $endIndex - $firstNewline - 1).Trim()
+        }
+    }
+    
+    $dodCount = 0
+    if ($EpicSection -match $dodPattern) {
+        $dodBlock = $Matches[1]
+        $dodCount = ([regex]::Matches($dodBlock, '(?m)^[-*] \[[ x]\]\s*(.+)')).Count
+    }
+    
+    $acCount = 0
+    if ($EpicSection -match $acPattern) {
+        $acBlock = $Matches[1]
+        $acCount = ([regex]::Matches($acBlock, '(?m)^[-*] \[[ x]\]\s*(.+)')).Count
+    }
+
+    $bulletCount = 0
+    if ($descBody) {
+        # Count structured content: dash/asterisk bullets, numbered items, OR paragraphs (50+ char lines)
+        $bulletCount = ([regex]::Matches($descBody, '(?m)^([-*]\s+|\d+\.\s+)')).Count
+        if ($bulletCount -lt $MinBullets) {
+            # Fall back to counting substantial paragraphs (lines with 50+ chars)
+            $paraCount = ([regex]::Matches($descBody, '(?m)^.{50,}')).Count
+            if ($paraCount -gt $bulletCount) { $bulletCount = $paraCount }
+        }
+    }
+    
+    return ($dodCount -lt $MinDod -or $acCount -lt $MinAc -or $bulletCount -lt $MinBullets)
+}
+
 function Set-WarRoomStatus {
     <#
     .SYNOPSIS
@@ -71,7 +167,7 @@ function Set-WarRoomStatus {
         [string]$RoomDir,
 
         [Parameter(Mandatory)]
-        [ValidateSet('pending', 'engineering', 'qa-review', 'fixing', 'passed', 'failed-final', 'blocked', 'manager-triage', 'architect-review', 'plan-revision')]
+        [ValidatePattern('^[a-z][a-z0-9-]*$')]
         [string]$NewStatus
     )
 
@@ -180,4 +276,4 @@ function Get-OstwinAgentsDir {
     return $dir
 }
 
-Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Get-TruncatedText, Get-OstwinAgentsDir
+Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Get-TruncatedText, Get-OstwinAgentsDir, Test-Underspecified, Test-SingleEpicUnderspecified

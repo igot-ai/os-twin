@@ -87,27 +87,67 @@ $gateList
 }
 
 # Section 4: Skills context
-if ($role.Skills -and $role.Skills.Count -gt 0) {
-    $skillList = ($role.Skills | ForEach-Object { "- $_" }) -join "`n"
-    $sections.Add(@"
-
-## Skills
-
-$skillList
-"@)
-
-    # Load skill context files if they exist
-    $skillsDir = Join-Path $role.RolePath "skills"
-    if (Test-Path $skillsDir) {
-        Get-ChildItem $skillsDir -Filter "*.md" -ErrorAction SilentlyContinue | ForEach-Object {
-            $skillContent = Get-Content $_.FullName -Raw
-            $sections.Add(@"
-
-### Skill: $($_.BaseName)
-
-$skillContent
-"@)
+$resolveSkills = Join-Path $PSScriptRoot "Resolve-RoleSkills.ps1"
+if (Test-Path $resolveSkills) {
+    try {
+        $skillsDir = Join-Path (Split-Path (Split-Path $PSScriptRoot)) "skills"
+        
+        # Testing override
+        if ($ExtraContext -match 'FORCE_SKILLS_DIR=(.+)') {
+            $skillsDir = $Matches[1].Trim()
         }
+
+        $resolved = & $resolveSkills -RoleName $role.Name -RolePath $role.RolePath -SkillsBaseDir $skillsDir
+        
+        if ($resolved -and $resolved.Count -gt 0) {
+            $sections.Add("`n## Skills`n")
+            foreach ($skill in $resolved) {
+                if (Test-Path $skill.Path) {
+                    $rawContent = Get-Content $skill.Path -Raw
+                    $content = $rawContent
+                    
+                    # Preflight check for tags/trust_level (EPIC-001)
+                    $preflight = "warn"
+                    try {
+                        $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG } else { Join-Path (Split-Path (Split-Path $PSScriptRoot)) "config.json" }
+                        if (Test-Path $configPath) {
+                            $fullConfig = Get-Content $configPath -Raw | ConvertFrom-Json
+                            if ($fullConfig.manager.preflight_skill_check) { $preflight = $fullConfig.manager.preflight_skill_check }
+                        }
+                    } catch {}
+
+                    # Strip YAML frontmatter if present and check metadata
+                    if ($rawContent -match '(?s)^---\s*\n(.*?)\n---\s*\n(.*)$') {
+                        $frontmatter = $Matches[1]
+                        $content = $Matches[2]
+
+                        if ($preflight -eq "warn") {
+                            if ($frontmatter -notmatch 'tags\s*:' -or $frontmatter -notmatch 'trust_level\s*:') {
+                                Write-Warning "Skill '$($skill.Name)' is missing required metadata (tags or trust_level) in SKILL.md frontmatter."
+                            }
+                        }
+                    }
+                    else {
+                        if ($preflight -eq "warn") {
+                            Write-Warning "Skill '$($skill.Name)' is missing YAML frontmatter in SKILL.md."
+                        }
+                    }
+                    
+                    $sections.Add(@"
+### Skill: $($skill.Name) ($($skill.Tier))
+
+$content
+"@)
+                }
+            }
+        }
+    }
+    catch {
+        if ($_.ToString() -match "Skill Not Found") {
+            Write-Error $_
+            exit 1
+        }
+        Write-Warning "Failed to resolve skills: $_"
     }
 }
 
@@ -228,5 +268,23 @@ $ExtraContext
 
 # --- Compose final prompt ---
 $finalPrompt = $sections -join "`n"
+
+# --- Token Size Warning ---
+$maxBytes = 102400 # Default fallback
+try {
+    $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG } else { Join-Path (Split-Path (Split-Path $PSScriptRoot)) "config.json" }
+    if (Test-Path $configPath) {
+        $fullConfig = Get-Content $configPath -Raw | ConvertFrom-Json
+        $roleNameLower = $role.Name.ToLower()
+        if ($fullConfig.$roleNameLower.max_prompt_bytes) {
+            $maxBytes = $fullConfig.$roleNameLower.max_prompt_bytes
+        }
+    }
+} catch {}
+
+$promptSize = [System.Text.Encoding]::UTF8.GetByteCount($finalPrompt)
+if ($promptSize -gt $maxBytes) {
+    Write-Warning "System prompt size ($promptSize bytes) exceeds threshold ($maxBytes bytes) for role '$($role.Name)'."
+}
 
 Write-Output $finalPrompt

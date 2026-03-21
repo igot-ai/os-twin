@@ -29,25 +29,40 @@ until every task passes quality gates and the team agrees on **RELEASE notes**.
 │              │  │              │  │              │
 │ ┌──────────┐ │  │ ┌──────────┐ │  │ ┌──────────┐ │
 │ │ Engineer │ │  │ │ Engineer │ │  │ │ Engineer │ │
-│ │(deepagents│ │  │ │(deepagents│ │  │ │(deepagents│ │
+│ │ (cli.py)  │ │  │ │ (cli.py)  │ │  │ │ (cli.py)  │ │
 │ └────┬─────┘ │  │ └────┬─────┘ │  │ └────┬─────┘ │
 │      │       │  │      │       │  │      │       │
 │  channel.jsonl  │  channel.jsonl  │  channel.jsonl │
 │      │       │  │      │       │  │      │       │
 │ ┌────┴─────┐ │  │ ┌────┴─────┐ │  │ ┌────┴─────┐ │
 │ │    QA    │ │  │ │    QA    │ │  │ │    QA    │ │
-│ │(gemini)  │ │  │ │(gemini)  │ │  │ │(gemini)  │ │
+│ │ (cli.py)  │ │  │ │ (cli.py)  │ │  │ │ (cli.py)  │ │
 │ └──────────┘ │  │ └──────────┘ │  │ └──────────┘ │
 └──────────────┘  └──────────────┘  └──────────────┘
 ```
+
+### Skill Isolation
+
+Agent capabilities are managed through a hierarchical skill resolution system to minimize context bloat:
+
+1. **Global Skills** (`.agents/skills/global/`): Automatically loaded for all agents.
+2. **Role-Specific Skills** (`.agents/skills/roles/<role_name>/`): Implicitly loaded based on the agent's assigned role.
+3. **Explicit Skills** (`skill_refs` in `role.json`): Manually opted-in for specific personas, resolved from the base `.agents/skills/` directory.
+
+Deduplication ensures that if a skill exists in multiple tiers, the most specific one (Explicit > Role > Global) is used.
+
+## Prompt Limits
+
+The system prompt builder evaluates the final payload size against `max_prompt_bytes` defined in `config.json` for each role. A warning is emitted if the threshold is breached.
 
 ## Roles
 
 | Role             | CLI Tool       | Mode              | Responsibility                     |
 |------------------|----------------|-------------------|------------------------------------|
 | Engineer Manager | bash (loop.sh) | Long-running loop | Orchestrate, monitor, route, release |
-| Engineer         | `deepagents`   | Non-interactive   | Write code, fix bugs               |
-| QA Engineer      | `gemini`       | Non-interactive   | Test, review, approve/reject       |
+| Engineer         | `.agents/bin/cli.py` | Non-interactive   | Write code, fix bugs               |
+| QA Engineer      | `.agents/bin/cli.py` | Non-interactive   | Test, review, approve/reject       |
+| Architect        | `.agents/bin/cli.py` | Non-interactive   | Design systems, review arch, ADRs |
 
 ## Communication Protocol
 

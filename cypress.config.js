@@ -84,7 +84,10 @@ module.exports = defineConfig({
 
             // Create war-room directories
             const warRoomsDir = path.join(workingDir, '.war-rooms');
-            if (!fs.existsSync(warRoomsDir)) fs.mkdirSync(warRoomsDir, { recursive: true });
+            if (fs.existsSync(warRoomsDir)) {
+              fs.rmSync(warRoomsDir, { recursive: true, force: true });
+            }
+            fs.mkdirSync(warRoomsDir, { recursive: true });
 
             for (const room of (rooms || [])) {
               const roomDir = path.join(warRoomsDir, room.roomId);

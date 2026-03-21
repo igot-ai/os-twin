@@ -8,10 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 
-# Add the project root to sys.path to allow running this script directly
-_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Add the project root and dashboard dir to sys.path
+_dashboard_dir = os.path.dirname(os.path.abspath(__file__))
+_root = os.path.dirname(_dashboard_dir)
 if _root not in sys.path:
     sys.path.insert(0, _root)
+if _dashboard_dir not in sys.path:
+    sys.path.insert(0, _dashboard_dir)
 
 from dashboard.api_utils import (
     PROJECT_ROOT,
@@ -22,7 +25,7 @@ from dashboard.api_utils import (
     NEXTJS_OUT_DIR,
 )
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills
 from dashboard.global_state import broadcaster
 
 # Configure logging
@@ -30,6 +33,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OS Twin Command Center", version="0.1.0")
+
+# --- WebSocket ---
+from fastapi import WebSocket, WebSocketDisconnect
+from dashboard.ws_router import manager
+
+@app.websocket("/api/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        await websocket.send_json({
+            "event": "connected",
+            "timestamp": "now"
+        })
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except: pass
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(websocket)
 
 # --- Middleware ---
 app.add_middleware(
@@ -40,20 +67,14 @@ app.add_middleware(
 )
 
 # --- Routes ---
-# Note: we need to import create_ws_router from the ws module in the parent directory
-try:
-    from ws import create_ws_router
-
-    app.include_router(create_ws_router(), prefix="/api")
-except ImportError:
-    logger.warning("Could not import create_ws_router from ws.py")
-
+# (removed importlib logic for ws_router)
 app.include_router(auth.router)
 app.include_router(engagement.router)
 app.include_router(plans.router)
 app.include_router(rooms.router)
 app.include_router(system.router)
 app.include_router(mcp.router)
+app.include_router(skills.router)
 
 # --- Static Frontend Serving ---
 if USE_NEXTJS:

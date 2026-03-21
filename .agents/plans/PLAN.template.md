@@ -3,13 +3,14 @@ When generating a plan, you MUST explicitly define a `Lifecycle` for EACH Epic.
 The roles and lifecycle MUST BE DYNAMICALLY DESIGNED based on the specific requirements of the Epic. 
 Not all tasks require an engineer or qa. For example, a research epic might only need a researcher and analyst, while a documentation epic might need a writer and editor.
 Whatever the roles, you must design a closed-loop workflow optimized for those specific autonomous agents, allowing them to operate without stalling.
+IMPORTANT: Lifecycle state names MUST use the ROLE AGENT NAMES (e.g., `researcher`, `analyst`, `engineer`, `qa`), NOT generic action names (e.g., `research`, `review`, `drafting`). This is because the manager loop uses state names to determine which agent to invoke.
 Always map out the transition states, including what happens on failure.
 
 Example of a dynamic closed workflow for a generic task:
 ```text
-pending → [Primary Task] → [Review/Audit] ─┬─► passed → signoff
-                 ▲                         │
-                 └───── [Fixing State] ◄───┘ (on fail)
+pending → [primary-role] → [reviewer-role] ─┬─► passed → signoff
+                ▲                           │
+                └───── [primary-role] ◄─────┘ (on fail → fixing)
 ```
 -->
 
@@ -36,7 +37,7 @@ Working_dir: <path>             (scope agents to a subdirectory)
 Capabilities: <cap1, cap2>     (optional: auto-generates review stages)
 ```
 
-Available roles: architect, engineer, qa, security-auditor, database-architect, devops, or any custom role.
+{{AVAILABLE_ROLES}}
 
 #### War-Room Lifecycle (Closed Loop)
 
@@ -45,16 +46,16 @@ Every war-room runs a dynamically designed closed lifecycle where the specific a
 For example, an Engineering Epic might use:
 
 ```text
-pending → engineering → qa-review ─┬─► passed → signoff
-               ▲                   │
-               └──── fixing ◄──────┘ (on fail)
+pending → engineer → qa ─┬─► passed → signoff
+             ▲            │
+             └─ engineer ◄┘ (on fail → fixing)
 ```
 
 While a Research Epic might use:
 ```text
-pending → research → peer-review ─┬─► passed → signoff
-              ▲                   │
-              └──── revising ◄────┘ (on fail)
+pending → researcher → analyst ─┬─► passed → signoff
+              ▲                 │
+              └── researcher ◄──┘ (on fail → fixing)
 ```
 
 - Each loop repeats until the review passes or retries are exhausted.
@@ -102,9 +103,9 @@ Roles: researcher, analyst
 Objective: Investigate market trends and synthesize a strategy document
 Lifecycle:
 ```text
-pending → research → review ─┬─► passed → signoff
-              ▲              │
-              └─ revising ◄──┘ (on fail)
+pending → researcher → analyst ─┬─► passed → signoff
+              ▲                 │
+              └── researcher ◄──┘ (on fail → fixing)
 ```
 
 Tasks: Gather data on competitor products. Analyze features and formulate a strategy document.
@@ -128,10 +129,10 @@ Roles: backend-engineer, frontend-engineer, qa
 Objective: Implement core feature logic and UI
 Lifecycle:
 ```text
-pending → backend-dev → frontend-dev → qa-review ─┬─► passed → signoff
-               ▲              ▲                   │
-               │              └──── ui-fixing ◄───┤ (on ui bug)
-               └──────────── backend-fixing ◄─────┘ (on api bug)
+pending → backend-engineer → frontend-engineer → qa ─┬─► passed → signoff
+               ▲                    ▲                 │
+               │                    └─ frontend-engineer ◄──┤ (on ui bug)
+               └───────────── backend-engineer ◄────────────┘ (on api bug)
 ```
 
 Tasks: Build the APIs based on the strategy. Implement the matching UI.
@@ -155,9 +156,9 @@ Roles: technical-writer, editor
 Objective: Create user guides and deployment documentation
 Lifecycle:
 ```text
-pending → drafting → editorial-review ─┬─► passed → signoff
-             ▲                         │
-             └─────── editing ◄────────┘ (on fail)
+pending → technical-writer → editor ─┬─► passed → signoff
+               ▲                     │
+               └── technical-writer ◄┘ (on fail → fixing)
 ```
 
 Tasks: Write end-user documentation. Produce a runbook for the ops team.
