@@ -961,10 +961,10 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
   # Read OSTWIN_API_KEY for auth headers
   OSTWIN_API_KEY="${OSTWIN_API_KEY:-}"
 
-  # Health-check: poll /api/status up to 10s
-  step "Waiting for dashboard to be healthy..."
+  # Health-check: poll /api/status up to 60s
+  step "Waiting for dashboard to be healthy (up to 60s)..."
   DASH_OK=false
-  for _i in $(seq 1 10); do
+  for _i in $(seq 1 60); do
     if [[ -n "$OSTWIN_API_KEY" ]]; then
       curl -sf -H "X-API-Key: $OSTWIN_API_KEY" "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1 && DASH_OK=true
     else
@@ -977,28 +977,19 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
   if $DASH_OK; then
     ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
   else
-    warn "Dashboard did not respond in 10s — check $INSTALL_DIR/logs/dashboard.log"
+    warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"
     info "Start manually: bash $DASHBOARD_SCRIPT"
   fi
 
   # ─── 9b. Publish skills to backend ───────────────────────────────────────
-  if $DASH_OK; then
-    header "9b. Publishing skills to backend"
-    step "Syncing on-disk skills to vector store..."
-    sync_result=""
-    if [[ -n "$OSTWIN_API_KEY" ]]; then
-      sync_result=$(curl -sf -X POST -H "X-API-Key: $OSTWIN_API_KEY" "http://localhost:${DASHBOARD_PORT}/api/skills/sync" 2>&1) || true
-    else
-      sync_result=$(curl -sf -X POST "http://localhost:${DASHBOARD_PORT}/api/skills/sync" 2>&1) || true
-    fi
-    if [[ -n "$sync_result" ]]; then
-      # Parse synced_count from JSON response
-      synced_count=$(echo "$sync_result" | grep -o '"synced_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-      ok "Skills published ($synced_count synced)"
-      info "$sync_result"
-    else
-      warn "Skills sync returned empty — vector store may be unavailable"
-    fi
+  header "9b. Publishing skills to backend"
+  SYNC_SCRIPT="$INSTALL_DIR/sync-skills.sh"
+  if [[ -x "$SYNC_SCRIPT" ]]; then
+    OSTWIN_HOME="$INSTALL_DIR" DASHBOARD_PORT="$DASHBOARD_PORT" \
+      bash "$SYNC_SCRIPT" --install-from "$INSTALL_DIR"
+  else
+    warn "sync-skills.sh not found — skipping skill sync"
+    info "Expected at $SYNC_SCRIPT"
   fi
 else
   warn "Dashboard not found — skipping auto-start"

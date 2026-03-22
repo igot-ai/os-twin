@@ -215,6 +215,8 @@ Commands:
                                 ostwin role <name> (show subcommands)
                                 ostwin role <name> <sub> [args...]
   health            Check system health
+  skills <sub>      Manage skills installation and sync
+                    Subcommands: sync, install [--from DIR], list
   mcp               Manage MCP extensions
                     Subcommands: install, list, catalog, remove, sync
   reload-env        Reload ~/.ostwin/.env into mcp-config.json env blocks
@@ -620,6 +622,81 @@ else:
   orphans)
     shift
     ps_dispatch "$AGENTS_DIR/bin/Orphans.ps1" "" "$@"
+    ;;
+  skills)
+    shift
+    SUB="${1:-sync}"
+    SYNC_SCRIPT="$AGENTS_DIR/sync-skills.sh"
+    if [[ ! -x "$SYNC_SCRIPT" ]]; then
+      # Fallback to installed home
+      SYNC_SCRIPT="$HOME/.ostwin/sync-skills.sh"
+    fi
+    if [[ ! -x "$SYNC_SCRIPT" ]]; then
+      echo "✗ sync-skills.sh not found" >&2
+      exit 1
+    fi
+    case "$SUB" in
+      sync)
+        shift
+        OSTWIN_HOME="$HOME/.ostwin" bash "$SYNC_SCRIPT" "$@"
+        ;;
+      install)
+        shift
+        # Determine source dir: --from DIR or current directory
+        FROM_DIR=""
+        EXTRA_ARGS=()
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --from) FROM_DIR="$2"; shift 2 ;;
+            *)      EXTRA_ARGS+=("$1"); shift ;;
+          esac
+        done
+        # Default: scan cwd for .agents/skills/
+        if [[ -z "$FROM_DIR" ]]; then
+          for candidate in \
+            "$(pwd)/.agents/skills" \
+            "$(pwd)/skills" \
+            "$(pwd)"; do
+            if [[ -d "$candidate" ]] && find "$candidate" -name "SKILL.md" -type f 2>/dev/null | head -1 | grep -q .; then
+              FROM_DIR="$candidate"
+              break
+            fi
+          done
+        fi
+        if [[ -z "$FROM_DIR" || ! -d "$FROM_DIR" ]]; then
+          echo "✗ No skills found. Specify --from DIR or run from a project root." >&2
+          exit 1
+        fi
+        echo "Installing skills from: $FROM_DIR"
+        OSTWIN_HOME="$HOME/.ostwin" bash "$SYNC_SCRIPT" --install-from "$FROM_DIR" "${EXTRA_ARGS[@]}"
+        ;;
+      list)
+        shift
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        if curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
+          curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/skills" | "$PYTHON" -c "
+import sys, json
+skills = json.load(sys.stdin)
+if not skills:
+    print('No skills found.')
+else:
+    for s in skills:
+        tags = ', '.join(s.get('tags', []))
+        print(f\"  {s['name']:30s}  {s.get('description','')[:50]:50s}  [{tags}]\")
+" 2>/dev/null || echo "Failed to list skills."
+        else
+          echo "⚠  Dashboard not reachable at ${DASHBOARD_URL}" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "Unknown skills subcommand: $SUB" >&2
+        echo "  Usage: ostwin skills sync" >&2
+        echo "         ostwin skills install [--from DIR]" >&2
+        echo "         ostwin skills list" >&2
+        exit 1
+        ;;
+    esac
     ;;
   mcp)
     shift
