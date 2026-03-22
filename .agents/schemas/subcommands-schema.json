@@ -7,7 +7,12 @@
       "type": "string"
     },
     "language": {
-      "enum": ["python", "powershell", "bash", "node"]
+      "enum": [
+        "python",
+        "powershell",
+        "bash",
+        "node"
+      ]
     },
     "module_root": {
       "type": "string",
@@ -22,7 +27,11 @@
             "type": "string"
           },
           "type": {
-            "enum": ["cli", "script", "function"]
+            "enum": [
+              "cli",
+              "script",
+              "function"
+            ]
           },
           "entrypoint": {
             "type": "string"
@@ -42,19 +51,22 @@
                 "items": {
                   "type": "string"
                 }
-              },
-              "optional": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "string"
-                }
               }
             }
           }
         },
-        "required": ["name", "type", "entrypoint", "invoke"]
+        "required": [
+          "name",
+          "type",
+          "entrypoint",
+          "invoke"
+        ]
       }
     }
   },
-  "required": ["role", "language", "subcommands"]
+  "required": [
+    "role",
+    "language",
+    "subcommands"
+  ]
 }

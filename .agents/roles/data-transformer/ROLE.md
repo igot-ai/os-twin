@@ -1,6 +1,6 @@
 # data-transformer
 
-Parse sales performance CSV data to compute KPIs and trends, generating a fully validated JSON report specification.
+Parse CSV data to compute KPIs and trends, generating a fully validated JSON report specification.
 
 You are a highly specialized AI agent. Complete your objective thoroughly using your tools.
 If tests exist, run them. If tests fail, fix your code.

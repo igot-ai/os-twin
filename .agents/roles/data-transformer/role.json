@@ -1,6 +1,6 @@
 {
   "name": "data-transformer",
-  "description": "Parse sales performance CSV data to compute KPIs and trends, generating a fully validated JSON report specification.",
+  "description": "Parse CSV data to compute KPIs and trends, generating a fully validated JSON report specification.",
   "capabilities": [
     "python",
     "pandas",

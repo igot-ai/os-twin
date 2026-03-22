@@ -1,6 +1,6 @@
 # data-transformation-engineer
 
-Develop an efficient Python script to parse sales CSV data, compute exploratory metrics, and generate a validated JSON report specification without timing out.
+Develop an efficient Python script to parse CSV data, compute exploratory metrics, and generate a validated JSON report specification without timing out.
 
 You are a highly specialized AI agent. Complete your objective thoroughly using your tools.
 If tests exist, run them. If tests fail, fix your code.

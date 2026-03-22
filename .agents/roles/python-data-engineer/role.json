@@ -1,12 +1,12 @@
 {
   "name": "python-data-engineer",
-  "description": "To develop a high-performance Python CLI script that ingests sales CSV data, computes exact KPIs and trends, and outputs a validated report JSON specification.",
+  "description": "To develop a high-Python CLI script that ingests CSV data, computes exact KPIs and trends, and outputs a validated report JSON specification.",
   "capabilities": [
     "Python scripting",
     "Data manipulation and aggregation",
     "CLI argument parsing",
     "JSON serialization",
-    "Performance optimization"
+    "optimization"
   ],
   "prompt_file": "ROLE.md",
   "quality_gates": [],

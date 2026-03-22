@@ -1,12 +1,12 @@
 {
   "name": "data-analysis-engineer",
-  "description": "Efficiently parse sales performance CSV data to compute key metrics, perform exploratory analysis, and generate a validated report specification JSON.",
+  "description": "Efficiently parse CSV data to compute key metrics, perform exploratory analysis, and generate a validated report specification JSON.",
   "capabilities": [
     "Python scripting",
     "Data manipulation (pandas)",
     "CLI argument parsing",
     "JSON generation and validation",
-    "Performance optimization"
+    "optimization"
   ],
   "prompt_file": "ROLE.md",
   "quality_gates": [],

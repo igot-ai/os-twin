@@ -1,8 +1,8 @@
 {
   "name": "fast-data-exploration-engineer",
-  "description": "Develop a highly efficient Python script using Pandas to parse sales data, compute metrics and trends, and quickly generate a validated report spec JSON.",
+  "description": "Develop a highly efficient Python script using Pandas to parse data, compute metrics and trends, and quickly generate a validated report spec JSON.",
   "capabilities": [
-    "Python Performance Optimization",
+    "Python Optimization",
     "Data Analysis (Pandas)",
     "JSON Schema Generation",
     "CLI Tool Development"

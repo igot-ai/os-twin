@@ -204,6 +204,10 @@ try {
     $promptFile = Join-Path $artifactsDir "prompt.txt"
     $Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
 
+    # --- Debug: write a human-readable copy of the compiled prompt ---
+    $debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
+    $Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
+
     # Build non-prompt CLI args safely
     $extraCliArgs = @()
     if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }

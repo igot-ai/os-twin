@@ -1,6 +1,6 @@
 {
   "name": "data-pipeline-engineer",
-  "description": "Build an optimized Python CLI script to parse sales CSV data, compute KPIs and trends, and efficiently generate a validated JSON report specification.",
+  "description": "Build an optimized Python CLI script to parse CSV data, compute KPIs and trends, and efficiently generate a validated JSON report specification.",
   "capabilities": [
     "python-scripting",
     "pandas-data-manipulation",

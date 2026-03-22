@@ -60,11 +60,11 @@ Describe "Build-SystemPrompt" {
             $prompt | Should -Match "security-scan"
         }
 
-        It "includes skills section" {
+        It "does NOT concatenate skills into the prompt (skills via AGENT_OS_SKILLS_DIR)" {
             $rolePath = Join-Path $TestDrive "role-sk-$(Get-Random)"
             New-Item -ItemType Directory -Path $rolePath -Force | Out-Null
 
-            # Create global skill to ensure resolution works
+            # Create global skill — should NOT appear in the prompt
             $skillsDir = Join-Path $TestDrive "skills"
             New-Item -ItemType Directory -Path (Join-Path $skillsDir "global" "test-skill") -Force | Out-Null
             "Test Skill content" | Out-File (Join-Path $skillsDir "global" "test-skill" "SKILL.md")
@@ -73,9 +73,11 @@ Describe "Build-SystemPrompt" {
                 name   = "sk-role"
             } | ConvertTo-Json -Depth 3 | Out-File (Join-Path $rolePath "role.json") -Encoding utf8
 
-            $prompt = & $script:BuildPrompt -RolePath $rolePath -ExtraContext "FORCE_SKILLS_DIR=$skillsDir"
-            $prompt | Should -Match "Skills"
-            $prompt | Should -Match "test-skill"
+            $prompt = & $script:BuildPrompt -RolePath $rolePath
+            # Skills should NOT be in the prompt — they are loaded via AGENT_OS_SKILLS_DIR by Invoke-Agent.ps1
+            $prompt | Should -Not -Match "## Skills"
+            $prompt | Should -Not -Match "### Skill:"
+            $prompt | Should -Not -Match "Test Skill content"
         }
     }
 

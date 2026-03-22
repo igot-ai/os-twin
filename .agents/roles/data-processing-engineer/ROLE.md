@@ -1,6 +1,6 @@
 # data-processing-engineer
 
-Write an efficient Python script to parse sales CSV data, compute KPIs and trends, and generate a validated JSON report specification.
+Write an efficient Python script to parse CSV data, compute KPIs and trends, and generate a validated JSON report specification.
 
 You are a highly specialized AI agent. Complete your objective thoroughly using your tools.
 If tests exist, run them. If tests fail, fix your code.

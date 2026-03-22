@@ -3,7 +3,15 @@
   "title": "War-Room Config",
   "description": "Per-war-room configuration with goal contract for Agent OS v0.2",
   "type": "object",
-  "required": ["room_id", "task_ref", "created_at", "assignment", "goals", "constraints", "status"],
+  "required": [
+    "room_id",
+    "task_ref",
+    "created_at",
+    "assignment",
+    "goals",
+    "constraints",
+    "status"
+  ],
   "properties": {
     "room_id": {
       "type": "string",
@@ -24,15 +32,27 @@
       "format": "date-time"
     },
     "working_dir": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Project working directory"
     },
     "assignment": {
       "type": "object",
-      "required": ["title", "description", "assigned_role", "type"],
+      "required": [
+        "title",
+        "description",
+        "assigned_role",
+        "type"
+      ],
       "properties": {
-        "title": { "type": "string" },
-        "description": { "type": "string" },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
         "assigned_role": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*(:[a-z0-9-]+)?$",
@@ -40,22 +60,32 @@
         },
         "type": {
           "type": "string",
-          "enum": ["task", "epic"]
+          "enum": [
+            "task",
+            "epic"
+          ]
         }
       }
     },
     "goals": {
       "type": "object",
-      "required": ["definition_of_done", "acceptance_criteria"],
+      "required": [
+        "definition_of_done",
+        "acceptance_criteria"
+      ],
       "properties": {
         "definition_of_done": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "List of conditions that must be true for the work to be considered done"
         },
         "acceptance_criteria": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "List of testable acceptance criteria"
         },
         "quality_requirements": {
@@ -101,7 +131,9 @@
     },
     "status": {
       "type": "object",
-      "required": ["current"],
+      "required": [
+        "current"
+      ],
       "properties": {
         "current": {
           "type": "string",
@@ -114,31 +146,15 @@
           "default": 0
         },
         "started_at": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "last_state_change": {
           "type": "string",
           "format": "date-time"
-        }
-      }
-    },
-    "overrides": {
-      "type": "object",
-      "description": "Tracks which roles have been cloned into a room's override directory",
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string"
-          },
-          "cloned_from": {
-            "type": "string"
-          },
-          "cloned_at": {
-            "type": "string",
-            "format": "date-time"
-          }
         }
       }
     }

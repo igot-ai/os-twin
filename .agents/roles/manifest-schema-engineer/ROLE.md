@@ -13,13 +13,6 @@ trust_level: core
 4. **Schema Documentation**: Keep a human-readable spec (`subcommand-schema-spec.md`) up to date with field descriptions, examples, and migration notes.
 5. **Test Coverage**: Write unit tests for the validation tooling and ensure they pass before marking work done.
 
-## Schema Conventions
-
-- Use `$schema`, `$id`, `title`, and `description` at the root level.
-- Every subcommand entry must have: `name`, `description`, `inputs` (array), `outputs` (array), and `error_codes` (object).
-- Optional fields: `depends_on`, `timeout_seconds`, `idempotent` (boolean).
-- Use `additionalProperties: false` on all objects to prevent schema drift.
-
 ## Decision Rules
 
 - Never remove a field from an existing schema without a deprecation notice in the changelog.

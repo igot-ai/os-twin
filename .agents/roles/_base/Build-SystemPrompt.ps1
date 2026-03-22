@@ -86,70 +86,10 @@ $gateList
 "@)
 }
 
-# Section 4: Skills context
-$resolveSkills = Join-Path $PSScriptRoot "Resolve-RoleSkills.ps1"
-if (Test-Path $resolveSkills) {
-    try {
-        $skillsDir = Join-Path (Split-Path (Split-Path $PSScriptRoot)) "skills"
-        
-        # Testing override
-        if ($ExtraContext -match 'FORCE_SKILLS_DIR=(.+)') {
-            $skillsDir = $Matches[1].Trim()
-        }
-
-        $resolved = & $resolveSkills -RoleName $role.Name -RolePath $role.RolePath -SkillsBaseDir $skillsDir
-        
-        if ($resolved -and $resolved.Count -gt 0) {
-            $sections.Add("`n## Skills`n")
-            foreach ($skill in $resolved) {
-                if (Test-Path $skill.Path) {
-                    $rawContent = Get-Content $skill.Path -Raw
-                    $content = $rawContent
-                    
-                    # Preflight check for tags/trust_level (EPIC-001)
-                    $preflight = "warn"
-                    try {
-                        $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG } else { Join-Path (Split-Path (Split-Path $PSScriptRoot)) "config.json" }
-                        if (Test-Path $configPath) {
-                            $fullConfig = Get-Content $configPath -Raw | ConvertFrom-Json
-                            if ($fullConfig.manager.preflight_skill_check) { $preflight = $fullConfig.manager.preflight_skill_check }
-                        }
-                    } catch {}
-
-                    # Strip YAML frontmatter if present and check metadata
-                    if ($rawContent -match '(?s)^---\s*\n(.*?)\n---\s*\n(.*)$') {
-                        $frontmatter = $Matches[1]
-                        $content = $Matches[2]
-
-                        if ($preflight -eq "warn") {
-                            if ($frontmatter -notmatch 'tags\s*:' -or $frontmatter -notmatch 'trust_level\s*:') {
-                                Write-Warning "Skill '$($skill.Name)' is missing required metadata (tags or trust_level) in SKILL.md frontmatter."
-                            }
-                        }
-                    }
-                    else {
-                        if ($preflight -eq "warn") {
-                            Write-Warning "Skill '$($skill.Name)' is missing YAML frontmatter in SKILL.md."
-                        }
-                    }
-                    
-                    $sections.Add(@"
-### Skill: $($skill.Name) ($($skill.Tier))
-
-$content
-"@)
-                }
-            }
-        }
-    }
-    catch {
-        if ($_.ToString() -match "Skill Not Found") {
-            Write-Error $_
-            exit 1
-        }
-        Write-Warning "Failed to resolve skills: $_"
-    }
-}
+# Section 4: Skills — NOT concatenated into the prompt.
+# Skills are resolved and copied to AGENT_OS_SKILLS_DIR by Invoke-Agent.ps1.
+# The agent CLI discovers them via that path at runtime.
+# This keeps the system prompt focused on the role definition only.
 
 # Section 5: War-room context
 if ($RoomDir -and (Test-Path $RoomDir)) {

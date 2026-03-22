@@ -1,6 +1,6 @@
 {
   "name": "data-explorer-engineer",
-  "description": "Parse sales performance CSV data, compute key metrics and trends, and generate a valid JSON report specification.",
+  "description": "Parse CSV data, compute key metrics and trends, and generate a valid JSON report specification.",
   "capabilities": [
     "Python programming",
     "CSV parsing",

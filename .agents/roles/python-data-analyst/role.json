@@ -1,6 +1,6 @@
 {
   "name": "python-data-analyst",
-  "description": "To quickly develop an efficient Python CLI script that processes CSV sales data using pandas, computes KPI metrics, and outputs a validated JSON report specification without timing out.",
+  "description": "To quickly develop an efficient Python CLI script that processes CSV data using pandas, computes KPI metrics, and outputs a validated JSON report specification without timing out.",
   "capabilities": [
     "python-programming",
     "pandas-data-manipulation",

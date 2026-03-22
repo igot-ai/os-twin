@@ -152,38 +152,26 @@ elseif ($briefContent -match '## Working Directory\s*\n(.+)') {
     $workingDir = $Matches[1].Trim()
 }
 
-# --- Read role prompt (supports both ROLE.md and SKILL.md) ---
-$rolePrompt = ""
-foreach ($promptFile in @("ROLE.md", "SKILL.md")) {
-    $promptPath = Join-Path $scriptDir $promptFile
-    if (Test-Path $promptPath) {
-        $rolePrompt = Get-Content $promptPath -Raw
-        break
-    }
-}
+# Note: ROLE.md is loaded by Build-SystemPrompt.ps1 via Get-RoleDefinition.
+# Skills are loaded by Invoke-Agent.ps1 via AGENT_OS_SKILLS_DIR.
+# No manual reads needed here.
 
 # --- Build instructions based on Epic vs Task ---
 $roomName = Split-Path $RoomDir -Leaf
 
-if ($isEpic) {
-    # --- Check if TASKS.md already exists (fix cycle or resumed epic) ---
-    $existingTasksMd = ""
-    $existingTasksFile = Join-Path $RoomDir "TASKS.md"
-    if (Test-Path $existingTasksFile) {
-        $existingTasksMd = Get-Content $existingTasksFile -Raw
-    }
+# --- Build role-specific workflow instructions ---
+# Note: brief.md, TASKS.md, goals, and QA feedback are injected by Build-SystemPrompt.ps1.
+# Here we only provide workflow instructions specific to Epic vs Task.
+$existingTasksFile = Join-Path $RoomDir "TASKS.md"
+$hasExistingTasks = Test-Path $existingTasksFile
 
-    if ($existingTasksMd) {
+if ($isEpic) {
+    if ($hasExistingTasks) {
         # Fix cycle: TASKS.md already exists from a previous attempt
         $instructions = @"
-You are continuing work on an EPIC — a previous attempt was made and TASKS.md already exists.
+You are continuing work on an EPIC — TASKS.md already exists (see Sub-Tasks section above).
 
-## Existing TASKS.md (from previous attempt)
-
-$existingTasksMd
-
-### Instructions
-1. Review the existing TASKS.md above — checked tasks ([x]) were completed previously
+1. Review the TASKS.md above — checked tasks ([x]) were completed previously
 2. Focus on unchecked tasks ([ ]) and any issues raised in the QA feedback / fix message
 3. Update TASKS.md if fixes require new sub-tasks
 4. After completing each sub-task, check it off: - [x] TASK-001 — Description

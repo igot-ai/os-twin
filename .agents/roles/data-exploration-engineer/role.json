@@ -1,6 +1,6 @@
 {
   "name": "data-exploration-engineer",
-  "description": "Efficiently parse CSV sales data, compute complex exploratory metrics, and generate a validated report specification JSON via a robust CLI script.",
+  "description": "Efficiently parse CSV data, compute complex exploratory metrics, and generate a validated report specification JSON via a robust CLI script.",
   "capabilities": [
     "python-scripting",
     "data-analysis",

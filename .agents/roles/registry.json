@@ -123,13 +123,40 @@
         "no-empty-pages"
       ],
       "default_model": "gemini-3-flash-preview"
+    },
+    {
+      "name": "audit",
+      "description": "Auditor — scopes risk investigations, commissions data analysis, validates findings, and makes risk decisions",
+      "definition": "roles/audit/role.json",
+      "prompt": "roles/audit/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic",
+        "investigation"
+      ],
+      "capabilities": [
+        "risk-assessment",
+        "investigation-scoping",
+        "data-request-composition",
+        "output-validation",
+        "risk-decision",
+        "compliance-review"
+      ],
+      "quality_gates": [
+        "scope-defined",
+        "validation-complete",
+        "risk-decision-recorded"
+      ],
+      "default_model": "gemini-3.1-pro-preview"
     }
   ],
   "assignment_rules": {
     "default_role": "engineer",
     "review_role": "qa",
     "design_role": "architect",
-    "orchestration_role": "manager"
+    "orchestration_role": "manager",
+    "audit_role": "audit"
   },
   "extensibility": {
     "custom_roles_dir": "roles/",
@@ -164,7 +191,12 @@
       "encryption": "security",
       "a11y": "accessibility",
       "wcag": "accessibility",
-      "screen-reader": "accessibility"
+      "screen-reader": "accessibility",
+      "audit": "risk-assessment",
+      "risk": "risk-assessment",
+      "compliance": "compliance-review",
+      "fraud": "risk-assessment",
+      "investigation": "investigation-scoping"
     }
   },
   "skills": {
@@ -204,6 +236,54 @@
         "path": "skills/global/create-lifecycle/SKILL.md",
         "skills": "architect, manager, process",
         "tags": ["architect", "manager", "process"],
+        "trust_level": "core"
+      },
+      {
+        "name": "scope-investigation",
+        "description": "Define investigation boundaries using the DEPT framework before commissioning analytical work",
+        "path": "skills/roles/audit/scope-investigation/SKILL.md",
+        "skills": "audit, risk-officer, scoping",
+        "tags": ["audit", "risk-officer", "scoping", "investigation"],
+        "trust_level": "core"
+      },
+      {
+        "name": "analytical-lenses",
+        "description": "Select analytical lenses (Distribution, Deviation, Relationship, Temporality, Compounding) and formulate precise questions",
+        "path": "skills/roles/audit/analytical-lenses/SKILL.md",
+        "skills": "audit, risk-officer, analytics",
+        "tags": ["audit", "risk-officer", "analytics", "questioning"],
+        "trust_level": "core"
+      },
+      {
+        "name": "question-library",
+        "description": "Maintain and query a reusable library of proven risk questions organized by Risk Theme × Data Domain × Analytical Lens",
+        "path": "skills/roles/audit/question-library/SKILL.md",
+        "skills": "audit, risk-officer, playbook",
+        "tags": ["audit", "risk-officer", "question-library", "continuous-audit"],
+        "trust_level": "core"
+      },
+      {
+        "name": "structure-data-request",
+        "description": "Compose formal structured data requests using the DATA template and send as task messages to data analysts",
+        "path": "skills/roles/audit/structure-data-request/SKILL.md",
+        "skills": "audit, risk-officer, data-request",
+        "tags": ["audit", "risk-officer", "data-request", "war-room"],
+        "trust_level": "core"
+      },
+      {
+        "name": "validate-output",
+        "description": "Pressure-test data analyst output using the Five Validation Questions before acting on findings",
+        "path": "skills/roles/audit/validate-output/SKILL.md",
+        "skills": "audit, risk-officer, validation",
+        "tags": ["audit", "risk-officer", "validation", "quality-gate"],
+        "trust_level": "core"
+      },
+      {
+        "name": "risk-decision",
+        "description": "Convert validated findings into decision categories (Accept, Mitigate, Investigate, Escalate) with Risk Decision Records",
+        "path": "skills/roles/audit/risk-decision/SKILL.md",
+        "skills": "audit, risk-officer, decision-making",
+        "tags": ["audit", "risk-officer", "risk-management", "governance"],
         "trust_level": "core"
       }
     ]

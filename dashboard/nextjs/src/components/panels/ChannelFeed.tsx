@@ -104,7 +104,7 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   return (
     <div className="room-detail" style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {showExplorer && (
-        <MessageExplorer room={room} onClose={() => setShowExplorer(false)} />
+        <MessageExplorer room={room} planId={planId || undefined} onClose={() => setShowExplorer(false)} />
       )}
       <div className="detail-header" style={{ flexShrink: 0 }}>
         <div className="detail-header-top">

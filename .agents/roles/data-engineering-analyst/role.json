@@ -1,6 +1,6 @@
 {
   "name": "data-engineering-analyst",
-  "description": "Develop a Python CLI tool to parse sales performance CSV data, compute key metrics and trends, and generate a validated JSON report specification.",
+  "description": "Develop a Python CLI tool to parse CSV data, compute key metrics and trends, and generate a validated JSON report specification.",
   "capabilities": [
     "python-cli-development",
     "data-analysis",

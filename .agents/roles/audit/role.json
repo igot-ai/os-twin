@@ -1,0 +1,29 @@
+{
+  "name": "audit",
+  "description": "Auditor — scopes risk investigations, commissions data analysis, validates findings, and makes risk decisions",
+  "capabilities": [
+    "risk-assessment",
+    "investigation-scoping",
+    "data-request-composition",
+    "output-validation",
+    "risk-decision",
+    "compliance-review"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "scope-defined",
+    "validation-complete",
+    "risk-decision-recorded"
+  ],
+  "skill_refs": [
+    "scope-investigation",
+    "analytical-lenses",
+    "question-library",
+    "structure-data-request",
+    "validate-output",
+    "risk-decision"
+  ],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 900
+}

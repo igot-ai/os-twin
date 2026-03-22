@@ -1,6 +1,6 @@
 {
   "name": "data-explorer",
-  "description": "Parse sales performance CSV data to compute key metrics, analyze trends, and generate a validated report specification JSON.",
+  "description": "Parse CSV data to compute key metrics, analyze trends, and generate a validated report specification JSON.",
   "capabilities": [
     "python",
     "pandas",

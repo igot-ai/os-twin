@@ -7,10 +7,11 @@ import { fmtTime } from '@/lib/utils';
 
 interface MessageExplorerProps {
   room: Room;
+  planId?: string;
   onClose: () => void;
 }
 
-export default function MessageExplorer({ room, onClose }: MessageExplorerProps) {
+export default function MessageExplorer({ room, planId, onClose }: MessageExplorerProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -30,8 +31,11 @@ export default function MessageExplorer({ room, onClose }: MessageExplorerProps)
       if (filters.q) queryParams.append('q', filters.q);
       queryParams.append('limit', filters.limit.toString());
 
+      const base = planId
+        ? `/api/plans/${planId}/rooms/${room.room_id}/channel`
+        : `/api/rooms/${room.room_id}/channel`;
       const data = await apiGet<{ messages: Message[] }>(
-        `/api/rooms/${room.room_id}/channel?${queryParams.toString()}`
+        `${base}?${queryParams.toString()}`
       );
       setMessages(data.messages || []);
     } catch (error) {
@@ -39,7 +43,7 @@ export default function MessageExplorer({ room, onClose }: MessageExplorerProps)
     } finally {
       setLoading(false);
     }
-  }, [room.room_id, filters.from, filters.type, filters.q, filters.limit]);
+  }, [room.room_id, planId, filters.from, filters.type, filters.q, filters.limit]);
 
   const fetchAnalysis = async () => {
     try {
@@ -48,8 +52,11 @@ export default function MessageExplorer({ room, onClose }: MessageExplorerProps)
       if (filters.type) queryParams.append('type', filters.type);
       if (filters.q) queryParams.append('q', filters.q);
 
+      const analyzeBase = planId
+        ? `/api/plans/${planId}/rooms/${room.room_id}/analyze`
+        : `/api/rooms/${room.room_id}/analyze`;
       const data = await apiGet<any>(
-        `/api/rooms/${room.room_id}/analyze?${queryParams.toString()}`
+        `${analyzeBase}?${queryParams.toString()}`
       );
       setAnalysis(data);
     } catch (error) {

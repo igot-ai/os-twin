@@ -1,6 +1,6 @@
 {
   "name": "data-reporting-engineer",
-  "description": "To rapidly parse sales data, compute key performance metrics, and generate a validated JSON report specification via an optimized Python CLI script to prevent execution timeouts.",
+  "description": "To rapidly parse data, compute key metrics, and generate a validated JSON report specification via an optimized Python CLI script to prevent execution timeouts.",
   "capabilities": [
     "python-scripting",
     "data-processing",

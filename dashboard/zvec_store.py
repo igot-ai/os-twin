@@ -29,6 +29,7 @@ MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
 PLANS_COLLECTION = "plans"
 EPICS_COLLECTION = "epics"
+SKILLS_COLLECTION = "skills"
 
 
 class OSTwinStore:
@@ -43,6 +44,7 @@ class OSTwinStore:
         self._metadata: Optional[zvec.Collection] = None
         self._plans: Optional[zvec.Collection] = None
         self._epics: Optional[zvec.Collection] = None
+        self._skills: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
@@ -55,6 +57,7 @@ class OSTwinStore:
         self._metadata = self._open_or_create_metadata()
         self._plans = self._open_or_create_plans()
         self._epics = self._open_or_create_epics()
+        self._skills = self._open_or_create_skills()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def _open_or_create_messages(self) -> zvec.Collection:
@@ -170,6 +173,41 @@ class OSTwinStore:
                     zvec.FieldSchema("status", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("working_dir", zvec.DataType.STRING, nullable=True),
+                ],
+                vectors=zvec.VectorSchema(
+                    "embedding",
+                    zvec.DataType.VECTOR_FP32,
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
+    def _open_or_create_skills(self) -> zvec.Collection:
+        path = str(self.zvec_dir / SKILLS_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=SKILLS_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("name", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("description", zvec.DataType.STRING),
+                    zvec.FieldSchema("tags", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("path", zvec.DataType.STRING),
+                    zvec.FieldSchema("relative_path", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("trust_level", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("source", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("content", zvec.DataType.STRING),
                 ],
                 vectors=zvec.VectorSchema(
                     "embedding",
@@ -591,6 +629,226 @@ class OSTwinStore:
             logger.error("Epic search failed: %s", e)
             return []
 
+    # ── Skill Indexing & Search ────────────────────────────────────────
+
+    def index_skill(self, name: str, description: str, tags: list[str],
+                    path: str, relative_path: str = "",
+                    trust_level: str = "experimental", source: str = "project",
+                    content: str = "") -> bool:
+        """Index or update a skill. Returns True on success."""
+        if self._skills is None:
+            return False
+
+        content_clean = self._sanitize_text(content)
+        desc_clean = self._sanitize_text(description)
+        tags_str = ",".join(tags) if tags else ""
+
+        embed_text = f"{name} {desc_clean} {tags_str} {content_clean[:1000]}"
+        embedding = self._embed_text(embed_text)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
+        doc = zvec.Doc(
+            id=name,
+            fields={
+                "name": name,
+                "description": desc_clean,
+                "tags": tags_str,
+                "path": str(path),
+                "relative_path": relative_path or "",
+                "trust_level": trust_level,
+                "source": source,
+                "content": content_clean,
+            },
+            vectors={"embedding": embedding},
+        )
+        try:
+            s = self._skills.upsert(doc)
+            self._skills.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to index skill %s: %s", name, e)
+            return False
+
+    def get_skill(self, name: str) -> dict | None:
+        """Fetch a single skill by name. Returns None if not found."""
+        if self._skills is None:
+            return None
+        try:
+            result = self._skills.fetch(name)
+            if name not in result:
+                return None
+            doc = result[name]
+            tags_str = doc.field("tags")
+            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+            return {
+                "name": doc.field("name"),
+                "description": doc.field("description"),
+                "tags": tags,
+                "path": doc.field("path"),
+                "relative_path": doc.field("relative_path"),
+                "trust_level": doc.field("trust_level"),
+                "source": doc.field("source"),
+                "content": doc.field("content"),
+            }
+        except Exception:
+            return None
+
+    def get_all_skills(self, limit: int = 100) -> list[dict]:
+        """Fetch all indexed skills. Returns list of dicts."""
+        if self._skills is None:
+            return []
+        try:
+            # Use a zero-vector query to retrieve all docs up to limit
+            docs = self._skills.query(
+                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
+                topk=limit,
+                output_fields=["name", "description", "tags", "path",
+                               "relative_path", "trust_level", "source", "content"],
+            )
+            results = []
+            for doc in docs:
+                tags_str = doc.field("tags")
+                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+                results.append({
+                    "name": doc.field("name"),
+                    "description": doc.field("description"),
+                    "tags": tags,
+                    "path": doc.field("path"),
+                    "relative_path": doc.field("relative_path"),
+                    "trust_level": doc.field("trust_level"),
+                    "source": doc.field("source"),
+                    "content": doc.field("content"),
+                })
+            return results
+        except Exception as e:
+            logger.error("get_all_skills failed: %s", e)
+            return []
+
+    def search_skills(self, query: str, limit: int = 20) -> list[dict]:
+        """Semantic search across indexed skills. Returns ranked results."""
+        if self._skills is None:
+            return []
+        embedding = self._embed_text(query)
+        if embedding is None:
+            return []
+        try:
+            docs = self._skills.query(
+                vectors=zvec.VectorQuery("embedding", vector=embedding),
+                topk=limit,
+                output_fields=["name", "description", "tags", "path",
+                               "relative_path", "trust_level", "source", "content"],
+            )
+            results = []
+            for doc in docs:
+                tags_str = doc.field("tags")
+                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+                results.append({
+                    "name": doc.field("name"),
+                    "description": doc.field("description"),
+                    "tags": tags,
+                    "path": doc.field("path"),
+                    "relative_path": doc.field("relative_path"),
+                    "trust_level": doc.field("trust_level"),
+                    "source": doc.field("source"),
+                    "content": doc.field("content"),
+                })
+            return results
+        except Exception as e:
+            logger.error("Skill search failed: %s", e)
+            return []
+
+    def delete_skill(self, name: str) -> bool:
+        """Delete a skill by name. Returns True on success."""
+        if self._skills is None:
+            return False
+        try:
+            self._skills.delete(name)
+            self._skills.flush()
+            return True
+        except Exception as e:
+            logger.warning("Failed to delete skill %s: %s", name, e)
+            return False
+
+    def sync_skills(self, skills_dirs: list) -> dict:
+        """Synchronize skills collection with SKILL.md files on disk.
+
+        Handles additions, updates, and removals.
+        Returns dict with synced_count, added, updated, removed.
+        """
+        from dashboard.api_utils import parse_skill_md
+
+        added = []
+        updated = []
+        removed = []
+        synced_count = 0
+
+        # 1. Collect current skills from disk
+        disk_skills: dict[str, dict] = {}
+        for sdir in skills_dirs:
+            sdir_path = Path(sdir) if not isinstance(sdir, Path) else sdir
+            if not sdir_path.exists():
+                continue
+            for skill_md in sdir_path.rglob("SKILL.md"):
+                skill_data = parse_skill_md(skill_md.parent)
+                if skill_data:
+                    disk_skills[skill_data["name"]] = skill_data
+
+        # 2. Fetch all indexed skill names
+        try:
+            indexed_skills = self.get_all_skills(limit=1000)
+            indexed_names = {s["name"] for s in indexed_skills}
+        except Exception:
+            indexed_names = set()
+
+        # 3. Handle additions and updates
+        for name, data in disk_skills.items():
+            existing = self.get_skill(name)
+            # Compare sanitized content to avoid unnecessary re-indexing
+            content_bytes = data["content"].encode("ascii", errors="replace")
+            content_ascii = content_bytes.decode("ascii")
+            if existing and existing.get("content") == content_ascii:
+                continue
+
+            if self.index_skill(
+                name=data["name"],
+                description=data["description"],
+                tags=data.get("tags", []),
+                path=data["path"],
+                relative_path=data.get("relative_path", ""),
+                trust_level=data.get("trust_level", "experimental"),
+                source=data["source"],
+                content=data["content"],
+            ):
+                synced_count += 1
+                if not existing:
+                    added.append(name)
+                else:
+                    updated.append(name)
+
+        # 4. Handle removals — skills deleted from disk
+        disk_names = set(disk_skills.keys())
+        for name in indexed_names:
+            if name not in disk_names:
+                if self.delete_skill(name):
+                    removed.append(name)
+
+        # Optimize index after bulk operations
+        if self._skills:
+            try:
+                self._skills.optimize()
+            except Exception:
+                pass
+
+        logger.info("Skills sync: %d synced, %d added, %d updated, %d removed",
+                    synced_count, len(added), len(updated), len(removed))
+        return {
+            "synced_count": synced_count,
+            "added": added,
+            "updated": updated,
+            "removed": removed,
+        }
+
     # ── Search ─────────────────────────────────────────────────────────
 
     def search(
@@ -879,6 +1137,8 @@ class OSTwinStore:
             self._plans.flush()
         if self._epics:
             self._epics.flush()
+        if self._skills:
+            self._skills.flush()
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

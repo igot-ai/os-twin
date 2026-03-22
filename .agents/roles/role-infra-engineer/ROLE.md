@@ -24,7 +24,6 @@ trust_level: core
 
 ## Decision Rules
 
-- The schema must have `additionalProperties: false` to catch typos and undocumented fields early.
 - Validation script must exit `0` on success, `1` on schema violation, `2` on missing file.
 - Manifests for existing roles must not break any currently passing tests.
 - Use semantic versioning (`schemaVersion` field) so future schema changes can be migrated safely.
