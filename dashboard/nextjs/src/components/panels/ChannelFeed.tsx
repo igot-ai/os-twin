@@ -5,6 +5,7 @@ import { Room, Message, Notification } from '@/types';
 import { STATUS_COLOR, PROGRESS_PCT } from '@/lib/constants';
 import { fmtTime, trunc } from '@/lib/utils';
 import { apiGet, apiFetch } from '@/lib/api';
+import MessageExplorer from '@/components/warroom/MessageExplorer';
 
 // Inline FeedMessage to avoid extra file since it's small
 function FeedMessage({ roomId, msg }: { roomId: string; msg: Message }) {
@@ -44,6 +45,7 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   const [activityLogs, setActivityLogs] = useState<Notification[]>([]);
   const [expandedGoals, setExpandedGoals] = useState<Record<number, boolean>>({});
   const [showAllGoals, setShowAllGoals] = useState(false);
+  const [showExplorer, setShowExplorer] = useState(false);
 
   const toggleGoal = (i: number) => {
     setExpandedGoals(prev => ({ ...prev, [i]: !prev[i] }));
@@ -100,11 +102,30 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   };
 
   return (
-    <div className="room-detail" style={{ display: 'block' }}>
-      <div className="detail-header">
+    <div className="room-detail" style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {showExplorer && (
+        <MessageExplorer room={room} onClose={() => setShowExplorer(false)} />
+      )}
+      <div className="detail-header" style={{ flexShrink: 0 }}>
         <div className="detail-header-top">
           <div className="detail-room-id">{room.room_id}</div>
           <div className="room-actions">
+            <button 
+              onClick={() => setShowExplorer(true)}
+              style={{
+                background: 'var(--cyan)',
+                color: 'black',
+                border: 'none',
+                padding: '2px 8px',
+                borderRadius: '2px',
+                fontSize: '10px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                marginRight: '8px'
+              }}
+            >
+              EXPLORE
+            </button>
             {(room.status === 'paused' || room.status === 'failed-final') && (
               <button className="action-btn-mini start" onClick={() => roomAction('start')}>
                 start
@@ -130,7 +151,8 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
         <div className="detail-task-ref">{room.task_ref}</div>
       </div>
 
-      {/* --- Config Info (from config.json metadata) --- */}
+      <div className="room-detail-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
+        {/* --- Config Info (from config.json metadata) --- */}
       {room.config && Object.keys(room.config).length > 0 && (
         <div className="detail-meta-section">
           <label className="field-label">Config</label>
@@ -267,6 +289,7 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
             ))
           )}
         </div>
+      </div>
       </div>
       <div className="detail-divider" />
       <label className="field-label">Messages</label>

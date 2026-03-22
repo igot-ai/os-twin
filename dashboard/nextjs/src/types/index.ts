@@ -15,6 +15,18 @@ export interface RoleInstance {
   [key: string]: unknown;
 }
 
+// === Lifecycle (from lifecycle.json) ===
+export interface LifecycleState {
+  type: string;
+  role: string;
+  transitions: Record<string, string>;
+}
+
+export interface Lifecycle {
+  initial_state: string;
+  states: Record<string, LifecycleState>;
+}
+
 // === Room ===
 export interface Room {
   room_id: string;
@@ -33,6 +45,7 @@ export interface Room {
   artifact_files?: string[];
   audit_tail?: string[];
   working_dir?: string;
+  lifecycle?: Lifecycle;
 }
 
 export type RoomStatus =

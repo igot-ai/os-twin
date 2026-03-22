@@ -87,7 +87,7 @@ async def get_status(user: dict = Depends(get_current_user)):
 async def run_tests_direct(user: dict = Depends(get_current_user)):
     import subprocess
     # Note: Using absolute path as in original code
-    result = subprocess.run(["python3", "/Users/paulaan/PycharmProjects/agent-os/manual_test.py"], capture_output=True, text=True)
+    result = subprocess.run(["python3", "/Users/paulaan/PycharmProjects/agent-os/dashboard/test_room_state_backend.py"], capture_output=True, text=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "code": result.returncode}
 
 @router.post("/stop")

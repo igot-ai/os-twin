@@ -1,11 +1,13 @@
 import os
 import json
 import asyncio
+import re
+import yaml
+import subprocess
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, AsyncIterator, Optional, Any, Dict
-import re
-import yaml
 
 from dashboard.models import Skill
 
@@ -27,6 +29,12 @@ else:
 
 # Default war-rooms location
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
+DEMO_DIR = Path(__file__).parent
+# Preference: where the rooms actually are
+if (DEMO_DIR / ".war-rooms").exists():
+    # If DEMO_DIR has room-* subdirs, prefer it
+    if any((DEMO_DIR / ".war-rooms").glob("room-*")):
+        WARROOMS_DIR = DEMO_DIR / ".war-rooms"
 SKILLS_DIRS = [
     AGENTS_DIR / "skills",
     PROJECT_ROOT / ".agents" / "skills",
@@ -37,8 +45,6 @@ if os.environ.get("OSTWIN_PROJECT_DIR"):
     PROJECT_ROOT = Path(os.environ.get("OSTWIN_PROJECT_DIR"))
     AGENTS_DIR = PROJECT_ROOT / ".agents"
     WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
-
-DEMO_DIR = Path(__file__).parent
 
 # Next.js export detection
 NEXTJS_OUT_DIR = DEMO_DIR / "nextjs" / "out"
@@ -54,36 +60,46 @@ def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
         include_metadata: When True, also reads config.json, role instance
             files, state_changed_at, and artifact directory listing.
     """
-    import re as _re
     # Run pytest if requested (legacy hook)
     if (room_dir / "run_pytest_now").exists():
-        import subprocess
         try:
             command = ["pwsh", "-File", str(AGENTS_DIR / "debug_test.ps1")]
             result = subprocess.run(command, capture_output=True, text=True)
-            (room_dir / "pytest_results.txt").write_text(f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}\nCODE: {result.returncode}")
+            log_msg = (
+                f"STDOUT:\n{result.stdout}\n"
+                f"STDERR:\n{result.stderr}\n"
+                f"CODE: {result.returncode}"
+            )
+            (room_dir / "pytest_results.txt").write_text(log_msg)
         except Exception as e:
             (room_dir / "pytest_results.txt").write_text(f"ERROR running command: {e}")
         (room_dir / "run_pytest_now").unlink()
 
     room_id = room_dir.name
-    status = (room_dir / "status").read_text().strip() if (room_dir / "status").exists() else "unknown"
-    task_ref = (room_dir / "task-ref").read_text().strip() if (room_dir / "task-ref").exists() else None
-    retries_str = (room_dir / "retries").read_text().strip() if (room_dir / "retries").exists() else "0"
+    status_file = room_dir / "status"
+    status = status_file.read_text().strip() if status_file.exists() else "unknown"
+    
+    tr_file = room_dir / "task-ref"
+    task_ref = tr_file.read_text().strip() if tr_file.exists() else None
+    
+    retries_file = room_dir / "retries"
+    retries_str = retries_file.read_text().strip() if retries_file.exists() else "0"
     retries = int(retries_str) if retries_str.isdigit() else 0
-    task_md = (room_dir / "brief.md").read_text() if (room_dir / "brief.md").exists() else None
+    
+    brief_file = room_dir / "brief.md"
+    task_md = brief_file.read_text() if brief_file.exists() else None
 
     # Fallback: extract ref from TASKS.md header
     if not task_ref:
         tasks_file = room_dir / "TASKS.md"
         if tasks_file.exists():
             header = tasks_file.read_text().split("\n", 1)[0]
-            m = _re.search(r"(EPIC-\d+|TASK-\d+)", header)
+            m = re.search(r"(EPIC-\d+|TASK-\d+)", header)
             if m:
                 task_ref = m.group(1)
     # Fallback: derive from room-id
     if not task_ref:
-        m = _re.match(r"room-(\d+)", room_id)
+        m = re.match(r"room-(\d+)", room_id)
         task_ref = f"EPIC-{m.group(1)}" if m else "UNKNOWN"
 
     # Fallback: use TASKS.md as description
@@ -96,15 +112,16 @@ def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
     goal_done = 0
     if tasks_file.exists():
         tasks_content = tasks_file.read_text()
-        goal_total = len(_re.findall(r"- \[[ xX]\]", tasks_content))
-        goal_done = len(_re.findall(r"- \[[xX]\]", tasks_content))
+        goal_total = len(re.findall(r"- \[[ xX]\]", tasks_content))
+        goal_done = len(re.findall(r"- \[[xX]\]", tasks_content))
 
     channel_file = room_dir / "channel.jsonl"
     message_count = 0
     last_activity = None
 
     if channel_file.exists():
-        lines = [l.strip() for l in channel_file.read_text().splitlines() if l.strip()]
+        raw_content = channel_file.read_text()
+        lines = [l.strip() for l in raw_content.splitlines() if l.strip()]
         message_count = len(lines)
         if lines:
             try:
@@ -127,6 +144,16 @@ def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
 
     # --- Extended metadata (opt-in to keep backward compatibility) ---
     if include_metadata:
+        # lifecycle.json — state machine
+        lifecycle_file = room_dir / "lifecycle.json"
+        if lifecycle_file.exists():
+            try:
+                result["lifecycle"] = json.loads(lifecycle_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                result["lifecycle"] = {}
+        else:
+            result["lifecycle"] = {}
+
         # config.json — room-level configuration
         config_file = room_dir / "config.json"
         if config_file.exists():
@@ -171,7 +198,10 @@ def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
         if audit_file.exists():
             try:
                 lines = audit_file.read_text().splitlines()
-                result["audit_tail"] = lines[-20:] if len(lines) > 20 else lines
+                if len(lines) > 20:
+                    result["audit_tail"] = lines[-20:]
+                else:
+                    result["audit_tail"] = lines
             except OSError:
                 result["audit_tail"] = []
         else:
@@ -179,21 +209,50 @@ def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
 
     return result
 
-def read_channel(room_dir: Path) -> list[dict]:
-    """Read all messages from a channel file."""
+def read_channel(
+    room_dir: Path,
+    from_role: Optional[str] = None,
+    to_role: Optional[str] = None,
+    msg_type: Optional[str] = None,
+    ref: Optional[str] = None,
+    query: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> list[dict]:
+    """Read and filter messages from a channel file."""
     channel_file = room_dir / "channel.jsonl"
     if not channel_file.exists():
         return []
     messages = []
+
+    # Pre-compile regex for query if provided
+    q_re = re.compile(re.escape(query), re.IGNORECASE) if query else None
+
     for line in channel_file.read_text().splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             msg = json.loads(line)
+
+            # Apply filters
+            if from_role and msg.get("from") != from_role:
+                continue
+            if to_role and msg.get("to") != to_role:
+                continue
+            if msg_type and msg.get("type") != msg_type:
+                continue
+            if ref and msg.get("ref") != ref:
+                continue
+            if q_re and not q_re.search(msg.get("body", "")):
+                continue
+
             messages.append(msg)
         except json.JSONDecodeError:
             pass
+
+    if limit is not None and limit > 0:
+        messages = messages[-limit:]
+
     return messages
 
 async def process_notification(event_type: str, data: dict):
@@ -236,12 +295,14 @@ def parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
                     trust_level = meta.get("trust_level", trust_level)
                     body = parts[2].strip()
             except Exception as e:
-                import logging
-                logging.getLogger("api_utils").warning(f"Failed to parse YAML frontmatter in {skill_file}: {e}")
+                logger = logging.getLogger("api_utils")
+                logger.warning(f"Failed to parse YAML frontmatter in {skill_file}: {e}")
 
     # Determine source based on path
     source = "project"
-    if str(PROJECT_ROOT / ".agents") in str(path) or str(PROJECT_ROOT / ".deepagents") in str(path):
+    in_agents = str(PROJECT_ROOT / ".agents") in str(path)
+    in_deepagents = str(PROJECT_ROOT / ".deepagents") in str(path)
+    if in_agents or in_deepagents:
         source = "project"
     elif str(Path("~").expanduser()) in str(path):
         source = "user"
@@ -301,8 +362,8 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
         indexed_skills = store.get_all_skills(limit=1000)
         indexed_names = {s["name"] for s in indexed_skills}
     except Exception as e:
-        import logging
-        logging.getLogger("api_utils").warning(f"Failed to fetch indexed skills during sync: {e}")
+        logger = logging.getLogger("api_utils")
+        logger.warning(f"Failed to fetch indexed skills during sync: {e}")
         indexed_names = set()
 
     # 3. Handle Additions and Updates
@@ -310,7 +371,8 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
         existing = store.get_skill(name)
         # Compare sanitized content to avoid unnecessary re-indexing
         # index_skill sanitizes on write
-        content_ascii = data["content"].encode("ascii", errors="replace").decode("ascii")
+        content_bytes = data["content"].encode("ascii", errors="replace")
+        content_ascii = content_bytes.decode("ascii")
         if existing and existing["content"] == content_ascii:
             continue
         
@@ -364,7 +426,6 @@ def build_skills_list(
                 results = store.get_all_skills(limit=100)
                 skills = [Skill(**res) for res in results]
         except Exception as e:
-            import logging
             logging.getLogger("api_utils").error("Skill store fetch failed: %s", e)
 
     # 2. Fallback/Enrich from disk if zvec is empty or unavailable
@@ -389,11 +450,16 @@ def build_skills_list(
         # Role match
         if role:
             role_l = role.lower()
-            # Try exact tag match, then word-boundary match in description or content
+            # Try exact tag match, word-boundary match in description or content
             in_tags = any(role_l == t.lower() for t in s.tags)
-            in_desc = bool(re.search(rf"\b{re.escape(role_l)}\b", s.description.lower()))
-            in_content = s.content and bool(re.search(rf"\b{re.escape(role_l)}\b", s.content.lower()))
-            if not (in_tags or in_desc or in_content):
+            
+            p_desc = rf"\b{re.escape(role_l)}\b"
+            in_desc = bool(re.search(p_desc, s.description.lower()))
+            
+            p_cont = rf"\b{re.escape(role_l)}\b"
+            has_cont = s.content and bool(re.search(p_cont, s.content.lower()))
+            
+            if not (in_tags or in_desc or has_cont):
                 continue
             
         if tags and not any(t.lower() in [st.lower() for st in s.tags] for t in tags):
@@ -416,7 +482,6 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
     2. plan .md   → working_dir: line (absolute or relative to PROJECT_ROOT)
     3. Fallback   → global WARROOMS_DIR
     """
-    import re
     plan_meta_file = AGENTS_DIR / "plans" / f"{plan_id}.meta.json"
     if plan_meta_file.exists():
         try:
@@ -458,8 +523,10 @@ def get_plan_roles_config(plan_id: str) -> dict:
         return json.loads(config_file.read_text())
     return {}
 
-def build_roles_list(config: dict) -> list:
-    """Build roles list from registry + config."""
+def build_roles_list(config: dict, include_skills: bool = False) -> list:
+    """Build roles list from registry + config.
+    Optionally includes resolved skills for each role.
+    """
     from dashboard.constants import ROLE_DEFAULTS
     registry_file = AGENTS_DIR / "roles" / "registry.json"
     registry_roles = []
@@ -472,17 +539,30 @@ def build_roles_list(config: dict) -> list:
         name = role["name"]
         role_config = config.get(name, {})
         defaults = ROLE_DEFAULTS.get(name, {})
-        roles.append({
+        
+        dm_def = defaults.get("default_model", "gemini-3-flash-preview")
+        dm = role_config.get("default_model", role.get("default_model", dm_def))
+        
+        ts_def = defaults.get("timeout_seconds", 600)
+        ts = role_config.get("timeout_seconds", ts_def)
+
+        role_data = {
             "name": name,
             "description": role.get("description", ""),
-            "default_model": role_config.get("default_model", role.get("default_model", defaults.get("default_model", "gemini-3-flash-preview"))),
-            "timeout_seconds": role_config.get("timeout_seconds", defaults.get("timeout_seconds", 600)),
+            "default_model": dm,
+            "timeout_seconds": ts,
             "runner": role.get("runner"),
             "capabilities": role.get("capabilities", []),
             "supported_task_types": role.get("supported_task_types", []),
             "default_assignment": role.get("default_assignment", False),
             "instance_support": role.get("instance_support", False),
-        })
+        }
+        
+        if include_skills:
+            # Simple resolution: skills matching the role name as a tag or in desc/content
+            role_data["resolved_skills"] = build_skills_list(role=name)
+            
+        roles.append(role_data)
     return roles
 
 # Engagement Stubs (to be moved to dedicated store later)
@@ -496,6 +576,9 @@ def toggle_reaction(entity_id: str, user_id: str, reaction_type: str) -> dict:
 
 def add_comment(entity_id: str, user_id: str, body: str, parent_id: Optional[str] = None):
     """Stub: Add a comment."""
-    from dashboard.models import CommentRequest # Avoid circular
-    comment = {"id": "stub-1", "user_id": user_id, "body": body, "ts": datetime.now(timezone.utc).isoformat()}
-    return {"entity_id": entity_id, "stats": {"comments": 1}}, type('obj', (object,), {"model_dump": lambda: comment})()
+    from dashboard.models import CommentRequest  # Avoid circular
+    ts = datetime.now(timezone.utc).isoformat()
+    comment = {"id": "stub-1", "user_id": user_id, "body": body, "ts": ts}
+    
+    res = {"entity_id": entity_id, "stats": {"comments": 1}}
+    return res, type('obj', (object,), {"model_dump": lambda: comment})()

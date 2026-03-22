@@ -8,6 +8,7 @@ interface RoomCardProps {
   room: Room;
   selected: boolean;
   onClick: () => void;
+  onShowDetails?: () => void;
 }
 
 // Role icon mapping
@@ -19,7 +20,7 @@ function roleIcon(role: string): string {
   return '⬡';
 }
 
-export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
+export default function RoomCard({ room, selected, onClick, onShowDetails }: RoomCardProps) {
   const color = STATUS_COLOR[room.status] || '#555';
   const label = STATUS_LABEL[room.status] || room.status.toUpperCase();
   const pct = PROGRESS_PCT[room.status] ?? 0;
@@ -51,12 +52,40 @@ export default function RoomCard({ room, selected, onClick }: RoomCardProps) {
     >
       <div className="rc-head">
         <span className="rc-id">{room.room_id}</span>
-        <span
-          className={`rc-chip${isActive ? ' chip-pulse' : ''}`}
-          style={{ color, borderColor: `${color}40` }}
-        >
-          {label}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {onShowDetails && (
+            <button 
+              className="rc-details-btn"
+              onClick={(e) => { e.stopPropagation(); onShowDetails(); }}
+              title="View Extended State"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-dim)',
+                cursor: 'pointer',
+                padding: '2px',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                opacity: 0.6
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.6')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+            </button>
+          )}
+          <span
+            className={`rc-chip${isActive ? ' chip-pulse' : ''}`}
+            style={{ color, borderColor: `${color}40` }}
+          >
+            {label}
+          </span>
+        </div>
       </div>
       <div className="rc-ref">{room.task_ref}</div>
       <div className="rc-desc">{trunc(room.task_description || '', 120)}</div>

@@ -375,10 +375,16 @@ if (-not $DryRun -and (Test-Path $buildPlanningDag)) {
     }
 }
 
-# --- Extract plan_id from embedded config ---
-$planId = ""
-if ($planContent -match '"plan_id"\s*:\s*"([^"]+)"') {
-    $planId = $Matches[1]
+# --- Extract plan_id ---
+# Primary: derive from the plan filename (the stem IS the plan_id, e.g. 107240b7fe28.md → 107240b7fe28)
+$planId = [System.IO.Path]::GetFileNameWithoutExtension($PlanFile)
+# Strip .refined suffix if present (e.g. 107240b7fe28.refined → 107240b7fe28)
+$planId = $planId -replace '\.refined$', ''
+# Fallback: extract from embedded JSON config in the plan content
+if (-not $planId -or $planId -eq 'PLAN.template') {
+    if ($planContent -match '"plan_id"\s*:\s*"([^"]+)"') {
+        $planId = $Matches[1]
+    }
 }
 
 # --- Manager Pre-flight skill coverage check ---

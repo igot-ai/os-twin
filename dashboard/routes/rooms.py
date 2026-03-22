@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from typing import AsyncIterator
 import asyncio
+import json
 from pathlib import Path
 
 from dashboard.api_utils import (
@@ -26,15 +27,35 @@ async def list_rooms(user: dict = Depends(get_current_user)):
 
     # Summary counts
     summary = {"total": len(rooms)}
-    for status in ("pending", "engineering", "qa-review", "fixing", "passed", "failed-final"):
-        summary[status.replace("-", "_")] = sum(1 for r in rooms if r["status"] == status)
+    statuses = (
+        "pending", "engineering", "qa-review", 
+        "fixing", "passed", "failed-final"
+    )
+    for status in statuses:
+        s_key = status.replace("-", "_")
+        summary[s_key] = sum(1 for r in rooms if r["status"] == status)
 
-    return {"rooms": rooms, "summary": summary, "debug": {"project_root": str(PROJECT_ROOT), "agents_dir": str(AGENTS_DIR)}}
+    return {
+        "rooms": rooms, 
+        "summary": summary, 
+        "debug": {
+            "project_root": str(PROJECT_ROOT), 
+            "agents_dir": str(AGENTS_DIR)
+        }
+    }
 
 @router.get("/api/rooms/{room_id}/channel")
-async def get_channel(room_id: str, user: dict = Depends(get_current_user)):
-    """Get messages for a specific war-room (searches global + plan-specific dirs)."""
-    import json as _json
+async def get_channel(
+    room_id: str,
+    from_role: str | None = Query(None, alias="from"),
+    to_role: str | None = Query(None, alias="to"),
+    msg_type: str | None = Query(None, alias="type"),
+    ref: str | None = Query(None),
+    q: str | None = Query(None),
+    limit: int | None = Query(None),
+    user: dict = Depends(get_current_user)
+):
+    """Get messages for a specific war-room with filtering support."""
     room_dir = WARROOMS_DIR / room_id
     if not room_dir.exists():
         # Search plan-specific war-room directories
@@ -42,7 +63,7 @@ async def get_channel(room_id: str, user: dict = Depends(get_current_user)):
         if plans_dir.exists():
             for meta_file in plans_dir.glob("*.meta.json"):
                 try:
-                    meta = _json.loads(meta_file.read_text())
+                    meta = json.loads(meta_file.read_text())
                     wd = meta.get("working_dir")
                     if wd:
                         candidate = Path(wd) / ".war-rooms" / room_id
@@ -53,7 +74,86 @@ async def get_channel(room_id: str, user: dict = Depends(get_current_user)):
                     pass
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
-    return {"messages": read_channel(room_dir)}
+        
+    messages = read_channel(
+        room_dir,
+        from_role=from_role,
+        to_role=to_role,
+        msg_type=msg_type,
+        ref=ref,
+        query=q,
+        limit=limit
+    )
+    return {"messages": messages}
+
+@router.get("/api/rooms/{room_id}/analyze")
+async def analyze_messages(
+    room_id: str,
+    from_role: str | None = Query(None, alias="from"),
+    to_role: str | None = Query(None, alias="to"),
+    msg_type: str | None = Query(None, alias="type"),
+    ref: str | None = Query(None),
+    q: str | None = Query(None),
+    user: dict = Depends(get_current_user)
+):
+    """Analyze messages for a specific war-room (summaries, stats, etc.)."""
+    room_dir = WARROOMS_DIR / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
+        
+    messages = read_channel(
+        room_dir,
+        from_role=from_role,
+        to_role=to_role,
+        msg_type=msg_type,
+        ref=ref,
+        query=q
+    )
+
+    if not messages:
+        return {"summary": "No messages found for analysis.", "stats": {}}
+
+    # Simple stats
+    stats = {
+        "count": len(messages),
+        "types": {},
+        "roles": {},
+        "refs": {}
+    }
+
+    for msg in messages:
+        msg_type_val = msg.get("type", "unknown")
+        stats["types"][msg_type_val] = stats["types"].get(msg_type_val, 0) + 1
+
+        role_val = msg.get("from", "unknown")
+        stats["roles"][role_val] = stats["roles"].get(role_val, 0) + 1
+
+        ref_val = msg.get("ref", "none")
+        stats["refs"][ref_val] = stats["refs"].get(ref_val, 0) + 1
+
+    # Heuristic summary
+    done_iter = (m for m in reversed(messages) if m.get("type") == "done")
+    latest_done = next(done_iter, None)
+
+    fail_iter = (m for m in reversed(messages) if m.get("type") == "fail")
+    latest_fail = next(fail_iter, None)
+
+    summary_text = f"Analyzed {len(messages)} messages."
+    if latest_done:
+        body_snippet = latest_done.get('body', '')[:100]
+        summary_text += f" Latest progress: {body_snippet}..."
+    if latest_fail:
+        body_snippet = latest_fail.get('body', '')[:100]
+        summary_text += f" Latest issue: {body_snippet}..."
+
+    return {
+        "summary": summary_text,
+        "stats": stats,
+        "latest_milestones": {
+            "done": latest_done,
+            "fail": latest_fail
+        }
+    }
 
 @router.get("/api/events")
 async def sse_events():
@@ -118,7 +218,8 @@ async def get_room_state(room_id: str):
     room_dir = WARROOMS_DIR / room_id
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
-    return read_room(room_dir)
+    return read_room(room_dir, include_metadata=True)
+
 
 @router.post("/api/rooms/{room_id}/action")
 async def room_action(room_id: str, background_tasks: BackgroundTasks, action: str = Query(...)):
@@ -137,5 +238,6 @@ async def room_action(room_id: str, background_tasks: BackgroundTasks, action: s
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
 
-    background_tasks.add_task(process_notification, "room_action", {"room_id": room_id, "action": action})
+    data = {"room_id": room_id, "action": action}
+    background_tasks.add_task(process_notification, "room_action", data)
     return {"status": "ok", "action": action, "room_id": room_id}

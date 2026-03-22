@@ -271,7 +271,7 @@ async def update_plan_config(plan_id: str, config: Dict[str, Any], user: dict = 
 async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
     """Get the roles list for a plan, merged with config."""
     config = get_plan_roles_config(plan_id)
-    return {"roles": build_roles_list(config)}
+    return {"roles": build_roles_list(config, include_skills=True)}
 
 @router.post("/api/run")
 async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
@@ -646,12 +646,14 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
         if room_config_file.exists():
             try:
                 rc = json.loads(room_config_file.read_text())
-                # Scoped view requires plan_id match
-                if rc.get("plan_id") != plan_id: continue
+                room_plan_id = rc.get("plan_id", "")
+                # Only skip rooms explicitly belonging to a DIFFERENT plan.
+                # Empty/missing plan_id means the room was created without
+                # stamping the plan — include it since warrooms_dir is
+                # already scoped to this plan's working_dir.
+                if room_plan_id and room_plan_id != plan_id:
+                    continue
             except json.JSONDecodeError: continue
-        else:
-            # Skip rooms without config in plan-scoped view
-            continue
         # Use enhanced read_room with metadata for rich data
         room_data = read_room(room_dir, include_metadata=True)
         rooms.append(room_data)

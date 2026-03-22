@@ -18,6 +18,7 @@ interface WarRoomGridProps {
   };
   channelFilter: string | null;
   onSelectRoom: (roomId: string) => void;
+  onShowDetails?: (roomId: string) => void;
   style?: React.CSSProperties;
 }
 
@@ -26,6 +27,7 @@ export default function WarRoomGrid({
   summary,
   channelFilter,
   onSelectRoom,
+  onShowDetails,
   style,
 }: WarRoomGridProps) {
   const [view, setView] = useState<'grid' | 'matrix' | 'tasks'>('grid');
@@ -77,6 +79,7 @@ export default function WarRoomGrid({
                   room={room}
                   selected={channelFilter === room.room_id}
                   onClick={() => onSelectRoom(room.room_id)}
+                  onShowDetails={() => onShowDetails?.(room.room_id)}
                 />
               ))
             )}

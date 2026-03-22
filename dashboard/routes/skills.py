@@ -101,3 +101,11 @@ async def list_skill_tags(user: dict = Depends(get_current_user)):
         for t in s.tags:
             tags.add(t)
     return sorted(list(tags))
+
+@router.get("/api/skills/roles", response_model=List[str])
+async def list_skill_roles(user: dict = Depends(get_current_user)):
+    """List all available roles from the registry."""
+    from dashboard.api_utils import build_roles_list
+    roles = build_roles_list({}) # Empty config to get all registry roles
+    return [r["name"] for r in roles]
+

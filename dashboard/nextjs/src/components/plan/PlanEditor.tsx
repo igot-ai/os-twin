@@ -17,12 +17,13 @@ interface RoleConfig {
   name: string;
   default_model: string;
   description: string;
+  resolved_skills?: any[];
 }
 
 export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorProps) {
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
-  const [activeTab, setActiveTab] = useState<'editor' | 'preview' | 'settings' | 'history'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'preview' | 'settings' | 'history' | 'skills'>('editor');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -181,6 +182,12 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
                 Roles Settings
               </button>
               <button
+                className={`editor-tab ${activeTab === 'skills' ? 'active' : ''}`}
+                onClick={() => setActiveTab('skills')}
+              >
+                Resolved Skills
+              </button>
+              <button
                 className={`editor-tab ${activeTab === 'history' ? 'active' : ''}`}
                 onClick={() => { setActiveTab('history'); loadVersions(); }}
               >
@@ -224,6 +231,37 @@ export default function PlanEditor({ planId, onClose, onPlanSaved }: PlanEditorP
                             <option value="anthropic:claude-opus-4-6">Claude 4.6 Opus</option>
                             <option value="anthropic:claude-sonnet-4-6">Claude 4.6 Sonnet</option>
                           </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {activeTab === 'skills' && (
+                <div className="editor-settings-view">
+                  <h2 className="settings-title">Resolved Skills for This Plan</h2>
+                  <p className="settings-desc">These are the skills that will be assigned to each role during execution.</p>
+
+                  <div className="roles-grid">
+                    {roles.length === 0 ? <p className="muted-text">Loading roles...</p> : roles.map(role => (
+                      <div key={role.name} className="role-card glass" style={{ borderLeft: '3px solid var(--purple)' }}>
+                        <div className="role-card-header">
+                          <span className="role-name">{role.name}</span>
+                          <span style={{ fontSize: '10px', color: 'var(--purple)', background: 'rgba(192, 132, 252, 0.1)', padding: '1px 6px', borderRadius: '4px' }}>
+                            {role.resolved_skills?.length || 0} skills
+                          </span>
+                        </div>
+                        <div className="role-skills-list" style={{ marginTop: '10px' }}>
+                          {role.resolved_skills && role.resolved_skills.length > 0 ? (
+                            role.resolved_skills.map((s: any) => (
+                              <div key={s.name} className="role-skill-item" style={{ fontSize: '11px', padding: '4px 0', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>{s.name}</span>
+                                <span style={{ fontSize: '9px', opacity: 0.6 }}>{s.trust_level}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="muted-text" style={{ fontSize: '10px' }}>No skills resolved.</p>
+                          )}
                         </div>
                       </div>
                     ))}

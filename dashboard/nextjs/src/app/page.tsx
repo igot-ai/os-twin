@@ -24,6 +24,7 @@ import ChannelFeed from '@/components/panels/ChannelFeed';
 import PlanEditor from '@/components/plan/PlanEditor';
 import SettingsPanel from '@/components/panels/SettingsPanel';
 import SkillsPanel from '@/components/panels/SkillsPanel';
+import ExtendedStatePanel from '@/components/panels/ExtendedStatePanel';
 
 export default function Dashboard() {
   const [mounted, setMounted] = useState(false);
@@ -44,6 +45,8 @@ export default function Dashboard() {
     loadPlanRooms,
     handleWSEvent,
   } = useRooms();
+
+  const [activeExtendedRoomId, setActiveExtendedRoomId] = useState<string | null>(null);
 
   const {
     notifications,
@@ -189,6 +192,7 @@ export default function Dashboard() {
           summary={summary}
           channelFilter={channelFilter}
           onSelectRoom={selectRoom}
+          onShowDetails={(roomId) => setActiveExtendedRoomId(roomId)}
           style={{ flex: 1 }}
         />
 
@@ -223,6 +227,12 @@ export default function Dashboard() {
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
       {showSkills && <SkillsPanel onClose={() => setShowSkills(false)} />}
+      {activeExtendedRoomId && (
+        <ExtendedStatePanel
+          roomId={activeExtendedRoomId}
+          onClose={() => setActiveExtendedRoomId(null)}
+        />
+      )}
     </>
   );
 }
