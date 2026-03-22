@@ -409,7 +409,8 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
 def build_skills_list(
     query: Optional[str] = None, 
     role: Optional[str] = None, 
-    tags: List[str] = []
+    tags: List[str] = [],
+    limit: int = 50
 ) -> List[Skill]:
     """Helper to build and filter skills list from zvec and disk."""
     from dashboard import global_state
@@ -420,7 +421,7 @@ def build_skills_list(
     if store:
         try:
             if query:
-                results = store.search_skills(query, limit=50)
+                results = store.search_skills(query, limit=limit)
                 skills = [Skill(**res) for res in results]
             else:
                 results = store.get_all_skills(limit=100)
@@ -471,7 +472,8 @@ def build_skills_list(
     if not query:
         filtered.sort(key=lambda x: x.name)
     
-    return filtered
+    # Apply limit
+    return filtered[:limit]
 
 # Router helpers
 def resolve_plan_warrooms_dir(plan_id: str) -> Path:

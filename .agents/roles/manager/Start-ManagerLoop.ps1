@@ -121,27 +121,58 @@ function Resolve-RoomSkills {
     # Skip if skill_refs already populated
     if ($rc.skill_refs -and $rc.skill_refs.Count -gt 0) { return }
 
-    # Build search query from brief.md keywords or task-ref
+    # Build search query from full brief.md content
     $query = $TaskRef
     $briefFile = Join-Path $RoomDir "brief.md"
     if (Test-Path $briefFile) {
         $briefContent = (Get-Content $briefFile -Raw -ErrorAction SilentlyContinue)
         if ($briefContent) {
-            # Extract first 200 chars of brief as search context
-            $query = $briefContent.Substring(0, [Math]::Min(200, $briefContent.Length))
+            $query = $briefContent
         }
     }
 
     try {
         $encodedQuery = [System.Uri]::EscapeDataString($query)
         $encodedRole = [System.Uri]::EscapeDataString($AssignedRole)
-        $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}"
+        $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}&limit=5"
         $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
         $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
         if ($response -and $response.Count -gt 0) {
-            $skillNames = @($response | ForEach-Object { $_.name })
+            # Limit to top 5 results
+            $topSkills = @($response | Select-Object -First 5)
+            $skillNames = @($topSkills | ForEach-Object { $_.name })
+
+            # Write skill_refs to room config.json
             $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
             $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
+
+            # Copy skill directories from AGENTS_DIR to room skills dir
+            $roomSkillsDir = Join-Path $RoomDir "skills"
+            if (-not (Test-Path $roomSkillsDir)) {
+                New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
+            }
+
+            foreach ($skill in $topSkills) {
+                $relPath = $skill.relative_path
+                if (-not $relPath) { continue }
+
+                # relative_path is like "skills/roles/engineer/write-tests"
+                $srcDir = Join-Path $agentsDir $relPath
+                if (-not (Test-Path $srcDir)) {
+                    # Also try under the home install dir
+                    $homeSrc = Join-Path (Join-Path $env:HOME ".ostwin") $relPath
+                    if (Test-Path $homeSrc) { $srcDir = $homeSrc }
+                    else { continue }
+                }
+
+                $destDir = Join-Path $roomSkillsDir $skill.name
+                if (Test-Path $destDir) {
+                    Remove-Item -Path $destDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+                Copy-Item -Path (Join-Path $srcDir "*") -Destination $destDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+
             Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for ${AssignedRole}: $($skillNames -join ', ')"
         }
     }

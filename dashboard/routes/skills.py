@@ -27,10 +27,28 @@ async def search_skills_endpoint(
     q: str = Query(..., description="Semantic search query"),
     role: Optional[str] = None,
     tags: List[str] = Query([]),
+    limit: int = Query(50, ge=1, le=100, description="Max results to return"),
     user: dict = Depends(get_current_user)
 ):
     """Semantic search for skills with role-based post-filtering."""
-    return build_skills_list(query=q, role=role, tags=tags)
+    return build_skills_list(query=q, role=role, tags=tags, limit=limit)
+
+@router.get("/api/skills/tags", response_model=List[str])
+async def list_skill_tags(user: dict = Depends(get_current_user)):
+    """List all unique tags across all available skills."""
+    skills = build_skills_list()
+    tags = set()
+    for s in skills:
+        for t in s.tags:
+            tags.add(t)
+    return sorted(list(tags))
+
+@router.get("/api/skills/roles", response_model=List[str])
+async def list_skill_roles(user: dict = Depends(get_current_user)):
+    """List all available roles from the registry."""
+    from dashboard.api_utils import build_roles_list
+    roles = build_roles_list({}) # Empty config to get all registry roles
+    return [r["name"] for r in roles]
 
 @router.get("/api/skills/{name}", response_model=Skill)
 async def get_skill(name: str, user: dict = Depends(get_current_user)):
@@ -92,20 +110,4 @@ async def sync_skills_endpoint(user: dict = Depends(get_current_user)):
     result = store.sync_skills(SKILLS_DIRS)
     return SkillSyncResponse(**result)
 
-@router.get("/api/skills/tags", response_model=List[str])
-async def list_skill_tags(user: dict = Depends(get_current_user)):
-    """List all unique tags across all available skills."""
-    skills = build_skills_list()
-    tags = set()
-    for s in skills:
-        for t in s.tags:
-            tags.add(t)
-    return sorted(list(tags))
-
-@router.get("/api/skills/roles", response_model=List[str])
-async def list_skill_roles(user: dict = Depends(get_current_user)):
-    """List all available roles from the registry."""
-    from dashboard.api_utils import build_roles_list
-    roles = build_roles_list({}) # Empty config to get all registry roles
-    return [r["name"] for r in roles]
 

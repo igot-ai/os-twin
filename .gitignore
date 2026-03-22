@@ -19,7 +19,7 @@ __pycache__/
 .claude/
 .data/
 .data/**
-
+dashboard/.war-rooms
 # ── Dummy project ──────────────────────────────────────────────────────────────
 cypress/screenshots
 quant_proj/
