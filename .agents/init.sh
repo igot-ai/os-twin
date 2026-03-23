@@ -41,7 +41,8 @@ rsync -a --exclude='plans/' "$SOURCE_AGENTS/" "$TARGET_AGENTS/"
 # Copy dashboard from sibling directory (source repo layout: dashboard/ is sibling to .agents/)
 if [[ -d "$SOURCE_AGENTS/../dashboard" ]] && [[ ! -d "$TARGET_AGENTS/dashboard" ]]; then
   echo "  → Copying dashboard from source repo..."
-  cp -r "$SOURCE_AGENTS/../dashboard" "$TARGET_AGENTS/dashboard"
+  mkdir -p "$TARGET_AGENTS/dashboard"
+  cp -r "$SOURCE_AGENTS/../dashboard/" "$TARGET_AGENTS/dashboard/"
 fi
 
 # Make all scripts executable

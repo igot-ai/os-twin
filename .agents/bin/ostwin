@@ -7,6 +7,14 @@
 
 set -euo pipefail
 
+# Load global environment variables (~/.ostwin/.env)
+OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
+if [[ -f "$OSTWIN_HOME/.env" ]]; then
+  set -a
+  source <(grep -v '^\s*#' "$OSTWIN_HOME/.env" | grep -v '^\s*$')
+  set +a
+fi
+
 # Resolve AGENTS_DIR: search from cwd upward for .agents, fallback to script-relative
 AGENTS_DIR=""
 if [[ -d "$(pwd)/.agents" && -f "$(pwd)/.agents/config.json" ]]; then
@@ -196,6 +204,7 @@ Commands:
   plan <sub>        Plan management (AI-assisted)
                     Subcommands: create [Title|file.md] [--file FILE], start, list
   init [directory]  Scaffold Agent OS into a project
+  sync [directory]  Sync framework updates to an initialized project
   status            Show war-room dashboard
                     Options: --json, --watch
   logs [room-id]    View channel logs
@@ -570,6 +579,10 @@ else:
   init)
     shift
     exec "$AGENTS_DIR/init.sh" "$@"
+    ;;
+  sync)
+    shift
+    exec "$AGENTS_DIR/sync.sh" "$@"
     ;;
   status)
     shift
