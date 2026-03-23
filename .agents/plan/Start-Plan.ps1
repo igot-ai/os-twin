@@ -590,9 +590,13 @@ function New-PlanWarRooms {
     foreach ($entry in $parsed) {
         $roomPath = Join-Path $warRoomsDir $entry.RoomId
         if (Test-Path $roomPath) {
-            # --- RECONCILE: update existing room's role assignment from plan ---
             $existingConfigPath = Join-Path $roomPath "config.json"
-            if (Test-Path $existingConfigPath) {
+            if (-not (Test-Path $existingConfigPath)) {
+                # Stale room directory without config.json — remove and recreate
+                Write-Warning "Stale room $($entry.RoomId) found (no config.json). Removing and recreating."
+                Remove-Item -Path $roomPath -Recurse -Force
+            } else {
+                # --- RECONCILE: update existing room's role assignment from plan ---
                 $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
                 $candidateRoles = @(if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") })
                 try {
@@ -607,8 +611,8 @@ function New-PlanWarRooms {
                 } catch {
                     Write-Host "    [WARN] Failed to reconcile $($entry.RoomId): $($_.Exception.Message)" -ForegroundColor Yellow
                 }
+                continue
             }
-            continue
         }
 
         $resolvedWorkingDir = $ProjectDir
