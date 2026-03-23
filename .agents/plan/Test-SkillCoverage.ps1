@@ -138,8 +138,23 @@ $roleDesc
             $roleData = Get-Content $roleJson -Raw | ConvertFrom-Json
             if ($roleData.skill_refs) {
                 foreach ($skill in $roleData.skill_refs) {
-                    $skillPath = Join-Path $agentsDir "skills" $skill
-                    if (-not (Test-Path $skillPath)) {
+                    # Search hierarchically: skills/<name>, skills/global/<name>, skills/roles/*/<name>
+                    $found = $false
+                    $searchPaths = @(
+                        (Join-Path $agentsDir "skills" $skill),
+                        (Join-Path $agentsDir "skills" "global" $skill)
+                    )
+                    # Search all role skill directories
+                    $rolesSkillDir = Join-Path $agentsDir "skills" "roles"
+                    if (Test-Path $rolesSkillDir) {
+                        Get-ChildItem -Path $rolesSkillDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                            $searchPaths += Join-Path $_.FullName $skill
+                        }
+                    }
+                    foreach ($sp in $searchPaths) {
+                        if (Test-Path $sp) { $found = $true; break }
+                    }
+                    if (-not $found) {
                         $msg = "Skill '$skill' required by role '$currentRole' not found (used in $($entry.TaskRef))"
                         if ($missingSkills -notcontains $msg) {
                             $missingSkills.Add($msg)

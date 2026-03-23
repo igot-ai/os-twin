@@ -732,8 +732,23 @@ while (-not $script:shuttingDown) {
                         else {
                             # Worker process died but left a design-guidance or other message
                             if ($guidanceCount -gt 0) {
-                                Write-Log "INFO" "[$taskRef] Worker ($assignedRole) finished with guidance but no explicit verdict. Routing to triage."
-                                Write-RoomStatus $roomDir "manager-triage"
+                                if ($baseRole -eq 'architect') {
+                                    # Architect's design-guidance IS its completion signal — treat as done
+                                    Write-Log "INFO" "[$taskRef] Architect review complete (design-guidance posted). Transitioning to next stage."
+                                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status -and $lifecycle.states.$status.transitions.done) {
+                                        $lifecycle.states.$status.transitions.done
+                                    } else { "qa-review" }
+                                    Write-RoomStatus $roomDir $nextState
+                                    if ($nextState -eq "qa-review") {
+                                        Start-Job -ScriptBlock {
+                                            param($script, $room)
+                                            & $script -RoomDir $room
+                                        } -ArgumentList $startQA, $roomDir | Out-Null
+                                    }
+                                } else {
+                                    Write-Log "INFO" "[$taskRef] Worker ($assignedRole) finished with guidance but no explicit verdict. Routing to triage."
+                                    Write-RoomStatus $roomDir "manager-triage"
+                                }
                             }
                             else {
                                 Write-Log "ERROR" "[$taskRef] Worker ($assignedRole) died without posting any message."
@@ -759,8 +774,23 @@ while (-not $script:shuttingDown) {
                         $anyResponse = $doneCount + $guidanceCount + (Get-MsgCount $roomDir "error")
                         if ($anyResponse -gt 0) {
                             if ($guidanceCount -gt 0 -and $doneCount -eq 0) {
-                                Write-Log "INFO" "[$taskRef] Worker ($assignedRole) posted guidance but no done/approve. Routing to triage."
-                                Write-RoomStatus $roomDir "manager-triage"
+                                if ($baseRole -eq 'architect') {
+                                    # Architect's design-guidance IS its completion signal
+                                    Write-Log "INFO" "[$taskRef] Architect review complete (design-guidance posted, no PID). Transitioning to next stage."
+                                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status -and $lifecycle.states.$status.transitions.done) {
+                                        $lifecycle.states.$status.transitions.done
+                                    } else { "qa-review" }
+                                    Write-RoomStatus $roomDir $nextState
+                                    if ($nextState -eq "qa-review") {
+                                        Start-Job -ScriptBlock {
+                                            param($script, $room)
+                                            & $script -RoomDir $room
+                                        } -ArgumentList $startQA, $roomDir | Out-Null
+                                    }
+                                } else {
+                                    Write-Log "INFO" "[$taskRef] Worker ($assignedRole) posted guidance but no done/approve. Routing to triage."
+                                    Write-RoomStatus $roomDir "manager-triage"
+                                }
                             }
                             # else: done or error already handled above
                         }
