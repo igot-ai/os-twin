@@ -1,0 +1,20 @@
+{
+  "name": "data-analysis-engineer",
+  "description": "Efficiently parse CSV data to compute key metrics, perform exploratory analysis, and generate a validated report specification JSON.",
+  "capabilities": [
+    "Python scripting",
+    "Data manipulation (pandas)",
+    "CLI argument parsing",
+    "JSON generation and validation",
+    "optimization"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

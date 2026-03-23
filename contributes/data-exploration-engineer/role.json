@@ -1,0 +1,20 @@
+{
+  "name": "data-exploration-engineer",
+  "description": "Efficiently parse CSV data, compute complex exploratory metrics, and generate a validated report specification JSON via a robust CLI script.",
+  "capabilities": [
+    "python-scripting",
+    "data-analysis",
+    "cli-development",
+    "json-schema-validation",
+    "performance-optimization"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

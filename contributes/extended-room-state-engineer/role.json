@@ -1,0 +1,19 @@
+{
+  "name": "extended-room-state-engineer",
+  "description": "Design and implement the Extended Room State Panel in the dashboard to visualize and manage complex room states.",
+  "capabilities": [
+    "frontend-development",
+    "ui-component-design",
+    "state-management",
+    "dashboard-integration"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

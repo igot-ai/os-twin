@@ -1,0 +1,20 @@
+{
+  "name": "data-explorer-engineer",
+  "description": "Parse CSV data, compute key metrics and trends, and generate a valid JSON report specification.",
+  "capabilities": [
+    "Python programming",
+    "CSV parsing",
+    "Data analysis and aggregation",
+    "JSON schema generation",
+    "CLI tool development"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

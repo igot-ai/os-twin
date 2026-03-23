@@ -1,0 +1,19 @@
+{
+  "name": "efficient-data-engineer",
+  "description": "Efficiently parse data CSVs, compute exploratory analytical metrics, and generate a validated JSON report specification.",
+  "capabilities": [
+    "Python scripting",
+    "Data analysis and transformation (pandas)",
+    "CLI argument parsing",
+    "JSON serialization and schema validation"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}
