@@ -31,7 +31,7 @@ _MEMORY_DIR = Path(__file__).resolve().parent
 _AGENTS_DIR = _MEMORY_DIR.parent
 _PROJECT_ROOT = _AGENTS_DIR.parent
 
-load_dotenv(_MEMORY_DIR / ".env")
+load_dotenv(_MEMORY_DIR / ".." / ".env")
 
 # ---------------------------------------------------------------------------
 # Indexing config
