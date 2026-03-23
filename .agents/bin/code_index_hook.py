@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import threading
 from typing import Any
 
 from deepagents.backends.protocol import (
@@ -29,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 # Lazy-import code_index to avoid loading cocoindex at import time
 _code_index = None
-_index_lock = threading.Lock()
 
 
 def _get_code_index():

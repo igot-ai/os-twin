@@ -5,7 +5,7 @@ Provides:
     and exports to a Postgres table with pgvector for similarity search.
   - Public API: build_index(), search_index(), notify_file_changed()
 
-Environment (loaded from .agents/memory/.env):
+Environment (loaded from .agents/.env):
     COCOINDEX_DATABASE_URL: Postgres connection string (with pgvector)
     GOOGLE_API_KEY: Required for Gemini embedding API
 """
@@ -25,7 +25,7 @@ from psycopg_pool import ConnectionPool
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Load .env from the same directory as this script (.agents/memory/.env)
+# Load .env from the .agents directory
 # ---------------------------------------------------------------------------
 _MEMORY_DIR = Path(__file__).resolve().parent
 _AGENTS_DIR = _MEMORY_DIR.parent
@@ -78,7 +78,6 @@ CHUNK_OVERLAP = 200
 TOP_K = 3
 
 EMBEDDING_MODEL = "gemini-embedding-2-preview"
-EMBEDDING_DIMENSION = 1536
 
 # Track whether cocoindex.init() has been called
 _initialized = False
@@ -90,6 +89,23 @@ def _ensure_init() -> None:
     if not _initialized:
         cocoindex.init()
         _initialized = True
+
+
+# ---------------------------------------------------------------------------
+# Transform: text → embedding (used for query-time embedding)
+# ---------------------------------------------------------------------------
+@cocoindex.transform_flow()
+def code_to_embedding(
+    text: cocoindex.DataSlice[str],
+) -> cocoindex.DataSlice[list[float]]:
+    """Embed text using Gemini for query-time evaluation."""
+    return text.transform(
+        cocoindex.functions.EmbedText(
+            api_type=cocoindex.LlmApiType.GEMINI,
+            model=EMBEDDING_MODEL,
+            task_type="SEMANTIC_SIMILARITY",
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -134,14 +150,8 @@ def code_embedding_flow(
         )
 
         with file["chunks"].row() as chunk:
-            # Embed each chunk using Gemini
-            chunk["embedding"] = chunk["text"].transform(
-                cocoindex.functions.EmbedText(
-                    api_type=cocoindex.LlmApiType.GEMINI,
-                    model=EMBEDDING_MODEL,
-                    task_type="SEMANTIC_SIMILARITY",
-                )
-            )
+            # Embed each chunk using Gemini (reuses code_to_embedding transform)
+            chunk["embedding"] = chunk["text"].call(code_to_embedding)
 
             # Collect results
             code_embeddings.collect(
@@ -203,20 +213,45 @@ def build_index(path: str | None = None) -> None:
 def search_index(query: str, top_k: int = TOP_K) -> list[dict]:
     """Run a semantic search and return results.
 
+    Embeds the query using the same Gemini model and searches for
+    the closest code chunks via cosine similarity.
+
     Returns:
-        List of dicts with keys: filename, text, embedding, score
+        List of dicts with keys: filename, text, score
     """
+    import numpy as np
+
     _ensure_init()
 
     table_name = cocoindex.utils.get_target_default_name(
         code_embedding_flow, "code_embeddings"
     )
 
+    # Embed the query using the same transform
+    query_vector = code_to_embedding.eval(query)
+    query_vec = np.array(query_vector, dtype=np.float32)
+
     with _connection_pool().connection() as conn:
         register_vector(conn)
         with conn.cursor() as cur:
-            cur.execute(f"SELECT DISTINCT filename FROM {table_name} ORDER BY filename")
-            return [{"filename": row[0]} for row in cur.fetchall()]
+            cur.execute(
+                f"""
+                SELECT filename, text,
+                       1 - (embedding <=> %s) AS score
+                FROM {table_name}
+                ORDER BY embedding <=> %s
+                LIMIT %s
+                """,
+                (query_vec, query_vec, top_k),
+            )
+            return [
+                {
+                    "filename": row[0],
+                    "text": row[1],
+                    "score": float(row[2]),
+                }
+                for row in cur.fetchall()
+            ]
 
 
 def is_indexable(file_path: str) -> bool:
@@ -241,6 +276,7 @@ def notify_file_changed(file_path: str) -> None:
 
     try:
         _ensure_init()
+        cocoindex.setup_all_flows()
         code_embedding_flow.update()
         logger.debug("Index updated after change to %s", file_path)
     except Exception:
