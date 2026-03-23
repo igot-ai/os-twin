@@ -2,10 +2,12 @@
 
 import { useState, useMemo } from 'react';
 import { Room } from '@/types';
+import { IssueEpic } from '@/hooks/useIssues';
 import { AgentSummary } from '@/hooks/useAgents';
 import { STATUS_COLOR } from '@/lib/constants';
+import AgentDashboardTab from './AgentDashboardTab';
 
-type Tab = 'dashboard' | 'config' | 'rooms';
+type Tab = 'dashboard' | 'config' | 'skills' | 'rooms';
 
 const ROLE_STATUS_MAP: Record<string, string> = {
   engineering: 'engineer',
@@ -19,10 +21,11 @@ const ROLE_STATUS_MAP: Record<string, string> = {
 interface AgentDetailProps {
   agent: AgentSummary;
   rooms: Room[];
+  issues: IssueEpic[];
   onBack: () => void;
 }
 
-export default function AgentDetail({ agent, rooms, onBack }: AgentDetailProps) {
+export default function AgentDetail({ agent, rooms, issues, onBack }: AgentDetailProps) {
   const [tab, setTab] = useState<Tab>('dashboard');
 
   const roleRooms = useMemo(() => {
@@ -32,15 +35,17 @@ export default function AgentDetail({ agent, rooms, onBack }: AgentDetailProps) 
     });
   }, [rooms, agent.name]);
 
-  const activeRooms = roleRooms.filter((r) => ROLE_STATUS_MAP[r.status] === agent.name);
-  const passed = roleRooms.filter((r) => r.status === 'passed').length;
-  const failed = roleRooms.filter((r) => r.status === 'failed-final').length;
-  const total = passed + failed;
-  const successRate = total > 0 ? Math.round((passed / total) * 100) : 0;
+  const agentIssues = useMemo(() => {
+    const roomIds = new Set(roleRooms.map((r) => r.room_id));
+    return issues.filter((i) => roomIds.has(i.room_id));
+  }, [roleRooms, issues]);
+
+  const skillCount = agent.config?.resolved_skills?.length || 0;
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'dashboard', label: 'Dashboard' },
     { key: 'config', label: 'Configuration' },
+    { key: 'skills', label: `Skills (${skillCount})` },
     { key: 'rooms', label: 'Rooms' },
   ];
 
@@ -81,83 +86,12 @@ export default function AgentDetail({ agent, rooms, onBack }: AgentDetailProps) 
 
       <div className="tab-content">
         {tab === 'dashboard' && (
-          <DashboardTab
-            activeRooms={activeRooms}
-            passed={passed}
-            failed={failed}
-            successRate={successRate}
-            roleRooms={roleRooms}
-          />
+          <AgentDashboardTab roleRooms={roleRooms} agentIssues={agentIssues} />
         )}
         {tab === 'config' && <ConfigTab agent={agent} />}
+        {tab === 'skills' && <SkillsTab agent={agent} />}
         {tab === 'rooms' && <RoomsTab rooms={roleRooms} />}
       </div>
-    </div>
-  );
-}
-
-function DashboardTab({
-  activeRooms,
-  passed,
-  failed,
-  successRate,
-  roleRooms,
-}: {
-  activeRooms: Room[];
-  passed: number;
-  failed: number;
-  successRate: number;
-  roleRooms: Room[];
-}) {
-  const stats = [
-    { label: 'Active', value: activeRooms.length, color: 'var(--cyan)' },
-    { label: 'Completed', value: passed, color: 'var(--green)' },
-    { label: 'Failed', value: failed, color: 'var(--red)' },
-    { label: 'Success Rate', value: `${successRate}%`, color: 'var(--text)' },
-  ];
-
-  const recentRooms = [...roleRooms]
-    .sort((a, b) => (b.last_activity || '').localeCompare(a.last_activity || ''))
-    .slice(0, 8);
-
-  return (
-    <div>
-      <div className="dashboard-stats" style={{ padding: '12px 0' }}>
-        {stats.map((s) => (
-          <div key={s.label} className="dash-stat-card">
-            <div className="dash-stat-value" style={{ color: s.color }}>
-              {s.value}
-            </div>
-            <div className="dash-stat-label">{s.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <h3 className="section-title">Recent Rooms</h3>
-      {recentRooms.length === 0 ? (
-        <div className="empty-state" style={{ padding: '24px' }}>
-          <p>No room history for this role.</p>
-        </div>
-      ) : (
-        <div className="room-list">
-          {recentRooms.map((room) => (
-            <div key={room.room_id} className="room-list-row">
-              <span
-                className="room-status-dot"
-                style={{ background: STATUS_COLOR[room.status] || '#555' }}
-              />
-              <span className="room-list-id">{room.room_id}</span>
-              <span className="room-list-ref">{room.task_ref}</span>
-              <span
-                className="room-list-status"
-                style={{ color: STATUS_COLOR[room.status] || 'var(--text-dim)' }}
-              >
-                {room.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -188,6 +122,62 @@ function ConfigTab({ agent }: { agent: AgentSummary }) {
           <span className="config-value">{f.value}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function SkillsTab({ agent }: { agent: AgentSummary }) {
+  const skills = agent.config?.resolved_skills;
+
+  if (!skills || skills.length === 0) {
+    return (
+      <div className="empty-state">
+        <p>No skills resolved for this role.</p>
+      </div>
+    );
+  }
+
+  const coreSkills = skills.filter((s) => s.trust_level === 'core');
+  const experimentalSkills = skills.filter((s) => s.trust_level !== 'core');
+
+  return (
+    <div className="skills-tab">
+      {coreSkills.length > 0 && (
+        <div style={{ marginBottom: '16px' }}>
+          <h3 className="section-title">
+            Core
+            <span style={{ fontSize: '10px', color: 'var(--green)', marginLeft: '8px', fontWeight: 400 }}>
+              {coreSkills.length}
+            </span>
+          </h3>
+          <div className="skills-list">
+            {coreSkills.map((s) => (
+              <div key={s.name} className="skill-item">
+                <span className="skill-name">{s.name}</span>
+                <span className="skill-badge skill-badge-core">core</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {experimentalSkills.length > 0 && (
+        <div>
+          <h3 className="section-title">
+            Experimental
+            <span style={{ fontSize: '10px', color: 'var(--amber)', marginLeft: '8px', fontWeight: 400 }}>
+              {experimentalSkills.length}
+            </span>
+          </h3>
+          <div className="skills-list">
+            {experimentalSkills.map((s) => (
+              <div key={s.name} className="skill-item">
+                <span className="skill-name">{s.name}</span>
+                <span className="skill-badge skill-badge-experimental">{s.trust_level}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

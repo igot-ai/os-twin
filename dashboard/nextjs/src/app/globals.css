@@ -3528,6 +3528,147 @@ body {
   padding: 0 20px 20px;
 }
 
+/* === Chart Cards Grid === */
+.chart-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px 10px;
+  min-width: 0;
+}
+
+.chart-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.chart-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chart-card-subtitle {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.chart-card-body {
+  margin: 0 -8px;
+}
+
+.chart-card-legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.chart-legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* === Recent Issues Section === */
+.recent-issues-section {
+  margin-top: 20px;
+}
+
+.recent-issues-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.see-all-link {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.see-all-link:hover {
+  color: var(--cyan);
+}
+
+.recent-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recent-issue-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.recent-issue-row:hover {
+  background: var(--glass-bg);
+}
+
+.recent-issue-ref {
+  color: var(--text-dim);
+  font-size: 11px;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.recent-issue-title {
+  flex: 1;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-issue-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: 12px;
+  border: 1px solid;
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+
+@media (max-width: 900px) {
+  .chart-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 500px) {
+  .chart-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .section-title {
   font-size: 11px;
   font-weight: 700;
@@ -4126,6 +4267,53 @@ code.config-value {
   border-radius: 3px;
   border: 1px solid var(--border);
   font-size: 11px;
+}
+
+/* === Skills Tab === */
+.skills-tab {
+  padding: 4px 0;
+}
+
+.skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skill-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.skill-item:last-child {
+  border-bottom: none;
+}
+
+.skill-name {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.skill-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.skill-badge-core {
+  color: var(--green);
+  background: rgba(74, 222, 128, 0.1);
+}
+
+.skill-badge-experimental {
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.1);
 }
 
 /* === Issues Page === */

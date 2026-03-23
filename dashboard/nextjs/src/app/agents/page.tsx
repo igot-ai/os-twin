@@ -1,20 +1,43 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/contexts/AppContext';
-import { useAgents, AgentSummary } from '@/hooks/useAgents';
+import { useAgents } from '@/hooks/useAgents';
+import { useIssues } from '@/hooks/useIssues';
 import AgentList from '@/components/agents/AgentList';
 import AgentDetail from '@/components/agents/AgentDetail';
 
 export default function AgentsPage() {
+  return (
+    <Suspense>
+      <AgentsPageInner />
+    </Suspense>
+  );
+}
+
+function AgentsPageInner() {
   const { roomList } = useApp();
   const { agents, loading } = useAgents(roomList);
-  const [selected, setSelected] = useState<AgentSummary | null>(null);
+  const { issues } = useIssues();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const role = searchParams.get('role');
+
+  const selected = useMemo(() => {
+    if (!role) return null;
+    return agents.find((a) => a.name === role) || null;
+  }, [role, agents]);
 
   if (selected) {
     return (
       <div className="agents-page">
-        <AgentDetail agent={selected} rooms={roomList} onBack={() => setSelected(null)} />
+        <AgentDetail
+          agent={selected}
+          rooms={roomList}
+          issues={issues}
+          onBack={() => router.push('/agents')}
+        />
       </div>
     );
   }
@@ -29,7 +52,11 @@ export default function AgentsPage() {
         </span>
       </div>
       <div style={{ padding: '12px 20px' }}>
-        <AgentList agents={agents} loading={loading} onSelectAgent={setSelected} />
+        <AgentList
+          agents={agents}
+          loading={loading}
+          onSelectAgent={(agent) => router.push(`/agents?role=${agent.name}`)}
+        />
       </div>
     </div>
   );

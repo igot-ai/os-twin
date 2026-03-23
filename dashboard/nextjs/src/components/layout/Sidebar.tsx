@@ -1,7 +1,8 @@
 'use client';
 
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { useProjects } from '@/hooks/useProjects';
 
@@ -40,6 +41,8 @@ const AGENT_ITEMS: NavItem[] = [
   { href: '/agents?role=engineer', icon: '⚙', label: 'Engineer' },
   { href: '/agents?role=qa', icon: '✦', label: 'QA' },
   { href: '/agents?role=architect', icon: '◆', label: 'Architect' },
+  { href: '/agents?role=reporter', icon: '📊', label: 'Reporter' },
+  { href: '/agents?role=audit', icon: '🔍', label: 'Audit' },
 ];
 
 const SYSTEM_ITEMS: NavItem[] = [
@@ -56,8 +59,23 @@ function NavLink({
   pathname: string;
   collapsed: boolean;
 }) {
-  const isActive =
-    item.href === '/' ? pathname === '/' : pathname.startsWith(item.href.split('?')[0]);
+  const searchParams = useSearchParams();
+  const hrefUrl = new URL(item.href, 'http://x');
+  const hrefPath = hrefUrl.pathname;
+  const hrefParams = hrefUrl.searchParams;
+
+  let isActive: boolean;
+  if (item.href === '/') {
+    isActive = pathname === '/';
+  } else if (hrefParams.size > 0) {
+    isActive =
+      pathname === hrefPath &&
+      Array.from(hrefParams.entries()).every(
+        ([key, value]) => searchParams.get(key) === value,
+      );
+  } else {
+    isActive = pathname.startsWith(hrefPath);
+  }
 
   return (
     <Link
@@ -71,7 +89,15 @@ function NavLink({
   );
 }
 
-export default function Sidebar({
+export default function Sidebar(props: SidebarProps) {
+  return (
+    <Suspense>
+      <SidebarInner {...props} />
+    </Suspense>
+  );
+}
+
+function SidebarInner({
   collapsed,
   onToggleCollapse,
   connected,

@@ -4,6 +4,11 @@ import { useState, useMemo, useEffect } from 'react';
 import { Room, Plan } from '@/types';
 import { apiGet } from '@/lib/api';
 
+export interface ResolvedSkill {
+  name: string;
+  trust_level: string;
+}
+
 export interface RoleConfig {
   name: string;
   description: string;
@@ -11,6 +16,7 @@ export interface RoleConfig {
   timeout_seconds: number;
   capabilities?: string[];
   supported_task_types?: string[];
+  resolved_skills?: ResolvedSkill[];
 }
 
 export interface AgentSummary {
@@ -29,6 +35,8 @@ const ROLE_ICONS: Record<string, string> = {
   engineer: '⚙',
   qa: '✦',
   architect: '◆',
+  reporter: '📊',
+  audit: '🔍',
 };
 
 const ROLE_STATUS_MAP: Record<string, string> = {
@@ -63,6 +71,18 @@ const DEFAULT_ROLES: RoleConfig[] = [
     name: 'architect',
     description: 'Software architect',
     default_model: 'gemini-3-flash-preview',
+    timeout_seconds: 900,
+  },
+  {
+    name: 'reporter',
+    description: 'Report generator — creates structured PDF reports from data specs',
+    default_model: 'gemini-3-flash-preview',
+    timeout_seconds: 600,
+  },
+  {
+    name: 'audit',
+    description: 'Auditor — scopes risk investigations, validates findings, makes risk decisions',
+    default_model: 'gemini-3.1-pro-preview',
     timeout_seconds: 900,
   },
 ];
