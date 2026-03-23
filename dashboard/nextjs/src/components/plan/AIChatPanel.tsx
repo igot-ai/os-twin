@@ -58,7 +58,7 @@ export default function AIChatPanel({
         handleSend();
       }
     },
-    [handleSend]
+    [handleSend],
   );
 
   // Extract plan markdown from assistant response
@@ -103,11 +103,7 @@ export default function AIChatPanel({
             </p>
             <div className="ai-quick-prompts">
               {QUICK_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  className="ai-quick-btn"
-                  onClick={() => onSendMessage(prompt)}
-                >
+                <button key={prompt} className="ai-quick-btn" onClick={() => onSendMessage(prompt)}>
                   {prompt}
                 </button>
               ))}
@@ -185,11 +181,7 @@ export default function AIChatPanel({
               ■ Stop
             </button>
           ) : (
-            <button
-              className="ai-send-btn"
-              onClick={handleSend}
-              disabled={!input.trim()}
-            >
+            <button className="ai-send-btn" onClick={handleSend} disabled={!input.trim()}>
               ▶ Send
             </button>
           )}

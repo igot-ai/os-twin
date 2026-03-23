@@ -118,18 +118,20 @@ async def poll_war_rooms():
                         if prev["status"] != room["status"]:
                             epic_ref = room.get("task_ref", "")
                             if epic_ref:
-                                # Find plan_id from plans dir (latest launched)
                                 try:
                                     p_dir = AGENTS_DIR / "plans"
                                     if p_dir.exists():
-                                        latest = max(
-                                            p_dir.glob("agent-os-plan-*.md"),
+                                        latest_meta = max(
+                                            p_dir.glob("*.meta.json"),
                                             key=lambda p: p.stat().st_mtime,
                                             default=None,
                                         )
-                                        if latest:
+                                        if latest_meta:
+                                            import json as _json
+                                            meta = _json.loads(latest_meta.read_text())
+                                            plan_id = meta.get("plan_id", latest_meta.stem.replace(".meta", ""))
                                             global_state.store.update_epic_status(
-                                                latest.stem, epic_ref, room["status"]
+                                                plan_id, epic_ref, room["status"]
                                             )
                                 except Exception: pass
 

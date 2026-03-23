@@ -51,16 +51,13 @@ export default function PipelineBar({ rooms }: PipelineBarProps) {
   return (
     <div className="pipeline-bar" id="pipeline-bar">
       {steps.map((step, i) => (
-        <div key={step.id} style={{ display: 'contents' }}>
-          <div
-            className={`pipeline-step${isActive(step.id) ? ' pipe-active' : ''}`}
-            id={step.id}
-          >
+        <span key={step.id} style={{ display: 'contents' }}>
+          <div className={`pipeline-step${isActive(step.id) ? ' pipe-active' : ''}`} id={step.id}>
             <span className="pipe-icon">{step.icon}</span>
             <span>{step.label}</span>
           </div>
           {i < steps.length - 1 && <PipelineArrow active={isActive(step.id)} />}
-        </div>
+        </span>
       ))}
     </div>
   );

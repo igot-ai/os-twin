@@ -90,6 +90,17 @@ export interface Plan {
   created_at: string;
   filename: string;
   version_count?: number;
+  working_dir?: string;
+  warrooms_dir?: string;
+}
+
+// === Project (derived from plans grouped by working_dir) ===
+export interface Project {
+  name: string;
+  path: string;
+  plans: Plan[];
+  planCount: number;
+  epicCount: number;
 }
 
 // === Plan Version ===
@@ -101,7 +112,7 @@ export interface PlanVersion {
   epic_count: number;
   created_at: string;
   change_source: string;
-  content?: string;  // Only present when fetching a specific version
+  content?: string; // Only present when fetching a specific version
 }
 
 // === Epic ===

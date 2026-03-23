@@ -37,43 +37,34 @@ function renderMarkdown(content: string): string {
     .replace(/>/g, '&gt;');
 
   // Headers
-  html = html.replace(
-    /^### (.+)$/gm,
-    '<h3 class="md-h3">$1</h3>'
-  );
+  html = html.replace(/^### (.+)$/gm, '<h3 class="md-h3">$1</h3>');
   html = html.replace(
     /^## (EPIC-\d+\s*[-—–]\s*.+)$/gm,
-    '<h2 class="md-epic"><span class="md-epic-badge">EPIC</span> $1</h2>'
+    '<h2 class="md-epic"><span class="md-epic-badge">EPIC</span> $1</h2>',
   );
   html = html.replace(
     /^## (Config)$/gm,
-    '<h2 class="md-config"><span class="md-config-badge">CONFIG</span> $1</h2>'
+    '<h2 class="md-config"><span class="md-config-badge">CONFIG</span> $1</h2>',
   );
-  html = html.replace(
-    /^## (.+)$/gm,
-    '<h2 class="md-h2">$1</h2>'
-  );
+  html = html.replace(/^## (.+)$/gm, '<h2 class="md-h2">$1</h2>');
   html = html.replace(
     /^# Plan:\s*(.+)$/gm,
-    '<h1 class="md-title"><span class="md-title-icon">⬡</span> $1</h1>'
+    '<h1 class="md-title"><span class="md-title-icon">⬡</span> $1</h1>',
   );
 
   // Config lines (key: value)
   html = html.replace(
     /^(working_dir:\s*)(.+)$/gm,
-    '<div class="md-config-line"><span class="md-config-key">$1</span><span class="md-config-val">$2</span></div>'
+    '<div class="md-config-line"><span class="md-config-key">$1</span><span class="md-config-val">$2</span></div>',
   );
 
   // Acceptance criteria header
-  html = html.replace(
-    /^(Acceptance criteria:)$/gm,
-    '<div class="md-criteria-header">$1</div>'
-  );
+  html = html.replace(/^(Acceptance criteria:)$/gm, '<div class="md-criteria-header">$1</div>');
 
   // Bullet lists with checklist style
   html = html.replace(
     /^- (.+)$/gm,
-    '<div class="md-bullet"><span class="md-bullet-dot">▸</span> <span>$1</span></div>'
+    '<div class="md-bullet"><span class="md-bullet-dot">▸</span> <span>$1</span></div>',
   );
 
   // Bold
@@ -109,9 +100,7 @@ export default function MarkdownPreview({ content }: MarkdownPreviewProps) {
           <span className={validation.epicCount > 0 ? 'md-check-ok' : 'md-check-missing'}>
             {validation.epicCount > 0 ? '✓' : '✗'} Epics ({validation.epicCount})
           </span>
-          <span
-            className={validation.hasAcceptanceCriteria ? 'md-check-ok' : 'md-check-missing'}
-          >
+          <span className={validation.hasAcceptanceCriteria ? 'md-check-ok' : 'md-check-missing'}>
             {validation.hasAcceptanceCriteria ? '✓' : '✗'} Criteria
           </span>
         </div>

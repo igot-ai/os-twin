@@ -8,13 +8,7 @@ interface SummaryChipsProps {
   failed: number;
 }
 
-export default function SummaryChips({
-  pending,
-  eng,
-  qa,
-  passed,
-  failed,
-}: SummaryChipsProps) {
+export default function SummaryChips({ pending, eng, qa, passed, failed }: SummaryChipsProps) {
   return (
     <div className="summary-chips">
       <span className="summary-chip chip-pending">

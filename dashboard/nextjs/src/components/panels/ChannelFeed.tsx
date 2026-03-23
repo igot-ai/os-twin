@@ -5,7 +5,6 @@ import { Room, Message, Notification } from '@/types';
 import { STATUS_COLOR, PROGRESS_PCT } from '@/lib/constants';
 import { fmtTime, trunc } from '@/lib/utils';
 import { apiGet, apiFetch } from '@/lib/api';
-import MessageExplorer from '@/components/warroom/MessageExplorer';
 
 // Inline FeedMessage to avoid extra file since it's small
 function FeedMessage({ roomId, msg }: { roomId: string; msg: Message }) {
@@ -45,10 +44,9 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   const [activityLogs, setActivityLogs] = useState<Notification[]>([]);
   const [expandedGoals, setExpandedGoals] = useState<Record<number, boolean>>({});
   const [showAllGoals, setShowAllGoals] = useState(false);
-  const [showExplorer, setShowExplorer] = useState(false);
 
   const toggleGoal = (i: number) => {
-    setExpandedGoals(prev => ({ ...prev, [i]: !prev[i] }));
+    setExpandedGoals((prev) => ({ ...prev, [i]: !prev[i] }));
   };
 
   const color = STATUS_COLOR[room.status] || '#555';
@@ -59,10 +57,10 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
     const loadLogs = async () => {
       try {
         const data = await apiGet<Notification[] | { notifications: Notification[] }>(
-          `/api/notifications?plan_id=${planId || ''}&room_id=${room.room_id}&limit=20`
+          `/api/notifications?plan_id=${planId || ''}&room_id=${room.room_id}&limit=20`,
         );
         // Support both array response and {notifications:[]} wrapper
-        const items = Array.isArray(data) ? data : (data.notifications || []);
+        const items = Array.isArray(data) ? data : data.notifications || [];
         setActivityLogs(items);
       } catch {
         // ignore
@@ -102,30 +100,11 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
   };
 
   return (
-    <div className="room-detail" style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {showExplorer && (
-        <MessageExplorer room={room} planId={planId || undefined} onClose={() => setShowExplorer(false)} />
-      )}
-      <div className="detail-header" style={{ flexShrink: 0 }}>
+    <div className="room-detail" style={{ display: 'block' }}>
+      <div className="detail-header">
         <div className="detail-header-top">
           <div className="detail-room-id">{room.room_id}</div>
           <div className="room-actions">
-            <button 
-              onClick={() => setShowExplorer(true)}
-              style={{
-                background: 'var(--cyan)',
-                color: 'black',
-                border: 'none',
-                padding: '2px 8px',
-                borderRadius: '2px',
-                fontSize: '10px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                marginRight: '8px'
-              }}
-            >
-              EXPLORE
-            </button>
             {(room.status === 'paused' || room.status === 'failed-final') && (
               <button className="action-btn-mini start" onClick={() => roomAction('start')}>
                 start
@@ -151,8 +130,7 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
         <div className="detail-task-ref">{room.task_ref}</div>
       </div>
 
-      <div className="room-detail-scroll" style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
-        {/* --- Config Info (from config.json metadata) --- */}
+      {/* --- Config Info (from config.json metadata) --- */}
       {room.config && Object.keys(room.config).length > 0 && (
         <div className="detail-meta-section">
           <label className="field-label">Config</label>
@@ -185,11 +163,7 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
           <label className="field-label">Roles</label>
           <div className="role-badges">
             {room.roles.map((r, i) => (
-              <span
-                key={r.instance_id || i}
-                className="role-badge"
-                title={r.filename || ''}
-              >
+              <span key={r.instance_id || i} className="role-badge" title={r.filename || ''}>
                 {roleIcon(r.role)} {r.role}
                 <span className="role-instance-id">#{r.instance_id}</span>
               </span>
@@ -220,19 +194,27 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
         <label className="field-label">Goal Checklist ({goals.length})</label>
         <div className="goal-list">
           {(showAllGoals ? goals : goals.slice(0, 10)).map((g, i) => (
-            <div key={i} className="goal-item" onClick={() => toggleGoal(i)} style={{ cursor: 'pointer' }} title={expandedGoals[i] ? "Click to collapse" : "Click to view full text"}>
+            <div
+              key={i}
+              className="goal-item"
+              onClick={() => toggleGoal(i)}
+              style={{ cursor: 'pointer' }}
+              title={expandedGoals[i] ? 'Click to collapse' : 'Click to view full text'}
+            >
               <span
                 className={`goal-checkbox${g.checked ? ' checked' : ''}${g.failed ? ' failed' : ''}`}
               >
                 {g.checked ? '✓' : g.failed ? '✗' : ''}
               </span>
-              <span className={`goal-text ${expandedGoals[i] ? 'expanded' : 'truncated'}`}>{g.text}</span>
+              <span className={`goal-text ${expandedGoals[i] ? 'expanded' : 'truncated'}`}>
+                {g.text}
+              </span>
             </div>
           ))}
         </div>
         {goals.length > 10 && (
           <button
-            onClick={() => setShowAllGoals(v => !v)}
+            onClick={() => setShowAllGoals((v) => !v)}
             style={{
               marginTop: '6px',
               background: 'none',
@@ -278,18 +260,13 @@ function RoomDetail({ room, planId }: { room: Room; planId: string | null }) {
                 <span className="activity-event">
                   {entry.from}→{entry.to}
                 </span>
-                <span className="activity-type">
-                  {String(entry.type).replace(/_/g, ' ')}
-                </span>
+                <span className="activity-type">{String(entry.type).replace(/_/g, ' ')}</span>
                 {entry.ref && <span className="activity-ref">[{entry.ref}]</span>}
-                {entry.body && (
-                  <span className="activity-body">{trunc(entry.body, 80)}</span>
-                )}
+                {entry.body && <span className="activity-body">{trunc(entry.body, 80)}</span>}
               </div>
             ))
           )}
         </div>
-      </div>
       </div>
       <div className="detail-divider" />
       <label className="field-label">Messages</label>
@@ -332,7 +309,11 @@ export default function ChannelFeed({
       <div className="panel-header">
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
           {onToggleCollapse && (
-            <button className="action-btn" onClick={onToggleCollapse} style={{ padding: '4px 8px' }}>
+            <button
+              className="action-btn"
+              onClick={onToggleCollapse}
+              style={{ padding: '4px 8px' }}
+            >
               {isCollapsed ? '‹' : '›'}
             </button>
           )}
@@ -350,19 +331,17 @@ export default function ChannelFeed({
       </div>
 
       {!isCollapsed && (
-      <div className="panel-body">
-        {selectedRoom && <RoomDetail room={selectedRoom} planId={activePlanId} />}
+        <div className="panel-body">
+          {selectedRoom && <RoomDetail room={selectedRoom} planId={activePlanId} />}
 
-        <div className="feed" ref={feedRef} id="channel-feed">
-          {feedMessages.length === 0 ? (
-            <div className="feed-empty">Waiting for messages...</div>
-          ) : (
-            feedMessages.map((m, i) => (
-              <FeedMessage key={i} roomId={m.roomId} msg={m.msg} />
-            ))
-          )}
+          <div className="feed" ref={feedRef}>
+            {feedMessages.length === 0 ? (
+              <div className="feed-empty">Waiting for messages...</div>
+            ) : (
+              feedMessages.map((m, i) => <FeedMessage key={i} roomId={m.roomId} msg={m.msg} />)
+            )}
+          </div>
         </div>
-      </div>
       )}
     </aside>
   );

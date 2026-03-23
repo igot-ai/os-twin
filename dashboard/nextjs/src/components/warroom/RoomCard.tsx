@@ -25,10 +25,7 @@ export default function RoomCard({ room, selected, onClick, onShowDetails }: Roo
   const label = STATUS_LABEL[room.status] || room.status.toUpperCase();
   const pct = PROGRESS_PCT[room.status] ?? 0;
   const isActive = ACTIVE_STATUSES.includes(room.status);
-  const goalPct =
-    room.goal_total > 0
-      ? Math.round((room.goal_done / room.goal_total) * 100)
-      : 0;
+  const goalPct = room.goal_total > 0 ? Math.round((room.goal_done / room.goal_total) * 100) : 0;
 
   const cardStyle: React.CSSProperties = {};
   if (room.status === 'passed') {
@@ -149,9 +146,7 @@ export default function RoomCard({ room, selected, onClick, onShowDetails }: Roo
       </div>
       <div className="rc-foot">
         <span style={{ color: 'var(--text-dim)' }}>⬡ {room.message_count}</span>
-        {room.retries > 0 && (
-          <span style={{ color: '#ff9f43' }}>↻{room.retries}</span>
-        )}
+        {room.retries > 0 && <span style={{ color: '#ff9f43' }}>↻{room.retries}</span>}
         {room.artifact_files && room.artifact_files.length > 0 && (
           <span style={{ color: 'var(--text-dim)' }} title="Artifacts">
             📄{room.artifact_files.length}

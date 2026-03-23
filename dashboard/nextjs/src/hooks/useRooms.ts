@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { Room, Message, Notification, WSEvent } from '@/types';
 import { apiGet } from '@/lib/api';
 
-interface RoomMsg {
+export interface RoomMsg {
   roomId: string;
   msg: Message;
 }
@@ -29,9 +29,9 @@ function notifToRoomMsg(roomId: string, n: Notification): RoomMsg {
 async function loadRoomNotifications(planId: string, roomId: string): Promise<RoomMsg[]> {
   try {
     const data = await apiGet<Notification[] | { notifications: Notification[] }>(
-      `/api/notifications?plan_id=${planId}&room_id=${roomId}&limit=50`
+      `/api/notifications?plan_id=${planId}&room_id=${roomId}&limit=50`,
     );
-    const items = Array.isArray(data) ? data : (data.notifications || []);
+    const items = Array.isArray(data) ? data : data.notifications || [];
     return items.map((n) => notifToRoomMsg(roomId, n));
   } catch {
     return [];
@@ -58,7 +58,7 @@ export function useRooms() {
       for (const room of data.rooms || []) {
         try {
           const chData = await apiGet<{ messages: Message[] }>(
-            `/api/rooms/${room.room_id}/channel`
+            `/api/rooms/${room.room_id}/channel`,
           );
           const channelMsgs = chData.messages || [];
           if (channelMsgs.length > 0) {
@@ -83,52 +83,55 @@ export function useRooms() {
   }, [activePlanId]);
 
   /** Load plan-scoped war-rooms (replaces the room grid). */
-  const loadPlanRooms = useCallback(async (planId: string | null) => {
-    setActivePlanId(planId);
-    if (!planId) {
-      // Reset to global rooms
-      await loadInitialRooms();
-      return;
-    }
-
-    try {
-      const data = await apiGet<{ rooms: Room[]; warrooms_dir?: string }>(
-        `/api/plans/${planId}/rooms`
-      );
-      const planRooms = data.rooms || [];
-      const roomMap: Record<string, Room> = {};
-      for (const room of planRooms) {
-        roomMap[room.room_id] = room;
+  const loadPlanRooms = useCallback(
+    async (planId: string | null) => {
+      setActivePlanId(planId);
+      if (!planId) {
+        // Reset to global rooms
+        await loadInitialRooms();
+        return;
       }
-      setRooms(roomMap);
-      setChannelFilter(null);
 
-      // Load channel history using plan-scoped endpoint, falling back to notifications
-      const msgs: RoomMsg[] = [];
-      for (const room of planRooms) {
-        try {
-          const chData = await apiGet<{ messages: Message[] }>(
-            `/api/plans/${planId}/rooms/${room.room_id}/channel`
-          );
-          const channelMsgs = chData.messages || [];
-          if (channelMsgs.length > 0) {
-            for (const m of channelMsgs) {
-              msgs.push({ roomId: room.room_id, msg: m });
+      try {
+        const data = await apiGet<{ rooms: Room[]; warrooms_dir?: string }>(
+          `/api/plans/${planId}/rooms`,
+        );
+        const planRooms = data.rooms || [];
+        const roomMap: Record<string, Room> = {};
+        for (const room of planRooms) {
+          roomMap[room.room_id] = room;
+        }
+        setRooms(roomMap);
+        setChannelFilter(null);
+
+        // Load channel history using plan-scoped endpoint, falling back to notifications
+        const msgs: RoomMsg[] = [];
+        for (const room of planRooms) {
+          try {
+            const chData = await apiGet<{ messages: Message[] }>(
+              `/api/plans/${planId}/rooms/${room.room_id}/channel`,
+            );
+            const channelMsgs = chData.messages || [];
+            if (channelMsgs.length > 0) {
+              for (const m of channelMsgs) {
+                msgs.push({ roomId: room.room_id, msg: m });
+              }
+            } else {
+              const notifMsgs = await loadRoomNotifications(planId, room.room_id);
+              msgs.push(...notifMsgs);
             }
-          } else {
+          } catch {
             const notifMsgs = await loadRoomNotifications(planId, room.room_id);
             msgs.push(...notifMsgs);
           }
-        } catch {
-          const notifMsgs = await loadRoomNotifications(planId, room.room_id);
-          msgs.push(...notifMsgs);
         }
+        setAllMessages(msgs);
+      } catch (err) {
+        console.error('Failed to load plan rooms:', err);
       }
-      setAllMessages(msgs);
-    } catch (err) {
-      console.error('Failed to load plan rooms:', err);
-    }
-  }, [loadInitialRooms]);
+    },
+    [loadInitialRooms],
+  );
 
   const handleWSEvent = useCallback((ev: WSEvent) => {
     switch (ev.event) {
@@ -180,12 +183,9 @@ export function useRooms() {
     }
   }, []);
 
-  const selectRoom = useCallback(
-    (roomId: string) => {
-      setChannelFilter((prev) => (prev === roomId ? null : roomId));
-    },
-    []
-  );
+  const selectRoom = useCallback((roomId: string) => {
+    setChannelFilter((prev) => (prev === roomId ? null : roomId));
+  }, []);
 
   const clearFeed = useCallback(() => {
     setAllMessages([]);
@@ -195,9 +195,8 @@ export function useRooms() {
   const roomList = Object.values(rooms);
   const summary = {
     total: roomList.length,
-    active: roomList.filter((r) =>
-      ['engineering', 'qa-review', 'fixing'].includes(r.status)
-    ).length,
+    active: roomList.filter((r) => ['engineering', 'qa-review', 'fixing'].includes(r.status))
+      .length,
     passed: roomList.filter((r) => r.status === 'passed').length,
     failed: roomList.filter((r) => r.status === 'failed-final').length,
     pending: roomList.filter((r) => r.status === 'pending').length,
@@ -225,4 +224,3 @@ export function useRooms() {
     handleWSEvent,
   };
 }
-

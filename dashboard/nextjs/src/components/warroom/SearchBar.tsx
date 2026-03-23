@@ -44,7 +44,7 @@ export default function SearchBar({ onSelectRoom }: SearchBarProps) {
       const value = (e.target as HTMLInputElement).value;
       timerRef.current = setTimeout(() => doSearch(value), 300);
     },
-    [doSearch]
+    [doSearch],
   );
 
   return (
@@ -76,9 +76,7 @@ export default function SearchBar({ onSelectRoom }: SearchBarProps) {
                   <span className="search-result-room">{r.room_id}</span>
                   <span className="search-result-type">{r.type}</span>
                   <span style={{ color: 'var(--muted)' }}>{r.ref}</span>
-                  <span className="search-result-score">
-                    {(r.score * 100).toFixed(0)}%
-                  </span>
+                  <span className="search-result-score">{(r.score * 100).toFixed(0)}%</span>
                 </div>
                 <div className="search-result-body">{trunc(r.body, 120)}</div>
               </div>

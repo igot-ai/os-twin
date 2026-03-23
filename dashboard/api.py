@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import uvicorn
 import logging
 from pathlib import Path
@@ -122,9 +123,24 @@ async def index():
 
 
 # --- SPA Catch-all ---
-@app.get("/{path:path}")
+@app.api_route("/{path:path}", methods=["GET", "HEAD"])
 async def catch_all(path: str):
     if USE_NEXTJS:
+        out_root = NEXTJS_OUT_DIR.resolve()
+
+        # Try exact page file (e.g., /agents -> agents.html)
+        page_file = (NEXTJS_OUT_DIR / f"{path}.html").resolve()
+        if str(page_file).startswith(str(out_root)) and page_file.exists():
+            return FileResponse(str(page_file))
+        # Try directory index (e.g., /agents/ -> agents/index.html)
+        dir_index = (NEXTJS_OUT_DIR / path / "index.html").resolve()
+        if str(dir_index).startswith(str(out_root)) and dir_index.exists():
+            return FileResponse(str(dir_index))
+        # Try serving as static file (e.g., favicon.ico)
+        static_file = (NEXTJS_OUT_DIR / path).resolve()
+        if str(static_file).startswith(str(out_root)) and static_file.exists() and static_file.is_file():
+            return FileResponse(str(static_file))
+        # Fallback to index.html for client-side routing
         return FileResponse(str(NEXTJS_OUT_DIR / "index.html"))
     return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
 

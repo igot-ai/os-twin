@@ -1068,7 +1068,6 @@ else
   warn "Dashboard not found — skipping auto-start"
   info "Re-run: ./install.sh --source-dir /path/to/agent-os"
 fi
-
 # ─── Done! ────────────────────────────────────────────────────────────────────
 
 SHELL_NAME=$(basename "${SHELL:-/bin/bash}")
@@ -1086,8 +1085,8 @@ echo -e "    ${CYAN}4.${NC} Set your API key:          ${DIM}export GOOGLE_API_K
 echo -e "    ${CYAN}5.${NC} Run your first plan:       ${DIM}ostwin run plans/my-plan.md${NC}"
 echo ""
 echo -e "  ${BOLD}Dashboard:${NC}"
-echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
-echo -e "    ${DIM}Stop with: ostwin stop${NC}"
+echo -e "    ${DIM}Start with: ostwin start${NC}"
+echo -e "    ${DIM}Stop with:  ostwin stop${NC}"
 echo ""
 
 # Display OSTWIN_API_KEY for frontend authentication
@@ -1110,7 +1109,7 @@ fi
 echo -e "  ${BOLD}AI Provider Keys:${NC}"
 echo -e "    ${DIM}Edit your .env file (keys auto-migrated if already in shell):${NC}"
 echo -e "    nano ${INSTALL_DIR}/.env"
-echo -e "    ${DIM}Then restart dashboard: ostwin stop && ostwin start${NC}"
+echo -e "    ${DIM}Then start dashboard: ostwin start${NC}"
 echo -e "    ${DIM}# Or export directly (not persisted): export GOOGLE_API_KEY=\"your-key\"${NC}"
 echo -e "    ${DIM}# Or use OpenAI/Anthropic — see: ostwin config${NC}"
 echo ""

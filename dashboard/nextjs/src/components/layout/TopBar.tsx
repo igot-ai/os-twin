@@ -42,7 +42,13 @@ export default function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-logo">
-        <Image src="/assets/logo.svg" className="logo-img" alt="OS Twin AI" width={20} height={20} />
+        <Image
+          src="/assets/logo.svg"
+          className="logo-img"
+          alt="OS Twin AI"
+          width={20}
+          height={20}
+        />
         <span className="logo-text">
           OS<span className="logo-accent">Twin</span>
         </span>

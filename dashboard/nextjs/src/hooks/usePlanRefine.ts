@@ -88,10 +88,7 @@ export function usePlanRefine() {
 
         // Add completed assistant message to history
         if (accumulated) {
-          setChatHistory((prev) => [
-            ...prev,
-            { role: 'assistant', content: accumulated },
-          ]);
+          setChatHistory((prev) => [...prev, { role: 'assistant', content: accumulated }]);
         }
       } catch (err: unknown) {
         if ((err as Error).name === 'AbortError') return;
@@ -116,10 +113,7 @@ export function usePlanRefine() {
             const fullResponse = data.refined_plan || '';
             setStreamedResponse(fullResponse);
             setError(null);
-            setChatHistory((prev) => [
-              ...prev,
-              { role: 'assistant', content: fullResponse },
-            ]);
+            setChatHistory((prev) => [...prev, { role: 'assistant', content: fullResponse }]);
           }
         } catch {
           // Both endpoints failed
@@ -129,7 +123,7 @@ export function usePlanRefine() {
         abortRef.current = null;
       }
     },
-    [chatHistory]
+    [chatHistory],
   );
 
   const cancelRefine = useCallback(() => {

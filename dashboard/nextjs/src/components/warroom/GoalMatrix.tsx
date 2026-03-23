@@ -57,18 +57,12 @@ export default function GoalMatrix({ rooms }: GoalMatrixProps) {
                 if (r.task_description) {
                   const lines = r.task_description.split('\n');
                   const taskLine = lines.find(
-                    (line) => line.includes(goal) && line.trim().startsWith('- [')
+                    (line) => line.includes(goal) && line.trim().startsWith('- ['),
                   );
                   if (taskLine) {
-                    if (
-                      taskLine.includes('[x]') ||
-                      taskLine.includes('[X]')
-                    ) {
+                    if (taskLine.includes('[x]') || taskLine.includes('[X]')) {
                       statusEl = <span className="cell-passed">✓</span>;
-                    } else if (
-                      taskLine.includes('[-]') ||
-                      taskLine.includes('[!]')
-                    ) {
+                    } else if (taskLine.includes('[-]') || taskLine.includes('[!]')) {
                       statusEl = <span className="cell-failed">✗</span>;
                     } else {
                       statusEl = <span className="cell-pending">○</span>;

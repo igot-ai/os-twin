@@ -85,7 +85,7 @@ async def list_plans(user: dict = Depends(get_current_user)):
             title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
             title = title_match.group(1).strip() if title_match else plan_id
 
-            epics_found = re.findall(r"^## (Epic|Task):\s*(\S+)", content, re.MULTILINE)
+            epics_found = re.findall(r"^## (?:Epic:\s*|Task:\s*)?((EPIC|TASK)-\d+)", content, re.MULTILINE)
             epic_count = len(epics_found)
 
             status_match = re.search(r"^>\s*Status:\s*(\w+)", content, re.MULTILINE)
@@ -139,15 +139,16 @@ async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
         plan = store.get_plan(plan_id)
         epics = store.get_epics_for_plan(plan_id)
 
+    plans_dir = AGENTS_DIR / "plans"
+    plan_file = plans_dir / f"{plan_id}.md"
+
     if not plan:
-        plans_dir = AGENTS_DIR / "plans"
-        plan_file = plans_dir / f"{plan_id}.md"
         if not plan_file.exists():
             raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
         content = plan_file.read_text()
         title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else plan_id
-        epic_count = len(re.findall(r"^## (Epic|Task):", content, re.MULTILINE))
+        epic_count = len(re.findall(r"^## (Epic:|Task:|EPIC-\d|TASK-\d)", content, re.MULTILINE))
         plan = {
             "plan_id": plan_id, "title": title, "content": content, "status": "stored",
             "epic_count": epic_count,
@@ -155,8 +156,22 @@ async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
             "filename": plan_file.name,
         }
 
+    if not epics and plan_file.exists():
+        try:
+            from dashboard.zvec_store import OSTwinStore
+            content = plan_file.read_text()
+            parsed = OSTwinStore._parse_plan_epics(content, plan_id)
+            epics = [
+                {"epic_ref": e["task_ref"], "plan_id": plan_id, "title": e["title"],
+                 "body": e["body"], "room_id": e["room_id"], "status": "pending",
+                 "working_dir": e.get("working_dir", ".")}
+                for e in parsed
+            ]
+        except Exception:
+            pass
+
     # --- Merge meta.json for full project context ---
-    _merge_plan_meta(plan, AGENTS_DIR / "plans")
+    _merge_plan_meta(plan, plans_dir)
 
     return {"plan": plan, "epics": epics}
 
@@ -209,7 +224,7 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
             try:
                 old_title_match = re.search(r"^# Plan:\s*(.+)", old_content, re.MULTILINE)
                 old_title = old_title_match.group(1).strip() if old_title_match else plan_id
-                old_epics = len(re.findall(r"^## (Epic|Task):", old_content, re.MULTILINE))
+                old_epics = len(re.findall(r"^## (Epic:|Task:|EPIC-\d|TASK-\d)", old_content, re.MULTILINE))
                 store.save_plan_version(
                     plan_id=plan_id, content=old_content, title=old_title,
                     epic_count=old_epics, change_source=request.change_source,
@@ -237,7 +252,7 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     if store:
         try:
             # Re-parse epic count
-            epics_found = re.findall(r"^## (Epic|Task):", request.content, re.MULTILINE)
+            epics_found = re.findall(r"^## (Epic:|Task:|EPIC-\d|TASK-\d)", request.content, re.MULTILINE)
             epic_count = len(epics_found)
             
             store.index_plan(
@@ -302,6 +317,8 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     plan_path = plans_dir / f"{plan_id}.md"
     plan_filename = plan_path.name
 
+    store = global_state.store
+
     # --- .md: only write when content actually changed ---
     existing_content = plan_path.read_text() if plan_path.exists() else None
     if existing_content != plan:
@@ -310,7 +327,7 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
             try:
                 old_title_match = _re_mod.search(r"^# Plan:\s*(.+)", existing_content, _re_mod.MULTILINE)
                 old_title = old_title_match.group(1).strip() if old_title_match else plan_id
-                old_epics = len(_re_mod.findall(r"^## (Epic|Task):", existing_content, _re_mod.MULTILINE))
+                old_epics = len(_re_mod.findall(r"^## (Epic:|Task:|EPIC-\d|TASK-\d)", existing_content, _re_mod.MULTILINE))
                 store.save_plan_version(
                     plan_id=plan_id, content=existing_content, title=old_title,
                     epic_count=old_epics, change_source="expansion",
@@ -471,7 +488,7 @@ async def restore_plan_version(plan_id: str, version: int, user: dict = Depends(
         try:
             cur_title_match = re.search(r"^# Plan:\s*(.+)", current_content, re.MULTILINE)
             cur_title = cur_title_match.group(1).strip() if cur_title_match else plan_id
-            cur_epics = len(re.findall(r"^## (Epic|Task):", current_content, re.MULTILINE))
+            cur_epics = len(re.findall(r"^## (Epic:|Task:|EPIC-\d|TASK-\d)", current_content, re.MULTILINE))
             store.save_plan_version(
                 plan_id=plan_id, content=current_content, title=cur_title,
                 epic_count=cur_epics, change_source="before_restore",
@@ -487,7 +504,7 @@ async def restore_plan_version(plan_id: str, version: int, user: dict = Depends(
     try:
         title_match = re.search(r"^# Plan:\s*(.+)", restored_content, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else plan_id
-        epics_found = re.findall(r"^## (Epic|Task):", restored_content, re.MULTILINE)
+        epics_found = re.findall(r"^## (Epic:|Task:|EPIC-\d|TASK-\d)", restored_content, re.MULTILINE)
         store.index_plan(
             plan_id=plan_id, title=title, content=restored_content,
             epic_count=len(epics_found), filename=f"{plan_id}.md",

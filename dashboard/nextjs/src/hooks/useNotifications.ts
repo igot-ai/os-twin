@@ -14,10 +14,10 @@ export function useNotifications(planId?: string | null) {
       const params = new URLSearchParams({ limit: '50' });
       if (planId) params.set('plan_id', planId);
       const data = await apiGet<Notification[] | { notifications: Notification[] }>(
-        `/api/notifications?${params.toString()}`
+        `/api/notifications?${params.toString()}`,
       );
       // Support both array response and {notifications:[]} wrapper
-      const items = Array.isArray(data) ? data : (data.notifications || []);
+      const items = Array.isArray(data) ? data : data.notifications || [];
       setNotifications(items);
     } catch (err) {
       console.error('Error fetching global notifications', err);

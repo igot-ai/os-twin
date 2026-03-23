@@ -1221,16 +1221,26 @@ class OSTwinStore:
         config_match = re.search(r"working_dir:\s*(.+)", content)
         working_dir = config_match.group(1).strip() if config_match else "."
 
-        # Detect format
-        has_epics = bool(re.search(r"^## Epic:", content, re.MULTILINE))
-        has_tasks = bool(re.search(r"^## Task:", content, re.MULTILINE))
+        # Detect format — supports both "## Epic: EPIC-001 — Title" and "## EPIC-001 — Title"
+        has_epic_prefix = bool(re.search(r"^## Epic:", content, re.MULTILINE))
+        has_epic_direct = bool(re.search(r"^## EPIC-\d+", content, re.MULTILINE))
+        has_task_prefix = bool(re.search(r"^## Task:", content, re.MULTILINE))
+        has_task_direct = bool(re.search(r"^## TASK-\d+", content, re.MULTILINE))
 
-        if has_epics:
+        if has_epic_prefix:
             split_pattern = r"^## Epic:\s*"
             ref_pattern = r"(EPIC-\d+)\s*[—\-]\s*(.*)"
             default_prefix = "EPIC"
-        elif has_tasks:
+        elif has_epic_direct:
+            split_pattern = r"^## (?=EPIC-\d+)"
+            ref_pattern = r"(EPIC-\d+)\s*[—\-]\s*(.*)"
+            default_prefix = "EPIC"
+        elif has_task_prefix:
             split_pattern = r"^## Task:\s*"
+            ref_pattern = r"(TASK-\d+)\s*[—\-]\s*(.*)"
+            default_prefix = "TASK"
+        elif has_task_direct:
+            split_pattern = r"^## (?=TASK-\d+)"
             ref_pattern = r"(TASK-\d+)\s*[—\-]\s*(.*)"
             default_prefix = "TASK"
         else:

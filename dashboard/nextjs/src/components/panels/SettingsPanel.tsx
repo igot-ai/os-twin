@@ -19,13 +19,13 @@ interface EnvData {
 
 // Known variable metadata for nice labels and descriptions
 const VAR_META: Record<string, { label: string; desc: string; sensitive?: boolean }> = {
-  GOOGLE_API_KEY:      { label: 'Google AI',      desc: 'Gemini API key',            sensitive: true },
-  OPENAI_API_KEY:      { label: 'OpenAI',         desc: 'GPT-4 / ChatGPT API key',  sensitive: true },
-  ANTHROPIC_API_KEY:   { label: 'Anthropic',      desc: 'Claude API key',            sensitive: true },
-  DATALOG_API_KEY:     { label: 'Datalog',        desc: 'Catalog analytics key',     sensitive: true },
-  DASHBOARD_PORT:      { label: 'Dashboard Port', desc: 'Port the dashboard runs on' },
-  DASHBOARD_HOST:      { label: 'Dashboard Host', desc: 'Bind address (e.g. 0.0.0.0)' },
-  OSTWIN_LOG_LEVEL:    { label: 'Log Level',      desc: 'INFO, DEBUG, WARNING' },
+  GOOGLE_API_KEY: { label: 'Google AI', desc: 'Gemini API key', sensitive: true },
+  OPENAI_API_KEY: { label: 'OpenAI', desc: 'GPT-4 / ChatGPT API key', sensitive: true },
+  ANTHROPIC_API_KEY: { label: 'Anthropic', desc: 'Claude API key', sensitive: true },
+  DATALOG_API_KEY: { label: 'Datalog', desc: 'Catalog analytics key', sensitive: true },
+  DASHBOARD_PORT: { label: 'Dashboard Port', desc: 'Port the dashboard runs on' },
+  DASHBOARD_HOST: { label: 'Dashboard Host', desc: 'Bind address (e.g. 0.0.0.0)' },
+  OSTWIN_LOG_LEVEL: { label: 'Log Level', desc: 'INFO, DEBUG, WARNING' },
 };
 
 function maskValue(val: string): string {
@@ -58,10 +58,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadEnv(); }, [loadEnv]);
+  useEffect(() => {
+    loadEnv();
+  }, [loadEnv]);
 
   const updateEntry = (idx: number, field: string, value: unknown) => {
-    setEntries(prev => {
+    setEntries((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       return next;
@@ -74,13 +76,13 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   };
 
   const removeEntry = (idx: number) => {
-    setEntries(prev => prev.filter((_, i) => i !== idx));
+    setEntries((prev) => prev.filter((_, i) => i !== idx));
     setDirty(true);
   };
 
   const addVariable = () => {
     if (!newKey.trim()) return;
-    setEntries(prev => [
+    setEntries((prev) => [
       ...prev,
       { type: 'var', key: newKey.trim().toUpperCase(), value: newValue, enabled: true },
     ]);
@@ -104,9 +106,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     setSaving(false);
   };
 
-  const variables = entries
-    .map((e, i) => ({ ...e, _idx: i }))
-    .filter(e => e.type === 'var');
+  const variables = entries.map((e, i) => ({ ...e, _idx: i })).filter((e) => e.type === 'var');
 
   return (
     <div style={overlayStyle}>
@@ -115,16 +115,32 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         <div style={headerStyle}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '16px' }}>⚙</span>
-            <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '2px', color: 'var(--cyan)' }}>
+            <span
+              style={{
+                fontSize: '13px',
+                fontWeight: 700,
+                letterSpacing: '2px',
+                color: 'var(--cyan)',
+              }}
+            >
               SETTINGS
             </span>
           </div>
-          <button onClick={onClose} style={closeBtnStyle}>✕</button>
+          <button onClick={onClose} style={closeBtnStyle}>
+            ✕
+          </button>
         </div>
 
         {/* Path indicator */}
         <div style={pathBarStyle}>
-          <span style={{ color: 'var(--text-dim)', fontSize: '9px', letterSpacing: '1px', textTransform: 'uppercase' as const }}>
+          <span
+            style={{
+              color: 'var(--text-dim)',
+              fontSize: '9px',
+              letterSpacing: '1px',
+              textTransform: 'uppercase' as const,
+            }}
+          >
             File
           </span>
           <code style={{ color: 'var(--amber)', fontSize: '10px' }}>{envPath}</code>
@@ -146,11 +162,14 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                   const isVisible = showValues[entry.key || ''];
 
                   return (
-                    <div key={entry._idx} style={{
-                      ...varRowStyle,
-                      opacity: entry.enabled ? 1 : 0.5,
-                      borderColor: entry.enabled ? 'var(--border)' : 'transparent',
-                    }}>
+                    <div
+                      key={entry._idx}
+                      style={{
+                        ...varRowStyle,
+                        opacity: entry.enabled ? 1 : 0.5,
+                        borderColor: entry.enabled ? 'var(--border)' : 'transparent',
+                      }}
+                    >
                       {/* Toggle switch */}
                       <button
                         onClick={() => toggleEntry(entry._idx)}
@@ -160,10 +179,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                           boxShadow: entry.enabled ? '0 0 6px rgba(0, 255, 136, 0.3)' : 'none',
                         }}
                       >
-                        <span style={{
-                          ...toggleDot,
-                          transform: entry.enabled ? 'translateX(14px)' : 'translateX(0)',
-                        }} />
+                        <span
+                          style={{
+                            ...toggleDot,
+                            transform: entry.enabled ? 'translateX(14px)' : 'translateX(0)',
+                          }}
+                        />
                       </button>
 
                       {/* Key + description */}
@@ -171,7 +192,9 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                         <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)' }}>
                           {meta?.label || entry.key}
                         </div>
-                        <div style={{ fontSize: '8px', color: 'var(--text-dim)', marginTop: '1px' }}>
+                        <div
+                          style={{ fontSize: '8px', color: 'var(--text-dim)', marginTop: '1px' }}
+                        >
                           {meta?.desc || entry.key}
                         </div>
                       </div>
@@ -181,13 +204,18 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                         <input
                           type={isSensitive && !isVisible ? 'password' : 'text'}
                           value={entry.value || ''}
-                          onChange={e => updateEntry(entry._idx, 'value', e.target.value)}
+                          onChange={(e) => updateEntry(entry._idx, 'value', e.target.value)}
                           style={inputStyle}
                           placeholder="value"
                         />
                         {isSensitive && (
                           <button
-                            onClick={() => setShowValues(prev => ({ ...prev, [entry.key || '']: !prev[entry.key || ''] }))}
+                            onClick={() =>
+                              setShowValues((prev) => ({
+                                ...prev,
+                                [entry.key || '']: !prev[entry.key || ''],
+                              }))
+                            }
                             style={eyeBtnStyle}
                             title={isVisible ? 'Hide' : 'Show'}
                           >
@@ -197,7 +225,11 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                       </div>
 
                       {/* Remove */}
-                      <button onClick={() => removeEntry(entry._idx)} style={removeBtnStyle} title="Remove">
+                      <button
+                        onClick={() => removeEntry(entry._idx)}
+                        style={removeBtnStyle}
+                        title="Remove"
+                      >
                         ✕
                       </button>
                     </div>
@@ -207,25 +239,36 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
               {/* Add new variable */}
               <div style={addRowStyle}>
-                <span style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '1px', textTransform: 'uppercase' as const }}>
+                <span
+                  style={{
+                    fontSize: '9px',
+                    color: 'var(--text-dim)',
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase' as const,
+                  }}
+                >
                   Add Variable
                 </span>
                 <div style={{ display: 'flex', gap: '6px', flex: 1 }}>
                   <input
                     type="text"
                     value={newKey}
-                    onChange={e => setNewKey(e.target.value)}
+                    onChange={(e) => setNewKey(e.target.value)}
                     placeholder="KEY_NAME"
-                    style={{ ...inputStyle, flex: '0 0 180px', textTransform: 'uppercase' as const }}
-                    onKeyDown={e => e.key === 'Enter' && addVariable()}
+                    style={{
+                      ...inputStyle,
+                      flex: '0 0 180px',
+                      textTransform: 'uppercase' as const,
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && addVariable()}
                   />
                   <input
                     type="text"
                     value={newValue}
-                    onChange={e => setNewValue(e.target.value)}
+                    onChange={(e) => setNewValue(e.target.value)}
                     placeholder="value"
                     style={{ ...inputStyle, flex: 1 }}
-                    onKeyDown={e => e.key === 'Enter' && addVariable()}
+                    onKeyDown={(e) => e.key === 'Enter' && addVariable()}
                   />
                   <button onClick={addVariable} style={addBtnStyle} disabled={!newKey.trim()}>
                     + Add
@@ -238,18 +281,18 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
         {/* Footer */}
         <div style={footerStyle}>
-          {status && (
-            <span style={{ fontSize: '10px', color: statusColor }}>{status}</span>
-          )}
+          {status && <span style={{ fontSize: '10px', color: statusColor }}>{status}</span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-            <button onClick={onClose} style={cancelBtnStyle}>Cancel</button>
+            <button onClick={onClose} style={cancelBtnStyle}>
+              Cancel
+            </button>
             <button
               onClick={saveEnv}
               disabled={saving || !dirty}
               style={{
                 ...saveBtnStyle,
-                opacity: (saving || !dirty) ? 0.5 : 1,
-                cursor: (saving || !dirty) ? 'default' : 'pointer',
+                opacity: saving || !dirty ? 0.5 : 1,
+                cursor: saving || !dirty ? 'default' : 'pointer',
               }}
             >
               {saving ? 'Saving…' : 'Save'}
@@ -367,7 +410,7 @@ const inputStyle: React.CSSProperties = {
   borderRadius: '4px',
   padding: '6px 10px',
   color: 'var(--text)',
-  fontFamily: "var(--font)",
+  fontFamily: 'var(--font)',
   fontSize: '11px',
   outline: 'none',
   minWidth: 0,
@@ -411,7 +454,7 @@ const addBtnStyle: React.CSSProperties = {
   color: 'var(--cyan)',
   borderRadius: '4px',
   padding: '6px 14px',
-  fontFamily: "var(--font)",
+  fontFamily: 'var(--font)',
   fontSize: '10px',
   fontWeight: 700,
   cursor: 'pointer',
@@ -434,7 +477,7 @@ const cancelBtnStyle: React.CSSProperties = {
   color: 'var(--text-dim)',
   borderRadius: '4px',
   padding: '6px 16px',
-  fontFamily: "var(--font)",
+  fontFamily: 'var(--font)',
   fontSize: '10px',
   cursor: 'pointer',
   transition: 'all 0.15s',
@@ -446,7 +489,7 @@ const saveBtnStyle: React.CSSProperties = {
   color: 'var(--green)',
   borderRadius: '4px',
   padding: '6px 20px',
-  fontFamily: "var(--font)",
+  fontFamily: 'var(--font)',
   fontSize: '10px',
   fontWeight: 700,
   cursor: 'pointer',
