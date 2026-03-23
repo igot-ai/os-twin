@@ -383,6 +383,13 @@ case "${1:-}" in
       fi
     fi
 
+    # Pre-flight: index project codebase for semantic search
+    if [[ -f "$AGENTS_DIR/memory/code_index.py" ]]; then
+        echo "[INDEX] Indexing project codebase..."
+        _load_env_file "$AGENTS_DIR/memory/.env"
+        "$PYTHON" "$AGENTS_DIR/memory/code_index.py" build --path "$(pwd)" 2>&1 || echo "  ⚠ Code indexing failed (non-fatal)"
+    fi
+
     ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "${RUN_ARGS[@]}"
     ;;
   resume)
@@ -784,7 +791,7 @@ PYEOF
     done
     echo "Done."
     ;;
-  config)
+  config)  
     shift
     exec "$AGENTS_DIR/config.sh" "$@"
     ;;

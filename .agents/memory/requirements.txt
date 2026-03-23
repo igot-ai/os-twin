@@ -1,0 +1,7 @@
+# Code indexing dependencies (CocoIndex + pgvector)
+cocoindex
+psycopg[binary]
+psycopg-pool
+pgvector
+python-dotenv
+numpy
