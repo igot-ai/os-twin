@@ -95,6 +95,12 @@ if (-not $result.Runner) {
         if ($WarRoomsDir) {
             $searchDirs += Join-Path $WarRoomsDir ".." "roles" $baseRole
         }
+        # contributes/roles/ — community/dynamic roles directory
+        $projectRoot = (Resolve-Path (Join-Path $AgentsDir "..") -ErrorAction SilentlyContinue).Path
+        if ($projectRoot) {
+            $contributesDir = Join-Path $projectRoot "contributes" "roles" $baseRole
+            if (Test-Path $contributesDir) { $searchDirs += $contributesDir }
+        }
         $searchDirs += Join-Path $AgentsDir "roles" $baseRole
      
         foreach ($dir in $searchDirs) {

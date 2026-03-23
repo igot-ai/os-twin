@@ -322,9 +322,11 @@ case "${1:-}" in
       # Extract roles defined as "Role: role-name"
       NEEDED_ROLES=$(awk -F': ' '/^Role:/ {print $2}' "$RESOLVED_PLAN_FILE" | sed 's/^[[:space:]]*//;s/[[:space:]].*//' | sort -u)
       MISSING_ROLES=()
+      # Resolve project root (parent of AGENTS_DIR)
+      PROJECT_ROOT="$(cd "$AGENTS_DIR/.." && pwd)"
       for r in $NEEDED_ROLES; do
         if [[ "$r" == "<role-name>" || -z "$r" ]]; then continue; fi
-        if [[ ! -d "$AGENTS_DIR/roles/$r" && ! -d "$HOME/.ostwin/roles/$r" ]]; then
+        if [[ ! -d "$AGENTS_DIR/roles/$r" && ! -d "$HOME/.ostwin/roles/$r" && ! -d "$PROJECT_ROOT/contributes/roles/$r" ]]; then
           MISSING_ROLES+=("$r")
         fi
       done
@@ -354,7 +356,7 @@ case "${1:-}" in
             # Verify creation
             FAILED_ROLES=()
             for mr in "${MISSING_ROLES[@]}"; do
-              if [[ ! -d "$AGENTS_DIR/roles/$mr" && ! -d "$HOME/.ostwin/roles/$mr" ]]; then
+              if [[ ! -d "$AGENTS_DIR/roles/$mr" && ! -d "$HOME/.ostwin/roles/$mr" && ! -d "$PROJECT_ROOT/contributes/roles/$mr" ]]; then
                 FAILED_ROLES+=("$mr")
               fi
             done
@@ -363,8 +365,7 @@ case "${1:-}" in
               echo "✗ Failed to create roles: ${FAILED_ROLES[*]}. Aborting."
               exit 1
             else
-              echo "✓ Successfully created all missing roles."
-              echo ""
+              echo ""        
             fi
         else
             echo "Aborting run. Please create the missing roles manually."

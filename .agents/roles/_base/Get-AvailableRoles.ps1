@@ -50,7 +50,13 @@ if ($WarRoomsDir) {
     $projectRoles = Join-Path $WarRoomsDir ".." "roles"
     if (Test-Path $projectRoles) { $searchDirs += $projectRoles }
 }
- 
+# contributes/roles/ — community/dynamic roles
+$projectRoot = (Resolve-Path (Join-Path $AgentsDir "..") -ErrorAction SilentlyContinue).Path
+if ($projectRoot) {
+    $contributesRoles = Join-Path $projectRoot "contributes" "roles"
+    if (Test-Path $contributesRoles) { $searchDirs += $contributesRoles }
+}
+
 # Also check external_roles_dirs from config
 $configPath = Join-Path $AgentsDir "config.json"
 if (Test-Path $configPath) {
