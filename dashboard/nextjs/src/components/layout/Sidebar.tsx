@@ -46,6 +46,7 @@ const AGENT_ITEMS: NavItem[] = [
 ];
 
 const SYSTEM_ITEMS: NavItem[] = [
+  { href: '/skills', icon: '◈', label: 'Skills' },
   { href: '/warrooms', icon: '⬢', label: 'War Rooms' },
   { href: '/settings', icon: '⚙', label: 'Settings' },
 ];
