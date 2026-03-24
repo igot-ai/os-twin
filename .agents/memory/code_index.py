@@ -10,7 +10,7 @@ Environment (loaded from .agents/.env):
     GOOGLE_API_KEY: Required for Gemini embedding API
 """
 
-from __future__ import annotations
+
 
 import functools
 import logging

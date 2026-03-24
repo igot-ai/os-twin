@@ -310,6 +310,10 @@ function Set-BlockedDescendants {
 
 function Invoke-ManagerTriage {
     param([string]$RoomDir, [string]$QaFeedback)
+    # Guard: no feedback means nothing to classify
+    if (-not $QaFeedback -or $QaFeedback.Trim() -eq '') {
+        return 'no-feedback'
+    }
     # --- Classification: keyword matching ---
     $designKeywords = 'architecture|design|scope|interface|contract|api-design|redesign|structural'
     $planKeywords   = 'specification|acceptance criteria|definition of done|brief|missing requirement|requirements|out of scope'
@@ -686,16 +690,28 @@ while (-not $script:shuttingDown) {
                     Handle-PlanApproval -TaskRef $taskRef
                 }
                 elseif ($doneCount -ge $expected) {
-                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.'engineering' -and $lifecycle.states.'engineering'.transitions.done) {
-                        $lifecycle.states.'engineering'.transitions.done
+                    # Use current status (engineering or fixing) for lifecycle lookup
+                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status -and $lifecycle.states.$status.transitions.done) {
+                        $lifecycle.states.$status.transitions.done
                     } else { "qa-review" }
-                    Write-Log "INFO" "[$taskRef] Engineer done. Transitioning to $nextState..."
+                    Write-Log "INFO" "[$taskRef] Worker ($assignedRole) done in '$status'. Transitioning to $nextState..."
                     Write-RoomStatus $roomDir $nextState
                     if ($nextState -eq "qa-review") {
                         Start-Job -ScriptBlock {
                             param($script, $room)
                             & $script -RoomDir $room
                         } -ArgumentList $startQA, $roomDir | Out-Null
+                    } elseif ($lifecycle -and $lifecycle.states.$nextState) {
+                        # Spawn agent for the next custom lifecycle state
+                        $nextDef = $lifecycle.states.$nextState
+                        if ($nextDef.role -and (Test-Path $resolveRoleScript)) {
+                            $nextResolved = & $resolveRoleScript -RoleName $nextDef.role -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                            Write-Log "INFO" "[$taskRef] Spawning '$($nextDef.role)' for lifecycle state '$nextState'..."
+                            Start-Job -ScriptBlock {
+                                param($script, $room)
+                                & $script -RoomDir $room
+                            } -ArgumentList $nextResolved.Runner, $roomDir | Out-Null
+                        }
                     }
                 }
                 else {
@@ -975,6 +991,22 @@ while (-not $script:shuttingDown) {
                 Write-Log "INFO" "[$taskRef] Triage classification: $classification"
 
                 switch ($classification) {
+                    'no-feedback' {
+                        Write-Log "WARN" "[$taskRef] Triage with no feedback. Retrying initial state..."
+                        if ($retries -lt $maxRetries) {
+                            ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
+                            $retryState = if ($lifecycle -and $lifecycle.initial_state) { $lifecycle.initial_state } else { "engineering" }
+                            Write-RoomStatus $roomDir $retryState
+                            Start-Job -ScriptBlock {
+                                param($script, $room)
+                                & $script -RoomDir $room
+                            } -ArgumentList $workerScript, $roomDir | Out-Null
+                        } else {
+                            Write-Log "ERROR" "[$taskRef] Max retries exceeded (no feedback). Marking as failed."
+                            Write-RoomStatus $roomDir "failed-final"
+                            Set-BlockedDescendants $taskRef
+                        }
+                    }
                     'implementation-bug' {
                         if ($retries -lt $maxRetries) {
                             Write-Log "INFO" "[$taskRef] Implementation bug. Routing fix to engineer (retry $($retries + 1)/$maxRetries)..."
@@ -1313,12 +1345,22 @@ while (-not $script:shuttingDown) {
                             Write-RoomStatus $roomDir $customStateDef.transitions.fail
                         } elseif ($retries -lt $maxRetries) {
                             ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                            & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "State '$status' timed out after ${stateTimeout}s. Please try again."
-                            Write-RoomStatus $roomDir "fixing"
-                            Start-Job -ScriptBlock {
-                                param($script, $room)
-                                & $script -RoomDir $room
-                            } -ArgumentList $workerScript, $roomDir | Out-Null
+                            # Retry the SAME custom state with the correct role agent
+                            Write-Log "WARN" "[$taskRef] Retrying custom state '$status' (attempt $($retries + 1)/$maxRetries)..."
+                            Write-RoomStatus $roomDir $status
+                            $stateRole = if ($customStateDef.role) { $customStateDef.role } else { $baseRole }
+                            if (Test-Path $resolveRoleScript) {
+                                $retryResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                Start-Job -ScriptBlock {
+                                    param($script, $room)
+                                    & $script -RoomDir $room
+                                } -ArgumentList $retryResolved.Runner, $roomDir | Out-Null
+                            } else {
+                                Start-Job -ScriptBlock {
+                                    param($script, $room)
+                                    & $script -RoomDir $room
+                                } -ArgumentList $workerScript, $roomDir | Out-Null
+                            }
                         } else {
                             Write-Log "ERROR" "[$taskRef] Max retries exceeded after custom state timeout."
                             Write-RoomStatus $roomDir "failed-final"
