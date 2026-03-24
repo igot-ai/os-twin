@@ -680,16 +680,26 @@ while (-not $script:shuttingDown) {
                     }
                 }
 
+                # --- Architect-as-done: when lifecycle state role is 'architect', design-guidance with RECOMMENDATION counts as done ---
+                $architectAsDone = $false
+                if ($stateDef -and $stateDef.role -eq 'architect' -and $guidanceCount -gt 0 -and $doneCount -lt $expected) {
+                    $guidanceBody = Get-LatestBody $roomDir "design-guidance"
+                    if ($guidanceBody -match 'RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
+                        $architectAsDone = $true
+                        Write-Log "INFO" "[$taskRef] Architect guidance with RECOMMENDATION treated as done signal."
+                    }
+                }
+
                 if ($approveCount -gt 0 -or $guidanceApproval) {
                     Write-Log "INFO" "[$taskRef] Plan APPROVED via channel in $status state. Marking as passed."
                     Write-RoomStatus $roomDir "passed"
                     Handle-PlanApproval -TaskRef $taskRef
                 }
-                elseif ($doneCount -ge $expected) {
-                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.'engineering' -and $lifecycle.states.'engineering'.transitions.done) {
-                        $lifecycle.states.'engineering'.transitions.done
+                elseif ($doneCount -ge $expected -or $architectAsDone) {
+                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status -and $lifecycle.states.$status.transitions.done) {
+                        $lifecycle.states.$status.transitions.done
                     } else { "qa-review" }
-                    Write-Log "INFO" "[$taskRef] Engineer done. Transitioning to $nextState..."
+                    Write-Log "INFO" "[$taskRef] Worker ($assignedRole) done. Transitioning to $nextState..."
                     Write-RoomStatus $roomDir $nextState
                     if ($nextState -eq "qa-review") {
                         Start-Job -ScriptBlock {
@@ -731,7 +741,7 @@ while (-not $script:shuttingDown) {
                         }
                         else {
                             # Worker process died but left a design-guidance or other message
-                            if ($guidanceCount -gt 0) {
+                            if ($guidanceCount -gt 0 -and -not $architectAsDone) {
                                 Write-Log "INFO" "[$taskRef] Worker ($assignedRole) finished with guidance but no explicit verdict. Routing to triage."
                                 Write-RoomStatus $roomDir "manager-triage"
                             }
@@ -758,7 +768,7 @@ while (-not $script:shuttingDown) {
                         # --- No PID file at all: check if worker posted any response ---
                         $anyResponse = $doneCount + $guidanceCount + (Get-MsgCount $roomDir "error")
                         if ($anyResponse -gt 0) {
-                            if ($guidanceCount -gt 0 -and $doneCount -eq 0) {
+                            if ($guidanceCount -gt 0 -and $doneCount -eq 0 -and -not $architectAsDone) {
                                 Write-Log "INFO" "[$taskRef] Worker ($assignedRole) posted guidance but no done/approve. Routing to triage."
                                 Write-RoomStatus $roomDir "manager-triage"
                             }
