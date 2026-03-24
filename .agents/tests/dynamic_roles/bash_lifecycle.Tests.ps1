@@ -1,6 +1,6 @@
 param(
-    [Parameter(Mandatory, Position=0)]
-    [string]$PlanFile
+    [Parameter(Position=0)]
+    [string]$PlanFile = (Join-Path $PSScriptRoot '..' '..' 'plans' 'PLAN.template.md')
 )
 
 $ErrorActionPreference = "Stop"

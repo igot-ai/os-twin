@@ -1,36 +1,9 @@
 {
-  "role": "reporter",
-  "language": "python",
-  "module_root": ".",
-  "subcommands": [
-    {
-      "name": "generate",
-      "type": "cli",
-      "entrypoint": "cli.py::main",
-      "invoke": "python -m reporter generate {args}",
-      "description": "Generate a report.",
-      "args_schema": {
-        "positional": [
-          "spec_file"
-        ],
-        "optional": {
-          "-o|--output": "Output PDF path"
-        }
-      }
-    },
-    {
-      "name": "validate",
-      "type": "cli",
-      "entrypoint": "cli.py::main",
-      "invoke": "python -m reporter validate {args}",
-      "description": "Validate a report spec."
-    },
-    {
-      "name": "list-components",
-      "type": "cli",
-      "entrypoint": "cli.py::main",
-      "invoke": "python -m reporter list-components",
-      "description": "List all reporter components."
+  "subcommands": {
+    "test-append": {
+      "description": "Test",
+      "invoke": "bash /private/tmp/160ffece-f4b7-44a3-8df8-4199ce15a801/mock-script-append.sh"
     }
-  ]
+  },
+  "role": "reporter"
 }

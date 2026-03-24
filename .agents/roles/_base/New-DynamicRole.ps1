@@ -60,6 +60,17 @@ if (-not $safeName) {
 }
 
 $roleDir = Join-Path $AgentsDir "roles" $safeName
+
+# Prefer contributes/roles/ for new dynamic roles (keep .agents/roles/ for builtins)
+$projectRoot = (Resolve-Path (Join-Path $AgentsDir "..") -ErrorAction SilentlyContinue).Path
+if ($projectRoot) {
+    $contributesRoleDir = Join-Path $projectRoot "contributes" "roles" $safeName
+    # If the role already exists in .agents/roles/, keep it there (builtin)
+    # Otherwise, use contributes/roles/ for new dynamic roles
+    if (-not (Test-Path (Join-Path $roleDir "role.json"))) {
+        $roleDir = $contributesRoleDir
+    }
+}
 $roleJsonPath = Join-Path $roleDir "role.json"
 
 # --- Guard: don't overwrite existing roles ---

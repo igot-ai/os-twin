@@ -133,8 +133,7 @@ $env:WARROOMS_DIR = $warRoomsDir
 
 # --- Bootstrap room-000 for plan negotiation ---
 $room000Dir = Join-Path $warRoomsDir "room-000"
-if (-not $DryRun -and -not (Test-Path $room000Dir)) {
-    $negotiationTask = @"
+$negotiationTask = @"
 Unified Plan Negotiation
 
 The project plan at '$PlanFile' requires review and potential refinement. 
@@ -146,7 +145,38 @@ The project plan at '$PlanFile' requires review and potential refinement.
 4. Once the plan is ready for implementation, post a 'plan-approve' message to the channel.
 5. If you cannot proceed without more context, post 'plan-reject' with your feedback.
 "@
+if (-not $DryRun -and -not (Test-Path $room000Dir)) {
     & $newWarRoom -RoomId "room-000" -TaskRef "PLAN-REVIEW" -TaskDescription $negotiationTask -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir -AssignedRole "architect" -CandidateRoles @("manager","architect") | Out-Null
+} elseif (-not $DryRun -and (Test-Path $room000Dir)) {
+    # --- Update room-000 if the plan file has changed ---
+    $room000Config = Join-Path $room000Dir "config.json"
+    if (Test-Path $room000Config) {
+        $r0cfg = Get-Content $room000Config -Raw | ConvertFrom-Json
+        $oldDesc = if ($r0cfg.assignment -and $r0cfg.assignment.description) { $r0cfg.assignment.description } else { "" }
+        if ($oldDesc -and $oldDesc -notmatch [regex]::Escape($PlanFile)) {
+            Write-Warning "room-000 references a different plan file. Updating to current plan: $PlanFile"
+            $r0cfg.assignment.description = $negotiationTask
+            $r0cfg.assignment.title = "Unified Plan Negotiation"
+            $r0cfg | ConvertTo-Json -Depth 10 | Out-File -FilePath $room000Config -Encoding utf8
+            # Update brief.md
+            $briefFile = Join-Path $room000Dir "brief.md"
+            if (Test-Path $briefFile) {
+                "# PLAN-REVIEW`n`n$negotiationTask" | Out-File -FilePath $briefFile -Encoding utf8
+            }
+            # Reset status if stuck on old plan
+            $r0Status = if (Test-Path (Join-Path $room000Dir "status")) { (Get-Content (Join-Path $room000Dir "status") -Raw).Trim() } else { "pending" }
+            if ($r0Status -in @('engineering', 'fixing', 'failed-final')) {
+                Write-Host "  → Resetting room-000 to pending (was: $r0Status)" -ForegroundColor Yellow
+                "pending" | Out-File -FilePath (Join-Path $room000Dir "status") -Encoding utf8 -NoNewline
+                # Clear stale channel messages
+                $channelFile = Join-Path $room000Dir "channel.jsonl"
+                if (Test-Path $channelFile) { "" | Out-File -FilePath $channelFile -Encoding utf8 }
+                # Clear old PID files
+                $pidDir = Join-Path $room000Dir "pids"
+                if (Test-Path $pidDir) { Get-ChildItem $pidDir -Filter "*.pid" | Remove-Item -Force -ErrorAction SilentlyContinue }
+            }
+        }
+    }
 }
 
 # --- Check for refined plan ---
@@ -590,9 +620,13 @@ function New-PlanWarRooms {
     foreach ($entry in $parsed) {
         $roomPath = Join-Path $warRoomsDir $entry.RoomId
         if (Test-Path $roomPath) {
-            # --- RECONCILE: update existing room's role assignment from plan ---
             $existingConfigPath = Join-Path $roomPath "config.json"
-            if (Test-Path $existingConfigPath) {
+            if (-not (Test-Path $existingConfigPath)) {
+                # Stale room directory without config.json — remove and recreate
+                Write-Warning "Stale room $($entry.RoomId) found (no config.json). Removing and recreating."
+                Remove-Item -Path $roomPath -Recurse -Force
+            } else {
+                # --- RECONCILE: update existing room's role assignment from plan ---
                 $primaryRole = if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles[0] } else { "engineer" }
                 $candidateRoles = @(if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") })
                 try {
@@ -607,8 +641,8 @@ function New-PlanWarRooms {
                 } catch {
                     Write-Host "    [WARN] Failed to reconcile $($entry.RoomId): $($_.Exception.Message)" -ForegroundColor Yellow
                 }
+                continue
             }
-            continue
         }
 
         $resolvedWorkingDir = $ProjectDir
