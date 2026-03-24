@@ -308,9 +308,20 @@ $output = if (Test-Path $outputFile) {
 }
 else { "No output captured" }
 
-    # --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
-    Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
-    Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
+# --- Post-session: Memory Consolidation ---
+$consolidateScript = Join-Path $PSScriptRoot "Consolidate-Memory.ps1"
+if (Test-Path $consolidateScript) {
+    try {
+        & $consolidateScript -RoomDir $absRoomDir -RoleName $RoleName -OutputFile $outputFile -ErrorAction SilentlyContinue
+    }
+    catch {
+        Write-Warning "Memory consolidation failed: $($_.Exception.Message)"
+    }
+}
+
+# --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
+Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
+Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
 # Remove resolved MCP config copy if one was generated
 if ($tempMcpConfig -and (Test-Path $tempMcpConfig)) {
     Remove-Item $tempMcpConfig -Force -ErrorAction SilentlyContinue

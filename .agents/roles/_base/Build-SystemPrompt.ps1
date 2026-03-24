@@ -91,6 +91,20 @@ $gateList
 # The agent CLI discovers them via that path at runtime.
 # This keeps the system prompt focused on the role definition only.
 
+# Section 4.5: Memory context
+$resolveMemory = Join-Path $PSScriptRoot "Resolve-Memory.ps1"
+if ($RoomDir -and (Test-Path $resolveMemory)) {
+    try {
+        $memorySection = & $resolveMemory -RoomDir $RoomDir -RoleName ($role.Name)
+        if ($memorySection) {
+            $sections.Add($memorySection)
+        }
+    }
+    catch {
+        Write-Warning "Memory retrieval failed: $($_.Exception.Message)"
+    }
+}
+
 # Section 5: War-room context
 if ($RoomDir -and (Test-Path $RoomDir)) {
     # Task brief

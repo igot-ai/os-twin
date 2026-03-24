@@ -82,5 +82,9 @@
       "manager"
     ],
     "auto_draft": true
+  },
+  "memory": {
+    "enabled": true,
+    "consolidation_model": "gemini-3-flash-preview"
   }
 }
