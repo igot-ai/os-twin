@@ -302,6 +302,8 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     plan_path = plans_dir / f"{plan_id}.md"
     plan_filename = plan_path.name
 
+    store = global_state.store
+
     # --- .md: only write when content actually changed ---
     existing_content = plan_path.read_text() if plan_path.exists() else None
     if existing_content != plan:
@@ -369,7 +371,6 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         logger.debug(f"run_plan: roles.json already exists for {plan_id}, preserving user customisations")
 
     # Sync with zvec store if available
-    store = global_state.store
     if store:
         try:
             from dashboard.zvec_store import OSTwinStore
@@ -543,8 +544,9 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
             if p_file.exists(): plan_content = p_file.read_text()
         async def event_generator():
             try:
-                async for token in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None):
-                    yield f"data: {json.dumps({'token': token})}\n\n"
+                async for item in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None):
+                    # item is now a dict: {"token": str, "section": str}
+                    yield f"data: {json.dumps(item)}\n\n"
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"

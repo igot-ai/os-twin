@@ -85,6 +85,10 @@
   },
   "memory": {
     "enabled": true,
-    "consolidation_model": "gemini-3-flash-preview"
+    "consolidation_model": "gemini-3-flash-preview",
+    "decay_constant": 7.0,
+    "retention_threshold": 0.2,
+    "session_digest_enabled": true,
+    "max_session_age_days": 30
   }
 }

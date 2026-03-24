@@ -108,9 +108,15 @@ if ($memoryEnabled) {
 ## Memory Tools
 
 You have memory tools to persist knowledge across sessions:
-- **memory_note(note, domains?)**: Save a discovery, gotcha, or pattern. Tag with domains (e.g. ["api", "auth"]).
+- **memory_note(note, domains?, is_mistake?)**: Save a discovery, gotcha, or pattern. Tag with domains (e.g. ["api", "auth"]).
 - **memory_drop(note_substring)**: Remove a previously saved note.
-- **memory_recall(domains?, keyword?)**: Query the knowledge base for facts from past sessions. Call at task start to check for relevant context.
+- **memory_recall(domains?, keyword?)**: Query the knowledge base for facts from past sessions.
+
+### How to use memory effectively
+1. **At task START**: Call ``memory_recall`` with domains relevant to your task. Check for known patterns, conventions, and past mistakes.
+2. **Pay special attention to mistakes**: Facts from QA feedback represent hard-won lessons. Follow them carefully.
+3. **Save discoveries immediately**: When you discover something non-obvious about the codebase, save it with ``memory_note`` right away.
+4. **Tag domains accurately**: Good domain tags make facts discoverable in future sessions.
 
 Save notes when you discover: non-obvious conventions, mistakes and correct approaches, environment/config gotchas, project-specific patterns.
 Do NOT save: obvious things from the code, task-specific details that won't generalize, temporary state.

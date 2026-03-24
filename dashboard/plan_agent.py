@@ -9,6 +9,7 @@ and working directories.
 import os
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional, AsyncIterator
 
@@ -76,6 +77,36 @@ You are a **Plan Architect** for OS Twin — an AI-powered development orchestra
 
 Your job is to take the user's rough idea and refine it into a structured plan that can be
 executed by autonomous agents inside **war-rooms**.
+
+## RESPONSE STRUCTURE
+
+Your response MUST be divided into these clear sections with these exact headers:
+
+### SUMMARY
+Provide a concise overview of what you are proposing or changing in this turn.
+
+### ACTIONS
+Provide a structured, parseable list of file operations. Wrap the entire actions list in `<plan>` tags.
+Organize actions into logical sections using `### Section Name`.
+Use this exact format for actions:
+- CREATE <path>
+- UPDATE <path>
+- DELETE <path>
+
+Example:
+<plan>
+### Backend Changes
+- UPDATE dashboard/api.py
+- CREATE dashboard/models.py
+
+### Frontend Changes
+- UPDATE nextjs/src/app/page.tsx
+</plan>
+
+If no file operations are proposed, state "None".
+
+### PLAN
+The complete, updated markdown plan following the template and rules below.
 
 ## OUTPUT FORMAT AND INSTRUCTIONS
 
@@ -282,10 +313,10 @@ async def refine_plan_stream(
     chat_history: list[dict] | None = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
-) -> AsyncIterator[str]:
-    """Stream the plan agent's response token-by-token.
+) -> AsyncIterator[dict]:
+    """Stream the plan agent's response with section labels.
 
-    Yields individual content chunks as they arrive from the LLM.
+    Yields dictionaries containing 'token' and 'section'.
 
     Args:
         user_message: User's refinement instruction.
@@ -295,10 +326,14 @@ async def refine_plan_stream(
         plans_dir: Path to plans directory.
 
     Returns:
-        AsyncIterator of string tokens.
+        AsyncIterator of dictionaries: {"token": str, "section": Optional[str]}
     """
     agent = create_plan_agent(model=model, plans_dir=plans_dir)
     messages = build_messages(user_message, plan_content, chat_history)
+
+    current_section = None
+    # We use a small buffer to detect headers that might be split across chunks
+    header_buffer = ""
 
     try:
         async for event in agent.astream_events(
@@ -310,17 +345,55 @@ async def refine_plan_stream(
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     content = chunk.content
-                    # Gemini returns content as a list of blocks:
-                    #   [{"type": "text", "text": "..."}]
-                    # Other providers return a plain string.
+                    tokens = []
                     if isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict) and block.get("text"):
-                                yield block["text"]
+                                tokens.append(block["text"])
                             elif isinstance(block, str):
-                                yield block
+                                tokens.append(block)
                     elif isinstance(content, str):
-                        yield content
+                        tokens.append(content)
+
+                    for token in tokens:
+                        header_buffer += token
+                        
+                        # Detect the start of a Plan section (# Plan: ...)
+                        if not current_section or current_section != "PLAN":
+                            plan_title_match = re.search(r"(?:^|\n)#\s+Plan:\s+(.*)", header_buffer)
+                            if plan_title_match:
+                                current_section = "PLAN"
+                                header_buffer = header_buffer.split(plan_title_match.group(0))[-1]
+
+                        # Detect section headers: ### SECTION NAME
+                        header_match = re.search(r"###\s+([A-Za-z0-9_\s\-]+)", header_buffer)
+                        if header_match:
+                            section_name = header_match.group(1).strip()
+                            sn_upper = section_name.upper()
+                            
+                            # Standardize section names for consistent parsing
+                            if "SUMMARY" in sn_upper: current_section = "SUMMARY"
+                            elif "ACTIONS" in sn_upper: current_section = "ACTIONS"
+                            elif "PLAN" in sn_upper: current_section = "PLAN"
+                            else: current_section = section_name # e.g. "Backend Changes"
+
+                            # Clear buffer up to the header to avoid re-triggering
+                            header_buffer = header_buffer.split(header_match.group(0))[-1]
+                        
+                        # Detect <plan> tags for fine-grained structured output
+                        if "<plan>" in header_buffer:
+                            # If we see <plan>, we're definitely in an action-oriented section
+                            if current_section not in ("ACTIONS", "PLAN"):
+                                # If it's not the main PLAN section, it's likely the ACTIONS section
+                                if current_section != "SUMMARY":
+                                    current_section = "ACTIONS"
+                            header_buffer = header_buffer.split("<plan>")[-1]
+                        
+                        # Keep buffer size manageable
+                        if len(header_buffer) > 100:
+                            header_buffer = header_buffer[-100:]
+
+                        yield {"token": token, "section": current_section}
     except Exception as e:
         logger.error("Plan agent streaming error: %s", e)
-        yield f"\n\n[Error: {str(e)}]"
+        yield {"token": f"\n\n[Error: {str(e)}]", "section": "error"}

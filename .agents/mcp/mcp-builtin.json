@@ -24,7 +24,9 @@
         "${AGENT_DIR}/mcp/memory-server.py"
       ],
       "env": {
-        "AGENT_OS_ROOT": "."
+        "AGENT_OS_ROOT": ".",
+        "AGENT_OS_ROLE": "${AGENT_OS_ROLE}",
+        "AGENT_OS_ROOM_DIR": "${AGENT_OS_ROOM_DIR}"
       }
     }
   }

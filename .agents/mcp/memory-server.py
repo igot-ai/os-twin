@@ -12,6 +12,7 @@ Transport: stdio (invoked via deepagents --mcp-config)
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -26,9 +27,21 @@ MEMORY_DIR = os.path.join(
     "memory",
 )
 
+MAX_WORKING_CHARS = 8000  # ~2000 tokens × 4 chars/token
+
 
 def _working_path(role: str) -> str:
     safe_role = os.path.basename(role)
+    room_dir = os.environ.get("AGENT_OS_ROOM_DIR", "")
+    room_id = os.path.basename(room_dir) if room_dir else ""
+    if room_id:
+        path = os.path.join(MEMORY_DIR, "working", f"{safe_role}-{room_id}.yml")
+        if os.path.exists(path):
+            return path
+        legacy = os.path.join(MEMORY_DIR, "working", f"{safe_role}.yml")
+        if os.path.exists(legacy):
+            return legacy
+        return path
     return os.path.join(MEMORY_DIR, "working", f"{safe_role}.yml")
 
 
@@ -51,6 +64,13 @@ def memory_note(
     domains: Annotated[
         list[str] | None,
         Field(description="Optional domain tags for the note", default=None),
+    ] = None,
+    is_mistake: Annotated[
+        bool | None,
+        Field(
+            description="Mark this note as a mistake/correction for priority learning",
+            default=None,
+        ),
     ] = None,
 ) -> str:
     """Append a note to the agent's working memory file.
@@ -76,11 +96,24 @@ def memory_note(
     data["updated_at"] = ts
 
     entry = {"note": note, "domains": domains or [], "timestamp": ts}
+    if is_mistake:
+        entry["type"] = "mistake"
     data["notes"].append(entry)
+
+    evicted = []
+    total_chars = sum(len(e.get("note", "")) for e in data["notes"])
+    while total_chars > MAX_WORKING_CHARS and len(data["notes"]) > 1:
+        removed = data["notes"].pop(0)
+        evicted.append(removed["note"])
+        total_chars = sum(len(e.get("note", "")) for e in data["notes"])
 
     _write_working(path, data)
 
-    return json.dumps(entry)
+    result = {"note": note, "domains": domains or [], "timestamp": ts}
+    if evicted:
+        result["evicted_count"] = len(evicted)
+        result["warning"] = "Working memory budget exceeded; oldest notes evicted"
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -172,12 +205,33 @@ def memory_recall(
         confidence = fact_data.get("confidence", 0.5)
         access_count = fact_data.get("access_count", 1)
         fact_data["_score"] = confidence * access_count
+        fact_data["_file"] = fpath
         results.append(fact_data)
 
     results.sort(key=lambda x: x.get("_score", 0), reverse=True)
 
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for r in results:
+        fpath = r.get("_file")
+        if not fpath:
+            continue
+        try:
+            with open(fpath) as f:
+                content = f.read()
+            content = re.sub(
+                r'last_accessed:\s*"[^"]*"', f'last_accessed: "{today}"', content
+            )
+            old_count = r.get("access_count", 1)
+            content = re.sub(
+                r"access_count:\s*\d+", f"access_count: {old_count + 1}", content
+            )
+            with open(fpath, "w") as f:
+                f.write(content)
+        except Exception:
+            pass
+
     return json.dumps(
-        [{k: v for k, v in r.items() if k != "_score"} for r in results]
+        [{k: v for k, v in r.items() if not k.startswith("_")} for r in results]
     )
 
 
