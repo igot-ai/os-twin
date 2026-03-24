@@ -1,0 +1,19 @@
+{
+  "name": "frontend-realtime-engineer",
+  "description": "Implement simulated real-time behavior in a Next.js frontend using SWR polling, animated components, and toast notifications.",
+  "capabilities": [
+    "React/Next.js frontend development",
+    "SWR data fetching and polling configuration",
+    "Component animation and state transition handling",
+    "TypeScript component creation"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "roles",
+    "global"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

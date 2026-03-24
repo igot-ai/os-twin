@@ -1,0 +1,19 @@
+{
+  "name": "frontend-dag-engineer",
+  "description": "Build a simplified React-based SVG Directed Acyclic Graph (DAG) visualization component to display EPIC dependencies with interactive nodes, edges, and a navigation toolbar.",
+  "capabilities": [
+    "React component development",
+    "SVG canvas and path manipulation",
+    "TypeScript",
+    "UI interaction implementation (zoom, pan, hover)"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

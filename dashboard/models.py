@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -56,7 +56,8 @@ class CreatePlanRequest(BaseModel):
 
 class SavePlanRequest(BaseModel):
     content: str
-    change_source: str = "manual_save"  # "manual_save", "ai_refine", "expansion"
+    # "manual_save", "ai_refine", "expansion"
+    change_source: str = "manual_save"
 
 
 class RefineRequest(BaseModel):
@@ -95,9 +96,48 @@ class Skill(BaseModel):
     tags: List[str] = Field(default_factory=list)
     trust_level: str = "experimental"
     source: str = "project"
+    version: str = "0.1.0"
+    category: Optional[str] = None
+    applicable_roles: List[str] = Field(default_factory=list)
+    content: str = ""
     path: Optional[str] = None
     relative_path: Optional[str] = None
-    content: Optional[str] = None
+    params: List[Dict[str, Any]] = Field(default_factory=list)
+    changelog: List[Dict[str, Any]] = Field(default_factory=list)
+    author: Optional[str] = None
+    updated_at: Optional[str] = None
+    forked_from: Optional[str] = None
+    is_draft: bool = False
+    active_epics_count: int = 0
+
+
+class Role(BaseModel):
+    id: str
+    name: str
+    provider: str  # 'Claude', 'GPT', 'Gemini', 'Custom'
+    version: str
+    temperature: float = 0.7
+    budget_tokens_max: int = 500000
+    max_retries: int = 3
+    timeout_seconds: int = 300
+    skill_refs: List[str] = Field(default_factory=list)
+    system_prompt_override: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class CreateRoleRequest(BaseModel):
+    name: str = Field(
+        ..., min_length=1, max_length=40, pattern="^[a-zA-Z0-9-]+$"
+    )
+    provider: str
+    version: str
+    temperature: float = Field(0.7, ge=0.0, le=2.0)
+    budget_tokens_max: int = Field(500000, ge=1000, le=10000000)
+    max_retries: int = Field(3, ge=1, le=10)
+    timeout_seconds: int = Field(300, ge=60, le=3600)
+    skill_refs: List[str] = Field(default_factory=list)
+    system_prompt_override: Optional[str] = Field(None, max_length=2000)
 
 
 class SkillSearchResponse(BaseModel):
@@ -120,3 +160,48 @@ class SkillSyncResponse(BaseModel):
     added: List[str]
     updated: List[str]
     removed: List[str]
+
+
+class SkillCreateRequest(BaseModel):
+    name: str = Field(..., min_length=3, max_length=60)
+    description: str = Field(..., min_length=10, max_length=500)
+    category: str
+    applicable_roles: List[str] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+    content: str = Field(..., min_length=50)
+    is_draft: bool = False
+
+
+class SkillUpdateRequest(BaseModel):
+    description: Optional[str] = Field(None, min_length=10, max_length=500)
+    category: Optional[str] = None
+    applicable_roles: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+    content: Optional[str] = None
+    is_draft: Optional[bool] = None
+    major_bump: bool = False
+    change_description: Optional[str] = None
+
+
+class SkillForkRequest(BaseModel):
+    name: str = Field(..., min_length=3, max_length=60)
+
+
+class SkillValidateRequest(BaseModel):
+    content: str
+
+
+class SkillValidateResponse(BaseModel):
+    valid: bool
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    markers: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class SkillDuplicateCheckRequest(BaseModel):
+    name: str
+
+
+class SkillDuplicateCheckResponse(BaseModel):
+    is_duplicate: bool
+    similar_skills: List[str] = Field(default_factory=list)

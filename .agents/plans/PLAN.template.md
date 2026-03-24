@@ -110,14 +110,14 @@ pending → researcher → analyst ─┬─► passed → signoff
 
 Tasks: Gather data on competitor products. Analyze features and formulate a strategy document.
 
-#### Definition of Done
+### Definition of Done
 - [ ] Strategy document created and peer-reviewed
 
-#### Tasks
+### Tasks
 - [ ] TASK-001 — Gather competitor data
 - [ ] TASK-002 — Synthesize into strategy
 
-Acceptance criteria:
+### Acceptance criteria:
 - Document includes at least 3 competitor profiles.
 - Strategy is clear and actionable.
 

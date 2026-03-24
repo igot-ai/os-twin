@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Epic Command Center Console - EPC-8924</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#2563eb",
+                        "background-light": "#f8fafc",
+                        "background-dark": "#0f172a",
+                        "surface": "#ffffff",
+                        "text-main": "#0f172a",
+                        "text-muted": "#64748b",
+                        "border-color": "#e2e8f0",
+                        "warning": "#eab308",
+                        "warning-light": "#fef9c3",
+                        "warning-text": "#854d0e",
+                        "terminal-bg": "#0f172a",
+                        "terminal-sys": "#38bdf8",
+                        "terminal-out": "#e2e8f0"
+                    },
+                    fontFamily: {
+                        "display": ["Plus Jakarta Sans", "sans-serif"],
+                        "mono": ["IBM Plex Mono", "monospace"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "4px",
+                        "md": "6px",
+                        "lg": "8px",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        "card": "0 4px 6px -1px rgba(15, 23, 42, 0.05)"
+                    }
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        @layer utilities {
+            .custom-scrollbar::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 10px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                background: #94a3b8;
+            }
+            .terminal-scroll::-webkit-scrollbar {
+                width: 8px;
+            }
+            .terminal-scroll::-webkit-scrollbar-track {
+                background: rgba(15, 23, 42, 0.5);
+            }
+            .terminal-scroll::-webkit-scrollbar-thumb {
+                background: #334155;
+                border-radius: 4px;
+            }
+            .state-node-pulse {
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+                animation: pulse-ring 2s infinite;
+            }
+            @keyframes pulse-ring {
+                0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); }
+                70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+            }
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main h-screen flex flex-col font-display antialiased overflow-hidden">
+<header class="sticky top-0 z-50 flex items-center justify-between border-b border-border-color bg-surface px-6 py-3 shrink-0 shadow-sm">
+<div class="flex items-center gap-4">
+<div class="flex flex-col">
+<nav class="flex items-center gap-1 text-[11px] mb-0.5">
+<a class="text-text-muted hover:text-primary transition-colors" href="#">Marketing Q3</a>
+<span class="text-border-color material-symbols-outlined text-xs">chevron_right</span>
+<span class="text-text-muted">EPC-8924</span>
+</nav>
+<h1 class="text-lg font-bold text-text-main flex items-center gap-2">
+                EPC-8924 — Generate Ad Copy
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800 border border-yellow-200">
+<span class="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span>
+                    BLOCKED
+                </span>
+</h1>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm">
+<span class="material-symbols-outlined text-sm">play_arrow</span> Advance State
+        </button>
+<button class="px-3 py-1.5 bg-white border border-border-color text-text-main text-xs font-semibold rounded hover:bg-slate-50 transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">refresh</span> Retry
+        </button>
+<button class="px-3 py-1.5 bg-white border border-border-color text-text-main text-xs font-semibold rounded hover:bg-slate-50 transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">priority_high</span> Escalate
+        </button>
+<div class="h-6 w-px bg-border-color mx-1"></div>
+<button class="p-1.5 text-text-muted hover:text-text-main hover:bg-slate-100 rounded transition-colors">
+<span class="material-symbols-outlined text-xl">edit</span>
+</button>
+</div>
+</header>
+<main class="flex-1 flex flex-col overflow-hidden">
+<div class="flex-1 flex overflow-hidden">
+<aside class="w-72 border-r border-border-color bg-surface flex flex-col shrink-0 overflow-hidden">
+<div class="p-4 border-b border-border-color bg-slate-50/50 flex items-center justify-between">
+<h2 class="text-xs font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">checklist</span> Task Checklist
+                </h2>
+<span class="text-[10px] font-mono bg-slate-200 px-1.5 py-0.5 rounded text-slate-600">3/5</span>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+<div class="flex items-start gap-3 p-2.5 rounded border border-border-color bg-slate-50 group cursor-move">
+<input checked="" class="mt-1 rounded border-slate-300 text-slate-400 focus:ring-0 w-3.5 h-3.5" disabled="" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-text-muted">T-01</span>
+<span class="material-symbols-outlined text-xs text-slate-300 opacity-0 group-hover:opacity-100">drag_indicator</span>
+</div>
+<p class="text-xs text-text-muted line-through truncate">Analyze internal product specs</p>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-[9px] px-1 bg-slate-200 text-slate-600 rounded">Lead Researcher</span>
+<span class="text-[9px] text-slate-400">10:42 AM</span>
+</div>
+</div>
+</div>
+<div class="flex items-start gap-3 p-2.5 rounded border-2 border-primary bg-blue-50/30 group cursor-move shadow-sm">
+<input class="mt-1 rounded border-primary text-primary focus:ring-primary w-3.5 h-3.5" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-primary font-bold">T-02</span>
+<span class="material-symbols-outlined text-xs text-primary/30 opacity-0 group-hover:opacity-100">drag_indicator</span>
+</div>
+<p class="text-xs text-text-main font-semibold">Competitor Research Phase</p>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-[9px] px-1 bg-primary/10 text-primary rounded font-bold">Lead Researcher</span>
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+</div>
+</div>
+</div>
+<div class="flex items-start gap-3 p-2.5 rounded border border-border-color hover:border-slate-300 bg-white group cursor-move transition-colors">
+<input class="mt-1 rounded border-slate-300 text-primary focus:ring-primary w-3.5 h-3.5" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-text-muted">T-03</span>
+<span class="material-symbols-outlined text-xs text-slate-300 opacity-0 group-hover:opacity-100">drag_indicator</span>
+</div>
+<p class="text-xs text-text-main">Draft Ad Variants (Q3 focus)</p>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-[9px] px-1 bg-slate-100 text-slate-500 rounded border border-slate-200">Copywriter</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<section class="flex-1 flex flex-col bg-background-light overflow-hidden">
+<div class="p-4 border-b border-border-color bg-white flex items-center justify-between shrink-0">
+<h2 class="text-xs font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">account_tree</span> Lifecycle Visualizer
+                </h2>
+<div class="flex items-center gap-4 text-[10px] text-text-muted">
+<span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-primary"></span> Agent</span>
+<span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-slate-400"></span> Built-in</span>
+</div>
+</div>
+<div class="flex-1 overflow-auto custom-scrollbar p-12 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] bg-[size:24px_24px]">
+<div class="flex items-center justify-center min-h-full">
+<div class="flex items-center gap-0">
+<div class="relative group cursor-pointer">
+<div class="w-48 p-4 bg-primary text-white rounded-lg shadow-lg border-2 border-primary">
+<div class="text-[10px] font-bold uppercase opacity-70 mb-1">State: Initialized</div>
+<div class="text-sm font-bold truncate">Project Setup</div>
+<div class="mt-3 flex items-center gap-2 text-[10px]">
+<span class="px-1.5 py-0.5 bg-white/20 rounded">Built-in</span>
+<span class="opacity-70">10:42:01</span>
+</div>
+</div>
+<div class="absolute -right-8 top-1/2 -translate-y-1/2 z-10">
+<span class="material-symbols-outlined text-primary text-2xl font-bold bg-background-light rounded-full">arrow_forward</span>
+</div>
+</div>
+<div class="w-12 h-0.5 bg-primary"></div>
+<div class="relative group cursor-pointer">
+<div class="w-56 p-5 bg-white rounded-lg shadow-xl border-2 border-primary state-node-pulse relative z-10">
+<div class="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-primary text-white text-[9px] font-bold rounded-full uppercase">Current State</div>
+<div class="text-[10px] font-bold uppercase text-primary mb-1">State: Active</div>
+<div class="text-sm font-bold text-text-main truncate">Market Analysis</div>
+<div class="mt-4 flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<div class="w-6 h-6 rounded-full bg-slate-800 text-white flex items-center justify-center text-[9px] font-bold">DA</div>
+<span class="text-[10px] font-medium text-text-muted">Data Analyst</span>
+</div>
+<span class="px-1.5 py-0.5 bg-blue-50 text-primary border border-blue-100 rounded text-[9px] font-bold uppercase">Agent</span>
+</div>
+</div>
+<div class="absolute left-full top-1/2 -translate-y-1/2 flex flex-col gap-1 px-4">
+<div class="text-[9px] font-mono text-emerald-600 bg-emerald-50 px-1 border border-emerald-100 rounded">done</div>
+<div class="text-[9px] font-mono text-red-600 bg-red-50 px-1 border border-red-100 rounded">fail</div>
+</div>
+</div>
+<div class="w-24 h-0.5 bg-slate-300 border-t-2 border-dashed border-slate-300"></div>
+<div class="relative group cursor-pointer">
+<div class="w-48 p-4 bg-white border-2 border-dashed border-slate-300 rounded-lg opacity-60 hover:opacity-100 transition-opacity">
+<div class="text-[10px] font-bold uppercase text-slate-400 mb-1">State: Queued</div>
+<div class="text-sm font-bold text-slate-500 truncate">Content Generation</div>
+<div class="mt-3 flex items-center gap-2">
+<div class="w-5 h-5 rounded-full bg-slate-200 border border-slate-300"></div>
+<span class="text-[10px] font-medium text-slate-400">Copywriter</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<aside class="w-80 border-l border-border-color bg-surface flex flex-col shrink-0 overflow-hidden">
+<div class="h-1/2 flex flex-col border-b border-border-color overflow-hidden">
+<div class="p-4 border-b border-border-color bg-slate-50/50">
+<h2 class="text-xs font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">verified</span> Quality Assurance
+                    </h2>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+<div>
+<h3 class="text-[11px] font-bold text-text-main mb-3 flex items-center justify-between">
+                            Definition of Done
+                            <span class="text-[9px] text-emerald-600 font-normal">2/4 Verified</span>
+</h3>
+<div class="space-y-2">
+<label class="flex items-start gap-2.5 cursor-pointer group">
+<input checked="" class="mt-0.5 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500 w-3.5 h-3.5" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<p class="text-xs text-text-muted leading-tight">3 Ad variants generated</p>
+<p class="text-[9px] text-slate-400 mt-0.5">Verified by QA • 10:45 AM</p>
+</div>
+</label>
+<label class="flex items-start gap-2.5 cursor-pointer group">
+<input checked="" class="mt-0.5 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500 w-3.5 h-3.5" type="checkbox"/>
+<div class="flex-1 min-w-0">
+<p class="text-xs text-text-muted leading-tight">Brand tone alignment check</p>
+<p class="text-[9px] text-slate-400 mt-0.5">Verified by QA • 10:46 AM</p>
+</div>
+</label>
+<label class="flex items-start gap-2.5 cursor-pointer group">
+<input class="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary w-3.5 h-3.5" type="checkbox"/>
+<span class="text-xs text-text-main leading-tight">Social media sizing verified</span>
+</label>
+</div>
+</div>
+<div class="pt-4 border-t border-slate-100">
+<h3 class="text-[11px] font-bold text-text-main mb-3">Acceptance Criteria</h3>
+<div class="space-y-3">
+<div class="p-2 bg-slate-50 border-l-2 border-emerald-500 rounded-r">
+<div class="flex items-center justify-between mb-1">
+<span class="text-[9px] font-mono font-bold text-emerald-700 uppercase">Passed</span>
+<span class="material-symbols-outlined text-xs text-emerald-500">check_circle</span>
+</div>
+<p class="text-[11px] text-text-muted italic">"Must contain at least one question-based hook."</p>
+</div>
+<div class="p-2 bg-slate-50 border-l-2 border-primary rounded-r">
+<div class="flex items-center justify-between mb-1">
+<span class="text-[9px] font-mono font-bold text-primary uppercase">Pending</span>
+<span class="material-symbols-outlined text-xs text-slate-300">hourglass_empty</span>
+</div>
+<p class="text-[11px] text-text-muted italic">"CTA must lead to the Q3 landing page."</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="flex-1 flex flex-col overflow-hidden">
+<div class="p-4 border-b border-border-color bg-slate-50/50">
+<h2 class="text-xs font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">settings_input_component</span> Role Overrides
+                    </h2>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+<div class="p-3 rounded border border-blue-200 bg-blue-50/50">
+<div class="flex items-center justify-between mb-2">
+<span class="text-xs font-bold text-text-main">Data Analyst</span>
+<span class="text-[9px] px-1.5 py-0.5 bg-blue-600 text-white rounded font-bold uppercase">Overridden</span>
+</div>
+<div class="space-y-2">
+<div class="flex flex-col">
+<span class="text-[9px] text-text-muted uppercase font-bold tracking-tighter">Model</span>
+<div class="flex items-center justify-between text-[11px]">
+<span class="text-slate-400 line-through">gpt-4o-mini</span>
+<span class="text-blue-700 font-bold">gpt-4o (Large)</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="text-[9px] text-text-muted uppercase font-bold tracking-tighter">Skills</span>
+<div class="flex flex-wrap gap-1 mt-1">
+<span class="px-1.5 py-0.5 bg-white border border-blue-200 text-blue-700 text-[9px] rounded">+ WebBrowsing</span>
+<span class="px-1.5 py-0.5 bg-white border border-blue-200 text-blue-700 text-[9px] rounded">+ FileSearch</span>
+</div>
+</div>
+</div>
+</div>
+<div class="p-3 rounded border border-border-color bg-white">
+<div class="flex items-center justify-between mb-2">
+<span class="text-xs font-bold text-text-main">Copywriter</span>
+<span class="text-[9px] px-1.5 py-0.5 bg-slate-100 text-text-muted rounded font-bold uppercase">Inherited</span>
+</div>
+<div class="text-[11px] text-text-muted">Using default Plan-level configurations.</div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+<footer class="h-80 border-t-4 border-slate-200 bg-terminal-bg flex flex-col shrink-0 overflow-hidden relative">
+<div class="flex items-center justify-between px-6 py-2 bg-slate-900 border-b border-slate-800">
+<div class="flex items-center gap-6">
+<h2 class="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">forum</span> Channel Feed
+                </h2>
+<div class="flex items-center gap-2">
+<span class="text-[10px] text-slate-500">Filters:</span>
+<button class="px-2 py-0.5 bg-slate-800 text-slate-300 text-[10px] rounded hover:bg-slate-700">All</button>
+<button class="px-2 py-0.5 bg-slate-800/50 text-slate-500 text-[10px] rounded hover:bg-slate-700">Tasks</button>
+<button class="px-2 py-0.5 bg-slate-800/50 text-slate-500 text-[10px] rounded hover:bg-slate-700">Escalations</button>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<label class="flex items-center gap-2 cursor-pointer">
+<input checked="" class="rounded border-slate-700 bg-slate-800 text-primary focus:ring-0 w-3 h-3" type="checkbox"/>
+<span class="text-[10px] font-mono text-slate-400">Auto-scroll</span>
+</label>
+<div class="h-4 w-px bg-slate-700"></div>
+<button class="text-slate-500 hover:text-white transition-colors">
+<span class="material-symbols-outlined text-sm">settings</span>
+</button>
+</div>
+</div>
+<div class="bg-warning/10 border-b border-warning/20 px-6 py-2 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-warning text-lg">lock</span>
+<span class="text-xs font-medium text-warning-light">Action required: Agent requests API key for external service.</span>
+</div>
+<button class="px-4 py-1 bg-primary hover:bg-blue-600 text-white text-[11px] font-bold rounded shadow-lg transition-all active:scale-95">
+                Approve Execution
+            </button>
+</div>
+<div class="flex-1 overflow-y-auto terminal-scroll p-6 font-mono text-[13px] leading-relaxed">
+<div class="mb-8 border-l border-slate-800 pl-4 relative">
+<div class="absolute -left-1.5 top-0 w-3 h-3 rounded-full bg-slate-800 border-2 border-terminal-bg"></div>
+<div class="text-[10px] text-slate-500 uppercase tracking-tighter mb-4 font-bold">Transition: Initialized → Active</div>
+<div class="space-y-4">
+<div class="flex gap-3 items-start group">
+<div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-400 shrink-0">SYS</div>
+<div class="flex-1">
+<div class="flex items-center gap-2 mb-0.5">
+<span class="text-[11px] font-bold text-terminal-sys">System</span>
+<span class="text-[9px] px-1 bg-slate-800 text-slate-500 rounded uppercase">Task</span>
+<span class="text-[10px] text-slate-600">10:42:01.012</span>
+</div>
+<div class="text-terminal-out">Epic EPC-8924-MKQ3 initialized. Delegating Task 1 to Data Analyst (Agent ID: DA-992).</div>
+</div>
+</div>
+<div class="flex gap-3 items-start group">
+<div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center text-[10px] font-bold text-white shrink-0">DA</div>
+<div class="flex-1">
+<div class="flex items-center gap-2 mb-0.5">
+<span class="text-[11px] font-bold text-purple-400">Data Analyst</span>
+<span class="text-[9px] px-1 bg-slate-800 text-slate-500 rounded uppercase">Design-Guidance</span>
+<span class="text-[10px] text-slate-600">10:42:03.110</span>
+</div>
+<div class="text-terminal-out">Analyzing internal product specs for Q3 feature release... Internal analysis complete. 4 key value propositions identified.</div>
+</div>
+</div>
+<div class="flex gap-3 items-start p-3 bg-yellow-500/5 border border-yellow-500/20 rounded-md">
+<div class="w-8 h-8 rounded bg-yellow-500/20 flex items-center justify-center text-yellow-500 shrink-0">
+<span class="material-symbols-outlined text-sm">security</span>
+</div>
+<div class="flex-1">
+<div class="flex items-center gap-2 mb-0.5">
+<span class="text-[11px] font-bold text-yellow-400">Security</span>
+<span class="text-[9px] px-1 bg-yellow-500/20 text-yellow-500 rounded uppercase">Intercept</span>
+<span class="text-[10px] text-slate-600">10:42:10.840</span>
+</div>
+<div class="text-yellow-100 font-medium">Policy requires human approval for external requests in this workspace. Attempted tool: <code class="text-sky-400">'WebBrowsing'</code>.</div>
+</div>
+</div>
+</div>
+</div>
+<div class="flex gap-4 items-center">
+<span class="w-2 h-4 bg-primary animate-pulse"></span>
+<span class="text-[11px] text-slate-600">Waiting for approval to resume state...</span>
+</div>
+</div>
+</footer>
+</main>
+
+</body></html>

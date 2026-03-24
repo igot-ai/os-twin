@@ -5,28 +5,31 @@ from pathlib import Path
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
-import api
-from api import app, poll_war_rooms, broadcaster, WARROOMS_DIR, AGENTS_DIR
+from dashboard.api import app
+from dashboard.tasks import poll_war_rooms
+from dashboard.global_state import broadcaster
+from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR
+import dashboard.api_utils as api_utils
 
 client = TestClient(app)
 
 @pytest.fixture
 def mock_dirs(tmp_path):
-    orig_warrooms = api.WARROOMS_DIR
-    orig_agents = api.AGENTS_DIR
+    orig_warrooms = api_utils.WARROOMS_DIR
+    orig_agents = api_utils.AGENTS_DIR
     
-    api.WARROOMS_DIR = tmp_path / ".war-rooms"
-    api.WARROOMS_DIR.mkdir()
+    api_utils.WARROOMS_DIR = tmp_path / ".war-rooms"
+    api_utils.WARROOMS_DIR.mkdir()
     
-    api.AGENTS_DIR = tmp_path / ".agents"
-    api.AGENTS_DIR.mkdir()
-    plans_dir = api.AGENTS_DIR / "plans"
+    api_utils.AGENTS_DIR = tmp_path / ".agents"
+    api_utils.AGENTS_DIR.mkdir()
+    plans_dir = api_utils.AGENTS_DIR / "plans"
     plans_dir.mkdir()
     
     yield
     
-    api.WARROOMS_DIR = orig_warrooms
-    api.AGENTS_DIR = orig_agents
+    api_utils.WARROOMS_DIR = orig_warrooms
+    api_utils.AGENTS_DIR = orig_agents
 
 @pytest.mark.asyncio
 async def test_initial_messages_broadcast_on_room_creation(mock_dirs):
@@ -37,7 +40,7 @@ async def test_initial_messages_broadcast_on_room_creation(mock_dirs):
         await asyncio.sleep(0.5) # Let last_snapshot initialize
         
         # Create a new room with a message
-        room_dir = api.WARROOMS_DIR / "room-test1"
+        room_dir = api_utils.WARROOMS_DIR / "room-test1"
         room_dir.mkdir()
         channel_file = room_dir / "channel.jsonl"
         channel_file.write_text(json.dumps({"type": "task", "body": "first message"}) + "\n")
@@ -66,7 +69,7 @@ async def test_plan_queue_updates_broadcast(mock_dirs):
         await asyncio.sleep(0.5)
         
         # Create a new plan
-        plan_file = api.AGENTS_DIR / "plans" / "agent-os-plan-test.md"
+        plan_file = api_utils.AGENTS_DIR / "plans" / "agent-os-plan-test.md"
         plan_file.write_text("# Plan: Test")
         
         await asyncio.sleep(1.5)

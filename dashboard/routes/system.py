@@ -83,6 +83,30 @@ async def get_status(user: dict = Depends(get_current_user)):
             pid = None
     return {"running": running, "pid": pid}
 
+@router.get("/providers/api-keys")
+async def check_api_keys(user: dict = Depends(get_current_user)):
+    """Check which AI providers have API keys configured in the .env file."""
+    keys_found = {
+        "Claude": False,
+        "GPT": False,
+        "Gemini": False
+    }
+    
+    if _ENV_FILE.exists():
+        text = _ENV_FILE.read_text()
+        entries = _parse_env(text)
+        for e in entries:
+            if e.get("type") == "var" and e.get("enabled", False):
+                key = e.get("key", "")
+                if key == "ANTHROPIC_API_KEY" and e.get("value"):
+                    keys_found["Claude"] = True
+                elif key == "OPENAI_API_KEY" and e.get("value"):
+                    keys_found["GPT"] = True
+                elif key == "GOOGLE_API_KEY" and e.get("value"):
+                    keys_found["Gemini"] = True
+                    
+    return keys_found
+
 @router.get("/run_tests_direct")
 async def run_tests_direct(user: dict = Depends(get_current_user)):
     import subprocess
@@ -139,62 +163,6 @@ async def test_telegram_connection():
         raise HTTPException(status_code=500, detail="Failed to send test message")
     return {"status": "success"}
 
-@router.get("/roles")
-async def list_roles(user: dict = Depends(get_current_user)):
-    config_file = AGENTS_DIR / "config.json"
-    config = json.loads(config_file.read_text()) if config_file.exists() else {}
-    roles = build_roles_list(config)
-    return {"roles": roles, "count": len(roles)}
-
-@router.get("/roles/{role_name}/config")
-async def get_role_config(role_name: str, user: dict = Depends(get_current_user)):
-    config_file = AGENTS_DIR / "config.json"
-    config = json.loads(config_file.read_text()) if config_file.exists() else {}
-    role_config = config.get(role_name, {})
-    role_json_file = AGENTS_DIR / "roles" / role_name / "role.json"
-    role_json = json.loads(role_json_file.read_text()) if role_json_file.exists() else {}
-    registry_file = AGENTS_DIR / "roles" / "registry.json"
-    registry_entry = {}
-    if registry_file.exists():
-        registry = json.loads(registry_file.read_text())
-        for r in registry.get("roles", []):
-            if r["name"] == role_name:
-                registry_entry = r
-                break
-    defaults = ROLE_DEFAULTS.get(role_name, {})
-    return {
-        "name": role_name,
-        "default_model": role_config.get("default_model", role_json.get("model", defaults.get("default_model", "gemini-3-flash-preview"))),
-        "timeout_seconds": role_config.get("timeout_seconds", defaults.get("timeout_seconds", 600)),
-        "cli": role_config.get("cli", role_json.get("cli", "deepagents")),
-        "capabilities": registry_entry.get("capabilities", role_json.get("capabilities", [])),
-        "quality_gates": registry_entry.get("quality_gates", role_json.get("quality_gates", [])),
-        "instances": role_config.get("instances", {}),
-        "role_json": role_json,
-        "config_overrides": role_config,
-    }
-
-@router.get("/fs/browse")
-async def browse_filesystem(path: str = Query(None)):
-    if not path:
-        path = str(Path.home())
-    target = Path(path).expanduser().resolve()
-    if not target.exists() or not target.is_dir():
-        raise HTTPException(status_code=400, detail="Not a valid directory")
-    dirs = []
-    try:
-        for entry in sorted(target.iterdir()):
-            if entry.name.startswith('.'): continue
-            if entry.is_dir():
-                has_children = False
-                try: has_children = any(c.is_dir() and not c.name.startswith('.') for c in entry.iterdir())
-                except PermissionError: pass
-                dirs.append({"name": entry.name, "path": str(entry), "has_children": has_children})
-    except PermissionError:
-        raise HTTPException(status_code=403, detail="Permission denied")
-    parent = str(target.parent) if target != target.parent else None
-    return {"current": str(target), "parent": parent, "dirs": dirs}
-
 @router.post("/shell")
 async def shell_command(command: str):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
@@ -229,7 +197,7 @@ async def run_ws_test():
 
 @router.get("/notifications")
 async def get_notifications(
-    plan_id: str = Query(..., description="Plan ID to scope notifications to"),
+    plan_id: str | None = Query(None, description="Plan ID to scope notifications to"),
     room_id: str | None = None,
     limit: int = 100,
     user: dict = Depends(get_current_user),
@@ -240,6 +208,9 @@ async def get_notifications(
     ``channel.jsonl``.  Otherwise it aggregates across every room under the
     plan's resolved war-rooms directory.
     """
+    if not plan_id:
+        return {"notifications": [], "plan_id": None}
+
     warrooms_dir = resolve_plan_warrooms_dir(plan_id)
 
     if room_id:

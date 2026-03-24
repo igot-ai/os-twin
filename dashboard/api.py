@@ -6,7 +6,6 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
 
 # Add the project root and dashboard dir to sys.path
 _dashboard_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,8 +20,8 @@ from dashboard.api_utils import (
     AGENTS_DIR,
     WARROOMS_DIR,
     DEMO_DIR,
-    USE_NEXTJS,
-    NEXTJS_OUT_DIR,
+    USE_FE,
+    FE_OUT_DIR,
 )
 from dashboard.tasks import startup_all
 from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills
@@ -77,41 +76,79 @@ app.include_router(mcp.router)
 app.include_router(skills.router)
 
 # --- Static Frontend Serving ---
-if USE_NEXTJS:
-    if (NEXTJS_OUT_DIR / "_next").exists():
+# Hybrid approach:
+#   1. StaticFiles for /_next (JS/CSS/media assets — fast, cacheable)
+#   2. Catch-all route for HTML pages with SPA fallback
+#      (handles unknown plan IDs not pre-rendered at build time)
+from fastapi.responses import FileResponse
+
+if USE_FE:
+    if (FE_OUT_DIR / "_next").exists():
         app.mount(
             "/_next",
-            StaticFiles(directory=str(NEXTJS_OUT_DIR / "_next")),
-            name="nextjs_static",
-        )
-    if (DEMO_DIR / "assets").exists():
-        app.mount(
-            "/assets", StaticFiles(directory=str(DEMO_DIR / "assets")), name="assets"
-        )
-else:
-    if (DEMO_DIR / "assets").exists():
-        app.mount(
-            "/assets", StaticFiles(directory=str(DEMO_DIR / "assets")), name="assets"
+            StaticFiles(directory=str(FE_OUT_DIR / "_next")),
+            name="fe_next_static",
         )
 
+    @app.api_route("/", methods=["GET", "HEAD"])
+    async def fe_index():
+        return FileResponse(str(FE_OUT_DIR / "index.html"))
 
-# --- Root Redirect/Index ---
-@app.get("/")
-async def index():
-    if USE_NEXTJS:
-        return FileResponse(str(NEXTJS_OUT_DIR / "index.html"))
-    index_file = DEMO_DIR / "index.html"
-    if index_file.exists():
-        return FileResponse(str(index_file))
-    return HTMLResponse("<h1>OS Twin Command Center</h1><p>index.html not found.</p>")
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"])
+    async def fe_catch_all(path: str):
+        # 1. Exact file (e.g. favicon.ico, robots.txt)
+        exact = FE_OUT_DIR / path
+        if exact.is_file():
+            return FileResponse(str(exact))
+        # 2. {path}.html (e.g. /roles → roles.html)
+        html_file = FE_OUT_DIR / f"{path}.html"
+        if html_file.is_file():
+            return FileResponse(str(html_file))
+        # 3. {path}/index.html (e.g. /plans/plan-001 → plans/plan-001/index.html)
+        index_file = FE_OUT_DIR / path / "index.html"
+        if index_file.is_file():
+            return FileResponse(str(index_file))
 
+        # 4. Dynamic route fallback — serve a pre-rendered template page.
+        #    The Next.js JS bundle reads the real ID from window.location.
+        import re
+        parts = path.strip("/").split("/")
 
-# --- SPA Catch-all ---
-@app.get("/{path:path}")
-async def catch_all(path: str):
-    if USE_NEXTJS:
-        return FileResponse(str(NEXTJS_OUT_DIR / "index.html"))
-    return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
+        # /plans/{id}/epics/{ref} → serve any pre-rendered epic page
+        # Next.js static export generates flat HTML: plans/plan-001/epics/EPIC-001.html
+        if len(parts) == 4 and parts[0] == "plans" and parts[2] == "epics":
+            epics_dir = FE_OUT_DIR / "plans"
+            if epics_dir.is_dir():
+                for plan_dir in epics_dir.iterdir():
+                    if not plan_dir.is_dir():
+                        continue
+                    epic_dir = plan_dir / "epics"
+                    if epic_dir.is_dir():
+                        # Check flat .html files first (e.g. EPIC-001.html)
+                        for html_file in epic_dir.glob("*.html"):
+                            return FileResponse(str(html_file))
+                        # Then check nested index.html (e.g. EPIC-001/index.html)
+                        for epic_sub in epic_dir.iterdir():
+                            tpl = epic_sub / "index.html"
+                            if tpl.is_file():
+                                return FileResponse(str(tpl))
+
+        # /plans/{id} → serve any pre-rendered plan page
+        # Next.js static export generates flat HTML: plans/plan-001.html
+        if len(parts) == 2 and parts[0] == "plans":
+            plans_dir = FE_OUT_DIR / "plans"
+            if plans_dir.is_dir():
+                # Check flat .html files first (e.g. plan-001.html)
+                for html_file in plans_dir.glob("*.html"):
+                    return FileResponse(str(html_file))
+                # Fallback: check nested index.html (e.g. plan-001/index.html)
+                for sub in plans_dir.iterdir():
+                    tpl = sub / "index.html"
+                    if tpl.is_file():
+                        return FileResponse(str(tpl))
+
+        # 5. Final fallback
+        return FileResponse(str(FE_OUT_DIR / "index.html"))
 
 
 # --- Lifecycle ---

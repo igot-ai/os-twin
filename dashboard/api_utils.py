@@ -46,19 +46,27 @@ if os.environ.get("OSTWIN_PROJECT_DIR"):
     AGENTS_DIR = PROJECT_ROOT / ".agents"
     WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
-# Next.js export detection
-NEXTJS_OUT_DIR = DEMO_DIR / "nextjs" / "out"
-USE_NEXTJS = NEXTJS_OUT_DIR.exists() and (NEXTJS_OUT_DIR / "index.html").exists()
+# Frontend static-export detection (dashboard/fe/out)
+FE_OUT_DIR = DEMO_DIR / "fe" / "out"
+USE_FE = FE_OUT_DIR.exists() and (FE_OUT_DIR / "index.html").exists()
+# Backward-compatible aliases
+NEXTJS_OUT_DIR = FE_OUT_DIR
+USE_NEXTJS = USE_FE
 
 # === Helper Functions ===
 
-def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
+def read_room(
+    room_dir: Path,
+    include_metadata: bool = False,
+    include_messages: bool = False,
+) -> dict:
     """Read war-room state from disk.
 
     Args:
         room_dir: Path to the room directory.
         include_metadata: When True, also reads config.json, role instance
             files, state_changed_at, and artifact directory listing.
+        include_messages: When True, also reads all channel messages.
     """
     # Run pytest if requested (legacy hook)
     if (room_dir / "run_pytest_now").exists():
@@ -207,6 +215,9 @@ def read_room(room_dir: Path, include_metadata: bool = False) -> dict:
         else:
             result["audit_tail"] = []
 
+    if include_messages:
+        result["messages"] = read_channel(room_dir)
+
     return result
 
 def read_channel(
@@ -265,9 +276,9 @@ async def process_notification(event_type: str, data: dict):
     with open(notifications_file, "a") as f:
         f.write(log_entry + "\n")
 
-def parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
-    """Parse SKILL.md for metadata and content using YAML frontmatter."""
-    skill_file = path / "SKILL.md"
+def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str, Any]]:
+    """Parse a skill markdown file (default SKILL.md) for metadata and content using YAML frontmatter."""
+    skill_file = path / filename
     if not skill_file.exists():
         return None
     
@@ -279,12 +290,14 @@ def parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
     trust_level = "experimental"  # Model default fallback
     
     # Check for YAML frontmatter
+    meta_dict = {}
     if content.startswith("---"):
         parts = content.split("---", 2)
         if len(parts) >= 3:
             try:
                 meta = yaml.safe_load(parts[1])
                 if isinstance(meta, dict):
+                    meta_dict = meta
                     name = meta.get("name", name)
                     description = meta.get("description", description)
                     tags = meta.get("tags", tags)
@@ -336,8 +349,125 @@ def parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
         "relative_path": relative_path,
         "content": body,
         "trust_level": trust_level,
-        "source": source
+        "source": source,
+        "version": meta_dict.get("version", "0.1.0"),
+        "category": meta_dict.get("category"),
+        "applicable_roles": meta_dict.get("applicable_roles", []),
+        "params": meta_dict.get("params", []),
+        "changelog": meta_dict.get("changelog", []),
+        "author": meta_dict.get("author"),
+        "forked_from": meta_dict.get("forked_from"),
+        "is_draft": meta_dict.get("is_draft", False),
+        "updated_at": datetime.fromtimestamp(skill_file.stat().st_mtime, tz=timezone.utc).isoformat()
     }
+
+def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Path:
+    """Save skill data to SKILL.md with YAML frontmatter, archiving previous version if it exists."""
+    if not path:
+        # Default to the first available SKILLS_DIRS entry or fall back to PROJECT_ROOT / ".deepagents" / "skills"
+        skill_name = skill_data["name"].lower().replace(" ", "-")
+        if SKILLS_DIRS:
+            path = SKILLS_DIRS[0] / skill_name
+        else:
+            path = PROJECT_ROOT / ".deepagents" / "skills" / skill_name
+    
+    path.mkdir(parents=True, exist_ok=True)
+    skill_file = path / "SKILL.md"
+    
+    # Redesign: Directory-based Historical Snapshots
+    if skill_file.exists():
+        try:
+            # Read current version from the existing file
+            old_data = parse_skill_md(path)
+            if old_data:
+                old_version = old_data.get("version", "0.1.0")
+                versions_dir = path / ".versions"
+                versions_dir.mkdir(exist_ok=True)
+                snapshot_file = versions_dir / f"v{old_version}.md"
+                # Only copy if it doesn't already exist to avoid overwriting snapshots
+                if not snapshot_file.exists():
+                    import shutil
+                    shutil.copy2(skill_file, snapshot_file)
+        except Exception as e:
+            logger = logging.getLogger("api_utils")
+            logger.warning(f"Failed to archive previous version of skill {path.name}: {e}")
+
+    meta = {
+        "name": skill_data["name"],
+        "description": skill_data["description"],
+        "tags": skill_data.get("tags", []),
+        "trust_level": skill_data.get("trust_level", "experimental"),
+        "version": skill_data.get("version", "0.1.0"),
+        "category": skill_data.get("category"),
+        "applicable_roles": skill_data.get("applicable_roles", []),
+        "params": skill_data.get("params", []),
+        "changelog": skill_data.get("changelog", []),
+        "author": skill_data.get("author"),
+        "forked_from": skill_data.get("forked_from"),
+        "is_draft": skill_data.get("is_draft", False),
+    }
+    
+    # Remove None values
+    meta = {k: v for k, v in meta.items() if v is not None}
+    
+    frontmatter = yaml.dump(meta, sort_keys=False)
+    content = f"---\n{frontmatter}---\n\n{skill_data.get('content', '')}"
+    
+    skill_file.write_text(content, encoding="utf-8")
+    return path
+
+def get_active_epics_using_skill(skill_name: str) -> int:
+    """Count active EPICs (war-rooms) that use the given skill."""
+    # 1. Load all roles to see which ones use this skill
+    roles_config_file = AGENTS_DIR / "roles" / "config.json"
+    roles_using_skill = set()
+    if roles_config_file.exists():
+        try:
+            roles_data = json.loads(roles_config_file.read_text())
+            for r in roles_data:
+                if skill_name in r.get("skill_refs", []):
+                    roles_using_skill.add(r.get("name"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # 2. Check active war-rooms
+    active_count = 0
+    if WARROOMS_DIR.exists():
+        for room_dir in WARROOMS_DIR.glob("room-*"):
+            if not room_dir.is_dir():
+                continue
+            
+            # Check status
+            status_file = room_dir / "status"
+            status = status_file.read_text().strip() if status_file.exists() else "unknown"
+            if status in ["passed", "failed", "signoff", "failed-final"]:
+                continue
+                
+            # Check if any role in this room uses the skill
+            config_file = room_dir / "config.json"
+            if config_file.exists():
+                try:
+                    config = json.loads(config_file.read_text())
+                    candidates = config.get("assignment", {}).get("candidate_roles", [])
+                    if any(role_name in roles_using_skill for role_name in candidates):
+                        active_count += 1
+                        continue
+                except Exception:
+                    pass
+            
+            # Also check role instance files if candidates list is missing/empty
+            for f in room_dir.glob("*_*.json"):
+                if f.name == "config.json":
+                    continue
+                try:
+                    data = json.loads(f.read_text())
+                    if data.get("role") in roles_using_skill:
+                        active_count += 1
+                        break
+                except Exception:
+                    continue
+                    
+    return active_count
 
 def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]:
     """Synchronize vector store with SKILL.md files on disk, handling additions, updates, and removals."""
@@ -384,7 +514,15 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
             relative_path=data.get("relative_path", ""),
             trust_level=data.get("trust_level", "experimental"),
             source=data["source"],
-            content=data["content"]
+            content=data["content"],
+            version=data.get("version", "0.1.0"),
+            category=data.get("category"),
+            applicable_roles=data.get("applicable_roles", []),
+            params=data.get("params", []),
+            changelog=data.get("changelog", []),
+            author=data.get("author"),
+            forked_from=data.get("forked_from"),
+            is_draft=data.get("is_draft", False),
         ):
             synced_count += 1
             if not existing:
@@ -410,7 +548,8 @@ def build_skills_list(
     query: Optional[str] = None, 
     role: Optional[str] = None, 
     tags: List[str] = [],
-    limit: int = 50
+    limit: int = 50,
+    include_drafts: bool = False
 ) -> List[Skill]:
     """Helper to build and filter skills list from zvec and disk."""
     from dashboard import global_state
@@ -429,9 +568,21 @@ def build_skills_list(
         except Exception as e:
             logging.getLogger("api_utils").error("Skill store fetch failed: %s", e)
 
-    # 2. Fallback/Enrich from disk if zvec is empty or unavailable
-    # Also useful to catch newly added skills before sync
+    # 2. Fallback/Enrich from disk
     skills_map = {s.name: s for s in skills}
+    
+    # Pre-calculate usage counts from all plans
+    usage_counts = {}
+    plans_dir = AGENTS_DIR / "plans"
+    if plans_dir.exists():
+        for f in plans_dir.glob("*.roles.json"):
+            try:
+                config = json.loads(f.read_text())
+                attached = config.get("attached_skills", [])
+                for s_name in attached:
+                    usage_counts[s_name] = usage_counts.get(s_name, 0) + 1
+            except Exception: pass
+
     for sdir in SKILLS_DIRS:
         if not sdir.exists():
             continue
@@ -439,8 +590,21 @@ def build_skills_list(
             for skill_md in sdir.rglob("SKILL.md"):
                 path = skill_md.parent
                 skill_data = parse_skill_md(path)
-                if skill_data and skill_data["name"] not in skills_map:
-                    skills_map[skill_data["name"]] = Skill(**skill_data)
+                if skill_data:
+                    name = skill_data["name"]
+                    skill_data["usage_count"] = usage_counts.get(name, 0)
+                    if name in skills_map:
+                        # Enrich existing skill with full disk data
+                        existing = skills_map[name]
+                        for k, v in skill_data.items():
+                            try:
+                                if k == "applicable_roles" and not v:
+                                    # Don't overwrite if disk version is empty but zvec has them
+                                    continue
+                                setattr(existing, k, v)
+                            except Exception: pass
+                    else:
+                        skills_map[name] = Skill(**skill_data)
         except Exception:
             pass
     skills = list(skills_map.values())
@@ -448,19 +612,24 @@ def build_skills_list(
     # 3. Apply post-filters
     filtered = []
     for s in skills:
+        # Draft filter
+        if getattr(s, "is_draft", False) and not include_drafts:
+            continue
+            
         # Role match
         if role:
             role_l = role.lower()
-            # Try exact tag match, word-boundary match in description or content
-            in_tags = any(role_l == t.lower() for t in s.tags)
-            
-            p_desc = rf"\b{re.escape(role_l)}\b"
-            in_desc = bool(re.search(p_desc, s.description.lower()))
-            
-            p_cont = rf"\b{re.escape(role_l)}\b"
-            has_cont = s.content and bool(re.search(p_cont, s.content.lower()))
-            
-            if not (in_tags or in_desc or has_cont):
+            # 1. Direct applicable_roles match (preferred)
+            if s.applicable_roles and any(role_l == r.lower() for r in s.applicable_roles):
+                pass
+            # 2. Try exact tag match, word-boundary match in description or content
+            elif any(role_l == t.lower() for t in s.tags):
+                pass
+            elif bool(re.search(rf"\b{re.escape(role_l)}\b", s.description.lower())):
+                pass
+            elif s.content and bool(re.search(rf"\b{re.escape(role_l)}\b", s.content.lower())):
+                pass
+            else:
                 continue
             
         if tags and not any(t.lower() in [st.lower() for st in s.tags] for t in tags):

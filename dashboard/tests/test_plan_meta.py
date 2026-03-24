@@ -130,4 +130,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-""", "Complexity": 6, "Description": "Test script that verifies the API creates meta.json with expected fields and that GET /api/plans/{plan_id} correctly merges the meta data into the response.", "EmptyFile": false, "IsArtifact": false, "Overwrite": true, "TargetFile": "/Users/paulaan/PycharmProjects/agent-os/dashboard/test_plan_meta.py"}
+
