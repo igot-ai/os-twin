@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUIStore } from '@/lib/stores/uiStore';
@@ -58,16 +59,19 @@ export default function Sidebar({ className = '', ...props }: React.ComponentPro
         className="h-14 flex items-center gap-3 px-4 border-b shrink-0"
         style={{ borderColor: 'var(--color-border)' }}
       >
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-extrabold text-sm shrink-0"
-          style={{ background: 'var(--color-primary)' }}
+        <Image
+          src="/logo.svg"
+          alt="OsTwin"
+          width={32}
+          height={32}
+          className="shrink-0"
           aria-hidden="true"
-        >
-          ⬡
-        </div>
+        />
         {!sidebarCollapsed && (
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-bold truncate" style={{ color: 'var(--color-text-main)' }}>Agent OS</span>
+            <span className="text-sm font-bold truncate" style={{ color: 'var(--color-text-main)' }}>
+              Os<span style={{ background: 'linear-gradient(135deg, #00ff88, #00c4e0, #00d4ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Twin</span>
+            </span>
             <span className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>Command Center</span>
           </div>
         )}

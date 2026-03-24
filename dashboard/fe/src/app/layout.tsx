@@ -20,7 +20,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "⬡ Agent OS — Command Center",
+  title: "⬡ OsTwin — Command Center",
   description: "Agentic OS Enterprise Command Center — Real-time plan management, agent orchestration, and operational intelligence",
 };
 

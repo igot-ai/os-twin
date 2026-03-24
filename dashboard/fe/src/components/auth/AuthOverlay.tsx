@@ -27,9 +27,11 @@ export default function AuthOverlay() {
         {/* Logo / Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
-            <span className="material-symbols-outlined text-primary text-[28px]">lock</span>
+            <img src="/logo.svg" alt="OsTwin" width={28} height={28} />
           </div>
-          <h1 className="text-xl font-black text-text-main tracking-tight">Agent OS</h1>
+          <h1 className="text-xl font-black text-text-main tracking-tight">
+            Os<span style={{ background: 'linear-gradient(135deg, #00ff88, #00c4e0, #00d4ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Twin</span>
+          </h1>
           <p className="text-xs text-text-muted mt-1">Enter your API key to continue</p>
         </div>
 
