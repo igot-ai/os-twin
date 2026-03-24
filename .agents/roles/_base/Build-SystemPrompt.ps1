@@ -91,17 +91,42 @@ $gateList
 # The agent CLI discovers them via that path at runtime.
 # This keeps the system prompt focused on the role definition only.
 
-# Section 4.5: Memory context
-$resolveMemory = Join-Path $PSScriptRoot "Resolve-Memory.ps1"
-if ($RoomDir -and (Test-Path $resolveMemory)) {
-    try {
-        $memorySection = & $resolveMemory -RoomDir $RoomDir -RoleName ($role.Name)
-        if ($memorySection) {
-            $sections.Add($memorySection)
-        }
+# Section 4.5: Memory context and tools
+$memoryEnabled = $false
+try {
+    $cfgPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
+               else { Join-Path (Split-Path (Split-Path $PSScriptRoot)) "config.json" }
+    if (Test-Path $cfgPath) {
+        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+        $memoryEnabled = [bool]($cfg.memory -and $cfg.memory.enabled)
     }
-    catch {
-        Write-Warning "Memory retrieval failed: $($_.Exception.Message)"
+} catch {}
+
+if ($memoryEnabled) {
+    $sections.Add(@"
+
+## Memory Tools
+
+You have memory tools to persist knowledge across sessions:
+- **memory_note(note, domains?)**: Save a discovery, gotcha, or pattern. Tag with domains (e.g. ["api", "auth"]).
+- **memory_drop(note_substring)**: Remove a previously saved note.
+- **memory_recall(domains?, keyword?)**: Query the knowledge base for facts from past sessions. Call at task start to check for relevant context.
+
+Save notes when you discover: non-obvious conventions, mistakes and correct approaches, environment/config gotchas, project-specific patterns.
+Do NOT save: obvious things from the code, task-specific details that won't generalize, temporary state.
+"@)
+
+    $resolveMemory = Join-Path $PSScriptRoot "Resolve-Memory.ps1"
+    if ($RoomDir -and (Test-Path $resolveMemory)) {
+        try {
+            $memorySection = & $resolveMemory -RoomDir $RoomDir -RoleName ($role.Name)
+            if ($memorySection) {
+                $sections.Add($memorySection)
+            }
+        }
+        catch {
+            Write-Warning "Memory retrieval failed: $($_.Exception.Message)"
+        }
     }
 }
 
