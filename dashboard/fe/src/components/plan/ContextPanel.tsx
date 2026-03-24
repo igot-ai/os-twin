@@ -127,6 +127,41 @@ function EpicQuickView({ epic }: { epic: Epic }) {
           <div className="text-xs font-bold text-text-main truncate">#{epic.room_id || 'N/A'}</div>
         </div>
       </div>
+
+      {/* Dependencies */}
+      {epic.depends_on && epic.depends_on.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[10px] font-extrabold text-text-faint uppercase tracking-wider">Dependencies</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {epic.depends_on.map(dep => (
+              <span key={dep} className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                {dep}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Constraints */}
+      <div className="space-y-2">
+        <h4 className="text-[10px] font-extrabold text-text-faint uppercase tracking-wider">Constraints</h4>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="p-2 rounded-lg bg-surface-alt border border-border text-center">
+            <div className="text-[8px] font-bold text-text-faint uppercase">Retries</div>
+            <div className="text-sm font-black text-text-main">{epic.retries ?? 0}/{epic.max_retries ?? 3}</div>
+          </div>
+          <div className="p-2 rounded-lg bg-surface-alt border border-border text-center">
+            <div className="text-[8px] font-bold text-text-faint uppercase">Timeout</div>
+            <div className="text-sm font-black text-text-main">{epic.timeout_seconds ? `${Math.round(epic.timeout_seconds / 60)}m` : '—'}</div>
+          </div>
+          <div className="p-2 rounded-lg bg-surface-alt border border-border text-center">
+            <div className="text-[8px] font-bold text-text-faint uppercase">Budget</div>
+            <div className="text-sm font-black text-text-main">
+              {epic.budget_tokens ? `${Math.round(epic.budget_tokens.max / 1000)}k` : '—'}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

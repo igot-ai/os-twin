@@ -58,21 +58,34 @@ function TaskItem({ task, onToggle, isDragging }: TaskItemProps) {
             : 'border-border hover:border-text-faint bg-surface'
       }`}
     >
-      {/* Checkbox */}
-      <input 
-        type="checkbox" 
-        checked={task.completed} 
-        className={`mt-1 rounded border-border w-3.5 h-3.5 cursor-pointer z-10 ${
-          task.status === 'in-progress' 
-            ? 'border-primary text-primary focus:ring-primary' 
-            : 'text-text-faint focus:ring-0'
-        }`}
-        onChange={(e) => {
-          e.stopPropagation();
-          onToggle(task);
-        }}
-        aria-label={`Mark task ${task.task_id} as ${task.completed ? 'incomplete' : 'complete'}`}
-      />
+      {/* Status Icon + Checkbox */}
+      <div className="flex flex-col items-center gap-1 mt-0.5">
+        <input 
+          type="checkbox" 
+          checked={task.completed} 
+          className={`rounded border-border w-3.5 h-3.5 cursor-pointer z-10 ${
+            task.status === 'in-progress' 
+              ? 'border-primary text-primary focus:ring-primary' 
+              : 'text-text-faint focus:ring-0'
+          }`}
+          onChange={(e) => {
+            e.stopPropagation();
+            onToggle(task);
+          }}
+          aria-label={`Mark task ${task.task_id} as ${task.completed ? 'incomplete' : 'complete'}`}
+        />
+        {/* Status icon */}
+        <span className={`text-[10px] ${
+          task.status === 'done' || task.completed ? 'text-success' :
+          task.status === 'in-progress' ? 'text-primary' :
+          task.status === 'blocked' ? 'text-warning' :
+          'text-text-faint'
+        }`} title={task.status}>
+          {task.status === 'done' || task.completed ? '✅' :
+           task.status === 'in-progress' ? '🔄' :
+           task.status === 'blocked' ? '🚫' : '⏳'}
+        </span>
+      </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
@@ -106,8 +119,23 @@ function TaskItem({ task, onToggle, isDragging }: TaskItemProps) {
           }`}>
             {task.assigned_role}
           </span>
+          {/* Status chip */}
+          <span className={`text-[9px] px-1 rounded font-bold ${
+            task.status === 'done' || task.completed ? 'bg-success/10 text-success border border-success/20' :
+            task.status === 'in-progress' ? 'bg-primary/10 text-primary border border-primary/20' :
+            task.status === 'blocked' ? 'bg-warning/10 text-warning border border-warning/20' :
+            'bg-surface-hover text-text-faint border border-border'
+          }`}>
+            {task.status}
+          </span>
           {task.status === 'in-progress' && (
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+          )}
+          {task.completed_by && (
+            <span className="text-[9px] text-text-faint flex items-center gap-0.5" title={`Completed by ${task.completed_by}`}>
+              <span className="material-symbols-outlined text-[10px]">smart_toy</span>
+              {task.completed_by}
+            </span>
           )}
           {task.completed_at && (
             <span className="text-[9px] text-text-faint">

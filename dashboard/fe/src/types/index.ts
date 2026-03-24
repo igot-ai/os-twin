@@ -239,6 +239,92 @@ export interface DAGEdge {
 }
 
 // ──────────────────────────────────────────────────
+// War Room Progress (progress.json)
+// ──────────────────────────────────────────────────
+export interface WarRoomRoomEntry {
+  room_id: string;
+  task_ref: string;
+  status: string; // 'passed' | 'failed-final' | 'active' | 'pending' | 'blocked'
+}
+
+export interface WarRoomProgress {
+  updated_at: string;
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  active: number;
+  pending: number;
+  pct_complete: number;
+  critical_path: string; // e.g. "7/8"
+  rooms: WarRoomRoomEntry[];
+}
+
+// ──────────────────────────────────────────────────
+// Audit Log Entry (parsed from audit.log)
+// ──────────────────────────────────────────────────
+export interface AuditLogEntry {
+  timestamp: string;
+  type: string; // e.g. 'STATUS'
+  from_state: string;
+  to_state: string;
+}
+
+// ──────────────────────────────────────────────────
+// Agent Instance (e.g. architect_001.json)
+// ──────────────────────────────────────────────────
+export interface AgentInstance {
+  role: string;
+  instance_id: string;
+  instance_type: string;
+  display_name: string;
+  model: string;
+  assigned_at: string;
+  status: string; // 'completed' | 'running' | 'failed'
+  config_override: Record<string, unknown>;
+}
+
+// ──────────────────────────────────────────────────
+// War Room Config (config.json)
+// ──────────────────────────────────────────────────
+export interface WarRoomConfig {
+  room_id: string;
+  task_ref: string;
+  plan_id: string;
+  depends_on: string[];
+  created_at: string;
+  working_dir: string;
+  assignment: {
+    title: string;
+    description: string;
+    assigned_role: string;
+    candidate_roles: string[];
+    type: string;
+  };
+  goals: {
+    definition_of_done: string[];
+    acceptance_criteria: string[];
+    quality_requirements: {
+      test_coverage_min: number;
+      lint_clean: boolean;
+      security_scan_pass: boolean;
+    };
+  };
+  constraints: {
+    max_retries: number;
+    timeout_seconds: number;
+    budget_tokens_max: number;
+  };
+  status: {
+    current: string;
+    retries: number;
+    started_at: string | null;
+    last_state_change: string;
+  };
+  skill_refs: string[];
+}
+
+// ──────────────────────────────────────────────────
 // Model
 // ──────────────────────────────────────────────────
 export interface Model {

@@ -904,10 +904,16 @@ async def get_plan_dag(plan_id: str, user: dict = Depends(get_current_user)):
     warrooms_dir = resolve_plan_warrooms_dir(plan_id)
     dag_file = warrooms_dir / "DAG.json"
     if not dag_file.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"DAG.json not found for plan {plan_id} (warrooms_dir: {warrooms_dir})",
-        )
+        # Avoid 404 for missing resource (prevents it being confused with missing endpoint)
+        return {
+            "nodes": [],
+            "edges": [],
+            "critical_path": [],
+            "waves": {},
+            "topological_order": [],
+            "max_depth": 0,
+            "error": "DAG.json not found"
+        }
     try:
         dag = json.loads(dag_file.read_text())
     except (json.JSONDecodeError, OSError) as exc:
@@ -1042,4 +1048,107 @@ async def plan_room_action(
         {"room_id": room_id, "action": action, "plan_id": plan_id},
     )
     return {"status": "ok", "action": action, "room_id": room_id, "plan_id": plan_id}
+
+
+def _resolve_room_dir(plan_id: str, task_ref: str) -> Optional[Path]:
+    """Internal helper to find the room directory for a given task/epic reference."""
+    from dashboard.api_utils import resolve_plan_warrooms_dir
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    if not warrooms_dir.exists():
+        return None
+
+    for room_dir in warrooms_dir.glob("room-*"):
+        if not room_dir.is_dir():
+            continue
+        # 1. task-ref file
+        tr_file = room_dir / "task-ref"
+        if tr_file.exists():
+            if tr_file.read_text().strip() == task_ref:
+                return room_dir
+        # 2. config.json
+        cfg_file = room_dir / "config.json"
+        if cfg_file.exists():
+            try:
+                if json.loads(cfg_file.read_text()).get("task_ref") == task_ref:
+                    return room_dir
+            except (json.JSONDecodeError, OSError): pass
+    return None
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/lifecycle")
+async def get_epic_lifecycle(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return {"states": {}, "transitions": [], "error": "Room not found"}
+    lc_file = room_dir / "lifecycle.json"
+    if not lc_file.exists(): return {"states": {}, "transitions": [], "error": "lifecycle.json not found"}
+    try: return json.loads(lc_file.read_text())
+    except (json.JSONDecodeError, OSError): return {"states": {}, "transitions": [], "error": "JSON error"}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/audit")
+async def get_epic_audit(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return []
+    audit_file = room_dir / "audit.log"
+    if not audit_file.exists(): return []
+    try:
+        lines = audit_file.read_text().splitlines()
+        # Parse lines like: [2026-03-24T03:46:16Z] Transitioning: state1 -> state2
+        results = []
+        for line in lines:
+            if "Transitioning:" in line:
+                m = re.search(r"\[(.*?)\] Transitioning: (.*?) -> (.*)", line)
+                if m:
+                    results.append({"timestamp": m.group(1), "from_state": m.group(2), "to_state": m.group(3)})
+        return results
+    except OSError: return []
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/brief")
+async def get_epic_brief(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return {"content": "", "working_dir": "", "created_at": None}
+    brief_file = room_dir / "brief.md"
+    config_file = room_dir / "config.json"
+    content = brief_file.read_text() if brief_file.exists() else "# No brief provided"
+    working_dir = "."
+    if config_file.exists():
+        try:
+            cfg = json.loads(config_file.read_text())
+            working_dir = cfg.get("working_dir", ".")
+        except: pass
+    return {"content": content, "working_dir": working_dir, "created_at": None}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/artifacts")
+async def get_epic_artifacts(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return []
+    art_dir = room_dir / "artifacts"
+    if not art_dir.exists(): return []
+    files = []
+    for f in art_dir.iterdir():
+        if f.is_file():
+            files.append({"name": f.name, "size": f.stat().st_size, "type": f.suffix.lstrip(".")})
+    return sorted(files, key=lambda x: x["name"])
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/agents")
+async def get_epic_agents(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return []
+    agents = []
+    # Any role-named file like architect_001.json
+    for f in room_dir.glob("*_*.json"):
+        if f.name == "config.json": continue
+        try:
+            data = json.loads(f.read_text())
+            if "role" in data: agents.append(data)
+        except: pass
+    return agents
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/config")
+async def get_epic_config(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return {"error": "Room not found"}
+    cfg_file = room_dir / "config.json"
+    if not cfg_file.exists(): return {"error": "config.json missing"}
+    try: return json.loads(cfg_file.read_text())
+    except: return {"error": "JSON parse error"}
+
 

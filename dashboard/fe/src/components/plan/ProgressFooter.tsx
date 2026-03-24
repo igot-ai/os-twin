@@ -2,27 +2,72 @@
 
 import React, { useState } from 'react';
 import { usePlanContext } from './PlanWorkspace';
+import { useWarRoomProgress } from '@/hooks/use-war-room';
+import { useDAG } from '@/hooks/use-epics';
 import AnalyticsPanel from './AnalyticsPanel';
 
 export default function ProgressFooter() {
-  const { plan, isLoading } = usePlanContext();
+  const { plan, planId, isLoading } = usePlanContext();
+  const { progress } = useWarRoomProgress(planId);
+  const { dag } = useDAG(planId);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
 
   if (isLoading || !plan) {
     return <div className="h-[56px] bg-surface border-t border-border animate-pulse" />;
   }
 
-  const { pct_complete = 0, critical_path = { completed: 0, total: 0 }, active_epics = 0 } = plan;
+  // Use progress.json data if available, fall back to plan data
+  const pctComplete = progress?.pct_complete ?? plan.pct_complete ?? 0;
+  const criticalPathStr = progress?.critical_path ?? '';
+  const cpParts = criticalPathStr.split('/');
+  const criticalPath = cpParts.length === 2
+    ? { completed: parseInt(cpParts[0]) || 0, total: parseInt(cpParts[1]) || 0 }
+    : plan.critical_path ?? { completed: 0, total: 0 };
+
+  // Status distribution from progress.json
+  const statusCounts = progress ? {
+    passed: progress.passed,
+    failed: progress.failed,
+    active: progress.active,
+    pending: progress.pending,
+    blocked: progress.blocked,
+  } : null;
+
+  // Current wave from DAG
+  const currentWave = dag?.waves 
+    ? Object.entries(dag.waves).find(([, epics]) => 
+        epics.some(e => {
+          const room = progress?.rooms?.find(r => r.task_ref === e);
+          return room && !['passed', 'failed-final'].includes(room.status);
+        })
+      )?.[0]
+    : null;
+
+  const activeEpics = progress?.active ?? plan.active_epics ?? 0;
 
   // Progress ring variables
   const radius = 16;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (pct_complete / 100) * circumference;
+  const offset = circumference - (pctComplete / 100) * circumference;
+
+  // Failed rooms for quick access
+  const failedRooms = progress?.rooms?.filter(r => r.status === 'failed-final') ?? [];
 
   return (
     <div className="relative">
       {/* Sticky Footer */}
       <footer className="h-[56px] bg-surface border-t border-border flex items-center px-6 gap-8 z-20 relative">
+        {/* Collapse toggle */}
+        <button 
+          className="flex items-center gap-1 text-text-faint hover:text-text-main transition-colors"
+          title="Toggle footer"
+        >
+          <span className="material-symbols-outlined text-[14px]">chevron_left</span>
+          <span className="text-[10px] font-bold uppercase">Collapse</span>
+        </button>
+
+        <div className="h-6 w-px bg-border" />
+
         {/* Progress Ring */}
         <div className="flex items-center gap-3">
           <div className="relative flex items-center justify-center w-10 h-10">
@@ -50,7 +95,7 @@ export default function ProgressFooter() {
               />
             </svg>
             <span className="absolute text-[10px] font-bold text-text-main">
-              {Math.round(pct_complete)}%
+              {Math.round(pctComplete)}%
             </span>
           </div>
           <span className="text-sm font-semibold text-text-main">Progress</span>
@@ -62,16 +107,18 @@ export default function ProgressFooter() {
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wider text-text-muted font-bold">Critical Path</span>
           <span className="text-sm font-mono text-text-main">
-            {critical_path.completed}/{critical_path.total}
+            {criticalPath.completed}/{criticalPath.total}
           </span>
         </div>
 
         <div className="h-6 w-px bg-border" />
 
-        {/* Current Wave - Using Wave 1 as placeholder as it's not in Plan type */}
+        {/* Current Wave */}
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wider text-text-muted font-bold">Current Wave</span>
-          <span className="text-sm font-mono text-text-main underline decoration-primary underline-offset-4">Wave 1</span>
+          <span className="text-sm font-mono text-text-main underline decoration-primary underline-offset-4">
+            {currentWave ? `Wave ${currentWave}` : 'Wave 1'}
+          </span>
         </div>
 
         <div className="h-6 w-px bg-border" />
@@ -79,8 +126,41 @@ export default function ProgressFooter() {
         {/* Active EPICs */}
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wider text-text-muted font-bold">Active EPICs</span>
-          <span className="text-sm font-mono text-text-main">{active_epics} in flight</span>
+          <span className="text-sm font-mono text-text-main">{activeEpics} in flight</span>
         </div>
+
+        {/* Status Distribution Chips */}
+        {statusCounts && (
+          <>
+            <div className="h-6 w-px bg-border" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                ✓{statusCounts.passed}
+              </span>
+              {statusCounts.failed > 0 && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/10 text-red-600 border border-red-500/20">
+                  ✕{statusCounts.failed}
+                </span>
+              )}
+              {statusCounts.blocked > 0 && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                  ⚠{statusCounts.blocked}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Failed Room alerts */}
+        {failedRooms.length > 0 && (
+          <>
+            <div className="h-6 w-px bg-border" />
+            <div className="flex items-center gap-1 text-red-500 animate-pulse">
+              <span className="material-symbols-outlined text-sm">warning</span>
+              <span className="text-[10px] font-bold">{failedRooms.map(r => r.task_ref).join(', ')}</span>
+            </div>
+          </>
+        )}
 
         <div className="flex-1" />
 

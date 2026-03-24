@@ -22,11 +22,29 @@ const roleColors: Record<string, string> = {
   'Copywriter': '#f59e0b',
   'Designer': '#ec4899',
   'Engineer': '#3b82f6',
+  'engineer': '#3b82f6',
+  'architect': '#8b5cf6',
   'Auditor': '#8b5cf6',
   'Manager': '#64748b',
+  'manager': '#64748b',
+  'e': '#3b82f6',
 };
 
-export default function EpicCard({ epic }: { epic: Epic }) {
+const warRoomStatusIcons: Record<string, { icon: string; color: string; label: string }> = {
+  passed: { icon: 'check_circle', color: '#10b981', label: 'Passed' },
+  'failed-final': { icon: 'cancel', color: '#ef4444', label: 'Failed' },
+  active: { icon: 'play_circle', color: '#3b82f6', label: 'Active' },
+  pending: { icon: 'schedule', color: '#94a3b8', label: 'Pending' },
+  blocked: { icon: 'block', color: '#f59e0b', label: 'Blocked' },
+};
+
+interface EpicCardProps {
+  epic: Epic;
+  onCriticalPath?: boolean;
+  warRoomStatus?: string;
+}
+
+export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCardProps) {
   const { selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen } = usePlanContext();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: epic.epic_ref,
@@ -41,6 +59,7 @@ export default function EpicCard({ epic }: { epic: Epic }) {
   const isSelected = selectedEpicRef === epic.epic_ref;
   const stateColor = stateColors[epic.lifecycle_state || 'pending'] || stateColors.pending;
   const roleColor = roleColors[epic.role || ''] || '#6366f1';
+  const wrStatus = warRoomStatus ? warRoomStatusIcons[warRoomStatus] : null;
 
   const handleClick = () => {
     setSelectedEpicRef(epic.epic_ref);
@@ -81,11 +100,33 @@ export default function EpicCard({ epic }: { epic: Epic }) {
         <span className="material-symbols-outlined text-xs text-text-faint" aria-hidden="true">drag_indicator</span>
       </div>
 
+      {/* Critical Path Badge */}
+      {onCriticalPath && (
+        <div className="absolute -top-1.5 -right-1.5 z-10">
+          <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 shadow-sm" title="On Critical Path">
+            <span className="material-symbols-outlined text-[10px] text-amber-500">local_fire_department</span>
+            <span className="text-[7px] font-extrabold text-amber-600 uppercase tracking-wider">Critical</span>
+          </div>
+        </div>
+      )}
+
       {/* Ref & State Badge */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[9px] font-bold text-text-faint tracking-wider uppercase">
-          {epic.epic_ref}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] font-bold text-text-faint tracking-wider uppercase">
+            {epic.epic_ref}
+          </span>
+          {/* War Room Status indicator */}
+          {wrStatus && (
+            <span 
+              className="material-symbols-outlined text-[12px]" 
+              style={{ color: wrStatus.color }}
+              title={`Room: ${wrStatus.label}`}
+            >
+              {wrStatus.icon}
+            </span>
+          )}
+        </div>
         <div 
           className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase"
           style={{ background: `${stateColor}15`, color: stateColor }}
@@ -114,7 +155,7 @@ export default function EpicCard({ epic }: { epic: Epic }) {
         </div>
       </div>
 
-      {/* Footer: Role & Status */}
+      {/* Footer: Role, Room & Tasks */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 min-w-0">
           <div 
@@ -127,10 +168,18 @@ export default function EpicCard({ epic }: { epic: Epic }) {
           <span className="text-[10px] font-medium text-text-muted truncate">{epic.role || 'Unassigned'}</span>
         </div>
         
-        {/* Task Count indicator */}
-        <div className="flex items-center gap-0.5 text-text-faint ml-2 shrink-0">
-          <span className="material-symbols-outlined text-[12px]">checklist</span>
-          <span className="text-[10px] font-bold">{completedTasks}/{totalTasks}</span>
+        <div className="flex items-center gap-2 ml-2 shrink-0">
+          {/* Room ID */}
+          {epic.room_id && (
+            <span className="text-[9px] font-mono text-text-faint bg-surface-hover px-1 py-0.5 rounded" title={`War Room: ${epic.room_id}`}>
+              #{epic.room_id}
+            </span>
+          )}
+          {/* Task Count indicator */}
+          <div className="flex items-center gap-0.5 text-text-faint">
+            <span className="material-symbols-outlined text-[12px]">checklist</span>
+            <span className="text-[10px] font-bold">{completedTasks}/{totalTasks}</span>
+          </div>
         </div>
       </div>
     </div>

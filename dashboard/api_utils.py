@@ -678,6 +678,12 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
                     wd = PROJECT_ROOT / wd
                 return wd / ".war-rooms"
 
+    # Special check for sample plan ID (found in fe/war-room-sample artifacts)
+    if plan_id == "5a98dce64208" or plan_id == "sample":
+        sample_dir = DEMO_DIR / "fe" / "war-room-sample"
+        if sample_dir.exists():
+            return sample_dir
+
     # Fallback: global war-rooms directory
     return WARROOMS_DIR
 

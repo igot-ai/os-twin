@@ -12,9 +12,11 @@ interface KanbanColumnProps {
   epics: Epic[];
   isOver?: boolean;
   isInvalid?: boolean;
+  criticalPathSet?: Set<string>;
+  warRoomStatusMap?: Map<string, string>;
 }
 
-export default function KanbanColumn({ state, label, epics, isOver, isInvalid }: KanbanColumnProps) {
+export default function KanbanColumn({ state, label, epics, isOver, isInvalid, criticalPathSet, warRoomStatusMap }: KanbanColumnProps) {
   const color = stateColors[state] || stateColors.pending;
   const { setNodeRef } = useDroppable({
     id: state,
@@ -54,7 +56,12 @@ export default function KanbanColumn({ state, label, epics, isOver, isInvalid }:
       >
         {epics.length > 0 ? (
           epics.map((epic) => (
-            <EpicCard key={epic.epic_ref} epic={epic} />
+            <EpicCard 
+              key={epic.epic_ref} 
+              epic={epic}
+              onCriticalPath={criticalPathSet?.has(epic.epic_ref)}
+              warRoomStatus={warRoomStatusMap?.get(epic.epic_ref)}
+            />
           ))
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center opacity-30 select-none">
