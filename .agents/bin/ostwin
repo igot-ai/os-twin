@@ -383,6 +383,8 @@ case "${1:-}" in
       fi
     fi
 
+    # Note: code indexing is handled by Start-Plan.ps1 pre-flight
+
     ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "${RUN_ARGS[@]}"
     ;;
   resume)
@@ -784,7 +786,7 @@ PYEOF
     done
     echo "Done."
     ;;
-  config)
+  config)  
     shift
     exec "$AGENTS_DIR/config.sh" "$@"
     ;;

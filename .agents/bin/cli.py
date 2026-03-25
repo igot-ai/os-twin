@@ -734,6 +734,17 @@ async def run_textual_cli_async(
                 checkpointer=checkpointer,
                 mcp_server_info=mcp_server_info,
             )
+
+            # Wrap backend with code-indexing policy hook
+            try:
+                from code_index_hook import IndexingBackendWrapper
+
+                composite_backend = IndexingBackendWrapper(composite_backend)
+                logger.debug("Code index hook attached to backend")
+            except Exception:
+                logger.debug(
+                    "Code index hook not available, skipping", exc_info=True
+                )
         except Exception as e:  # broad catch for friendly CLI errors
             logger.debug("Failed to create agent", exc_info=True)
             error_text = Text("Failed to create agent: ", style="red")

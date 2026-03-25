@@ -460,6 +460,19 @@ setup_venv() {
     ok "Dashboard dependencies up to date"
   fi
 
+  # Install Memory/indexing requirements (CocoIndex, pgvector, etc.)
+  local memory_reqs="$INSTALL_DIR/memory/requirements.txt"
+  if [[ -f "$memory_reqs" ]]; then
+    step "Syncing memory/indexing dependencies..."
+    if check_uv; then
+      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache \
+        --python "$VENV_DIR/bin/python" -r "$memory_reqs"
+    else
+      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$memory_reqs"
+    fi
+    ok "Memory/indexing dependencies up to date"
+  fi
+
   # Install role-specific requirements (e.g. roles/reporter/requirements.txt)
   local roles_dir="$INSTALL_DIR/roles"
   if [[ -d "$roles_dir" ]]; then
