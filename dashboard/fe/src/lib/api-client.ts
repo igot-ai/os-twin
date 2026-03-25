@@ -54,11 +54,17 @@ async function request<T>(
 
   // Unwrap backend responses that wrap arrays in named keys.
   // e.g. { plans: [...], count: N } → [...] so SWR hooks get Plan[] directly.
+  // Skip unwrap for detail endpoints (e.g. { plan: {}, epics: [] }).
   if (json && typeof json === 'object' && !Array.isArray(json)) {
     const UNWRAP_KEYS = ['plans', 'epics', 'roles', 'skills', 'notifications', 'versions', 'goals', 'results'];
-    for (const key of UNWRAP_KEYS) {
-      if (Array.isArray(json[key])) {
-        return json[key] as T;
+    const DETAIL_KEYS = ['plan', 'epic', 'role', 'skill', 'version'];
+    const jsonKeys = Object.keys(json);
+    const hasDetailKey = jsonKeys.some(k => DETAIL_KEYS.includes(k) && json[k] && typeof json[k] === 'object' && !Array.isArray(json[k]));
+    if (!hasDetailKey) {
+      for (const key of UNWRAP_KEYS) {
+        if (Array.isArray(json[key])) {
+          return json[key] as T;
+        }
       }
     }
   }

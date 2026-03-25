@@ -268,3 +268,28 @@ async def save_env(request: dict, user: dict = Depends(get_current_user)):
     content = _serialize_env(entries)
     _ENV_FILE.write_text(content)
     return {"status": "saved", "path": str(_ENV_FILE)}
+
+
+@router.get("/fs/browse")
+async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_current_user)):
+    if not path:
+        path = str(Path.home())
+    target = Path(path).expanduser().resolve()
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=400, detail="Not a valid directory")
+    dirs = []
+    try:
+        for entry in sorted(target.iterdir()):
+            if entry.name.startswith('.'):
+                continue
+            if entry.is_dir():
+                has_children = False
+                try:
+                    has_children = any(c.is_dir() and not c.name.startswith('.') for c in entry.iterdir())
+                except PermissionError:
+                    pass
+                dirs.append({"name": entry.name, "path": str(entry), "has_children": has_children})
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    parent = str(target.parent) if target != target.parent else None
+    return {"current": str(target), "parent": parent, "dirs": dirs}

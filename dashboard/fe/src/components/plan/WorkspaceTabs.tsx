@@ -9,9 +9,13 @@ const RolesTab = lazy(() => import('./placeholder/RolesTab'));
 const SkillsTab = lazy(() => import('./placeholder/SkillsTab'));
 const DAGTab = lazy(() => import('./placeholder/DAGTab'));
 const SettingsTab = lazy(() => import('./placeholder/SettingsTab'));
+const PlanEditorTab = lazy(() => import('./PlanEditorTab'));
+const PlanPreviewTab = lazy(() => import('./PlanPreviewTab'));
+const PlanSettingsTab = lazy(() => import('./PlanSettingsTab'));
+const PlanHistoryTab = lazy(() => import('./PlanHistoryTab'));
 
 export default function WorkspaceTabs() {
-  const { activeTab } = usePlanContext();
+  const { activeTab, planId, planContent, setPlanContent } = usePlanContext();
 
   const renderContent = () => {
     switch (activeTab) {
@@ -25,6 +29,14 @@ export default function WorkspaceTabs() {
         return <DAGTab />;
       case 'settings':
         return <SettingsTab />;
+      case 'editor':
+        return <PlanEditorTab content={planContent} onChange={setPlanContent} />;
+      case 'preview':
+        return <PlanPreviewTab content={planContent} />;
+      case 'plan-settings':
+        return <PlanSettingsTab planId={planId} />;
+      case 'history':
+        return <PlanHistoryTab planId={planId} />;
       default:
         return <KanbanBoard />;
     }
