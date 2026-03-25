@@ -20,6 +20,26 @@ export function useRoles() {
   };
 }
 
+export function useModelRegistry() {
+  const { data, error, isLoading } = useSWR<Record<string, { id: string; context_window: string; tier: string }[]>>('/models/registry');
+
+  return {
+    registry: data,
+    isLoading,
+    isError: error,
+  };
+}
+
+export function useRoleDependencies(id: string) {
+  const { data, error, isLoading } = useSWR<{ active_warrooms: any[]; inactive_warrooms: any[]; plans: string[] }>(id ? `/roles/${id}/dependencies` : null);
+
+  return {
+    dependencies: data,
+    isLoading,
+    isError: error,
+  };
+}
+
 export function useRole(id: string) {
   const { data, error, mutate, isLoading } = useSWR<Role>(id ? `/roles/${id}` : null);
 

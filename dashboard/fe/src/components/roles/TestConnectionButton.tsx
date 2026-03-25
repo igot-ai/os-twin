@@ -3,29 +3,32 @@
 import { useState } from 'react';
 
 interface TestConnectionButtonProps {
-  roleId: string;
+  version: string;
 }
 
-export default function TestConnectionButton({ roleId }: TestConnectionButtonProps) {
+export default function TestConnectionButton({ version }: TestConnectionButtonProps) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; latency_ms: number } | null>(null);
+  const [result, setResult] = useState<{ status: string; latency_ms: number } | null>(null);
 
   const handleTest = async () => {
+    if (!version) return;
     setLoading(true);
     setResult(null);
     try {
-      const response = await fetch(`/api/roles/${roleId}/test`, {
+      const response = await fetch(`/api/models/${encodeURIComponent(version)}/test`, {
         method: 'POST',
       });
       const data = await response.json();
       setResult(data);
     } catch (error) {
       console.error('Test connection failed:', error);
-      setResult({ ok: false, latency_ms: 0 });
+      setResult({ status: 'fail', latency_ms: 0 });
     } finally {
       setLoading(false);
     }
   };
+
+  const isOk = result?.status === 'ok';
 
   return (
     <div className="flex items-center gap-3">
@@ -47,14 +50,14 @@ export default function TestConnectionButton({ roleId }: TestConnectionButtonPro
         {loading ? 'Testing...' : 'Test Connection'}
       </button>
 
-      {result && result.ok && (
+      {result && isOk && (
         <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 fade-in">
           <span className="material-symbols-outlined text-base">check_circle</span>
           ✓ OK — {result.latency_ms}ms
         </div>
       )}
 
-      {result && !result.ok && (
+      {result && !isOk && (
         <div className="flex items-center gap-1.5 text-[11px] font-bold text-red-600 fade-in">
           <span className="material-symbols-outlined text-base">error</span>
           Connection Failed

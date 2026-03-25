@@ -31,6 +31,8 @@ const stateMapping = [
   { state: 'failed-final', label: 'Failed' },
 ];
 
+type ViewMode = 'LIFECYCLE' | 'TIMELINE';
+
 // Valid transitions: roughly linear, but allow backtracking to engineering/fixing
 const validTransitions: Record<string, string[]> = {
   pending: ['engineering'],
@@ -47,8 +49,9 @@ export default function KanbanBoard() {
   const { epics, isLoading, updateEpicState, planId } = usePlanContext();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overState, setOverState] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('LIFECYCLE');
 
-  // Fetch DAG and progress for enrichment
+  // Fetch DAG and progress for column grouping & status overlay
   const { dag } = useDAG(planId);
   const { progress } = useWarRoomProgress(planId);
 
@@ -79,12 +82,41 @@ export default function KanbanBoard() {
     if (!epics) return {} as Record<string, Epic[]>;
     
     return epics.reduce((acc, epic) => {
-      const state = epic.lifecycle_state || 'pending';
+      let state = epic.lifecycle_state || 'pending';
+      
+      // Override with progress status if viewing lifecycle and it exists
+      if (viewMode === 'LIFECYCLE' && warRoomStatusMap.has(epic.epic_ref)) {
+        state = warRoomStatusMap.get(epic.epic_ref)!;
+      }
+
+      // If viewing timeline, group by wave
+      if (viewMode === 'TIMELINE' && dag?.waves) {
+        const wave = Object.entries(dag.waves).find(([_, refs]) => refs.includes(epic.epic_ref))?.[0];
+        state = wave ? `wave-${wave}` : 'unknown';
+      }
+
       if (!acc[state]) acc[state] = [];
       acc[state].push(epic);
       return acc;
     }, {} as Record<string, Epic[]>);
-  }, [epics]);
+  }, [epics, viewMode, warRoomStatusMap, dag]);
+
+  const columns = useMemo(() => {
+    if (viewMode === 'LIFECYCLE') {
+      return stateMapping;
+    }
+
+    if (dag?.waves) {
+      return Object.keys(dag.waves)
+        .sort((a, b) => parseInt(a) - parseInt(b))
+        .map(wave => ({
+          state: `wave-${wave}`,
+          label: `WAVE ${wave}`,
+        }));
+    }
+
+    return [{ state: 'unknown', label: 'Loading Waves...' }];
+  }, [viewMode, dag]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
@@ -140,20 +172,20 @@ export default function KanbanBoard() {
 
   const activeEpic = activeId ? epics?.find(e => e.epic_ref === activeId) : null;
 
-  // Count summary stats
-  const passedCount = epics?.filter(e => (e.lifecycle_state || 'pending') === 'passed' || (e.lifecycle_state || 'pending') === 'signoff').length || 0;
-  const failedCount = epics?.filter(e => (e.lifecycle_state || 'pending') === 'failed-final').length || 0;
-  const activeCount = epics?.filter(e => !['pending', 'passed', 'signoff', 'failed-final'].includes(e.lifecycle_state || 'pending')).length || 0;
+  // Count summary stats — use progress data if available, else count from epics
+  const passedCount = progress?.passed ?? epics?.filter(e => (e.lifecycle_state || 'pending') === 'passed' || (e.lifecycle_state || 'pending') === 'signoff').length ?? 0;
+  const failedCount = progress?.failed ?? epics?.filter(e => (e.lifecycle_state || 'pending') === 'failed-final').length ?? 0;
+  const activeCount = progress?.active ?? epics?.filter(e => !['pending', 'passed', 'signoff', 'failed-final'].includes(e.lifecycle_state || 'pending')).length ?? 0;
 
   return (
     <div className="h-full flex flex-col p-6 overflow-hidden">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-extrabold text-text-main">
-            EPIC Lifecycle
+            {viewMode === 'LIFECYCLE' ? 'EPIC Lifecycle' : 'EPIC Timeline'}
           </h2>
           <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-surface border border-border text-text-muted shadow-sm">
-            {epics?.length || 0} TOTAL
+            {progress?.total ?? epics?.length ?? 0} TOTAL
           </span>
           {/* Status summary chips */}
           {passedCount > 0 && (
@@ -173,7 +205,26 @@ export default function KanbanBoard() {
           )}
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <div className="flex p-1 rounded-lg bg-surface border border-border">
+            <button
+              onClick={() => setViewMode('LIFECYCLE')}
+              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+                viewMode === 'LIFECYCLE' ? 'bg-primary text-white shadow-sm' : 'text-text-faint hover:text-text-main'
+              }`}
+            >
+              EXECUTION
+            </button>
+            <button
+              onClick={() => setViewMode('TIMELINE')}
+              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+                viewMode === 'TIMELINE' ? 'bg-primary text-white shadow-sm' : 'text-text-faint hover:text-text-main'
+              }`}
+            >
+              TIMELINE (WAVES)
+            </button>
+          </div>
+          <div className="h-4 w-[1px] bg-border mx-1" />
           {/* Progress from progress.json */}
           {progress && (
             <span className="text-[10px] font-bold text-text-muted bg-surface-hover px-2 py-1 rounded-md border border-border">
@@ -199,7 +250,7 @@ export default function KanbanBoard() {
         onDragEnd={handleDragEnd}
       >
         <div className="flex-1 flex gap-6 overflow-x-auto custom-scrollbar pb-6 min-h-0 select-none">
-          {stateMapping.map((item) => {
+          {columns.map((item) => {
             return (
               <KanbanColumn 
                 key={item.state} 

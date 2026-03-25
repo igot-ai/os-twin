@@ -15,6 +15,15 @@ export const stateColors: Record<string, string> = {
   passed: '#10b981',
   signoff: '#10b981',
   'failed-final': '#ef4444',
+  'wave-0': '#64748b',
+  'wave-1': '#3b82f6',
+  'wave-2': '#10b981',
+  'wave-3': '#f59e0b',
+  'wave-4': '#8b5cf6',
+  'wave-5': '#ec4899',
+  'wave-6': '#ef4444',
+  'wave-7': '#06b6d4',
+  'wave-8': '#14b8a6',
 };
 
 const roleColors: Record<string, string> = {
@@ -57,7 +66,13 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
   } : undefined;
   
   const isSelected = selectedEpicRef === epic.epic_ref;
-  const stateColor = stateColors[epic.lifecycle_state || 'pending'] || stateColors.pending;
+  
+  // Determine state color, prioritizing the current room status if available
+  const activeState = warRoomStatus || epic.lifecycle_state || 'pending';
+  const stateColor = stateColors[activeState] || 
+                     (activeState.startsWith('wave-') ? stateColors[activeState] : stateColors.pending) || 
+                     stateColors.pending;
+
   const roleColor = roleColors[epic.role || ''] || '#6366f1';
   const wrStatus = warRoomStatus ? warRoomStatusIcons[warRoomStatus] : null;
 

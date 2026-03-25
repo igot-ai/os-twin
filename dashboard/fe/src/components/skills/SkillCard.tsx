@@ -56,11 +56,17 @@ export const SkillCard: React.FC<SkillCardProps> = ({
           <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: '#f1f5f9', color: 'var(--color-text-faint)' }}>
             v{skill.version}
           </span>
+          {skill.trust_level === 'verified' && (
+            <span className="material-symbols-outlined text-[14px] text-blue-500" title="Verified Skill">verified</span>
+          )}
+          {skill.trust_level === 'core' && (
+            <span className="material-symbols-outlined text-[14px] text-purple-500" title="Core Skill">shield</span>
+          )}
         </div>
         <button 
           onClick={(e) => {
             e.stopPropagation();
-            onToggleAttach?.(skill.id);
+            onToggleAttach?.(skill.id ?? skill.name);
           }}
           className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold transition-all ${
             isAttached 
@@ -97,6 +103,17 @@ export const SkillCard: React.FC<SkillCardProps> = ({
           ))}
         </div>
         <div className="flex items-center gap-1 text-[10px] font-medium" style={{ color: 'var(--color-text-faint)' }}>
+          {skill.score && (
+            <span className="mr-2 px-1 rounded bg-yellow-50 text-yellow-700 border border-yellow-200" title="Relevance Score">
+              {Math.round(skill.score * 100)}%
+            </span>
+          )}
+          {skill.author && (
+             <span className="mr-2 flex items-center gap-0.5" title="Author">
+               <span className="material-symbols-outlined text-[10px]">person</span>
+               {skill.author}
+             </span>
+          )}
           <span className="material-symbols-outlined text-xs">analytics</span>
           {skill.usage_count}
         </div>

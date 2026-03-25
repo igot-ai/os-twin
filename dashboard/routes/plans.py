@@ -844,8 +844,10 @@ async def update_plan_role_config(plan_id: str, role_name: str, request: UpdateP
         config = json.loads(config_file.read_text()) if config_file.exists() else {}
     if role_name not in config: config[role_name] = {}
     if request.default_model is not None: config[role_name]["default_model"] = request.default_model
+    if request.temperature is not None: config[role_name]["temperature"] = request.temperature
     if request.timeout_seconds is not None: config[role_name]["timeout_seconds"] = request.timeout_seconds
     if request.cli is not None: config[role_name]["cli"] = request.cli
+    if request.skill_refs is not None: config[role_name]["skill_refs"] = request.skill_refs
     plan_roles_file.write_text(json.dumps(config, indent=2) + "\n")
     return {"status": "updated", "plan_id": plan_id, "role": role_name, "config": config[role_name]}
 
@@ -1074,6 +1076,33 @@ def _resolve_room_dir(plan_id: str, task_ref: str) -> Optional[Path]:
             except (json.JSONDecodeError, OSError): pass
     return None
 
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/tasks")
+async def get_epic_tasks(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    """Parse TASKS.md from the war-room and return structured task list."""
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir:
+        return {"tasks": [], "raw": ""}
+    tasks_file = room_dir / "TASKS.md"
+    if not tasks_file.exists():
+        return {"tasks": [], "raw": ""}
+    raw = tasks_file.read_text()
+    tasks = []
+    current_task = None
+    for line in raw.splitlines():
+        line_stripped = line.strip()
+        # Match: - [x] TASK-001 — Description  or  - [ ] TASK-002 — Description
+        if line_stripped.startswith("- ["):
+            completed = line_stripped.startswith("- [x]") or line_stripped.startswith("- [X]")
+            rest = line_stripped[6:].strip()  # after "- [x] " or "- [ ] "
+            parts = rest.split(" — ", 1) if " — " in rest else rest.split(" - ", 1)
+            task_id = parts[0].strip() if len(parts) > 1 else rest
+            description = parts[1].strip() if len(parts) > 1 else ""
+            current_task = {"task_id": task_id, "description": description, "completed": completed, "acceptance_criteria": []}
+            tasks.append(current_task)
+        elif line_stripped.startswith("- AC:") and current_task:
+            current_task["acceptance_criteria"].append(line_stripped[5:].strip())
+    return {"tasks": tasks, "count": len(tasks), "raw": raw}
+
 @router.get("/api/plans/{plan_id}/epics/{task_ref}/lifecycle")
 async def get_epic_lifecycle(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
     room_dir = _resolve_room_dir(plan_id, task_ref)
@@ -1150,5 +1179,82 @@ async def get_epic_config(plan_id: str, task_ref: str, user: dict = Depends(get_
     if not cfg_file.exists(): return {"error": "config.json missing"}
     try: return json.loads(cfg_file.read_text())
     except: return {"error": "JSON parse error"}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/roles")
+async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    """Get roles list for a specific Epic, including overrides from war-room config."""
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
+    
+    plan_config = get_plan_roles_config(plan_id)
+    room_config_file = room_dir / "config.json"
+    room_overrides = {}
+    if room_config_file.exists():
+        try:
+            rc = json.loads(room_config_file.read_text())
+            room_overrides = rc.get("roles", {})
+        except json.JSONDecodeError: pass
+        
+    merged_config = plan_config.copy()
+    for role_name, role_overrides in room_overrides.items():
+        if role_name not in merged_config:
+             merged_config[role_name] = {}
+        # Deep update if we have nested dicts? Currently roles are flat configs.
+        merged_config[role_name].update(role_overrides)
+        
+    roles = build_roles_list(merged_config, include_skills=True)
+    return {
+        "roles": roles,
+        "plan_config": plan_config,
+        "room_overrides": room_overrides
+    }
+
+@router.put("/api/plans/{plan_id}/epics/{task_ref}/roles/{role_name}/config")
+async def update_epic_role_config(
+    plan_id: str, 
+    task_ref: str, 
+    role_name: str, 
+    request: UpdatePlanRoleConfigRequest, 
+    user: dict = Depends(get_current_user)
+):
+    """Update role configuration for a specific Epic (saved in war-room config.json)."""
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
+    
+    room_config_file = room_dir / "config.json"
+    if not room_config_file.exists():
+         raise HTTPException(status_code=404, detail="config.json missing")
+         
+    try:
+        rc = json.loads(room_config_file.read_text())
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Invalid config.json")
+        
+    if "roles" not in rc: rc["roles"] = {}
+    if role_name not in rc["roles"]: rc["roles"][role_name] = {}
+    
+    if request.default_model is not None: rc["roles"][role_name]["default_model"] = request.default_model
+    if request.temperature is not None: rc["roles"][role_name]["temperature"] = request.temperature
+    if request.timeout_seconds is not None: rc["roles"][role_name]["timeout_seconds"] = request.timeout_seconds
+    if request.cli is not None: rc["roles"][role_name]["cli"] = request.cli
+    if request.skill_refs is not None: rc["roles"][role_name]["skill_refs"] = request.skill_refs
+    
+    room_config_file.write_text(json.dumps(rc, indent=2) + "\n")
+    return {"status": "updated", "task_ref": task_ref, "role": role_name, "config": rc["roles"][role_name]}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/roles/{role_name}/preview")
+async def preview_epic_role_prompt(
+    plan_id: str, 
+    task_ref: str, 
+    role_name: str, 
+    user: dict = Depends(get_current_user)
+):
+    """Generate and return the final system prompt preview for a role in an Epic."""
+    from dashboard.epic_manager import EpicSkillsManager
+    try:
+        prompt = EpicSkillsManager.generate_system_prompt(plan_id, task_ref, role_name)
+        return {"role": role_name, "prompt": prompt}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate prompt: {e}")
 
 

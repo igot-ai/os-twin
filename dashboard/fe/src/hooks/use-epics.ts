@@ -108,6 +108,29 @@ export function useEpic(planId: string, ref: string) {
   };
 }
 
+export function useEpicRoles(planId: string, ref: string) {
+  const { data, error, mutate, isLoading } = useSWR<{
+    roles: any[];
+    plan_config: Record<string, any>;
+    room_overrides: Record<string, any>;
+  }>(planId && ref ? `/plans/${planId}/epics/${ref}/roles` : null);
+
+  const updateRoleConfig = async (roleName: string, updates: any) => {
+    await apiPut(`/plans/${planId}/epics/${ref}/roles/${roleName}/config`, updates);
+    mutate();
+  };
+
+  return {
+    roles: data?.roles || [],
+    planConfig: data?.plan_config || {},
+    roomOverrides: data?.room_overrides || {},
+    isLoading,
+    isError: error,
+    updateRoleConfig,
+    refresh: mutate,
+  };
+}
+
 export function useDAG(planId: string) {
   const { data, error, mutate, isLoading } = useSWR<DAG>(
     planId ? `/plans/${planId}/dag` : null

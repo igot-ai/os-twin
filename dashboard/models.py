@@ -70,8 +70,10 @@ class RefineRequest(BaseModel):
 
 class UpdatePlanRoleConfigRequest(BaseModel):
     default_model: str | None = None
+    temperature: float | None = None
     timeout_seconds: int | None = None
     cli: str | None = None
+    skill_refs: List[str] | None = None
 
 
 class StrategyParameter(BaseModel):
@@ -98,6 +100,7 @@ class Skill(BaseModel):
     source: str = "project"
     version: str = "0.1.0"
     category: Optional[str] = None
+    score: Optional[float] = None
     applicable_roles: List[str] = Field(default_factory=list)
     content: str = ""
     path: Optional[str] = None
@@ -128,7 +131,7 @@ class Role(BaseModel):
 
 class CreateRoleRequest(BaseModel):
     name: str = Field(
-        ..., min_length=1, max_length=40, pattern="^[a-zA-Z0-9-]+$"
+        ..., min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9 \-_]+$"
     )
     provider: str
     version: str

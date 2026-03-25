@@ -53,7 +53,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
             </div>
           </div>
           <Button
-            onClick={() => onToggleAttach?.(skill.id)}
+            onClick={() => onToggleAttach?.(skill.id ?? skill.name)}
             variant={isAttached ? 'outline' : 'primary'}
             className="flex items-center gap-2"
           >

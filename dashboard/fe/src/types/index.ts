@@ -143,18 +143,23 @@ export interface Role {
 }
 
 export interface Skill {
-  id: string;
+  id?: string;
   name: string;
   version: string;
   description: string;
   category: SkillCategory;
+  tags?: string[];
+  trust_level?: 'experimental' | 'verified' | 'core';
+  source?: 'project' | 'user' | 'local';
   applicable_roles: string[];
   usage_count: number;
   instruction_template?: string;
+  content?: string;
   is_draft?: boolean;
   author?: string;
   updated_at?: string;
   forked_from?: string;
+  score?: number;
 }
 
 export type SkillCategory =

@@ -2,9 +2,13 @@ import useSWR from 'swr';
 import { Skill } from '@/types';
 import { apiPost, apiPut, apiDelete } from '@/lib/api-client';
 
-export function useSkills(category?: string, role?: string) {
+export function useSkills(category?: string, role?: string, query?: string) {
   let url = '/skills';
+  if (query) {
+    url = '/skills/search';
+  }
   const params = new URLSearchParams();
+  if (query) params.append('q', query);
   if (category) params.append('category', category);
   if (role) params.append('role', role);
   if (params.toString()) url += `?${params.toString()}`;
@@ -13,8 +17,14 @@ export function useSkills(category?: string, role?: string) {
 
   const createSkill = async (skill: Partial<Skill>) => {
     const newSkill = await apiPost<Skill>('/skills', skill);
-    mutate((skills) => (skills ? [...skills, newSkill] : [newSkill]), false);
+    mutate();
     return newSkill;
+  };
+
+  const syncWithDisk = async () => {
+    const result = await apiPost<{synced_count: number}>('/skills/sync', {});
+    mutate();
+    return result;
   };
 
   return {
@@ -22,8 +32,17 @@ export function useSkills(category?: string, role?: string) {
     isLoading,
     isError: error,
     createSkill,
+    syncWithDisk,
     refresh: mutate,
   };
+}
+
+export function useSkillValidation() {
+  const validateSkill = async (content: string) => {
+    return await apiPost<{valid: boolean, errors: string[], warnings: string[], markers: any[]}>('/skills/validate', { content });
+  };
+
+  return { validateSkill };
 }
 
 export function useSkill(id: string) {

@@ -4,6 +4,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import useSWR from 'swr';
 import { usePlanContext } from './PlanWorkspace';
 import { DAG, DAGNodeRaw } from '@/types';
+import { useWarRoomProgress } from '@/hooks/use-war-room';
 import StateNode from './StateNode';
 import DAGEdge from './DAGEdge';
 
@@ -27,16 +28,50 @@ function sortedWaveKeys(waves: Record<string, string[]>): string[] {
   return Object.keys(waves).sort((a, b) => Number(a) - Number(b));
 }
 
+/** Get first letter of role for the badge, e.g. "engineer" → "E", "architect" → "A" */
+function roleInitial(role: string): string {
+  if (!role) return '?';
+  return role.charAt(0).toUpperCase();
+}
+
+/** Role → color mapping for DAG badges */
+const roleColorMap: Record<string, string> = {
+  architect: '#8b5cf6',
+  manager: '#64748b',
+  engineer: '#3b82f6',
+  'frontend-engineer': '#3b82f6',
+  'frontend-ui-engineer': '#ec4899',
+  'frontend-dag-engineer': '#06b6d4',
+  'frontend-realtime-engineer': '#f59e0b',
+  'frontend-interaction-engineer': '#10b981',
+  'frontend-accessibility-engineer': '#ef4444',
+  'build-integration-engineer': '#14b8a6',
+  qa: '#10b981',
+};
+
+function getRoleColor(role: string): string {
+  return roleColorMap[role] || '#6366f1';
+}
+
 /**
  * Derive positioned nodes + edges from the raw DAG API response.
  * Layout: each wave is a column; nodes within a wave are stacked vertically.
  */
-function layoutDAG(dag: DAG) {
+function layoutDAG(dag: DAG, statusMap: Map<string, string>) {
   const waves = sortedWaveKeys(dag.waves);
   const criticalSet = new Set(dag.critical_path ?? []);
 
   // Position nodes by wave
-  const positioned: { id: string; label: string; status: string; x: number; y: number }[] = [];
+  const positioned: {
+    id: string;
+    label: string;
+    status: string;
+    role: string;
+    roleInitial: string;
+    roleColor: string;
+    x: number;
+    y: number;
+  }[] = [];
   const nodePositions: Record<string, { x: number; y: number }> = {};
 
   for (let col = 0; col < waves.length; col++) {
@@ -51,11 +86,18 @@ function layoutDAG(dag: DAG) {
     for (let row = 0; row < waveNodes.length; row++) {
       const nodeId = waveNodes[row];
       const y = startY + row * (NODE_H + GAP_Y);
+      const dagNode = dag.nodes[nodeId];
+      const role = dagNode?.role || 'unknown';
+      const status = statusMap.get(nodeId) || 'pending';
+
       nodePositions[nodeId] = { x, y };
       positioned.push({
         id: nodeId,
         label: nodeId,
-        status: dag.nodes[nodeId]?.role === 'architect' ? 'pending' : 'pending',
+        status,
+        role,
+        roleInitial: roleInitial(role),
+        roleColor: getRoleColor(role),
         x,
         y,
       });
@@ -89,16 +131,28 @@ function layoutDAG(dag: DAG) {
 export default function DAGViewer() {
   const { planId } = usePlanContext();
   const { data: dag, error, isLoading } = useSWR<DAG>(planId ? `/plans/${planId}/dag` : null);
+  const { progress } = useWarRoomProgress(planId);
 
   const [scale, setScale] = useState(1);
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [showCriticalOnly, setShowCriticalOnly] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Build status lookup from progress.json
+  const statusMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (progress?.rooms) {
+      for (const room of progress.rooms) {
+        map.set(room.task_ref, room.status);
+      }
+    }
+    return map;
+  }, [progress]);
+
   const layout = useMemo(() => {
     if (!dag || !dag.nodes || !dag.waves) return null;
-    return layoutDAG(dag);
-  }, [dag]);
+    return layoutDAG(dag, statusMap);
+  }, [dag, statusMap]);
 
   const handleZoom = (delta: number) => {
     setScale(prev => Math.min(Math.max(prev + delta, 0.3), 2.5));
@@ -188,6 +242,11 @@ export default function DAGViewer() {
         <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-primary/10 border border-primary/20 text-primary backdrop-blur-sm">
           🔥 {dag.critical_path_length}-step critical
         </span>
+        {progress && (
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 backdrop-blur-sm">
+            {progress.pct_complete}% complete
+          </span>
+        )}
       </div>
 
       {/* ── SVG Canvas ── */}
@@ -235,6 +294,9 @@ export default function DAGViewer() {
                 status={node.status as any}
                 x={node.x}
                 y={node.y}
+                role={node.role}
+                roleInitial={node.roleInitial}
+                roleColor={node.roleColor}
               />
             ))}
           </g>
@@ -245,16 +307,24 @@ export default function DAGViewer() {
       {dag.critical_path && dag.critical_path.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 bg-surface border-t border-border">
           <span className="text-[10px] font-bold text-primary uppercase tracking-wider mr-1">🔥 Critical Path</span>
-          {dag.critical_path.map((id, idx) => (
-            <React.Fragment key={id}>
-              <span className="px-2 py-0.5 text-[11px] font-semibold rounded bg-primary/10 text-primary border border-primary/20">
-                {id}
-              </span>
-              {idx < dag.critical_path.length - 1 && (
-                <span className="text-[10px] text-text-faint">→</span>
-              )}
-            </React.Fragment>
-          ))}
+          {dag.critical_path.map((id, idx) => {
+            const nodeStatus = statusMap.get(id);
+            const statusColor = nodeStatus === 'passed' ? '#10b981' : nodeStatus === 'failed-final' ? '#ef4444' : nodeStatus === 'engineering' ? '#3b82f6' : '#94a3b8';
+            return (
+              <React.Fragment key={id}>
+                <span 
+                  className="px-2 py-0.5 text-[11px] font-semibold rounded border flex items-center gap-1"
+                  style={{ background: `${statusColor}15`, color: statusColor, borderColor: `${statusColor}30` }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor }} />
+                  {id}
+                </span>
+                {idx < dag.critical_path.length - 1 && (
+                  <span className="text-[10px] text-text-faint">→</span>
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
     </div>

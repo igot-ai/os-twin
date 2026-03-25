@@ -1,9 +1,10 @@
 'use client';
 
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { usePlan } from '@/hooks/use-plans';
-import { useEpics } from '@/hooks/use-epics';
+import { useEpics, useDAG } from '@/hooks/use-epics';
+import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { Plan, Epic, EpicStatus } from '@/types';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
@@ -52,12 +53,36 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const planId = (pathSegments?.[0] === 'plans' && pathSegments?.[1]) ? pathSegments[1] : propId;
 
   const { plan, isLoading: planLoading, isError: planError } = usePlan(planId);
-  const { epics, isLoading: epicsLoading, isError: epicsError, updateEpicState } = useEpics(planId);
+  const { epics: apiEpics, isLoading: epicsLoading, isError: epicsError, updateEpicState } = useEpics(planId);
+  const { dag } = useDAG(planId);
+  const { progress } = useWarRoomProgress(planId);
   
   const [selectedEpicRef, setSelectedEpicRef] = useState<string | null>(null);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(true);
   // Initialize tab from URL ?tab= param, then manage via React state (SPA — no reloads)
   const [activeTab, setActiveTab] = useState(getInitialTab);
+
+  // Synthesize epics from progress + DAG when the /epics API returns empty
+  const epics = useMemo(() => {
+    if (apiEpics && apiEpics.length > 0) return apiEpics;
+    if (!progress?.rooms || !dag?.nodes) return apiEpics;
+
+    return progress.rooms.map((room): Epic => {
+      const dagNode = dag.nodes[room.task_ref];
+      return {
+        epic_ref: room.task_ref,
+        plan_id: planId,
+        title: room.task_ref,
+        lifecycle_state: room.status,
+        status: room.status as EpicStatus,
+        role: dagNode?.role || 'unknown',
+        room_id: room.room_id,
+        depends_on: dagNode ? (Array.isArray(dagNode.depends_on) ? dagNode.depends_on : dagNode.depends_on ? [dagNode.depends_on] : []) : [],
+        dependents: dagNode?.dependents || [],
+        tasks: [],
+      };
+    });
+  }, [apiEpics, progress, dag, planId]);
 
   const contextValue: PlanContextType = {
     planId,

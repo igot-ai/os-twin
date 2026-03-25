@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { mutate } from 'swr';
 import { Role } from '@/types';
 import ProviderSelector from './ProviderSelector';
 import SkillChipInput from './SkillChipInput';
 import TestConnectionButton from './TestConnectionButton';
+import { useModelRegistry, useRoleDependencies } from '@/hooks/use-roles';
 
 interface RoleEditorPanelProps {
   role?: Role;
@@ -14,18 +15,14 @@ interface RoleEditorPanelProps {
   existingRoles: Role[];
 }
 
-const modelVersions: Record<string, string[]> = {
-  claude: ['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307', 'claude-sonnet-4-6'],
-  gpt: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-4o-mini'],
-  gemini: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.5-pro'],
-  custom: ['v1-alpha', 'v1-beta', 'v2-stable'],
-};
-
 export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }: RoleEditorPanelProps) {
+  const { registry } = useModelRegistry();
+  const { dependencies } = useRoleDependencies(role?.id || '');
+  const [activeTab, setActiveTab] = useState<'config' | 'dependencies'>('config');
   const [formData, setFormData] = useState<Partial<Role>>({
     name: '',
     provider: 'claude',
-    version: 'claude-sonnet-4-6',
+    version: 'claude-3-5-sonnet-20241022',
     temperature: 0.3,
     budget_tokens_max: 500000,
     max_retries: 3,
@@ -37,6 +34,16 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
+  // Normalize backend registry keys (Claude -> claude)
+  const normalizedRegistry = useMemo(() => {
+    if (!registry) return null;
+    const normalized: Record<string, { id: string; context_window: string; tier: string }[]> = {};
+    Object.entries(registry).forEach(([provider, models]) => {
+      normalized[provider.toLowerCase()] = models;
+    });
+    return normalized;
+  }, [registry]);
+
   useEffect(() => {
     if (role) {
       setFormData(role);
@@ -44,7 +51,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
       setFormData({
         name: '',
         provider: 'claude',
-        version: 'claude-sonnet-4-6',
+        version: normalizedRegistry?.claude?.[0]?.id || 'claude-3-5-sonnet-20241022',
         temperature: 0.3,
         budget_tokens_max: 500000,
         max_retries: 3,
@@ -54,7 +61,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
       });
     }
     setErrors({});
-  }, [role, isOpen]);
+  }, [role, isOpen, normalizedRegistry]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -122,9 +129,31 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
           </button>
         </div>
 
+        {/* Tabs */}
+        {role && (
+          <div className="flex px-6 border-b" style={{ borderColor: 'var(--color-border)' }}>
+            <button 
+              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
+              onClick={() => setActiveTab('config')}
+            >
+              Configuration
+            </button>
+            <button 
+              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'dependencies' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
+              onClick={() => setActiveTab('dependencies')}
+            >
+              Where Used
+              {dependencies && ((dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)) > 0 && (
+                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/10 text-[10px]">{(dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)}</span>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Form Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-24">
-          
+          {activeTab === 'config' ? (
+            <>
           {/* Section: Identity */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
@@ -154,7 +183,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
             
             <ProviderSelector 
               value={formData.provider || 'claude'}
-              onChange={p => setFormData({ ...formData, provider: p, version: modelVersions[p][0] })}
+              onChange={p => setFormData({ ...formData, provider: p, version: normalizedRegistry?.[p]?.[0]?.id || '' })}
             />
 
             <div className="space-y-1.5 mt-4">
@@ -164,13 +193,15 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
                 value={formData.version}
                 onChange={e => setFormData({ ...formData, version: e.target.value })}
               >
-                {modelVersions[formData.provider || 'claude'].map(v => (
-                  <option key={v} value={v}>{v}</option>
+                {normalizedRegistry?.[formData.provider || 'claude']?.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.id} ({m.tier}) — {m.context_window}
+                  </option>
                 ))}
               </select>
             </div>
             
-            {role && <TestConnectionButton roleId={role.id} />}
+            <TestConnectionButton version={formData.version || ''} />
           </div>
 
           {/* Section: Parameters */}
@@ -201,14 +232,25 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Budget Tokens</label>
                 <input 
                   type="number"
                   className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold"
                   value={formData.budget_tokens_max}
-                  onChange={e => setFormData({ ...formData, budget_tokens_max: parseInt(e.target.value) })}
+                  onChange={e => setFormData({ ...formData, budget_tokens_max: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Retries</label>
+                <input 
+                  type="number"
+                  min="1"
+                  max="10"
+                  className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold"
+                  value={formData.max_retries}
+                  onChange={e => setFormData({ ...formData, max_retries: parseInt(e.target.value) || 0 })}
                 />
               </div>
               <div className="space-y-1.5">
@@ -217,7 +259,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
                   type="number"
                   className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold"
                   value={formData.timeout_seconds}
-                  onChange={e => setFormData({ ...formData, timeout_seconds: parseInt(e.target.value) })}
+                  onChange={e => setFormData({ ...formData, timeout_seconds: parseInt(e.target.value) || 0 })}
                 />
               </div>
             </div>
@@ -254,6 +296,49 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               />
             </div>
           </div>
+          </>
+          ) : (
+            <div className="space-y-6">
+              <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Active War-Rooms</h4>
+                {(dependencies?.active_warrooms?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-text-faint italic">No active war-rooms using this role.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {dependencies?.active_warrooms.map(room => (
+                      <div key={room.id} className="flex items-center justify-between p-2 rounded-lg bg-white border shadow-sm">
+                        <span className="text-xs font-bold">{room.id}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 text-[10px] font-bold uppercase">{room.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Associated Plans</h4>
+                {(dependencies?.plans?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-text-faint italic">No plans explicitly referencing this role.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2">
+                    {dependencies?.plans.map(plan => (
+                      <div key={plan} className="flex items-center gap-2 p-2 rounded-lg bg-white border shadow-sm">
+                        <span className="material-symbols-outlined text-base text-primary">description</span>
+                        <span className="text-xs font-bold">{plan}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {(dependencies?.inactive_warrooms?.length ?? 0) > 0 && (
+                <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Historical Usage</h4>
+                  <p className="text-[10px] text-text-muted">Used in {dependencies?.inactive_warrooms?.length} completed war-rooms.</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer Actions */}

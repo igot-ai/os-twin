@@ -678,12 +678,6 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
                     wd = PROJECT_ROOT / wd
                 return wd / ".war-rooms"
 
-    # Special check for sample plan ID (found in fe/war-room-sample artifacts)
-    if plan_id == "5a98dce64208" or plan_id == "sample":
-        sample_dir = DEMO_DIR / "fe" / "war-room-sample"
-        if sample_dir.exists():
-            return sample_dir
-
     # Fallback: global war-rooms directory
     return WARROOMS_DIR
 
@@ -728,6 +722,8 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
             "description": role.get("description", ""),
             "default_model": dm,
             "timeout_seconds": ts,
+            "temperature": role_config.get("temperature", defaults.get("temperature", 0.7)),
+            "skill_refs": role_config.get("skill_refs", []),
             "runner": role.get("runner"),
             "capabilities": role.get("capabilities", []),
             "supported_task_types": role.get("supported_task_types", []),

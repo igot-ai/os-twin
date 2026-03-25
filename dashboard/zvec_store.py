@@ -776,7 +776,12 @@ class OSTwinStore:
                                "version", "category", "applicable_roles", "params",
                                "changelog", "author", "forked_from", "is_draft"],
             )
-            return [self._map_skill_doc(doc) for doc in docs]
+            results = []
+            for doc in docs:
+                skill = self._map_skill_doc(doc)
+                skill["score"] = float(doc.score)
+                results.append(skill)
+            return results
         except Exception as e:
             logger.error("Skill search failed: %s", e)
             return []

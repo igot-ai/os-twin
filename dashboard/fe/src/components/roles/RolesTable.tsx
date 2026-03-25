@@ -3,6 +3,8 @@
 import { useState, useMemo } from 'react';
 import { Role, Skill } from '@/types';
 import { mutate } from 'swr';
+import { useModelRegistry } from '@/hooks/use-roles';
+import TestConnectionButton from './TestConnectionButton';
 
 interface RolesTableProps {
   roles: Role[];
@@ -23,7 +25,17 @@ const providerBranding: Record<string, { color: string; label: string; icon: str
 };
 
 export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: RolesTableProps) {
+  const { registry } = useModelRegistry();
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' });
+
+  const modelMetadata = useMemo(() => {
+    if (!registry) return {};
+    const meta: Record<string, { tier: string; context_window: string }> = {};
+    Object.values(registry).flat().forEach(m => {
+      meta[m.id] = { tier: m.tier, context_window: m.context_window };
+    });
+    return meta;
+  }, [registry]);
 
   const sortedRoles = useMemo(() => {
     return [...roles].sort((a, b) => {
@@ -174,7 +186,18 @@ export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: 
                     <div className="flex items-center gap-2">
                       <span className="text-lg">{pb.icon}</span>
                       <div>
-                        <div className="text-xs font-bold text-slate-700">{role.version}</div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-xs font-bold text-slate-700">{role.version}</div>
+                          {modelMetadata[role.version] && (
+                            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${
+                              modelMetadata[role.version].tier === 'flagship' ? 'bg-indigo-100 text-indigo-600' : 
+                              modelMetadata[role.version].tier === 'fast' ? 'bg-amber-100 text-amber-600' : 
+                              'bg-slate-100 text-slate-500'
+                            }`}>
+                              {modelMetadata[role.version].tier}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">{pb.label}</div>
                       </div>
                     </div>
@@ -224,6 +247,7 @@ export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: 
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <TestConnectionButton version={role.version} />
                       <button 
                         onClick={() => onEdit(role)}
                         className="p-2 hover:bg-primary/10 hover:text-primary rounded-lg transition-all"

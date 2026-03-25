@@ -20,13 +20,17 @@ const categoryColors: Record<SkillCategory, string> = {
 type SortOption = 'name' | 'most-used' | 'recently-updated' | 'category';
 
 export const SkillLibrary: React.FC = () => {
-  const { skills, isLoading, isError } = useSkills();
-  
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<SkillCategory[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('name');
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+  
+  const { skills, isLoading, isError, syncWithDisk } = useSkills(
+    selectedCategories.length === 1 ? selectedCategories[0] : undefined,
+    undefined,
+    debouncedSearch || undefined
+  );
   
   // Local state for "attached" skills (since it's not in backend yet)
   // Using SWR for "local cache" persistence across session if needed
@@ -74,6 +78,9 @@ export const SkillLibrary: React.FC = () => {
         return matchesSearch && matchesCategory;
       })
       .sort((a, b) => {
+        if (debouncedSearch && a.score !== undefined && b.score !== undefined) {
+           return b.score - a.score;
+        }
         switch (sortOption) {
           case 'most-used':
             return b.usage_count - a.usage_count;
@@ -176,7 +183,7 @@ export const SkillLibrary: React.FC = () => {
             <SkillCard
               key={skill.id}
               skill={skill}
-              isAttached={attachedSkillIds?.includes(skill.id)}
+              isAttached={attachedSkillIds?.includes(skill.id ?? skill.name)}
               onToggleAttach={toggleAttach}
               onClick={setSelectedSkill}
             />
@@ -196,7 +203,7 @@ export const SkillLibrary: React.FC = () => {
         isOpen={!!selectedSkill}
         skill={selectedSkill}
         onClose={() => setSelectedSkill(null)}
-        isAttached={selectedSkill ? attachedSkillIds?.includes(selectedSkill.id) : false}
+        isAttached={selectedSkill ? attachedSkillIds?.includes(selectedSkill.id ?? selectedSkill.name) : false}
         onToggleAttach={toggleAttach}
       />
     </div>

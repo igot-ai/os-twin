@@ -37,6 +37,49 @@ async def list_skills(
         if not s.is_draft or s.author == current_username
     ]
 
+@router.post("/api/skills", response_model=Skill)
+async def create_skill(
+    request: SkillCreateRequest,
+    user: dict = Depends(get_current_user)
+):
+    """Create a new skill and save it to disk."""
+    current_username = user.get("username", "unknown")
+    
+    # Check if skill already exists
+    skills = build_skills_list()
+    if any(s.name.lower() == request.name.lower() for s in skills):
+        raise HTTPException(status_code=400, detail=f"Skill '{request.name}' already exists")
+
+    skill_data = request.dict()
+    skill_data["author"] = current_username
+    skill_data["version"] = "0.1.0"
+    skill_data["trust_level"] = "experimental"
+    skill_data["source"] = "project"
+    
+    # Save to disk
+    path = save_skill_md(skill_data)
+    
+    # Re-parse to get full metadata (like updated_at)
+    full_data = parse_skill_md(path)
+    
+    # Index in vector store if available
+    store = global_state.store
+    if store:
+        store.index_skill(**full_data)
+        
+    return Skill(**full_data)
+
+@router.post("/api/skills/sync", response_model=SkillSyncResponse)
+async def sync_skills_endpoint(user: dict = Depends(get_current_user)):
+    """Trigger manual synchronization of skills from disk to vector store."""
+    from dashboard.api_utils import sync_skills_from_disk
+    store = global_state.store
+    if not store:
+        raise HTTPException(status_code=503, detail="Vector store not available")
+    
+    results = sync_skills_from_disk(store, SKILLS_DIRS)
+    return SkillSyncResponse(**results)
+
 @router.get("/api/skills/search", response_model=List[Skill])
 async def search_skills_endpoint(
     q: str = Query(..., description="Semantic search query"),
@@ -46,7 +89,17 @@ async def search_skills_endpoint(
     user: dict = Depends(get_current_user)
 ):
     """Semantic search for skills with role-based post-filtering."""
-    skills = build_skills_list(query=q, role=role, tags=tags, limit=limit, include_drafts=True)
+    store = global_state.store
+    if store:
+        results = store.search_skills(q, limit=limit)
+        skills = []
+        for res in results:
+            # Add score if available in zvec_store.py search_skills (need to check if it returns score)
+            # For now, zvec_store.py search_skills doesn't seem to include score in return dict
+            skills.append(Skill(**res))
+    else:
+        skills = build_skills_list(query=q, role=role, tags=tags, limit=limit, include_drafts=True)
+    
     current_username = user.get("username", "unknown")
     return [
         s for s in skills 
@@ -70,6 +123,89 @@ async def list_skill_roles(user: dict = Depends(get_current_user)):
     roles = build_roles_list({}) # Empty config to get all registry roles
     return [r["name"] for r in roles]
 
+@router.post("/api/skills/validate", response_model=SkillValidateResponse)
+async def validate_skill(request: SkillValidateRequest, user: dict = Depends(get_current_user)):
+    """Validate skill content for proper template syntax and variables."""
+    content = request.content
+    errors = []
+    warnings = []
+    markers = []
+    
+    # 1. Check for malformed brackets
+    # Find all {{ and }} and ensure they are balanced and not nested incorrectly
+    # Simplified check: count {{ and }}
+    open_count = content.count("{{")
+    close_count = content.count("}}")
+    
+    if open_count != close_count:
+        errors.append(f"Imbalanced template brackets: found {open_count} '{{{{' and {close_count} '}}}}'")
+    
+    # Check for nested brackets like {{{ or }}}
+    if "{{{" in content:
+        warnings.append("Possible triple brackets '{{{{{{' found, usually should be double")
+    if "}}}" in content:
+        warnings.append("Possible triple brackets '}}}}}}' found, usually should be double")
+        
+    # Regex to find all {{variable}}
+    # Find things like {{ var }} but also {{var}}, and catch things like {{ var
+    var_regex = re.compile(r"\{\{([^}]*)\}\}")
+    vars_found = var_regex.findall(content)
+    
+    # 2. Check for unknown/suspicious variables
+    allowed_vars = {"task_description", "guidelines", "output_format", "context", "examples", "current_date"}
+    
+    for i, var in enumerate(vars_found):
+        var_name = var.strip()
+        if not var_name:
+            errors.append(f"Empty variable found at index {i}")
+            continue
+            
+        if var_name not in allowed_vars:
+            warnings.append(f"Unknown variable '{{{{{var_name}}}}}'. Ensure it's provided at runtime.")
+            
+    # 3. Check for unclosed brackets
+    # Find index of all {{ and }} and ensure they alternate correctly
+    pos = 0
+    while True:
+        next_open = content.find("{{", pos)
+        if next_open == -1: break
+        
+        next_close = content.find("}}", next_open)
+        if next_close == -1:
+            errors.append("Unclosed bracket '{{' found")
+            # Create a marker for the editor
+            line_no = content[:next_open].count("\n") + 1
+            markers.append({
+                "message": "Unclosed bracket",
+                "severity": "error",
+                "from": next_open,
+                "to": next_open + 2,
+                "line": line_no
+            })
+            break
+            
+        # Check if there's another {{ before the }}
+        next_next_open = content.find("{{", next_open + 2)
+        if next_next_open != -1 and next_next_open < next_close:
+            errors.append("Nested or malformed brackets found")
+            line_no = content[:next_next_open].count("\n") + 1
+            markers.append({
+                "message": "Nested brackets are not supported",
+                "severity": "error",
+                "from": next_next_open,
+                "to": next_next_open + 2,
+                "line": line_no
+            })
+            
+        pos = next_close + 2
+
+    return SkillValidateResponse(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+        markers=markers
+    )
+
 @router.get("/api/skills/{name}", response_model=Skill)
 async def get_skill(name: str, user: dict = Depends(get_current_user)):
     """Fetch details for a specific skill."""
@@ -85,10 +221,9 @@ async def get_skill(name: str, user: dict = Depends(get_current_user)):
         folder_name = name.lower().replace(" ", "-")
         for sdir in SKILLS_DIRS:
             # Search recursively for the skill folder
-            for path in sdir.rglob(folder_name):
-                if path.is_dir() and (path / "SKILL.md").exists():
-                    skill_data = parse_skill_md(path)
-                    break
+            if (sdir / folder_name).is_dir() and (sdir / folder_name / "SKILL.md").exists():
+                skill_data = parse_skill_md(sdir / folder_name)
+                break
             if skill_data: break
                 
     if not skill_data:
