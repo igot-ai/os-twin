@@ -939,6 +939,8 @@ echo ""
 if ! $DASHBOARD_ONLY; then
   header "3. Building Next.js dashboard"
   build_nextjs
+  header "3b. Building dashboard frontend (fe)"
+  build_dashboard_fe
 else
   header "3. Building dashboard frontend (fe)"
   build_dashboard_fe
