@@ -711,6 +711,13 @@ while (-not $script:shuttingDown) {
                                 param($script, $room)
                                 & $script -RoomDir $room
                             } -ArgumentList $nextResolved.Runner, $roomDir | Out-Null
+                        } elseif (-not $nextDef.role) {
+                            # No role defined for lifecycle state — fall back to assigned worker
+                            Write-Log "WARN" "[$taskRef] Lifecycle state '$nextState' has no role defined. Spawning assigned worker '$assignedRole' as fallback."
+                            Start-Job -ScriptBlock {
+                                param($script, $room)
+                                & $script -RoomDir $room
+                            } -ArgumentList $workerScript, $roomDir | Out-Null
                         }
                     }
                 }

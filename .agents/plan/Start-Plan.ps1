@@ -786,8 +786,8 @@ if (Test-Path $codeIndexScript) {
         $indexPython = Join-Path $HOME ".ostwin" ".venv" "bin" "python"
     }
     if (-not (Test-Path $indexPython)) { $indexPython = "python3" }
-    # Load .env for COCOINDEX_DATABASE_URL
-    $memoryEnv = Join-Path $agentsDir "memory" ".env"
+    # Load .env for COCOINDEX_DATABASE_URL (from project root)
+    $memoryEnv = Join-Path $ProjectDir ".env"
     if (Test-Path $memoryEnv) {
         Get-Content $memoryEnv | ForEach-Object {
             if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$' -and $_ -notmatch '^\s*#') {

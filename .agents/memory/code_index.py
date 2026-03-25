@@ -5,7 +5,7 @@ Provides:
     and exports to a Postgres table with pgvector for similarity search.
   - Public API: build_index(), search_index(), notify_file_changed()
 
-Environment (loaded from .agents/.env):
+Environment (loaded from project root .env):
     COCOINDEX_DATABASE_URL: Postgres connection string (with pgvector)
     GOOGLE_API_KEY: Required for Gemini embedding API
 """
@@ -25,13 +25,13 @@ from psycopg_pool import ConnectionPool
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Load .env from the .agents directory
+# Load .env from the project root directory
 # ---------------------------------------------------------------------------
 _MEMORY_DIR = Path(__file__).resolve().parent
 _AGENTS_DIR = _MEMORY_DIR.parent
 _PROJECT_ROOT = _AGENTS_DIR.parent
 
-load_dotenv(_MEMORY_DIR / ".." / ".env")
+load_dotenv(_PROJECT_ROOT / ".env")
 
 # ---------------------------------------------------------------------------
 # Indexing config
@@ -181,7 +181,13 @@ def code_embedding_flow(
 @functools.cache
 def _connection_pool() -> ConnectionPool:
     """Get a connection pool to the CocoIndex database."""
-    return ConnectionPool(os.environ["COCOINDEX_DATABASE_URL"])
+    url = os.environ.get("COCOINDEX_DATABASE_URL")
+    if not url:
+        raise RuntimeError(
+            "COCOINDEX_DATABASE_URL is not set. "
+            "Copy .env.example to .env and fill in the Postgres connection string."
+        )
+    return ConnectionPool(url)
 
 
 # ===================================================================
@@ -234,14 +240,16 @@ def search_index(query: str, top_k: int = TOP_K) -> list[dict]:
     with _connection_pool().connection() as conn:
         register_vector(conn)
         with conn.cursor() as cur:
+            from psycopg import sql
+
             cur.execute(
-                f"""
-                SELECT filename, text,
-                       1 - (embedding <=> %s) AS score
-                FROM {table_name}
-                ORDER BY embedding <=> %s
-                LIMIT %s
-                """,
+                sql.SQL(
+                    "SELECT filename, text,"
+                    " 1 - (embedding <=> %s) AS score"
+                    " FROM {}"
+                    " ORDER BY embedding <=> %s"
+                    " LIMIT %s"
+                ).format(sql.Identifier(table_name)),
                 (query_vec, query_vec, top_k),
             )
             return [
