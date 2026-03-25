@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import json
 import logging
 import re
@@ -27,9 +28,11 @@ logger = logging.getLogger("zvec_store")
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
-PLANS_COLLECTION = "plans"
+PLANS_COLLECTION = "plans_v2"
 EPICS_COLLECTION = "epics"
 SKILLS_COLLECTION = "skills"
+VERSIONS_COLLECTION = "versions"
+CHANGES_COLLECTION = "changes"
 
 
 class OSTwinStore:
@@ -38,13 +41,20 @@ class OSTwinStore:
     def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
-        self.zvec_dir = warrooms_dir / ".zvec"
+        # Global zvec store at ~/.ostwin/.zvec — clean with: rm -rf ~/.ostwin/.zvec
+        env_zvec_dir = os.environ.get("OSTWIN_ZVEC_DIR")
+        if env_zvec_dir:
+            self.zvec_dir = Path(env_zvec_dir)
+        else:
+            self.zvec_dir = Path.home() / ".ostwin" / ".zvec"
         self.zvec_dir.mkdir(parents=True, exist_ok=True)
         self._messages: Optional[zvec.Collection] = None
         self._metadata: Optional[zvec.Collection] = None
         self._plans: Optional[zvec.Collection] = None
         self._epics: Optional[zvec.Collection] = None
         self._skills: Optional[zvec.Collection] = None
+        self._versions: Optional[zvec.Collection] = None
+        self._changes: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
@@ -58,6 +68,8 @@ class OSTwinStore:
         self._plans = self._open_or_create_plans()
         self._epics = self._open_or_create_epics()
         self._skills = self._open_or_create_skills()
+        self._versions = self._open_or_create_versions()
+        self._changes = self._open_or_create_changes()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def _open_or_create_messages(self) -> zvec.Collection:
@@ -139,6 +151,7 @@ class OSTwinStore:
                     zvec.FieldSchema("created_at", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("filename", zvec.DataType.STRING, nullable=True),
+                    zvec.FieldSchema("file_mtime", zvec.DataType.DOUBLE, nullable=True),
                 ],
                 vectors=zvec.VectorSchema(
                     "embedding",
@@ -228,6 +241,61 @@ class OSTwinStore:
                         m=16,
                         ef_construction=200,
                     ),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
+    def _open_or_create_versions(self) -> zvec.Collection:
+        path = str(self.zvec_dir / VERSIONS_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=VERSIONS_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("plan_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("version", zvec.DataType.INT32,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("title", zvec.DataType.STRING),
+                    zvec.FieldSchema("content", zvec.DataType.STRING),
+                    zvec.FieldSchema("epic_count", zvec.DataType.INT32),
+                    zvec.FieldSchema("change_source", zvec.DataType.STRING),
+                    zvec.FieldSchema("created_at", zvec.DataType.STRING),
+                ],
+                vectors=zvec.VectorSchema(
+                    "_placeholder",
+                    zvec.DataType.VECTOR_FP32,
+                    1,
+                    index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
+    def _open_or_create_changes(self) -> zvec.Collection:
+        path = str(self.zvec_dir / CHANGES_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=CHANGES_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("plan_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("timestamp", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("change_type", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("file_path", zvec.DataType.STRING),
+                    zvec.FieldSchema("diff_summary", zvec.DataType.STRING),
+                    zvec.FieldSchema("source", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                ],
+                vectors=zvec.VectorSchema(
+                    "_placeholder",
+                    zvec.DataType.VECTOR_FP32,
+                    1,
+                    index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
                 ),
             )
             return zvec.create_and_open(path=path, schema=schema)
@@ -421,7 +489,8 @@ class OSTwinStore:
 
     def index_plan(self, plan_id: str, title: str, content: str,
                    epic_count: int, filename: str = "",
-                   status: str = "launched", created_at: str = "") -> bool:
+                   status: str = "launched", created_at: str = "",
+                   file_mtime: float = 0.0) -> bool:
         """Index a plan document. Returns True on success."""
         if self._plans is None:
             return False
@@ -440,6 +509,7 @@ class OSTwinStore:
                 "epic_count": epic_count,
                 "created_at": created_at or "",
                 "filename": filename or "",
+                "file_mtime": float(file_mtime or 0.0),
             },
             vectors={"embedding": embedding},
         )
@@ -533,6 +603,7 @@ class OSTwinStore:
                 "epic_count": doc.field("epic_count"),
                 "created_at": doc.field("created_at"),
                 "filename": doc.field("filename"),
+                "file_mtime": doc.field("file_mtime") or 0.0,
             }
         except Exception:
             return None
@@ -582,6 +653,181 @@ class OSTwinStore:
             logger.warning("Failed to get epics for plan %s: %s", plan_id, e)
         return results
 
+    # ── Plan History & Asset Change Tracking ────────────────────────────
+
+    def save_plan_version(self, plan_id: str, content: str, title: str,
+                          epic_count: int, change_source: str = "manual_save") -> bool:
+        """Store a version snapshot of a plan's .md content."""
+        if self._versions is None:
+            return False
+
+        # Find the next version number
+        existing = self.get_plan_versions(plan_id)
+        next_version = (max(v["version"] for v in existing) + 1) if existing else 1
+
+        from datetime import datetime, timezone
+        created_at = datetime.now(timezone.utc).isoformat()
+        content_clean = self._sanitize_text(content)
+
+        doc_id = f"{plan_id}-v{next_version}"
+        doc = zvec.Doc(
+            id=doc_id,
+            fields={
+                "plan_id": plan_id,
+                "version": int(next_version),
+                "title": title,
+                "content": content_clean,
+                "epic_count": int(epic_count),
+                "change_source": change_source,
+                "created_at": created_at,
+            },
+            vectors={"_placeholder": [0.0]},
+        )
+        try:
+            s = self._versions.upsert(doc)
+            self._versions.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to save plan version %s: %s", doc_id, e)
+            return False
+
+    def get_plan_versions(self, plan_id: str) -> list[dict]:
+        """Fetch all version headers for a plan (metadata only)."""
+        if self._versions is None:
+            return []
+        try:
+            # Note: Using manual filtering as zvec filter sometimes behaves unexpectedly in-process
+            docs = self._versions.query(
+                vectors=zvec.VectorQuery("_placeholder", vector=[0.0]),
+                topk=1000,
+                output_fields=["plan_id", "version", "title", "epic_count", "change_source", "created_at"],
+            )
+            results = []
+            for doc in docs:
+                try:
+                    if doc.field("plan_id") == plan_id:
+                        results.append({
+                            "id": doc.id,
+                            "version": doc.field("version"),
+                            "title": doc.field("title"),
+                            "epic_count": doc.field("epic_count"),
+                            "change_source": doc.field("change_source"),
+                            "created_at": doc.field("created_at"),
+                        })
+                except Exception: continue
+            return sorted(results, key=lambda x: x["version"], reverse=True)
+        except Exception as e:
+            logger.warning("Failed to get versions for plan %s: %s", plan_id, e)
+            return []
+
+    def get_plan_version(self, plan_id: str, version: int) -> dict | None:
+        """Fetch a specific version with full content."""
+        if self._versions is None:
+            return None
+        doc_id = f"{plan_id}-v{version}"
+        try:
+            result = self._versions.fetch(doc_id)
+            if doc_id not in result:
+                return None
+            doc = result[doc_id]
+            return {
+                "id": doc_id,
+                "plan_id": doc.field("plan_id"),
+                "version": doc.field("version"),
+                "title": doc.field("title"),
+                "content": doc.field("content"),
+                "epic_count": doc.field("epic_count"),
+                "change_source": doc.field("change_source"),
+                "created_at": doc.field("created_at"),
+            }
+        except Exception:
+            return None
+
+    def save_change_event(self, plan_id: str, change_type: str, file_path: str,
+                          diff_summary: str = "", source: str = "git") -> str | None:
+        """Record an asset mutation event."""
+        if self._changes is None:
+            return None
+
+        import hashlib
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        
+        # Unique ID for the change event
+        event_id = hashlib.sha256(f"{plan_id}:{now}:{file_path}".encode()).hexdigest()[:12]
+
+        doc = zvec.Doc(
+            id=event_id,
+            fields={
+                "plan_id": plan_id,
+                "timestamp": now,
+                "change_type": change_type,
+                "file_path": str(file_path),
+                "diff_summary": diff_summary,
+                "source": source,
+            },
+            vectors={"_placeholder": [0.0]},
+        )
+        try:
+            s = self._changes.upsert(doc)
+            self._changes.flush()
+            return event_id if s.ok() else None
+        except Exception as e:
+            logger.warning("Failed to save change event: %s", e)
+            return None
+
+    def get_changes_for_plan(self, plan_id: str, limit: int = 50) -> list[dict]:
+        """Retrieve recent change events for a plan."""
+        if self._changes is None:
+            return []
+        try:
+            # Note: Using manual filtering as zvec filter sometimes behaves unexpectedly in-process
+            docs = self._changes.query(
+                vectors=zvec.VectorQuery("_placeholder", vector=[0.0]),
+                topk=1000,
+                output_fields=["plan_id", "timestamp", "change_type", "file_path", "diff_summary", "source"],
+            )
+            results = []
+            for doc in docs:
+                try:
+                    if doc.field("plan_id") == plan_id:
+                        results.append({
+                            "id": doc.id,
+                            "plan_id": plan_id,
+                            "timestamp": doc.field("timestamp"),
+                            "change_type": doc.field("change_type"),
+                            "file_path": doc.field("file_path"),
+                            "diff_summary": doc.field("diff_summary"),
+                            "source": doc.field("source"),
+                        })
+                except Exception: continue
+            # Sort by timestamp desc and apply limit
+            return sorted(results, key=lambda x: x["timestamp"], reverse=True)[:limit]
+        except Exception as e:
+            logger.warning("Failed to get changes for plan %s: %s", plan_id, e)
+            return []
+
+    def get_change_event(self, change_id: str) -> dict | None:
+        """Fetch a specific change event by ID."""
+        if self._changes is None:
+            return None
+        try:
+            result = self._changes.fetch(change_id)
+            if change_id not in result:
+                return None
+            doc = result[change_id]
+            return {
+                "id": change_id,
+                "plan_id": doc.field("plan_id"),
+                "timestamp": doc.field("timestamp"),
+                "change_type": doc.field("change_type"),
+                "file_path": doc.field("file_path"),
+                "diff_summary": doc.field("diff_summary"),
+                "source": doc.field("source"),
+            }
+        except Exception:
+            return None
+
     def search_plans(self, query: str, limit: int = 10) -> list[dict]:
         """Semantic search across plans."""
         if self._plans is None:
@@ -593,7 +839,7 @@ class OSTwinStore:
             docs = self._plans.query(
                 vectors=zvec.VectorQuery("embedding", vector=embedding),
                 topk=limit,
-                output_fields=["title", "status", "epic_count", "created_at", "filename"],
+                output_fields=["title", "status", "epic_count", "created_at", "filename", "file_mtime"],
             )
             return [{
                 "plan_id": doc.id,
@@ -603,6 +849,7 @@ class OSTwinStore:
                 "epic_count": doc.field("epic_count"),
                 "created_at": doc.field("created_at"),
                 "filename": doc.field("filename"),
+                "file_mtime": doc.field("file_mtime") or 0.0,
             } for doc in docs]
         except Exception as e:
             logger.error("Plan search failed: %s", e)
@@ -1041,6 +1288,10 @@ class OSTwinStore:
                 self._epics.optimize()
             except Exception:
                 pass
+        if self._versions:
+            self._versions.flush()
+        if self._changes:
+            self._changes.flush()
 
         logger.info("zvec sync complete: %d messages, %d plans indexed", total, plans_synced)
         return total
@@ -1057,12 +1308,15 @@ class OSTwinStore:
             if plan_id == "PLAN.template":
                 continue
 
-            content = plan_file.read_text()
+            try:
+                content = plan_file.read_text()
+            except FileNotFoundError:
+                continue
             if not content.strip():
                 continue
 
             # Extract title from "# Plan: ..." header
-            title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+            title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
             title = title_match.group(1).strip() if title_match else plan_id
 
             # Extract epics/tasks
@@ -1121,16 +1375,23 @@ class OSTwinStore:
         working_dir = config_match.group(1).strip() if config_match else "."
 
         # Detect format
-        has_epics = bool(re.search(r"^## Epic:", content, re.MULTILINE))
-        has_tasks = bool(re.search(r"^## Task:", content, re.MULTILINE))
+        has_epics_colon = bool(re.search(r"^#{2,3} Epic:", content, re.MULTILINE))
+        has_epics_bare = bool(re.search(r"^#{2,3} EPIC-\d+", content, re.MULTILINE))
+        has_tasks = bool(re.search(r"^#{2,3} Task:", content, re.MULTILINE))
 
-        if has_epics:
-            split_pattern = r"^## Epic:\s*"
-            ref_pattern = r"(EPIC-\d+)\s*[—\-]\s*(.*)"
+        if has_epics_colon:
+            # "## Epic: EPIC-001 — Title" format
+            split_pattern = r"^#{2,3} Epic:\s*"
+            ref_pattern = r"(EPIC-\d+)\s*[—\-:]\s*(.*)"
+            default_prefix = "EPIC"
+        elif has_epics_bare:
+            # "### EPIC-001 — Title" format (no "Epic:" prefix)
+            split_pattern = r"^#{2,3} (?=EPIC-\d+)"
+            ref_pattern = r"(EPIC-\d+)\s*[—\-:]\s*(.*)"
             default_prefix = "EPIC"
         elif has_tasks:
-            split_pattern = r"^## Task:\s*"
-            ref_pattern = r"(TASK-\d+)\s*[—\-]\s*(.*)"
+            split_pattern = r"^#{2,3} Task:\s*"
+            ref_pattern = r"(TASK-\d+)\s*[—\-:]\s*(.*)"
             default_prefix = "TASK"
         else:
             return []
@@ -1175,6 +1436,10 @@ class OSTwinStore:
             self._epics.flush()
         if self._skills:
             self._skills.flush()
+        if self._versions:
+            self._versions.flush()
+        if self._changes:
+            self._changes.flush()
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

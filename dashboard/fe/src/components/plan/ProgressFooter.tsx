@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { useDAG } from '@/hooks/use-epics';
@@ -12,17 +12,24 @@ export default function ProgressFooter() {
   const { dag } = useDAG(planId);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
 
+  // Use progress.json data if available, fall back to plan data
+  const pctComplete = progress?.pct_complete ?? plan?.pct_complete ?? 0;
+  
+  const criticalPath = useMemo(() => {
+    if (progress?.critical_path) {
+      if (typeof progress.critical_path === 'object') return progress.critical_path;
+      const parts = progress.critical_path.split('/');
+      if (parts.length === 2) {
+        return { completed: parseInt(parts[0]) || 0, total: parseInt(parts[1]) || 0 };
+      }
+    }
+    return plan?.critical_path ?? { completed: 0, total: 0 };
+  }, [progress?.critical_path, plan?.critical_path]);
+
+  // All hooks must be above this guard — React requires consistent hook order
   if (isLoading || !plan) {
     return <div className="h-[56px] bg-surface border-t border-border animate-pulse" />;
   }
-
-  // Use progress.json data if available, fall back to plan data
-  const pctComplete = progress?.pct_complete ?? plan.pct_complete ?? 0;
-  const criticalPathStr = progress?.critical_path ?? '';
-  const cpParts = criticalPathStr.split('/');
-  const criticalPath = cpParts.length === 2
-    ? { completed: parseInt(cpParts[0]) || 0, total: parseInt(cpParts[1]) || 0 }
-    : plan.critical_path ?? { completed: 0, total: 0 };
 
   // Status distribution from progress.json
   const statusCounts = progress ? {

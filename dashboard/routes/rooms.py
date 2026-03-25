@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from dashboard.api_utils import (
-    WARROOMS_DIR, PROJECT_ROOT, AGENTS_DIR,
+    WARROOMS_DIR, PROJECT_ROOT, AGENTS_DIR, PLANS_DIR,
     read_room, read_channel, process_notification
 )
 import dashboard.global_state as global_state
@@ -60,7 +60,7 @@ async def get_channel(
     room_dir = WARROOMS_DIR / room_id
     if not room_dir.exists():
         # Search plan-specific war-room directories
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         if plans_dir.exists():
             for meta_file in plans_dir.glob("*.meta.json"):
                 try:

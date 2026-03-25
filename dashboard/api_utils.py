@@ -46,6 +46,9 @@ if os.environ.get("OSTWIN_PROJECT_DIR"):
     AGENTS_DIR = PROJECT_ROOT / ".agents"
     WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
+# Global plans storage — clean with: rm -rf ~/.ostwin/plans
+PLANS_DIR = Path.home() / ".ostwin" / "plans"
+
 # Frontend static-export detection (dashboard/fe/out)
 FE_OUT_DIR = DEMO_DIR / "fe" / "out"
 USE_FE = FE_OUT_DIR.exists() and (FE_OUT_DIR / "index.html").exists()
@@ -573,7 +576,7 @@ def build_skills_list(
     
     # Pre-calculate usage counts from all plans
     usage_counts = {}
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     if plans_dir.exists():
         for f in plans_dir.glob("*.roles.json"):
             try:
@@ -653,7 +656,7 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
     2. plan .md   → working_dir: line (absolute or relative to PROJECT_ROOT)
     3. Fallback   → global WARROOMS_DIR
     """
-    plan_meta_file = AGENTS_DIR / "plans" / f"{plan_id}.meta.json"
+    plan_meta_file = PLANS_DIR / f"{plan_id}.meta.json"
     if plan_meta_file.exists():
         try:
             meta = json.loads(plan_meta_file.read_text())
@@ -666,7 +669,7 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
         except (json.JSONDecodeError, KeyError):
             pass
 
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+    plan_file = PLANS_DIR / f"{plan_id}.md"
     if plan_file.exists():
         content = plan_file.read_text()
         m = re.search(r"working_dir:\s*(.+)", content)
@@ -683,7 +686,7 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
 
 def get_plan_roles_config(plan_id: str) -> dict:
     """Load the per-plan role config file, or fall back to global config."""
-    plan_roles_file = AGENTS_DIR / "plans" / f"{plan_id}.roles.json"
+    plan_roles_file = PLANS_DIR / f"{plan_id}.roles.json"
     if plan_roles_file.exists():
         try:
             return json.loads(plan_roles_file.read_text())

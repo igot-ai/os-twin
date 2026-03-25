@@ -7,7 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from dashboard.models import Role, CreateRoleRequest
-from dashboard.api_utils import AGENTS_DIR
+from dashboard.api_utils import AGENTS_DIR, PLANS_DIR
 from dashboard.auth import get_current_user
 
 router = APIRouter(tags=["roles"])
@@ -115,7 +115,7 @@ async def update_role(role_id: str, req: CreateRoleRequest, user: dict = Depends
             old_name = r.name
             new_name = req.name
             if old_name != new_name:
-                plans_dir = AGENTS_DIR / "plans"
+                plans_dir = PLANS_DIR
                 if plans_dir.exists():
                     for f in plans_dir.glob("*.roles.json"):
                         try:
@@ -174,7 +174,7 @@ async def get_role_dependencies(role_id: str, user: dict = Depends(get_current_u
                         pass
     
     # Check plans
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     if plans_dir.exists():
         for f in plans_dir.glob("*.roles.json"):
             try:
@@ -215,7 +215,7 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
 
     # Actually delete from plans if force=true
     if force:
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         if plans_dir.exists():
             for f in plans_dir.glob("*.roles.json"):
                 try:

@@ -1,5 +1,7 @@
 'use client';
 
+import React from 'react';
+
 function renderLine(line: string, index: number) {
   if (line.startsWith('### ')) {
     return (
@@ -39,11 +41,11 @@ function renderLine(line: string, index: number) {
   );
 }
 
-interface PlanPreviewTabProps {
+interface MarkdownPreviewProps {
   content: string;
 }
 
-export default function PlanPreviewTab({ content }: PlanPreviewTabProps) {
+export function MarkdownPreview({ content }: MarkdownPreviewProps) {
   const lines = content.split('\n');
 
   return (
@@ -53,7 +55,7 @@ export default function PlanPreviewTab({ content }: PlanPreviewTabProps) {
       ) : (
         <div className="flex flex-col items-center justify-center h-full text-center">
           <span className="material-symbols-outlined text-4xl text-text-faint mb-3">visibility</span>
-          <p className="text-sm text-text-muted">Nothing to preview yet. Switch to the Editor tab to start writing.</p>
+          <p className="text-sm text-text-muted">Nothing to preview yet.</p>
         </div>
       )}
     </div>

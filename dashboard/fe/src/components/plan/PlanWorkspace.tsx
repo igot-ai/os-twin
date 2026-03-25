@@ -7,7 +7,8 @@ import { useEpics, useDAG } from '@/hooks/use-epics';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { usePlanRefine } from '@/hooks/use-plan-refine';
 import { apiPost } from '@/lib/api-client';
-import { Plan, Epic, EpicStatus } from '@/types';
+import { useNotificationStore } from '@/lib/stores/notificationStore';
+import { Plan, Epic, EpicStatus, WarRoomProgress } from '@/types';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
 import ContextPanel from './ContextPanel';
@@ -19,7 +20,9 @@ interface PlanContextType {
   planId: string;
   plan: Plan | undefined;
   epics: Epic[] | undefined;
+  progress: WarRoomProgress | undefined;
   isLoading: boolean;
+  isProgressLoading: boolean;
   isError: unknown;
   selectedEpicRef: string | null;
   setSelectedEpicRef: (ref: string | null) => void;
@@ -32,9 +35,12 @@ interface PlanContextType {
   setPlanContent: (content: string) => void;
   savePlan: () => Promise<void>;
   launchPlan: () => Promise<void>;
+  reloadFromDisk: () => Promise<void>;
+  syncStatus: { in_sync: boolean; disk_mtime: number; zvec_mtime: number } | undefined;
   isSaving: boolean;
   isAIChatOpen: boolean;
   setIsAIChatOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  isRefining: boolean;
 }
 
 const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -62,10 +68,10 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   // URL format: /plans/{id} → pathSegments = ['plans', '{id}']
   const planId = (pathSegments?.[0] === 'plans' && pathSegments?.[1]) ? pathSegments[1] : propId;
 
-  const { plan, isLoading: planLoading, isError: planError } = usePlan(planId);
+  const { plan, syncStatus, isLoading: planLoading, isError: planError, reloadFromDisk } = usePlan(planId);
   const { epics: apiEpics, isLoading: epicsLoading, isError: epicsError, updateEpicState } = useEpics(planId);
   const { dag } = useDAG(planId);
-  const { progress } = useWarRoomProgress(planId);
+  const { progress, isLoading: isProgressLoading } = useWarRoomProgress(planId);
   
   const [selectedEpicRef, setSelectedEpicRef] = useState<string | null>(null);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(true);
@@ -74,6 +80,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [planContent, setPlanContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const addToast = useNotificationStore((state) => state.addToast);
 
   const {
     chatHistory,
@@ -95,10 +102,23 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     setIsSaving(true);
     try {
       await apiPost(`/plans/${planId}/save`, { content: planContent });
+      addToast({
+        type: 'success',
+        title: 'Plan Saved',
+        message: 'Your plan changes have been successfully persisted.',
+        autoDismiss: true,
+      });
+    } catch (err: any) {
+      addToast({
+        type: 'error',
+        title: 'Save Failed',
+        message: err.message || 'There was an error saving your plan. Please try again.',
+        autoDismiss: false,
+      });
     } finally {
       setIsSaving(false);
     }
-  }, [planId, planContent]);
+  }, [planId, planContent, addToast]);
 
   const launchPlan = useCallback(async () => {
     await savePlan();
@@ -112,7 +132,16 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
 
   // Synthesize epics from progress + DAG when the /epics API returns empty
   const epics = useMemo(() => {
-    if (apiEpics && apiEpics.length > 0) return apiEpics;
+    if (apiEpics && apiEpics.length > 0) {
+      // Ensure role is populated from DAG if missing in the API response
+      if (dag?.nodes) {
+        return apiEpics.map(e => ({
+          ...e,
+          role: e.role || dag.nodes[e.epic_ref]?.role || 'unknown'
+        }));
+      }
+      return apiEpics;
+    }
     if (!progress?.rooms || !dag?.nodes) return apiEpics;
 
     return progress.rooms.map((room): Epic => {
@@ -136,7 +165,9 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     planId,
     plan,
     epics,
+    progress,
     isLoading: planLoading || epicsLoading,
+    isProgressLoading,
     isError: planError || epicsError,
     selectedEpicRef,
     setSelectedEpicRef,
@@ -149,9 +180,12 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     setPlanContent,
     savePlan,
     launchPlan,
+    reloadFromDisk,
+    syncStatus,
     isSaving,
     isAIChatOpen,
     setIsAIChatOpen,
+    isRefining,
   };
 
   if (planLoading && !plan) {
@@ -185,6 +219,21 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
 
           {/* Center Panel: Content Area */}
           <main className="flex-1 flex flex-col overflow-hidden bg-background">
+            {syncStatus && !syncStatus.in_sync && (
+              <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between animate-in fade-in slide-in-from-top duration-300">
+                <div className="flex items-center gap-2 text-amber-800 text-sm font-medium">
+                  <span className="material-symbols-outlined text-amber-500" style={{ fontSize: '20px' }}>warning</span>
+                  Plan changed on disk externally.
+                </div>
+                <button 
+                  onClick={() => reloadFromDisk()}
+                  className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded shadow-sm transition-colors flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>sync</span>
+                  Reload from Disk
+                </button>
+              </div>
+            )}
             <WorkspaceTabs />
           </main>
 

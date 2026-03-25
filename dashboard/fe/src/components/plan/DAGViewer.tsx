@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { usePlanContext } from './PlanWorkspace';
 import { DAG, DAGNodeRaw } from '@/types';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
+import { roleColorMap, getRoleColor, getRoleInitial } from '@/lib/role-utils';
 import StateNode from './StateNode';
 import DAGEdge from './DAGEdge';
 
@@ -26,31 +27,6 @@ function normDeps(d: string | string[] | null | undefined): string[] {
 /** Sort wave keys numerically */
 function sortedWaveKeys(waves: Record<string, string[]>): string[] {
   return Object.keys(waves).sort((a, b) => Number(a) - Number(b));
-}
-
-/** Get first letter of role for the badge, e.g. "engineer" → "E", "architect" → "A" */
-function roleInitial(role: string): string {
-  if (!role) return '?';
-  return role.charAt(0).toUpperCase();
-}
-
-/** Role → color mapping for DAG badges */
-const roleColorMap: Record<string, string> = {
-  architect: '#8b5cf6',
-  manager: '#64748b',
-  engineer: '#3b82f6',
-  'frontend-engineer': '#3b82f6',
-  'frontend-ui-engineer': '#ec4899',
-  'frontend-dag-engineer': '#06b6d4',
-  'frontend-realtime-engineer': '#f59e0b',
-  'frontend-interaction-engineer': '#10b981',
-  'frontend-accessibility-engineer': '#ef4444',
-  'build-integration-engineer': '#14b8a6',
-  qa: '#10b981',
-};
-
-function getRoleColor(role: string): string {
-  return roleColorMap[role] || '#6366f1';
 }
 
 /**
@@ -96,7 +72,7 @@ function layoutDAG(dag: DAG, statusMap: Map<string, string>) {
         label: nodeId,
         status,
         role,
-        roleInitial: roleInitial(role),
+        roleInitial: getRoleInitial(role),
         roleColor: getRoleColor(role),
         x,
         y,

@@ -34,6 +34,10 @@ export function usePlan(id: string) {
     refreshInterval: isMockRealtime ? 10000 : 0,
   });
 
+  const { data: syncData, mutate: refreshSyncStatus } = useSWR<{ in_sync: boolean; disk_mtime: number; zvec_mtime: number }>(id ? `/plans/${id}/sync-status` : null, {
+    refreshInterval: 15000, // Check every 15 seconds
+  });
+
   const plan = data?.plan ?? (data as unknown as Plan | undefined);
 
   const updatePlan = async (updates: Partial<Plan>) => {
@@ -47,12 +51,21 @@ export function usePlan(id: string) {
     mutate(undefined, false);
   };
 
+  const reloadFromDisk = async () => {
+    await apiPost(`/plans/${id}/reload`, {});
+    mutate(undefined, { revalidate: true });
+    refreshSyncStatus();
+  };
+
   return {
     plan,
+    syncStatus: syncData,
     isLoading,
     isError: error,
     updatePlan,
     deletePlan,
+    reloadFromDisk,
     refresh: mutate,
+    refreshSyncStatus,
   };
 }
