@@ -1,14 +1,17 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { usePlan } from '@/hooks/use-plans';
 import { useEpics, useDAG } from '@/hooks/use-epics';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
+import { usePlanRefine } from '@/hooks/use-plan-refine';
+import { apiPost } from '@/lib/api-client';
 import { Plan, Epic, EpicStatus } from '@/types';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
 import ContextPanel from './ContextPanel';
+import AIChatPanel from './AIChatPanel';
 import PlanBreadcrumb from './PlanBreadcrumb';
 import ProgressFooter from './ProgressFooter';
 
@@ -25,6 +28,13 @@ interface PlanContextType {
   setIsContextPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  planContent: string;
+  setPlanContent: (content: string) => void;
+  savePlan: () => Promise<void>;
+  launchPlan: () => Promise<void>;
+  isSaving: boolean;
+  isAIChatOpen: boolean;
+  setIsAIChatOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -59,8 +69,46 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   
   const [selectedEpicRef, setSelectedEpicRef] = useState<string | null>(null);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(true);
+  const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   // Initialize tab from URL ?tab= param, then manage via React state (SPA — no reloads)
   const [activeTab, setActiveTab] = useState(getInitialTab);
+  const [planContent, setPlanContent] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const {
+    chatHistory,
+    isRefining,
+    streamedResponse,
+    error: aiError,
+    refine,
+    cancelRefine,
+    clearHistory,
+  } = usePlanRefine();
+
+  useEffect(() => {
+    if (plan?.content !== undefined && planContent === '') {
+      setPlanContent(plan.content);
+    }
+  }, [plan?.content]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const savePlan = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      await apiPost(`/plans/${planId}/save`, { content: planContent });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [planId, planContent]);
+
+  const launchPlan = useCallback(async () => {
+    await savePlan();
+    await apiPost('/run', { plan: planContent, plan_id: planId });
+  }, [savePlan, planContent, planId]);
+
+  const handleApplyAI = useCallback((newContent: string) => {
+    setPlanContent(newContent);
+    setActiveTab('editor');
+  }, []);
 
   // Synthesize epics from progress + DAG when the /epics API returns empty
   const epics = useMemo(() => {
@@ -97,6 +145,13 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     setIsContextPanelOpen,
     activeTab,
     setActiveTab,
+    planContent,
+    setPlanContent,
+    savePlan,
+    launchPlan,
+    isSaving,
+    isAIChatOpen,
+    setIsAIChatOpen,
   };
 
   if (planLoading && !plan) {
@@ -134,13 +189,33 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
           </main>
 
           {/* Right Panel: Contextual Panel */}
-          <aside 
+          <aside
             className={`border-l bg-surface border-border flex flex-col shrink-0 transition-all duration-300 overflow-hidden ${
               isContextPanelOpen ? 'w-[360px]' : 'w-0 border-l-0'
             }`}
           >
             <div className="w-[360px] h-full">
               <ContextPanel />
+            </div>
+          </aside>
+
+          {/* Right Panel: AI Chat */}
+          <aside
+            className={`border-l bg-surface border-border flex flex-col shrink-0 transition-all duration-300 overflow-hidden ${
+              isAIChatOpen ? 'w-[360px]' : 'w-0 border-l-0'
+            }`}
+          >
+            <div className="w-[360px] h-full">
+              <AIChatPanel
+                chatHistory={chatHistory}
+                isRefining={isRefining}
+                streamedResponse={streamedResponse}
+                error={aiError}
+                onSendMessage={(msg) => refine(msg, planContent, planId)}
+                onApplyToEditor={handleApplyAI}
+                onCancel={cancelRefine}
+                onClearHistory={() => { clearHistory(); setIsAIChatOpen(false); }}
+              />
             </div>
           </aside>
         </div>

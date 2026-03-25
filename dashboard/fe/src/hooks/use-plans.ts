@@ -9,7 +9,7 @@ export function usePlans() {
   });
 
   const createPlan = async (plan: Partial<Plan>) => {
-    const newPlan = await apiPost<Plan>('/plans', plan);
+    const newPlan = await apiPost<Plan>('/plans/create', plan);
     mutate((plans) => (plans ? [...plans, newPlan] : [newPlan]), false);
     return newPlan;
   };
@@ -23,15 +23,22 @@ export function usePlans() {
   };
 }
 
+interface PlanDetailResponse {
+  plan: Plan;
+  epics: unknown[];
+}
+
 export function usePlan(id: string) {
   const isMockRealtime = process.env.NEXT_PUBLIC_ENABLE_MOCK_REALTIME === 'true';
-  const { data, error, mutate, isLoading } = useSWR<Plan>(id ? `/plans/${id}` : null, {
+  const { data, error, mutate, isLoading } = useSWR<PlanDetailResponse>(id ? `/plans/${id}` : null, {
     refreshInterval: isMockRealtime ? 10000 : 0,
   });
 
+  const plan = data?.plan ?? (data as unknown as Plan | undefined);
+
   const updatePlan = async (updates: Partial<Plan>) => {
     const updatedPlan = await apiPut<Plan>(`/plans/${id}`, updates);
-    mutate(updatedPlan, false);
+    mutate(undefined, { revalidate: true });
     return updatedPlan;
   };
 
@@ -41,7 +48,7 @@ export function usePlan(id: string) {
   };
 
   return {
-    plan: data,
+    plan,
     isLoading,
     isError: error,
     updatePlan,

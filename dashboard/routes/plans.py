@@ -85,7 +85,7 @@ async def list_plans(user: dict = Depends(get_current_user)):
             title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
             title = title_match.group(1).strip() if title_match else plan_id
 
-            epics_found = re.findall(r"^## (Epic|Task):\s*(\S+)", content, re.MULTILINE)
+            epics_found = re.findall(r"^## (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE)
             epic_count = len(epics_found)
 
             status_match = re.search(r"^>\s*Status:\s*(\w+)", content, re.MULTILINE)
@@ -124,6 +124,28 @@ async def list_plans(user: dict = Depends(get_current_user)):
 
         # Merge meta.json for working_dir etc.
         _merge_plan_meta(p, plans_dir)
+
+        # Enrich from progress.json if available
+        warrooms_dir = p.get("warrooms_dir")
+        if warrooms_dir:
+            prog_file = Path(warrooms_dir) / "progress.json"
+            if prog_file.exists():
+                try:
+                    prog = json.loads(prog_file.read_text())
+                    p["epic_count"] = prog.get("total", p.get("epic_count", 0))
+                    p["completed_epics"] = prog.get("passed", 0)
+                    p["active_epics"] = prog.get("active", 0)
+                    p["pct_complete"] = prog.get("pct_complete", 0)
+                    p["escalations"] = sum(
+                        1 for r in prog.get("rooms", [])
+                        if r.get("status") == "manager-triage"
+                    )
+                    cp_str = prog.get("critical_path", "")
+                    if "/" in str(cp_str):
+                        parts = str(cp_str).split("/")
+                        p["critical_path"] = {"completed": int(parts[0]), "total": int(parts[1])}
+                except (json.JSONDecodeError, OSError, ValueError):
+                    pass
 
         # Add mock jitter if enabled
         if os.environ.get("NEXT_PUBLIC_ENABLE_MOCK_REALTIME") == "true":
@@ -649,18 +671,24 @@ async def update_plan_status(plan_id: str, request: dict):
 async def list_plan_versions(plan_id: str, user: dict = Depends(get_current_user)):
     """List all versions for a plan (content excluded for performance)."""
     store = global_state.store
-    if not store:
+    if not store or not hasattr(store, 'get_plan_versions'):
         return {"plan_id": plan_id, "versions": [], "count": 0}
-    versions = store.get_plan_versions(plan_id)
+    try:
+        versions = store.get_plan_versions(plan_id)
+    except Exception:
+        return {"plan_id": plan_id, "versions": [], "count": 0}
     return {"plan_id": plan_id, "versions": versions, "count": len(versions)}
 
 @router.get("/api/plans/{plan_id}/versions/{version}")
 async def get_plan_version(plan_id: str, version: int, user: dict = Depends(get_current_user)):
     """Fetch a specific plan version with full content."""
     store = global_state.store
-    if not store:
+    if not store or not hasattr(store, 'get_plan_version'):
         raise HTTPException(status_code=503, detail="Version store not available")
-    v = store.get_plan_version(plan_id, version)
+    try:
+        v = store.get_plan_version(plan_id, version)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Version store error")
     if not v:
         raise HTTPException(status_code=404, detail=f"Version {version} not found for plan {plan_id}")
     return {"plan_id": plan_id, "version": v}

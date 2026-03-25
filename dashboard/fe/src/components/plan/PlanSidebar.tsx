@@ -5,13 +5,17 @@ import { usePlanContext } from './PlanWorkspace';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default function PlanSidebar() {
-  const { plan, epics, activeTab, setActiveTab } = usePlanContext();
+  const { plan, epics, activeTab, setActiveTab, savePlan, launchPlan, isSaving, isAIChatOpen, setIsAIChatOpen } = usePlanContext();
 
   const tabs = [
     { id: 'epics', label: 'EPICs', icon: 'view_kanban', count: epics?.length },
+    { id: 'editor', label: 'Editor', icon: 'edit_document' },
+    { id: 'preview', label: 'Preview', icon: 'visibility' },
     { id: 'roles', label: 'Roles & Models', icon: 'group' },
     { id: 'skills', label: 'Skills', icon: 'extension' },
     { id: 'dag', label: 'DAG View', icon: 'account_tree' },
+    { id: 'plan-settings', label: 'Plan Settings', icon: 'tune' },
+    { id: 'history', label: 'History', icon: 'history' },
     { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
 
@@ -92,8 +96,40 @@ export default function PlanSidebar() {
         })}
       </nav>
 
+      {/* Action Buttons */}
+      <div className="p-3 border-t border-border space-y-1.5">
+        <button
+          onClick={() => savePlan()}
+          disabled={isSaving}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-all disabled:opacity-50"
+        >
+          <span className="material-symbols-outlined text-[18px]">
+            {isSaving ? 'progress_activity' : 'save'}
+          </span>
+          {isSaving ? 'Saving...' : 'Save Plan'}
+        </button>
+        <button
+          onClick={() => launchPlan()}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold bg-success/10 text-success hover:bg-success/20 transition-all"
+        >
+          <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
+          Launch Plan
+        </button>
+        <button
+          onClick={() => setIsAIChatOpen((prev: boolean) => !prev)}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold transition-all ${
+            isAIChatOpen
+              ? 'bg-primary text-white'
+              : 'bg-surface-hover text-text-muted hover:text-text-main'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[18px]">smart_toy</span>
+          AI Architect
+        </button>
+      </div>
+
       {/* Footer Info */}
-      <div className="p-4 bg-surface-alt border-t border-border mt-auto">
+      <div className="p-4 bg-surface-alt border-t border-border">
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between text-[10px] text-text-faint uppercase tracking-tighter">
             <span>Created</span>

@@ -330,6 +330,20 @@ export interface WarRoomConfig {
 }
 
 // ──────────────────────────────────────────────────
+// Plan Version
+// ──────────────────────────────────────────────────
+export interface PlanVersion {
+  id: string;
+  plan_id: string;
+  version: number;
+  title: string;
+  epic_count: number;
+  created_at: string;
+  change_source: string;
+  content?: string;
+}
+
+// ──────────────────────────────────────────────────
 // Model
 // ──────────────────────────────────────────────────
 export interface Model {

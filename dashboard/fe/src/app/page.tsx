@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import StatsRow from '@/components/dashboard/StatsRow';
 import PlanGrid from '@/components/dashboard/PlanGrid';
 import { Button } from '@/components/ui/Button';
@@ -17,12 +18,14 @@ export default function DashboardPage() {
             Overview of all active plans and agentic operations
           </p>
         </div>
-        <Button 
-          className="flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-lg">add</span>
-          New Plan
-        </Button>
+        <Link href="/plans/new">
+          <Button
+            className="flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-lg">add</span>
+            New Plan
+          </Button>
+        </Link>
       </div>
 
       {/* Stats Row */}
