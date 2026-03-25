@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.api_utils import (
-    WARROOMS_DIR, AGENTS_DIR, PROJECT_ROOT, 
+    WARROOMS_DIR, AGENTS_DIR, PLANS_DIR, PROJECT_ROOT, 
     read_room, read_channel, process_notification
 )
 import dashboard.global_state as global_state
@@ -24,7 +24,7 @@ async def poll_war_rooms():
         if WARROOMS_DIR.exists():
             dirs.add(WARROOMS_DIR)
         # Scan plans meta for plan-specific war-room dirs
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         if plans_dir.exists():
             for meta_file in plans_dir.glob("*.meta.json"):
                 try:
@@ -53,7 +53,7 @@ async def poll_war_rooms():
         last_snapshot["__release__"] = {"mtime": release_file.stat().st_mtime}
 
     # Plans
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     if plans_dir.exists():
         for plan_file in plans_dir.glob("*.md"):
             last_snapshot[f"__plan_{plan_file.name}__"] = {"mtime": plan_file.stat().st_mtime}
@@ -120,7 +120,7 @@ async def poll_war_rooms():
                             if epic_ref:
                                 # Find plan_id from plans dir (latest launched)
                                 try:
-                                    p_dir = AGENTS_DIR / "plans"
+                                    p_dir = PLANS_DIR
                                     if p_dir.exists():
                                         latest = max(
                                             p_dir.glob("agent-os-plan-*.md"),

@@ -3,9 +3,10 @@
 'use client';
 
 import Link from 'next/link';
-import { Plan, Domain } from '@/types';
+import { Plan, Domain, RoleSummary } from '@/types';
 import ProgressRing from './ProgressRing';
 import { Skeleton } from '../ui/Skeleton';
+import { getRoleColor, getRoleInitials } from '@/lib/role-utils';
 
 const domainColors: Record<Domain, { bg: string; text: string; dot: string }> = {
   software: { bg: 'rgba(59, 130, 246, 0.08)', text: '#3b82f6', dot: '#3b82f6' },
@@ -27,7 +28,17 @@ function relativeTime(dateStr: string) {
 
 export default function PlanCard({ plan, isFocused = false }: { plan: Plan, isFocused?: boolean }) {
   const dc = domainColors[plan.domain ?? 'custom'] || domainColors.custom;
-  const roles = plan.roles ?? [];
+  
+  // Derive roles from distribution if backend roles are empty
+  const roles: (RoleSummary & { count?: number })[] = plan.roles && plan.roles.length > 0 
+    ? plan.roles 
+    : Object.entries(plan.role_distribution || {}).map(([name, count]) => ({
+        name,
+        count,
+        initials: getRoleInitials(name),
+        color: getRoleColor(name)
+      }));
+
   const criticalPath = plan.critical_path ?? { completed: 0, total: 0 };
 
   return (
@@ -78,24 +89,29 @@ export default function PlanCard({ plan, isFocused = false }: { plan: Plan, isFo
 
       {/* Footer row */}
       <div className="flex items-center justify-between pt-3 border-t border-border-light">
-        {/* Role avatars */}
-        <div className="flex items-center -space-x-1.5">
+        {/* Role distribution chips */}
+        <div className="flex items-center gap-1.5 overflow-hidden">
           {roles.slice(0, 3).map((role) => (
             <div
               key={role.name}
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white border-2 border-surface"
-              style={{ background: role.color }}
-              title={role.name}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-background border border-border-light shrink-0"
+              title={`${role.count || 1}x ${role.name}`}
             >
-              {role.initials}
+              <span className="text-[9px] font-bold text-text-main leading-none">
+                {role.count || 1}×
+              </span>
+              <div
+                className="w-3 h-3 rounded-full flex items-center justify-center text-[6px] font-extrabold text-white"
+                style={{ background: role.color }}
+              >
+                {role.initials.substring(0, 1)}
+              </div>
             </div>
           ))}
           {roles.length > 3 && (
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold border-2 border-surface bg-background text-text-muted"
-            >
+            <span className="text-[9px] text-text-faint font-medium shrink-0">
               +{roles.length - 3}
-            </div>
+            </span>
           )}
         </div>
 

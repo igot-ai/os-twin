@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 
 from dashboard.models import CreatePlanRequest, SavePlanRequest, RefineRequest, UpdatePlanRoleConfigRequest, RunRequest
 from dashboard.api_utils import (
-    AGENTS_DIR, PROJECT_ROOT, WARROOMS_DIR,
+    AGENTS_DIR, PROJECT_ROOT, WARROOMS_DIR, PLANS_DIR,
     get_plan_roles_config, build_roles_list, resolve_plan_warrooms_dir,
     process_notification
 )
@@ -46,7 +46,7 @@ def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
 async def list_plans(user: dict = Depends(get_current_user)):
     """List all stored plans (disk is source of truth, zvec enriches)."""
     store = global_state.store
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
 
     if not plans_dir.exists():
         return {"plans": [], "count": 0}
@@ -82,10 +82,10 @@ async def list_plans(user: dict = Depends(get_current_user)):
             if "content" not in p or not p["content"]:
                 p["content"] = content
         else:
-            title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+            title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
             title = title_match.group(1).strip() if title_match else plan_id
 
-            epics_found = re.findall(r"^## (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE)
+            epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE)
             epic_count = len(epics_found)
 
             status_match = re.search(r"^>\s*Status:\s*(\w+)", content, re.MULTILINE)
@@ -108,6 +108,7 @@ async def list_plans(user: dict = Depends(get_current_user)):
                         plan_id=plan_id, title=p["title"], content=content,
                         epic_count=p.get("epic_count", 0), filename=f.name,
                         status=p["status"], created_at=p["created_at"],
+                        file_mtime=f.stat().st_mtime,
                     )
                     logger.info("Backfilled zvec index for plan %s", plan_id)
                 except Exception as e:
@@ -127,7 +128,26 @@ async def list_plans(user: dict = Depends(get_current_user)):
 
         # Enrich from progress.json if available
         warrooms_dir = p.get("warrooms_dir")
+        if not warrooms_dir:
+            from dashboard.api_utils import resolve_plan_warrooms_dir
+            warrooms_dir = str(resolve_plan_warrooms_dir(plan_id))
+            p["warrooms_dir"] = warrooms_dir
+
         if warrooms_dir:
+            # Role distribution from DAG.json
+            dag_file = Path(warrooms_dir) / "DAG.json"
+            role_dist = {}
+            if dag_file.exists():
+                try:
+                    dag_data = json.loads(dag_file.read_text())
+                    for node_data in dag_data.get("nodes", {}).values():
+                        role = node_data.get("role")
+                        if role:
+                            role_dist[role] = role_dist.get(role, 0) + 1
+                except (json.JSONDecodeError, OSError):
+                    pass
+            p["role_distribution"] = role_dist
+
             prog_file = Path(warrooms_dir) / "progress.json"
             if prog_file.exists():
                 try:
@@ -190,7 +210,7 @@ def _save_stats_snapshot(current_stats: Dict):
 async def get_stats(user: dict = Depends(get_current_user)):
     """Aggregate stats across all plans from progress.json files."""
     from datetime import timedelta
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     total_plans = 0
     plan_status_counts = {"active": 0, "completed": 0, "draft": 0}
     active_epics = 0
@@ -333,6 +353,79 @@ async def get_stats(user: dict = Depends(get_current_user)):
         }
     }
 
+@router.post("/api/plans/{plan_id}/reload")
+async def reload_plan_from_disk(plan_id: str, user: dict = Depends(get_current_user)):
+    """Re-read .md file from disk and update zvec index."""
+    plans_dir = PLANS_DIR
+    plan_file = plans_dir / f"{plan_id}.md"
+    if not plan_file.exists():
+        raise HTTPException(status_code=404, detail="Plan file not found")
+    
+    content = plan_file.read_text()
+    mtime = plan_file.stat().st_mtime
+    
+    # Re-parse metadata
+    title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else plan_id
+    epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE)
+    epic_count = len(epics_found)
+    
+    # Get created_at from meta.json if available
+    meta_file = plans_dir / f"{plan_id}.meta.json"
+    created_at = ""
+    status = "stored"
+    if meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text())
+            created_at = meta.get("created_at", "")
+            status = meta.get("status", "stored")
+        except Exception: pass
+
+    store = global_state.store
+    if store:
+        try:
+            store.index_plan(
+                plan_id=plan_id,
+                title=title,
+                content=content,
+                epic_count=epic_count,
+                filename=f"{plan_id}.md",
+                status=status,
+                created_at=created_at,
+                file_mtime=mtime
+            )
+        except Exception as e:
+            logger.error(f"Failed to update zvec in reload_plan: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+            
+    return {"status": "reloaded", "plan_id": plan_id}
+
+@router.get("/api/plans/{plan_id}/sync-status")
+async def get_plan_sync_status(plan_id: str, user: dict = Depends(get_current_user)):
+    """Check if the physical .md file is in sync with zvec index."""
+    plans_dir = PLANS_DIR
+    plan_file = plans_dir / f"{plan_id}.md"
+    if not plan_file.exists():
+        raise HTTPException(status_code=404, detail="Plan file not found")
+    
+    disk_mtime = plan_file.stat().st_mtime
+    
+    store = global_state.store
+    zvec_mtime = 0.0
+    if store:
+        p = store.get_plan(plan_id)
+        if p:
+            zvec_mtime = p.get("file_mtime", 0.0)
+    
+    # Simple float comparison for mtime
+    in_sync = abs(disk_mtime - zvec_mtime) < 0.001
+    
+    return {
+        "in_sync": in_sync,
+        "disk_mtime": disk_mtime,
+        "zvec_mtime": zvec_mtime
+    }
+
 @router.get("/api/plans/{plan_id}")
 async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
     """Get a specific plan with its epics and meta.json details."""
@@ -345,14 +438,14 @@ async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
         epics = store.get_epics_for_plan(plan_id)
 
     if not plan:
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         plan_file = plans_dir / f"{plan_id}.md"
         if not plan_file.exists():
             raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
         content = plan_file.read_text()
-        title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+        title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else plan_id
-        epic_count = len(re.findall(r"^## (Epic|Task):", content, re.MULTILINE))
+        epic_count = len(re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE))
         plan = {
             "plan_id": plan_id, "title": title, "content": content, "status": "stored",
             "epic_count": epic_count,
@@ -361,7 +454,7 @@ async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
         }
 
     # --- Merge meta.json for full project context ---
-    _merge_plan_meta(plan, AGENTS_DIR / "plans")
+    _merge_plan_meta(plan, PLANS_DIR)
 
     return {"plan": plan, "epics": epics}
 
@@ -370,7 +463,7 @@ async def create_plan(request: CreatePlanRequest):
     """Create a new plan."""
     raw = f"{request.path}:{datetime.now(timezone.utc).isoformat()}"
     plan_id = hashlib.sha256(raw.encode()).hexdigest()[:12]
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     plans_dir.mkdir(exist_ok=True)
     plan_file = plans_dir / f"{plan_id}.md"
     working_dir = request.working_dir or request.path or str(Path.cwd())
@@ -394,14 +487,14 @@ async def create_plan(request: CreatePlanRequest):
     store = global_state.store
     if store:
         try:
-            store.index_plan(plan_id=plan_id, title=request.title, content=plan_file.read_text(), epic_count=1, filename=f"{plan_id}.md", status="draft", created_at=meta["created_at"])
+            store.index_plan(plan_id=plan_id, title=request.title, content=plan_file.read_text(), epic_count=1, filename=f"{plan_id}.md", status="draft", created_at=meta["created_at"], file_mtime=plan_file.stat().st_mtime)
         except Exception as e:
             logger.warning("Failed to index new plan %s in zvec: %s", plan_id, e)
     return {"plan_id": plan_id, "url": f"/plans/{plan_id}", "title": request.title, "path": request.path, "working_dir": working_dir, "filename": f"{plan_id}.md"}
 
 @router.post("/api/plans/{plan_id}/save")
 async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends(get_current_user)):
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     plan_file = plans_dir / f"{plan_id}.md"
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
@@ -412,9 +505,9 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     if old_content.strip() and old_content.strip() != request.content.strip():
         if store:
             try:
-                old_title_match = re.search(r"^# Plan:\s*(.+)", old_content, re.MULTILINE)
+                old_title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", old_content, re.MULTILINE)
                 old_title = old_title_match.group(1).strip() if old_title_match else plan_id
-                old_epics = len(re.findall(r"^## (Epic|Task):", old_content, re.MULTILINE))
+                old_epics = len(re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", old_content, re.MULTILINE))
                 store.save_plan_version(
                     plan_id=plan_id, content=old_content, title=old_title,
                     epic_count=old_epics, change_source=request.change_source,
@@ -423,9 +516,10 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
                 logger.warning("Failed to snapshot plan version for %s: %s", plan_id, e)
 
     plan_file.write_text(request.content)
+    new_mtime = plan_file.stat().st_mtime
     
     # Update meta if title changed (best effort)
-    title_match = re.search(r"^# Plan:\s*(.+)", request.content, re.MULTILINE)
+    title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", request.content, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else plan_id
     
     meta = {"plan_id": plan_id, "title": title, "status": "draft", "created_at": datetime.now(timezone.utc).isoformat()}
@@ -442,7 +536,7 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     if store:
         try:
             # Re-parse epic count
-            epics_found = re.findall(r"^## (Epic|Task):", request.content, re.MULTILINE)
+            epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", request.content, re.MULTILINE)
             epic_count = len(epics_found)
             
             store.index_plan(
@@ -452,7 +546,8 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
                 epic_count=epic_count,
                 filename=f"{plan_id}.md",
                 status=meta.get("status", "draft"),
-                created_at=meta.get("created_at", datetime.now(timezone.utc).isoformat())
+                created_at=meta.get("created_at", datetime.now(timezone.utc).isoformat()),
+                file_mtime=new_mtime
             )
         except Exception as e:
             logger.error(f"Failed to update zvec in save_plan: {e}")
@@ -467,19 +562,10 @@ async def get_plan_config(plan_id: str, user: dict = Depends(get_current_user)):
 @router.post("/api/plans/{plan_id}/config")
 async def update_plan_config(plan_id: str, config: Dict[str, Any], user: dict = Depends(get_current_user)):
     """Update the role configuration for a plan."""
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     config_file = plans_dir / f"{plan_id}.roles.json"
     config_file.write_text(json.dumps(config, indent=2) + "\n")
     return {"status": "updated", "plan_id": plan_id}
-
-@router.get("/api/plans/{plan_id}/roles")
-async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
-    """Get the roles list for a plan, merged with config."""
-    config = get_plan_roles_config(plan_id)
-    return {
-        "roles": build_roles_list(config, include_skills=True),
-        "attached_skills": config.get("attached_skills", [])
-    }
 
 @router.post("/api/plans/{plan_id}/skills")
 async def attach_skill(plan_id: str, skill: Dict[str, str], user: dict = Depends(get_current_user)):
@@ -490,12 +576,12 @@ async def attach_skill(plan_id: str, skill: Dict[str, str], user: dict = Depends
     
     skill_name = skill.get("name")
     if not skill_name:
-         raise HTTPException(status_code=400, detail="Skill name is required")
+        raise HTTPException(status_code=400, detail="Skill name is required")
          
     if skill_name not in config["attached_skills"]:
         config["attached_skills"].append(skill_name)
     
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     config_file = plans_dir / f"{plan_id}.roles.json"
     config_file.write_text(json.dumps(config, indent=2) + "\n")
     return {"status": "attached", "plan_id": plan_id, "skill": skill_name}
@@ -507,7 +593,7 @@ async def detach_skill(plan_id: str, skill_name: str, user: dict = Depends(get_c
     if "attached_skills" in config and skill_name in config["attached_skills"]:
         config["attached_skills"].remove(skill_name)
     
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     config_file = plans_dir / f"{plan_id}.roles.json"
     config_file.write_text(json.dumps(config, indent=2) + "\n")
     return {"status": "detached", "plan_id": plan_id, "skill": skill_name}
@@ -527,14 +613,14 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=422, detail="Plan content is empty")
 
     # Quick pre-flight: must contain at least one ## Epic: or ## Task: section
-    if not _re_mod.search(r"^## (EPIC-|Task:)", plan, _re_mod.MULTILINE):
+    if not _re_mod.search(r"^#{2,3} (?:EPIC-|Task:|Epic:)", plan, _re_mod.MULTILINE):
         raise HTTPException(status_code=400, detail="Plan contains no epics or tasks. Add at least one '## EPIC-XXX - Title' section.")
 
     run_sh = AGENTS_DIR / "run.sh"
     if not run_sh.exists():
         raise HTTPException(status_code=500, detail="OS Twin run.sh not found")
 
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     plans_dir.mkdir(exist_ok=True)
 
     plan_id = request.plan_id
@@ -543,13 +629,14 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
 
     # --- .md: only write when content actually changed ---
     existing_content = plan_path.read_text() if plan_path.exists() else None
+    store = global_state.store
     if existing_content != plan:
         # Snapshot old content before overwriting
         if existing_content and existing_content.strip() and store:
             try:
-                old_title_match = _re_mod.search(r"^# Plan:\s*(.+)", existing_content, _re_mod.MULTILINE)
+                old_title_match = _re_mod.search(r"^# (?:Plan|PLAN):\s*(.+)", existing_content, _re_mod.MULTILINE)
                 old_title = old_title_match.group(1).strip() if old_title_match else plan_id
-                old_epics = len(_re_mod.findall(r"^## (Epic|Task):", existing_content, _re_mod.MULTILINE))
+                old_epics = len(_re_mod.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", existing_content, _re_mod.MULTILINE))
                 store.save_plan_version(
                     plan_id=plan_id, content=existing_content, title=old_title,
                     epic_count=old_epics, change_source="expansion",
@@ -562,7 +649,7 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         logger.debug(f"run_plan: plan content unchanged for {plan_id}, skipping write")
 
     # Extract title
-    title_match = _re_mod.search(r"^# Plan:\s*(.+)", plan, _re_mod.MULTILINE)
+    title_match = _re_mod.search(r"^# (?:Plan|PLAN):\s*(.+)", plan, _re_mod.MULTILINE)
     title = title_match.group(1).strip() if title_match else plan_id
 
     # Extract working_dir from plan content (## Config section)
@@ -643,7 +730,7 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
 
 @router.post("/api/plans/{plan_id}/status")
 async def update_plan_status(plan_id: str, request: dict):
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     meta_file = plans_dir / f"{plan_id}.meta.json"
     if not meta_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
@@ -705,7 +792,7 @@ async def restore_plan_version(plan_id: str, version: int, user: dict = Depends(
     if not v:
         raise HTTPException(status_code=404, detail=f"Version {version} not found for plan {plan_id}")
 
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     plan_file = plans_dir / f"{plan_id}.md"
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
@@ -714,9 +801,9 @@ async def restore_plan_version(plan_id: str, version: int, user: dict = Depends(
     current_content = plan_file.read_text()
     if current_content.strip():
         try:
-            cur_title_match = re.search(r"^# Plan:\s*(.+)", current_content, re.MULTILINE)
+            cur_title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", current_content, re.MULTILINE)
             cur_title = cur_title_match.group(1).strip() if cur_title_match else plan_id
-            cur_epics = len(re.findall(r"^## (Epic|Task):", current_content, re.MULTILINE))
+            cur_epics = len(re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", current_content, re.MULTILINE))
             store.save_plan_version(
                 plan_id=plan_id, content=current_content, title=cur_title,
                 epic_count=cur_epics, change_source="before_restore",
@@ -730,9 +817,9 @@ async def restore_plan_version(plan_id: str, version: int, user: dict = Depends(
 
     # Update zvec plan index
     try:
-        title_match = re.search(r"^# Plan:\s*(.+)", restored_content, re.MULTILINE)
+        title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", restored_content, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else plan_id
-        epics_found = re.findall(r"^## (Epic|Task):", restored_content, re.MULTILINE)
+        epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", restored_content, re.MULTILINE)
         store.index_plan(
             plan_id=plan_id, title=title, content=restored_content,
             epic_count=len(epics_found), filename=f"{plan_id}.md",
@@ -742,16 +829,256 @@ async def restore_plan_version(plan_id: str, version: int, user: dict = Depends(
 
     return {"status": "restored", "plan_id": plan_id, "restored_version": version}
 
+@router.get("/api/plans/{plan_id}/changes")
+async def list_plan_changes(plan_id: str, user: dict = Depends(get_current_user)):
+    """Unified timeline of plan versions and git-based asset changes."""
+    store = global_state.store
+    plans_dir = PLANS_DIR
+    plan_file = plans_dir / f"{plan_id}.md"
+    
+    if not plan_file.exists():
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+
+    # 1. Get working_dir from plan meta
+    working_dir = None
+    meta_file = plans_dir / f"{plan_id}.meta.json"
+    if meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text())
+            working_dir = meta.get("working_dir")
+        except Exception:
+            pass
+    
+    if not working_dir:
+        # Try resolving via api_utils
+        from dashboard.api_utils import resolve_plan_warrooms_dir
+        warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+        if warrooms_dir:
+            working_dir = str(warrooms_dir.parent)
+
+    changes = []
+    
+    # 2. Get git log and status if available
+    if working_dir and Path(working_dir).exists():
+        try:
+            # Check if we are in a git repo
+            proc_check = await asyncio.create_subprocess_exec(
+                "git", "rev-parse", "--is-inside-work-tree",
+                cwd=working_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await proc_check.communicate()
+            
+            if proc_check.returncode == 0:
+                # 2.1. Get uncommitted changes (git status)
+                proc_status = await asyncio.create_subprocess_exec(
+                    "git", "status", "--porcelain",
+                    cwd=working_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout_status, _ = await proc_status.communicate()
+                if stdout_status:
+                    status_lines = stdout_status.decode().splitlines()
+                    uncommitted_files = []
+                    for line in status_lines:
+                        if len(line) > 3:
+                            uncommitted_files.append(line[3:].strip())
+                    
+                    if uncommitted_files:
+                        changes.append({
+                            "id": "uncommitted",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "author": "Current Session",
+                            "message": "Uncommitted local changes",
+                            "files": uncommitted_files,
+                            "type": "asset_change",
+                            "source": "git",
+                            "is_uncommitted": True
+                        })
+
+                # 2.2. Get last 50 commits with file changes
+                cmd = ["git", "log", "-n", "50", "--pretty=format:%H|%cI|%an|%s", "--name-only"]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    cwd=working_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    lines = stdout.decode().splitlines()
+                    current_commit = None
+                    for line in lines:
+                        if "|" in line:
+                            parts = line.split("|", 3)
+                            if len(parts) == 4:
+                                current_commit = {
+                                    "id": parts[0],
+                                    "timestamp": parts[1],
+                                    "author": parts[2],
+                                    "message": parts[3],
+                                    "files": [],
+                                    "type": "asset_change",
+                                    "source": "git"
+                                }
+                                changes.append(current_commit)
+                        elif line.strip() and current_commit:
+                            current_commit["files"].append(line.strip())
+        except Exception as e:
+            logger.warning(f"Failed to read git log for {plan_id}: {e}")
+
+    # 3. Add plan versions from zvec if available
+    if store:
+        if hasattr(store, 'get_plan_versions'):
+            try:
+                versions = store.get_plan_versions(plan_id)
+                for v in versions:
+                    changes.append({
+                        "id": v["id"],
+                        "version": v["version"],
+                        "timestamp": v["created_at"],
+                        "title": v["title"],
+                        "change_source": v["change_source"],
+                        "type": "plan_version",
+                        "source": "zvec"
+                    })
+            except Exception: pass
+
+        if hasattr(store, 'get_changes_for_plan'):
+            try:
+                asset_changes = store.get_changes_for_plan(plan_id)
+                for ac in asset_changes:
+                    changes.append({
+                        "id": ac["id"],
+                        "timestamp": ac["timestamp"],
+                        "change_type": ac["change_type"],
+                        "file_path": ac["file_path"],
+                        "diff_summary": ac["diff_summary"],
+                        "source": ac["source"],
+                        "type": "asset_change"
+                    })
+            except Exception: pass
+
+    # 4. Sort all changes by timestamp desc
+    changes.sort(key=lambda x: x["timestamp"], reverse=True)
+    
+    return {"plan_id": plan_id, "changes": changes, "count": len(changes)}
+
+@router.get("/api/plans/{plan_id}/changes/{change_id}/diff")
+async def get_change_diff(plan_id: str, change_id: str, file_path: str = Query(None), user: dict = Depends(get_current_user)):
+    """Fetch the diff for a specific change entry."""
+    store = global_state.store
+    plans_dir = PLANS_DIR
+
+    # Case 1: Plan version (zvec)
+    if change_id.startswith(f"{plan_id}-v"):
+        if not store or not hasattr(store, 'get_plan_version'):
+            raise HTTPException(status_code=503, detail="Version store not available")
+        
+        try:
+            # We want to compare v with v-1
+            m = re.match(rf"{plan_id}-v(\d+)", change_id)
+            if not m:
+                raise HTTPException(status_code=400, detail="Invalid change ID")
+            v_num = int(m.group(1))
+            
+            v_curr = store.get_plan_version(plan_id, v_num)
+            if not v_curr:
+                raise HTTPException(status_code=404, detail="Version not found")
+            
+            # Get previous content
+            v_prev_content = ""
+            if v_num > 1:
+                v_prev = store.get_plan_version(plan_id, v_num - 1)
+                if v_prev:
+                    v_prev_content = v_prev["content"]
+            else:
+                # v1 should be compared with nothing or the very first state if known
+                pass
+
+            import difflib
+            diff = difflib.unified_diff(
+                v_prev_content.splitlines(keepends=True),
+                v_curr["content"].splitlines(keepends=True),
+                fromfile=f"v{v_num-1}", tofile=f"v{v_num}"
+            )
+            return {"diff": "".join(diff), "type": "plan_version", "id": change_id}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # Case 1.5: Asset change from zvec
+    if store and hasattr(store, 'get_change_event'):
+        ce = store.get_change_event(change_id)
+        if ce:
+            return {
+                "diff": ce.get("diff_summary", "No diff available."),
+                "type": "asset_change",
+                "id": change_id,
+                "source": ce.get("source"),
+                "file_path": ce.get("file_path")
+            }
+
+    # Case 2: Git commit (asset change)
+    # 2.1. Find working_dir
+    working_dir = None
+    meta_file = plans_dir / f"{plan_id}.meta.json"
+    if meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text())
+            working_dir = meta.get("working_dir")
+        except Exception:
+            pass
+    if not working_dir:
+        from dashboard.api_utils import resolve_plan_warrooms_dir
+        warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+        if warrooms_dir:
+            working_dir = str(warrooms_dir.parent)
+
+    if working_dir and Path(working_dir).exists():
+        try:
+            if change_id == "uncommitted":
+                # git diff for unstaged and staged changes
+                cmd = ["git", "diff", "HEAD", "--no-color"]
+                if file_path:
+                    cmd = ["git", "diff", "HEAD", "--no-color", "--", file_path]
+            else:
+                # git show change_id
+                cmd = ["git", "show", change_id, "--no-color"]
+                if file_path:
+                    cmd = ["git", "show", change_id, "--no-color", "--", file_path]
+            
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=working_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                diff_out = stdout.decode()
+                if not diff_out and change_id == "uncommitted":
+                    diff_out = "No diff available for uncommitted changes (might be untracked files)."
+                return {"diff": diff_out, "type": "asset_change", "id": change_id}
+            else:
+                raise HTTPException(status_code=500, detail=stderr.decode())
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    raise HTTPException(status_code=404, detail="Change entry not found")
+
 @router.get("/api/goals")
 async def get_all_goals():
     """Aggregate goals from all plans."""
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     if not plans_dir.exists():
         return {"goals": []}
     
     all_goals = []
     for f in plans_dir.glob("*.md"):
-        if f.stem == "PLAN.template": continue
+        if f.stem == "PLAN.template":
+            continue
         content = f.read_text()
         # Simple heuristic for goals
         goal_section = re.search(r"## Goal\n\n(.*?)\n\n##", content, re.DOTALL)
@@ -765,11 +1092,12 @@ async def get_all_goals():
 async def refine_plan_endpoint(request: RefineRequest):
     try:
         from plan_agent import refine_plan
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         plan_content = request.plan_content
         if request.plan_id and not plan_content:
             p_file = plans_dir / f"{request.plan_id}.md"
-            if p_file.exists(): plan_content = p_file.read_text()
+            if p_file.exists():
+                plan_content = p_file.read_text()
         result = await refine_plan(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None)
         return {"refined_plan": result}
     except ImportError as e:
@@ -781,11 +1109,12 @@ async def refine_plan_endpoint(request: RefineRequest):
 async def refine_plan_stream_endpoint(request: RefineRequest):
     try:
         from plan_agent import refine_plan_stream
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         plan_content = request.plan_content
         if request.plan_id and not plan_content:
             p_file = plans_dir / f"{request.plan_id}.md"
-            if p_file.exists(): plan_content = p_file.read_text()
+            if p_file.exists():
+                plan_content = p_file.read_text()
         async def event_generator():
             try:
                 async for token in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None):
@@ -803,7 +1132,7 @@ async def get_plan_epics(plan_id: str):
     if store:
         epics = store.get_epics_for_plan(plan_id)
         if epics: return {"epics": epics, "count": len(epics)}
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     plan_file = plans_dir / f"{plan_id}.md"
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
@@ -833,7 +1162,7 @@ async def search_epics(q: str = Query(..., min_length=1), plan_id: Optional[str]
 @router.get("/api/plans/{plan_id}/roles")
 async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
     config = get_plan_roles_config(plan_id)
-    roles = build_roles_list(config)
+    roles = build_roles_list(config, include_skills=True)
     warrooms_dir = resolve_plan_warrooms_dir(plan_id)
     rooms_with_roles = []
     role_summary: Dict[str, int] = {}
@@ -860,11 +1189,19 @@ async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
                 except (json.JSONDecodeError, KeyError): continue
             if role_instances:
                 rooms_with_roles.append({"room_id": room_dir.name, "task_ref": room_config.get("task_ref", "UNKNOWN"), "roles": role_instances})
-    return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "role_defaults": roles, "rooms": rooms_with_roles, "summary": role_summary, "total_assignments": sum(role_summary.values())}
+    return {
+        "plan_id": plan_id, 
+        "warrooms_dir": str(warrooms_dir), 
+        "role_defaults": roles, 
+        "rooms": rooms_with_roles, 
+        "summary": role_summary, 
+        "total_assignments": sum(role_summary.values()),
+        "attached_skills": config.get("attached_skills", [])
+    }
 
 @router.put("/api/plans/{plan_id}/roles/{role_name}/config")
 async def update_plan_role_config(plan_id: str, role_name: str, request: UpdatePlanRoleConfigRequest, user: dict = Depends(get_current_user)):
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     plan_roles_file = plans_dir / f"{plan_id}.roles.json"
     if plan_roles_file.exists(): config = json.loads(plan_roles_file.read_text())
     else:
@@ -919,7 +1256,12 @@ async def get_plan_progress(plan_id: str, user: dict = Depends(get_current_user)
             "pct_complete": 0, "rooms": []
         }
     try:
-        return json.loads(prog_file.read_text())
+        data = json.loads(prog_file.read_text())
+        cp_str = data.get("critical_path", "")
+        if isinstance(cp_str, str) and "/" in cp_str:
+            parts = cp_str.split("/")
+            data["critical_path"] = {"completed": int(parts[0]), "total": int(parts[1])}
+        return data
     except (json.JSONDecodeError, OSError):
         raise HTTPException(status_code=500, detail="Failed to read progress.json")
 
@@ -985,10 +1327,10 @@ async def get_plan_epic(
             room_data = read_room(room_dir, include_metadata=include_metadata, include_messages=include_messages)
             
             # Enrich with plan title
-            plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+            plan_file = PLANS_DIR / f"{plan_id}.md"
             if plan_file.exists():
                 content = plan_file.read_text()
-                title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+                title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
                 if title_match:
                     room_data["plan_title"] = title_match.group(1).strip()
             

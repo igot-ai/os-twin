@@ -5,6 +5,7 @@ import { Epic } from '@/types';
 import { usePlanContext } from './PlanWorkspace';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
+import { getRoleColor, getRoleInitials } from '@/lib/role-utils';
 
 export const stateColors: Record<string, string> = {
   pending: '#94a3b8',
@@ -24,19 +25,6 @@ export const stateColors: Record<string, string> = {
   'wave-6': '#ef4444',
   'wave-7': '#06b6d4',
   'wave-8': '#14b8a6',
-};
-
-const roleColors: Record<string, string> = {
-  'Data Analyst': '#6366f1',
-  'Copywriter': '#f59e0b',
-  'Designer': '#ec4899',
-  'Engineer': '#3b82f6',
-  'engineer': '#3b82f6',
-  'architect': '#8b5cf6',
-  'Auditor': '#8b5cf6',
-  'Manager': '#64748b',
-  'manager': '#64748b',
-  'e': '#3b82f6',
 };
 
 const warRoomStatusIcons: Record<string, { icon: string; color: string; label: string }> = {
@@ -73,7 +61,7 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
                      (activeState.startsWith('wave-') ? stateColors[activeState] : stateColors.pending) || 
                      stateColors.pending;
 
-  const roleColor = roleColors[epic.role || ''] || '#6366f1';
+  const roleColor = getRoleColor(epic.role || '');
   const wrStatus = warRoomStatus ? warRoomStatusIcons[warRoomStatus] : null;
 
   const handleClick = () => {
@@ -178,7 +166,7 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
             style={{ background: roleColor }}
             title={epic.role || 'Unassigned'}
           >
-            {(epic.role || '??').split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)}
+            {getRoleInitials(epic.role || '??')}
           </div>
           <span className="text-[10px] font-medium text-text-muted truncate">{epic.role || 'Unassigned'}</span>
         </div>

@@ -2,16 +2,13 @@
 
 import React, { Suspense, lazy } from 'react';
 import { usePlanContext } from './PlanWorkspace';
+import { MarkdownPreview } from './MarkdownPreview';
 
 // Lazy-load tab components
 const KanbanBoard = lazy(() => import('./KanbanBoard'));
-const RolesTab = lazy(() => import('./placeholder/RolesTab'));
-const SkillsTab = lazy(() => import('./placeholder/SkillsTab'));
+const RolesConfigTab = lazy(() => import('./RolesConfigTab'));
 const DAGTab = lazy(() => import('./placeholder/DAGTab'));
-const SettingsTab = lazy(() => import('./placeholder/SettingsTab'));
 const PlanEditorTab = lazy(() => import('./PlanEditorTab'));
-const PlanPreviewTab = lazy(() => import('./PlanPreviewTab'));
-const PlanSettingsTab = lazy(() => import('./PlanSettingsTab'));
 const PlanHistoryTab = lazy(() => import('./PlanHistoryTab'));
 
 export default function WorkspaceTabs() {
@@ -22,19 +19,13 @@ export default function WorkspaceTabs() {
       case 'epics':
         return <KanbanBoard />;
       case 'roles':
-        return <RolesTab />;
-      case 'skills':
-        return <SkillsTab />;
+        return <RolesConfigTab />;
       case 'dag':
         return <DAGTab />;
-      case 'settings':
-        return <SettingsTab />;
       case 'editor':
         return <PlanEditorTab content={planContent} onChange={setPlanContent} />;
       case 'preview':
-        return <PlanPreviewTab content={planContent} />;
-      case 'plan-settings':
-        return <PlanSettingsTab planId={planId} />;
+        return <div className="h-full overflow-hidden bg-background"><MarkdownPreview content={planContent} /></div>;
       case 'history':
         return <PlanHistoryTab planId={planId} />;
       default:
