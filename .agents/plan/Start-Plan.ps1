@@ -146,7 +146,7 @@ The project plan at '$PlanFile' requires review and potential refinement.
 5. If you cannot proceed without more context, post 'plan-reject' with your feedback.
 "@
 if (-not $DryRun -and -not (Test-Path $room000Dir)) {
-    & $newWarRoom -RoomId "room-000" -TaskRef "PLAN-REVIEW" -TaskDescription $negotiationTask -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir -AssignedRole "architect" -CandidateRoles @("manager","architect") | Out-Null
+    & $newWarRoom -RoomId "room-000" -TaskRef "PLAN-REVIEW" -TaskDescription $negotiationTask -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir -AssignedRole "architect" -CandidateRoles @("architect","manager") | Out-Null
 } elseif (-not $DryRun -and (Test-Path $room000Dir)) {
     # --- Update room-000 if the plan file has changed ---
     $room000Config = Join-Path $room000Dir "config.json"

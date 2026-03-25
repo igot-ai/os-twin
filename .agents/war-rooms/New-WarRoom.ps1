@@ -251,15 +251,14 @@ if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)
 }
 
 # --- FALLBACK: Generate default lifecycle from CandidateRoles ---
-# Purely derived from candidate_roles — no hardcoded states.
-# Each candidate role maps to a lifecycle stage:
-#   candidate_roles[0]    → engineering (worker) + fixing
-#   candidate_roles[1..N] → review stages (named by role)
+# AssignedRole is the authoritative primary worker for the engineering stage.
+# Review stages are derived from CandidateRoles minus the AssignedRole.
 # Only roles present in candidate_roles appear in the lifecycle.
 $lifecyclePath = Join-Path $roomDir "lifecycle.json"
 if (-not (Test-Path $lifecyclePath)) {
-    $effectiveCandidates = @(if ($CandidateRoles.Count -gt 0) { $CandidateRoles } else { $AssignedRole })
-    $primaryRole = $effectiveCandidates[0]
+    $effectiveCandidates = @(if ($CandidateRoles.Count -gt 0) { $CandidateRoles } else { @($AssignedRole) })
+    # AssignedRole is always the primary worker — never blindly pick candidates[0]
+    $primaryRole = $AssignedRole
 
     # Role → state name mapping for review stages
     $roleStateMap = @{
@@ -274,11 +273,14 @@ if (-not (Test-Path $lifecyclePath)) {
     $states = [ordered]@{}
     $stageOrder = [System.Collections.Generic.List[string]]::new()
 
-    # Stage 1: engineering — primary role does the work
+    # Stage 1: engineering — AssignedRole does the work
     $stageOrder.Add('engineering')
 
-    # Additional stages from candidate_roles[1..N]
-    $reviewRoles = @(if ($effectiveCandidates.Count -gt 1) { $effectiveCandidates[1..($effectiveCandidates.Count - 1)] })
+    # Review stages from candidates, excluding:
+    #   - the primary worker (no self-review)
+    #   - orchestrator roles (manager is not a worker agent, it has builtin states)
+    $orchestratorRoles = @('manager')
+    $reviewRoles = @($effectiveCandidates | Where-Object { $_ -ne $AssignedRole -and $_ -notin $orchestratorRoles })
     foreach ($role in $reviewRoles) {
         $stateName = if ($roleStateMap.ContainsKey($role)) { $roleStateMap[$role] } else { "$role-review" }
         $stageOrder.Add($stateName)
