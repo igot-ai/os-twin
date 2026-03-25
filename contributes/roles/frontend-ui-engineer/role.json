@@ -1,0 +1,21 @@
+{
+  "name": "frontend-ui-engineer",
+  "description": "Implement the core Next.js design system, migrate TailwindCSS locally, define theme tokens, load required fonts, and build the shared UI component library.",
+  "capabilities": [
+    "React and Next.js App Router expertise",
+    "TailwindCSS and PostCSS configuration",
+    "CSS variable theming (light/dark mode)",
+    "UI component architecture",
+    "File system manipulation",
+    "Bun package manager execution"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

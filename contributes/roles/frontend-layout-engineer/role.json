@@ -1,0 +1,19 @@
+{
+  "name": "frontend-layout-engineer",
+  "description": "Build the persistent application shell, including the Next.js layout, CSS Grid app shell, sticky top bar, and collapsible sidebar with local storage persistence.",
+  "capabilities": [
+    "react-development",
+    "nextjs-app-router",
+    "css-grid-layout",
+    "state-management",
+    "ui-component-design"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

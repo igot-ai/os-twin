@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════
+   Design Tokens — Tailwind v4 @theme
+   Agentic OS Command Center
+   ═══════════════════════════════════════════════════ */
+
+@theme {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: #dbeafe;
+  --color-primary-muted: rgba(37, 99, 235, 0.1);
+
+  --color-background-light: #f8fafc;
+  --color-background-dark: #0f172a;
+  --color-background: var(--color-background-light);
+
+  --color-surface: #ffffff;
+  --color-surface-hover: #f1f5f9;
+  --color-text-main: #0f172a;
+  --color-text-muted: #64748b;
+  --color-text-faint: #94a3b8;
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+
+  --color-success: #10b981;
+  --color-success-light: #d1fae5;
+  --color-success-text: #065f46;
+
+  --color-warning: #eab308;
+  --color-warning-light: #fef9c3;
+  --color-warning-text: #854d0e;
+
+  --color-danger: #ef4444;
+  --color-danger-light: #fee2e2;
+  --color-danger-text: #991b1b;
+
+  --color-terminal-bg: #0f172a;
+  --color-terminal-surface: #1e293b;
+  --color-terminal-sys: #38bdf8;
+  --color-terminal-out: #e2e8f0;
+
+  --color-blue: #3b82f6;
+  --color-green: #10b981;
+  --color-amber: #f59e0b;
+  --color-red: #ef4444;
+  --color-purple: #8b5cf6;
+  --color-teal: #14b8a6;
+  --color-pink: #ec4899;
+  --color-orange: #f97316;
+  --color-slate: #64748b;
+
+  --font-display: var(--font-plus-jakarta-sans), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+
+  --shadow-card: 0 4px 6px -1px rgba(15, 23, 42, 0.05);
+  --shadow-card-hover: 0 10px 15px -3px rgba(15, 23, 42, 0.1);
+  --shadow-modal: 0 24px 48px rgba(15, 23, 42, 0.12), 0 12px 24px rgba(15, 23, 42, 0.08);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  --animate-pulse-ring: pulse-ring 2s infinite;
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slide-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   Dark Theme Configuration
+   ═══════════════════════════════════════════════════ */
+
+[data-theme="dark"] {
+  --color-background: var(--color-background-dark);
+  --color-surface: #1e293b;
+  --color-surface-hover: #334155;
+  --color-text-main: #f1f5f9;
+  --color-text-muted: #94a3b8;
+  --color-text-faint: #64748b;
+  --color-border: #334155;
+  --color-border-light: #1e293b;
+
+  --color-success-light: rgba(16, 185, 129, 0.1);
+  --color-success-text: #34d399;
+  --color-warning-light: rgba(234, 179, 8, 0.1);
+  --color-warning-text: #fbbf24;
+  --color-danger-light: rgba(239, 68, 68, 0.1);
+  --color-danger-text: #f87171;
+
+  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  --shadow-card-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+}
+
+/* ═══════════════════════════════════════════════════
+   Custom Scrollbar (Themed)
+   ═══════════════════════════════════════════════════ */
+
+.custom-scrollbar::-webkit-scrollbar       { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track  { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb  { background: var(--color-border); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--color-text-faint); }
+
+[data-theme="dark"] .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; }
+[data-theme="dark"] .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+.terminal-scroll::-webkit-scrollbar        { width: 8px; }
+.terminal-scroll::-webkit-scrollbar-track   { background: rgba(15, 23, 42, 0.5); }
+.terminal-scroll::-webkit-scrollbar-thumb   { background: #334155; border-radius: 4px; }
+
+.state-node-pulse {
+  box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+  animation: pulse-ring 2s infinite;
+}
+
+@layer utilities {
+  .animate-pulse-ring {
+    animation: var(--animate-pulse-ring);
+  }
+}
+
+.state-node-pulse {
+  box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+  animation: pulse-ring 2s infinite;
+}
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); }
+  70%  { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.fade-in       { animation: fade-in 0.3s ease-out; }
+.fade-in-up    { animation: fade-in-up 0.4s ease-out; }
+.slide-in-right { animation: slide-in-right 0.3s ease-out; }
+
+.skeleton {
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-md);
+}
+
+/* ═══════════════════════════════════════════════════
+   Dot Grid Background
+   ═══════════════════════════════════════════════════ */
+
+.dot-grid-bg {
+  background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ═══════════════════════════════════════════════════
+   Material Symbols Override
+   ═══════════════════════════════════════════════════ */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}

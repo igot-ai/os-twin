@@ -8,7 +8,7 @@ def test_parse_skill_md_yaml(tmp_path):
     skill_dir.mkdir()
     skill_md = skill_dir / "SKILL.md"
     content = """---
-name: Test Skill
+name: test-skill
 description: A test skill for YAML parsing.
 tags: [test, mock]
 trust_level: high
@@ -20,7 +20,7 @@ This is the skill content.
     
     data = parse_skill_md(skill_dir)
     assert data is not None
-    assert data["name"] == "Test Skill"
+    assert data["name"] == "test-skill"
     assert data["description"] == "A test skill for YAML parsing."
     assert data["tags"] == ["test", "mock"]
     assert data["trust_level"] == "high"

@@ -1,0 +1,368 @@
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+import { mutate } from 'swr';
+import { Role } from '@/types';
+import ProviderSelector from './ProviderSelector';
+import SkillChipInput from './SkillChipInput';
+import TestConnectionButton from './TestConnectionButton';
+import { useModelRegistry, useRoleDependencies } from '@/hooks/use-roles';
+
+interface RoleEditorPanelProps {
+  role?: Role;
+  isOpen: boolean;
+  onClose: () => void;
+  existingRoles: Role[];
+}
+
+export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }: RoleEditorPanelProps) {
+  const { registry } = useModelRegistry();
+  const { dependencies } = useRoleDependencies(role?.id || '');
+  const [activeTab, setActiveTab] = useState<'config' | 'dependencies'>('config');
+  const [formData, setFormData] = useState<Partial<Role>>({
+    name: '',
+    provider: 'claude',
+    version: 'claude-3-5-sonnet-20241022',
+    temperature: 0.3,
+    budget_tokens_max: 500000,
+    max_retries: 3,
+    timeout_seconds: 900,
+    skill_refs: [],
+    system_prompt_override: '',
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Normalize backend registry keys (Claude -> claude)
+  const normalizedRegistry = useMemo(() => {
+    if (!registry) return null;
+    const normalized: Record<string, { id: string; context_window: string; tier: string }[]> = {};
+    Object.entries(registry).forEach(([provider, models]) => {
+      normalized[provider.toLowerCase()] = models;
+    });
+    return normalized;
+  }, [registry]);
+
+  useEffect(() => {
+    if (role) {
+      setFormData(role);
+    } else {
+      setFormData({
+        name: '',
+        provider: 'claude',
+        version: normalizedRegistry?.claude?.[0]?.id || 'claude-3-5-sonnet-20241022',
+        temperature: 0.3,
+        budget_tokens_max: 500000,
+        max_retries: 3,
+        timeout_seconds: 900,
+        skill_refs: [],
+        system_prompt_override: '',
+      });
+    }
+    setErrors({});
+  }, [role, isOpen, normalizedRegistry]);
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.name) newErrors.name = 'Name is required';
+    if (existingRoles.some(r => r.name.toLowerCase() === formData.name?.toLowerCase() && r.id !== role?.id)) {
+      newErrors.name = 'Role name already exists';
+    }
+    if (formData.temperature === undefined || formData.temperature < 0 || formData.temperature > 2) {
+      newErrors.temperature = 'Temperature must be between 0 and 2';
+    }
+    if (!formData.version) newErrors.version = 'Model version is required';
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSave = async () => {
+    if (!validate()) return;
+
+    setIsSaving(true);
+    try {
+      const url = role ? `/api/roles/${role.id}` : '/api/roles';
+      const method = role ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      if (response.ok) {
+        mutate('/api/roles');
+        onClose();
+      }
+    } catch (error) {
+      console.error('Failed to save role:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end animate-in fade-in duration-300">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      
+      {/* Panel */}
+      <div 
+        className="relative w-full max-w-[420px] h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden"
+        style={{ background: 'var(--color-surface)' }}
+      >
+        {/* Header */}
+        <div className="p-6 border-b flex items-center justify-between sticky top-0 z-10" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+          <div>
+            <h2 className="text-xl font-extrabold" style={{ color: 'var(--color-text-main)' }}>{role ? 'Edit Role' : 'New Role'}</h2>
+            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Configure agent identity and model binding</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+            <span className="material-symbols-outlined text-xl">close</span>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        {role && (
+          <div className="flex px-6 border-b" style={{ borderColor: 'var(--color-border)' }}>
+            <button 
+              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
+              onClick={() => setActiveTab('config')}
+            >
+              Configuration
+            </button>
+            <button 
+              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'dependencies' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
+              onClick={() => setActiveTab('dependencies')}
+            >
+              Where Used
+              {dependencies && ((dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)) > 0 && (
+                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/10 text-[10px]">{(dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)}</span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Form Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-24">
+          {activeTab === 'config' ? (
+            <>
+          {/* Section: Identity */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">01</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Identity & Context</h3>
+            </div>
+            
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Role Name</label>
+              <input 
+                type="text"
+                placeholder="e.g. Frontend Engineer"
+                className={`w-full p-3 rounded-xl border text-sm font-semibold transition-all focus:ring-4 focus:ring-primary/10 ${errors.name ? 'border-red-500 bg-red-50' : 'bg-white'}`}
+                value={formData.name}
+                onChange={e => setFormData({ ...formData, name: e.target.value })}
+              />
+              {errors.name && <p className="text-[10px] font-bold text-red-500 px-1">{errors.name}</p>}
+            </div>
+          </div>
+
+          {/* Section: Model Binding */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">02</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Model Binding</h3>
+            </div>
+            
+            <ProviderSelector 
+              value={formData.provider || 'claude'}
+              onChange={p => setFormData({ ...formData, provider: p, version: normalizedRegistry?.[p]?.[0]?.id || '' })}
+            />
+
+            <div className="space-y-1.5 mt-4">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Model Version</label>
+              <select 
+                className="w-full p-3 rounded-xl border bg-white text-sm font-semibold shadow-sm focus:ring-4 focus:ring-primary/10"
+                value={formData.version}
+                onChange={e => setFormData({ ...formData, version: e.target.value })}
+              >
+                {normalizedRegistry?.[formData.provider || 'claude']?.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.id} ({m.tier}) — {m.context_window}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <TestConnectionButton version={formData.version || ''} />
+          </div>
+
+          {/* Section: Parameters */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">03</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Sampling Parameters</h3>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <label className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Temperature</label>
+                <span className="text-xs font-mono font-bold text-primary">{formData.temperature}</span>
+              </div>
+              <input 
+                type="range"
+                min="0"
+                max="2"
+                step="0.1"
+                className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-primary"
+                value={formData.temperature}
+                onChange={e => setFormData({ ...formData, temperature: parseFloat(e.target.value) })}
+              />
+              <div className="flex justify-between text-[10px] font-bold text-text-faint px-1">
+                <span>Deterministic</span>
+                <span>Balanced</span>
+                <span>Creative</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Budget Tokens</label>
+                <input 
+                  type="number"
+                  className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold"
+                  value={formData.budget_tokens_max}
+                  onChange={e => setFormData({ ...formData, budget_tokens_max: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Retries</label>
+                <input 
+                  type="number"
+                  min="1"
+                  max="10"
+                  className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold"
+                  value={formData.max_retries}
+                  onChange={e => setFormData({ ...formData, max_retries: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Timeout (s)</label>
+                <input 
+                  type="number"
+                  className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold"
+                  value={formData.timeout_seconds}
+                  onChange={e => setFormData({ ...formData, timeout_seconds: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Skills */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">04</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Skill Matrix</h3>
+            </div>
+            
+            <SkillChipInput 
+              selectedSkillRefs={formData.skill_refs || []}
+              onChange={refs => setFormData({ ...formData, skill_refs: refs })}
+            />
+          </div>
+
+          {/* Section: Advanced */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">05</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Advanced Configuration</h3>
+            </div>
+            
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">System Prompt Override</label>
+              <textarea 
+                rows={6}
+                placeholder="Optional: Custom system instructions for this role..."
+                className="w-full p-3 rounded-xl border bg-white text-xs font-mono resize-none focus:ring-4 focus:ring-primary/10 transition-all"
+                value={formData.system_prompt_override || ''}
+                onChange={e => setFormData({ ...formData, system_prompt_override: e.target.value })}
+              />
+            </div>
+          </div>
+          </>
+          ) : (
+            <div className="space-y-6">
+              <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Active War-Rooms</h4>
+                {(dependencies?.active_warrooms?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-text-faint italic">No active war-rooms using this role.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {dependencies?.active_warrooms.map(room => (
+                      <div key={room.id} className="flex items-center justify-between p-2 rounded-lg bg-white border shadow-sm">
+                        <span className="text-xs font-bold">{room.id}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 text-[10px] font-bold uppercase">{room.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Associated Plans</h4>
+                {(dependencies?.plans?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-text-faint italic">No plans explicitly referencing this role.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2">
+                    {dependencies?.plans.map(plan => (
+                      <div key={plan} className="flex items-center gap-2 p-2 rounded-lg bg-white border shadow-sm">
+                        <span className="material-symbols-outlined text-base text-primary">description</span>
+                        <span className="text-xs font-bold">{plan}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {(dependencies?.inactive_warrooms?.length ?? 0) > 0 && (
+                <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Historical Usage</h4>
+                  <p className="text-[10px] text-text-muted">Used in {dependencies?.inactive_warrooms?.length} completed war-rooms.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-6 border-t sticky bottom-0 z-10 flex gap-3 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)]" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+          <button 
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 rounded-xl border text-sm font-bold hover:bg-slate-50 transition-all"
+            style={{ color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+          >
+            Cancel
+          </button>
+          <button 
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex-[2] py-3 rounded-xl text-white text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:brightness-105 active:scale-95 transition-all"
+            style={{ background: 'var(--color-primary)' }}
+          >
+            {isSaving && <span className="material-symbols-outlined text-base animate-spin">refresh</span>}
+            {role ? 'Update Role' : 'Create Role'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

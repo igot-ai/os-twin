@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from typing import AsyncIterator
+from datetime import datetime, timezone
 import asyncio
 import json
 from pathlib import Path
@@ -241,3 +242,52 @@ async def room_action(room_id: str, background_tasks: BackgroundTasks, action: s
     data = {"room_id": room_id, "action": action}
     background_tasks.add_task(process_notification, "room_action", data)
     return {"status": "ok", "action": action, "room_id": room_id}
+
+
+@router.post("/api/rooms/{room_id}/advance")
+async def advance_room_state(
+    room_id: str,
+    request: dict,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user)
+):
+    """Advance the room to the next lifecycle state."""
+    room_dir = WARROOMS_DIR / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
+
+    target_state = request.get("target_state")
+    if not target_state:
+        raise HTTPException(status_code=400, detail="target_state is required")
+
+    # Update status file
+    status_file = room_dir / "status"
+    status_file.write_text(target_state)
+
+    # Update state_changed_at
+    sca_file = room_dir / "state_changed_at"
+    sca_file.write_text(datetime.now(timezone.utc).isoformat())
+
+    # Post a message to the channel about the state change
+    channel_file = room_dir / "channel.jsonl"
+    event_msg = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "from": "system",
+        "to": "all",
+        "type": "state_changed",
+        "ref": target_state,
+        "body": f"Lifecycle state advanced to: {target_state}"
+    }
+    with open(channel_file, "a") as f:
+        f.write(json.dumps(event_msg) + "\n")
+
+    # Broadcast update via notification channel
+    data = {
+        "room_id": room_id,
+        "new_state": target_state,
+        "event": "state_changed",
+        "message": event_msg
+    }
+    background_tasks.add_task(process_notification, "state_changed", data)
+
+    return {"status": "ok", "new_state": target_state}

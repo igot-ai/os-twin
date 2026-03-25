@@ -2,7 +2,12 @@
 import re
 from pathlib import Path
 
-content = Path("plan-20260313-211747.md").read_text()
+plan_file = Path("/Users/paulaan/PycharmProjects/agent-os/.agents/plans/PLAN.template.md")
+if plan_file.exists():
+    content = plan_file.read_text()
+else:
+    content = "> Status: draft\n> Created: 2026-03-13T21:17:47+08:00\n"
+
 status_match = re.search(r"> Status:\s*(.*)", content)
 created_match = re.search(r"> Created:\s*(.*)", content)
 

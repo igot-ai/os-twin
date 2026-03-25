@@ -17,7 +17,7 @@ class TestSkillsLogic(unittest.TestCase):
             skill_dir.mkdir()
             skill_md = skill_dir / "SKILL.md"
             content = """---
-name: Test Skill
+name: test-skill
 description: A test skill for YAML parsing.
 tags: [test, mock]
 trust_level: high
@@ -29,7 +29,7 @@ This is the skill content.
             
             data = parse_skill_md(skill_dir)
             self.assertIsNotNone(data)
-            self.assertEqual(data["name"], "Test Skill")
+            self.assertEqual(data["name"], "test-skill")
             self.assertEqual(data["description"], "A test skill for YAML parsing.")
             self.assertEqual(data["tags"], ["test", "mock"])
             self.assertEqual(data["trust_level"], "high")
