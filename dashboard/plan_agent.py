@@ -193,6 +193,8 @@ def create_plan_agent(
 
     # Resolve agents_dir from plans_dir
     agents_dir = plans_dir.parent if plans_dir else None
+    logger.info(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
+    print(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
 
     agent = create_deep_agent(
         model=chat_model,
