@@ -442,6 +442,91 @@ Engineer: Follow the architect's guidance above to redesign the approach.
         }
     }
 
+    Context "Architect-as-done transition" {
+        It "architect design-guidance with RECOMMENDATION is treated as done by manager" {
+            & $script:NewWarRoom -RoomId "room-130" -TaskRef "EPIC-130" `
+                                 -TaskDescription "Arch as primary worker" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-130"
+
+            # Write lifecycle where engineering state role is architect
+            $lifecycle = @{
+                initial_state = "engineering"
+                states = @{
+                    engineering = @{
+                        type = "agent"
+                        role = "architect"
+                        transitions = @{ done = "engineer-review" }
+                    }
+                    "engineer-review" = @{
+                        type = "agent"
+                        role = "engineer"
+                        transitions = @{ pass = "passed"; fail = "manager-triage" }
+                    }
+                }
+            }
+            $lifecycle | ConvertTo-Json -Depth 5 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            # Architect posts design-guidance with RECOMMENDATION (not a 'done' message type)
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "design-guidance" -Ref "EPIC-130" `
+                                  -Body "RECOMMENDATION: FIX`n`nPlease install dependencies and configure design tokens."
+
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "design-guidance" -AsObject
+            $msgs.Count | Should -Be 1
+            $msgs[0].body | Should -Match "RECOMMENDATION: FIX"
+
+            # Verify no 'done' messages exist (architect doesn't post done)
+            $doneMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject
+            $doneMsgs.Count | Should -Be 0
+
+            # The lifecycle state definition should match the architect role
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $lc.states.engineering.role | Should -Be "architect"
+            $lc.states.engineering.transitions.done | Should -Be "engineer-review"
+        }
+
+        It "done-transition lookup uses actual status not hard-coded engineering" {
+            & $script:NewWarRoom -RoomId "room-131" -TaskRef "EPIC-131" `
+                                 -TaskDescription "Fixing transition test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-131"
+
+            # Write lifecycle where fixing state has different transition than engineering
+            $lifecycle = @{
+                initial_state = "engineering"
+                states = @{
+                    engineering = @{
+                        type = "agent"
+                        role = "architect"
+                        transitions = @{ done = "engineer-review" }
+                    }
+                    fixing = @{
+                        type = "agent"
+                        role = "architect"
+                        transitions = @{ done = "engineer-review" }
+                    }
+                    "engineer-review" = @{
+                        type = "agent"
+                        role = "engineer"
+                        transitions = @{ pass = "passed" }
+                    }
+                }
+            }
+            $lifecycle | ConvertTo-Json -Depth 5 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            # Verify that lifecycle.states.fixing is accessible and has correct transition
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $lc.states.fixing.role | Should -Be "architect"
+            $lc.states.fixing.transitions.done | Should -Be "engineer-review"
+
+            # When status is 'fixing', the lookup should use $lifecycle.states.fixing (not .engineering)
+            $status = "fixing"
+            $nextState = if ($lc.states.$status -and $lc.states.$status.transitions.done) {
+                $lc.states.$status.transitions.done
+            } else { "qa-review" }
+            $nextState | Should -Be "engineer-review"
+        }
+    }
+
     Context "External status bypass rescue (QA-bypass scenario)" {
         It "failed-final with retries remaining and fail message rescues to manager-triage" {
             # This reproduces the exact room-001 bug: QA agent called

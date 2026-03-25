@@ -17,7 +17,8 @@ __pycache__/
 
 # ── Local data & secrets ──────────────────────────────────────────────────────
 .claude/
-plans/
+.agents/plans/
+/plans/
 .data/
 .data/**
 dashboard/.war-rooms

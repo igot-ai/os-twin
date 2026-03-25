@@ -1,0 +1,23 @@
+{
+  "name": "frontend-engineer",
+  "description": "Build the Next.js Dashboard landing page featuring animated metric cards, a filterable plan grid, and SWR-based data fetching from mock APIs.",
+  "capabilities": [
+    "Next.js App Router development",
+    "React functional components and hooks",
+    "TypeScript",
+    "SWR data fetching",
+    "CSS Grid and Flexbox layouts",
+    "SVG component design",
+    "Client-side state management (filtering, sorting, debouncing)",
+    "Loading skeleton implementation"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

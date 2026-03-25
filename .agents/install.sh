@@ -8,6 +8,7 @@
 #   ./install.sh               # Interactive mode — prompts before each step
 #   ./install.sh --yes         # Non-interactive — auto-approve all installs
 #   ./install.sh --dir /path   # Install to custom location (default: ~/.ostwin)
+#   ./install.sh --dashboard-only  # Install dashboard API + frontend only
 #   ./install.sh --help        # Show this help
 #
 # What gets installed:
@@ -32,6 +33,7 @@ INSTALL_DIR="${HOME}/.ostwin"
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 AUTO_YES=false
 SKIP_OPTIONAL=false
+DASHBOARD_ONLY=false
 DASHBOARD_PORT=9000
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
@@ -47,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --source-dir)    SOURCE_DIR="$2"; shift 2 ;;
     --port)          DASHBOARD_PORT="$2"; shift 2 ;;
     --skip-optional) SKIP_OPTIONAL=true; shift ;;
+    --dashboard-only) DASHBOARD_ONLY=true; AUTO_YES=true; shift ;;
     --help|-h)
       head -22 "$0" | tail -20
       exit 0
@@ -457,6 +460,19 @@ setup_venv() {
     ok "Dashboard dependencies up to date"
   fi
 
+  # Install Memory/indexing requirements (CocoIndex, pgvector, etc.)
+  local memory_reqs="$INSTALL_DIR/memory/requirements.txt"
+  if [[ -f "$memory_reqs" ]]; then
+    step "Syncing memory/indexing dependencies..."
+    if check_uv; then
+      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache \
+        --python "$VENV_DIR/bin/python" -r "$memory_reqs"
+    else
+      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$memory_reqs"
+    fi
+    ok "Memory/indexing dependencies up to date"
+  fi
+
   # Install role-specific requirements (e.g. roles/reporter/requirements.txt)
   local roles_dir="$INSTALL_DIR/roles"
   if [[ -d "$roles_dir" ]]; then
@@ -586,6 +602,54 @@ build_nextjs() {
     fi
     "$pm" run build
   ) && ok "Next.js build complete" || warn "Next.js build failed — dashboard UI may be outdated"
+}
+
+# ─── Dashboard FE build (dashboard/fe) ───────────────────────────────────────
+
+build_dashboard_fe() {
+  # Locate the fe directory relative to the source repo
+  local fe_dir=""
+  for candidate in \
+    "${SOURCE_DIR}/dashboard/fe" \
+    "${SCRIPT_DIR}/../dashboard/fe" \
+    "${SCRIPT_DIR}/dashboard/fe"; do
+    if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
+      fe_dir="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+
+  if [[ -z "$fe_dir" ]]; then
+    warn "Dashboard frontend not found — skipping build"
+    info "Expected at dashboard/fe/package.json"
+    return
+  fi
+
+  # Pick installed package manager (prefer bun for speed)
+  local pm=""
+  for tool in bun pnpm npm yarn; do
+    if command -v "$tool" &>/dev/null; then
+      pm="$tool"
+      break
+    fi
+  done
+
+  if [[ -z "$pm" ]]; then
+    warn "No package manager (bun/pnpm/npm/yarn) found — skipping FE build"
+    info "Install Node.js and a package manager to enable the dashboard frontend"
+    return
+  fi
+
+  step "Building dashboard frontend ($pm) at $fe_dir..."
+  (
+    cd "$fe_dir"
+    # Install deps if node_modules missing
+    if [[ ! -d node_modules ]]; then
+      step "Installing npm dependencies..."
+      "$pm" install --frozen-lockfile 2>/dev/null || "$pm" install
+    fi
+    "$pm" run build
+  ) && ok "Dashboard FE build complete" || warn "Dashboard FE build failed"
 }
 
 # ─── File installation ───────────────────────────────────────────────────────
@@ -812,6 +876,23 @@ esac
 
 # ─── 2. Check & install dependencies ─────────────────────────────────────────
 
+if $DASHBOARD_ONLY; then
+  header "2. Checking dependencies (dashboard-only — minimal)"
+  # Only ensure uv + Python are available (needed for dashboard venv)
+  BASH_VER=$(bash --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  ok "bash $BASH_VER"
+  if ! check_uv; then
+    install_uv
+  fi
+  PYTHON_CMD=$(check_python)
+  if [[ -z "$PYTHON_CMD" ]]; then
+    install_python
+    PYTHON_CMD=$(check_python)
+    [[ -z "$PYTHON_CMD" ]] && { fail "Python required for dashboard"; exit 1; }
+  fi
+  ok "Python $PYTHON_VERSION ($PYTHON_CMD)"
+else
+
 header "2. Checking dependencies"
 
 # --- Bash ---
@@ -877,12 +958,21 @@ else
   install_deepagents
 fi
 
+fi  # end: ! DASHBOARD_ONLY
+
 echo ""
 
 # ─── 3. Build Next.js dashboard ─────────────────────────────────────────────
 
-header "3. Building Next.js dashboard"
-build_nextjs
+if ! $DASHBOARD_ONLY; then
+  header "3. Building Next.js dashboard"
+  build_nextjs
+  header "3b. Building dashboard frontend (fe)"
+  build_dashboard_fe
+else
+  header "3. Building dashboard frontend (fe)"
+  build_dashboard_fe
+fi
 
 # ─── 4. Install files ────────────────────────────────────────────────────────
 
@@ -902,7 +992,10 @@ setup_env
 
 # ─── 6. PowerShell extras ────────────────────────────────────────────────────
 
-if ! $SKIP_OPTIONAL && command -v pwsh &>/dev/null; then
+if $DASHBOARD_ONLY; then
+  header "6. PowerShell modules (skipped — dashboard-only)"
+  info "Skipping in dashboard-only mode"
+elif ! $SKIP_OPTIONAL && command -v pwsh &>/dev/null; then
   header "6. PowerShell modules"
   install_pester
 else
@@ -912,46 +1005,73 @@ fi
 
 # ─── 7. PATH ─────────────────────────────────────────────────────────────────
 
-header "7. Configuring PATH"
-setup_path
+if ! $DASHBOARD_ONLY; then
+  header "7. Configuring PATH"
+  setup_path
+else
+  header "7. PATH (skipped — dashboard-only)"
+  info "Skipping PATH setup in dashboard-only mode"
+  # Still ensure INSTALL_DIR/bin is in current session
+  export PATH="$INSTALL_DIR/bin:$PATH"
+fi
 
 # ─── 8. Verification ─────────────────────────────────────────────────────────
 
 header "8. Verification"
 
 echo ""
-echo -e "  ${BOLD}Component Status:${NC}"
-echo -e "    bash:             ${GREEN}✅ $BASH_VER${NC}"
-
-PYTHON_CMD=$(check_python)
-if [[ -n "$PYTHON_CMD" ]]; then
-  echo -e "    python:           ${GREEN}✅ $PYTHON_VERSION${NC}"
+if $DASHBOARD_ONLY; then
+  echo -e "  ${BOLD}Dashboard-Only Component Status:${NC}"
+  PYTHON_CMD=$(check_python)
+  if [[ -n "$PYTHON_CMD" ]]; then
+    echo -e "    python:           ${GREEN}✅ $PYTHON_VERSION${NC}"
+  else
+    echo -e "    python:           ${RED}❌ not found${NC}"
+  fi
+  if [[ -d "$VENV_DIR" ]]; then
+    echo -e "    venv:             ${GREEN}✅ $VENV_DIR${NC}"
+  else
+    echo -e "    venv:             ${RED}❌ not created${NC}"
+  fi
+  if [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; then
+    echo -e "    dashboard api:    ${GREEN}✅ installed${NC}"
+  else
+    echo -e "    dashboard api:    ${RED}❌ not found${NC}"
+  fi
 else
-  echo -e "    python:           ${RED}❌ not found${NC}"
-fi
+  echo -e "  ${BOLD}Component Status:${NC}"
+  echo -e "    bash:             ${GREEN}✅ $BASH_VER${NC}"
 
-if check_pwsh; then
-  echo -e "    powershell:       ${GREEN}✅ $PWSH_VERSION${NC}"
-else
-  echo -e "    powershell:       ${YELLOW}⚠️  not installed${NC}"
-fi
+  PYTHON_CMD=$(check_python)
+  if [[ -n "$PYTHON_CMD" ]]; then
+    echo -e "    python:           ${GREEN}✅ $PYTHON_VERSION${NC}"
+  else
+    echo -e "    python:           ${RED}❌ not found${NC}"
+  fi
 
-if check_uv; then
-  echo -e "    uv:               ${GREEN}✅ $(uv --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)${NC}"
-else
-  echo -e "    uv:               ${YELLOW}⚠️  not installed${NC}"
-fi
+  if check_pwsh; then
+    echo -e "    powershell:       ${GREEN}✅ $PWSH_VERSION${NC}"
+  else
+    echo -e "    powershell:       ${YELLOW}⚠️  not installed${NC}"
+  fi
 
-if check_deepagents; then
-  echo -e "    deepagents-cli:   ${GREEN}✅ $(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
-else
-  echo -e "    deepagents-cli:   ${YELLOW}⚠️  not in PATH${NC}"
-fi
+  if check_uv; then
+    echo -e "    uv:               ${GREEN}✅ $(uv --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)${NC}"
+  else
+    echo -e "    uv:               ${YELLOW}⚠️  not installed${NC}"
+  fi
 
-if [[ -d "$VENV_DIR" ]]; then
-  echo -e "    venv:             ${GREEN}✅ $VENV_DIR${NC}"
-else
-  echo -e "    venv:             ${RED}❌ not created${NC}"
+  if check_deepagents; then
+    echo -e "    deepagents-cli:   ${GREEN}✅ $(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
+  else
+    echo -e "    deepagents-cli:   ${YELLOW}⚠️  not in PATH${NC}"
+  fi
+
+  if [[ -d "$VENV_DIR" ]]; then
+    echo -e "    venv:             ${GREEN}✅ $VENV_DIR${NC}"
+  else
+    echo -e "    venv:             ${RED}❌ not created${NC}"
+  fi
 fi
 
 # ─── 8. Start Dashboard ──────────────────────────────────────────────────────

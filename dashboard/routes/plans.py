@@ -85,7 +85,7 @@ async def list_plans(user: dict = Depends(get_current_user)):
             title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
             title = title_match.group(1).strip() if title_match else plan_id
 
-            epics_found = re.findall(r"^## (Epic|Task):\s*(\S+)", content, re.MULTILINE)
+            epics_found = re.findall(r"^## (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE)
             epic_count = len(epics_found)
 
             status_match = re.search(r"^>\s*Status:\s*(\w+)", content, re.MULTILINE)
@@ -124,9 +124,214 @@ async def list_plans(user: dict = Depends(get_current_user)):
 
         # Merge meta.json for working_dir etc.
         _merge_plan_meta(p, plans_dir)
+
+        # Enrich from progress.json if available
+        warrooms_dir = p.get("warrooms_dir")
+        if warrooms_dir:
+            prog_file = Path(warrooms_dir) / "progress.json"
+            if prog_file.exists():
+                try:
+                    prog = json.loads(prog_file.read_text())
+                    p["epic_count"] = prog.get("total", p.get("epic_count", 0))
+                    p["completed_epics"] = prog.get("passed", 0)
+                    p["active_epics"] = prog.get("active", 0)
+                    p["pct_complete"] = prog.get("pct_complete", 0)
+                    p["escalations"] = sum(
+                        1 for r in prog.get("rooms", [])
+                        if r.get("status") == "manager-triage"
+                    )
+                    cp_str = prog.get("critical_path", "")
+                    if "/" in str(cp_str):
+                        parts = str(cp_str).split("/")
+                        p["critical_path"] = {"completed": int(parts[0]), "total": int(parts[1])}
+                except (json.JSONDecodeError, OSError, ValueError):
+                    pass
+
+        # Add mock jitter if enabled
+        if os.environ.get("NEXT_PUBLIC_ENABLE_MOCK_REALTIME") == "true":
+            import random
+            p["pct_complete"] = min(100, max(0, random.randint(30, 95)))
+            p["active_epics"] = random.randint(1, max(1, p.get("epic_count", 5)))
+            p["completed_epics"] = random.randint(0, max(0, p.get("epic_count", 5) - p["active_epics"]))
+
         plans.append(p)
 
     return {"plans": plans, "count": len(plans)}
+
+def _get_stats_history() -> List[Dict]:
+    history_file = AGENTS_DIR / "stats_history.json"
+    if history_file.exists():
+        try:
+            return json.loads(history_file.read_text())
+        except:
+            return []
+    return []
+
+def _save_stats_snapshot(current_stats: Dict):
+    history = _get_stats_history()
+    now = datetime.now(timezone.utc)
+    now_str = now.isoformat()
+    
+    # One snapshot per day is enough for the trends/sparkline requested
+    today_str = now_str[:10]
+    if history and history[-1]["timestamp"][:10] == today_str:
+        history[-1].update(current_stats)
+        history[-1]["timestamp"] = now_str
+    else:
+        history.append({"timestamp": now_str, **current_stats})
+    
+    # Keep last 14 days
+    if len(history) > 14:
+        history = history[-14:]
+    
+    (AGENTS_DIR / "stats_history.json").write_text(json.dumps(history, indent=2) + "\n")
+
+@router.get("/api/stats")
+async def get_stats(user: dict = Depends(get_current_user)):
+    """Aggregate stats across all plans from progress.json files."""
+    from datetime import timedelta
+    plans_dir = AGENTS_DIR / "plans"
+    total_plans = 0
+    plan_status_counts = {"active": 0, "completed": 0, "draft": 0}
+    active_epics = 0
+    total_epics = 0
+    passed_epics = 0
+    escalations = 0
+
+    seen_progress_files = set()
+    
+    if plans_dir.exists():
+        for f in sorted(plans_dir.glob("*.md")):
+            if f.stem == "PLAN.template" or f.name.endswith(".refined.md"):
+                continue
+            total_plans += 1
+            
+            plan_id = f.stem
+            meta_file = plans_dir / f"{plan_id}.meta.json"
+            plan_status = "draft"
+            
+            if meta_file.exists():
+                try:
+                    meta = json.loads(meta_file.read_text())
+                    warrooms_dir = meta.get("warrooms_dir")
+                    if warrooms_dir:
+                        prog_file = Path(warrooms_dir) / "progress.json"
+                        if prog_file.exists():
+                            seen_progress_files.add(str(prog_file))
+                            prog = json.loads(prog_file.read_text())
+                            pct = prog.get("pct_complete", 0)
+                            active = prog.get("active", 0)
+                            passed = prog.get("passed", 0)
+                            
+                            if pct >= 100:
+                                plan_status = "completed"
+                            elif active > 0 or passed > 0:
+                                plan_status = "active"
+                            else:
+                                plan_status = "draft"
+                except (json.JSONDecodeError, OSError):
+                    pass
+            
+            plan_status_counts[plan_status] += 1
+
+    # Aggregate from unique progress files to avoid double-counting
+    for pf_path in seen_progress_files:
+        try:
+            prog = json.loads(Path(pf_path).read_text())
+            active_epics += prog.get("active", 0)
+            total_epics += prog.get("total", 0)
+            passed_epics += prog.get("passed", 0)
+            for room in prog.get("rooms", []):
+                if room.get("status") == "manager-triage":
+                    escalations += 1
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Weighted average completion rate
+    completion_rate = (passed_epics / total_epics * 100) if total_epics > 0 else 0
+    
+    current_stats = {
+        "total_plans": total_plans,
+        "active_epics": active_epics,
+        "completion_rate": round(completion_rate, 1),
+        "escalations_pending": escalations,
+        "plan_status_counts": plan_status_counts
+    }
+    
+    # Load history
+    history = _get_stats_history()
+    
+    # Calculate trends
+    def get_trend(key, days_ago):
+        target_date = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()[:10]
+        # Find the value closest to target_date
+        past_val = current_stats[key]
+        if history:
+            for h in reversed(history):
+                if h["timestamp"][:10] <= target_date:
+                    past_val = h[key]
+                    break
+        
+        delta = current_stats[key] - past_val
+        direction = "up" if delta > 0 else "down" if delta < 0 else "flat"
+        return {"direction": direction, "delta": abs(round(delta, 1))}
+
+    # Active Epics Sparkline (7 points from last 14 days)
+    sparkline_points = []
+    # history currently has 14 mock points + 1 current snapshot
+    full_history = history + [{"timestamp": datetime.now(timezone.utc).isoformat(), **current_stats}]
+    
+    # Take up to 7 samples from history
+    if len(full_history) >= 7:
+        # Sample evenly across history
+        step = len(full_history) / 7
+        for i in range(7):
+            idx = int(i * step)
+            sparkline_points.append(full_history[idx]["active_epics"])
+    else:
+        # Pad with current value if not enough history
+        for h in full_history:
+            sparkline_points.append(h["active_epics"])
+        while len(sparkline_points) < 7:
+            sparkline_points.insert(0, sparkline_points[0] if sparkline_points else 0)
+
+    # If no history, we need to save one now so it starts accumulating
+    if not history:
+        _save_stats_snapshot(current_stats)
+
+    # Add mock jitter if enabled
+    is_mock = os.environ.get("NEXT_PUBLIC_ENABLE_MOCK_REALTIME") == "true"
+    if is_mock:
+        import random
+        active_epics += random.randint(-1, 1)
+        completion_rate = min(100, max(0, completion_rate + random.uniform(-0.5, 0.5)))
+        if random.random() > 0.8:
+            escalations += random.randint(0, 1)
+
+    return {
+        "total_plans": {
+            "value": total_plans,
+            "trend": get_trend("total_plans", 7),
+            "distribution": {
+                "active": plan_status_counts["active"],
+                "completed": plan_status_counts["completed"],
+                "draft": plan_status_counts["draft"]
+            }
+        },
+        "active_epics": {
+            "value": active_epics,
+            "trend": get_trend("active_epics", 1),
+            "sparkline": sparkline_points
+        },
+        "completion_rate": {
+            "value": round(completion_rate, 1),
+            "trend": get_trend("completion_rate", 7)
+        },
+        "escalations_pending": {
+            "value": escalations,
+            "trend": get_trend("escalations_pending", 1)
+        }
+    }
 
 @router.get("/api/plans/{plan_id}")
 async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
@@ -271,7 +476,41 @@ async def update_plan_config(plan_id: str, config: Dict[str, Any], user: dict = 
 async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
     """Get the roles list for a plan, merged with config."""
     config = get_plan_roles_config(plan_id)
-    return {"roles": build_roles_list(config, include_skills=True)}
+    return {
+        "roles": build_roles_list(config, include_skills=True),
+        "attached_skills": config.get("attached_skills", [])
+    }
+
+@router.post("/api/plans/{plan_id}/skills")
+async def attach_skill(plan_id: str, skill: Dict[str, str], user: dict = Depends(get_current_user)):
+    """Attach a skill to a plan."""
+    config = get_plan_roles_config(plan_id)
+    if "attached_skills" not in config:
+        config["attached_skills"] = []
+    
+    skill_name = skill.get("name")
+    if not skill_name:
+         raise HTTPException(status_code=400, detail="Skill name is required")
+         
+    if skill_name not in config["attached_skills"]:
+        config["attached_skills"].append(skill_name)
+    
+    plans_dir = AGENTS_DIR / "plans"
+    config_file = plans_dir / f"{plan_id}.roles.json"
+    config_file.write_text(json.dumps(config, indent=2) + "\n")
+    return {"status": "attached", "plan_id": plan_id, "skill": skill_name}
+
+@router.delete("/api/plans/{plan_id}/skills/{skill_name}")
+async def detach_skill(plan_id: str, skill_name: str, user: dict = Depends(get_current_user)):
+    """Detach a skill from a plan."""
+    config = get_plan_roles_config(plan_id)
+    if "attached_skills" in config and skill_name in config["attached_skills"]:
+        config["attached_skills"].remove(skill_name)
+    
+    plans_dir = AGENTS_DIR / "plans"
+    config_file = plans_dir / f"{plan_id}.roles.json"
+    config_file.write_text(json.dumps(config, indent=2) + "\n")
+    return {"status": "detached", "plan_id": plan_id, "skill": skill_name}
 
 @router.post("/api/run")
 async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
@@ -432,18 +671,24 @@ async def update_plan_status(plan_id: str, request: dict):
 async def list_plan_versions(plan_id: str, user: dict = Depends(get_current_user)):
     """List all versions for a plan (content excluded for performance)."""
     store = global_state.store
-    if not store:
+    if not store or not hasattr(store, 'get_plan_versions'):
         return {"plan_id": plan_id, "versions": [], "count": 0}
-    versions = store.get_plan_versions(plan_id)
+    try:
+        versions = store.get_plan_versions(plan_id)
+    except Exception:
+        return {"plan_id": plan_id, "versions": [], "count": 0}
     return {"plan_id": plan_id, "versions": versions, "count": len(versions)}
 
 @router.get("/api/plans/{plan_id}/versions/{version}")
 async def get_plan_version(plan_id: str, version: int, user: dict = Depends(get_current_user)):
     """Fetch a specific plan version with full content."""
     store = global_state.store
-    if not store:
+    if not store or not hasattr(store, 'get_plan_version'):
         raise HTTPException(status_code=503, detail="Version store not available")
-    v = store.get_plan_version(plan_id, version)
+    try:
+        v = store.get_plan_version(plan_id, version)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Version store error")
     if not v:
         raise HTTPException(status_code=404, detail=f"Version {version} not found for plan {plan_id}")
     return {"plan_id": plan_id, "version": v}
@@ -627,8 +872,10 @@ async def update_plan_role_config(plan_id: str, role_name: str, request: UpdateP
         config = json.loads(config_file.read_text()) if config_file.exists() else {}
     if role_name not in config: config[role_name] = {}
     if request.default_model is not None: config[role_name]["default_model"] = request.default_model
+    if request.temperature is not None: config[role_name]["temperature"] = request.temperature
     if request.timeout_seconds is not None: config[role_name]["timeout_seconds"] = request.timeout_seconds
     if request.cli is not None: config[role_name]["cli"] = request.cli
+    if request.skill_refs is not None: config[role_name]["skill_refs"] = request.skill_refs
     plan_roles_file.write_text(json.dumps(config, indent=2) + "\n")
     return {"status": "updated", "plan_id": plan_id, "role": role_name, "config": config[role_name]}
 
@@ -658,6 +905,112 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
         room_data = read_room(room_dir, include_metadata=True)
         rooms.append(room_data)
     return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "rooms": rooms, "count": len(rooms)}
+
+
+@router.get("/api/plans/{plan_id}/progress")
+async def get_plan_progress(plan_id: str, user: dict = Depends(get_current_user)):
+    """Get the progress.json content for a specific plan."""
+    from dashboard.api_utils import resolve_plan_warrooms_dir
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    prog_file = warrooms_dir / "progress.json"
+    if not prog_file.exists():
+        return {
+            "total": 0, "passed": 0, "failed": 0, "blocked": 0, "active": 0, "pending": 0,
+            "pct_complete": 0, "rooms": []
+        }
+    try:
+        return json.loads(prog_file.read_text())
+    except (json.JSONDecodeError, OSError):
+        raise HTTPException(status_code=500, detail="Failed to read progress.json")
+
+@router.get("/api/plans/{plan_id}/dag")
+async def get_plan_dag(plan_id: str, user: dict = Depends(get_current_user)):
+    """Return the DAG.json for a plan, read from its warrooms_dir.
+
+    The DAG.json is produced by the OS-Twin planner and contains the full
+    directed-acyclic-graph of war-room / EPIC dependencies including nodes,
+    critical_path, waves, topological_order, and metadata like max_depth.
+    """
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    dag_file = warrooms_dir / "DAG.json"
+    if not dag_file.exists():
+        # Avoid 404 for missing resource (prevents it being confused with missing endpoint)
+        return {
+            "nodes": [],
+            "edges": [],
+            "critical_path": [],
+            "waves": {},
+            "topological_order": [],
+            "max_depth": 0,
+            "error": "DAG.json not found"
+        }
+    try:
+        dag = json.loads(dag_file.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read DAG.json: {exc}")
+    return dag
+
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}")
+async def get_plan_epic(
+    plan_id: str,
+    task_ref: str,
+    include_metadata: bool = Query(False),
+    include_messages: bool = Query(False),
+    user: dict = Depends(get_current_user)
+):
+    """Get full details for a specific EPIC within a plan."""
+    from dashboard.api_utils import read_room, resolve_plan_warrooms_dir
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    if not warrooms_dir.exists():
+        raise HTTPException(status_code=404, detail=f"No war-rooms for plan {plan_id}")
+
+    for room_dir in warrooms_dir.glob("room-*"):
+        if not room_dir.is_dir():
+            continue
+        tr_file = room_dir / "task-ref"
+        current_ref = tr_file.read_text().strip() if tr_file.exists() else None
+
+        # Fallback to config.json if task-ref file missing
+        if not current_ref:
+            room_config_file = room_dir / "config.json"
+            if room_config_file.exists():
+                try:
+                    rc = json.loads(room_config_file.read_text())
+                    current_ref = rc.get("task_ref")
+                except json.JSONDecodeError:
+                    pass
+
+        if current_ref == task_ref:
+            room_data = read_room(room_dir, include_metadata=include_metadata, include_messages=include_messages)
+            
+            # Enrich with plan title
+            plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+            if plan_file.exists():
+                content = plan_file.read_text()
+                title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+                if title_match:
+                    room_data["plan_title"] = title_match.group(1).strip()
+            
+            # Enrich with DAG info (dependents)
+            dag_file = warrooms_dir / "DAG.json"
+            if dag_file.exists():
+                try:
+                    dag = json.loads(dag_file.read_text())
+                    node_info = dag.get("nodes", {}).get(task_ref, {})
+                    if "dependents" in node_info:
+                        # Add to config so frontend can find it easily
+                        if "config" not in room_data:
+                            room_data["config"] = {}
+                        room_data["config"]["dependents"] = node_info["dependents"]
+                        # Also add to top level
+                        room_data["dependents"] = node_info["dependents"]
+                except (json.JSONDecodeError, OSError):
+                    pass
+            
+            return room_data
+
+    raise HTTPException(status_code=404, detail=f"EPIC {task_ref} not found in plan {plan_id}")
 
 @router.get("/api/plans/{plan_id}/rooms/{room_id}/roles")
 async def get_plan_room_roles(plan_id: str, room_id: str, user: dict = Depends(get_current_user)):
@@ -726,33 +1079,210 @@ async def plan_room_action(
     )
     return {"status": "ok", "action": action, "room_id": room_id, "plan_id": plan_id}
 
-@router.get("/plans/{plan_id}", response_class=HTMLResponse)
-async def plan_editor_page(plan_id: str):
-    """Serve the plan editor page (HTML)."""
-    from dashboard.api_utils import USE_NEXTJS, NEXTJS_OUT_DIR
-    from fastapi.responses import FileResponse
-    
-    # If Next.js dashboard is available, it should handle the rendering
-    if USE_NEXTJS:
-        return FileResponse(str(NEXTJS_OUT_DIR / "index.html"))
 
-    # This serves the large HTML string. I'll need to keep it or move to a template.
-    # For now, I'll fetch it from the original api.py to avoid 1000 lines here, 
-    # but since I am refactoring, I'll put it here.
-    # WAIT: I can use the HTML string I already have from view_file.
-    
-    plans_dir = AGENTS_DIR / "plans"
-    plan_file = plans_dir / f"{plan_id}.md"
-    if not plan_file.exists():
-        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+def _resolve_room_dir(plan_id: str, task_ref: str) -> Optional[Path]:
+    """Internal helper to find the room directory for a given task/epic reference."""
+    from dashboard.api_utils import resolve_plan_warrooms_dir
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    if not warrooms_dir.exists():
+        return None
 
-    content = plan_file.read_text()
-    escaped = content.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
+    for room_dir in warrooms_dir.glob("room-*"):
+        if not room_dir.is_dir():
+            continue
+        # 1. task-ref file
+        tr_file = room_dir / "task-ref"
+        if tr_file.exists():
+            if tr_file.read_text().strip() == task_ref:
+                return room_dir
+        # 2. config.json
+        cfg_file = room_dir / "config.json"
+        if cfg_file.exists():
+            try:
+                if json.loads(cfg_file.read_text()).get("task_ref") == task_ref:
+                    return room_dir
+            except (json.JSONDecodeError, OSError): pass
+    return None
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/tasks")
+async def get_epic_tasks(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    """Parse TASKS.md from the war-room and return structured task list."""
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir:
+        return {"tasks": [], "raw": ""}
+    tasks_file = room_dir / "TASKS.md"
+    if not tasks_file.exists():
+        return {"tasks": [], "raw": ""}
+    raw = tasks_file.read_text()
+    tasks = []
+    current_task = None
+    for line in raw.splitlines():
+        line_stripped = line.strip()
+        # Match: - [x] TASK-001 — Description  or  - [ ] TASK-002 — Description
+        if line_stripped.startswith("- ["):
+            completed = line_stripped.startswith("- [x]") or line_stripped.startswith("- [X]")
+            rest = line_stripped[6:].strip()  # after "- [x] " or "- [ ] "
+            parts = rest.split(" — ", 1) if " — " in rest else rest.split(" - ", 1)
+            task_id = parts[0].strip() if len(parts) > 1 else rest
+            description = parts[1].strip() if len(parts) > 1 else ""
+            current_task = {"task_id": task_id, "description": description, "completed": completed, "acceptance_criteria": []}
+            tasks.append(current_task)
+        elif line_stripped.startswith("- AC:") and current_task:
+            current_task["acceptance_criteria"].append(line_stripped[5:].strip())
+    return {"tasks": tasks, "count": len(tasks), "raw": raw}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/lifecycle")
+async def get_epic_lifecycle(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return {"states": {}, "transitions": [], "error": "Room not found"}
+    lc_file = room_dir / "lifecycle.json"
+    if not lc_file.exists(): return {"states": {}, "transitions": [], "error": "lifecycle.json not found"}
+    try: return json.loads(lc_file.read_text())
+    except (json.JSONDecodeError, OSError): return {"states": {}, "transitions": [], "error": "JSON error"}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/audit")
+async def get_epic_audit(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return []
+    audit_file = room_dir / "audit.log"
+    if not audit_file.exists(): return []
+    try:
+        lines = audit_file.read_text().splitlines()
+        # Parse lines like: [2026-03-24T03:46:16Z] Transitioning: state1 -> state2
+        results = []
+        for line in lines:
+            if "Transitioning:" in line:
+                m = re.search(r"\[(.*?)\] Transitioning: (.*?) -> (.*)", line)
+                if m:
+                    results.append({"timestamp": m.group(1), "from_state": m.group(2), "to_state": m.group(3)})
+        return results
+    except OSError: return []
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/brief")
+async def get_epic_brief(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return {"content": "", "working_dir": "", "created_at": None}
+    brief_file = room_dir / "brief.md"
+    config_file = room_dir / "config.json"
+    content = brief_file.read_text() if brief_file.exists() else "# No brief provided"
+    working_dir = "."
+    if config_file.exists():
+        try:
+            cfg = json.loads(config_file.read_text())
+            working_dir = cfg.get("working_dir", ".")
+        except: pass
+    return {"content": content, "working_dir": working_dir, "created_at": None}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/artifacts")
+async def get_epic_artifacts(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return []
+    art_dir = room_dir / "artifacts"
+    if not art_dir.exists(): return []
+    files = []
+    for f in art_dir.iterdir():
+        if f.is_file():
+            files.append({"name": f.name, "size": f.stat().st_size, "type": f.suffix.lstrip(".")})
+    return sorted(files, key=lambda x: x["name"])
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/agents")
+async def get_epic_agents(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return []
+    agents = []
+    # Any role-named file like architect_001.json
+    for f in room_dir.glob("*_*.json"):
+        if f.name == "config.json": continue
+        try:
+            data = json.loads(f.read_text())
+            if "role" in data: agents.append(data)
+        except: pass
+    return agents
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/config")
+async def get_epic_config(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: return {"error": "Room not found"}
+    cfg_file = room_dir / "config.json"
+    if not cfg_file.exists(): return {"error": "config.json missing"}
+    try: return json.loads(cfg_file.read_text())
+    except: return {"error": "JSON parse error"}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/roles")
+async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
+    """Get roles list for a specific Epic, including overrides from war-room config."""
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
     
-    # I'll just put a minimal version for now or read from original if I can.
-    # Actually, I'll copy the HTML from my previous view_file.
-    # I already have it in my context.
+    plan_config = get_plan_roles_config(plan_id)
+    room_config_file = room_dir / "config.json"
+    room_overrides = {}
+    if room_config_file.exists():
+        try:
+            rc = json.loads(room_config_file.read_text())
+            room_overrides = rc.get("roles", {})
+        except json.JSONDecodeError: pass
+        
+    merged_config = plan_config.copy()
+    for role_name, role_overrides in room_overrides.items():
+        if role_name not in merged_config:
+             merged_config[role_name] = {}
+        # Deep update if we have nested dicts? Currently roles are flat configs.
+        merged_config[role_name].update(role_overrides)
+        
+    roles = build_roles_list(merged_config, include_skills=True)
+    return {
+        "roles": roles,
+        "plan_config": plan_config,
+        "room_overrides": room_overrides
+    }
+
+@router.put("/api/plans/{plan_id}/epics/{task_ref}/roles/{role_name}/config")
+async def update_epic_role_config(
+    plan_id: str, 
+    task_ref: str, 
+    role_name: str, 
+    request: UpdatePlanRoleConfigRequest, 
+    user: dict = Depends(get_current_user)
+):
+    """Update role configuration for a specific Epic (saved in war-room config.json)."""
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
     
-    # [TRUNCATED HTML FOR BREVITY IN TOOL CALL - I will use the actual HTML in implementation]
-    html = f"""<!DOCTYPE html>...""" # (I will replace this with the full HTML)
-    return HTMLResponse(html)
+    room_config_file = room_dir / "config.json"
+    if not room_config_file.exists():
+         raise HTTPException(status_code=404, detail="config.json missing")
+         
+    try:
+        rc = json.loads(room_config_file.read_text())
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Invalid config.json")
+        
+    if "roles" not in rc: rc["roles"] = {}
+    if role_name not in rc["roles"]: rc["roles"][role_name] = {}
+    
+    if request.default_model is not None: rc["roles"][role_name]["default_model"] = request.default_model
+    if request.temperature is not None: rc["roles"][role_name]["temperature"] = request.temperature
+    if request.timeout_seconds is not None: rc["roles"][role_name]["timeout_seconds"] = request.timeout_seconds
+    if request.cli is not None: rc["roles"][role_name]["cli"] = request.cli
+    if request.skill_refs is not None: rc["roles"][role_name]["skill_refs"] = request.skill_refs
+    
+    room_config_file.write_text(json.dumps(rc, indent=2) + "\n")
+    return {"status": "updated", "task_ref": task_ref, "role": role_name, "config": rc["roles"][role_name]}
+
+@router.get("/api/plans/{plan_id}/epics/{task_ref}/roles/{role_name}/preview")
+async def preview_epic_role_prompt(
+    plan_id: str, 
+    task_ref: str, 
+    role_name: str, 
+    user: dict = Depends(get_current_user)
+):
+    """Generate and return the final system prompt preview for a role in an Epic."""
+    from dashboard.epic_manager import EpicSkillsManager
+    try:
+        prompt = EpicSkillsManager.generate_system_prompt(plan_id, task_ref, role_name)
+        return {"role": role_name, "prompt": prompt}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate prompt: {e}")
+
+

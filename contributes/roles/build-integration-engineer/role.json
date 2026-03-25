@@ -1,0 +1,19 @@
+{
+  "name": "build-integration-engineer",
+  "description": "Ensure the Next.js application builds successfully for static export and implement environment-based toggling between mock and real backend APIs.",
+  "capabilities": [
+    "nextjs-build-optimization",
+    "typescript-refactoring",
+    "technical-documentation",
+    "api-client-configuration"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "roles",
+    "global"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

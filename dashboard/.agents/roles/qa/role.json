@@ -1,0 +1,14 @@
+{
+  "description": "Build the top-of-page metrics strip that provides instant aggregate health indicators. Four metric cards display: Total Plans, Active EPICs, Completion Rate, and Escalations Pending. Each card reads from aggregated `progress.json` data and updates in real-time.",
+  "prompt_file": "ROLE.md",
+  "model": "gemini-3-flash-preview",
+  "capabilities": [],
+  "timeout": 600,
+  "name": "qa",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent"
+}

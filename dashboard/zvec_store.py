@@ -208,6 +208,16 @@ class OSTwinStore:
                     zvec.FieldSchema("source", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("content", zvec.DataType.STRING),
+                    zvec.FieldSchema("version", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("category", zvec.DataType.STRING, nullable=True,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("applicable_roles", zvec.DataType.STRING),
+                    zvec.FieldSchema("params", zvec.DataType.STRING),
+                    zvec.FieldSchema("changelog", zvec.DataType.STRING),
+                    zvec.FieldSchema("author", zvec.DataType.STRING, nullable=True),
+                    zvec.FieldSchema("forked_from", zvec.DataType.STRING, nullable=True),
+                    zvec.FieldSchema("is_draft", zvec.DataType.INT32),
                 ],
                 vectors=zvec.VectorSchema(
                     "embedding",
@@ -634,7 +644,11 @@ class OSTwinStore:
     def index_skill(self, name: str, description: str, tags: list[str],
                     path: str, relative_path: str = "",
                     trust_level: str = "experimental", source: str = "project",
-                    content: str = "") -> bool:
+                    content: str = "", version: str = "0.1.0", 
+                    category: str | None = None, applicable_roles: list[str] = [],
+                    params: list[dict] = [], changelog: list[dict] = [],
+                    author: str | None = None, forked_from: str | None = None,
+                    is_draft: bool = False) -> bool:
         """Index or update a skill. Returns True on success."""
         if self._skills is None:
             return False
@@ -642,6 +656,9 @@ class OSTwinStore:
         content_clean = self._sanitize_text(content)
         desc_clean = self._sanitize_text(description)
         tags_str = ",".join(tags) if tags else ""
+        roles_str = ",".join(applicable_roles) if applicable_roles else ""
+        params_json = json.dumps(params)
+        changelog_json = json.dumps(changelog)
 
         embed_text = f"{name} {desc_clean} {tags_str} {content_clean[:1000]}"
         embedding = self._embed_text(embed_text)
@@ -659,6 +676,14 @@ class OSTwinStore:
                 "trust_level": trust_level,
                 "source": source,
                 "content": content_clean,
+                "version": version,
+                "category": category,
+                "applicable_roles": roles_str,
+                "params": params_json,
+                "changelog": changelog_json,
+                "author": author,
+                "forked_from": forked_from,
+                "is_draft": 1 if is_draft else 0,
             },
             vectors={"embedding": embedding},
         )
@@ -670,6 +695,40 @@ class OSTwinStore:
             logger.warning("Failed to index skill %s: %s", name, e)
             return False
 
+    def _map_skill_doc(self, doc: zvec.Doc) -> dict:
+        """Helper to map a skill zvec doc to a standard skill dict."""
+        tags_str = doc.field("tags")
+        tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+        roles_str = doc.field("applicable_roles")
+        roles = [r.strip() for r in roles_str.split(",") if r.strip()] if roles_str else []
+        try:
+            params = json.loads(doc.field("params"))
+        except Exception:
+            params = []
+        try:
+            changelog = json.loads(doc.field("changelog"))
+        except Exception:
+            changelog = []
+
+        return {
+            "name": doc.field("name"),
+            "description": doc.field("description"),
+            "tags": tags,
+            "path": doc.field("path"),
+            "relative_path": doc.field("relative_path"),
+            "trust_level": doc.field("trust_level"),
+            "source": doc.field("source"),
+            "content": doc.field("content"),
+            "version": doc.field("version"),
+            "category": doc.field("category"),
+            "applicable_roles": roles,
+            "params": params,
+            "changelog": changelog,
+            "author": doc.field("author"),
+            "forked_from": doc.field("forked_from"),
+            "is_draft": bool(doc.field("is_draft")),
+        }
+
     def get_skill(self, name: str) -> dict | None:
         """Fetch a single skill by name. Returns None if not found."""
         if self._skills is None:
@@ -678,19 +737,7 @@ class OSTwinStore:
             result = self._skills.fetch(name)
             if name not in result:
                 return None
-            doc = result[name]
-            tags_str = doc.field("tags")
-            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
-            return {
-                "name": doc.field("name"),
-                "description": doc.field("description"),
-                "tags": tags,
-                "path": doc.field("path"),
-                "relative_path": doc.field("relative_path"),
-                "trust_level": doc.field("trust_level"),
-                "source": doc.field("source"),
-                "content": doc.field("content"),
-            }
+            return self._map_skill_doc(result[name])
         except Exception:
             return None
 
@@ -704,23 +751,11 @@ class OSTwinStore:
                 vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
                 topk=limit,
                 output_fields=["name", "description", "tags", "path",
-                               "relative_path", "trust_level", "source", "content"],
+                               "relative_path", "trust_level", "source", "content",
+                               "version", "category", "applicable_roles", "params",
+                               "changelog", "author", "forked_from", "is_draft"],
             )
-            results = []
-            for doc in docs:
-                tags_str = doc.field("tags")
-                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
-                results.append({
-                    "name": doc.field("name"),
-                    "description": doc.field("description"),
-                    "tags": tags,
-                    "path": doc.field("path"),
-                    "relative_path": doc.field("relative_path"),
-                    "trust_level": doc.field("trust_level"),
-                    "source": doc.field("source"),
-                    "content": doc.field("content"),
-                })
-            return results
+            return [self._map_skill_doc(doc) for doc in docs]
         except Exception as e:
             logger.error("get_all_skills failed: %s", e)
             return []
@@ -737,22 +772,15 @@ class OSTwinStore:
                 vectors=zvec.VectorQuery("embedding", vector=embedding),
                 topk=limit,
                 output_fields=["name", "description", "tags", "path",
-                               "relative_path", "trust_level", "source", "content"],
+                               "relative_path", "trust_level", "source", "content",
+                               "version", "category", "applicable_roles", "params",
+                               "changelog", "author", "forked_from", "is_draft"],
             )
             results = []
             for doc in docs:
-                tags_str = doc.field("tags")
-                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
-                results.append({
-                    "name": doc.field("name"),
-                    "description": doc.field("description"),
-                    "tags": tags,
-                    "path": doc.field("path"),
-                    "relative_path": doc.field("relative_path"),
-                    "trust_level": doc.field("trust_level"),
-                    "source": doc.field("source"),
-                    "content": doc.field("content"),
-                })
+                skill = self._map_skill_doc(doc)
+                skill["score"] = float(doc.score)
+                results.append(skill)
             return results
         except Exception as e:
             logger.error("Skill search failed: %s", e)
@@ -819,6 +847,14 @@ class OSTwinStore:
                 trust_level=data.get("trust_level", "experimental"),
                 source=data["source"],
                 content=data["content"],
+                version=data.get("version", "0.1.0"),
+                category=data.get("category"),
+                applicable_roles=data.get("applicable_roles", []),
+                params=data.get("params", []),
+                changelog=data.get("changelog", []),
+                author=data.get("author"),
+                forked_from=data.get("forked_from"),
+                is_draft=data.get("is_draft", False),
             ):
                 synced_count += 1
                 if not existing:
