@@ -272,7 +272,7 @@ export AGENT_OS_ROLE='$safeRole'
 export AGENT_OS_PARENT_PID='$PID'
 export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 $cwdLine
-$AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
+exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
 "@
     $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
     chmod +x $wrapperScript 2>$null
