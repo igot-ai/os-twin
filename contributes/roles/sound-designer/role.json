@@ -1,0 +1,23 @@
+{
+  "name": "sound-designer",
+  "description": "Sound Designer — creates SFX, implements audio middleware, and integrates music for Unity mobile games",
+  "capabilities": [
+    "sfx-design",
+    "music-integration",
+    "audio-middleware",
+    "spatial-audio",
+    "audio-mixing",
+    "compression-optimization"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "audio-memory-within-budget",
+    "no-clipping",
+    "spatial-audio-correct",
+    "compression-appropriate"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600,
+  "skill_refs": []
+}

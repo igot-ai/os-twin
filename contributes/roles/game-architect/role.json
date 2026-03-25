@@ -1,0 +1,34 @@
+{
+  "name": "game-architect",
+  "description": "Principal Game Systems Architect — designs scalable Unity architectures, generates project-context.md, and validates implementation readiness",
+  "capabilities": [
+    "game-architecture",
+    "project-context-generation",
+    "course-correction",
+    "implementation-readiness-check",
+    "performance-budgeting",
+    "system-design"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "architecture-validates-gdd-pillars",
+    "performance-budgets-documented",
+    "no-dependency-cycles",
+    "60fps-constraints-covered",
+    "project-context-exists"
+  ],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 900,
+  "skill_refs": [
+    "game-architecture",
+    "generate-project-context",
+    "correct-course",
+    "check-readiness",
+    "write-adr",
+    "design-review",
+    "unity-coding",
+    "unity-ugui",
+    "serena-code-editor"
+  ]
+}

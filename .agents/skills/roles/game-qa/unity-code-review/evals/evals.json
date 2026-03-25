@@ -1,0 +1,19 @@
+{
+  "skill_name": "unity-code-review",
+  "evals": [
+    {
+      "id": 1,
+      "name": "unitask-async-rule",
+      "prompt": "Review this asset loading code: \n\n```csharp\nusing System.Threading.Tasks;\npublic class AssetLoader : MonoBehaviour {\n    public async Task LoadAsset(string path) {\n        var op = Addressables.LoadAssetAsync<GameObject>(path);\n        await op.Task;\n    }\n}\n```",
+      "expected_output": "The review should flag the use of Task instead of UniTask [ASYNC].",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "logic-separation-rule",
+      "prompt": "Review this gameplay logic: \n\n```csharp\npublic class SnakeMovement : MonoBehaviour {\n    public int Speed = 5;\n    public Vector3 CalculateNextPosition(Vector3 current) {\n        return current + Vector3.forward * Speed * Time.deltaTime;\n    }\n    void Update() {\n        transform.position = CalculateNextPosition(transform.position);\n    }\n}\n```",
+      "expected_output": "The review should flag that game logic (CalculateNextPosition) should be in a Pure C# class [UI-LOGIC-SEP].",
+      "files": []
+    }
+  ]
+}

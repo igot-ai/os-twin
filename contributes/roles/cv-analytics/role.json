@@ -1,0 +1,26 @@
+{
+  "name": "cv-analytics",
+  "description": "CV analytics pipeline for Unity UI — orchestrates detect-ui and detect-anim to produce structured JSON outputs",
+  "capabilities": [
+    "ui-detection",
+    "motion-extraction",
+    "animation-analysis",
+    "cross-validation",
+    "analytics-reporting"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "object-coverage-90pct",
+    "id-consistency",
+    "temporal-consistency",
+    "confidence-distribution"
+  ],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 900,
+  "skill_refs": [
+    "cv-analytics",
+    "detect-ui",
+    "detect-anim"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "name": "game-designer",
+  "description": "Upstream design pipeline — game brief, GDD, UX design, epics, stories, and brainstorming for Unity mobile games",
+  "capabilities": [
+    "game-brief",
+    "gdd-creation",
+    "create-ux-design",
+    "epics-planning",
+    "create-story",
+    "quick-spec",
+    "brainstorm-game"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "brief-has-core-loop",
+    "gdd-validates-pillars",
+    "ux-covers-all-screens",
+    "stories-have-acceptance-criteria",
+    "stories-actionable-without-designer"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 900,
+  "skill_refs": [
+    "create-game-brief",
+    "create-gdd",
+    "create-ux-design",
+    "create-epics",
+    "create-story",
+    "quick-spec",
+    "brainstorm-game",
+    "unity-coding",
+    "unity-ugui",
+    "code-explorer"
+  ]
+}

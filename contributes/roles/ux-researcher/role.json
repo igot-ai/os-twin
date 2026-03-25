@@ -1,0 +1,23 @@
+{
+  "name": "ux-researcher",
+  "description": "UX Researcher — conducts playtesting, user research, analytics interpretation, and usability audits for Unity mobile games",
+  "capabilities": [
+    "playtest-facilitation",
+    "user-research",
+    "analytics-interpretation",
+    "usability-audit",
+    "a-b-testing",
+    "heuristic-evaluation"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "playtest-plan-documented",
+    "findings-actionable",
+    "metrics-defined",
+    "recommendations-prioritized"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600,
+  "skill_refs": []
+}
