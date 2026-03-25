@@ -1,0 +1,17 @@
+{
+  "name": "nextjs-mock-api-engineer",
+  "description": "Create a complete Next.js API route layer, expand in-memory mock data, and build type-safe SWR hooks to serve as a frontend backend substitute.",
+  "capabilities": [
+    "nextjs-api-routes",
+    "typescript",
+    "swr-data-fetching",
+    "mock-data-management",
+    "react-hooks"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

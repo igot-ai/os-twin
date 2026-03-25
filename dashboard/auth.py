@@ -75,6 +75,11 @@ async def get_current_user(request: Request) -> dict:
     The key can be provided via header or cookie.
     Returns 401 if missing or invalid.
     """
+    # DEBUG mode: skip auth entirely when OSTWIN_API_KEY=DEBUG
+    if _API_KEY == "DEBUG":
+        username = request.headers.get("x-user", "debug-user")
+        return {"username": username}
+
     provided_key = _extract_api_key(request)
     if not provided_key:
         raise HTTPException(
@@ -88,4 +93,6 @@ async def get_current_user(request: Request) -> dict:
             detail="Invalid API key",
         )
 
-    return {"username": "api-key-user"}
+    # Allow X-User header for identity if API key is valid (for testing/dev)
+    username = request.headers.get("x-user", "api-key-user")
+    return {"username": username}
