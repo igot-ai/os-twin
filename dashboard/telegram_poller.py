@@ -4,21 +4,10 @@ import logging
 import json
 import os
 import signal
-import uuid
 from pathlib import Path
-from datetime import datetime, timezone
 import dashboard.global_state as global_state
 from dashboard.telegram_bot import get_config, authorize_chat
-from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR, PROJECT_ROOT, build_skills_list, read_channel, read_room
-from dashboard.telegram_sessions import get_session, clear_session, set_plan, set_mode
-
-# Try to import plan_agent, handle graceful fallback if deepagents not available
-try:
-    from dashboard.plan_agent import refine_plan, summarize_plan
-    AI_AVAILABLE = True
-except ImportError:
-    AI_AVAILABLE = False
-
+from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR, build_skills_list, read_channel, read_room
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +35,7 @@ async def handle_message(message: dict, bot_token: str):
         return
 
     # Authorized commands
-    session = get_session(chat_id)
-
-    if text.startswith("/menu"):
-        await _cmd_menu(bot_token, chat_id)
-    elif text.startswith("/draft"):
-        await _cmd_draft(bot_token, chat_id, text)
-    elif text.startswith("/edit"):
-        await _cmd_edit_menu(bot_token, chat_id)
-    elif text.startswith("/startplan"):
-        await _cmd_startplan_menu(bot_token, chat_id)
-    elif text.startswith("/viewplan"):
-        await _cmd_viewplan_menu(bot_token, chat_id)
-    elif text.startswith("/cancel"):
-        clear_session(chat_id)
-        await send_reply(bot_token, chat_id, "🛑 Action cancelled. Session cleared.")
-    elif text.startswith("/dashboard"):
+    if text.startswith("/dashboard"):
         await send_reply(bot_token, chat_id, _cmd_dashboard())
     elif text.startswith("/status"):
         await send_reply(bot_token, chat_id, _cmd_status())
@@ -84,13 +58,6 @@ async def handle_message(message: dict, bot_token: str):
         help_text = (
             "🤖 *OS Twin Command Center — Help Menu*\n"
             "`─────────────────────────────`\n\n"
-            "✨ *Interactive AI Agent*\n"
-            "🔸 `/menu` — Main interactive command menu.\n"
-            "🔸 `/draft <idea>` — Create a new plan from a text prompt.\n"
-            "🔸 `/edit` — Select a plan to edit and refine with AI.\n"
-            "🔸 `/startplan` — Select and launch a plan.\n"
-            "🔸 `/viewplan` — Select and read a plan.\n"
-            "🔸 `/cancel` — Exit current editing/drafting session.\n\n"
             "📊 *Monitoring & Insights*\n"
             "🔸 `/dashboard` — Visual UI with real-time progress bars.\n"
             "🔸 `/status` — Detailed breakdown of every active War-Room.\n"
@@ -109,8 +76,6 @@ async def handle_message(message: dict, bot_token: str):
     else:
         if text.startswith("/"):
             await send_reply(bot_token, chat_id, "⚠️ Unknown command. Type /help for a list of commands.")
-        elif session.mode in ["drafting", "editing", "awaiting_idea"]:
-            await _handle_stateful_text(bot_token, chat_id, text, session)
 
 async def send_reply(bot_token: str, chat_id: int, text: str):
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -120,477 +85,6 @@ async def send_reply(bot_token: str, chat_id: int, text: str):
             await client.post(url, json=payload)
         except Exception as e:
             logger.error(f"Failed to send Telegram reply: {e}")
-
-async def send_document(bot_token: str, chat_id: int, file_path: Path, caption: str = ""):
-    url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-    data = {"chat_id": chat_id, "caption": caption, "parse_mode": "Markdown"}
-    with open(file_path, "rb") as f:
-        files = {"document": (file_path.name, f)}
-        async with httpx.AsyncClient() as client:
-            try:
-                await client.post(url, data=data, files=files)
-            except Exception as e:
-                logger.error(f"Failed to send Telegram document: {e}")
-
-async def send_inline_keyboard(bot_token: str, chat_id: int, text: str, keyboard: list):
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "reply_markup": {"inline_keyboard": keyboard}
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            await client.post(url, json=payload)
-        except Exception as e:
-            logger.error(f"Failed to send Telegram inline keyboard: {e}")
-
-async def answer_callback_query(bot_token: str, callback_query_id: str, text: str = None):
-    url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
-    payload = {"callback_query_id": callback_query_id}
-    if text:
-        payload["text"] = text
-    async with httpx.AsyncClient() as client:
-        try:
-            await client.post(url, json=payload)
-        except Exception as e:
-            logger.error(f"Failed to answer callback query: {e}")
-
-async def handle_callback_query(update: dict, bot_token: str):
-    callback_query = update.get("callback_query", {})
-    query_id = callback_query.get("id")
-    chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
-    data = callback_query.get("data", "")
-
-    if not chat_id or not data:
-        return
-
-    config = get_config()
-    authorized_chats = config.get("authorized_chats", [])
-
-    if str(chat_id) not in authorized_chats:
-        await answer_callback_query(bot_token, query_id, "Unauthorized.")
-        return
-
-    # Acknowledge immediately to stop loading spinner
-    await answer_callback_query(bot_token, query_id)
-
-    # Dispatch logic
-    if data == "menu:plans":
-        await send_reply(bot_token, chat_id, _cmd_plans())
-    elif data == "menu:cat:monitoring":
-        await _cmd_submenu_monitoring(bot_token, chat_id)
-    elif data == "menu:cat:plans":
-        await _cmd_submenu_plans(bot_token, chat_id)
-    elif data == "menu:cat:system":
-        await _cmd_submenu_system(bot_token, chat_id)
-    elif data == "cmd:dashboard":
-        await send_reply(bot_token, chat_id, _cmd_dashboard())
-    elif data == "cmd:status":
-        await send_reply(bot_token, chat_id, _cmd_status())
-    elif data == "cmd:compact":
-        await send_reply(bot_token, chat_id, _cmd_compact())
-    elif data == "cmd:errors":
-        await send_reply(bot_token, chat_id, _cmd_errors())
-    elif data == "cmd:draft_prompt":
-        await send_reply(bot_token, chat_id, "✨ Send `/draft <your idea>` to create a new plan.")
-    elif data == "cmd:viewplan":
-        await _cmd_viewplan_menu(bot_token, chat_id)
-    elif data == "cmd:edit":
-        await _cmd_edit_menu(bot_token, chat_id)
-    elif data == "cmd:startplan":
-        await _cmd_startplan_menu(bot_token, chat_id)
-    elif data == "cmd:new":
-        await send_reply(bot_token, chat_id, _cmd_new())
-    elif data == "cmd:restart":
-        await send_reply(bot_token, chat_id, "🔄 Restarting...")
-        os.kill(os.getpid(), signal.SIGTERM)
-    elif data == "cmd:usage":
-        await send_reply(bot_token, chat_id, _cmd_usage())
-    elif data == "cmd:skills":
-        await send_reply(bot_token, chat_id, _cmd_skills())
-    elif data.startswith("menu:view:"):
-        plan_id = data.split(":", 2)[2]
-        await _view_plan(bot_token, chat_id, plan_id)
-    elif data.startswith("menu:edit:"):
-        plan_id = data.split(":", 2)[2]
-        await _start_editing(bot_token, chat_id, plan_id)
-    elif data.startswith("menu:launch_prompt:"):
-        plan_id = data.split(":", 2)[2]
-        await _prompt_launch(bot_token, chat_id, plan_id)
-    elif data.startswith("menu:launch_confirm:"):
-        plan_id = data.split(":", 2)[2]
-        await _launch_plan(bot_token, chat_id, plan_id)
-    elif data == "menu:launch_cancel":
-        await send_reply(bot_token, chat_id, "🛑 Launch cancelled.")
-    elif data == "menu:main":
-        await _cmd_menu(bot_token, chat_id)
-
-# --- Interactive Commands & Stateful AI Handlers ---
-
-async def _cmd_menu(bot_token: str, chat_id: int):
-    keyboard = [
-        [{"text": "📊 Monitoring", "callback_data": "menu:cat:monitoring"}],
-        [{"text": "📝 Plans & AI", "callback_data": "menu:cat:plans"}],
-        [{"text": "⚙️ System", "callback_data": "menu:cat:system"}],
-    ]
-    await send_inline_keyboard(
-        bot_token, chat_id,
-        "🏢 *Main Control Center*\nSelect a category:",
-        keyboard
-    )
-
-async def _cmd_submenu_monitoring(bot_token: str, chat_id: int):
-    keyboard = [
-        [{"text": "📊 Dashboard", "callback_data": "cmd:dashboard"}],
-        [{"text": "💻 Status", "callback_data": "cmd:status"}],
-        [{"text": "💬 Compact View", "callback_data": "cmd:compact"}],
-        [{"text": "⚠️ Errors", "callback_data": "cmd:errors"}],
-        [{"text": "⬅️ Back", "callback_data": "menu:main"}],
-    ]
-    await send_inline_keyboard(bot_token, chat_id,
-        "📊 *Monitoring*\nReal-time War-Room insights:", keyboard)
-
-async def _cmd_submenu_plans(bot_token: str, chat_id: int):
-    keyboard = [
-        [{"text": "✨ Draft New Plan", "callback_data": "cmd:draft_prompt"}],
-        [{"text": "👁 View Plan", "callback_data": "cmd:viewplan"}],
-        [{"text": "✏️ Edit Plan", "callback_data": "cmd:edit"}],
-        [{"text": "🚀 Launch Plan", "callback_data": "cmd:startplan"}],
-        [{"text": "📂 All Plans", "callback_data": "menu:plans"}],
-        [{"text": "⬅️ Back", "callback_data": "menu:main"}],
-    ]
-    await send_inline_keyboard(bot_token, chat_id,
-        "📝 *Plans & AI*\nDraft, view, edit, and launch plans:", keyboard)
-
-async def _cmd_submenu_system(bot_token: str, chat_id: int):
-    keyboard = [
-        [{"text": "🧹 Clean War-Rooms", "callback_data": "cmd:new"}],
-        [{"text": "🔄 Restart", "callback_data": "cmd:restart"}],
-        [{"text": "📈 Token Usage", "callback_data": "cmd:usage"}],
-        [{"text": "🧠 Skills", "callback_data": "cmd:skills"}],
-        [{"text": "⬅️ Back", "callback_data": "menu:main"}],
-    ]
-    await send_inline_keyboard(bot_token, chat_id,
-        "⚙️ *System*\nSystem operations & resources:", keyboard)
-
-def _get_available_plans() -> list:
-    plans_dir = AGENTS_DIR / "plans"
-    if not plans_dir.exists():
-        return []
-    plans = []
-    for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
-        if f.stem == "PLAN.template" or f.name.endswith(".refined.md"):
-            continue
-        try:
-            content = f.read_text()
-            title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
-            title = title_match.group(1).strip() if title_match else f.stem
-            if len(title) > 25:
-                title = title[:22] + "..."
-            date_str = datetime.fromtimestamp(f.stat().st_mtime).strftime("%b %d")
-            plans.append({"id": f.stem, "label": f"{title} ({date_str})"})
-        except Exception:
-            plans.append({"id": f.stem, "label": f"{f.stem}"})
-    return plans
-
-def _build_plan_keyboard(plans: list, prefix: str) -> list:
-    keyboard = []
-    for plan in plans[:10]: # Limit to 10 for inline keyboard limits
-        keyboard.append([{"text": f"📄 {plan['label']}", "callback_data": f"{prefix}:{plan['id']}"}])
-    return keyboard
-
-async def _cmd_startplan_menu(bot_token: str, chat_id: int):
-    plans = _get_available_plans()
-    if not plans:
-        await send_reply(bot_token, chat_id, "ℹ️ No plans found. Use `/draft <idea>` to create one.")
-        return
-    keyboard = _build_plan_keyboard(plans, "menu:launch_prompt")
-    await send_inline_keyboard(bot_token, chat_id, "🚀 *Select a Plan to Launch:*", keyboard)
-
-async def _cmd_edit_menu(bot_token: str, chat_id: int):
-    plans = _get_available_plans()
-    if not plans:
-        await send_reply(bot_token, chat_id, "ℹ️ No plans found. Use `/draft <idea>` to create one.")
-        return
-    keyboard = _build_plan_keyboard(plans, "menu:edit")
-    await send_inline_keyboard(bot_token, chat_id, "✏️ *Select a Plan to Edit:*", keyboard)
-
-async def _cmd_viewplan_menu(bot_token: str, chat_id: int):
-    plans = _get_available_plans()
-    if not plans:
-        await send_reply(bot_token, chat_id, "ℹ️ No plans found.")
-        return
-    keyboard = _build_plan_keyboard(plans, "menu:view")
-    await send_inline_keyboard(bot_token, chat_id, "👁 *Select a Plan to View:*", keyboard)
-
-async def _view_plan(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
-    if not plan_file.exists():
-        await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
-        return
-    content = plan_file.read_text()
-    if len(content) > 3500:
-        content = content[:3500] + "\n...[truncated]"
-    await send_reply(bot_token, chat_id, f"📄 *Plan: {plan_id}*\n```markdown\n{content}\n```")
-
-async def _start_editing(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
-    if not plan_file.exists():
-        await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
-        return
-    set_plan(chat_id, plan_id)
-    set_mode(chat_id, "editing")
-    await send_reply(bot_token, chat_id, f"✏️ *Editing Mode Active for `{plan_id}`*\n\nSend instructions to the AI to refine this plan. (e.g. 'Add a new epic for user authentication'). Type /cancel to stop editing.")
-
-async def _cmd_draft(bot_token: str, chat_id: int, text: str):
-    if not AI_AVAILABLE:
-        await send_reply(bot_token, chat_id, "⚠️ AI features are not available because `deepagents` or API keys are not configured.")
-        return
-
-    idea = text[len("/draft"):].strip()
-    
-    # If no idea is provided, prompt the user for one and set a special "awaiting_idea" mode
-    if not idea:
-        set_plan(chat_id, "new")  # dummy plan id
-        set_mode(chat_id, "awaiting_idea")
-        await send_reply(bot_token, chat_id, "✨ What's your idea? Send me a message describing what you want to build:")
-        return
-
-    await _process_draft(bot_token, chat_id, idea)
-
-import re
-
-def _generate_plan_id(idea: str) -> str:
-    """Generate a human-readable plan ID from the user's idea."""
-    # Clean the string: remove non-alphanumeric, convert to lowercase
-    clean_idea = re.sub(r'[^a-zA-Z0-9\s]', '', idea).lower()
-    words = clean_idea.split()
-    
-    # Common filler words to ignore for a cleaner slug
-    stop_words = {"a", "an", "the", "build", "create", "make", "write", "i", "want", "to", "for", "of", "some"}
-    
-    # Filter words
-    meaningful_words = [w for w in words if w not in stop_words]
-    
-    # Use up to 3 meaningful words, or fallback to first 3 words if all were filtered
-    slug_words = meaningful_words[:3] if meaningful_words else words[:3]
-    slug = "-".join(slug_words)
-    
-    # Generate a short 4-char hash for uniqueness
-    short_hash = uuid.uuid4().hex[:4]
-    
-    if not slug:
-        return f"plan-{short_hash}"
-    return f"{slug}-{short_hash}"
-
-async def _process_draft(bot_token: str, chat_id: int, idea: str):
-    plan_id = _generate_plan_id(idea)
-    set_plan(chat_id, plan_id)
-    set_mode(chat_id, "drafting")
-
-    await send_reply(bot_token, chat_id, f"⏳ *Drafting Plan...*\nIdea: `{idea}`\nPlease wait while the AI generates the initial plan.")
-    
-    try:
-        plans_dir = AGENTS_DIR / "plans"
-        plans_dir.mkdir(parents=True, exist_ok=True)
-        
-        result = await refine_plan(
-            user_message=f"Draft a new plan for: {idea}",
-            plans_dir=plans_dir
-        )
-        
-        plan_file = plans_dir / f"{plan_id}.md"
-        plan_file.write_text(result)
-        
-        # Keep in drafting mode so they can refine it
-        set_mode(chat_id, "editing") 
-        
-        await send_reply(bot_token, chat_id, f"✅ *Plan Drafted:* `{plan_id}`\n\nYou are now in editing mode. Send further instructions to refine it, or /cancel to exit.")
-        
-        # Send the markdown file as a document
-        await send_document(bot_token, chat_id, plan_file, caption=f"📄 Plan `{plan_id}` File")
-
-        # Generate and send summary
-        await send_reply(bot_token, chat_id, "⏳ *Generating Plan Summary...*")
-        summary = await summarize_plan(result, plans_dir=plans_dir)
-        await send_reply(bot_token, chat_id, f"📝 *Plan Summary:*\n\n{summary}")
-        
-    except Exception as e:
-        logger.error(f"Error drafting plan: {e}")
-        clear_session(chat_id)
-        await send_reply(bot_token, chat_id, f"❌ Failed to draft plan: {e}")
-
-async def _handle_stateful_text(bot_token: str, chat_id: int, text: str, session):
-    if not AI_AVAILABLE:
-        await send_reply(bot_token, chat_id, "⚠️ AI features are not available.")
-        clear_session(chat_id)
-        return
-
-    if session.mode == "awaiting_idea":
-        await _process_draft(bot_token, chat_id, text)
-        return
-
-    plan_id = session.active_plan_id
-    if not plan_id:
-        clear_session(chat_id)
-        return
-        
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
-    current_content = plan_file.read_text() if plan_file.exists() else ""
-    
-    await send_reply(bot_token, chat_id, f"⏳ *Refining `{plan_id}`...*")
-    
-    try:
-        plans_dir = AGENTS_DIR / "plans"
-        
-        # Add to chat history
-        session.chat_history.append({"role": "user", "content": text})
-        
-        result = await refine_plan(
-            user_message=text,
-            plan_content=current_content,
-            chat_history=session.chat_history[:-1], # all but current
-            plans_dir=plans_dir
-        )
-        
-        plan_file.write_text(result)
-        session.chat_history.append({"role": "assistant", "content": "I have updated the plan as requested."})
-
-        await send_reply(bot_token, chat_id, f"✅ *Plan Updated:* `{plan_id}`")
-
-        # Send the updated markdown file as a document
-        await send_document(bot_token, chat_id, plan_file, caption=f"📄 Updated Plan `{plan_id}`")
-
-        # Generate and send summary of changes
-        await send_reply(bot_token, chat_id, "⏳ *Generating Update Summary...*")
-        summary = await summarize_plan(result, plans_dir=plans_dir)
-        await send_reply(bot_token, chat_id, f"📝 *Plan Summary (Post-Update):*\n\n{summary}\n\n_(Send more instructions to keep editing, or /cancel to exit)_")
-    except Exception as e:
-        logger.error(f"Error refining plan: {e}")
-        await send_reply(bot_token, chat_id, f"❌ Failed to refine plan: {e}")
-
-async def _prompt_launch(bot_token: str, chat_id: int, plan_id: str):
-    keyboard = [
-        [{"text": "🚀 Launch", "callback_data": f"menu:launch_confirm:{plan_id}"}],
-        [{"text": "❌ Cancel", "callback_data": "menu:launch_cancel"}]
-    ]
-    await send_inline_keyboard(bot_token, chat_id, f"⚠️ *Confirm Launch*\nAre you sure you want to launch `{plan_id}`? This will wipe the current war-rooms.", keyboard)
-
-async def _launch_plan(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
-    if not plan_file.exists():
-        await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
-        return
-        
-    run_sh = AGENTS_DIR / "run.sh"
-    if not run_sh.exists():
-        await send_reply(bot_token, chat_id, "❌ `run.sh` not found. Cannot launch plan.")
-        return
-
-    import re
-    # Extract title from plan content
-    plan_content = plan_file.read_text()
-    title_match = re.search(r"^# Plan:\s*(.+)", plan_content, re.MULTILINE)
-    title = title_match.group(1).strip() if title_match else plan_id
-
-    # Extract working_dir from plan content (## Config section)
-    wd_match = re.search(r"working_dir:\s*(.+)", plan_content)
-    extracted_wd = wd_match.group(1).strip() if wd_match else str(PROJECT_ROOT)
-    
-    # Resolve absolute working directory
-    working_dir = extracted_wd
-    if not Path(working_dir).is_absolute():
-        working_dir = str(PROJECT_ROOT / working_dir)
-        
-    # Ensure it exists
-    if not Path(working_dir).exists():
-        try:
-            Path(working_dir).mkdir(parents=True, exist_ok=True)
-        except Exception:
-            working_dir = str(PROJECT_ROOT)
-
-    # Use the same warrooms logic as Web UI
-    warrooms_dir = str(Path(working_dir) / ".war-rooms")
-    
-    # Wipe old war-rooms
-    warrooms_path = Path(warrooms_dir)
-    if warrooms_path.exists():
-        import shutil
-        try:
-            shutil.rmtree(warrooms_path)
-            warrooms_path.mkdir()
-        except Exception as e:
-            await send_reply(bot_token, chat_id, f"⚠️ Failed to wipe old war-rooms: {e}")
-
-    # Write .meta.json with status: launched, explicitly matching Web UI structure
-    meta_path = AGENTS_DIR / "plans" / f"{plan_id}.meta.json"
-    existing_meta = {}
-    if meta_path.exists():
-        try:
-            existing_meta = json.loads(meta_path.read_text())
-        except:
-            pass
-            
-    meta = {
-        **existing_meta,
-        "plan_id": plan_id,
-        "title": title,
-        "working_dir": extracted_wd,
-        "warrooms_dir": warrooms_dir,
-        "status": "launched",
-    }
-    if "created_at" not in meta:
-        meta["created_at"] = datetime.now(timezone.utc).isoformat()
-    meta["launched_at"] = datetime.now(timezone.utc).isoformat()
-
-    meta_path.write_text(json.dumps(meta, indent=2))
-    
-    # Sync with zvec store if available (Crucial for Dashboard UI)
-    store = global_state.store
-    if store:
-        try:
-            from dashboard.zvec_store import OSTwinStore
-            epics = OSTwinStore._parse_plan_epics(plan_content, plan_id)
-            now = datetime.now(timezone.utc).isoformat()
-            store.index_plan(
-                plan_id=plan_id, title=title, content=plan_content,
-                epic_count=len(epics), filename=plan_file.name,
-                status="launched", created_at=now,
-            )
-            for epic in epics:
-                store.index_epic(
-                    epic_ref=epic["task_ref"], plan_id=plan_id,
-                    title=epic["title"], body=epic["body"],
-                    room_id=epic["room_id"],
-                    working_dir=epic.get("working_dir", "."),
-                    status="pending",
-                )
-        except Exception as e:
-            logger.error(f"zvec: plan indexing failed ({e})")
-
-    # Prepare environment for run.sh to enforce correct working directory
-    import os
-    env = os.environ.copy()
-    env["PROJECT_DIR"] = working_dir
-
-    # Launch in background
-    import subprocess
-    try:
-        logger.info(f"Telegram Launch: {run_sh} {plan_file} at {working_dir}")
-        subprocess.Popen(
-            [str(run_sh), str(plan_file)],
-            cwd=str(PROJECT_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env
-        )
-        
-        await send_reply(bot_token, chat_id, f"🚀 *Plan Launched!* `{plan_id}`\n\nUse /dashboard or /status to monitor progress.")
-    except Exception as e:
-        logger.error(f"Failed to launch plan: {e}")
-        await send_reply(bot_token, chat_id, f"❌ Failed to launch plan: {e}")
 
 # --- Command Implementations ---
 
@@ -698,10 +192,7 @@ def _cmd_plans() -> str:
         return "ℹ️ No plans found."
     lines = ["📂 *Project Plans:*"]
     for p in plans:
-        title = p.get('title', 'Untitled')
-        if len(title) > 40:
-             title = title[:37] + "..."
-        lines.append(f"• *{title}* ({p.get('status', 'unknown')})\n  └ `ID: {p['plan_id']}`")
+        lines.append(f"• `{p['plan_id']}`: {p.get('title', 'Untitled')} ({p.get('status', 'unknown')})")
     return "\n".join(lines)
 
 def _cmd_errors() -> str:
@@ -808,21 +299,6 @@ def _cmd_new() -> str:
 
 # --- Main Polling Loop ---
 
-async def register_commands(bot_token: str):
-    url = f"https://api.telegram.org/bot{bot_token}/setMyCommands"
-    commands = [
-        {"command": "menu", "description": "🏢 Main Control Center"},
-        {"command": "dashboard", "description": "📊 Real-time War-Room progress"},
-        {"command": "draft", "description": "📝 Draft a new Plan with AI"},
-        {"command": "status", "description": "💻 List running War-Rooms"},
-        {"command": "help", "description": "❓ Detailed user guide"},
-    ]
-    async with httpx.AsyncClient() as client:
-        try:
-            await client.post(url, json={"commands": commands})
-        except Exception as e:
-            logger.error(f"Failed to register bot commands: {e}")
-
 async def start_polling():
     print(">>> TELEGRAM POLLER TASK INITIATED <<<")
     logger.info("Starting Telegram Bot Poller...")
@@ -836,10 +312,6 @@ async def start_polling():
                 await asyncio.sleep(10) # check every 10s if config is updated
                 continue
             
-            # Register commands on startup
-            if offset == 0:
-                await register_commands(bot_token)
-            
             print(f">>> TELEGRAM POLLER: Polling with token {bot_token[:10]}... <<<")
             url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
             async with httpx.AsyncClient() as client:
@@ -848,10 +320,9 @@ async def start_polling():
                     data = response.json()
                     for update in data.get("result", []):
                         offset = update["update_id"] + 1
-                        if "message" in update:
-                            await handle_message(update["message"], bot_token)
-                        elif "callback_query" in update:
-                            await handle_callback_query(update, bot_token)
+                        message = update.get("message")
+                        if message:
+                            await handle_message(message, bot_token)
                 else:
                     await asyncio.sleep(5)
         except asyncio.CancelledError:

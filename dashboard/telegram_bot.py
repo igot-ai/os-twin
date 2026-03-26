@@ -6,33 +6,21 @@ import httpx
 import json
 import logging
 import secrets
-import os
 from pathlib import Path
-from dotenv import load_dotenv
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CONFIG_FILE = Path(__file__).parent / "telegram_config.json"
-PROJECT_ROOT = Path(__file__).parent.parent
-ENV_FILE = PROJECT_ROOT / ".env"
 
 def get_config():
-    # Load .env file first
-    if ENV_FILE.exists():
-        load_dotenv(ENV_FILE)
-        
     default_config = {
-        "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
-        "chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""), # Legacy support
+        "bot_token": "",
+        "chat_id": "", # Legacy support
         "authorized_chats": [],
         "pairing_code": secrets.token_hex(4)
     }
-    
-    # If we got chat_id from env, add it to authorized chats
-    if default_config["chat_id"]:
-        default_config["authorized_chats"].append(str(default_config["chat_id"]))
     
     if not CONFIG_FILE.exists():
         save_raw_config(default_config)
@@ -42,32 +30,12 @@ def get_config():
         with open(CONFIG_FILE, "r") as f:
             config = json.load(f)
             
-        # Priority 1: Environment variables override file config for tokens/ids
-        env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-        env_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-        
+        # Migration from old format
         needs_save = False
-        
-        # Override bot token if present in env
-        if env_token and config.get("bot_token") != env_token:
-            config["bot_token"] = env_token
-            needs_save = True
-            
-        # Migration from old format & handle env chat_id
         if "authorized_chats" not in config:
             config["authorized_chats"] = []
-            needs_save = True
-            
-        # Add legacy chat_id to authorized list if missing
-        if config.get("chat_id") and config.get("chat_id") != "test_chat" and str(config["chat_id"]) not in config["authorized_chats"]:
-            config["authorized_chats"].append(str(config["chat_id"]))
-            needs_save = True
-            
-        # Add env chat_id to authorized list if missing
-        if env_chat_id and str(env_chat_id) not in config["authorized_chats"]:
-            config["authorized_chats"].append(str(env_chat_id))
-            # Also update the base chat_id to match env
-            config["chat_id"] = env_chat_id
+            if config.get("chat_id") and config.get("chat_id") != "test_chat":
+                config["authorized_chats"].append(str(config["chat_id"]))
             needs_save = True
             
         if "pairing_code" not in config:
