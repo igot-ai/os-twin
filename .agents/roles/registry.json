@@ -317,7 +317,10 @@
         "motion-extraction",
         "animation-analysis",
         "cross-validation",
-        "analytics-reporting"
+        "analytics-reporting",
+        "game-ui-analytics-pipeline",
+        "detect-ui",
+        "detect-anim"
       ],
       "quality_gates": [
         "object-coverage-90pct",
