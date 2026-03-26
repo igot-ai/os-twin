@@ -39,3 +39,10 @@ discord-bot/.env
 
 # ── Dashboard FE ───────────────────────────────────────────────────────────────
 dashboard/fe/pnpm-lock.yaml
+
+# ── OS / IDE ───────────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+coverage/
+bk/
+.deepagents/

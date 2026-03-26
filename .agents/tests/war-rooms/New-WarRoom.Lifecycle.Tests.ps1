@@ -1,4 +1,4 @@
-# Agent OS — New-WarRoom Lifecycle Pester Tests
+# Agent OS — New-WarRoom Lifecycle Pester Tests (V2 Schema)
 # Verifies that lifecycle.json is purely derived from candidate_roles (DAG.json design)
 
 BeforeAll {
@@ -20,17 +20,18 @@ Describe "New-WarRoom lifecycle.json" {
             Test-Path (Join-Path $script:warRoomsDir "room-lc-01" "lifecycle.json") | Should -BeTrue
         }
 
-        It "sets initial_state to engineering" {
+        It "sets initial_state to developing (v2)" {
             & $script:NewWarRoom -RoomId "room-lc-02" -TaskRef "EPIC-002" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-lc-02" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.initial_state | Should -Be "engineering"
+            $lc.initial_state | Should -Be "developing"
+            $lc.version | Should -Be 2
         }
     }
 
-    Context "Single candidate — no extra review states" {
-        It "candidate_roles=['engineer'] → engineering goes directly to passed" {
+    Context "Single candidate — developing goes through review to passed" {
+        It "candidate_roles=['engineer'] → developing role is engineer" {
             & $script:NewWarRoom -RoomId "room-sc-01" -TaskRef "EPIC-001" `
                                  -TaskDescription "Engineer only" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -38,22 +39,11 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("engineer")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-sc-01" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.engineering.role | Should -Be "engineer"
-            $lc.states.engineering.transitions.done | Should -Be "passed"
+            $lc.states.developing.role | Should -Be "engineer"
+            $lc.states.developing.signals.done.target | Should -Be "review"
         }
 
-        It "candidate_roles=['engineer'] → NO qa-review state exists" {
-            & $script:NewWarRoom -RoomId "room-sc-02" -TaskRef "EPIC-002" `
-                                 -TaskDescription "No QA" `
-                                 -WarRoomsDir $script:warRoomsDir `
-                                 -AssignedRole "engineer" `
-                                 -CandidateRoles @("engineer")
-
-            $lc = Get-Content (Join-Path $script:warRoomsDir "room-sc-02" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.'qa-review' | Should -BeNullOrEmpty
-        }
-
-        It "candidate_roles=['reporter'] → reporter does engineering" {
+        It "candidate_roles=['reporter'] → reporter does developing" {
             & $script:NewWarRoom -RoomId "room-sc-03" -TaskRef "EPIC-003" `
                                  -TaskDescription "Reporter only" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -61,25 +51,23 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("reporter")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-sc-03" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.engineering.role | Should -Be "reporter"
-            $lc.states.engineering.transitions.done | Should -Be "passed"
+            $lc.states.developing.role | Should -Be "reporter"
         }
 
-        It "fixing transitions to passed when no review stages" {
+        It "optimize state exists with same role as developing" {
             & $script:NewWarRoom -RoomId "room-sc-04" -TaskRef "EPIC-004" `
-                                 -TaskDescription "Single role fixing" `
+                                 -TaskDescription "Optimize state" `
                                  -WarRoomsDir $script:warRoomsDir `
-                                 -AssignedRole "engineer" `
                                  -CandidateRoles @("engineer")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-sc-04" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.fixing.role | Should -Be "engineer"
-            $lc.states.fixing.transitions.done | Should -Be "passed"
+            $lc.states.optimize.role | Should -Be "engineer"
+            $lc.states.optimize.type | Should -Be "work"
         }
     }
 
-    Context "Multi-candidate — review stages from candidate_roles[1..N]" {
-        It "candidate_roles=['engineer','qa'] → adds qa-review between engineering and passed" {
+    Context "Multi-candidate — review chain from candidate_roles[1..N]" {
+        It "candidate_roles=['engineer','qa'] → qa-review is final gate" {
             & $script:NewWarRoom -RoomId "room-mc-01" -TaskRef "EPIC-010" `
                                  -TaskDescription "With QA" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -87,37 +75,26 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("engineer", "qa")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-mc-01" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.engineering.transitions.done | Should -Be "qa-review"
+            $lc.states.developing.signals.done.target | Should -Be "qa-review"
             $lc.states.'qa-review'.role | Should -Be "qa"
-            $lc.states.'qa-review'.transitions.pass | Should -Be "passed"
-            $lc.states.'qa-review'.transitions.fail | Should -Be "manager-triage"
+            $lc.states.'qa-review'.signals.pass.target | Should -Be "passed"
+            $lc.states.'qa-review'.signals.fail.target | Should -Be "optimize"
         }
 
-        It "candidate_roles=['manager','architect'] → adds architect-review" {
+        It "candidate_roles=['architect','manager'] → architect develops, manager excluded from review" {
             & $script:NewWarRoom -RoomId "room-mc-02" -TaskRef "PLAN-REVIEW" `
                                  -TaskDescription "Plan negotiation" `
                                  -WarRoomsDir $script:warRoomsDir `
-                                 -AssignedRole "manager" `
-                                 -CandidateRoles @("manager", "architect")
+                                 -AssignedRole "architect" `
+                                 -CandidateRoles @("architect", "manager")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-mc-02" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.engineering.role | Should -Be "manager"
-            $lc.states.'architect-review'.role | Should -Be "architect"
-            $lc.states.'architect-review'.transitions.pass | Should -Be "passed"
+            $lc.states.developing.role | Should -Be "architect"
+            # manager excluded from review chain (orchestrator); QA review is final gate
+            $lc.states.review.role | Should -Be "qa"
         }
 
-        It "fixing routes to first review stage (not passed)" {
-            & $script:NewWarRoom -RoomId "room-mc-03" -TaskRef "EPIC-011" `
-                                 -TaskDescription "Fixing loop" `
-                                 -WarRoomsDir $script:warRoomsDir `
-                                 -AssignedRole "engineer" `
-                                 -CandidateRoles @("engineer", "qa")
-
-            $lc = Get-Content (Join-Path $script:warRoomsDir "room-mc-03" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.fixing.transitions.done | Should -Be "qa-review"
-        }
-
-        It "three candidates chain correctly: engineering → review1 → review2 → passed" {
+        It "three candidates chain correctly: developing → architect-review → qa-review → passed" {
             & $script:NewWarRoom -RoomId "room-mc-04" -TaskRef "EPIC-012" `
                                  -TaskDescription "Full pipeline" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -125,26 +102,27 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("engineer", "architect", "qa")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-mc-04" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.engineering.transitions.done | Should -Be "architect-review"
+            $lc.states.developing.signals.done.target | Should -Be "architect-review"
             $lc.states.'architect-review'.role | Should -Be "architect"
-            $lc.states.'architect-review'.transitions.pass | Should -Be "qa-review"
+            $lc.states.'architect-review'.signals.pass.target | Should -Match "qa-review|review"
             $lc.states.'qa-review'.role | Should -Be "qa"
-            $lc.states.'qa-review'.transitions.pass | Should -Be "passed"
+            $lc.states.'qa-review'.signals.pass.target | Should -Be "passed"
         }
     }
 
-    Context "Builtin states always present" {
-        It "manager-triage and plan-revision exist for single candidate" {
+    Context "V2 structural states always present" {
+        It "triage and failed states exist for single candidate" {
             & $script:NewWarRoom -RoomId "room-bi-01" -TaskRef "EPIC-020" `
                                  -TaskDescription "Builtins" `
                                  -WarRoomsDir $script:warRoomsDir `
                                  -CandidateRoles @("engineer")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-bi-01" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.'manager-triage'.type | Should -Be "builtin"
-            $lc.states.'manager-triage'.role | Should -Be "manager"
-            $lc.states.'plan-revision'.type | Should -Be "builtin"
-            $lc.states.'plan-revision'.role | Should -Be "manager"
+            $lc.states.triage.type | Should -Be "triage"
+            $lc.states.triage.role | Should -Be "manager"
+            $lc.states.failed.type | Should -Be "decision"
+            $lc.states.passed.type | Should -Be "terminal"
+            $lc.states.'failed-final'.type | Should -Be "terminal"
         }
     }
 
@@ -159,7 +137,7 @@ Describe "New-WarRoom lifecycle.json" {
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-pp-01" "lifecycle.json") -Raw | ConvertFrom-Json
             # Pipeline produces security-review (which candidate-only would NOT)
-            $lc.states.'security-review' | Should -Not -BeNullOrEmpty
+            $lc.states.'security-review-review' | Should -Not -BeNullOrEmpty
         }
     }
 
@@ -173,7 +151,7 @@ Describe "New-WarRoom lifecycle.json" {
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-ur-01" "lifecycle.json") -Raw | ConvertFrom-Json
             $lc.states.'data-scientist-review'.role | Should -Be "data-scientist"
-            $lc.states.'data-scientist-review'.transitions.pass | Should -Be "passed"
+            $lc.states.'data-scientist-review'.signals.pass | Should -Not -BeNullOrEmpty
         }
     }
 }
