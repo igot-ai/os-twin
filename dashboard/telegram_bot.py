@@ -5,6 +5,7 @@ Telegram Integration Module for Ostwin Dashboard
 import httpx
 import json
 import logging
+import secrets
 from pathlib import Path
 
 # Setup logging
@@ -14,29 +15,78 @@ logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "telegram_config.json"
 
 def get_config():
+    default_config = {
+        "bot_token": "",
+        "chat_id": "", # Legacy support
+        "authorized_chats": [],
+        "pairing_code": secrets.token_hex(4)
+    }
+    
     if not CONFIG_FILE.exists():
-        return {"bot_token": "", "chat_id": ""}
+        save_raw_config(default_config)
+        return default_config
+        
     try:
         with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+            config = json.load(f)
+            
+        # Migration from old format
+        needs_save = False
+        if "authorized_chats" not in config:
+            config["authorized_chats"] = []
+            if config.get("chat_id") and config.get("chat_id") != "test_chat":
+                config["authorized_chats"].append(str(config["chat_id"]))
+            needs_save = True
+            
+        if "pairing_code" not in config:
+            config["pairing_code"] = secrets.token_hex(4)
+            needs_save = True
+            
+        if needs_save:
+            save_raw_config(config)
+            
+        return config
     except Exception as e:
         logger.error(f"Failed to read config: {e}")
-        return {"bot_token": "", "chat_id": ""}
+        return default_config
 
-def save_config(bot_token: str, chat_id: str):
+def save_raw_config(config: dict):
     try:
         with open(CONFIG_FILE, "w") as f:
-            json.dump({"bot_token": bot_token, "chat_id": chat_id}, f)
+            json.dump(config, f, indent=4)
         return True
     except Exception as e:
-        logger.error(f"Failed to save config: {e}")
+        logger.error(f"Failed to save raw config: {e}")
         return False
 
-async def send_message(text: str) -> bool:
+def save_config(bot_token: str, chat_id: str):
+    config = get_config()
+    config["bot_token"] = bot_token
+    config["chat_id"] = chat_id
+    if chat_id and chat_id != "test_chat" and str(chat_id) not in config["authorized_chats"]:
+        config["authorized_chats"].append(str(chat_id))
+    return save_raw_config(config)
+
+def authorize_chat(chat_id: str) -> bool:
+    config = get_config()
+    chat_id_str = str(chat_id)
+    if chat_id_str not in config["authorized_chats"]:
+        config["authorized_chats"].append(chat_id_str)
+        return save_raw_config(config)
+    return True
+
+async def send_message(text: str, specific_chat_id: str = None) -> bool:
     """Send a text message to the configured Telegram chat."""
     config = get_config()
     bot_token = config.get("bot_token")
-    chat_id = config.get("chat_id")
+    
+    # Send to specific chat or the first authorized chat (or legacy chat_id)
+    chat_id = specific_chat_id
+    if not chat_id:
+        if config.get("authorized_chats"):
+            chat_id = config["authorized_chats"][0]
+        else:
+            chat_id = config.get("chat_id")
     
     if not bot_token or not chat_id:
         logger.warning("Telegram is not configured. Skipping message.")

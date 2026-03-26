@@ -38,8 +38,51 @@ class OSTwinStore:
     def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
-        self.zvec_dir = warrooms_dir / ".zvec"
-        self.zvec_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Handle paths with spaces (zvec library regex limitation)
+        zvec_real_dir = warrooms_dir / ".zvec"
+        zvec_real_dir.mkdir(parents=True, exist_ok=True)
+        
+        if " " in str(zvec_real_dir):
+            import tempfile
+            import hashlib
+            import os
+            
+            # Create a stable symlink in /tmp based on the project path hash
+            path_hash = hashlib.md5(str(zvec_real_dir).encode()).hexdigest()[:8]
+            tmp_dir = Path(tempfile.gettempdir()) / f"ostwin_zvec_{path_hash}"
+            
+            try:
+                # Need to use string paths for os.readlink/os.symlink for compatibility
+                zvec_path_str = str(zvec_real_dir.absolute())
+                tmp_path_str = str(tmp_dir.absolute())
+                
+                if tmp_dir.exists() or tmp_dir.is_symlink():
+                    try:
+                        if os.readlink(tmp_path_str) == zvec_path_str:
+                            pass # already correct
+                        else:
+                            os.remove(tmp_path_str)
+                            os.symlink(zvec_path_str, tmp_path_str)
+                    except (OSError, ValueError):
+                        # Not a symlink or other error, try to replace it
+                        if tmp_dir.is_dir():
+                            import shutil
+                            shutil.rmtree(tmp_path_str)
+                        else:
+                            os.remove(tmp_path_str)
+                        os.symlink(zvec_path_str, tmp_path_str)
+                else:
+                    os.symlink(zvec_path_str, tmp_path_str)
+                
+                self.zvec_dir = tmp_dir
+                logger.info("Using zvec symlink for path with spaces: %s -> %s", tmp_dir, zvec_real_dir)
+            except Exception as e:
+                logger.warning("Failed to create zvec symlink: %s. Falling back to original path.", e)
+                self.zvec_dir = zvec_real_dir
+        else:
+            self.zvec_dir = zvec_real_dir
+
         self._messages: Optional[zvec.Collection] = None
         self._metadata: Optional[zvec.Collection] = None
         self._plans: Optional[zvec.Collection] = None
