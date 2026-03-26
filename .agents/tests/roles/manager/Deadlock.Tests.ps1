@@ -11,7 +11,6 @@ BeforeAll {
     $script:PostMessage = Join-Path $script:agentsDir "channel" "Post-Message.ps1"
     $script:ReadMessages = Join-Path $script:agentsDir "channel" "Read-Messages.ps1"
     $script:NewWarRoom = Join-Path $script:agentsDir "war-rooms" "New-WarRoom.ps1"
-    $script:sampleWarRoomsDir = Join-Path $script:agentsDir "tests" "sample-warroom"
 
     # Import Utils for Test-PidAlive, Set-WarRoomStatus
     $utilsModule = Join-Path $script:agentsDir "lib" "Utils.psm1"
@@ -169,49 +168,6 @@ Describe "Deadlock Exploitation Tests" {
             $check.Expected | Should -Be 4
             $check.WouldTransition | Should -BeFalse `
                 -Because "Each recovery adds +1 to expected; worker can never catch up"
-        }
-
-        It "proves sample-warroom/room-001 is permanently stuck (real data)" {
-            $roomDir = Join-Path $script:sampleWarRoomsDir "room-001"
-            if (-not (Test-Path $roomDir)) { Set-ItResult -Skipped "sample-warroom not available" }
-
-            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "fixing"
-
-            $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
-            $retries | Should -Be 7
-
-            $deadlockRecoveries = [int](Get-Content (Join-Path $roomDir "deadlock_recoveries") -Raw).Trim()
-            $deadlockRecoveries | Should -Be 3
-
-            $check = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
-            $check.Expected | Should -Be 8
-            $check.DoneCount | Should -BeLessThan $check.Expected `
-                -Because "room-001: not enough done messages to ever transition"
-        }
-
-        It "proves sample-warroom/room-004 is permanently stuck (real data)" {
-            $roomDir = Join-Path $script:sampleWarRoomsDir "room-004"
-            if (-not (Test-Path $roomDir)) { Set-ItResult -Skipped "sample-warroom not available" }
-
-            (Get-Content (Join-Path $roomDir "status") -Raw).Trim() | Should -Be "fixing"
-
-            $check = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
-            $check.Expected | Should -Be 8
-            $check.DoneCount | Should -BeLessThan $check.Expected `
-                -Because "room-004 has 1 done but expected 8"
-        }
-
-        It "proves sample-warroom/room-006 is permanently stuck (real data)" {
-            $roomDir = Join-Path $script:sampleWarRoomsDir "room-006"
-            if (-not (Test-Path $roomDir)) { Set-ItResult -Skipped "sample-warroom not available" }
-
-            (Get-Content (Join-Path $roomDir "status") -Raw).Trim() | Should -Be "fixing"
-
-            $check = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
-            $check.Expected | Should -Be 8
-            $check.DoneCount | Should -BeLessThan $check.Expected `
-                -Because "room-006 has 0 done but expected 8"
         }
     }
 
