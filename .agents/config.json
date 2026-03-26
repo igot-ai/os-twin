@@ -20,7 +20,7 @@
     "cli": "agent",
     "shell_allow_list": "all",
     "auto_approve": true,
-    "timeout_seconds": 600,
+    "timeout_seconds": 1200,
     "max_prompt_bytes": 102400
   },
   "engineer": {
@@ -28,7 +28,7 @@
     "default_model": "gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
-    "timeout_seconds": 600,
+    "timeout_seconds": 1200,
     "max_prompt_bytes": 102400,
     "instances": {
       "fe": {
@@ -46,7 +46,7 @@
       "be": {
         "display_name": "Backend Engineer",
         "default_model": "gemini-3-flash-preview",
-        "timeout_seconds": 600,
+        "timeout_seconds": 1200,
         "working_dir": "api",
         "skills": [
           "python",
@@ -62,7 +62,7 @@
     "default_model": "gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
-    "timeout_seconds": 600,
+    "timeout_seconds": 1200,
     "max_prompt_bytes": 102400
   },
   "qa": {
