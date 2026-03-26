@@ -118,6 +118,24 @@ if (Test-Path $configPath) {
         $WorkingDir = $instanceConfig.working_dir
     }
 
+    # --- Resolve ProjectDir from RoomDir (parent of .war-rooms) ---
+    # War-room paths follow: $PROJECT/.war-rooms/<plan>/<room>/
+    # Walk up from RoomDir to find the directory containing .war-rooms
+    $ProjectDir = ""
+    $searchDir = $absRoomDir
+    for ($i = 0; $i -lt 6; $i++) {
+        $parentDir = Split-Path $searchDir -Parent
+        if (-not $parentDir -or $parentDir -eq $searchDir) { break }
+        if ((Split-Path $searchDir -Leaf) -eq ".war-rooms") {
+            $ProjectDir = $parentDir
+            break
+        }
+        $searchDir = $parentDir
+    }
+    # Fallback: env variable or WorkingDir
+    if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
+    if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
+
     # --- CLI resolution: local wrapper → role config → global fallback ---
     if (-not $AgentCmd) {
         $localAgent = Join-Path $agentsDir "bin" "agent"
@@ -222,12 +240,9 @@ try {
     # --- MCP config: prefer project-local, fall back to global ---
     $resolvedMcpConfig = $McpConfig
     if (-not $resolvedMcpConfig) {
-        # Priority 1: project-local MCP config (via WorkingDir or env)
-        $projectDir = if ($WorkingDir) { $WorkingDir }
-                      elseif ($env:PROJECT_DIR) { $env:PROJECT_DIR }
-                      else { "" }
-        if ($projectDir) {
-            $projectMcpConfig = Join-Path $projectDir ".agents" "mcp" "mcp-config.json"
+        # Priority 1: project-local MCP config (via ProjectDir resolved from RoomDir)
+        if ($ProjectDir) {
+            $projectMcpConfig = Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json"
             if (Test-Path $projectMcpConfig) {
                 $resolvedMcpConfig = $projectMcpConfig
             }
@@ -244,8 +259,8 @@ try {
             $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
         }
         # Expand ${PROJECT_DIR} → absolute project dir
-        if ($projectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $projectDir.Replace('\', '/')
+        if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
+            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
         }
         # Write resolved config if any placeholders were expanded
         if ($mcpConfigContent -ne (Get-Content $resolvedMcpConfig -Raw)) {

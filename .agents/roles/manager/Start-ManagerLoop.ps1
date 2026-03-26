@@ -1418,7 +1418,7 @@ while (-not $script:shuttingDown) {
                         $escalateCount = Get-MsgCount $roomDir "escalate"
 
                         if ($passCount -gt 0) {
-                            $nextState = if ($customStateDef.transitions.pass) { $customStateDef.transitions.pass } else { 'passed' }
+                            $nextState = if ($customStateDef.transitions -and $customStateDef.transitions.PSObject.Properties.Count -gt 0 -and $customStateDef.transitions.pass) { $customStateDef.transitions.pass } else { 'passed' }
                             Write-Log "INFO" "[$taskRef] Custom review '$status' by '$stateRole' PASSED. Transitioning to $nextState."
                             Write-RoomStatus $roomDir $nextState
                         }
@@ -1451,7 +1451,7 @@ while (-not $script:shuttingDown) {
                         # --- WORKER STATE: expects done ---
                         $doneCount = Get-MsgCount $roomDir "done"
                         if ($doneCount -ge ($retries + 1)) {
-                            $nextState = if ($customStateDef.transitions.done) { $customStateDef.transitions.done } else { 'qa-review' }
+                            $nextState = if ($customStateDef.transitions -and $customStateDef.transitions.PSObject.Properties.Count -gt 0 -and $customStateDef.transitions.done) { $customStateDef.transitions.done } else { 'qa-review' }
                             Write-Log "INFO" "[$taskRef] Custom worker '$status' by '$stateRole' done. Transitioning to $nextState."
                             Write-RoomStatus $roomDir $nextState
 
@@ -1496,6 +1496,11 @@ while (-not $script:shuttingDown) {
                 $ls = if (Test-Path (Join-Path $rd "status")) { (Get-Content (Join-Path $rd "status") -Raw).Trim() } else { "" }
                 $lr = if (Test-Path (Join-Path $rd "retries")) { [int](Get-Content (Join-Path $rd "retries") -Raw).Trim() } else { 0 }
                 $lt = if (Test-Path (Join-Path $rd "task-ref")) { (Get-Content (Join-Path $rd "task-ref") -Raw).Trim() } else { "UNKNOWN" }
+
+                # --- Skip rooms in terminal states (already completed or failed) ---
+                if ($ls -in @('passed', 'failed-final', 'blocked', '')) {
+                    return  # ForEach-Object: skip this room
+                }
 
                 # --- Safety net: cap total deadlock recoveries per room ---
                 $dlFile = Join-Path $rd "deadlock_recoveries"
