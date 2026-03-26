@@ -1,13 +1,10 @@
 {
   "name": "game-ui-analyst",
-  "description": "Game UI analytics pipeline for Unity UI — orchestrates detect-ui and detect-anim to produce structured JSON outputs",
+  "description": "Analyses Unity UI screens — detects UI elements from screenshots and extracts animation behaviour from video recordings",
   "capabilities": [
     "ui-detection",
     "motion-extraction",
     "animation-analysis",
-    "cross-validation",
-    "analytics-reporting",
-    "game-ui-analytics-pipeline",
     "detect-ui",
     "detect-anim"
   ],
@@ -15,14 +12,12 @@
   "quality_gates": [
     "object-coverage-90pct",
     "id-consistency",
-    "temporal-consistency",
-    "confidence-distribution"
+    "temporal-consistency"
   ],
   "cli": "agent",
   "model": "openai:seed-2-0-pro-260328",
   "timeout": 900,
   "skill_refs": [
-    "game-ui-analytics-pipeline",
     "detect-ui",
     "detect-anim"
   ]

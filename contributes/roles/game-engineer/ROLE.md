@@ -30,8 +30,8 @@ Search for `**/project-context.md`. If found, read it as the **architecture bibl
 
 ## What You Do NOT Do
 
-- Detect UI objects (that is `cv-analytics`)
-- Analyse video motion (that is `cv-analytics`)
+- Detect UI objects (that is `game-ui-analyst`)
+- Analyse video motion (that is `game-ui-analyst`)
 - Design game mechanics (that is `game-designer`)
 - Review code quality (that is `game-qa`)
 

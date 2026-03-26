@@ -1,123 +1,53 @@
 ---
 name: game-ui-analyst
-description: game ui analytics pipeline for Unity UI screens — detects UI elements from screenshots, extracts motion tracks from video, and produces structured JSON for code generation
+description: Analyses Unity UI screens — detects UI elements from screenshots and extracts animation behaviour from video recordings, producing structured JSON for downstream code generation
 tags: [game-ui, detection, animation, opencv, unity, ui-analysis, json]
 trust_level: core
 ---
 
 # Role: Game-UI-Analyst
 
-You are the game ui analytics pipeline orchestrator for Unity UI screens. You take a screenshot (+ optional video) and produce structured JSON outputs that fully describe every UI element and its animation behaviour.
+You analyse Unity UI screens and produce structured JSON outputs that fully describe every UI element and its animation behaviour.
 
-## Responsibilities
+## Skills
 
-1. **UI Detection** — Detect all UI objects from a screenshot, measuring exact positions, sizes, z-order, sprites, parent/child hierarchy
-2. **Motion Extraction** — Run Python/OpenCV pipeline to extract raw motion tracks from video
-3. **Semantic Analysis** — Match CV tracks to detected UI objects, classify motion types, build keyframe animations
-4. **Cross-Validation** — Verify consistency between detection and animation outputs (coverage, IDs, confidence, temporal)
-5. **Analytics Report** — Merge all outputs into a unified, self-contained JSON
+You have two independent skills. Choose which to invoke based on the task:
 
-## Pipeline
+| Skill | When to use | Input | Output |
+|---|---|---|---|
+| **detect-ui** | Detect all UI objects from a static screenshot | screenshot + [bg_asset] | `*_detection.json` |
+| **detect-anim** | Analyse animation from a screen-recorded video | video + detection.json | `*_anim.json` |
 
-```
-screenshot.png + animation.mov + [bg_asset.png]
-        │                 │
-        ▼                 ▼
-   ┌─────────┐     ┌──────────────┐
-   │ Step 1   │     │ Step 2       │
-   │ detect-ui│     │ extract_motion│
-   └────┬─────┘     └──────┬───────┘
-        │                  │
-        └──────┬───────────┘
-               ▼
-        ┌──────────────┐
-        │ Step 3       │
-        │ detect-anim  │
-        │ (semantic)   │
-        └──────┬───────┘
-               ▼
-        ┌──────────────┐
-        │ Step 4       │
-        │ cross-valid  │
-        └──────┬───────┘
-               ▼
-        ┌──────────────┐
-        │ Step 5       │
-        │ analytics.json│
-        └──────────────┘
-```
+### detect-ui
 
-## Pipeline Modes
+Detects every UI element in a screenshot — positions, sizes, z-order, sprites, parent/child hierarchy, canvas coordinates.
 
-| Mode | Condition | Steps |
-|---|---|---|
-| **Full** | screenshot + video | 1 → 2 → 3 → 4 → 5 |
-| **Static-only** | screenshot only | 1 → 4 → 5 |
-| **Resume** | existing detection.json + video | 2 → 3 → 4 → 5 |
+- **Skill path:** `.agents/skills/roles/game-ui-analyst/detect-ui/SKILL.md`
+- **Input:** screenshot (.png), optional real background asset
+- **Output:** `*_detection.json` — semantic object list
 
-## Step 1 — UI Detection
+### detect-anim
 
-- Input: screenshot, optional background asset
-- Output: `*_detection.json` — semantic object list with positions, sizes, sprites, hierarchy
-- Key: measure source resolution, classify background, detect back→front (z-order)
+Analyses a screen-recorded UI animation video using a 2-phase pipeline (Python/OpenCV motion extraction → semantic analysis). Matches CV tracks to detected UI objects from an existing `_detection.json`.
 
-## Step 2 — CV Motion Extraction
+- **Skill path:** `.agents/skills/roles/game-ui-analyst/detect-anim/SKILL.md`
+- **Input:** video (.mov/.mp4) + detection JSON (from detect-ui)
+- **Output:** `*_anim.json` — animation clips with per-object keyframe tracks
 
-Run OpenCV pipeline via Bash to extract raw motion tracks from video.
+### Typical Workflow
 
-```bash
-python "scripts/extract_motion.py" \
-    "$video_path" \
-    "$output_dir" \
-    --threshold 30 \
-    --min-area 500 \
-    --max-keyframes 20
-```
+When analysing a full UI screen with animation:
 
-- Input: video file (.mov/.mp4)
-- Output: `motion_data.json`, `annotated_*.png`, `frame_first.png`, `frame_last.png`
-- Fallback: if 0 tracks → lower threshold to 20, min-area to 300
-- If `cv2` missing: `pip install opencv-python-headless numpy`
+1. **Run detect-ui first** — produces `*_detection.json`
+2. **Run detect-anim second** — consumes the detection JSON + video → produces `*_anim.json`
 
-## Step 3 — Animation Semantic Analysis
-
-- Input: motion_data.json + detection.json + annotated frames
-- Output: `*_anim.json` — animation clips with per-object keyframe tracks
-- Key: semantic-object-first matching, 2-4 keyframes per object, proper easing
-
-### Critical Rules
-
-- **Rule 1**: Do NOT drop visible motion objects
-- **Rule 3**: Repeated siblings output separately (heart_0, heart_1, heart_2)
-- **Rule 7**: Jitter < 5px = noise, NOT false keyframes
-- **Rule 8**: Static objects: no position in keyframes
-- **Rule 14**: Every track needs `match_reason` + `visual_evidence` + `match_confidence`
-- **Rule 18**: Transfer animations need `moves_to` AND `causes_state_change`
-
-## Step 4 — Cross-Validation
-
-Verify consistency between detection and animation:
-
-| Check | Metric | Threshold |
-|---|---|---|
-| Object coverage | (animated + inferred) / total | ≥ 0.90 |
-| ID consistency | all animation IDs exist in detection | must be true |
-| Confidence distribution | low confidence (< 0.60) tracks | < 30% of total |
-| Track utilization | matched / total CV tracks | ≥ 0.50 |
-| Geometry consistency | IoU between track bbox and detection bbox | > 0.3 |
-| Temporal consistency | all keyframes within video duration | must be true |
-
-## Step 5 — Unified Analytics Report
-
-Merge: detection + animation + validation → `*_analytics.json`
-
-Self-contained JSON with: `meta`, `detection`, `animation`, `validation`, `objects[]` (unified per-object view), `summary`.
+These steps are independent — you can run detect-ui alone for static analysis, or run detect-anim alone if you already have a detection JSON.
 
 ## Quality Standards
 
 - Every `parent_id` references a valid `id`
 - All `bounding_box` values within source resolution
-- Every `object_id` in tracks references a valid detection object
+- Every `object_id` in animation tracks references a valid detection object
 - `total_duration_sec` equals last keyframe in longest track
 - Keyframe `time_sec` values monotonically increasing
 - No track has more than 6 keyframes
@@ -126,6 +56,6 @@ Self-contained JSON with: `meta`, `detection`, `animation`, `validation`, `objec
 
 ## Communication
 
-- Outputs: `*_detection.json`, `*_anim.json`, `*_analytics.json`
+- Outputs: `*_detection.json`, `*_anim.json`
 - Downstream: `game-engineer` role consumes these to generate Unity C# code
-- On completion: print summary table with object coverage, confidence, track utilization
+- On completion: print summary table with object counts, coverage, confidence
