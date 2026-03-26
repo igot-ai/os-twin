@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 const { joinVoiceChannel, EndBehaviorType, getVoiceConnection } = require('@discordjs/voice');
 const { pipeline, PassThrough } = require('node:stream');
 const fs = require('node:fs');
@@ -31,7 +31,7 @@ const activeStreams = new Map();
  * @param {string} guildId
  * @returns {{ saved: string[] }} list of saved file paths
  */
-function cleanupSession(guildId) {
+async function cleanupSession(guildId) {
   const session = sessions.get(guildId);
   if (!session) return { saved: [] };
 
@@ -45,9 +45,11 @@ function cleanupSession(guildId) {
       info.pcmStream.end();
     }
 
-    // Close the file write stream
+    // Close the file write stream and wait for it to finish
     if (info.fileStream && !info.fileStream.destroyed) {
-      info.fileStream.end();
+      await new Promise((resolve) => {
+        info.fileStream.end(resolve);
+      });
       saved.push(info.filePath);
       console.log(`💾 [SAVE] ${info.username} — ${info.filePath}`);
     }
@@ -77,6 +79,12 @@ module.exports = {
 
     if (!voiceChannel) {
       return interaction.reply({ content: 'You must be in a voice channel first!', flags: 64 });
+    }
+
+    // Check bot permissions in the voice channel
+    const botPermissions = voiceChannel.permissionsFor(interaction.client.user);
+    if (!botPermissions?.has(PermissionsBitField.Flags.Connect) || !botPermissions?.has(PermissionsBitField.Flags.Speak)) {
+      return interaction.reply({ content: 'I need **Connect** and **Speak** permissions in that voice channel!', flags: 64 });
     }
 
     const guildId = voiceChannel.guild.id;

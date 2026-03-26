@@ -1,7 +1,9 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
+const fsp = require('fs/promises');
 const path = require('path');
+const { askAgent } = require('./agent-bridge');
 
 // Initialize Discord Client
 const client = new Client({
@@ -90,23 +92,22 @@ client.on('messageCreate', (message) => {
   messageBuffer.push(entry);
   if (messageBuffer.length > MAX_MESSAGE_BUFFER) messageBuffer.shift();
 
-  // Persist to per-channel JSON file
+  // Persist to per-channel JSON file (async to avoid blocking the event loop)
   const logFile = path.join(LOGS_DIR, `${entry.channelName}-${entry.channelId}.json`);
-  let existing = [];
-  try {
-    if (fs.existsSync(logFile)) {
-      existing = JSON.parse(fs.readFileSync(logFile, 'utf-8'));
-    }
-  } catch { /* corrupted file — start fresh */ }
-  existing.push(entry);
-  fs.writeFileSync(logFile, JSON.stringify(existing, null, 2));
+  (async () => {
+    let existing = [];
+    try {
+      const raw = await fsp.readFile(logFile, 'utf-8');
+      existing = JSON.parse(raw);
+    } catch { /* file missing or corrupted — start fresh */ }
+    existing.push(entry);
+    await fsp.writeFile(logFile, JSON.stringify(existing, null, 2));
+  })().catch(err => console.warn('[LOG] Failed to persist message:', err.message));
 
   console.log(`💬 [MSG] #${entry.channelName} | ${entry.username}: ${entry.content}`);
 
   // ── @mention → ask ostwin agent ───────────────────────────────────
   if (client.user && message.mentions.has(client.user.id)) {
-    const { askAgent } = require('./agent-bridge');
-
     // Strip the @mention from the question
     const question = message.content
       .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
@@ -153,8 +154,9 @@ client.on('voiceStateUpdate', (oldState, _newState) => {
 
   if (humans === 0) {
     console.log(`📭 [AUTO] All users left ${leftChannel.name} — saving and disconnecting...`);
-    const { saved } = cleanupSession(guildId);
-    console.log(`📭 [AUTO] Saved ${saved.length} recording(s), disconnected from guild ${guildId}`);
+    cleanupSession(guildId)
+      .then(({ saved }) => console.log(`📭 [AUTO] Saved ${saved.length} recording(s), disconnected from guild ${guildId}`))
+      .catch(err => console.error('[AUTO] Cleanup error:', err.message));
   }
 });
 

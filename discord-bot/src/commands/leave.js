@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { getVoiceConnection } = require('@discordjs/voice');
+const path = require('node:path');
 const { cleanupSession } = require('./join');
 
 module.exports = {
@@ -14,10 +15,10 @@ module.exports = {
       return interaction.reply({ content: "I'm not in a voice channel!", flags: 64 });
     }
 
-    const { saved } = cleanupSession(guildId);
+    const { saved } = await cleanupSession(guildId);
 
     const fileList = saved.length
-      ? saved.map(f => `\`${f.split('/').pop()}\``).join(', ')
+      ? saved.map(f => `\`${path.basename(f)}\``).join(', ')
       : 'No audio was recorded.';
 
     console.log(`👋 [LEAVE] Disconnected from guild ${guildId}, saved ${saved.length} file(s)`);

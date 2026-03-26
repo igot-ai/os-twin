@@ -1,69 +1,75 @@
-# ARCHITECTURE.md - Discord Bot System Design
+# Discord Bot — OS Twin
 
 ## 1. Technology Stack
-- **Language:** TypeScript
+- **Language:** JavaScript (CommonJS)
 - **Framework:** Discord.js (v14+)
 - **Runtime:** Node.js (v18+)
-- **Database:** PostgreSQL (with Prisma ORM) or MongoDB (depending on data structure)
-- **Deployment:** Docker + AWS ECS/Fargate or a VPS (DigitalOcean/Linode)
+- **Voice:** @discordjs/voice + prism-media (Opus decoding)
+- **AI Bridge:** Google Generative AI (Gemini) for question answering
+- **Package Manager:** pnpm (recommended)
 
 ## 2. Project Structure
-The project follows a modular, feature-based structure for scalability.
 
 ```text
-/src
-  /commands        # Slash commands organized by category
-    /general
-    /admin
-  /events          # Event listeners (ready, interactionCreate, messageCreate)
-  /services        # Business logic and external API integrations
-  /models          # Database schemas and types
-  /utils           # Helper functions and constants
-  /config          # Configuration management (Intents, constants)
-  index.ts         # Entry point (Client initialization)
+discord-bot/
+  src/
+    commands/         # Slash commands (join, leave, ping)
+    agent-bridge.js   # Discord <-> Ostwin dashboard bridge (Gemini-powered)
+    client.js         # Discord client setup, event handlers, message logging
+    deploy-commands.js# Register slash commands with Discord API
+    index.js          # Entry point (validates token, logs in)
+  test/               # Mocha + Chai + Sinon unit tests
+  recordings/         # Voice recordings output (gitignored)
+  logs/               # Message logs per channel (gitignored)
 ```
 
-## 3. Core Modules
+## 3. Features
 
-### 3.1. Event Handler
-A dynamic event loader that scans the `/events` directory and registers listeners. This avoids a bloated `index.ts`.
-- **Logic:** `fs.readdirSync` -> filter `.ts` files -> `client.on(event.name, (...args) => event.execute(...args))`
+### Slash Commands
+- `/ping` — Latency check
+- `/join` — Join the user's voice channel, stream and record audio per-user as PCM files
+- `/leave` — Disconnect and save all recordings
 
-### 3.2. Command Handler
-A robust Slash Command handler using `Collection` for storage and `REST` API for deployment.
-- **Storage:** `client.commands = new Collection();`
-- **Execution:** Listen to `interactionCreate` -> fetch command from collection -> `await command.execute(interaction);`
+### Agent Bridge (@mention)
+When the bot is @mentioned in a text channel, it:
+1. Queries the Ostwin dashboard API for plans, war-rooms, stats, and semantic search
+2. Sends context + question to Gemini
+3. Replies with the AI-synthesized answer
 
-### 3.3. Service Layer
-Separates Discord-specific logic from business logic. Services (e.g., `UserService`, `LoggingService`) handle database operations or API calls.
+### Voice Recording
+- Per-user PCM recording (48kHz, 16-bit, stereo)
+- Auto-disconnect when all humans leave the voice channel
+- Recordings saved to `recordings/` directory
 
-## 4. Connection Flow & Sharding
-- **Initialization:** Load environment variables -> Register commands to Discord REST -> Initialize Discord Client.
-- **Sharding:** Use `ShardingManager` for bots in >2,500 guilds. For smaller bots, internal sharding is sufficient.
+### Message Logging
+- Captures all non-bot guild messages to per-channel JSON files in `logs/`
 
-## 5. Security Protocols
-- **Token Management:**
-    - Use `.env` file for local development.
-    - For Production, use AWS Secrets Manager or GitHub Secrets for CI/CD.
-    - **NEVER** commit `.env` files (already added to `.gitignore`).
-- **Least Privilege Gateway Intents:**
-    - Disable `GatewayIntentBits.MessageContent` unless necessary (e.g., legacy prefix commands).
-    - Use `GatewayIntentBits.Guilds` for core functionality.
-    - Enable `GuildMembers` and `GuildPresences` only if the bot is "Privileged" and really needs them.
-- **Input Sanitization:**
-    - Always treat user input as untrusted. Discord slash commands provide some built-in typing, but manual checks for injection or malicious strings in text inputs are required.
-- **Interaction Verification:**
-    - If using **Webhooks** instead of the Gateway (Serverless), verify signatures using Discord's public key as per the [API documentation](https://discord.com/developers/docs/interactions/receiving-and-responding#security-and-authorization).
+## 4. Setup
 
-## 6. Scalability & Event Handling
-- **Dynamic Loader:** Scans `/src/events/*.ts` and registers them with `client.on()`.
-- **Command Collection:** Uses `Map<string, Command>` to store commands and execute them based on `interaction.commandName`.
-- **Database Pooling:** Use connection pooling for SQL databases to handle concurrent requests from multiple shards.
-- **Sharding:** Ready for `discord.js` sharding manager. Each shard handles ~1,000 to 2,500 servers.
+```bash
+cp .env.example .env    # Fill in your tokens
+pnpm install
+pnpm run deploy         # Register slash commands
+pnpm start              # Start the bot
+```
 
-## 7. Verification of SDK
-- **Discord.js (v14.x)** is verified to support:
-    - Slash Commands (Global and Guild-specific).
-    - Buttons, Select Menus, and Modals.
-    - All Gateway Intents (Standard and Privileged).
-    - API v10 compatibility.
+### Required Environment Variables
+| Variable | Required | Description |
+|---|---|---|
+| `DISCORD_TOKEN` | Yes | Bot token from Discord Developer Portal |
+| `DISCORD_CLIENT_ID` | Yes | Application ID from Discord Developer Portal |
+| `GUILD_ID` | No | Test server ID (guild-scoped commands if set) |
+| `DASHBOARD_URL` | No | Ostwin dashboard URL (default: `http://localhost:9000`) |
+| `OSTWIN_API_KEY` | No | API key for dashboard authentication |
+| `GOOGLE_API_KEY` | Yes* | Google AI API key (*required for @mention agent) |
+| `GEMINI_MODEL` | No | Gemini model to use (default: `gemini-2.0-flash`) |
+
+### Discord Developer Portal Setup
+1. Enable **Message Content Intent** under Bot settings (required for @mention detection)
+2. Grant the bot **Connect** and **Speak** permissions for voice features
+
+## 5. Security
+- Bot token stored in `.env` (gitignored)
+- Never commit `.env` files
+- Gateway intents follow least-privilege principle
+- User input sanitized via Discord's slash command typing

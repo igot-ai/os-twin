@@ -19,9 +19,13 @@ if (OSTWIN_API_KEY) headers['X-API-Key'] = OSTWIN_API_KEY;
 async function fetchJSON(path) {
   try {
     const res = await fetch(`${DASHBOARD_URL}${path}`, { headers });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[BRIDGE] ${path} returned ${res.status}`);
+      return null;
+    }
     return await res.json();
-  } catch {
+  } catch (err) {
+    console.warn(`[BRIDGE] Failed to fetch ${path}: ${err.message}`);
     return null;
   }
 }
@@ -104,20 +108,28 @@ ${stats}
 ${search}`;
 
   // 3. Call Gemini
+  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
   const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: geminiModel });
 
-  const result = await model.generateContent({
-    contents: [
-      { role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${contextBlock}\n\n---\n\n**User question:** ${question}` }] },
-    ],
-  });
+  try {
+    const result = await model.generateContent({
+      contents: [
+        { role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${contextBlock}\n\n---\n\n**User question:** ${question}` }] },
+      ],
+    });
 
-  const text = result.response.text();
-  // Discord message limit is 2000 chars
-  return text.length > 1900
-    ? text.slice(0, 1900) + '\n\n*…(truncated)*'
-    : text;
+    const text = result.response?.text?.();
+    if (!text) return '⚠️ Gemini returned an empty response.';
+
+    // Discord message limit is 2000 chars
+    return text.length > 1900
+      ? text.slice(0, 1900) + '\n\n*…(truncated)*'
+      : text;
+  } catch (err) {
+    console.error('[BRIDGE] Gemini API error:', err.message);
+    return '⚠️ Failed to get a response from the AI model. Please try again later.';
+  }
 }
 
 module.exports = { askAgent };
