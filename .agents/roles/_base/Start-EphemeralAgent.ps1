@@ -44,10 +44,21 @@ function Write-Log {
     }
 }
 
+# --- Load Config (must happen before PID tracking to resolve role name) ---
+$roomConfigFile = Join-Path $RoomDir "config.json"
+if (-not (Test-Path $roomConfigFile)) {
+    Write-Log "ERROR" "config.json not found in war room."
+    exit 1
+}
+$roomConfig = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
+
 # --- Process Tracking (PID) ---
 $pidDir = Join-Path $RoomDir "pids"
 if (-not (Test-Path $pidDir)) { New-Item -ItemType Directory -Path $pidDir -Force | Out-Null }
-$pidFile = Join-Path $pidDir "engineer.pid" # Keeps compatibility with manager loop checking engineer.pid
+$assignedRole = if ($roomConfig.assignment -and $roomConfig.assignment.assigned_role) {
+    ($roomConfig.assignment.assigned_role -replace ':.*$', '')
+} else { "engineer" }
+$pidFile = Join-Path $pidDir "$assignedRole.pid"
 $PID | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
 
 function Cleanup-And-Exit {
@@ -57,15 +68,10 @@ function Cleanup-And-Exit {
         & $postMessage -RoomDir $RoomDir -From "engineer" -To "manager" -Type "error" -Ref $TaskRef -Body $ErrorMsg
     }
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+    $lockFile = Join-Path $pidDir "$assignedRole.spawned_at"
+    Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
     exit $ExitCode
 }
-
-# --- Load Config ---
-$roomConfigFile = Join-Path $RoomDir "config.json"
-if (-not (Test-Path $roomConfigFile)) {
-    Cleanup-And-Exit 1 "config.json not found in war room."
-}
-$roomConfig = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
 $TaskRef = $roomConfig.task_ref
 $TaskTitle = $roomConfig.assignment.title
 $TaskDesc = $roomConfig.assignment.description

@@ -98,9 +98,12 @@ Final version of the plan.
 """
 
 
+API_KEY = os.environ.get("OSTWIN_API_KEY", "")
+HEADERS = {"X-API-Key": API_KEY}
+
 def test_version_snapshot_on_save():
     """Saving a plan with changed content should create a version snapshot."""
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    with httpx.Client(base_url=DASHBOARD_URL, timeout=10, headers=HEADERS) as client:
         # 1. Create plan
         resp = client.post("/api/plans/create", json={
             "path": "/tmp/test-versions",
@@ -187,7 +190,7 @@ def test_version_snapshot_on_save():
 
 def test_restore_version():
     """Restoring a version should set it as current and snapshot the previous current."""
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    with httpx.Client(base_url=DASHBOARD_URL, timeout=10, headers=HEADERS) as client:
         # 1. Create and populate
         resp = client.post("/api/plans/create", json={
             "path": "/tmp/test-restore",

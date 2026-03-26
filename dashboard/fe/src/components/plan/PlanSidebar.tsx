@@ -5,18 +5,15 @@ import { usePlanContext } from './PlanWorkspace';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default function PlanSidebar() {
-  const { plan, epics, activeTab, setActiveTab, savePlan, launchPlan, isSaving, isAIChatOpen, setIsAIChatOpen } = usePlanContext();
+  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, launchPlan, isSaving } = usePlanContext();
 
   const tabs = [
     { id: 'epics', label: 'EPICs', icon: 'view_kanban', count: epics?.length },
     { id: 'editor', label: 'Editor', icon: 'edit_document' },
     { id: 'preview', label: 'Preview', icon: 'visibility' },
-    { id: 'roles', label: 'Roles & Models', icon: 'group' },
-    { id: 'skills', label: 'Skills', icon: 'extension' },
+    { id: 'roles', label: 'Roles & Config', icon: 'group' },
     { id: 'dag', label: 'DAG View', icon: 'account_tree' },
-    { id: 'plan-settings', label: 'Plan Settings', icon: 'tune' },
     { id: 'history', label: 'History', icon: 'history' },
-    { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
 
   if (!plan) return null;
@@ -51,12 +48,14 @@ export default function PlanSidebar() {
         <div className="space-y-1.5">
           <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider">
             <span className="text-text-muted">Progress</span>
-            <span className="text-text-main">{plan.pct_complete ?? 0}%</span>
+            <span className={isProgressLoading ? 'animate-pulse text-primary' : 'text-text-main'}>
+              {Math.round(progress?.pct_complete ?? plan.pct_complete ?? 0)}%
+            </span>
           </div>
           <div className="h-1.5 w-full bg-border/50 rounded-full overflow-hidden">
             <div 
-              className="h-full bg-primary transition-all duration-500"
-              style={{ width: `${plan.pct_complete ?? 0}%` }}
+              className={`h-full bg-primary transition-all duration-500 ${isProgressLoading ? 'opacity-50' : ''}`}
+              style={{ width: `${progress?.pct_complete ?? plan.pct_complete ?? 0}%` }}
             />
           </div>
         </div>
@@ -114,17 +113,6 @@ export default function PlanSidebar() {
         >
           <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
           Launch Plan
-        </button>
-        <button
-          onClick={() => setIsAIChatOpen((prev: boolean) => !prev)}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold transition-all ${
-            isAIChatOpen
-              ? 'bg-primary text-white'
-              : 'bg-surface-hover text-text-muted hover:text-text-main'
-          }`}
-        >
-          <span className="material-symbols-outlined text-[18px]">smart_toy</span>
-          AI Architect
         </button>
       </div>
 

@@ -107,6 +107,8 @@ function Cleanup-And-Exit {
         & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" -Type "error" -Ref $taskRef -Body $ErrorMsg
     }
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+    $lockFile = Join-Path $pidDir "$baseRole.spawned_at"
+    Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
     exit $ExitCode
 }
 
@@ -423,7 +425,9 @@ if ($roleConfigs) {
     $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $roleConfigs[0].FullName -Encoding utf8
 }
 
-# --- Clean up PID file ---
+# --- Clean up PID and spawn lock files ---
 Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+$lockFile = Join-Path $pidDir "$baseRole.spawned_at"
+Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
 
 exit $result.ExitCode

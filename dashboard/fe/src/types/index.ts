@@ -14,6 +14,7 @@ export interface Plan {
   critical_path?: { completed: number; total: number };
   escalations?: number;
   roles?: RoleSummary[];
+  role_distribution?: Record<string, number>;
   created_at?: string;
   updated_at?: string;
   working_dir?: string;
@@ -261,7 +262,7 @@ export interface WarRoomProgress {
   active: number;
   pending: number;
   pct_complete: number;
-  critical_path: string; // e.g. "7/8"
+  critical_path: string | { completed: number; total: number }; // Can be "7/8" or object
   rooms: WarRoomRoomEntry[];
 }
 
@@ -341,6 +342,31 @@ export interface PlanVersion {
   created_at: string;
   change_source: string;
   content?: string;
+}
+
+// ──────────────────────────────────────────────────
+// Change Event (Unified History)
+// ──────────────────────────────────────────────────
+export interface ChangeEvent {
+  id: string;
+  plan_id: string;
+  timestamp: string;
+  type: 'plan_version' | 'asset_change';
+  source: 'zvec' | 'git' | 'file_watcher';
+  
+  // For plan_version
+  version?: number;
+  title?: string;
+  change_source?: string;
+  
+  // For asset_change (git/file)
+  change_type?: string;
+  file_path?: string;
+  diff_summary?: string;
+  author?: string;
+  message?: string;
+  files?: string[];
+  is_uncommitted?: boolean;
 }
 
 // ──────────────────────────────────────────────────

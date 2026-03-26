@@ -228,7 +228,7 @@ export default function KanbanBoard() {
           {/* Progress from progress.json */}
           {progress && (
             <span className="text-[10px] font-bold text-text-muted bg-surface-hover px-2 py-1 rounded-md border border-border">
-              {progress.pct_complete}% • CP {progress.critical_path}
+              {progress.pct_complete}% • CP {typeof progress.critical_path === 'object' ? `${progress.critical_path.completed}/${progress.critical_path.total}` : progress.critical_path}
             </span>
           )}
           <div className="flex -space-x-1 hover:space-x-1 transition-all">
