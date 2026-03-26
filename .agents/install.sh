@@ -185,6 +185,10 @@ check_pwsh() {
   return 1
 }
 
+check_node() {
+  command -v node &>/dev/null
+}
+
 check_uv() {
   command -v uv &>/dev/null
 }
@@ -350,6 +354,46 @@ install_pwsh() {
             echo "    See: https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-linux"
             return 1
           fi
+          ;;
+      esac
+      ;;
+  esac
+}
+
+install_node() {
+  case "$OS" in
+    macos)
+      if check_brew; then
+        step "Installing Node.js via Homebrew..."
+        brew install node
+      else
+        fail "Cannot install Node.js without Homebrew"
+        exit 1
+      fi
+      ;;
+    linux)
+      case "$PKG_MGR" in
+        apt)
+          step "Installing Node.js via NodeSource (apt)..."
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
+          sudo apt-get install -y -qq nodejs
+          ;;
+        dnf|yum)
+          step "Installing Node.js via NodeSource ($PKG_MGR)..."
+          curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
+          sudo $PKG_MGR install -y nodejs
+          ;;
+        pacman)
+          step "Installing Node.js via pacman..."
+          sudo pacman -S --noconfirm nodejs npm
+          ;;
+        zypper)
+          step "Installing Node.js via zypper..."
+          sudo zypper install -y nodejs18 npm18
+          ;;
+        *)
+          fail "Cannot install Node.js: no supported package manager found"
+          exit 1
           ;;
       esac
       ;;
@@ -523,6 +567,11 @@ setup_env() {
 # GOOGLE_API_KEY=your-google-api-key-here
 # OPENAI_API_KEY=your-openai-api-key-here
 # ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# OPENROUTER_API_KEY=your-openrouter-api-key-here
+# AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
+# BASETEN_API_KEY=your-baseten-api-key-here
+# AWS_ACCESS_KEY_ID=your-aws-access-key-id-here
+# AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
 
 # ── Dashboard settings ──────────────────────────────────────────────────────
 # DASHBOARD_PORT=9000
@@ -541,7 +590,7 @@ ENVEOF
 
   # Migrate any existing exported key from the current shell environment
   local migrated=false
-  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
+  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
     if [[ -n "${!key:-}" ]]; then
       # Uncomment and fill the matching line
       if [[ "$OS" == "macos" ]]; then
@@ -555,7 +604,45 @@ ENVEOF
   done
 
   if ! $migrated; then
-    warn "No API keys found in current shell — edit $env_file and add them"
+    warn "No API keys found in current shell."
+    if ! $AUTO_YES; then
+      echo -e "    ${CYAN}Which AI Provider would you like to configure now?${NC}"
+      echo -e "      1) Google (Gemini)\t5) Azure OpenAI"
+      echo -e "      2) OpenAI\t\t6) Baseten"
+      echo -e "      3) Anthropic\t\t7) AWS Bedrock"
+      echo -e "      4) OpenRouter"
+      echo -e "      0) Skip for now"
+      echo -en "    ${YELLOW}?${NC} Select an option ${DIM}[0-7]${NC}: "
+      read -r provider_choice
+
+      local selected_keys=()
+      case "$provider_choice" in
+        1) selected_keys=("GOOGLE_API_KEY") ;;
+        2) selected_keys=("OPENAI_API_KEY") ;;
+        3) selected_keys=("ANTHROPIC_API_KEY") ;;
+        4) selected_keys=("OPENROUTER_API_KEY") ;;
+        5) selected_keys=("AZURE_OPENAI_API_KEY") ;;
+        6) selected_keys=("BASETEN_API_KEY") ;;
+        7) selected_keys=("AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY") ;;
+        *) info "Skipped API key setup. Please edit $env_file later." ;;
+      esac
+
+      for key_name in "${selected_keys[@]}"; do
+        echo -en "    ${CYAN}→${NC} Enter $key_name: "
+        read -s -r user_val
+        echo ""
+        if [[ -n "$user_val" ]]; then
+          if [[ "$OS" == "macos" ]]; then
+            sed -i '' "s|^# ${key_name}=.*|${key_name}=${user_val}|" "$env_file"
+          else
+            sed -i "s|^# ${key_name}=.*|${key_name}=${user_val}|" "$env_file"
+          fi
+          ok "Saved $key_name into .env"
+        fi
+      done
+    else
+      info "Non-interactive mode (-y). Edit $env_file later to add your API keys."
+    fi
   fi
 }
 
@@ -898,6 +985,22 @@ if $DASHBOARD_ONLY; then
     [[ -z "$PYTHON_CMD" ]] && { fail "Python required for dashboard"; exit 1; }
   fi
   ok "Python $PYTHON_VERSION ($PYTHON_CMD)"
+
+  # --- Node.js ---
+  if ! check_node; then
+    install_node
+  fi
+  if check_node; then
+    NODE_VERSION=$(node --version 2>&1 | head -1)
+    ok "Node.js $NODE_VERSION"
+    if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+      step "Installing pnpm..."
+      npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+    fi
+  else
+    fail "Node.js required for dashboard"
+    exit 1
+  fi
 else
 
 header "2. Checking dependencies"
@@ -963,6 +1066,33 @@ if check_deepagents; then
   ok "deepagents-cli $DA_VERSION"
 else
   install_deepagents
+fi
+
+# --- Node.js ---
+if check_node; then
+  NODE_VERSION=$(node --version 2>&1 | head -1)
+  ok "Node.js $NODE_VERSION"
+  if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+    step "Installing pnpm..."
+    npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+  fi
+else
+  warn "Node.js not found"
+  if ask "Install Node.js? (required for Dashboard UI)"; then
+    install_node
+    if check_node; then
+      NODE_VERSION=$(node --version 2>&1 | head -1)
+      ok "Node.js $NODE_VERSION installed"
+      if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+        step "Installing pnpm..."
+        npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+      fi
+    else
+      warn "Node.js installation failed"
+    fi
+  else
+    warn "Skipping Node.js — dashboard UI will not be built"
+  fi
 fi
 
 fi  # end: ! DASHBOARD_ONLY
