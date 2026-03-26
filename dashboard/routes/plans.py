@@ -499,7 +499,6 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
     
-    # --- Snapshot current content as a version before overwriting ---
     store = global_state.store
     old_content = plan_file.read_text()
     if old_content.strip() and old_content.strip() != request.content.strip():
@@ -684,13 +683,28 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
 
     meta_path.write_text(json.dumps(meta, indent=2))
 
-    # --- .roles.json: only seed from global config when the file does NOT exist ---
+    # --- .roles.json: seed from engine config + dashboard roles when file does NOT exist ---
     role_config_path = plans_dir / f"{plan_id}.roles.json"
     if not role_config_path.exists():
         global_config_file = AGENTS_DIR / "config.json"
+        seed_config = {}
         if global_config_file.exists():
-            role_config_path.write_text(global_config_file.read_text())
-            logger.info(f"run_plan: seeded roles.json for {plan_id} from global config")
+            try:
+                seed_config = json.loads(global_config_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        # Merge dashboard roles (which have skill_refs) into the plan config
+        from dashboard.routes.roles import load_roles
+        for role in load_roles():
+            if role.name not in seed_config:
+                seed_config[role.name] = {}
+            rc = seed_config[role.name]
+            rc.setdefault("default_model", role.version)
+            rc.setdefault("timeout_seconds", role.timeout_seconds)
+            if role.skill_refs:
+                rc.setdefault("skill_refs", role.skill_refs)
+        role_config_path.write_text(json.dumps(seed_config, indent=2))
+        logger.info(f"run_plan: seeded roles.json for {plan_id} from engine config + dashboard roles")
     else:
         logger.debug(f"run_plan: roles.json already exists for {plan_id}, preserving user customisations")
 
@@ -1099,6 +1113,15 @@ async def refine_plan_endpoint(request: RefineRequest):
             if p_file.exists():
                 plan_content = p_file.read_text()
         result = await refine_plan(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None)
+        if isinstance(result, dict):
+            # Backward compatible: refined_plan is a string. Rich info is also available.
+            return {
+                "refined_plan": result.get("full_response", ""),
+                "explanation": result.get("explanation", ""),
+                "actions": result.get("actions", []),
+                "plan": result.get("plan", ""),
+                "raw_result": result # For debugging/future-proofing
+            }
         return {"refined_plan": result}
     except ImportError as e:
         raise HTTPException(status_code=503, detail=f"deepagents not available: {e}. Install with: pip install deepagents")
@@ -1117,8 +1140,21 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
                 plan_content = p_file.read_text()
         async def event_generator():
             try:
-                async for token in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None):
-                    yield f"data: {json.dumps({'token': token})}\n\n"
+                from plan_agent import parse_structured_response
+                full_response = ""
+                async for chunk in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None):
+                    if isinstance(chunk, dict):
+                        # If a dictionary is yielded, treat it as a rich event and accumulate if it has a 'token'
+                        token = chunk.get("token", "")
+                        full_response += token
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                    else:
+                        full_response += chunk
+                        yield f"data: {json.dumps({'token': chunk})}\n\n"
+                
+                # After streaming is complete, parse the full response and emit as a structured result event
+                result = parse_structured_response(full_response)
+                yield f"data: {json.dumps({'result': result})}\n\n"
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -1159,8 +1195,8 @@ async def search_epics(q: str = Query(..., min_length=1), plan_id: Optional[str]
 
 # --- Plan-scoped roles & rooms ---
 
-@router.get("/api/plans/{plan_id}/roles")
-async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
+@router.get("/api/plans/{plan_id}/roles/assignments")
+async def get_plan_role_assignments(plan_id: str, user: dict = Depends(get_current_user)):
     config = get_plan_roles_config(plan_id)
     roles = build_roles_list(config, include_skills=True)
     warrooms_dir = resolve_plan_warrooms_dir(plan_id)
@@ -1213,6 +1249,7 @@ async def update_plan_role_config(plan_id: str, role_name: str, request: UpdateP
     if request.timeout_seconds is not None: config[role_name]["timeout_seconds"] = request.timeout_seconds
     if request.cli is not None: config[role_name]["cli"] = request.cli
     if request.skill_refs is not None: config[role_name]["skill_refs"] = request.skill_refs
+    if request.disabled_skills is not None: config[role_name]["disabled_skills"] = request.disabled_skills
     plan_roles_file.write_text(json.dumps(config, indent=2) + "\n")
     return {"status": "updated", "plan_id": plan_id, "role": role_name, "config": config[role_name]}
 
@@ -1608,7 +1645,8 @@ async def update_epic_role_config(
     if request.timeout_seconds is not None: rc["roles"][role_name]["timeout_seconds"] = request.timeout_seconds
     if request.cli is not None: rc["roles"][role_name]["cli"] = request.cli
     if request.skill_refs is not None: rc["roles"][role_name]["skill_refs"] = request.skill_refs
-    
+    if request.disabled_skills is not None: rc["roles"][role_name]["disabled_skills"] = request.disabled_skills
+
     room_config_file.write_text(json.dumps(rc, indent=2) + "\n")
     return {"status": "updated", "task_ref": task_ref, "role": role_name, "config": rc["roles"][role_name]}
 

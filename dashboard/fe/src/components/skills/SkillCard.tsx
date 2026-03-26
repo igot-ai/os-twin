@@ -5,8 +5,6 @@ import { Skill, SkillCategory } from '@/types';
 
 interface SkillCardProps {
   skill: Skill;
-  isAttached?: boolean;
-  onToggleAttach?: (id: string) => void;
   onClick?: (skill: Skill) => void;
 }
 
@@ -20,11 +18,9 @@ const categoryColors: Record<SkillCategory, string> = {
   triage: '#ef4444',
 };
 
-export const SkillCard: React.FC<SkillCardProps> = ({ 
-  skill, 
-  isAttached = false, 
-  onToggleAttach,
-  onClick 
+export const SkillCard: React.FC<SkillCardProps> = ({
+  skill,
+  onClick
 }) => {
   const catColor = categoryColors[skill.category] || 'var(--color-text-faint)';
 
@@ -63,22 +59,6 @@ export const SkillCard: React.FC<SkillCardProps> = ({
             <span className="material-symbols-outlined text-[14px] text-purple-500" title="Core Skill">shield</span>
           )}
         </div>
-        <button 
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleAttach?.(skill.id ?? skill.name);
-          }}
-          className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold transition-all ${
-            isAttached 
-              ? 'bg-green-50 text-green-600 border border-green-200' 
-              : 'bg-slate-50 text-slate-500 border border-slate-200 hover:bg-slate-100'
-          }`}
-        >
-          <span className="material-symbols-outlined text-[14px]">
-            {isAttached ? 'check_circle' : 'add_circle'}
-          </span>
-          {isAttached ? 'Attached' : 'Attach'}
-        </button>
       </div>
 
       {/* Description */}

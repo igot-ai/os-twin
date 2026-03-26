@@ -74,6 +74,7 @@ class UpdatePlanRoleConfigRequest(BaseModel):
     timeout_seconds: int | None = None
     cli: str | None = None
     skill_refs: List[str] | None = None
+    disabled_skills: List[str] | None = None
 
 
 class StrategyParameter(BaseModel):

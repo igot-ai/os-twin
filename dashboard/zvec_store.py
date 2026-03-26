@@ -33,6 +33,7 @@ EPICS_COLLECTION = "epics"
 SKILLS_COLLECTION = "skills"
 VERSIONS_COLLECTION = "versions"
 CHANGES_COLLECTION = "changes"
+ROLES_COLLECTION = "roles"
 
 
 class OSTwinStore:
@@ -55,6 +56,7 @@ class OSTwinStore:
         self._skills: Optional[zvec.Collection] = None
         self._versions: Optional[zvec.Collection] = None
         self._changes: Optional[zvec.Collection] = None
+        self._roles: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
@@ -70,6 +72,7 @@ class OSTwinStore:
         self._skills = self._open_or_create_skills()
         self._versions = self._open_or_create_versions()
         self._changes = self._open_or_create_changes()
+        self._roles = self._open_or_create_roles()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def _open_or_create_messages(self) -> zvec.Collection:
@@ -296,6 +299,46 @@ class OSTwinStore:
                     zvec.DataType.VECTOR_FP32,
                     1,
                     index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
+    def _open_or_create_roles(self) -> zvec.Collection:
+        path = str(self.zvec_dir / ROLES_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=ROLES_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("role_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("name", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("description", zvec.DataType.STRING),
+                    zvec.FieldSchema("provider", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("version", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("temperature", zvec.DataType.STRING),
+                    zvec.FieldSchema("budget_tokens_max", zvec.DataType.STRING),
+                    zvec.FieldSchema("max_retries", zvec.DataType.STRING),
+                    zvec.FieldSchema("timeout_seconds", zvec.DataType.STRING),
+                    zvec.FieldSchema("skill_refs", zvec.DataType.STRING),
+                    zvec.FieldSchema("system_prompt_override", zvec.DataType.STRING,
+                                     nullable=True),
+                    zvec.FieldSchema("created_at", zvec.DataType.STRING),
+                    zvec.FieldSchema("updated_at", zvec.DataType.STRING),
+                ],
+                vectors=zvec.VectorSchema(
+                    "embedding",
+                    zvec.DataType.VECTOR_FP32,
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
                 ),
             )
             return zvec.create_and_open(path=path, schema=schema)
@@ -1132,6 +1175,266 @@ class OSTwinStore:
             "removed": removed,
         }
 
+    # ── Role Indexing & Search ─────────────────────────────────────────
+
+    def index_role(self, role_id: str, name: str, description: str = "",
+                   provider: str = "", version: str = "",
+                   temperature: float = 0.7, budget_tokens_max: int = 500000,
+                   max_retries: int = 3, timeout_seconds: int = 300,
+                   skill_refs: list[str] | None = None,
+                   system_prompt_override: str | None = None,
+                   created_at: str = "", updated_at: str = "") -> bool:
+        """Index or update a role. Returns True on success."""
+        if self._roles is None:
+            return False
+
+        skill_refs = skill_refs or []
+        skill_refs_str = ",".join(skill_refs)
+        desc_clean = self._sanitize_text(description)
+
+        embed_text = f"{name} {provider} {desc_clean} {skill_refs_str}"
+        embedding = self._embed_text(embed_text)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
+        doc = zvec.Doc(
+            id=role_id,
+            fields={
+                "role_id": role_id,
+                "name": name,
+                "description": desc_clean,
+                "provider": provider,
+                "version": version,
+                "temperature": str(temperature),
+                "budget_tokens_max": str(budget_tokens_max),
+                "max_retries": str(max_retries),
+                "timeout_seconds": str(timeout_seconds),
+                "skill_refs": skill_refs_str,
+                "system_prompt_override": system_prompt_override,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            },
+            vectors={"embedding": embedding},
+        )
+        try:
+            s = self._roles.upsert(doc)
+            self._roles.flush()
+            return s.ok()
+        except Exception as e:
+            logger.warning("Failed to index role %s: %s", role_id, e)
+            return False
+
+    def _map_role_doc(self, doc: zvec.Doc) -> dict:
+        """Helper to map a role zvec doc to a standard role dict."""
+        skill_refs_str = doc.field("skill_refs")
+        skill_refs = [s.strip() for s in skill_refs_str.split(",") if s.strip()] if skill_refs_str else []
+
+        temp_str = doc.field("temperature")
+        try:
+            temperature = float(temp_str)
+        except (ValueError, TypeError):
+            temperature = 0.7
+
+        budget_str = doc.field("budget_tokens_max")
+        try:
+            budget_tokens_max = int(budget_str)
+        except (ValueError, TypeError):
+            budget_tokens_max = 500000
+
+        retries_str = doc.field("max_retries")
+        try:
+            max_retries = int(retries_str)
+        except (ValueError, TypeError):
+            max_retries = 3
+
+        timeout_str = doc.field("timeout_seconds")
+        try:
+            timeout_seconds = int(timeout_str)
+        except (ValueError, TypeError):
+            timeout_seconds = 300
+
+        return {
+            "id": doc.field("role_id"),
+            "name": doc.field("name"),
+            "description": doc.field("description"),
+            "provider": doc.field("provider"),
+            "version": doc.field("version"),
+            "temperature": temperature,
+            "budget_tokens_max": budget_tokens_max,
+            "max_retries": max_retries,
+            "timeout_seconds": timeout_seconds,
+            "skill_refs": skill_refs,
+            "system_prompt_override": doc.field("system_prompt_override"),
+            "created_at": doc.field("created_at"),
+            "updated_at": doc.field("updated_at"),
+        }
+
+    def get_role(self, role_id: str) -> dict | None:
+        """Fetch a single role by ID. Returns None if not found."""
+        if self._roles is None:
+            return None
+        try:
+            result = self._roles.fetch(role_id)
+            if role_id not in result:
+                return None
+            return self._map_role_doc(result[role_id])
+        except Exception:
+            return None
+
+    def get_all_roles(self, limit: int = 100) -> list[dict]:
+        """Fetch all indexed roles. Returns list of dicts."""
+        if self._roles is None:
+            return []
+        try:
+            docs = self._roles.query(
+                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
+                topk=limit,
+                output_fields=["role_id", "name", "description", "provider",
+                               "version", "temperature", "budget_tokens_max",
+                               "max_retries", "timeout_seconds", "skill_refs",
+                               "system_prompt_override", "created_at", "updated_at"],
+            )
+            return [self._map_role_doc(doc) for doc in docs]
+        except Exception as e:
+            logger.error("get_all_roles failed: %s", e)
+            return []
+
+    def search_roles(self, query: str, limit: int = 20) -> list[dict]:
+        """Semantic search across indexed roles. Returns ranked results."""
+        if self._roles is None:
+            return []
+        embedding = self._embed_text(query)
+        if embedding is None:
+            return []
+        try:
+            docs = self._roles.query(
+                vectors=zvec.VectorQuery("embedding", vector=embedding),
+                topk=limit,
+                output_fields=["role_id", "name", "description", "provider",
+                               "version", "temperature", "budget_tokens_max",
+                               "max_retries", "timeout_seconds", "skill_refs",
+                               "system_prompt_override", "created_at", "updated_at"],
+            )
+            results = []
+            for doc in docs:
+                role = self._map_role_doc(doc)
+                role["score"] = float(doc.score)
+                results.append(role)
+            return results
+        except Exception as e:
+            logger.error("Role search failed: %s", e)
+            return []
+
+    def delete_role(self, role_id: str) -> bool:
+        """Delete a role by ID. Returns True on success."""
+        if self._roles is None:
+            return False
+        try:
+            self._roles.delete(role_id)
+            self._roles.flush()
+            return True
+        except Exception as e:
+            logger.warning("Failed to delete role %s: %s", role_id, e)
+            return False
+
+    def sync_roles(self, roles_dir: Path) -> dict:
+        """Synchronize roles collection with config/registry on disk.
+
+        Handles additions, updates, and removals.
+        Returns dict with synced_count, added, updated, removed.
+        """
+        added = []
+        updated = []
+        removed = []
+        synced_count = 0
+
+        roles_dir = Path(roles_dir) if not isinstance(roles_dir, Path) else roles_dir
+
+        # 1. Read roles from disk (config.json or registry.json fallback)
+        disk_roles: dict[str, dict] = {}
+        config_file = roles_dir / "config.json"
+        registry_file = roles_dir / "registry.json"
+
+        if config_file.exists():
+            try:
+                data = json.loads(config_file.read_text())
+                for r in data:
+                    role_id = r.get("id", "")
+                    if role_id:
+                        disk_roles[role_id] = r
+            except Exception as e:
+                logger.warning("Failed to read roles config.json: %s", e)
+        elif registry_file.exists():
+            try:
+                data = json.loads(registry_file.read_text())
+                for r in data.get("roles", []):
+                    role_name = r.get("name", "")
+                    role_id = r.get("id", f"registry-{role_name}")
+                    if role_id:
+                        disk_roles[role_id] = {**r, "id": role_id}
+            except Exception as e:
+                logger.warning("Failed to read roles registry.json: %s", e)
+
+        if not disk_roles:
+            logger.info("No roles found on disk — skipping sync")
+            return {"synced_count": 0, "added": [], "updated": [], "removed": []}
+
+        # 2. Fetch all indexed role IDs
+        try:
+            indexed_roles = self.get_all_roles(limit=1000)
+            indexed_ids = {r["id"] for r in indexed_roles}
+        except Exception:
+            indexed_ids = set()
+
+        # 3. Handle additions and updates
+        for role_id, data in disk_roles.items():
+            existing = self.get_role(role_id)
+            if existing and existing.get("updated_at") == data.get("updated_at", ""):
+                continue
+
+            if self.index_role(
+                role_id=role_id,
+                name=data.get("name", ""),
+                description=data.get("description", ""),
+                provider=data.get("provider", ""),
+                version=data.get("version", ""),
+                temperature=float(data.get("temperature", 0.7)),
+                budget_tokens_max=int(data.get("budget_tokens_max", 500000)),
+                max_retries=int(data.get("max_retries", 3)),
+                timeout_seconds=int(data.get("timeout_seconds", 300)),
+                skill_refs=data.get("skill_refs", []),
+                system_prompt_override=data.get("system_prompt_override"),
+                created_at=data.get("created_at", ""),
+                updated_at=data.get("updated_at", ""),
+            ):
+                synced_count += 1
+                if not existing:
+                    added.append(role_id)
+                else:
+                    updated.append(role_id)
+
+        # 4. Handle removals — roles deleted from disk
+        disk_ids = set(disk_roles.keys())
+        for role_id in indexed_ids:
+            if role_id not in disk_ids:
+                if self.delete_role(role_id):
+                    removed.append(role_id)
+
+        if self._roles:
+            try:
+                self._roles.optimize()
+            except Exception:
+                pass
+
+        logger.info("Roles sync: %d synced, %d added, %d updated, %d removed",
+                    synced_count, len(added), len(updated), len(removed))
+        return {
+            "synced_count": synced_count,
+            "added": added,
+            "updated": updated,
+            "removed": removed,
+        }
+
     # ── Search ─────────────────────────────────────────────────────────
 
     def search(
@@ -1440,6 +1743,8 @@ class OSTwinStore:
             self._versions.flush()
         if self._changes:
             self._changes.flush()
+        if self._roles:
+            self._roles.flush()
 
     # ── Helpers ─────────────────────────────────────────────────────────
 

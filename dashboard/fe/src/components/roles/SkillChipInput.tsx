@@ -4,15 +4,13 @@ import { useState, useRef, useEffect } from 'react';
 import useSWR from 'swr';
 import { Skill } from '@/types';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
-
 interface SkillChipInputProps {
   selectedSkillRefs: string[];
   onChange: (skillRefs: string[]) => void;
 }
 
 export default function SkillChipInput({ selectedSkillRefs, onChange }: SkillChipInputProps) {
-  const { data: allSkills = [], isLoading } = useSWR<Skill[]>('/api/skills', fetcher);
+  const { data: allSkills = [], isLoading } = useSWR<Skill[]>('/skills');
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);

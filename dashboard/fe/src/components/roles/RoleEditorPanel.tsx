@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { mutate } from 'swr';
+import { useSWRConfig } from 'swr';
 import { Role } from '@/types';
+import { apiPost, apiPut } from '@/lib/api-client';
 import ProviderSelector from './ProviderSelector';
 import SkillChipInput from './SkillChipInput';
 import TestConnectionButton from './TestConnectionButton';
@@ -16,6 +17,7 @@ interface RoleEditorPanelProps {
 }
 
 export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }: RoleEditorPanelProps) {
+  const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
   const { dependencies } = useRoleDependencies(role?.id || '');
   const [activeTab, setActiveTab] = useState<'config' | 'dependencies'>('config');
@@ -83,19 +85,14 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
 
     setIsSaving(true);
     try {
-      const url = role ? `/api/roles/${role.id}` : '/api/roles';
-      const method = role ? 'PUT' : 'POST';
-      
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      if (response.ok) {
-        mutate('/api/roles');
-        onClose();
+      if (role) {
+        await apiPut(`/roles/${role.id}`, formData);
+      } else {
+        await apiPost('/roles', formData);
       }
+      await mutate('/roles', undefined, { revalidate: true });
+      if (role) await mutate(`/roles/${role.id}`, undefined, { revalidate: true });
+      onClose();
     } catch (error) {
       console.error('Failed to save role:', error);
     } finally {

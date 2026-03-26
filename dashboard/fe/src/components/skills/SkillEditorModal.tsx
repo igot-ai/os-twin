@@ -9,19 +9,25 @@ interface SkillEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (skill: Partial<Skill>) => Promise<void>;
+  onUpdate?: (name: string, skill: Partial<Skill>) => Promise<void>;
+  onDelete?: (name: string) => Promise<void>;
 }
 
 export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
   skill,
   isOpen,
   onClose,
-  onSave
+  onSave,
+  onUpdate,
+  onDelete,
 }) => {
   const [name, setName] = useState(skill?.name || '');
   const [description, setDescription] = useState(skill?.description || '');
   const [category, setCategory] = useState<SkillCategory>(skill?.category || 'implementation');
   const [content, setContent] = useState(skill?.content || '');
   const [tags, setTags] = useState(skill?.tags?.join(', ') || '');
+  const [trustLevel, setTrustLevel] = useState<string>(skill?.trust_level || 'experimental');
+  const [applicableRolesInput, setApplicableRolesInput] = useState(skill?.applicable_roles?.join(', ') || '');
   const [isSaving, setIsSaving] = useState(false);
   const [validation, setValidation] = useState<{valid: boolean, errors: string[], warnings: string[]} | null>(null);
 
@@ -34,12 +40,16 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
       setCategory(skill.category);
       setContent(skill.content || '');
       setTags(skill.tags?.join(', ') || '');
+      setTrustLevel(skill.trust_level || 'experimental');
+      setApplicableRolesInput(skill.applicable_roles?.join(', ') || '');
     } else {
       setName('');
       setDescription('');
       setCategory('implementation');
       setContent('');
       setTags('');
+      setTrustLevel('experimental');
+      setApplicableRolesInput('');
     }
   }, [skill, isOpen]);
 
@@ -60,16 +70,37 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await onSave({
+      const skillData = {
         name,
         description,
         category,
         content,
         tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-      });
+        trust_level: trustLevel as Skill['trust_level'],
+        applicable_roles: applicableRolesInput.split(',').map(r => r.trim()).filter(Boolean),
+      };
+      if (skill && onUpdate) {
+        await onUpdate(skill.name, skillData);
+      } else {
+        await onSave(skillData);
+      }
       onClose();
     } catch (e) {
       alert('Failed to save skill');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!skill || !onDelete) return;
+    if (!confirm(`Delete skill "${skill.name}"? This cannot be undone.`)) return;
+    setIsSaving(true);
+    try {
+      await onDelete(skill.name);
+      onClose();
+    } catch (e) {
+      alert('Failed to delete skill');
     } finally {
       setIsSaving(false);
     }
@@ -99,10 +130,10 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase text-slate-500">Skill Name</label>
-              <input 
+              <input
                 value={name}
                 onChange={e => setName(e.target.value)}
                 className="w-full p-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none"
@@ -111,7 +142,7 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
             </div>
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase text-slate-500">Category</label>
-              <select 
+              <select
                 value={category}
                 onChange={e => setCategory(e.target.value as SkillCategory)}
                 className="w-full p-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none"
@@ -123,6 +154,18 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
                 <option value="analysis">Analysis</option>
                 <option value="compliance">Compliance</option>
                 <option value="triage">Triage</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase text-slate-500">Trust Level</label>
+              <select
+                value={trustLevel}
+                onChange={e => setTrustLevel(e.target.value)}
+                className="w-full p-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="experimental">Experimental</option>
+                <option value="verified">Verified</option>
+                <option value="core">Core</option>
               </select>
             </div>
           </div>
@@ -139,11 +182,21 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
 
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase text-slate-500">Tags (comma separated)</label>
-            <input 
+            <input
               value={tags}
               onChange={e => setTags(e.target.value)}
               className="w-full p-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none"
               placeholder="python, testing, backend"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-slate-500">Applicable Roles (comma separated)</label>
+            <input
+              value={applicableRolesInput}
+              onChange={e => setApplicableRolesInput(e.target.value)}
+              className="w-full p-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="developer, reviewer, analyst"
             />
           </div>
 
@@ -198,18 +251,30 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t bg-slate-50 flex items-center justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800">
-            Cancel
-          </button>
-          <button 
-            onClick={handleSave}
-            disabled={isSaving || !name || !content || !!(validation && !validation.valid)}
-            className="px-6 py-2 rounded-xl text-sm font-bold text-white shadow-lg shadow-blue-200 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
-            style={{ background: 'var(--color-primary)' }}
-          >
-            {isSaving ? 'Saving...' : skill ? 'Update Skill' : 'Create Skill'}
-          </button>
+        <div className="p-6 border-t bg-slate-50 flex items-center justify-between">
+          <div>
+            {skill && onDelete && (
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 text-sm font-semibold text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                Delete Skill
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving || !name || !content || !!(validation && !validation.valid)}
+              className="px-6 py-2 rounded-xl text-sm font-bold text-white shadow-lg shadow-blue-200 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
+              style={{ background: 'var(--color-primary)' }}
+            >
+              {isSaving ? 'Saving...' : skill ? 'Update Skill' : 'Create Skill'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

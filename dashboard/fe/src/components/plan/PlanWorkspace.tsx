@@ -121,9 +121,24 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   }, [planId, planContent, addToast]);
 
   const launchPlan = useCallback(async () => {
-    await savePlan();
-    await apiPost('/run', { plan: planContent, plan_id: planId });
-  }, [savePlan, planContent, planId]);
+    try {
+      await savePlan();
+      await apiPost('/run', { plan: planContent, plan_id: planId });
+      addToast({
+        type: 'success',
+        title: 'Plan Launched',
+        message: 'Your plan is now running.',
+        autoDismiss: true,
+      });
+    } catch (err: unknown) {
+      addToast({
+        type: 'error',
+        title: 'Launch Failed',
+        message: err instanceof Error ? err.message : 'There was an error launching your plan. Please try again.',
+        autoDismiss: false,
+      });
+    }
+  }, [savePlan, planContent, planId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApplyAI = useCallback((newContent: string) => {
     setPlanContent(newContent);

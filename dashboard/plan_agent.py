@@ -8,14 +8,57 @@ and working directories.
 
 import os
 import json
+import re
 import logging
 from pathlib import Path
-from typing import Optional, AsyncIterator
+from typing import Optional, AsyncIterator, Dict, Any
 
 from deepagents import create_deep_agent
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 logger = logging.getLogger(__name__)
+
+def parse_structured_response(text: str) -> Dict[str, Any]:
+    """Parse the structured Markdown response from the Plan Architect."""
+    sections = {
+        "explanation": "",
+        "actions": [],
+        "plan": "",
+        "full_response": text
+    }
+
+    # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, support multiple #)
+    pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\b"
+    parts = re.split(pattern, text, flags=re.MULTILINE | re.IGNORECASE)
+
+    # Re-split returns [prefix, header1, content1, header2, content2, ...]
+    for i in range(1, len(parts), 2):
+        header = parts[i].upper()
+        content = parts[i+1].strip()
+
+        if header == "EXPLANATION":
+            sections["explanation"] = (sections["explanation"] + "\n" + content).strip()
+        elif header == "ACTIONS":
+            # Parse lines like "- ACTION: path/to/file"
+            lines = content.splitlines()
+            for line in lines:
+                # Support formats: "- CREATE: path", "UPDATE: path", "- [DELETE] path"
+                m = re.search(r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)", line.strip(), re.IGNORECASE)
+                if m:
+                    sections["actions"].append({
+                        "action": m.group(1).upper(),
+                        "path": m.group(2).strip()
+                    })
+        elif header == "PLAN":
+            sections["plan"] = (sections["plan"] + "\n" + content).strip()
+
+    # Fallback: if we didn't find specific sections but have text,
+    # and it looks like a plan, put it in the 'plan' field for backward compatibility.
+    if not sections["plan"] and not sections["explanation"] and text.strip():
+        if "# Plan" in text or "## Epics" in text:
+            sections["plan"] = text
+
+    return sections
 
 def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
     """Read roles from registry.json and format them for the prompt."""
@@ -79,8 +122,31 @@ executed by autonomous agents inside **war-rooms**.
 
 ## OUTPUT FORMAT AND INSTRUCTIONS
 
-You MUST produce a plan strictly following the format and rules defined in the template below.
-The template includes both instructions (in HTML comments or text) and the exact structure to use.
+You MUST separate your output into the following three labeled sections in this exact order:
+
+# EXPLANATION
+A brief, high-level summary of the changes or improvements you've made to the plan.
+
+# ACTIONS
+A list of discrete file operations required to implement the refinement.
+Format each line as: `- ACTION: path/to/file` (where ACTION is CREATE, UPDATE, or DELETE).
+If you are refining an existing plan, ALWAYS include `- UPDATE: PLAN.md`.
+Example:
+- CREATE: dashboard/models.py
+- UPDATE: PLAN.md
+
+# PLAN
+The full, updated plan content strictly following the template format below.
+
+## RULES
+1. ONLY output the three sections above. Do NOT include any introductory or concluding text.
+2. Each section MUST start with its corresponding '#' header on a new line.
+3. The `# ACTIONS` section MUST list one action per line for all files created or modified.
+4. The `# PLAN` section MUST contain the full, valid Markdown content of the plan, starting from its title.
+5. Maintain consistency and accuracy in all file paths.
+
+## PLAN TEMPLATE
+Strictly follow the structure and rules defined in the template below.
 Pay special attention to the dynamic Roles and Lifecycle sections.
 
 ```markdown
@@ -250,8 +316,8 @@ async def refine_plan(
     chat_history: list[dict] | None = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
-) -> str:
-    """Invoke the plan agent and return the refined plan text.
+) -> Dict[str, Any]:
+    """Invoke the plan agent and return the refined plan structured data.
 
     Args:
         user_message: User's refinement instruction.
@@ -261,7 +327,7 @@ async def refine_plan(
         plans_dir: Path to plans directory.
 
     Returns:
-        The agent's response text.
+        A dictionary with explanation, actions, and plan content.
     """
     agent = create_plan_agent(model=model, plans_dir=plans_dir)
     messages = build_messages(user_message, plan_content, chat_history)
@@ -269,11 +335,21 @@ async def refine_plan(
     result = await agent.ainvoke({"messages": messages})
 
     # Extract the last AI message
+    raw_content = ""
     for msg in reversed(result.get("messages", [])):
         if hasattr(msg, "content") and msg.content:
-            return msg.content
+            content = msg.content
+            if isinstance(content, list):
+                # Handle Gemini blocks
+                raw_content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+            else:
+                raw_content = content
+            break
 
-    return "Error: No response from plan agent."
+    if not raw_content:
+        return {"error": "No response from plan agent."}
+
+    return parse_structured_response(raw_content)
 
 
 async def refine_plan_stream(
