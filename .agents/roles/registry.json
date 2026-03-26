@@ -304,10 +304,10 @@
       "default_model": "gemini-3-flash-preview"
     },
     {
-      "name": "cv-analytics",
-      "description": "CV analytics pipeline for Unity UI — orchestrates detect-ui and detect-anim to produce structured JSON outputs",
-      "definition": "contributes/roles/cv-analytics/role.json",
-      "prompt": "contributes/roles/cv-analytics/ROLE.md",
+      "name": "game-ui-analytics",
+      "description": "game ui analytics pipeline for Unity UI — orchestrates detect-ui and detect-anim to produce structured JSON outputs",
+      "definition": "contributes/roles/game-ui-analyst/role.json",
+      "prompt": "contributes/roles/game-ui-analyst/ROLE.md",
       "default_assignment": false,
       "supported_task_types": [
         "task"
@@ -324,7 +324,7 @@
         "id-consistency",
         "temporal-consistency"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "openai:seed-2-0-pro-260328"
     },
     {
       "name": "level-designer",

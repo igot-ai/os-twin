@@ -1,6 +1,6 @@
 ---
-name: cv-analytics
-description: End-to-end CV analytics pipeline for Unity UI. Orchestrates detect-ui and detect-anim into a unified analysis with cross-validation. Takes screenshot + video → produces detection JSON, animation JSON, and a validated analytics report.
+name: game-ui-analytics-pipeline
+description: End-to-end Game UI analytics pipeline for Unity UI. Orchestrates detect-ui and detect-anim into a unified analysis with cross-validation. Takes screenshot + video → produces detection JSON, animation JSON, and a validated analytics report.
 argument-hint: <screenshot_path> [video_path] [real_bg_asset_path] [output_dir]
 allowed-tools: Read, Write, Glob, Grep, Bash
 ---
@@ -23,7 +23,7 @@ Default output directory: same directory as `$0`.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    cv-analytics Pipeline                             │
+│                    game-ui-analytics-analytics Pipeline                             │
 │                                                                      │
 │  Inputs: screenshot.png + animation.mov + [bg_asset.png]            │
 │                                                                      │
