@@ -1,8 +1,10 @@
 ---
 name: detect-anim
-description: Analyse a screen-recorded video of a Unity UI animation (popup appear, heart refill, level complete, etc.) and generate animation_clips JSON with per-object keyframe tracks. Uses a 2-phase pipeline — Python/OpenCV extracts motion data, then Claude performs semantic analysis matching tracks to objects from a _detection.json. Run this after /detect-ui.
+description: Analyse a screen-recorded video of a Unity UI animation (popup appear, heart refill, level complete, etc.) and generate animation_clips JSON with per-object keyframe tracks. Uses a 2-phase pipeline — Python/OpenCV extracts motion data, then the agent performs semantic analysis matching tracks to objects from a _detection.json. Run this after /detect-ui.
 argument-hint: <video_path> <detection_json_path> [output_json_path]
-allowed-tools: Read, Write, Glob, Grep, Bash
+allowed-tools: Read, Write, Glob, Grep, Bash, View Image
+tags: [game-ui, animation, opencv, unity, cv-pipeline]
+trust_level: core
 ---
 
 Analyse the screen-recorded UI animation video and produce animation clip tracks.
@@ -14,12 +16,31 @@ Parse `$ARGUMENTS` as:
 
 ---
 
+## Agent Requirements
+
+This skill requires an AI agent with these capabilities:
+
+| Capability | Why | Examples |
+|---|---|---|
+| **Shell / Command execution** | Run `python extract_motion.py` (Phase 1) | Bash, terminal, run_command |
+| **File read** | Read JSON, Python scripts, detection files | Read, view_file, ReadFile |
+| **File write** | Write the output `*_anim.json` | Write, write_to_file, WriteFile |
+| **Image/Vision** | View annotated PNG keyframes + first/last frames | View Image, view_file (binary), vision |
+| **File search** | Locate scripts and assets | Glob, Grep, find, ripgrep |
+
+**Tested with:** Claude Code, Claude CLI, OpenCode, Gemini CLI, DeepAgents CLI
+
+> Any agent that can run shell commands, read/write files, and view images can execute this skill.
+
+---
+
 ## Architecture — Two Phases
 
-This skill is split into two phases, mirroring the physical_motion pipeline:
+This skill is split into two phases. It is **agent-agnostic** — any AI coding
+tool with shell access and vision capabilities can run it:
 
 ```
-Phase 1 — Python/OpenCV (Bash)          Phase 2 — Claude (semantic analysis)
+Phase 1 — Python/OpenCV (Shell)          Phase 2 — Agent (semantic analysis)
 ┌──────────────────────────┐            ┌──────────────────────────────┐
 │ extract_motion.py        │            │ Agent reads:                 │
 │  1. Extract frames       │            │  • motion_data.json          │
@@ -33,17 +54,24 @@ Phase 1 — Python/OpenCV (Bash)          Phase 2 — Claude (semantic analysis)
 ```
 
 **Why two phases?** OpenCV does the pixel-level work (motion detection, tracking) much
-better than vision-only analysis. Claude does the semantic reasoning (matching tracks to
-UI objects, determining easing, inferring static elements) much better than a fixed algorithm.
+better than vision-only analysis. The AI agent does the semantic reasoning (matching
+tracks to UI objects, determining easing, inferring static elements) much better than
+a fixed algorithm.
 
 ---
 
 ## Phase 1 — Run the CV Pipeline
 
-Run the Python script via Bash. The script lives in `${CLAUDE_SKILL_DIR}/scripts/`:
+Run the Python script. The scripts live alongside this SKILL.md in `scripts/`.
+
+**Resolve the scripts directory** using the first available method:
+1. `${AGENT_OS_SKILLS_DIR}/detect-anim/scripts/` — set by DeepAgents CLI and compatible runtimes
 
 ```bash
-python "${CLAUDE_SKILL_DIR}/scripts/extract_motion.py" \
+# Resolve SKILL_DIR (portable across all agents)
+SKILL_DIR="${AGENT_OS_SKILLS_DIR}/detect-anim"
+
+python "${SKILL_DIR}/scripts/extract_motion.py" \
     "$0" \
     "/tmp/detect_anim_out" \
     --threshold 30 \

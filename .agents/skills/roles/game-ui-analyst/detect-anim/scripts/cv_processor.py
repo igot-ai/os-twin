@@ -4,7 +4,7 @@ Adapted from physical_motion/cv_processor.py for Unity UI video analysis.
 
 Extracts frames from video, detects motion regions, tracks objects across frames,
 and computes transform deltas — all using OpenCV. No LLM calls here; the semantic
-analysis is done by the agent (Claude) in the SKILL.md.
+analysis is done by the AI agent following the SKILL.md instructions.
 """
 
 import cv2

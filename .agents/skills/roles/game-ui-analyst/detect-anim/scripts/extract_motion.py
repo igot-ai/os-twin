@@ -8,7 +8,7 @@ then saves:
   2. track_summary.json     — human-readable track overview
   3. annotated_NNN.png      — keyframe images with red bounding boxes
 
-The agent (Claude) reads these outputs to perform the semantic analysis step.
+The agent reads these outputs to perform the semantic analysis step.
 
 Usage:
     python extract_motion.py <video_path> <output_dir> [--threshold 30] [--min-area 500]
