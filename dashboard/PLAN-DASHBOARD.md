@@ -7,7 +7,7 @@
 
 ## EPIC-001 — ..
 
-Roles: engineer
+Roles: engineer, game-ui-analytics
 Objective: ..registry loader.
 ...
 ### Definition of Done

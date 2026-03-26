@@ -50,6 +50,8 @@ function Get-StatusData {
         total       = 0
         pending     = 0
         engineering = 0
+        developing  = 0
+        optimize    = 0
         qa_review   = 0
         fixing      = 0
         passed      = 0
@@ -130,7 +132,10 @@ function Get-StatusData {
         switch ($status) {
             'pending'      { $summary.pending++ }
             'engineering'  { $summary.engineering++ }
+            'developing'   { $summary.developing++ }
+            'optimize'     { $summary.optimize++ }
             'qa-review'    { $summary.qa_review++ }
+            'review'       { $summary.qa_review++ }
             'fixing'       { $summary.fixing++ }
             'passed'       { $summary.passed++ }
             'failed-final' { $summary.failed++ }
@@ -176,10 +181,15 @@ function Show-FormattedStatus {
         $statusColor = switch ($room.status) {
             'pending'      { 'DarkGray' }
             'engineering'  { 'Yellow' }
+            'developing'   { 'Yellow' }
+            'optimize'     { 'DarkYellow' }
             'qa-review'    { 'Cyan' }
+            'review'       { 'Cyan' }
             'fixing'       { 'DarkYellow' }
             'passed'       { 'Green' }
             'failed-final' { 'Red' }
+            'failed'       { 'Red' }
+            'triage'       { 'Magenta' }
             default        { 'White' }
         }
 
@@ -188,8 +198,9 @@ function Show-FormattedStatus {
     }
 
     $s = $Data.summary
+    $active = $s.engineering + $s.developing + $s.optimize
     Write-Host ""
-    Write-Host "  Summary: $($s.total) total | $($s.pending) pending | $($s.engineering) engineering | $($s.qa_review) qa-review | $($s.fixing) fixing | $($s.passed) passed | $($s.failed) failed" -ForegroundColor White
+    Write-Host "  Summary: $($s.total) total | $($s.pending) pending | $active active | $($s.qa_review) review | $($s.fixing) fixing | $($s.passed) passed | $($s.failed) failed" -ForegroundColor White
     Write-Host ""
 }
 

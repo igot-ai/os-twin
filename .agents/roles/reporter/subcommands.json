@@ -2,7 +2,7 @@
   "subcommands": {
     "test-append": {
       "description": "Test",
-      "invoke": "bash /private/tmp/160ffece-f4b7-44a3-8df8-4199ce15a801/mock-script-append.sh"
+      "invoke": "bash /private/tmp/c08863cd-9e61-4be5-82e9-dbf0d8a089f2/mock-script-append.sh"
     }
   },
   "role": "reporter"

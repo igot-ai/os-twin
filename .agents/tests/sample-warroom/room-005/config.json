@@ -1,0 +1,44 @@
+{
+  "room_id": "room-005",
+  "task_ref": "EPIC-005",
+  "plan_id": "275884726528",
+  "depends_on": [
+    "PLAN-REVIEW"
+  ],
+  "created_at": "2026-03-26T10:29:15Z",
+  "working_dir": "/Users/paulaan/PycharmProjects/omega-persona",
+  "assignment": {
+    "title": "osTwin Agent Orchestration Layer",
+    "description": "osTwin Agent Orchestration Layer\n\n**Phase:** 4\n**Owner:** Supervisor Agent (osTwin)\n**Priority:** P0 — Differentiator\n**Estimated Effort:** 4 days\n\n### Description\n\nThis is where the demo becomes mind-blowing. Wire osTwin's Agent OS as the operational backbone that not only BUILT the app but continuously OPERATES it. Four specialized agents work autonomously: the Content Writer generates campaigns, the Segment Builder identifies new opportunities, the A/B Test Runner optimizes performance, and the Analytics Reporter delivers merchant insights — all coordinated through osTwin's agent orchestration.\n\n### Definition of Done\n\n- [ ] All 4 agents operate autonomously on scheduled and event-triggered cadences\n- [ ] Agent actions are auditable via activity log visible to merchant\n- [ ] Merchants can \"talk to\" their AI marketing manager via chat interface\n- [ ] Agent recommendations improve over time based on performance feedback loop\n- [ ] Dashboard shows agent activity timeline with business impact metrics\n\n### Tasks\n\n- [ ] **T-005.1** — Define osTwin Agent specifications:\n\n  **Content Writer Agent**\n  - Trigger: New segment created, campaign scheduled, weekly refresh\n  - Actions: Generate content variants, suggest A/B tests, refresh stale content\n  - Constraints: Brand voice guidelines, product catalog boundaries, compliance rules\n\n  **Segment Builder Agent**\n  - Trigger: Daily data analysis, significant behavior shift detected\n  - Actions: Suggest new segments, merge overlapping segments, retire empty segments\n  - Constraints: Minimum segment size (50 members), maximum overlap threshold (70%)\n\n  **A/B Test Runner Agent**\n  - Trigger: Campaign launch, significance threshold reached, performance anomaly\n  - Actions: Design test matrix, monitor results, promote winners, pause losers\n  - Constraints: Minimum sample size, maximum test duration, statistical validity\n\n  **Analytics Reporter Agent**\n  - Trigger: Weekly schedule, campaign end, merchant query\n  - Actions: Generate performance reports, identify trends, recommend optimizations\n  - Output: Natural language insight summaries + data visualizations\n\n- [ ] **T-005.2** — Build agent orchestration controller:\n  ```\n  AgentOrchestrator\n    ├── scheduleAgent(agentType, cron, merchantId)\n    ├── triggerAgent(agentType, event, context)\n    ├── getAgentStatus(merchantId) → running/idle/error\n    └── getAgentHistory(merchantId) → action log with outcomes\n  ```\n- [ ] **T-005.3** — Implement merchant-facing AI chat interface:\n  - \"Show me my best performing segment this week\"\n  - \"Create a campaign for customers who haven't bought in 60 days\"\n  - \"Why did conversion drop on the VIP banner?\"\n  - Routes to appropriate agent, returns structured response + action\n- [ ] **T-005.4** — Build agent activity dashboard:\n  - Timeline view of all agent actions\n  - Impact metrics per agent action (revenue influenced, segments created, tests completed)\n  - Agent \"confidence\" indicator on each recommendation\n  - Merchant approval workflow for high-impact actions (optional guardrail)\n- [ ] **T-005.5** — Implement feedback loop: agent recommendations marked as accepted/rejected feed back into future suggestions\n- [ ] **T-005.6** — Create agent performance analytics:\n  - Content Writer: average variant performance, creative diversity score\n  - Segment Builder: segment precision (conversion lift vs. general population)\n  - A/B Test Runner: test velocity, win rate, average lift discovered\n  - Analytics Reporter: insight accuracy, actionability score\n\n### Acceptance Criteria\n\n- [ ] Content Writer Agent generates campaign for new segment without human input within 30 seconds\n- [ ] Segment Builder Agent identifies a new high-value segment from cold data within first 24 hours\n- [ ] A/B Test Runner correctly promotes winning variant and logs rationale\n- [ ] Chat interface responds to \"create a win-back campaign\" with a complete campaign draft in < 20 seconds\n- [ ] Agent activity log shows clear cause → action → outcome chain for audit\n- [ ] Feedback loop demonstrably improves content quality over 3+ cycles",
+    "assigned_role": "engineer",
+    "candidate_roles": "engineer",
+    "type": "epic"
+  },
+  "goals": {
+    "definition_of_done": [],
+    "acceptance_criteria": [],
+    "quality_requirements": {
+      "test_coverage_min": 80,
+      "lint_clean": true,
+      "security_scan_pass": true
+    }
+  },
+  "constraints": {
+    "max_retries": 3,
+    "timeout_seconds": 900,
+    "budget_tokens_max": 500000
+  },
+  "status": {
+    "current": "pending",
+    "retries": 0,
+    "started_at": null,
+    "last_state_change": "2026-03-26T10:29:15Z"
+  },
+  "skill_refs": [
+    "review-epic",
+    "review-task",
+    "triage-failure",
+    "discover-skills",
+    "assign-epic"
+  ]
+}

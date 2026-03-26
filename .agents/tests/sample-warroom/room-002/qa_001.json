@@ -1,0 +1,10 @@
+{
+  "role": "qa",
+  "instance_id": "001",
+  "instance_type": "",
+  "display_name": "qa #001",
+  "model": "gemini-3-flash-preview",
+  "assigned_at": "2026-03-26T10:52:07Z",
+  "status": "completed",
+  "config_override": {}
+}

@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-03-26T10:46:32Z",
+  "total_nodes": 8,
+  "max_depth": 1.0,
+  "nodes": {
+    "PLAN-REVIEW": {
+      "room_id": "room-000",
+      "task_ref": "PLAN-REVIEW",
+      "role": "architect",
+      "candidate_roles": [
+        "architect",
+        "manager"
+      ],
+      "depends_on": null,
+      "dependents": [
+        "EPIC-004",
+        "EPIC-005",
+        "EPIC-003",
+        "EPIC-007",
+        "EPIC-002",
+        "EPIC-006",
+        "EPIC-001"
+      ],
+      "depth": 0,
+      "on_critical_path": true
+    },
+    "EPIC-004": {
+      "room_id": "room-004",
+      "task_ref": "EPIC-004",
+      "role": "engineer",
+      "candidate_roles": [
+        "engineer"
+      ],
+      "depends_on": "PLAN-REVIEW",
+      "dependents": [],
+      "depth": 1,
+      "on_critical_path": true
+    },
+    "EPIC-005": {
+      "room_id": "room-005",
+      "task_ref": "EPIC-005",
+      "role": "engineer",
+      "candidate_roles": [
+        "engineer"
+      ],
+      "depends_on": "PLAN-REVIEW",
+      "dependents": [],
+      "depth": 1,
+      "on_critical_path": false
+    },
+    "EPIC-003": {
+      "room_id": "room-003",
+      "task_ref": "EPIC-003",
+      "role": "engineer",
+      "candidate_roles": [
+        "engineer"
+      ],
+      "depends_on": "PLAN-REVIEW",
+      "dependents": [],
+      "depth": 1,
+      "on_critical_path": false
+    },
+    "EPIC-007": {
+      "room_id": "room-007",
+      "task_ref": "EPIC-007",
+      "role": "engineer",
+      "candidate_roles": [
+        "engineer"
+      ],
+      "depends_on": "PLAN-REVIEW",
+      "dependents": [],
+      "depth": 1,
+      "on_critical_path": false
+    },
+    "EPIC-002": {
+      "room_id": "room-002",
+      "task_ref": "EPIC-002",
+      "role": "engineer",
+      "candidate_roles": [
+        "engineer"
+      ],
+      "depends_on": "PLAN-REVIEW",
+      "dependents": [],
+      "depth": 1,
+      "on_critical_path": false
+    },
+    "EPIC-006": {
+      "room_id": "room-006",
+      "task_ref": "EPIC-006",
+      "role": "engineer",
+      "candidate_roles": [
+        "engineer"
+      ],
+      "depends_on": "PLAN-REVIEW",
+      "dependents": [],
+      "depth": 1,
+      "on_critical_path": false
+    },
+    "EPIC-001": {
+      "room_id": "room-001",
+      "task_ref": "EPIC-001",
+      "role": "engineer",
+      "candidate_roles": [
+        "engineer"
+      ],
+      "depends_on": "PLAN-REVIEW",
+      "dependents": [],
+      "depth": 1,
+      "on_critical_path": false
+    }
+  },
+  "topological_order": [
+    "PLAN-REVIEW",
+    "EPIC-004",
+    "EPIC-005",
+    "EPIC-003",
+    "EPIC-007",
+    "EPIC-002",
+    "EPIC-006",
+    "EPIC-001"
+  ],
+  "critical_path": [
+    "PLAN-REVIEW",
+    "EPIC-004"
+  ],
+  "critical_path_length": 2,
+  "waves": {
+    "0": [
+      "PLAN-REVIEW"
+    ],
+    "1": [
+      "EPIC-004",
+      "EPIC-005",
+      "EPIC-003",
+      "EPIC-007",
+      "EPIC-002",
+      "EPIC-006",
+      "EPIC-001"
+    ]
+  }
+}

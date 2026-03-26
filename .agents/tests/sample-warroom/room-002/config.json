@@ -1,0 +1,44 @@
+{
+  "room_id": "room-002",
+  "task_ref": "EPIC-002",
+  "plan_id": "275884726528",
+  "depends_on": [
+    "PLAN-REVIEW"
+  ],
+  "created_at": "2026-03-26T10:29:15Z",
+  "working_dir": "/Users/paulaan/PycharmProjects/omega-persona",
+  "assignment": {
+    "title": "Customer Event Pipeline & Data Collection",
+    "description": "Customer Event Pipeline & Data Collection\n\n**Phase:** 1\n**Owner:** Engineer Agent (osTwin)\n**Priority:** P0 — Blocking\n**Estimated Effort:** 2 days\n\n### Description\n\nBuild the real-time data collection layer that captures customer behavior across the merchant's store. This pipeline feeds the segmentation engine with the signals it needs to build intelligent customer profiles.\n\n### Definition of Done\n\n- [ ] Webhook subscriptions created for all required customer/order events\n- [ ] Events processed, deduplicated, and stored within 500ms of receipt\n- [ ] Customer profiles enriched with behavioral signals in real-time\n- [ ] App extension captures storefront browsing behavior (page views, product views, cart actions)\n- [ ] Data retention policy enforced (90 days rolling for free tier, 1 year for paid)\n\n### Tasks\n\n- [ ] **T-002.1** — Register GraphQL webhook subscriptions via `webhookSubscriptionCreate`:\n  - `ORDERS_CREATE`, `ORDERS_PAID`, `ORDERS_FULFILLED`\n  - `CUSTOMERS_CREATE`, `CUSTOMERS_UPDATE`\n  - `CARTS_CREATE`, `CARTS_UPDATE`\n  - `CHECKOUTS_CREATE`, `CHECKOUTS_UPDATE`\n- [ ] **T-002.2** — Build webhook processor with HMAC validation, idempotency keys, and dead-letter queue\n- [ ] **T-002.3** — Implement customer profile enrichment pipeline:\n  ```\n  Raw Event → Validate → Deduplicate → Enrich Profile → Update Segments → Cache\n  ```\n- [ ] **T-002.4** — Create Shopify Web Pixel extension for storefront behavior tracking:\n  - Page views with time-on-page\n  - Product detail views with scroll depth\n  - Add-to-cart / Remove-from-cart events\n  - Search queries\n- [ ] **T-002.5** — Build computed behavioral metrics per customer:\n  - Purchase frequency, AOV, total spend (RFM model)\n  - Browse-to-buy ratio\n  - Category affinity scores\n  - Session recency and depth\n- [ ] **T-002.6** — Implement data retention cron job with per-plan limits\n- [ ] **T-002.7** — Create `/api/customers/:id/profile` endpoint returning full enriched profile\n\n### Acceptance Criteria\n\n- [ ] Placing a test order triggers webhook → profile update within 500ms\n- [ ] Web Pixel captures page_view event on storefront navigation\n- [ ] RFM scores computed correctly against test dataset (verify with known values)\n- [ ] Data older than retention period is purged on cron run\n- [ ] Profile endpoint returns enriched data with segment membership array",
+    "assigned_role": "engineer",
+    "candidate_roles": "engineer",
+    "type": "epic"
+  },
+  "goals": {
+    "definition_of_done": [],
+    "acceptance_criteria": [],
+    "quality_requirements": {
+      "test_coverage_min": 80,
+      "lint_clean": true,
+      "security_scan_pass": true
+    }
+  },
+  "constraints": {
+    "max_retries": 3,
+    "timeout_seconds": 900,
+    "budget_tokens_max": 500000
+  },
+  "status": {
+    "current": "pending",
+    "retries": 0,
+    "started_at": null,
+    "last_state_change": "2026-03-26T10:29:15Z"
+  },
+  "skill_refs": [
+    "review-epic",
+    "review-task",
+    "triage-failure",
+    "discover-skills",
+    "assign-epic"
+  ]
+}

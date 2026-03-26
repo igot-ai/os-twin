@@ -257,69 +257,71 @@ if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)
 $lifecyclePath = Join-Path $roomDir "lifecycle.json"
 if (-not (Test-Path $lifecyclePath)) {
     $effectiveCandidates = @(if ($CandidateRoles.Count -gt 0) { $CandidateRoles } else { @($AssignedRole) })
-    # AssignedRole is always the primary worker — never blindly pick candidates[0]
-    $primaryRole = $AssignedRole
-
-    # Role → state name mapping for review stages
-    $roleStateMap = @{
-        'qa'                   = 'qa-review'
-        'architect'            = 'architect-review'
-        'database-architect'   = 'schema-review'
-        'security-auditor'     = 'security-review'
-        'devops'               = 'infra-review'
-        'reporter'             = 'reporting'
-    }
-
-    $states = [ordered]@{}
-    $stageOrder = [System.Collections.Generic.List[string]]::new()
-
-    # Stage 1: engineering — AssignedRole does the work
-    $stageOrder.Add('engineering')
-
-    # Review stages from candidates, excluding:
-    #   - the primary worker (no self-review)
-    #   - orchestrator roles (manager is not a worker agent, it has builtin states)
-    $orchestratorRoles = @('manager')
-    $reviewRoles = @($effectiveCandidates | Where-Object { $_ -ne $AssignedRole -and $_ -notin $orchestratorRoles })
-    foreach ($role in $reviewRoles) {
-        $stateName = if ($roleStateMap.ContainsKey($role)) { $roleStateMap[$role] } else { "$role-review" }
-        $stageOrder.Add($stateName)
-    }
-
-    # Build state definitions with transitions chained in order → last → passed
-    for ($i = 0; $i -lt $stageOrder.Count; $i++) {
-        $stateName = $stageOrder[$i]
-        $nextState = if ($i -lt ($stageOrder.Count - 1)) { $stageOrder[$i + 1] } else { 'passed' }
-
-        if ($i -eq 0) {
-            # Engineering: worker stage
-            $states[$stateName] = [ordered]@{
-                type = 'agent'; role = $primaryRole
-                transitions = [ordered]@{ done = $nextState }
-            }
-        } else {
-            # Review stages
-            $reviewRole = $reviewRoles[$i - 1]
-            $states[$stateName] = [ordered]@{
-                type = 'agent'; role = $reviewRole
-                transitions = [ordered]@{ pass = $nextState; fail = 'manager-triage'; escalate = 'manager-triage' }
+    $resolvePipeline = Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")).Path "lifecycle" "Resolve-Pipeline.ps1"
+    if (Test-Path $resolvePipeline) {
+        # Use Resolve-Pipeline to generate v2 lifecycle from candidate roles
+        & $resolvePipeline `
+            -CandidateRoles $effectiveCandidates `
+            -AssignedRole $AssignedRole `
+            -MaxRetries $MaxRetries `
+            -OutputPath $lifecyclePath
+    } else {
+        # Inline v2 fallback — minimal developing → review → passed
+        $primaryRole = $AssignedRole
+        $v2Lifecycle = [ordered]@{
+            version       = 2
+            initial_state = 'developing'
+            max_retries   = $MaxRetries
+            states        = [ordered]@{
+                developing = [ordered]@{
+                    role    = $primaryRole
+                    type    = 'work'
+                    signals = [ordered]@{
+                        done  = [ordered]@{ target = 'review' }
+                        error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+                    }
+                }
+                optimize = [ordered]@{
+                    role    = $primaryRole
+                    type    = 'work'
+                    signals = [ordered]@{
+                        done  = [ordered]@{ target = 'review' }
+                        error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+                    }
+                }
+                review = [ordered]@{
+                    role    = 'qa'
+                    type    = 'review'
+                    signals = [ordered]@{
+                        pass     = [ordered]@{ target = 'passed' }
+                        fail     = [ordered]@{ target = 'developing'; actions = @('increment_retries', 'post_fix') }
+                        escalate = [ordered]@{ target = 'triage' }
+                    }
+                }
+                triage = [ordered]@{
+                    role    = 'manager'
+                    type    = 'triage'
+                    signals = [ordered]@{
+                        fix      = [ordered]@{ target = 'developing'; actions = @('increment_retries') }
+                        redesign = [ordered]@{ target = 'developing'; actions = @('increment_retries', 'revise_brief') }
+                        reject   = [ordered]@{ target = 'failed-final' }
+                    }
+                }
+                failed = [ordered]@{
+                    role            = 'manager'
+                    type            = 'decision'
+                    auto_transition = $true
+                    signals         = [ordered]@{
+                        retry   = [ordered]@{ target = 'developing'; guard = 'retries < max_retries' }
+                        exhaust = [ordered]@{ target = 'failed-final'; guard = 'retries >= max_retries' }
+                    }
+                }
+                passed        = [ordered]@{ type = 'terminal' }
+                'failed-final' = [ordered]@{ type = 'terminal' }
             }
         }
+        $v2Lifecycle | ConvertTo-Json -Depth 10 | Out-File -FilePath $lifecyclePath -Encoding utf8 -Force
     }
-
-    # Builtin states (always present)
-    $states['manager-triage'] = [ordered]@{ type = 'builtin'; role = 'manager'; transitions = [ordered]@{} }
-    $states['plan-revision']  = [ordered]@{ type = 'builtin'; role = 'manager'; transitions = [ordered]@{} }
-
-    # Fixing state — routes back to first review stage (or passed if none)
-    $firstReviewState = if ($stageOrder.Count -gt 1) { $stageOrder[1] } else { 'passed' }
-    $states['fixing'] = [ordered]@{
-        type = 'agent'; role = $primaryRole
-        transitions = [ordered]@{ done = $firstReviewState }
-    }
-
-    $defaultLifecycle = [ordered]@{ initial_state = 'engineering'; states = $states }
-    $defaultLifecycle | ConvertTo-Json -Depth 10 | Out-File -FilePath $lifecyclePath -Encoding utf8 -Force
 }
 
 # --- Parse ASCII lifecycle text into lifecycle.json (if provided and not already generated) ---
@@ -343,8 +345,9 @@ if ($Lifecycle) {
 # --- Initialize status ---
 "pending" | Out-File -FilePath (Join-Path $roomDir "status") -Encoding utf8 -NoNewline
 
-# --- Initialize retry counter ---
+# --- Initialize retry counter and done epoch ---
 "0" | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
+"0" | Out-File -FilePath (Join-Path $roomDir "done_epoch") -Encoding utf8 -NoNewline
 
 # --- Store task ref for quick lookup ---
 $TaskRef | Out-File -FilePath (Join-Path $roomDir "task-ref") -Encoding utf8 -NoNewline

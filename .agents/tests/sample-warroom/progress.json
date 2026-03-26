@@ -1,0 +1,53 @@
+{
+  "updated_at": "2026-03-26T11:19:12Z",
+  "total": 8,
+  "passed": 5,
+  "failed": 0,
+  "blocked": 0,
+  "active": 3,
+  "pending": 0,
+  "pct_complete": 62.5,
+  "critical_path": "1/2",
+  "rooms": [
+    {
+      "room_id": "room-000",
+      "task_ref": "PLAN-REVIEW",
+      "status": "passed"
+    },
+    {
+      "room_id": "room-001",
+      "task_ref": "EPIC-001",
+      "status": "fixing"
+    },
+    {
+      "room_id": "room-002",
+      "task_ref": "EPIC-002",
+      "status": "passed"
+    },
+    {
+      "room_id": "room-003",
+      "task_ref": "EPIC-003",
+      "status": "passed"
+    },
+    {
+      "room_id": "room-004",
+      "task_ref": "EPIC-004",
+      "status": "fixing"
+    },
+    {
+      "room_id": "room-005",
+      "task_ref": "EPIC-005",
+      "status": "passed"
+    },
+    {
+      "room_id": "room-006",
+      "task_ref": "EPIC-006",
+      "status": "fixing"
+    },
+    {
+      "room_id": "room-007",
+      "task_ref": "EPIC-007",
+      "status": "passed"
+    }
+  ]
+}

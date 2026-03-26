@@ -1,0 +1,44 @@
+{
+  "room_id": "room-004",
+  "task_ref": "EPIC-004",
+  "plan_id": "275884726528",
+  "depends_on": [
+    "PLAN-REVIEW"
+  ],
+  "created_at": "2026-03-26T10:29:15Z",
+  "working_dir": "/Users/paulaan/PycharmProjects/omega-persona",
+  "assignment": {
+    "title": "1:1 Content Personalization Engine",
+    "description": "1:1 Content Personalization Engine\n\n**Phase:** 3\n**Owner:** Content Writer Agent (osTwin) + Engineer Agent (osTwin)\n**Priority:** P0 — Core Feature\n**Estimated Effort:** 5 days\n\n### Description\n\nThe crown jewel: an AI content engine that generates personalized marketing content for each customer segment — product recommendations, email copy, storefront banners, discount strategies — and serves it dynamically through Shopify's extension points. Every customer sees content tailored to their behavior, preferences, and lifecycle stage.\n\n### Definition of Done\n\n- [ ] osTwin Content Writer Agent generates 5+ content variants per segment\n- [ ] Content renders dynamically in storefront via Theme App Extension\n- [ ] Email content personalized per-recipient using segment + individual signals\n- [ ] A/B testing framework measures variant performance with statistical significance\n- [ ] Merchant dashboard shows content performance with revenue attribution\n\n### Tasks\n\n- [ ] **T-004.1** — Design content variant data model:\n  ```\n  ContentCampaign (merchantId, name, segments[], status, schedule)\n    └── ContentVariant (campaignId, segmentId, type, body, cta, performance{})\n         ├── type: \"banner\" | \"product_rec\" | \"email\" | \"popup\" | \"notification\"\n         ├── body: { headline, subheadline, bodyText, imagePrompt, ctaText, ctaUrl }\n         └── performance: { impressions, clicks, conversions, revenue }\n  ```\n- [ ] **T-004.2** — Implement osTwin Content Writer Agent:\n  - Input: segment definition + segment behavioral profile + merchant brand voice + product catalog sample\n  - Output: 3-5 content variants per segment with different angles (urgency, social proof, value, exclusivity, education)\n  - Agent uses structured output format for direct rendering\n  - Includes tone calibration: luxury vs. casual vs. technical vs. playful\n- [ ] **T-004.3** — Build Theme App Extension (App Block) for personalized storefront content:\n  - Hero banner block (personalized headline + CTA)\n  - Product recommendation carousel (segment-specific)\n  - Social proof block (\"X people in your area bought this\")\n  - Exit-intent popup with personalized offer\n- [ ] **T-004.4** — Create personalized email template system:\n  - Liquid-compatible template with dynamic merge fields\n  - Per-segment email content with individual-level product recs\n  - Integration hook for Shopify Email or Klaviyo/Mailchimp via metafields\n- [ ] **T-004.5** — Build A/B testing framework:\n  - Random variant assignment with consistent bucketing (customer ID hash)\n  - Impression/click/conversion tracking with attribution window (7 days)\n  - Statistical significance calculator (chi-squared test, minimum 100 impressions)\n  - Auto-promote winning variant when significance threshold reached\n- [ ] **T-004.6** — Create content management UI:\n  - Campaign builder wizard (select segments → generate content → preview → launch)\n  - Live preview per segment showing personalized storefront experience\n  - Content calendar with scheduled campaigns\n  - Performance dashboard with segment × variant matrix\n- [ ] **T-004.7** — Implement personalization API endpoint:\n  ```\n  GET /api/personalize?customerId={id}&placement={banner|rec|popup}\n  → Returns: { variant, content, trackingId }\n  ```\n- [ ] **T-004.8** — Build product recommendation engine:\n  - Collaborative filtering: \"customers in your segment also bought\"\n  - Content-based: category affinity × product attributes\n  - Trending in segment: velocity-based ranking within segment\n  - Cross-sell: frequently bought together within segment\n\n### Acceptance Criteria\n\n- [ ] Content Writer Agent generates 5 distinct variants for \"VIP Customers\" segment in < 15 seconds\n- [ ] Storefront App Block renders personalized banner within 200ms of page load\n- [ ] A/B test correctly splits traffic 50/50 and tracks conversions\n- [ ] Auto-promote triggers when variant reaches p < 0.05 significance\n- [ ] Email templates render correctly in Shopify Email preview\n- [ ] Product recommendations differ meaningfully between \"VIP\" and \"New Customer\" segments\n- [ ] Campaign wizard completes in ≤ 5 steps from segment selection to launch",
+    "assigned_role": "engineer",
+    "candidate_roles": "engineer",
+    "type": "epic"
+  },
+  "goals": {
+    "definition_of_done": [],
+    "acceptance_criteria": [],
+    "quality_requirements": {
+      "test_coverage_min": 80,
+      "lint_clean": true,
+      "security_scan_pass": true
+    }
+  },
+  "constraints": {
+    "max_retries": 3,
+    "timeout_seconds": 900,
+    "budget_tokens_max": 500000
+  },
+  "status": {
+    "current": "pending",
+    "retries": 0,
+    "started_at": null,
+    "last_state_change": "2026-03-26T10:29:15Z"
+  },
+  "skill_refs": [
+    "review-epic",
+    "review-task",
+    "triage-failure",
+    "discover-skills",
+    "assign-epic"
+  ]
+}
