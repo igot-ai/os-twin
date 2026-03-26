@@ -4,6 +4,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { askAgent } = require('./agent-bridge');
+const { EOL } = require('os');
 
 // Initialize Discord Client
 const client = new Client({
@@ -92,17 +93,10 @@ client.on('messageCreate', (message) => {
   messageBuffer.push(entry);
   if (messageBuffer.length > MAX_MESSAGE_BUFFER) messageBuffer.shift();
 
-  // Persist to per-channel JSON file (async to avoid blocking the event loop)
-  const logFile = path.join(LOGS_DIR, `${entry.channelName}-${entry.channelId}.json`);
-  (async () => {
-    let existing = [];
-    try {
-      const raw = await fsp.readFile(logFile, 'utf-8');
-      existing = JSON.parse(raw);
-    } catch { /* file missing or corrupted — start fresh */ }
-    existing.push(entry);
-    await fsp.writeFile(logFile, JSON.stringify(existing, null, 2));
-  })().catch(err => console.warn('[LOG] Failed to persist message:', err.message));
+  // Persist to per-channel JSONL file (append-only — no read/parse/rewrite race condition)
+  const logFile = path.join(LOGS_DIR, `${entry.channelName}-${entry.channelId}.jsonl`);
+  fsp.appendFile(logFile, JSON.stringify(entry) + EOL)
+    .catch(err => console.warn('[LOG] Failed to persist message:', err.message));
 
   console.log(`💬 [MSG] #${entry.channelName} | ${entry.username}: ${entry.content}`);
 

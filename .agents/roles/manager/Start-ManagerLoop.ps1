@@ -837,8 +837,7 @@ while (-not $script:shuttingDown) {
                     }
                     elseif (-not (Test-Path $workerPidFile)) {
                         # --- No PID file at all: check if worker posted any response ---
-                        $noPidErrorCount = Get-MsgCount $roomDir "error"
-                        $anyResponse = $doneCount + $guidanceCount + $noPidErrorCount
+                        $anyResponse = $doneCount + $guidanceCount + (Get-MsgCount $roomDir "error")
                         if ($anyResponse -gt 0) {
                             if ($guidanceCount -gt 0 -and $doneCount -eq 0) {
                                 if ($baseRole -eq 'architect') {
@@ -856,24 +855,7 @@ while (-not $script:shuttingDown) {
                                     Write-RoomStatus $roomDir "manager-triage"
                                 }
                             }
-                            elseif ($noPidErrorCount -gt 0 -and $doneCount -lt $expected) {
-                                # Worker crashed (error posted) but never wrote a PID file.
-                                # Handle same as PID-exists-but-dead error path.
-                                $errorBody = Get-LatestBody $roomDir "error"
-                                Write-Log "ERROR" "[$taskRef] Worker ($assignedRole) crashed without PID file: $errorBody"
-                                if ($retries -lt $maxRetries) {
-                                    Write-Log "INFO" "[$taskRef] Retrying (attempt $($retries + 1)/$maxRetries)..."
-                                    ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                    & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "Worker crashed: $errorBody. Please try again."
-                                    Write-RoomStatus $roomDir "fixing"
-                                    Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                                } else {
-                                    Write-Log "ERROR" "[$taskRef] Max retries exceeded. Marking as failed."
-                                    Write-RoomStatus $roomDir "failed-final"
-                                    Set-BlockedDescendants $taskRef
-                                }
-                            }
-                            # else: done already counted and will be handled by the doneCount check above
+                            # else: done or error already handled above
                         }
                         elseif (Test-StateTimedOut $roomDir) {
                             Write-Log "ERROR" "[$taskRef] No PID file and state timed out. Worker ($assignedRole) may have failed to start."
@@ -1507,7 +1489,7 @@ while (-not $script:shuttingDown) {
     # === Deadlock detection ===
     if ($totalActive -gt 0 -and $activeWithNoPid -eq $totalActive) {
         $stallCycles++
-        if ($stallCycles -ge 4) {  # 4 cycles × 5s poll = 20s — balanced: avoids false positives while recovering faster than 60s
+        if ($stallCycles -ge 12) {  # 12 cycles × 5s poll = 60s — enough for LLM API calls to complete
             Write-Log "WARN" "Deadlock detected: $totalActive rooms active but no PIDs alive for 2 cycles. Attempting recovery..."
             Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue | ForEach-Object {
                 $rd = $_.FullName

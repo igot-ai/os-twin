@@ -21,12 +21,12 @@ async function fetchJSON(path) {
     const res = await fetch(`${DASHBOARD_URL}${path}`, { headers });
     if (!res.ok) {
       console.warn(`[BRIDGE] ${path} returned ${res.status}`);
-      return null;
+      return { _error: `API returned ${res.status}` };
     }
     return await res.json();
   } catch (err) {
     console.warn(`[BRIDGE] Failed to fetch ${path}: ${err.message}`);
-    return null;
+    return { _error: `Dashboard unreachable: ${err.message}` };
   }
 }
 
@@ -34,6 +34,7 @@ async function fetchJSON(path) {
 
 async function getPlans() {
   const data = await fetchJSON('/api/plans');
+  if (data?._error) return `Plans unavailable (${data._error}).`;
   if (!data?.plans) return 'No plans found.';
   return data.plans.map(p => {
     const pct = p.pct_complete != null ? `${p.pct_complete}%` : p.status;
@@ -43,6 +44,7 @@ async function getPlans() {
 
 async function getRooms() {
   const data = await fetchJSON('/api/rooms');
+  if (data?._error) return `War-rooms unavailable (${data._error}).`;
   if (!data?.rooms?.length) return 'No active war-rooms.';
   return data.rooms.map(r =>
     `- ${r.room_id}: ${r.epic_ref || 'N/A'} — status: ${r.status}`
@@ -51,7 +53,7 @@ async function getRooms() {
 
 async function getStats() {
   const data = await fetchJSON('/api/stats');
-  if (!data) return 'Stats unavailable.';
+  if (!data || data._error) return `Stats unavailable${data?._error ? ` (${data._error})` : ''}.`;
   return [
     `Plans: ${data.total_plans?.value ?? '?'}`,
     `Active epics: ${data.active_epics?.value ?? '?'}`,
@@ -62,6 +64,7 @@ async function getStats() {
 
 async function semanticSearch(query) {
   const data = await fetchJSON(`/api/search?q=${encodeURIComponent(query)}&limit=5`);
+  if (data?._error) return `Search unavailable (${data._error}).`;
   if (!data?.results?.length) return 'No relevant messages found.';
   return data.results.map(r =>
     `[${r.room_id || 'global'}] ${r.from || '?'} → ${r.type || '?'}: ${(r.body || '').slice(0, 200)}`

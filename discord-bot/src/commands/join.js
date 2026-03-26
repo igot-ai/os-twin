@@ -163,6 +163,11 @@ module.exports = {
         pipeline(opusStream, decoder, pcmStream, (err) => {
           if (err) {
             console.warn(`❌ [STREAM] ${username} — segment error: ${err.message}`);
+            // On violent pipeline crash, destroy the file stream to release the fd
+            if (err.code !== 'ERR_STREAM_PREMATURE_CLOSE' && userInfo.fileStream && !userInfo.fileStream.destroyed) {
+              userInfo.fileStream.destroy();
+              console.warn(`❌ [STREAM] ${username} — file stream destroyed due to pipeline crash`);
+            }
           } else {
             console.log(`🔇 [STREAM] ${username} — paused (file stays open)`);
           }
