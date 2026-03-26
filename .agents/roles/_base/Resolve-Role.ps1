@@ -157,10 +157,14 @@ if (-not $result.Runner -and $RequiredCapabilities.Count -gt 0) {
     }
 }
  
-# --- Tier 4: Ephemeral agent fallback ---
+# --- Tier 4: Dynamic role fallback ---
+# Use the universal dynamic runner instead of the ephemeral synthesis path.
+# Start-EphemeralAgent.ps1 does an extra LLM synthesis call that is fragile
+# (depends on remote server availability, model availability, etc.).
+# Start-DynamicRole.ps1 runs the task directly with the role name as context.
 if (-not $result.Runner) {
-    $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-EphemeralAgent.ps1"
-    $result.Source = 'ephemeral'
+    $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
+    $result.Source = 'dynamic-fallback'
 }
  
 Write-Output $result

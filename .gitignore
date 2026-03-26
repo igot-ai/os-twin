@@ -26,3 +26,16 @@ dashboard/.war-rooms
 cypress/screenshots
 quant_proj/
 os-twin-twin/**
+dashboard/nextjs/
+.agents/stats_history.json
+
+# ── Discord Bot ────────────────────────────────────────────────────────────────
+discord-bot/.pnpm-store/
+discord-bot/node_modules/
+discord-bot/coverage/
+discord-bot/logs/
+discord-bot/recordings/
+discord-bot/.env
+
+# ── Dashboard FE ───────────────────────────────────────────────────────────────
+dashboard/fe/pnpm-lock.yaml

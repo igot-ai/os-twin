@@ -10,9 +10,6 @@ Environment (loaded from project root .env):
     GOOGLE_API_KEY: Required for Gemini embedding API
 """
 
-
-
-
 import functools
 import logging
 import os
@@ -78,7 +75,10 @@ MIN_CHUNK_SIZE = 200
 CHUNK_OVERLAP = 200
 TOP_K = 3
 
-EMBEDDING_MODEL = "gemini-embedding-2-preview"
+# EMBEDDING_MODEL = "gemini-embedding-2-preview"
+# EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = "openai/text-embedding-3-small"
+output_dimension = 1536
 
 # Track whether cocoindex.init() has been called
 _initialized = False
@@ -102,9 +102,10 @@ def code_to_embedding(
     """Embed text using Gemini for query-time evaluation."""
     return text.transform(
         cocoindex.functions.EmbedText(
-            api_type=cocoindex.LlmApiType.GEMINI,
+            api_type=cocoindex.LlmApiType.OPEN_ROUTER,
             model=EMBEDDING_MODEL,
-            task_type="SEMANTIC_SIMILARITY",
+            task_type="SEMANTICS_SIMILARITY",
+            output_dimension=output_dimension,
         )
     )
 

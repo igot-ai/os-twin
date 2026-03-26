@@ -32,7 +32,6 @@ Roles: <role1>, <role2>, ...    (dynamically chosen agents for this epic's workf
 Objective: <mission>            (what this war-room must achieve — be specific)
 Lifecycle:                      (REQUIRED: Dynamically map the closed-loop transitions between the chosen roles, including specific failure/correction states)
 Pipeline: <stage1 -> stage2>    (OPTIONAL: only for non-default stage sequences)
-Skills: <capabilities>          (comma-separated, guides agent focus)
 Working_dir: <path>             (scope agents to a subdirectory)
 Capabilities: <cap1, cap2>     (optional: auto-generates review stages)
 ```
