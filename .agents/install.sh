@@ -680,11 +680,15 @@ install_files() {
     if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
       cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$INSTALL_DIR/mcp/mcp-builtin.json"
     fi
+    # Always update catalog so new packages are available
+    if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
+      cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$INSTALL_DIR/mcp/mcp-catalog.json"
+    fi
     # Sync MCP server scripts (channel-server.py, warroom-server.py, etc.)
     for f in "$SCRIPT_DIR"/mcp/*.py "$SCRIPT_DIR"/mcp/*.sh "$SCRIPT_DIR"/mcp/requirements.txt; do
       [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/mcp/"
     done
-    ok "mcp/ preserved (scripts updated, config untouched)"
+    ok "mcp/ preserved (scripts + catalog updated, config untouched)"
   fi
 
   # ── Dashboard: always override from source repo ───────────────────────────

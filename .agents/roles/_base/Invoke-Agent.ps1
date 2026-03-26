@@ -219,16 +219,36 @@ try {
     if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
     if ($Quiet) { $extraCliArgs += "--quiet" }
 
-    # --- MCP config: let agents pick the best tool server available ---
+    # --- MCP config: prefer project-local, fall back to global ---
     $resolvedMcpConfig = $McpConfig
     if (-not $resolvedMcpConfig) {
-        $resolvedMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+        # Priority 1: project-local MCP config (via WorkingDir or env)
+        $projectDir = if ($WorkingDir) { $WorkingDir }
+                      elseif ($env:PROJECT_DIR) { $env:PROJECT_DIR }
+                      else { "" }
+        if ($projectDir) {
+            $projectMcpConfig = Join-Path $projectDir ".agents" "mcp" "mcp-config.json"
+            if (Test-Path $projectMcpConfig) {
+                $resolvedMcpConfig = $projectMcpConfig
+            }
+        }
+        # Priority 2: global agents dir
+        if (-not $resolvedMcpConfig) {
+            $resolvedMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+        }
     }
     if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
         $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
-        # Expand ${AGENT_DIR} → absolute agentsDir so deepagents gets concrete paths
+        # Expand ${AGENT_DIR} → absolute agentsDir
         if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
             $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
+        }
+        # Expand ${PROJECT_DIR} → absolute project dir
+        if ($projectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
+            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $projectDir.Replace('\', '/')
+        }
+        # Write resolved config if any placeholders were expanded
+        if ($mcpConfigContent -ne (Get-Content $resolvedMcpConfig -Raw)) {
             $tempMcpConfig = Join-Path $artifactsDir "mcp-config-resolved.json"
             $mcpConfigContent | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
             $resolvedMcpConfig = $tempMcpConfig

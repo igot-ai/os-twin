@@ -1,71 +1,218 @@
 #!/usr/bin/env bash
-# Agent OS — Project Scaffolding
+# ──────────────────────────────────────────────────────────────────────────────
+# Agent OS — MCP Initialization
 #
-# Initializes Agent OS in a target directory by copying the core structure.
+# Sets up the per-project MCP configuration and optionally installs
+# MCP extensions from the catalog.
 #
-# Usage: init.sh [target-directory]
+# Usage:
+#   ostwin init [target-directory]        # Interactive mode
+#   ostwin init [target-directory] --yes  # Non-interactive
 #
 # If no directory is specified, initializes in the current directory.
+# ──────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SOURCE_AGENTS="$SCRIPT_DIR"
 
-TARGET_DIR="${1:-.}"
+# ─── Argument parsing ────────────────────────────────────────────────────────
+
+TARGET_DIR=""
+AUTO_YES=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --yes|-y)  AUTO_YES=true; shift ;;
+    --help|-h)
+      head -14 "$0" | tail -12
+      exit 0
+      ;;
+    *)
+      if [[ -z "$TARGET_DIR" ]]; then
+        TARGET_DIR="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+TARGET_DIR="${TARGET_DIR:-.}"
 TARGET_AGENTS="$TARGET_DIR/.agents"
 
-if [[ -d "$TARGET_AGENTS" ]]; then
-  echo "[WARN] .agents/ already exists in $TARGET_DIR"
-  echo "  Use ostwin config to modify settings."
-  exit 1
+# ─── Colors & formatting ─────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+ok()      { echo -e "    ${GREEN}✓${NC} $1"; }
+warn()    { echo -e "    ${YELLOW}⚠${NC} $1"; }
+fail()    { echo -e "    ${RED}✗${NC} $1"; }
+info()    { echo -e "    ${DIM}$1${NC}"; }
+step()    { echo -e "  ${CYAN}→${NC} $1"; }
+
+ask() {
+  local prompt="$1"
+  if $AUTO_YES; then
+    return 1  # Skip interactive prompts in --yes mode
+  fi
+  echo -en "    ${YELLOW}?${NC} $prompt ${DIM}[y/N]${NC} "
+  read -r answer
+  case "${answer:-n}" in
+    [Yy]*) return 0 ;;
+    *)     return 1 ;;
+  esac
+}
+
+# ─── Banner ───────────────────────────────────────────────────────────────────
+
+echo ""
+echo -e "  ${BLUE}${BOLD}╔══════════════════════════════════════════════════╗${NC}"
+echo -e "  ${BLUE}${BOLD}║          Ostwin — MCP Configuration              ║${NC}"
+echo -e "  ${BLUE}${BOLD}╚══════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  ${DIM}Project:${NC} $TARGET_DIR"
+echo ""
+
+# ─── Ensure .agents/mcp exists ────────────────────────────────────────────────
+
+step "Scaffolding MCP directory..."
+
+mkdir -p "$TARGET_AGENTS/mcp"
+
+# Seed extensions.json if not present
+if [[ ! -f "$TARGET_AGENTS/mcp/extensions.json" ]]; then
+  echo '{"extensions":[]}' > "$TARGET_AGENTS/mcp/extensions.json"
 fi
 
-echo ""
-echo "  ╔══════════════════════════════════════╗"
-echo "  ║        Ostwin — Project Init          ║"
-echo "  ╚══════════════════════════════════════╝"
-echo ""
-echo "  Target: $TARGET_DIR"
-echo ""
-
-# Create plans dir (excluded from rsync below)
-mkdir -p "$TARGET_AGENTS/plans"
-
-# Copy entire .agents content, excluding the plans folder
-rsync -a --exclude='plans/' "$SOURCE_AGENTS/" "$TARGET_AGENTS/"
-
-# Copy only the plan template (not any actual plans)
-[[ -f "$SOURCE_AGENTS/plans/PLAN.template.md" ]] && cp "$SOURCE_AGENTS/plans/PLAN.template.md" "$TARGET_AGENTS/plans/PLAN.template.md"
-
-# Copy dashboard from sibling directory (source repo layout: dashboard/ is sibling to .agents/)
-if [[ -d "$SOURCE_AGENTS/../dashboard" ]] && [[ ! -d "$TARGET_AGENTS/dashboard" ]]; then
-  echo "  → Copying dashboard from source repo..."
-  mkdir -p "$TARGET_AGENTS/dashboard"
-  cp -r "$SOURCE_AGENTS/../dashboard/" "$TARGET_AGENTS/dashboard/"
+# Copy catalog from source if not present or outdated
+if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
+  cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$TARGET_AGENTS/mcp/mcp-catalog.json"
 fi
 
-# Make all scripts executable
-find "$TARGET_AGENTS" -name "*.sh" -exec chmod +x {} \;
-chmod +x "$TARGET_AGENTS/bin/ostwin" 2>/dev/null || true
+# Copy builtin config from source
+if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
+  cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json"
+fi
 
-# Add .war-rooms to .gitignore (project-scoped runtime data)
-if [[ -f "$TARGET_DIR/.gitignore" ]]; then
-  if ! grep -q "^\.war-rooms" "$TARGET_DIR/.gitignore" 2>/dev/null; then
-    echo ".war-rooms/" >> "$TARGET_DIR/.gitignore"
+# Copy extension manager script
+if [[ -f "$SCRIPT_DIR/mcp/mcp-extension.sh" ]]; then
+  local_src="$(realpath "$SCRIPT_DIR/mcp/mcp-extension.sh" 2>/dev/null || echo "$SCRIPT_DIR/mcp/mcp-extension.sh")"
+  local_dst="$(realpath "$TARGET_AGENTS/mcp/mcp-extension.sh" 2>/dev/null || echo "$TARGET_AGENTS/mcp/mcp-extension.sh")"
+  if [[ "$local_src" != "$local_dst" ]]; then
+    cp "$SCRIPT_DIR/mcp/mcp-extension.sh" "$TARGET_AGENTS/mcp/mcp-extension.sh"
+  fi
+  chmod +x "$TARGET_AGENTS/mcp/mcp-extension.sh"
+fi
+
+# Generate initial mcp-config.json from builtins (if not already present)
+if [[ ! -f "$TARGET_AGENTS/mcp/mcp-config.json" ]]; then
+  if [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
+    cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-config.json"
+  else
+    echo '{"mcpServers":{}}' > "$TARGET_AGENTS/mcp/mcp-config.json"
+  fi
+  ok "MCP config created"
+else
+  ok "MCP config exists (preserved)"
+fi
+
+echo -e "    ${DIM}Config: $TARGET_AGENTS/mcp/mcp-config.json${NC}"
+
+# ─── Interactive MCP install ──────────────────────────────────────────────────
+
+PYTHON="python3"
+CATALOG_FILE="$TARGET_AGENTS/mcp/mcp-catalog.json"
+MCP_EXTENSION_SCRIPT="$TARGET_AGENTS/mcp/mcp-extension.sh"
+
+if [[ -f "$CATALOG_FILE" ]] && ! $AUTO_YES; then
+  echo ""
+  echo -e "  ${BLUE}${BOLD}── Available MCP Extensions ──${NC}"
+  echo ""
+
+  # Read catalog packages into arrays
+  PACKAGE_NAMES=()
+  PACKAGE_DESCS=()
+  while IFS='|' read -r pname pdesc; do
+    PACKAGE_NAMES+=("$pname")
+    PACKAGE_DESCS+=("$pdesc")
+  done < <("$PYTHON" -c "
+import json
+with open('$CATALOG_FILE') as f:
+    catalog = json.load(f)
+for name, spec in catalog.get('packages', {}).items():
+    desc = spec.get('description', '')
+    print(f'{name}|{desc}')
+" 2>/dev/null || true)
+
+  if [[ ${#PACKAGE_NAMES[@]} -gt 0 ]]; then
+    # Display packages
+    for i in "${!PACKAGE_NAMES[@]}"; do
+      local_num=$((i + 1))
+      echo -e "    ${BOLD}[$local_num]${NC} ${PACKAGE_NAMES[$i]}"
+      echo -e "        ${DIM}${PACKAGE_DESCS[$i]}${NC}"
+    done
+    echo ""
+
+    if ask "Would you like to install any MCP extensions now?"; then
+      echo ""
+      echo -en "    ${YELLOW}?${NC} Enter numbers separated by spaces (e.g. ${BOLD}1 2${NC}), or ${BOLD}all${NC}: "
+      read -r selection
+
+      SELECTED=()
+      if [[ "$selection" == "all" ]]; then
+        SELECTED=("${PACKAGE_NAMES[@]}")
+      else
+        for num in $selection; do
+          idx=$((num - 1))
+          if [[ $idx -ge 0 && $idx -lt ${#PACKAGE_NAMES[@]} ]]; then
+            SELECTED+=("${PACKAGE_NAMES[$idx]}")
+          else
+            warn "Invalid selection: $num — skipping"
+          fi
+        done
+      fi
+
+      echo ""
+      if [[ ${#SELECTED[@]} -gt 0 ]]; then
+        for pkg in "${SELECTED[@]}"; do
+          step "Installing ${BOLD}$pkg${NC}..."
+          if bash "$MCP_EXTENSION_SCRIPT" install "$pkg" --project-dir "$TARGET_DIR" 2>&1; then
+            ok "$pkg installed"
+          else
+            warn "$pkg installation failed — you can retry later with: ostwin mcp install $pkg"
+          fi
+          echo ""
+        done
+      else
+        info "No packages selected — you can install later with: ostwin mcp install <name>"
+      fi
+    else
+      echo ""
+      info "Skipped — install later with: ostwin mcp install <name>"
+    fi
   fi
 else
-  echo ".war-rooms/" > "$TARGET_DIR/.gitignore"
+  if $AUTO_YES; then
+    info "Non-interactive mode — skipping MCP extension install"
+    info "Install later with: ostwin mcp install <name>"
+  fi
 fi
 
-echo "  [OK] Ostwin initialized in $TARGET_DIR/.agents/"
+# ─── Summary ─────────────────────────────────────────────────────────────────
+
 echo ""
-echo "  War-rooms will be created at: $TARGET_DIR/.war-rooms/ (project-scoped)"
+echo -e "  ${GREEN}${BOLD}✓ MCP configured at:${NC} $TARGET_AGENTS/mcp/mcp-config.json"
 echo ""
-echo "  Next steps:"
-echo "    1. Edit your plan:  cp .agents/plans/PLAN.template.md .agents/plans/my-plan.md"
-echo "    2. Configure:       .agents/bin/ostwin config"
-echo "    3. Run:             .agents/bin/ostwin run .agents/plans/my-plan.md"
-echo ""
-echo "  Or add to PATH:       export PATH=\"$TARGET_AGENTS/bin:\$PATH\""
+echo -e "  ${BOLD}Manage extensions:${NC}"
+echo "    ostwin mcp catalog              Show available packages"
+echo "    ostwin mcp install <name>       Install an extension"
+echo "    ostwin mcp list                 Show installed extensions"
+echo "    ostwin mcp sync                 Rebuild mcp-config.json"
 echo ""
