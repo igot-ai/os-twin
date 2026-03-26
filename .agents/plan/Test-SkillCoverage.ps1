@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory)]
     $PlanParsed,
 
-    [string]$ProjectDir = (Get-Location).Path,
+    [string]$ProjectDir = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path,
 
     [string]$RoomDir = ""
 )

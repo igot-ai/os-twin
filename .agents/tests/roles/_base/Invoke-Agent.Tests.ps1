@@ -217,13 +217,13 @@ Describe "Invoke-Agent" {
     }
 
     Context "Skill Isolation (EPIC-002)" {
-        It "creates and populates artifacts/skills directory" {
+        It "creates and populates skills directory" {
             # Use engineer role because it has at least 'lang' skill in this project
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
 
-            $isolatedSkillsDir = Join-Path $script:roomDir "artifacts" "skills"
+            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
             Test-Path $isolatedSkillsDir | Should -BeTrue
             
             $skills = Get-ChildItem $isolatedSkillsDir -Directory
@@ -233,7 +233,7 @@ Describe "Invoke-Agent" {
         }
 
         It "clears previous skills on new invocation" {
-            $isolatedSkillsDir = Join-Path $script:roomDir "artifacts" "skills"
+            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
             New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
             $staleFile = Join-Path $isolatedSkillsDir "STALE"
             "stale" | Out-File $staleFile
@@ -258,7 +258,7 @@ Describe "Invoke-Agent" {
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd $echoMock -TimeoutSeconds 5
 
-            $result.Output | Should -Match "artifacts/skills"
+            $result.Output | Should -Match "/skills"
             # Ensure it's an absolute path (starts with / or [Drive]:\)
             $result.Output | Should -Match "^(/|[a-zA-Z]:\\)"
         }
@@ -269,7 +269,7 @@ Describe "Invoke-Agent" {
                 -RoleName "non-existent-role" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
             
-            $isolatedSkillsDir = Join-Path $script:roomDir "artifacts" "skills"
+            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
             Test-Path $isolatedSkillsDir | Should -BeTrue
             # Note: non-existent-role will still get Global skills if they exist in .agents/skills/global
             # So this might not be 0 unless we mock Resolve-RoleSkills.
