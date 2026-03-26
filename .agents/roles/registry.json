@@ -304,7 +304,7 @@
       "default_model": "gemini-3-flash-preview"
     },
     {
-      "name": "game-ui-analytics",
+      "name": "game-ui-analyst",
       "description": "game ui analytics pipeline for Unity UI — orchestrates detect-ui and detect-anim to produce structured JSON outputs",
       "definition": "contributes/roles/game-ui-analyst/role.json",
       "prompt": "contributes/roles/game-ui-analyst/ROLE.md",
