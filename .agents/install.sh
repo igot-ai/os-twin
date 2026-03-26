@@ -361,43 +361,33 @@ install_pwsh() {
 }
 
 install_node() {
+  local NODE_VER="v25.8.1"
+  step "Installing Node.js $NODE_VER..."
+  local node_dir="$HOME/.local/node"
+  mkdir -p "$node_dir" "$HOME/.local/bin"
+
+  local os_type arch_type
   case "$OS" in
-    macos)
-      if check_brew; then
-        step "Installing Node.js via Homebrew..."
-        brew install node
-      else
-        fail "Cannot install Node.js without Homebrew"
-        exit 1
-      fi
-      ;;
-    linux)
-      case "$PKG_MGR" in
-        apt)
-          step "Installing Node.js via NodeSource (apt)..."
-          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
-          sudo apt-get install -y -qq nodejs
-          ;;
-        dnf|yum)
-          step "Installing Node.js via NodeSource ($PKG_MGR)..."
-          curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
-          sudo $PKG_MGR install -y nodejs
-          ;;
-        pacman)
-          step "Installing Node.js via pacman..."
-          sudo pacman -S --noconfirm nodejs npm
-          ;;
-        zypper)
-          step "Installing Node.js via zypper..."
-          sudo zypper install -y nodejs18 npm18
-          ;;
-        *)
-          fail "Cannot install Node.js: no supported package manager found"
-          exit 1
-          ;;
-      esac
-      ;;
+    macos) os_type="darwin" ;;
+    linux) os_type="linux" ;;
   esac
+
+  case "$ARCH" in
+    arm64|aarch64) arch_type="arm64" ;;
+    x86_64|amd64) arch_type="x64" ;;
+    *) fail "Unsupported architecture for Node direct download: $ARCH"; exit 1 ;;
+  esac
+
+  local url="https://nodejs.org/dist/${NODE_VER}/node-${NODE_VER}-${os_type}-${arch_type}.tar.gz"
+  step "Downloading from $url..."
+  curl -sSL "$url" -o /tmp/node.tar.gz || { fail "Failed to download Node.js $NODE_VER"; exit 1; }
+  tar -xzf /tmp/node.tar.gz -C "$node_dir" --strip-components=1
+  ln -sf "$node_dir/bin/node" "$HOME/.local/bin/node"
+  ln -sf "$node_dir/bin/npm" "$HOME/.local/bin/npm"
+  ln -sf "$node_dir/bin/npx" "$HOME/.local/bin/npx"
+  rm -f /tmp/node.tar.gz
+  export PATH="$HOME/.local/bin:$PATH"
+  ok "Node.js $NODE_VER installed to $node_dir"
 }
 
 install_deepagents() {
