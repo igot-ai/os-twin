@@ -146,7 +146,7 @@ New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
 New-Item -ItemType Directory -Path $pidsDir -Force | Out-Null
 
 # --- Skill Isolation (EPIC-002) ---
-$isolatedSkillsDir = Join-Path $artifactsDir "skills"
+$isolatedSkillsDir = Join-Path $absRoomDir "skills"
 
 # Clear isolated skills for each invocation to ensure no stale skills remain
 if (Test-Path $isolatedSkillsDir) {
@@ -186,20 +186,8 @@ if (Test-Path $resolveSkillsScript) {
     }
 }
 
-# --- Room-Level Skills (discovered from brief.md via Resolve-RoomSkills) ---
-$roomSkillsDir = Join-Path $absRoomDir "skills"
-if (Test-Path $roomSkillsDir) {
-    Get-ChildItem $roomSkillsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $skillMd = Join-Path $_.FullName "SKILL.md"
-        if (Test-Path $skillMd) {
-            $destPath = Join-Path $isolatedSkillsDir $_.Name
-            if (-not (Test-Path $destPath)) {
-                New-Item -ItemType Directory -Path $destPath -Force | Out-Null
-                Copy-Item -Path (Join-Path $_.FullName "*") -Destination $destPath -Recurse -Force
-            }
-        }
-    }
-}
+# Room-level skills are already in $absRoomDir/skills (populated by Resolve-RoomSkills).
+# No copy needed — $isolatedSkillsDir points there directly.
 
 $outputFile = Join-Path $artifactsDir "$RoleName-output.txt"
 $pidFile = Join-Path $pidsDir "$RoleName.pid"
