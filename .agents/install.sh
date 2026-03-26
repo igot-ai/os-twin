@@ -8,6 +8,7 @@
 #   ./install.sh               # Interactive mode — prompts before each step
 #   ./install.sh --yes         # Non-interactive — auto-approve all installs
 #   ./install.sh --dir /path   # Install to custom location (default: ~/.ostwin)
+#   ./install.sh --discord       # Also start the Discord bot (requires discord-bot/ in repo)
 #   ./install.sh --dashboard-only  # Install dashboard API + frontend only
 #   ./install.sh --help        # Show this help
 #
@@ -34,6 +35,7 @@ SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 AUTO_YES=false
 SKIP_OPTIONAL=false
 DASHBOARD_ONLY=false
+START_DISCORD=false
 DASHBOARD_PORT=9000
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
@@ -50,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --port)          DASHBOARD_PORT="$2"; shift 2 ;;
     --skip-optional) SKIP_OPTIONAL=true; shift ;;
     --dashboard-only) DASHBOARD_ONLY=true; AUTO_YES=true; shift ;;
+    --discord)       START_DISCORD=true; shift ;;
     --help|-h)
       head -22 "$0" | tail -20
       exit 0
@@ -180,6 +183,10 @@ check_pwsh() {
     fi
   fi
   return 1
+}
+
+check_node() {
+  command -v node &>/dev/null
 }
 
 check_uv() {
@@ -353,6 +360,36 @@ install_pwsh() {
   esac
 }
 
+install_node() {
+  local NODE_VER="v25.8.1"
+  step "Installing Node.js $NODE_VER..."
+  local node_dir="$HOME/.local/node"
+  mkdir -p "$node_dir" "$HOME/.local/bin"
+
+  local os_type arch_type
+  case "$OS" in
+    macos) os_type="darwin" ;;
+    linux) os_type="linux" ;;
+  esac
+
+  case "$ARCH" in
+    arm64|aarch64) arch_type="arm64" ;;
+    x86_64|amd64) arch_type="x64" ;;
+    *) fail "Unsupported architecture for Node direct download: $ARCH"; exit 1 ;;
+  esac
+
+  local url="https://nodejs.org/dist/${NODE_VER}/node-${NODE_VER}-${os_type}-${arch_type}.tar.gz"
+  step "Downloading from $url..."
+  curl -sSL "$url" -o /tmp/node.tar.gz || { fail "Failed to download Node.js $NODE_VER"; exit 1; }
+  tar -xzf /tmp/node.tar.gz -C "$node_dir" --strip-components=1
+  ln -sf "$node_dir/bin/node" "$HOME/.local/bin/node"
+  ln -sf "$node_dir/bin/npm" "$HOME/.local/bin/npm"
+  ln -sf "$node_dir/bin/npx" "$HOME/.local/bin/npx"
+  rm -f /tmp/node.tar.gz
+  export PATH="$HOME/.local/bin:$PATH"
+  ok "Node.js $NODE_VER installed to $node_dir"
+}
+
 install_deepagents() {
   step "Installing deepagents-cli..."
   if check_uv; then
@@ -520,6 +557,11 @@ setup_env() {
 # GOOGLE_API_KEY=your-google-api-key-here
 # OPENAI_API_KEY=your-openai-api-key-here
 # ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# OPENROUTER_API_KEY=your-openrouter-api-key-here
+# AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
+# BASETEN_API_KEY=your-baseten-api-key-here
+# AWS_ACCESS_KEY_ID=your-aws-access-key-id-here
+# AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
 
 # ── Dashboard settings ──────────────────────────────────────────────────────
 # DASHBOARD_PORT=9000
@@ -538,7 +580,7 @@ ENVEOF
 
   # Migrate any existing exported key from the current shell environment
   local migrated=false
-  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY; do
+  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
     if [[ -n "${!key:-}" ]]; then
       # Uncomment and fill the matching line
       if [[ "$OS" == "macos" ]]; then
@@ -552,7 +594,45 @@ ENVEOF
   done
 
   if ! $migrated; then
-    warn "No API keys found in current shell — edit $env_file and add them"
+    warn "No API keys found in current shell."
+    if ! $AUTO_YES; then
+      echo -e "    ${CYAN}Which AI Provider would you like to configure now?${NC}"
+      echo -e "      1) Google (Gemini)\t5) Azure OpenAI"
+      echo -e "      2) OpenAI\t\t6) Baseten"
+      echo -e "      3) Anthropic\t\t7) AWS Bedrock"
+      echo -e "      4) OpenRouter"
+      echo -e "      0) Skip for now"
+      echo -en "    ${YELLOW}?${NC} Select an option ${DIM}[0-7]${NC}: "
+      read -r provider_choice
+
+      local selected_keys=()
+      case "$provider_choice" in
+        1) selected_keys=("GOOGLE_API_KEY") ;;
+        2) selected_keys=("OPENAI_API_KEY") ;;
+        3) selected_keys=("ANTHROPIC_API_KEY") ;;
+        4) selected_keys=("OPENROUTER_API_KEY") ;;
+        5) selected_keys=("AZURE_OPENAI_API_KEY") ;;
+        6) selected_keys=("BASETEN_API_KEY") ;;
+        7) selected_keys=("AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY") ;;
+        *) info "Skipped API key setup. Please edit $env_file later." ;;
+      esac
+
+      for key_name in "${selected_keys[@]}"; do
+        echo -en "    ${CYAN}→${NC} Enter $key_name: "
+        read -s -r user_val
+        echo ""
+        if [[ -n "$user_val" ]]; then
+          if [[ "$OS" == "macos" ]]; then
+            sed -i '' "s|^# ${key_name}=.*|${key_name}=${user_val}|" "$env_file"
+          else
+            sed -i "s|^# ${key_name}=.*|${key_name}=${user_val}|" "$env_file"
+          fi
+          ok "Saved $key_name into .env"
+        fi
+      done
+    else
+      info "Non-interactive mode (-y). Edit $env_file later to add your API keys."
+    fi
   fi
 }
 
@@ -895,6 +975,22 @@ if $DASHBOARD_ONLY; then
     [[ -z "$PYTHON_CMD" ]] && { fail "Python required for dashboard"; exit 1; }
   fi
   ok "Python $PYTHON_VERSION ($PYTHON_CMD)"
+
+  # --- Node.js ---
+  if ! check_node; then
+    install_node
+  fi
+  if check_node; then
+    NODE_VERSION=$(node --version 2>&1 | head -1)
+    ok "Node.js $NODE_VERSION"
+    if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+      step "Installing pnpm..."
+      npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+    fi
+  else
+    fail "Node.js required for dashboard"
+    exit 1
+  fi
 else
 
 header "2. Checking dependencies"
@@ -960,6 +1056,33 @@ if check_deepagents; then
   ok "deepagents-cli $DA_VERSION"
 else
   install_deepagents
+fi
+
+# --- Node.js ---
+if check_node; then
+  NODE_VERSION=$(node --version 2>&1 | head -1)
+  ok "Node.js $NODE_VERSION"
+  if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+    step "Installing pnpm..."
+    npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+  fi
+else
+  warn "Node.js not found"
+  if ask "Install Node.js? (required for Dashboard UI)"; then
+    install_node
+    if check_node; then
+      NODE_VERSION=$(node --version 2>&1 | head -1)
+      ok "Node.js $NODE_VERSION installed"
+      if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+        step "Installing pnpm..."
+        npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+      fi
+    else
+      warn "Node.js installation failed"
+    fi
+  else
+    warn "Skipping Node.js — dashboard UI will not be built"
+  fi
 fi
 
 fi  # end: ! DASHBOARD_ONLY
@@ -1148,6 +1271,84 @@ else
   info "Re-run: ./install.sh --source-dir /path/to/agent-os"
 fi
 
+# ─── 9c. Start Discord bot (optional, --discord flag) ──────────────────────────
+
+if $START_DISCORD; then
+  header "9c. Starting Discord bot"
+
+  # Locate the discord-bot directory
+  DISCORD_BOT_DIR=""
+  for candidate in \
+    "${SOURCE_DIR}/discord-bot" \
+    "${SCRIPT_DIR}/../discord-bot"; do
+    if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
+      DISCORD_BOT_DIR="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+
+  if [[ -z "$DISCORD_BOT_DIR" ]]; then
+    warn "discord-bot/ not found — skipping"
+    info "Expected at discord-bot/package.json relative to the repo root"
+  else
+    # Pick package manager
+    DISCORD_PM=""
+    for tool in pnpm npm yarn bun; do
+      if command -v "$tool" &>/dev/null; then
+        DISCORD_PM="$tool"
+        break
+      fi
+    done
+
+    if [[ -z "$DISCORD_PM" ]]; then
+      warn "No Node.js package manager found — cannot start Discord bot"
+      info "Install Node.js + pnpm and re-run with --discord"
+    else
+      # Install dependencies if needed
+      if [[ ! -d "$DISCORD_BOT_DIR/node_modules" ]]; then
+        step "Installing Discord bot dependencies ($DISCORD_PM)..."
+        (cd "$DISCORD_BOT_DIR" && "$DISCORD_PM" install) \
+          && ok "Dependencies installed" || warn "Dependency install failed"
+      fi
+
+      # Source .env so DISCORD_TOKEN, GOOGLE_API_KEY, OSTWIN_API_KEY are available
+      ENV_FILE="$INSTALL_DIR/.env"
+      DISCORD_ENV="$DISCORD_BOT_DIR/.env"
+      if [[ -f "$ENV_FILE" ]]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$ENV_FILE"
+        set +a
+      fi
+
+      # Kill any previously running instance
+      DISCORD_PID_FILE="$INSTALL_DIR/discord-bot.pid"
+      if [[ -f "$DISCORD_PID_FILE" ]]; then
+        OLD_PID=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
+        if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+          step "Stopping previous Discord bot (PID $OLD_PID)..."
+          kill "$OLD_PID" 2>/dev/null || true
+          sleep 1
+        fi
+      fi
+
+      mkdir -p "$INSTALL_DIR/logs"
+      step "Starting Discord bot from $DISCORD_BOT_DIR..."
+      (
+        cd "$DISCORD_BOT_DIR"
+        # Pass ostwin env vars if a .env exists in the bot dir
+        if [[ -f "$DISCORD_ENV" ]]; then
+          set -a; source "$DISCORD_ENV"; set +a
+        fi
+        nohup "$DISCORD_PM" start \
+          > "$INSTALL_DIR/logs/discord-bot.log" 2>&1 &
+        echo $! > "$DISCORD_PID_FILE"
+        echo "$!"
+      ) | { read -r BOT_PID; ok "Discord bot started (PID $BOT_PID) — log: $INSTALL_DIR/logs/discord-bot.log"; }
+    fi
+  fi
+fi
+
 # ─── Done! ────────────────────────────────────────────────────────────────────
 
 SHELL_NAME=$(basename "${SHELL:-/bin/bash}")
@@ -1167,6 +1368,12 @@ echo ""
 echo -e "  ${BOLD}Dashboard:${NC}"
 echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
+if $START_DISCORD; then
+echo -e ""
+echo -e "  ${BOLD}Discord Bot:${NC}"
+echo -e "    ${DIM}Running in background — log: $INSTALL_DIR/logs/discord-bot.log${NC}"
+echo -e "    ${DIM}Stop with: kill \$(cat $INSTALL_DIR/discord-bot.pid)${NC}"
+fi
 echo ""
 
 # Display OSTWIN_API_KEY for frontend authentication
