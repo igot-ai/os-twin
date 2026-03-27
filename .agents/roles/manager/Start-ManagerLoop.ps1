@@ -41,9 +41,6 @@ $managerPidFile = Join-Path $agentsDir "manager.pid"
 
 $postMessage = Join-Path $channelDir "Post-Message.ps1"
 $readMessages = Join-Path $channelDir "Read-Messages.ps1"
-$startEngineer = Join-Path $agentsDir "roles" "engineer" "Start-Engineer.ps1"
-$startQA = Join-Path $agentsDir "roles" "qa" "Start-QA.ps1"
-$startArchitect = Join-Path $agentsDir "roles" "architect" "Start-Architect.ps1"
 
 # --- Import modules ---
 $logModule = Join-Path $agentsDir "lib" "Log.psm1"
@@ -63,7 +60,6 @@ $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 $maxConcurrent = $config.manager.max_concurrent_rooms
 $pollInterval = $config.manager.poll_interval_seconds
 $maxRetries = $config.manager.max_engineer_retries
-$maxRedesigns = if ($config.manager.max_redesigns) { $config.manager.max_redesigns } else { 2 }
 $stateTimeout = if ($config.manager.state_timeout_seconds) { $config.manager.state_timeout_seconds } else { 900 }
 
 # --- Resolve war-rooms dir ---
@@ -77,7 +73,6 @@ $dagFile = Join-Path $WarRoomsDir "DAG.json"
 $hasDag = Test-Path $dagFile
 $testDepsReady = Join-Path $agentsDir "plan" "Test-DependenciesReady.ps1"
 $updateProgress = Join-Path $agentsDir "plan" "Update-Progress.ps1"
-$maxQaRetries = 10
 $script:lastProgressUpdate = 0
 $script:dagCache = $null
 $script:dagMtime = $null
@@ -833,13 +828,13 @@ while (-not $script:shuttingDown) {
                         # PLAN-REVIEW shortcut
                         if ($taskRef -eq 'PLAN-REVIEW') {
                             $approveCount = Get-MsgCount $roomDir "plan-approve"
-                            $guidanceCount = Get-MsgCount $roomDir "design-guidance"
-                            $guidanceApproval = $false
-                            if ($guidanceCount -gt 0 -and $approveCount -eq 0) {
-                                $guidanceBody = Get-LatestBody $roomDir "design-guidance"
-                                if ($guidanceBody -match 'plan-approve|signoff|APPROVED') { $guidanceApproval = $true }
+                            $doneCount = Get-MsgCount $roomDir "done"
+                            $doneApproval = $false
+                            if ($doneCount -gt 0 -and $approveCount -eq 0) {
+                                $doneBody = Get-LatestBody $roomDir "done"
+                                if ($doneBody -match 'plan-approve|signoff|APPROVED') { $doneApproval = $true }
                             }
-                            if ($approveCount -gt 0 -or $guidanceApproval) {
+                            if ($approveCount -gt 0 -or $doneApproval) {
                                 Write-Log "INFO" "[$taskRef] Plan APPROVED. Transitioning to passed."
                                 Write-RoomStatus $roomDir 'passed'
                                 Handle-PlanApproval -TaskRef $taskRef

@@ -797,7 +797,10 @@ else:
     ;;
   mcp)
     shift
-    exec "$AGENTS_DIR/mcp/mcp-extension.sh" "$@"
+    # Forward project root so mcp-extension.sh finds project-local
+    # .agents/mcp/ even when invoked from a subdirectory.
+    _MCP_PROJECT_ROOT="$(cd "$AGENTS_DIR/.." 2>/dev/null && pwd)"
+    exec "$AGENTS_DIR/mcp/mcp-extension.sh" --project-dir "$_MCP_PROJECT_ROOT" "$@"
     ;;
   reload-env)
     shift
