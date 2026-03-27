@@ -563,7 +563,7 @@ function Handle-PlanApproval {
         # Re-build DAG so manager sees updated wave structure
         $buildDagScript = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
         if (Test-Path $buildDagScript) {
-            & $buildDagScript -WarRoomsDir $WarRoomsDir
+            $null = & $buildDagScript -WarRoomsDir $WarRoomsDir
             # Clear cache to force reload
             $script:dagCache = $null
             $script:hasDag = $true

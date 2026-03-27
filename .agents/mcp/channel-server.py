@@ -17,23 +17,38 @@ import fcntl
 import json
 import os
 import time
+import pathlib
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
+
+# Monkey patch pathlib to bypass macOS SIP PermissionError on .env files
+original_is_file = pathlib.Path.is_file
+def safe_is_file(self):
+    try:
+        return original_is_file(self)
+    except PermissionError:
+        return False
+pathlib.Path.is_file = safe_is_file
 
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
 
 # ── Validation constants ─────────────────────────────────────────────────────
 
-VALID_ROLES = {"manager", "engineer", "qa"}
-VALID_TYPES = {"task", "done", "review", "pass", "fail", "fix", "error", "signoff", "release"}
+VALID_ROLES = {"manager", "engineer", "qa", "architect", "devops", "tech-writer", "security", "product-owner"}
+VALID_TYPES = {
+    "task", "done", "review", "pass", "fail", "fix", "error", "signoff", "release",
+    "plan-review", "plan-approve", "plan-reject", "escalate",
+    "design-review", "design-guidance", "plan-update",
+    "redesign-done", "subcommand-redesigned",
+}
 MAX_BODY_BYTES = 65536
 
 # ── Module-level state ────────────────────────────────────────────────────────
 
 AGENT_OS_ROOT: str = os.environ.get("AGENT_OS_ROOT", ".")
 
-mcp = FastMCP("ostwin-channel")
+mcp = FastMCP("ostwin-channel", log_level="CRITICAL")
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 

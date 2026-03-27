@@ -118,6 +118,15 @@ if (Test-Path $configPath) {
         $WorkingDir = $instanceConfig.working_dir
     }
 
+    # no_mcp: instance → role (disables MCP tools to avoid ClosedResourceError on remote exec)
+    $NoMcp = $false
+    if ($instanceConfig -and $instanceConfig.no_mcp -eq $true) {
+        $NoMcp = $true
+    }
+    elseif ($config.$RoleName.no_mcp -eq $true) {
+        $NoMcp = $true
+    }
+
     # --- Resolve ProjectDir from RoomDir (parent of .war-rooms) ---
     # War-room paths follow: $PROJECT/.war-rooms/<plan>/<room>/
     # Walk up from RoomDir to find the directory containing .war-rooms
@@ -215,29 +224,36 @@ $PID | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
 
 
 
-# --- Execute with timeout ---
+# --- Execute with timeout and transient-error retry ---
+$maxProcessRetries = 3
 $exitCode = 0
-try {
-    $stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
-                 else { "NUL" }
 
-    # Write prompt to a file to avoid shell escaping issues
-    $promptFile = Join-Path $artifactsDir "prompt.txt"
-    $Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
+$stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
+             else { "NUL" }
 
-    # --- Debug: write a human-readable copy of the compiled prompt ---
-    $debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
-    $Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
+# Write prompt to a file to avoid shell escaping issues
+$promptFile = Join-Path $artifactsDir "prompt.txt"
+$Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
 
-    # Build non-prompt CLI args safely
-    $extraCliArgs = @()
-    if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
-    if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
-    if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
-    if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
-    if ($Quiet) { $extraCliArgs += "--quiet" }
+# --- Debug: write a human-readable copy of the compiled prompt ---
+$debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
+$Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
 
-    # --- MCP config: prefer project-local, fall back to global ---
+# Build non-prompt CLI args safely
+$extraCliArgs = @()
+if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
+if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
+if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
+if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
+if ($Quiet) { $extraCliArgs += "--quiet" }
+
+# --- MCP config: prefer project-local, fall back to global ---
+# If no_mcp is set in role config, skip MCP entirely to avoid ClosedResourceError
+# on remote LangGraph execution. Role scripts handle channel communication instead.
+if ($NoMcp) {
+    $extraCliArgs += "--no-mcp"
+}
+else {
     $resolvedMcpConfig = $McpConfig
     if (-not $resolvedMcpConfig) {
         # Priority 1: project-local MCP config (via ProjectDir resolved from RoomDir)
@@ -271,24 +287,28 @@ try {
         $extraCliArgs += "--mcp-config"
         $extraCliArgs += (Resolve-Path $resolvedMcpConfig).Path
     }
+}
 
-    $extraCliArgs += $ExtraArgs
+$extraCliArgs += $ExtraArgs
 
-    $argsLine = ($extraCliArgs | ForEach-Object {
-        if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
-    }) -join ' '
+$argsLine = ($extraCliArgs | ForEach-Object {
+    if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
+}) -join ' '
 
-    # Write wrapper script
-    $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
-    $safeOutput = $outputFile -replace "'", "'\''"
-    $safePrompt = $promptFile -replace "'", "'\''"
-    $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
-    $safeRoomDir = $absRoomDir.Replace('\', '/').Replace("'", "'\''")
-    $safeSkillsDir = $isolatedSkillsDir.Replace('\', '/').Replace("'", "'\''")
-    $safeRole = $RoleName -replace "'", "'\''"
+for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
+    $exitCode = 0
+    try {
+        # Write wrapper script
+        $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+        $safeOutput = $outputFile -replace "'", "'\''"
+        $safePrompt = $promptFile -replace "'", "'\''"
+        $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
+        $safeRoomDir = $absRoomDir.Replace('\', '/').Replace("'", "'\''")
+        $safeSkillsDir = $isolatedSkillsDir.Replace('\', '/').Replace("'", "'\''")
+        $safeRole = $RoleName -replace "'", "'\''"
 
-    $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
-    $scriptContent = @"
+        $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
+        $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
 export AGENT_OS_ROLE='$safeRole'
@@ -297,32 +317,45 @@ export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 $cwdLine
 exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
 "@
-    $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
-    chmod +x $wrapperScript 2>$null
+        $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
+        chmod +x $wrapperScript 2>$null
 
-    $proc = Start-Process -FilePath "bash" `
-        -ArgumentList $wrapperScript `
-        -NoNewWindow -PassThru `
-        -RedirectStandardInput $stdinNull
+        $proc = Start-Process -FilePath "bash" `
+            -ArgumentList $wrapperScript `
+            -NoNewWindow -PassThru `
+            -RedirectStandardInput $stdinNull
 
-    # Overwrite PID file with the actual bash child PID (not PS $PID)
-    # so manager's Test-PidAlive can detect when the agent process dies.
-    $proc.Id | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
+        # Overwrite PID file with the actual bash child PID (not PS $PID)
+        # so manager's Test-PidAlive can detect when the agent process dies.
+        $proc.Id | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
 
-    $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
-    if (-not $proc.HasExited) {
-        # Timeout
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        $exitCode = 124
-        "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+        $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
+        if (-not $proc.HasExited) {
+            # Timeout
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            $exitCode = 124
+            "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+        }
+        else {
+            $exitCode = $proc.ExitCode
+        }
     }
-    else {
-        $exitCode = $proc.ExitCode
+    catch {
+        $exitCode = 1
+        $_.Exception.Message | Out-File -FilePath $outputFile -Encoding utf8
     }
-}
-catch {
-    $exitCode = 1
-    $_.Exception.Message | Out-File -FilePath $outputFile -Encoding utf8
+
+    # --- Retry on transient remote errors (ClosedResourceError, RemoteException) ---
+    if ($exitCode -ne 0 -and $exitCode -ne 124 -and $processAttempt -lt $maxProcessRetries) {
+        $agentOutput = if (Test-Path $outputFile) { Get-Content $outputFile -Raw -ErrorAction SilentlyContinue } else { "" }
+        if ($agentOutput -match "ClosedResourceError|RemoteException.*ClosedResource|ReadError|WriteError") {
+            $backoff = [math]::Pow(2, $processAttempt)
+            Write-Host "[Invoke-Agent] Transient remote error on attempt $processAttempt/$maxProcessRetries, retrying in ${backoff}s..."
+            Start-Sleep -Seconds $backoff
+            continue
+        }
+    }
+    break  # Success or non-transient error — stop retrying
 }
 
 # --- Read output ---
