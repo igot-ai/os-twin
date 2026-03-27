@@ -153,13 +153,40 @@ if (Test-Path $configPath) {
     $globalConfig = Get-Content $configPath -Raw | ConvertFrom-Json
 }
 
+# --- Load plan-specific roles config (~/.ostwin/plans/{plan_id}.roles.json) ---
+$planRolesConfig = $null
+if ($PlanId) {
+    $planRolesFile = Join-Path $env:HOME ".ostwin" "plans" "$PlanId.roles.json"
+    if (Test-Path $planRolesFile) {
+        $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+    }
+}
+
 # Parse base role name (strip instance suffix like "engineer:fe" → "engineer")
 $baseRole = $AssignedRole -replace ':.*$', ''
 $instanceSuffix = if ($AssignedRole -match ':(.+)$') { $Matches[1] } else { '' }
 
-# Resolve model for this role: instance → global config → role.json → default
+# Resolve model for this role: plan roles.json → instance → global config → role.json → default
 $roleModel = "gemini-3-flash-preview"
-if ($globalConfig) {
+$roleTimeout = $TimeoutSeconds
+$roleSkillRefs = @()
+
+# Priority 1: plan-specific roles.json
+if ($planRolesConfig -and $planRolesConfig.$baseRole) {
+    $planRoleConfig = $planRolesConfig.$baseRole
+    if ($planRoleConfig.default_model) {
+        $roleModel = $planRoleConfig.default_model
+    }
+    if ($planRoleConfig.timeout_seconds) {
+        $roleTimeout = $planRoleConfig.timeout_seconds
+    }
+    if ($planRoleConfig.skill_refs) {
+        $roleSkillRefs = @($planRoleConfig.skill_refs)
+    }
+}
+
+# Priority 2: global config.json (only fill in what plan config didn't set)
+if ($roleModel -eq "gemini-3-flash-preview" -and $globalConfig) {
     if ($instanceSuffix -and $globalConfig.$baseRole.instances.$instanceSuffix.default_model) {
         $roleModel = $globalConfig.$baseRole.instances.$instanceSuffix.default_model
     }
@@ -167,7 +194,8 @@ if ($globalConfig) {
         $roleModel = $globalConfig.$baseRole.default_model
     }
 }
-# Fallback: try role.json
+
+# Priority 3: role.json fallback
 if ($roleModel -eq "gemini-3-flash-preview") {
     $roleJsonPath = Join-Path $agentsDir "roles" $baseRole "role.json"
     if (Test-Path $roleJsonPath) {
@@ -187,9 +215,13 @@ $roleConfig = [ordered]@{
     instance_type = $instanceSuffix
     display_name  = if ($instanceSuffix) { "$baseRole`:$instanceSuffix #$instanceId" } else { "$baseRole #$instanceId" }
     model         = $roleModel
+    timeout_seconds = $roleTimeout
     assigned_at   = $ts
     status        = "pending"
     config_override = [ordered]@{}
+}
+if ($roleSkillRefs.Count -gt 0) {
+    $roleConfig['skill_refs'] = $roleSkillRefs
 }
 
 $roleConfigFile = Join-Path $roomDir "${baseRole}_${instanceId}.json"

@@ -219,4 +219,80 @@ Describe "New-WarRoom" {
             Test-Path (Join-Path $script:warRoomsDir "room-ctx-01" "contexts") | Should -BeTrue
         }
     }
+
+    Context "Plan-specific roles.json resolution" {
+        BeforeEach {
+            # Create a mock ~/.ostwin/plans directory with plan roles config
+            $script:plansDir = Join-Path $TestDrive "ostwin-plans-$(Get-Random)"
+            New-Item -ItemType Directory -Path $script:plansDir -Force | Out-Null
+            $script:testPlanId = "test-plan-$(Get-Random)"
+
+            $planRolesConfig = @{
+                engineer = @{
+                    default_model   = "gemini-plan-custom-model"
+                    timeout_seconds = 1800
+                    skill_refs      = @("write-tests", "code-review")
+                }
+                qa = @{
+                    default_model = "qa-plan-model"
+                }
+            }
+            $planRolesFile = Join-Path $script:plansDir "$($script:testPlanId).roles.json"
+            $planRolesConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $planRolesFile -Encoding utf8
+
+            # Point HOME to TestDrive so the script finds ~/.ostwin/plans/
+            $script:origHome = $env:HOME
+            $script:fakeHome = Join-Path $TestDrive "fakehome-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $script:fakeHome ".ostwin" "plans") -Force | Out-Null
+            Copy-Item $planRolesFile (Join-Path $script:fakeHome ".ostwin" "plans")
+            $env:HOME = $script:fakeHome
+        }
+
+        AfterEach {
+            $env:HOME = $script:origHome
+        }
+
+        It "uses model from plan roles.json when PlanId is provided" {
+            & $script:NewWarRoom -RoomId "room-plan-01" -TaskRef "EPIC-010" `
+                                 -TaskDescription "Plan test" -WarRoomsDir $script:warRoomsDir `
+                                 -PlanId $script:testPlanId
+
+            $roleFile = Get-ChildItem (Join-Path $script:warRoomsDir "room-plan-01") -Filter "engineer_*.json" | Select-Object -First 1
+            $roleFile | Should -Not -BeNullOrEmpty
+            $roleConfig = Get-Content $roleFile.FullName -Raw | ConvertFrom-Json
+            $roleConfig.model | Should -Be "gemini-plan-custom-model"
+        }
+
+        It "uses timeout from plan roles.json" {
+            & $script:NewWarRoom -RoomId "room-plan-02" -TaskRef "EPIC-011" `
+                                 -TaskDescription "Timeout test" -WarRoomsDir $script:warRoomsDir `
+                                 -PlanId $script:testPlanId
+
+            $roleFile = Get-ChildItem (Join-Path $script:warRoomsDir "room-plan-02") -Filter "engineer_*.json" | Select-Object -First 1
+            $roleConfig = Get-Content $roleFile.FullName -Raw | ConvertFrom-Json
+            $roleConfig.timeout_seconds | Should -Be 1800
+        }
+
+        It "includes skill_refs from plan roles.json" {
+            & $script:NewWarRoom -RoomId "room-plan-03" -TaskRef "EPIC-012" `
+                                 -TaskDescription "Skills test" -WarRoomsDir $script:warRoomsDir `
+                                 -PlanId $script:testPlanId
+
+            $roleFile = Get-ChildItem (Join-Path $script:warRoomsDir "room-plan-03") -Filter "engineer_*.json" | Select-Object -First 1
+            $roleConfig = Get-Content $roleFile.FullName -Raw | ConvertFrom-Json
+            $roleConfig.skill_refs | Should -Contain "write-tests"
+            $roleConfig.skill_refs | Should -Contain "code-review"
+        }
+
+        It "falls back to default model when PlanId has no roles.json" {
+            & $script:NewWarRoom -RoomId "room-plan-04" -TaskRef "EPIC-013" `
+                                 -TaskDescription "Fallback test" -WarRoomsDir $script:warRoomsDir `
+                                 -PlanId "nonexistent-plan-id"
+
+            $roleFile = Get-ChildItem (Join-Path $script:warRoomsDir "room-plan-04") -Filter "engineer_*.json" | Select-Object -First 1
+            $roleConfig = Get-Content $roleFile.FullName -Raw | ConvertFrom-Json
+            # Should fall back to global config or default
+            $roleConfig.model | Should -Not -Be "gemini-plan-custom-model"
+        }
+    }
 }

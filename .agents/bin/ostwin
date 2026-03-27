@@ -797,10 +797,23 @@ else:
     ;;
   mcp)
     shift
-    # Forward project root so mcp-extension.sh finds project-local
-    # .agents/mcp/ even when invoked from a subdirectory.
-    _MCP_PROJECT_ROOT="$(cd "$AGENTS_DIR/.." 2>/dev/null && pwd)"
-    exec "$AGENTS_DIR/mcp/mcp-extension.sh" --project-dir "$_MCP_PROJECT_ROOT" "$@"
+    # Resolve project root by walking up from cwd to find .agents/mcp/.
+    # Cannot use AGENTS_DIR/.. because when AGENTS_DIR is the global install
+    # (~/.ostwin), the parent is the home directory — not the project.
+    _MCP_PROJECT_ROOT=""
+    _mcp_search="$(pwd)"
+    while [[ "$_mcp_search" != "/" ]]; do
+      if [[ -d "$_mcp_search/.agents/mcp" ]]; then
+        _MCP_PROJECT_ROOT="$_mcp_search"
+        break
+      fi
+      _mcp_search="$(dirname "$_mcp_search")"
+    done
+    if [[ -n "$_MCP_PROJECT_ROOT" ]]; then
+      exec "$AGENTS_DIR/mcp/mcp-extension.sh" --project-dir "$_MCP_PROJECT_ROOT" "$@"
+    else
+      exec "$AGENTS_DIR/mcp/mcp-extension.sh" "$@"
+    fi
     ;;
   reload-env)
     shift

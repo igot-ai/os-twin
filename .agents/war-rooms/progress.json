@@ -1,18 +1,58 @@
 {
-  "updated_at": "2026-03-21T05:33:52Z",
-  "total": 1,
-  "passed": 0,
+  "updated_at": "2026-03-27T12:27:49Z",
+  "total": 9,
+  "passed": 1,
   "failed": 0,
   "blocked": 0,
-  "active": 1,
+  "active": 8,
   "pending": 0,
-  "pct_complete": 0.0,
-  "critical_path": "",
+  "pct_complete": 11.1,
+  "critical_path": "1/2",
   "rooms": [
     {
-      "room_id": "room-test-redesign",
-      "task_ref": "TASK-TEST",
-      "status": "subcommand-redesign"
+      "room_id": "room-000",
+      "task_ref": "PLAN-REVIEW",
+      "status": "passed"
+    },
+    {
+      "room_id": "room-001",
+      "task_ref": "EPIC-001",
+      "status": "developing"
+    },
+    {
+      "room_id": "room-002",
+      "task_ref": "EPIC-002",
+      "status": "developing"
+    },
+    {
+      "room_id": "room-003",
+      "task_ref": "EPIC-003",
+      "status": "developing"
+    },
+    {
+      "room_id": "room-004",
+      "task_ref": "EPIC-004",
+      "status": "developing"
+    },
+    {
+      "room_id": "room-005",
+      "task_ref": "EPIC-005",
+      "status": "developing"
+    },
+    {
+      "room_id": "room-006",
+      "task_ref": "EPIC-006",
+      "status": "developing"
+    },
+    {
+      "room_id": "room-007",
+      "task_ref": "EPIC-007",
+      "status": "developing"
+    },
+    {
+      "room_id": "room-008",
+      "task_ref": "EPIC-008",
+      "status": "developing"
     }
   ]
 }
