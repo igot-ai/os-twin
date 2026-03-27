@@ -3,6 +3,7 @@ import logging
 import uuid
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -19,7 +20,7 @@ ENGINE_CONFIG_FILE = AGENTS_DIR / "config.json"
 
 PROVIDER_MAP = {
     "gemini": "Gemini", "claude": "Claude", "anthropic": "Claude",
-    "gpt": "GPT", "openai": "GPT", "o1": "GPT",
+    "gpt": "GPT", "openai": "GPT", "o1": "GPT", "o3": "GPT", "o4": "GPT",
 }
 
 
@@ -66,11 +67,21 @@ def load_roles() -> List[Role]:
                 model = engine_role.get("default_model") or role_json.get("model") or r.get("default_model", "gemini-3-flash-preview")
                 timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
                 skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
+                description = role_json.get("description", r.get("description", ""))
+                role_md_file = AGENTS_DIR / "roles" / name / "ROLE.md"
+                instructions = ""
+                if role_md_file.exists():
+                    try:
+                        instructions = role_md_file.read_text()
+                    except OSError:
+                        pass
                 now = datetime.now(timezone.utc).isoformat()
                 role = Role(
                     id=str(uuid.uuid4()),
                     name=name,
-                    provider=_detect_provider(model),
+                    description=description,
+                    instructions=instructions,
+                    provider=_detect_provider(model).lower(),
                     version=model,
                     temperature=0.7,
                     budget_tokens_max=500000,
@@ -114,16 +125,25 @@ def _sync_role_to_engine(role: Role):
 
     # Update individual role.json
     role_dir = AGENTS_DIR / "roles" / role.name
+    role_dir.mkdir(parents=True, exist_ok=True)
     role_file = role_dir / "role.json"
-    if role_dir.exists():
-        role_json = _read_role_json(role.name)
-        role_json["model"] = role.version
-        role_json["skill_refs"] = role.skill_refs
-        role_json["timeout"] = role.timeout_seconds
+    role_json = _read_role_json(role.name)
+    role_json["model"] = role.version
+    role_json["skill_refs"] = role.skill_refs
+    role_json["timeout"] = role.timeout_seconds
+    role_json["description"] = role.description
+    try:
+        role_file.write_text(json.dumps(role_json, indent=2))
+    except OSError as e:
+        logger.warning("Failed to update role.json for %s: %s", role.name, e)
+
+    # Write ROLE.md
+    if role.instructions:
+        role_md_file = role_dir / "ROLE.md"
         try:
-            role_file.write_text(json.dumps(role_json, indent=2))
+            role_md_file.write_text(role.instructions)
         except OSError as e:
-            logger.warning("Failed to update role.json for %s: %s", role.name, e)
+            logger.warning("Failed to write ROLE.md for %s: %s", role.name, e)
 
 
 def sync_roles_from_disk() -> dict:
@@ -149,6 +169,19 @@ def sync_roles_from_disk() -> dict:
         if disk_timeout and disk_timeout != role.timeout_seconds:
             role.timeout_seconds = disk_timeout
             changed = True
+        disk_description = role_json.get("description", "")
+        if disk_description and disk_description != role.description:
+            role.description = disk_description
+            changed = True
+        role_md_file = AGENTS_DIR / "roles" / role.name / "ROLE.md"
+        if role_md_file.exists():
+            try:
+                disk_instructions = role_md_file.read_text()
+                if disk_instructions != role.instructions:
+                    role.instructions = disk_instructions
+                    changed = True
+            except OSError:
+                pass
         if changed:
             role.updated_at = datetime.now(timezone.utc).isoformat()
             updated.append(role.name)
@@ -181,21 +214,21 @@ async def get_model_registry(user: dict = Depends(get_current_user)):
     # In a real app, this might fetch from an external service or a local file
     return {
         'Claude': [
-            {"id": 'claude-3-5-sonnet-20241022', "context_window": '200K', "tier": 'flagship'},
-            {"id": 'claude-3-5-haiku-20241022', "context_window": '200K', "tier": 'fast'},
-            {"id": 'claude-3-opus-20240229', "context_window": '200K', "tier": 'reasoning'},
-            {"id": 'claude-3-sonnet-20240229', "context_window": '200K', "tier": 'balanced'},
+            {"id": 'claude-opus-4-6', "context_window": '200K', "tier": 'flagship'},
+            {"id": 'claude-sonnet-4-6', "context_window": '200K', "tier": 'balanced'},
+            {"id": 'claude-haiku-4-5', "context_window": '200K', "tier": 'fast'},
         ],
         'GPT': [
-            {"id": 'gpt-4o-2024-08-06', "context_window": '128K', "tier": 'flagship'},
-            {"id": 'gpt-4o-mini-2024-07-18', "context_window": '128K', "tier": 'fast'},
-            {"id": 'o1-preview-2024-09-12', "context_window": '128K', "tier": 'reasoning'},
-            {"id": 'gpt-4-turbo-2024-04-09', "context_window": '128K', "tier": 'balanced'},
+            {"id": 'gpt-4.1', "context_window": '1M', "tier": 'flagship'},
+            {"id": 'gpt-4.1-mini', "context_window": '1M', "tier": 'fast'},
+            {"id": 'o3', "context_window": '200K', "tier": 'reasoning'},
+            {"id": 'o4-mini', "context_window": '200K', "tier": 'reasoning'},
         ],
         'Gemini': [
-            {"id": 'gemini-1.5-pro-002', "context_window": '2M', "tier": 'flagship'},
-            {"id": 'gemini-1.5-flash-002', "context_window": '1M', "tier": 'fast'},
+            {"id": 'gemini-3.1-pro-preview', "context_window": '1M', "tier": 'flagship'},
             {"id": 'gemini-3-flash-preview', "context_window": '1M', "tier": 'balanced'},
+            {"id": 'gemini-2.5-pro-preview-05-06', "context_window": '1M', "tier": 'reasoning'},
+            {"id": 'gemini-2.5-flash-preview-05-20', "context_window": '1M', "tier": 'fast'},
         ]
     }
 
@@ -415,25 +448,45 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
     return
 
 
+PROVIDER_KEY_MAP = {
+    "Claude": "ANTHROPIC_API_KEY",
+    "GPT": "OPENAI_API_KEY",
+    "Gemini": "GOOGLE_API_KEY",
+}
+PROVIDER_LANGCHAIN_MAP = {
+    "Claude": "anthropic",
+    "GPT": "openai",
+    "Gemini": "google_genai",
+}
+
+_ENV_FILE = Path.home() / ".ostwin" / ".env"
+
+
 @router.post("/api/models/{version}/test")
 async def test_model_connection(version: str, user: dict = Depends(get_current_user)):
     import time
-    import random
-    
-    start_time = time.time()
-    # Simulate a small delay for the test
-    await asyncio.sleep(random.uniform(0.1, 0.5))
-    
-    # Mocking success/failure based on version name for testing
-    if "fail" in version.lower():
-        return {
-            "status": "fail",
-            "latency_ms": int((time.time() - start_time) * 1000),
-            "error": "Model not found or API key invalid"
-        }
-    
-    latency = int((time.time() - start_time) * 1000)
-    return {
-        "status": "ok",
-        "latency_ms": latency
-    }
+    from dotenv import dotenv_values
+    from langchain.chat_models import init_chat_model
+
+    provider = _detect_provider(version)
+    env_key = PROVIDER_KEY_MAP.get(provider)
+    lc_provider = PROVIDER_LANGCHAIN_MAP.get(provider)
+
+    env_vars = dotenv_values(_ENV_FILE) if _ENV_FILE.exists() else {}
+    api_key = env_vars.get(env_key, "")
+
+    if not api_key:
+        return {"status": "fail", "error": f"API key not configured for {provider}"}
+
+    def _test():
+        llm = init_chat_model(version, model_provider=lc_provider, api_key=api_key)
+        llm.invoke("hi")
+
+    start = time.time()
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _test)
+        latency = int((time.time() - start) * 1000)
+        return {"status": "ok", "latency_ms": latency}
+    except Exception as exc:
+        latency = int((time.time() - start) * 1000)
+        return {"status": "fail", "latency_ms": latency, "error": str(exc)}

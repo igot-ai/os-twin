@@ -88,7 +88,7 @@ export default function RoleSkillManager({
                 className="flex items-center"
                 title={isDisabled ? 'Enable skill' : 'Disable skill'}
               >
-                <span className="material-symbols-outlined text-[14px]">
+                <span className="material-symbols-outlined text-[13px]">
                   {isDisabled ? 'toggle_off' : 'toggle_on'}
                 </span>
               </button>
@@ -99,7 +99,7 @@ export default function RoleSkillManager({
                 className="hover:opacity-70 ml-0.5"
                 title="Remove skill"
               >
-                <span className="material-symbols-outlined text-[12px] leading-none">close</span>
+                <span className="material-symbols-outlined text-[10px] leading-none">close</span>
               </button>
             </span>
           );

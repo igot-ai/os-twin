@@ -118,6 +118,8 @@ class Skill(BaseModel):
 class Role(BaseModel):
     id: str
     name: str
+    description: str = ""
+    instructions: str = ""
     provider: str  # 'Claude', 'GPT', 'Gemini', 'Custom'
     version: str
     temperature: float = 0.7
@@ -134,6 +136,8 @@ class CreateRoleRequest(BaseModel):
     name: str = Field(
         ..., min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9 \-_]+$"
     )
+    description: str = Field("", max_length=500)
+    instructions: str = ""
     provider: str
     version: str
     temperature: float = Field(0.7, ge=0.0, le=2.0)

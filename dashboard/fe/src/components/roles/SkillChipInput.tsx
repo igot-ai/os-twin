@@ -59,7 +59,7 @@ export default function SkillChipInput({ selectedSkillRefs, onChange }: SkillChi
               onClick={(e) => { e.stopPropagation(); toggleSkill(skill.name); }}
               className="hover:opacity-70"
             >
-              <span className="material-symbols-outlined text-sm leading-none">close</span>
+              <span className="material-symbols-outlined text-[10px] leading-none">close</span>
             </button>
           </span>
         ))}

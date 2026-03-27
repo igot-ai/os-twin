@@ -140,6 +140,8 @@ export interface Role {
   max_retries: number;
   timeout_seconds: number;
   skill_refs: string[];
+  description?: string;
+  instructions?: string;
   system_prompt_override?: string;
 }
 

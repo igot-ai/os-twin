@@ -481,8 +481,17 @@ async def create_plan(request: CreatePlanRequest):
     plan_roles_file = plans_dir / f"{plan_id}.roles.json"
     if not plan_roles_file.exists():
         global_config_file = AGENTS_DIR / "config.json"
-        global_config = json.loads(global_config_file.read_text()) if global_config_file.exists() else {}
-        plan_roles_file.write_text(json.dumps(global_config, indent=2) + "\n")
+        seed_config = json.loads(global_config_file.read_text()) if global_config_file.exists() else {}
+        from dashboard.routes.roles import load_roles
+        for role in load_roles():
+            if role.name not in seed_config:
+                seed_config[role.name] = {}
+            rc = seed_config[role.name]
+            rc.setdefault("default_model", role.version)
+            rc.setdefault("timeout_seconds", role.timeout_seconds)
+            if role.skill_refs:
+                rc.setdefault("skill_refs", role.skill_refs)
+        plan_roles_file.write_text(json.dumps(seed_config, indent=2) + "\n")
 
     store = global_state.store
     if store:
@@ -552,6 +561,20 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
             logger.error(f"Failed to update zvec in save_plan: {e}")
 
     return {"status": "saved", "plan_id": plan_id}
+
+@router.get("/api/plans/{plan_id}/roles")
+async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
+    """Get the roles assigned to a plan, combining registry defaults with per-plan config."""
+    config = get_plan_roles_config(plan_id)
+    roles = build_roles_list(config, include_skills=False)
+    if not roles:
+        from dashboard.routes.roles import load_roles
+        roles = [
+            {"name": r.name, "description": r.description, "default_model": r.version,
+             "timeout_seconds": r.timeout_seconds, "skill_refs": r.skill_refs}
+            for r in load_roles()
+        ]
+    return {"role_defaults": roles}
 
 @router.get("/api/plans/{plan_id}/config")
 async def get_plan_config(plan_id: str, user: dict = Depends(get_current_user)):
