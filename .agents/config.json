@@ -13,7 +13,12 @@
     "smart_assignment": false,
     "dynamic_pipelines": true,
     "capability_matching": true,
-    "external_roles_dirs": []
+    "external_roles_dirs": [],
+    "timeout_seconds": 900,
+    "skill_refs": [
+      "risk-decision",
+      "war-room-communication"
+    ]
   },
   "architect": {
     "default_model": "gemini-3.1-pro-preview",

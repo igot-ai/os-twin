@@ -720,13 +720,26 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
         ts_def = defaults.get("timeout_seconds", 600)
         ts = role_config.get("timeout_seconds", ts_def)
 
+        # Skill refs: plan config → global dashboard role → on-disk role.json
+        plan_skill_refs = role_config.get("skill_refs")
+        if not plan_skill_refs:
+            role_json_file = AGENTS_DIR / "roles" / name / "role.json"
+            if role_json_file.exists():
+                try:
+                    rj = json.loads(role_json_file.read_text())
+                    plan_skill_refs = rj.get("skill_refs", rj.get("skills", []))
+                except (json.JSONDecodeError, OSError):
+                    pass
+            plan_skill_refs = plan_skill_refs or []
+
         role_data = {
             "name": name,
             "description": role.get("description", ""),
             "default_model": dm,
             "timeout_seconds": ts,
             "temperature": role_config.get("temperature", defaults.get("temperature", 0.7)),
-            "skill_refs": role_config.get("skill_refs", []),
+            "skill_refs": plan_skill_refs,
+            "disabled_skills": role_config.get("disabled_skills", []),
             "runner": role.get("runner"),
             "capabilities": role.get("capabilities", []),
             "supported_task_types": role.get("supported_task_types", []),

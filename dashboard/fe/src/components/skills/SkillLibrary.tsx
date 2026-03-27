@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import useSWR from 'swr';
 import { Skill, SkillCategory } from '@/types';
 import { useSkills } from '@/hooks/use-skills';
 import { SkillCard } from './SkillCard';
@@ -19,7 +18,11 @@ const categoryColors: Record<SkillCategory, string> = {
 
 type SortOption = 'name' | 'most-used' | 'recently-updated' | 'category';
 
-export const SkillLibrary: React.FC = () => {
+interface SkillLibraryProps {
+  onEdit?: (skill: Skill) => void;
+}
+
+export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<SkillCategory[]>([]);
@@ -32,12 +35,6 @@ export const SkillLibrary: React.FC = () => {
     debouncedSearch || undefined
   );
   
-  // Local state for "attached" skills (since it's not in backend yet)
-  // Using SWR for "local cache" persistence across session if needed
-  const { data: attachedSkillIds, mutate: mutateAttached } = useSWR<string[]>('local:attached-skills', null, {
-    fallbackData: [],
-  });
-
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -52,14 +49,6 @@ export const SkillLibrary: React.FC = () => {
         ? prev.filter(c => c !== category) 
         : [...prev, category]
     );
-  };
-
-  const toggleAttach = (id: string) => {
-    const current = attachedSkillIds || [];
-    const next = current.includes(id) 
-      ? current.filter(i => i !== id) 
-      : [...current, id];
-    mutateAttached(next, false);
   };
 
   const filteredSkills = useMemo(() => {
@@ -164,9 +153,6 @@ export const SkillLibrary: React.FC = () => {
           <span className="text-[11px] font-medium whitespace-nowrap" style={{ color: 'var(--color-text-faint)' }}>
             {filteredSkills.length} / {skills?.length || 0} skills
           </span>
-          <div className="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-bold">
-            {attachedSkillIds?.length || 0} Attached
-          </div>
         </div>
       </div>
 
@@ -183,8 +169,6 @@ export const SkillLibrary: React.FC = () => {
             <SkillCard
               key={skill.id}
               skill={skill}
-              isAttached={attachedSkillIds?.includes(skill.id ?? skill.name)}
-              onToggleAttach={toggleAttach}
               onClick={setSelectedSkill}
             />
           ))}
@@ -203,8 +187,7 @@ export const SkillLibrary: React.FC = () => {
         isOpen={!!selectedSkill}
         skill={selectedSkill}
         onClose={() => setSelectedSkill(null)}
-        isAttached={selectedSkill ? attachedSkillIds?.includes(selectedSkill.id ?? selectedSkill.name) : false}
-        onToggleAttach={toggleAttach}
+        onEdit={onEdit}
       />
     </div>
   );

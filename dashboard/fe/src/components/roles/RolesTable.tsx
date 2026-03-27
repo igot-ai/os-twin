@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from 'react';
 import { Role, Skill } from '@/types';
-import { mutate } from 'swr';
+import { useSWRConfig } from 'swr';
 import { useModelRegistry } from '@/hooks/use-roles';
+import { apiDelete } from '@/lib/api-client';
 import TestConnectionButton from './TestConnectionButton';
 
 interface RolesTableProps {
@@ -25,6 +26,7 @@ const providerBranding: Record<string, { color: string; label: string; icon: str
 };
 
 export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: RolesTableProps) {
+  const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' });
 
@@ -57,10 +59,8 @@ export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this role?')) return;
     try {
-      const response = await fetch(`/api/roles/${id}`, { method: 'DELETE' });
-      if (response.ok) {
-        mutate('/api/roles');
-      }
+      await apiDelete(`/roles/${id}`);
+      await mutate('/roles');
     } catch (error) {
       console.error('Failed to delete role:', error);
     }
