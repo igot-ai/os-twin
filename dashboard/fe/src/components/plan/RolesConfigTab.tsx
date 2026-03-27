@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 import { apiGet, apiPut } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { useSkills } from '@/hooks/use-skills';
+import RoleSkillManager from './RoleSkillManager';
 
 interface RoleConfig {
   name: string;
@@ -16,6 +17,7 @@ interface RoleConfig {
 interface RoleOverride {
   default_model: string;
   skill_refs?: string[];
+  disabled_skills?: string[];
 }
 
 interface RolesApiResponse {
@@ -24,121 +26,18 @@ interface RolesApiResponse {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
   { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
-  { value: 'anthropic:claude-opus-4-6', label: 'Claude 4.6 Opus' },
-  { value: 'anthropic:claude-sonnet-4-6', label: 'Claude 4.6 Sonnet' },
+  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+  { value: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro' },
+  { value: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+  { value: 'gpt-4.1', label: 'GPT-4.1' },
+  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+  { value: 'o3', label: 'O3' },
+  { value: 'o4-mini', label: 'O4 Mini' },
 ];
-
-// ── SkillPicker ─────────────────────────────────────────────────
-
-function SkillPicker({
-  attachedSkills,
-  allSkills,
-  onAttach,
-  onDetach,
-}: {
-  attachedSkills: string[];
-  allSkills: { name: string; description: string }[];
-  onAttach: (name: string) => void;
-  onDetach: (name: string) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const available = allSkills.filter(
-    (s) =>
-      !attachedSkills.includes(s.name) &&
-      (search === '' || s.name.toLowerCase().includes(search.toLowerCase()))
-  );
-
-  return (
-    <div className="mt-3">
-      <label className="text-[10px] font-bold text-text-faint uppercase tracking-wider block mb-1.5">
-        Skills
-      </label>
-
-      {/* Attached skill chips */}
-      <div className="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
-        {attachedSkills.length === 0 && (
-          <span className="text-[10px] text-text-faint italic">No skills attached</span>
-        )}
-        {attachedSkills.map((name) => (
-          <span
-            key={name}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold"
-          >
-            <span className="material-symbols-outlined text-[12px]">extension</span>
-            {name}
-            <button
-              onClick={() => onDetach(name)}
-              className="ml-0.5 hover:text-danger transition-colors"
-              title={`Remove ${name}`}
-            >
-              <span className="material-symbols-outlined text-[12px]">close</span>
-            </button>
-          </span>
-        ))}
-      </div>
-
-      {/* Add skill dropdown */}
-      <div ref={ref} className="relative">
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-border text-[11px] text-text-muted hover:border-primary hover:text-primary transition-all"
-        >
-          <span className="material-symbols-outlined text-[14px]">add</span>
-          Add skill
-        </button>
-
-        {isOpen && (
-          <div className="absolute z-50 top-full mt-1 w-full bg-surface border border-border rounded-lg shadow-xl max-h-52 overflow-hidden flex flex-col">
-            <div className="p-2 border-b border-border">
-              <input
-                type="text"
-                placeholder="Search skills..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30 text-text-main placeholder:text-text-faint"
-                autoFocus
-              />
-            </div>
-            <div className="overflow-y-auto custom-scrollbar">
-              {available.length === 0 ? (
-                <div className="px-3 py-4 text-center text-[11px] text-text-faint">
-                  {search ? 'No matching skills' : 'All skills attached'}
-                </div>
-              ) : (
-                available.map((skill) => (
-                  <button
-                    key={skill.name}
-                    onClick={() => { onAttach(skill.name); setSearch(''); }}
-                    className="w-full px-3 py-2 text-left hover:bg-surface-hover flex items-center gap-2.5 transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-text-faint text-[16px]">extension</span>
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-text-main truncate">{skill.name}</div>
-                      <div className="text-[10px] text-text-faint truncate">{skill.description}</div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Main Component ──────────────────────────────────────────────
 
@@ -197,7 +96,19 @@ export default function RolesConfigTab() {
     setRoleConfig((prev) => {
       const existing = prev[roleName] || {};
       const refs = (existing.skill_refs || []).filter((s) => s !== skillName);
-      return { ...prev, [roleName]: { ...existing, skill_refs: refs } };
+      const disabled = (existing.disabled_skills || []).filter((s) => s !== skillName);
+      return { ...prev, [roleName]: { ...existing, skill_refs: refs, disabled_skills: disabled } };
+    });
+  }, []);
+
+  const toggleSkillDisabled = useCallback((roleName: string, skillName: string) => {
+    setRoleConfig((prev) => {
+      const existing = prev[roleName] || {};
+      const disabled = existing.disabled_skills || [];
+      const updated = disabled.includes(skillName)
+        ? disabled.filter((s) => s !== skillName)
+        : [...disabled, skillName];
+      return { ...prev, [roleName]: { ...existing, disabled_skills: updated } };
     });
   }, []);
 
@@ -211,6 +122,7 @@ export default function RolesConfigTab() {
         return apiPut(`/plans/${planId}/roles/${role.name}/config`, {
           default_model: cfg.default_model || undefined,
           skill_refs: cfg.skill_refs || [],
+          disabled_skills: cfg.disabled_skills || [],
         });
       });
       await Promise.all(promises);
@@ -282,12 +194,16 @@ export default function RolesConfigTab() {
                   </select>
                 </div>
 
-                {/* Skill picker */}
-                <SkillPicker
-                  attachedSkills={attached}
+                <RoleSkillManager
+                  roleName={role.name}
+                  overrides={{
+                    skill_refs: attached,
+                    disabled_skills: cfg.disabled_skills || [],
+                  }}
                   allSkills={skills}
-                  onAttach={(name) => attachSkill(role.name, name)}
-                  onDetach={(name) => detachSkill(role.name, name)}
+                  onToggleDisabled={(name) => toggleSkillDisabled(role.name, name)}
+                  onRemove={(name) => detachSkill(role.name, name)}
+                  onAdd={(name) => attachSkill(role.name, name)}
                 />
               </div>
             );

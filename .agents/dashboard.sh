@@ -65,6 +65,18 @@ fi
 # Resolve project dir to absolute path
 PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
+# Build frontend if source is newer than output
+FE_DIR="$DASHBOARD_DIR/fe"
+FE_OUT="$FE_DIR/out"
+if [[ -d "$FE_DIR" && -f "$FE_DIR/package.json" ]]; then
+  if [[ ! -d "$FE_OUT" ]] || [[ -n "$(find "$FE_DIR/src" -newer "$FE_OUT" -print -quit 2>/dev/null)" ]]; then
+    echo "[DASHBOARD] Building frontend..."
+    (cd "$FE_DIR" && npm install --silent 2>/dev/null && npm run build 2>&1) || {
+      echo "[WARN] Frontend build failed — serving with stale assets" >&2
+    }
+  fi
+fi
+
 PID_FILE="$AGENTS_DIR/dashboard.pid"
 
 if $BACKGROUND; then

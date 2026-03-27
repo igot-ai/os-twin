@@ -71,7 +71,7 @@ export default function RolesPage() {
       <RoleEditorPanel 
         role={editingRole}
         isOpen={isPanelOpen}
-        onClose={() => setIsPanelOpen(false)}
+        onClose={() => { setIsPanelOpen(false); setEditingRole(undefined); }}
         existingRoles={roles}
       />
     </div>

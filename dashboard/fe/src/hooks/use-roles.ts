@@ -55,7 +55,8 @@ export function useRole(id: string) {
   };
 
   const testRole = async () => {
-    return apiPost(`/roles/${id}/test`);
+    if (!data?.version) throw new Error('Role version not available');
+    return apiPost(`/models/${data.version}/test`);
   };
 
   return {

@@ -9,8 +9,7 @@ interface SkillDetailModalProps {
   skill: Skill | null;
   isOpen: boolean;
   onClose: () => void;
-  isAttached?: boolean;
-  onToggleAttach?: (id: string) => void;
+  onEdit?: (skill: Skill) => void;
 }
 
 const categoryColors: Record<SkillCategory, string> = {
@@ -27,8 +26,7 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   skill,
   isOpen,
   onClose,
-  isAttached = false,
-  onToggleAttach,
+  onEdit,
 }) => {
   if (!skill) return null;
 
@@ -52,16 +50,18 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
               Used {skill.usage_count} times
             </div>
           </div>
-          <Button
-            onClick={() => onToggleAttach?.(skill.id ?? skill.name)}
-            variant={isAttached ? 'outline' : 'primary'}
-            className="flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-base">
-              {isAttached ? 'remove_circle' : 'add_circle'}
-            </span>
-            {isAttached ? 'Detach Skill' : 'Attach Skill'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {onEdit && (
+              <Button
+                onClick={() => { onEdit(skill); onClose(); }}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-base">edit</span>
+                Edit Skill
+              </Button>
+            )}
+          </div>
         </div>
       }
     >
