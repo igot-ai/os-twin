@@ -10,7 +10,7 @@ def test_endpoints():
     process = subprocess.Popen(["python3", "api.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(2)  # Wait for server to start
     
-    base_url = "http://localhost:9000"
+    base_url = os.environ.get("DASHBOARD_URL", "http://localhost:" + os.environ.get("OSTWIN_DASHBOARD_PORT", "9000"))
     try:
         # Test health
         res = requests.get(f"{base_url}/api/health")

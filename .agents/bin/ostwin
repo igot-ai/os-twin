@@ -101,7 +101,7 @@ fi
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
 # Dashboard URL
-DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:${OSTWIN_DASHBOARD_PORT:-9000}}"
 
 # Build curl auth args from OSTWIN_API_KEY (array to preserve quoting)
 CURL_AUTH=()
@@ -419,7 +419,7 @@ case "${1:-}" in
         PLAN_TITLE=""
         INIT_FILE=""
         PROJECT_DIR="$(pwd)"
-        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:${OSTWIN_DASHBOARD_PORT:-9000}}"
 
         # Parse arguments: positional title/file and optional --file/-f
         # Smart detection: if a positional arg is an existing .md file, treat it as --file
@@ -549,7 +549,7 @@ print(json.dumps(payload))
         ;;
       list)
         # Quick list via API
-        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:${OSTWIN_DASHBOARD_PORT:-9000}}"
         if curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
           curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/plans" | "$PYTHON" -c "
 import sys, json
@@ -686,7 +686,7 @@ else:
         ;;
       list)
         shift
-        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:${OSTWIN_DASHBOARD_PORT:-9000}}"
         if curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
           curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/skills" | "$PYTHON" -c "
 import sys, json

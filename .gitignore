@@ -25,3 +25,12 @@ dashboard/.war-rooms
 cypress/screenshots
 quant_proj/
 os-twin-twin/**
+
+
+# Redundant markdown
+guided-docs/
+guided-docs/**
+snake-game/
+.agents/memory/
+memory_note_001.txt
+install-node.sh

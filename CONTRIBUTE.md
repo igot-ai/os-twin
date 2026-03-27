@@ -225,7 +225,9 @@ The web dashboard (`dashboard/`) provides:
 
 Run with:
 ```bash
-cd dashboard && uvicorn api:app --port 9000
+ostwin dashboard
+# or with a custom port:
+OSTWIN_DASHBOARD_PORT=8080 ostwin dashboard
 ```
 
 ---

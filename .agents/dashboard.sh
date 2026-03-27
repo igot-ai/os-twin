@@ -24,7 +24,7 @@ elif [[ -d "$AGENTS_DIR/../dashboard" ]]; then
 else
   DASHBOARD_DIR=""
 fi
-PORT=9000
+PORT="${OSTWIN_DASHBOARD_PORT:-9000}"
 PROJECT_DIR="$(pwd)"
 BACKGROUND=false
 
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     --background)  BACKGROUND=true; shift ;;
     -h|--help)
       echo "Usage: dashboard.sh [--port PORT] [--project-dir PATH] [--background]"
-      echo "  --port PORT         Server port (default: 9000)"
+      echo "  --port PORT         Server port (default: \$OSTWIN_DASHBOARD_PORT or 9000)"
       echo "  --project-dir PATH  Project to monitor (default: current directory)"
       echo "  --background        Run in background (write PID to dashboard.pid)"
       exit 0

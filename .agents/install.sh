@@ -32,7 +32,7 @@ INSTALL_DIR="${HOME}/.ostwin"
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 AUTO_YES=false
 SKIP_OPTIONAL=false
-DASHBOARD_PORT=9000
+DASHBOARD_PORT="${OSTWIN_DASHBOARD_PORT:-9000}"
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
 PYTHON_VERSION=""
@@ -506,7 +506,7 @@ setup_env() {
 # ANTHROPIC_API_KEY=your-anthropic-api-key-here
 
 # ── Dashboard settings ──────────────────────────────────────────────────────
-# DASHBOARD_PORT=9000
+# OSTWIN_DASHBOARD_PORT=9000
 # DASHBOARD_HOST=0.0.0.0
 
 # ── Dashboard Authentication ────────────────────────────────────────────────
@@ -519,6 +519,8 @@ ENVEOF
 
   chmod 600 "$env_file"   # Protect API keys
   ok ".env created — edit $env_file to add your API keys"
+  info "Generated OSTWIN_API_KEY: ${generated_api_key}"
+  info "You can also view it later: grep OSTWIN_API_KEY $env_file"
 
   # Migrate any existing exported key from the current shell environment
   local migrated=false
@@ -1013,7 +1015,7 @@ echo -e "    ${CYAN}4.${NC} Set your API key:          ${DIM}export GOOGLE_API_K
 echo -e "    ${CYAN}5.${NC} Run your first plan:       ${DIM}ostwin run plans/my-plan.md${NC}"
 echo ""
 echo -e "  ${BOLD}Dashboard:${NC}"
-echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
+echo -e "    ${DIM}Dashboard running at http://localhost:${DASHBOARD_PORT}${NC}"
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
 echo ""
 

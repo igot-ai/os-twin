@@ -124,7 +124,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Ostwin Dashboard")
-    parser.add_argument("--port", type=int, default=9000, help="Port to listen on")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("OSTWIN_DASHBOARD_PORT", 9000)), help="Port to listen on")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument(
         "--project-dir", default=None, help="Project directory to monitor"

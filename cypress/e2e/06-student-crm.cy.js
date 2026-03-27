@@ -7,7 +7,7 @@ context('Student CRM', () => {
   const sessionNotes = 'Test session notes';
 
   beforeEach(() => {
-    cy.visit('http://localhost:9000');
+    cy.visit('/');
     // Assuming there is a way to reset the state before each test
     cy.task('resetAgentOS');
   });

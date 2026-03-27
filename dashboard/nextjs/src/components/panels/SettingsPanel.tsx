@@ -23,7 +23,7 @@ const VAR_META: Record<string, { label: string; desc: string; sensitive?: boolea
   OPENAI_API_KEY:      { label: 'OpenAI',         desc: 'GPT-4 / ChatGPT API key',  sensitive: true },
   ANTHROPIC_API_KEY:   { label: 'Anthropic',      desc: 'Claude API key',            sensitive: true },
   DATALOG_API_KEY:     { label: 'Datalog',        desc: 'Catalog analytics key',     sensitive: true },
-  DASHBOARD_PORT:      { label: 'Dashboard Port', desc: 'Port the dashboard runs on' },
+  OSTWIN_DASHBOARD_PORT: { label: 'Dashboard Port', desc: 'Port the dashboard runs on' },
   DASHBOARD_HOST:      { label: 'Dashboard Host', desc: 'Bind address (e.g. 0.0.0.0)' },
   OSTWIN_LOG_LEVEL:    { label: 'Log Level',      desc: 'INFO, DEBUG, WARNING' },
 };

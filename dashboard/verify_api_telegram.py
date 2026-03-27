@@ -4,7 +4,8 @@ import sys
 import os
 
 async def test_api_telegram():
-    async with httpx.AsyncClient(base_url="http://127.0.0.1:9000") as client:
+    base_url = os.environ.get("DASHBOARD_URL", "http://127.0.0.1:" + os.environ.get("OSTWIN_DASHBOARD_PORT", "9000"))
+    async with httpx.AsyncClient(base_url=base_url) as client:
         try:
             # 1. Get initial config
             resp = await client.get("/api/telegram/config")
