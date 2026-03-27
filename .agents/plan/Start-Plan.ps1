@@ -165,7 +165,7 @@ if (-not $DryRun -and -not (Test-Path $room000Dir)) {
             }
             # Reset status if stuck on old plan
             $r0Status = if (Test-Path (Join-Path $room000Dir "status")) { (Get-Content (Join-Path $room000Dir "status") -Raw).Trim() } else { "pending" }
-            if ($r0Status -in @('engineering', 'developing', 'optimize', 'fixing', 'failed-final')) {
+            if ($r0Status -in @('developing', 'optimize', 'review', 'triage', 'failed', 'failed-final')) {
                 Write-Host "  → Resetting room-000 to pending (was: $r0Status)" -ForegroundColor Yellow
                 "pending" | Out-File -FilePath (Join-Path $room000Dir "status") -Encoding utf8 -NoNewline
                 # Clear stale channel messages
