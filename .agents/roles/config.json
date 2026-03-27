@@ -1,0 +1,192 @@
+[
+  {
+    "id": "6d821923-d3ca-4949-b405-cf6affa4c768",
+    "name": "engineer",
+    "provider": "Gemini",
+    "version": "gemini-3-flash-preview",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T13:53:51.274867+00:00",
+    "updated_at": "2026-03-23T13:53:51.274867+00:00"
+  },
+  {
+    "id": "61ea46ac-07a5-415f-8fae-7f92548604ae",
+    "name": "qa",
+    "provider": "Gemini",
+    "version": "gemini-3-flash-preview",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T13:53:51.275218+00:00",
+    "updated_at": "2026-03-23T13:53:51.275218+00:00"
+  },
+  {
+    "id": "c046ab49-9f32-44a5-a65e-7c7c54279a9e",
+    "name": "architect",
+    "provider": "Gemini",
+    "version": "gemini-3-flash-preview",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T13:53:51.275234+00:00",
+    "updated_at": "2026-03-23T13:53:51.275234+00:00"
+  },
+  {
+    "id": "c774dd68-5565-4635-b534-ce127dfeee37",
+    "name": "manager",
+    "provider": "Gemini",
+    "version": "gemini-3.1-pro-preview",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T13:53:51.275251+00:00",
+    "updated_at": "2026-03-23T13:53:51.275251+00:00"
+  },
+  {
+    "id": "6c26afed-c162-4099-aa2d-50a0ab264dd9",
+    "name": "reporter",
+    "provider": "Gemini",
+    "version": "gemini-3-flash-preview",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T13:53:51.275262+00:00",
+    "updated_at": "2026-03-23T13:53:51.275262+00:00"
+  },
+  {
+    "id": "0ebc92a7-7e87-4c3e-8f37-90b16cf4b921",
+    "name": "audit",
+    "provider": "Gemini",
+    "version": "gemini-3.1-pro-preview",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T13:53:51.275269+00:00",
+    "updated_at": "2026-03-23T13:53:51.275269+00:00"
+  },
+  {
+    "id": "32fd52ab-2d5a-474d-8799-0a5b1340065b",
+    "name": "test-engineer-0cc1f9",
+    "provider": "Claude",
+    "version": "claude-3-5-sonnet-20241022",
+    "temperature": 0.5,
+    "budget_tokens_max": 1000000,
+    "max_retries": 3,
+    "timeout_seconds": 600,
+    "skill_refs": [
+      "web-research"
+    ],
+    "system_prompt_override": "You are a test engineer.",
+    "created_at": "2026-03-23T13:53:51.275288+00:00",
+    "updated_at": "2026-03-23T13:53:51.275288+00:00"
+  },
+  {
+    "id": "24c3b695-90b5-4c12-8c98-0e1bd8e281c6",
+    "name": "test-engineer-3e4576",
+    "provider": "Claude",
+    "version": "claude-3-5-sonnet-20241022",
+    "temperature": 0.5,
+    "budget_tokens_max": 1000000,
+    "max_retries": 3,
+    "timeout_seconds": 600,
+    "skill_refs": [
+      "web-research"
+    ],
+    "system_prompt_override": "You are a test engineer.",
+    "created_at": "2026-03-23T13:56:05.669308+00:00",
+    "updated_at": "2026-03-23T13:56:05.669308+00:00"
+  },
+  {
+    "id": "6322ae72-7cbf-4e84-83c3-47b19b501bcf",
+    "name": "test-engineer-be4324",
+    "provider": "Claude",
+    "version": "claude-3-5-sonnet-20241022",
+    "temperature": 0.5,
+    "budget_tokens_max": 1000000,
+    "max_retries": 3,
+    "timeout_seconds": 600,
+    "skill_refs": [
+      "web-research"
+    ],
+    "system_prompt_override": "You are a test engineer.",
+    "created_at": "2026-03-23T13:56:14.712210+00:00",
+    "updated_at": "2026-03-23T13:56:14.712210+00:00"
+  },
+  {
+    "id": "b2df9f24-14d7-4f00-b54a-28da1b163542",
+    "name": "test-engineer-cb2f29",
+    "provider": "Claude",
+    "version": "claude-3-5-sonnet-20241022",
+    "temperature": 0.5,
+    "budget_tokens_max": 1000000,
+    "max_retries": 3,
+    "timeout_seconds": 600,
+    "skill_refs": [
+      "web-research"
+    ],
+    "system_prompt_override": "You are a test engineer.",
+    "created_at": "2026-03-23T13:56:41.877646+00:00",
+    "updated_at": "2026-03-23T13:56:41.877646+00:00"
+  },
+  {
+    "id": "49cc2064-55b6-4e1f-a255-a0929e707723",
+    "name": "new-role-name",
+    "provider": "GPT",
+    "version": "gpt-4o",
+    "temperature": 0.5,
+    "budget_tokens_max": 100000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": "",
+    "created_at": "2026-03-23T14:12:19.349208+00:00",
+    "updated_at": "2026-03-23T14:12:19.352398+00:00"
+  },
+  {
+    "id": "aaef4e99-8c17-4a5c-b14d-af5a2cb95713",
+    "name": "unique-role",
+    "provider": "GPT",
+    "version": "gpt-4o",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T16:39:35.859561+00:00",
+    "updated_at": "2026-03-23T16:39:35.859561+00:00"
+  },
+  {
+    "id": "bfa8b0c4-adb2-4e35-b023-cf2ddecf6b88",
+    "name": "active-role",
+    "provider": "Gemini",
+    "version": "gemini-1.5-pro",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-23T16:39:35.863241+00:00",
+    "updated_at": "2026-03-23T16:39:35.863241+00:00"
+  }
+]

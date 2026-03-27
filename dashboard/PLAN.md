@@ -32,6 +32,7 @@ depends_on: []
 
 ### EPIC-002 — Fix Save Plan API
 
+Roles: engineer, game-ui-analytics
 **Objective**: Fix the save plan functionality so plans can be persisted.
 
 **Root Cause**: `PlanWorkspace.savePlan()` calls `apiPost('/plans/${planId}/save', { content: planContent })` — the backend `SavePlanRequest` model expects `content: str` and optionally `change_source: str`. The API client sends `Content-Type: application/json`. The issue is likely:

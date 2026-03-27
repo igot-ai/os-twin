@@ -213,10 +213,10 @@ Commands:
                     Options: --force
   dashboard         Launch web dashboard
                     Options: --port PORT, --project-dir PATH
+  discord           Manage the Discord bot
+                    Subcommands: start, stop, status, logs
   clone-role <role> Clone a role to project-local for override
                     Options: --project-dir PATH
-  orphans           Manage orphaned agent processes
-                    Options: --list, --kill, --json
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
   role <name> [sub]  Run a role's subcommand
@@ -607,6 +607,91 @@ else:
       exec "$AGENTS_DIR/dashboard.sh" "$@"
     fi
     ;;
+  discord)
+    shift
+    DISCORD_SUB="${1:-start}"
+    DISCORD_PID_FILE="$HOME/.ostwin/discord-bot.pid"
+    DISCORD_LOG="$HOME/.ostwin/logs/discord-bot.log"
+
+    # Locate discord-bot dir: prefer alongside the project, then alongside agents dir
+    DISCORD_BOT_DIR=""
+    for _candidate in \
+      "$(cd "$AGENTS_DIR/.." 2>/dev/null && pwd)/discord-bot" \
+      "$(pwd)/discord-bot"; do
+      if [[ -d "$_candidate" ]] && [[ -f "$_candidate/package.json" ]]; then
+        DISCORD_BOT_DIR="$_candidate"
+        break
+      fi
+    done
+
+    case "$DISCORD_SUB" in
+      start)
+        if [[ -z "$DISCORD_BOT_DIR" ]]; then
+          echo "✗ discord-bot/ not found (expected discord-bot/package.json)" >&2
+          exit 1
+        fi
+        # Pick package manager
+        _PM=""
+        for _t in pnpm npm yarn bun; do command -v "$_t" &>/dev/null && _PM="$_t" && break; done
+        if [[ -z "$_PM" ]]; then
+          echo "✗ No Node.js package manager found" >&2; exit 1
+        fi
+        # Kill existing
+        if [[ -f "$DISCORD_PID_FILE" ]]; then
+          _OLD=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
+          if [[ -n "$_OLD" ]] && kill -0 "$_OLD" 2>/dev/null; then
+            echo "→ Stopping existing Discord bot (PID $_OLD)..."
+            kill "$_OLD" 2>/dev/null || true; sleep 1
+          fi
+        fi
+        # Source env files
+        [[ -f "$HOME/.ostwin/.env" ]] && { set -a; source "$HOME/.ostwin/.env"; set +a; }
+        [[ -f "$DISCORD_BOT_DIR/.env" ]] && { set -a; source "$DISCORD_BOT_DIR/.env"; set +a; }
+        mkdir -p "$HOME/.ostwin/logs"
+        echo "→ Starting Discord bot ($DISCORD_BOT_DIR)..."
+        (cd "$DISCORD_BOT_DIR" && nohup "$_PM" start > "$DISCORD_LOG" 2>&1 &
+         echo $! > "$DISCORD_PID_FILE"; echo $!)
+        echo "✓ Discord bot started — log: $DISCORD_LOG"
+        echo "  Stop with: ostwin discord stop"
+        ;;
+      stop)
+        if [[ -f "$DISCORD_PID_FILE" ]]; then
+          _PID=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
+          if [[ -n "$_PID" ]] && kill -0 "$_PID" 2>/dev/null; then
+            kill "$_PID" && echo "✓ Discord bot stopped (PID $_PID)"
+            rm -f "$DISCORD_PID_FILE"
+          else
+            echo "Discord bot is not running (stale PID file removed)"
+            rm -f "$DISCORD_PID_FILE"
+          fi
+        else
+          echo "Discord bot is not running"
+        fi
+        ;;
+      status)
+        if [[ -f "$DISCORD_PID_FILE" ]]; then
+          _PID=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
+          if [[ -n "$_PID" ]] && kill -0 "$_PID" 2>/dev/null; then
+            echo "✓ Discord bot is running (PID $_PID)"
+          else
+            echo "✗ Discord bot is NOT running (stale PID)"
+          fi
+        else
+          echo "✗ Discord bot is not running"
+        fi
+        ;;
+      logs)
+        if [[ -f "$DISCORD_LOG" ]]; then
+          tail -f "$DISCORD_LOG"
+        else
+          echo "No log file found at $DISCORD_LOG" >&2; exit 1
+        fi
+        ;;
+      *)
+        echo "Usage: ostwin discord [start|stop|status|logs]" >&2; exit 1
+        ;;
+    esac
+    ;;
   clone-role)
     shift
     ROLE="$1"
@@ -634,10 +719,6 @@ else:
     # Actually, the instructions say: delegates to `ostwin role manager clone -RoleName <role> -ProjectDir <path>`.
     # Let's use that exact command.
     exec "$0" role manager clone -RoleName "$ROLE" -ProjectDir "$PROJECT_DIR"
-    ;;
-  orphans)
-    shift
-    ps_dispatch "$AGENTS_DIR/bin/Orphans.ps1" "" "$@"
     ;;
   skills)
     shift

@@ -99,7 +99,7 @@ foreach ($depRef in $depsOn) {
             }
         }
         default {
-            # pending, engineering, qa-review, fixing — still in progress
+            # pending, engineering, developing, optimize, qa-review, review, fixing, triage — still in progress
             return @{
                 Ready     = $false
                 Reason    = 'waiting'

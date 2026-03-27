@@ -1,9 +1,9 @@
 {
+  "role": "reporter",
   "subcommands": {
     "test-append": {
       "description": "Test",
-      "invoke": "bash /private/tmp/160ffece-f4b7-44a3-8df8-4199ce15a801/mock-script-append.sh"
+      "invoke": "bash /private/tmp/77f7b1f5-8d93-4a36-b9bd-445f8a2a0d8f/mock-script-append.sh"
     }
-  },
-  "role": "reporter"
+  }
 }

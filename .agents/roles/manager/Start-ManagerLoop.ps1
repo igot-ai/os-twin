@@ -9,11 +9,11 @@
 
     Replaces: roles/manager/loop.sh
 
-    State-machine per room:
-        pending → engineering → qa-review → passed
-                            ↓ error/timeout      ↓ fail
-                          fixing ←←←←←←←←←←←←←←←←
-                          (retries exhausted → failed-final)
+    V2 signal-based state-machine per room (lifecycle.json):
+        pending → developing → review → passed
+                  ↓ error        ↓ fail
+                failed → triage → developing (retry)
+                (retries exhausted → failed-final)
 
 .PARAMETER ConfigPath
     Path to config.json. Default: AGENT_OS_CONFIG env var or .agents/config.json.
@@ -188,7 +188,7 @@ function Get-ActiveCount {
         $s = if (Test-Path (Join-Path $_.FullName "status")) {
             (Get-Content (Join-Path $_.FullName "status") -Raw).Trim()
         } else { "pending" }
-        if ($s -in @('engineering', 'qa-review', 'fixing')) { $count++ }
+        if ($s -notin @('pending', 'passed', 'failed-final', 'blocked', '')) { $count++ }
     }
     return $count
 }
@@ -249,6 +249,66 @@ function Write-RoomStatus {
         $epoch.ToString() | Out-File -FilePath (Join-Path $RoomDir "state_changed_at") -Encoding utf8 -NoNewline
         $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         "$ts STATUS $oldStatus -> $NewStatus" | Out-File -Append -FilePath (Join-Path $RoomDir "audit.log") -Encoding utf8
+    }
+}
+
+# === V2 LIFECYCLE HELPERS ===
+function Find-LatestSignal {
+    param([string]$RoomDir, [string[]]$ExpectedSignals)
+    $changedAt = 0
+    $changedFile = Join-Path $RoomDir "state_changed_at"
+    if (Test-Path $changedFile) {
+        $changedAt = [int](Get-Content $changedFile -Raw).Trim()
+    }
+    foreach ($sigType in $ExpectedSignals) {
+        try {
+            $msgs = & $readMessages -RoomDir $RoomDir -FilterType $sigType -Last 1 -AsObject
+            if ($msgs -and $msgs.Count -gt 0) {
+                $latest = $msgs[-1]
+                $msgTs = 0
+                if ($latest.ts) {
+                    if ($latest.ts -match '^\d+$') { $msgTs = [int]$latest.ts }
+                    elseif ($latest.ts -match '^\d{4}-') {
+                        try { $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s)) } catch { }
+                    }
+                }
+                if ($msgTs -ge $changedAt) { return $sigType }
+            }
+        } catch { }
+    }
+    return $null
+}
+
+function Invoke-SignalActions {
+    param([string]$RoomDir, [string[]]$Actions, [string]$TaskRef, [string]$BaseRole)
+    foreach ($action in $Actions) {
+        switch ($action) {
+            'increment_retries' {
+                $retriesFile = Join-Path $RoomDir "retries"
+                $r = if (Test-Path $retriesFile) { [int](Get-Content $retriesFile -Raw).Trim() } else { 0 }
+                ($r + 1).ToString() | Out-File -FilePath $retriesFile -Encoding utf8 -NoNewline
+            }
+            'post_fix' {
+                $feedback = Get-LatestBody $RoomDir "fail"
+                if (-not $feedback) { $feedback = Get-LatestBody $RoomDir "escalate" }
+                if (-not $feedback) { $feedback = Get-LatestBody $RoomDir "error" }
+                if ($feedback) {
+                    & $postMessage -RoomDir $RoomDir -From "manager" -To $BaseRole -Type "fix" -Ref $TaskRef -Body $feedback
+                }
+            }
+            'revise_brief' {
+                $briefFile = Join-Path $RoomDir "brief.md"
+                $triageFile = Join-Path $RoomDir "artifacts" "triage-context.md"
+                if ((Test-Path $briefFile) -and (Test-Path $triageFile)) {
+                    $originalBrief = Get-Content $briefFile -Raw
+                    $triageContent = Get-Content $triageFile -Raw
+                    $updatedBrief = $originalBrief + "`n`n---`n`n## Plan Revision Notes`n`n$triageContent"
+                    $updatedBrief | Out-File -FilePath $briefFile -Encoding utf8 -Force
+                }
+                $qaRetriesFile = Join-Path $RoomDir "qa_retries"
+                if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
+            }
+        }
     }
 }
 
@@ -683,804 +743,159 @@ while (-not $script:shuttingDown) {
                 if ((Get-ActiveCount) -lt $maxConcurrent) {
                     # --- SKILL RESOLUTION: resolve skills from dashboard before spawning ---
                     Resolve-RoomSkills -RoomDir $roomDir -TaskRef $taskRef -AssignedRole $assignedRole
-                    $nextState = if ($lifecycle -and $lifecycle.initial_state) { $lifecycle.initial_state } else { "engineering" }
+                    $nextState = if ($lifecycle -and $lifecycle.initial_state) { $lifecycle.initial_state } else { "developing" }
                     Write-Log "INFO" "[$taskRef] Dependencies met. Transitioning to $nextState in $roomId..."
                     Write-RoomStatus $roomDir $nextState
                     Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
                 }
             }
 
-            { $_ -in @('engineering', 'fixing') } {
-                $allPassed = $false
-                $allTerminal = $false
-                $totalActive++
-
-                # Track whether any PID is alive for deadlock detection
-                # Scan ALL pid files in the room — the spawned role may differ from
-                # the lifecycle state role (e.g. config says 'architect' but lifecycle
-                # state says 'manager'), so checking only $baseRole.pid misses alive agents.
-                $anyPidAlive = $false
-                $anySpawnLock = $false
-                $pidDir = Join-Path $roomDir "pids"
-                if (Test-Path $pidDir) {
-                    Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
-                        if (Test-PidAlive $_.FullName) { $anyPidAlive = $true }
-                    }
-                    Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
-                        $role = $_.BaseName  # e.g. "architect" from "architect.spawned_at"
-                        if (Test-SpawnLock -RoomDir $roomDir -Role $role) { $anySpawnLock = $true }
-                    }
-                }
-                if (-not $anyPidAlive -and -not $anySpawnLock) { $activeWithNoPid++ }
-
-                # Check for state timeout
-                if (Test-StateTimedOut $roomDir) {
-                    Write-Log "ERROR" "[$taskRef] State '$status' timed out after ${stateTimeout}s."
-                    Stop-RoomProcesses $roomDir
-                    if ($retries -lt $maxRetries) {
-                        ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "Previous attempt timed out after ${stateTimeout}s. Please try again."
-                        Write-RoomStatus $roomDir "fixing"
-                        Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                    }
-                    else {
-                        Write-Log "ERROR" "[$taskRef] Max retries exceeded after timeout."
-                        Write-RoomStatus $roomDir "failed-final"
-                        Set-BlockedDescendants $taskRef
-                    }
-                    continue
-                }
-
-                $doneCount = Get-MsgCount $roomDir "done"
-                $approveCount = if ($taskRef -eq 'PLAN-REVIEW') { Get-MsgCount $roomDir "plan-approve" } else { 0 }
-                $expected = $retries + 1
-
-                # --- Also check design-guidance for implicit approval (architect may post this instead of plan-approve) ---
-                $guidanceCount = Get-MsgCount $roomDir "design-guidance"
-                $guidanceApproval = $false
-                if ($guidanceCount -gt 0 -and $approveCount -eq 0) {
-                    $guidanceBody = Get-LatestBody $roomDir "design-guidance"
-                    if ($guidanceBody -match 'plan-approve|signoff|APPROVED') {
-                        $guidanceApproval = $true
-                    }
-                }
-
-                if ($approveCount -gt 0 -or $guidanceApproval) {
-                    Write-Log "INFO" "[$taskRef] Plan APPROVED via channel in $status state. Marking as passed."
-                    Write-RoomStatus $roomDir "passed"
-                    Handle-PlanApproval -TaskRef $taskRef
-                }
-                elseif ($doneCount -ge $expected) {
-                    # Use current status (engineering or fixing) for lifecycle lookup
-                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status -and $lifecycle.states.$status.transitions.done) {
-                        $lifecycle.states.$status.transitions.done
-                    } else { "qa-review" }
-                    Write-Log "INFO" "[$taskRef] Worker ($assignedRole) done in '$status'. Transitioning to $nextState..."
-                    Write-RoomStatus $roomDir $nextState
-                    if ($nextState -eq "qa-review") {
-                        Start-WorkerJob -RoomDir $roomDir -Role 'qa' -Script $startQA -TaskRef $taskRef -SkipLockCheck
-                    } elseif ($lifecycle -and $lifecycle.states.$nextState) {
-                        # Spawn agent for the next custom lifecycle state
-                        $nextDef = $lifecycle.states.$nextState
-                        if ($nextDef.role -and (Test-Path $resolveRoleScript)) {
-                            $nextResolved = & $resolveRoleScript -RoleName $nextDef.role -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                            Write-Log "INFO" "[$taskRef] Spawning '$($nextDef.role)' for lifecycle state '$nextState'..."
-                            Start-WorkerJob -RoomDir $roomDir -Role ($nextDef.role -replace ':.*$','') -Script $nextResolved.Runner -TaskRef $taskRef -SkipLockCheck
-                        } elseif (-not $nextDef.role) {
-                            # No role defined for lifecycle state — fall back to assigned worker
-                            Write-Log "WARN" "[$taskRef] Lifecycle state '$nextState' has no role defined. Spawning assigned worker '$assignedRole' as fallback."
-                            Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                        }
-                    }
-                }
-                else {
-                    # Check if worker process is alive
-                    $engPidFile = Join-Path $roomDir "pids" "$baseRole.pid"
-                    # Backward compat: also check engineer.pid for rooms created before dynamic role support
-                    if (-not (Test-Path $engPidFile)) {
-                        $legacyPid = Join-Path $roomDir "pids" "engineer.pid"
-                        if (Test-Path $legacyPid) { $engPidFile = $legacyPid }
-                    }
-                    $workerPidFile = $engPidFile
-
-                    if ((Test-Path $workerPidFile) -and -not (Test-PidAlive $workerPidFile)) {
-                        $errorCount = Get-MsgCount $roomDir "error"
-                        if ($errorCount -gt 0) {
-                            $errorBody = Get-LatestBody $roomDir "error"
-                            Write-Log "ERROR" "[$taskRef] Worker ($assignedRole) error: $errorBody"
-                            if ($retries -lt $maxRetries) {
-                                Write-Log "INFO" "[$taskRef] Retrying (attempt $($retries + 1)/$maxRetries)..."
-                                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "Previous attempt failed: $errorBody. Please try again."
-                                Write-RoomStatus $roomDir "fixing"
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                            }
-                            else {
-                                Write-Log "ERROR" "[$taskRef] Max retries exceeded. Marking as failed."
-                                Write-RoomStatus $roomDir "failed-final"
-                                Set-BlockedDescendants $taskRef
-                            }
-                        }
-                        else {
-                            # Worker process died but left a design-guidance or other message
-                            if ($guidanceCount -gt 0) {
-                                if ($baseRole -eq 'architect') {
-                                    # Architect's design-guidance IS its completion signal — treat as done
-                                    Write-Log "INFO" "[$taskRef] Architect review complete (design-guidance posted). Transitioning to next stage."
-                                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status -and $lifecycle.states.$status.transitions.done) {
-                                        $lifecycle.states.$status.transitions.done
-                                    } else { "qa-review" }
-                                    Write-RoomStatus $roomDir $nextState
-                                    if ($nextState -eq "qa-review") {
-                                        Start-WorkerJob -RoomDir $roomDir -Role 'qa' -Script $startQA -TaskRef $taskRef -SkipLockCheck
-                                    }
-                                } else {
-                                    Write-Log "INFO" "[$taskRef] Worker ($assignedRole) finished with guidance but no explicit verdict. Routing to triage."
-                                    Write-RoomStatus $roomDir "manager-triage"
-                                }
-                            }
-                            else {
-                                Write-Log "ERROR" "[$taskRef] Worker ($assignedRole) died without posting any message."
-                                if ($retries -lt $maxRetries) {
-                                    Write-Log "INFO" "[$taskRef] Retrying (attempt $($retries + 1)/$maxRetries)..."
-                                    ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                    & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "Worker process terminated unexpectedly. Please try again."
-                                    Write-RoomStatus $roomDir "fixing"
-                                    Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                                } else {
-                                    Write-Log "ERROR" "[$taskRef] Max retries exceeded. Marking as failed."
-                                    Write-RoomStatus $roomDir "failed-final"
-                                    Set-BlockedDescendants $taskRef
-                                }
-                            }
-                        }
-                    }
-                    elseif (-not (Test-Path $workerPidFile)) {
-                        # --- No PID file at all: check if worker posted any response ---
-                        $anyResponse = $doneCount + $guidanceCount + (Get-MsgCount $roomDir "error")
-                        if ($anyResponse -gt 0) {
-                            if ($guidanceCount -gt 0 -and $doneCount -eq 0) {
-                                if ($baseRole -eq 'architect') {
-                                    # Architect's design-guidance IS its completion signal
-                                    Write-Log "INFO" "[$taskRef] Architect review complete (design-guidance posted, no PID). Transitioning to next stage."
-                                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status -and $lifecycle.states.$status.transitions.done) {
-                                        $lifecycle.states.$status.transitions.done
-                                    } else { "qa-review" }
-                                    Write-RoomStatus $roomDir $nextState
-                                    if ($nextState -eq "qa-review") {
-                                        Start-WorkerJob -RoomDir $roomDir -Role 'qa' -Script $startQA -TaskRef $taskRef -SkipLockCheck
-                                    }
-                                } else {
-                                    Write-Log "INFO" "[$taskRef] Worker ($assignedRole) posted guidance but no done/approve. Routing to triage."
-                                    Write-RoomStatus $roomDir "manager-triage"
-                                }
-                            }
-                            # else: done or error already handled above
-                        }
-                        elseif (Test-StateTimedOut $roomDir) {
-                            Write-Log "ERROR" "[$taskRef] No PID file and state timed out. Worker ($assignedRole) may have failed to start."
-                            if ($retries -lt $maxRetries) {
-                                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "Worker process failed to start or timed out. Please try again."
-                                Write-RoomStatus $roomDir "fixing"
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                            } else {
-                                Write-Log "ERROR" "[$taskRef] Max retries exceeded. Marking as failed."
-                                Write-RoomStatus $roomDir "failed-final"
-                                Set-BlockedDescendants $taskRef
-                            }
-                        }
-                        elseif (-not (Test-SpawnLock -RoomDir $roomDir -Role $baseRole)) {
-                            # No PID, no responses, spawn lock expired — worker died silently. Respawn it.
-                            Write-Log "WARN" "[$taskRef] Worker ($assignedRole) has no PID and no responses. Respawning..."
-                            Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                        }
-                    }
-                }
-            }
-
-            'qa-review' {
-                $allPassed = $false
-                $allTerminal = $false
-                $totalActive++
-
-                # Track PID for deadlock detection — scan all PIDs in room
-                $anyPidAlive = $false; $anySpawnLock = $false
-                $pidDir = Join-Path $roomDir "pids"
-                if (Test-Path $pidDir) {
-                    Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
-                        if (Test-PidAlive $_.FullName) { $anyPidAlive = $true }
-                    }
-                    Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
-                        if (Test-SpawnLock -RoomDir $roomDir -Role $_.BaseName) { $anySpawnLock = $true }
-                    }
-                }
-                if (-not $anyPidAlive -and -not $anySpawnLock) { $activeWithNoPid++ }
-
-                # Check for state timeout
-                if (Test-StateTimedOut $roomDir) {
-                    Write-Log "ERROR" "[$taskRef] QA review timed out after ${stateTimeout}s."
-                    Stop-RoomProcesses $roomDir
-                    if ($retries -lt $maxRetries) {
-                        ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "QA review timed out. Please review and fix."
-                        Write-RoomStatus $roomDir "fixing"
-                        Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                    }
-                    else {
-                        Write-RoomStatus $roomDir "failed-final"
-                    }
-                    continue
-                }
-
-                $passCount = Get-MsgCount $roomDir "pass"
-                $approveCount = if ($taskRef -eq 'PLAN-REVIEW') { Get-MsgCount $roomDir "plan-approve" } else { 0 }
-                if ($passCount -gt 0 -or $approveCount -gt 0) {
-                    $nextState = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.'qa-review' -and $lifecycle.states.'qa-review'.transitions.pass) {
-                        $lifecycle.states.'qa-review'.transitions.pass
-                    } else { "passed" }
-                    Write-Log "INFO" "[$taskRef] QA PASSED or Plan APPROVED! Transitioning to $nextState."
-                    Write-RoomStatus $roomDir $nextState
-                    Handle-PlanApproval -TaskRef $taskRef
-                }
-                else {
-                    $escalateCount = Get-MsgCount $roomDir "escalate"
-                    $failCount = Get-MsgCount $roomDir "fail"
-                    $rejectCount = if ($taskRef -eq 'PLAN-REVIEW') { Get-MsgCount $roomDir "plan-reject" } else { 0 }
-                    $updateCount = if ($taskRef -eq 'PLAN-REVIEW') { Get-MsgCount $roomDir "plan-update" } else { 0 }
-                    
-                    if ($updateCount -gt 0) {
-                        $updateBody = Get-LatestBody $roomDir "plan-update"
-                        Write-Log "INFO" "[$taskRef] Manual plan update detected. Reloading $PlanFile..."
-                        if ($updateBody.Trim()) {
-                            $updateBody.Trim() | Out-File -FilePath $PlanFile -Encoding utf8
-                        }
-                        Write-RoomStatus $roomDir "pending"
-                        continue
-                    }
-
-                    if ($escalateCount -gt 0 -or $failCount -gt 0 -or $rejectCount -gt 0) {
-                        $feedback = if ($escalateCount -gt 0) {
-                            Get-LatestBody $roomDir "escalate"
-                        } elseif ($rejectCount -gt 0) {
-                            Get-LatestBody $roomDir "plan-reject"
-                        } else {
-                            Get-LatestBody $roomDir "fail"
-                        }
-                        $triggerType = if ($escalateCount -gt 0) { "ESCALATE" } elseif ($rejectCount -gt 0) { "PLAN-REJECT" } else { "FAIL" }
-                        Write-Log "INFO" "[$taskRef] QA $triggerType. Routing to manager triage..."
-                        # Save triage input for analysis
-                        $triageInputFile = Join-Path $roomDir "artifacts" "triage-input.md"
-                        $artifactsDir = Join-Path $roomDir "artifacts"
-                        if (-not (Test-Path $artifactsDir)) {
-                            New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-                        }
-                        "# QA $triggerType Report`n`n$feedback" | Out-File -FilePath $triageInputFile -Encoding utf8 -Force
-                        Write-RoomStatus $roomDir "manager-triage"
-                    }
-                    else {
-                        # Check for QA error / process death
-                        $errorCount = Get-MsgCount $roomDir "error"
-                        if ($errorCount -gt 0) {
-                            $errorBody = Get-LatestBody $roomDir "error"
-                            Write-Log "WARN" "[$taskRef] QA error (verdict parse failure): $errorBody"
-                            # Use separate qa_retries counter to prevent infinite QA retry loops
-                            $qaRetries = if (Test-Path (Join-Path $roomDir "qa_retries")) {
-                                [int](Get-Content (Join-Path $roomDir "qa_retries") -Raw).Trim()
-                            } else { 0 }
-                            if ($qaRetries -lt $maxQaRetries) {
-                                ($qaRetries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "qa_retries") -Encoding utf8 -NoNewline
-                                Write-Log "INFO" "[$taskRef] Re-running QA review (qa retry $($qaRetries + 1)/$maxQaRetries)..."
-                                Write-RoomStatus $roomDir "qa-review"
-                                Start-WorkerJob -RoomDir $roomDir -Role 'qa' -Script $startQA -TaskRef $taskRef -SkipLockCheck
-                            }
-                            else {
-                                Write-Log "ERROR" "[$taskRef] QA retries exhausted ($maxQaRetries)."
-                                if ($retries -lt $maxRetries) {
-                                    Write-Log "WARN" "[$taskRef] Engineer retries not exhausted ($retries < $maxRetries). Rescuing to manager-triage."
-                                    Write-RoomStatus $roomDir "manager-triage"
-                                }
-                                else {
-                                    Write-Log "ERROR" "[$taskRef] Engineer retries also exhausted. Marking as failed-final."
-                                    Write-RoomStatus $roomDir "failed-final"
-                                    Set-BlockedDescendants $taskRef
-                                }
-                            }
-                        }
-                        else {
-                            $qaPidFile = Join-Path $roomDir "pids" "qa.pid"
-                            if (-not (Test-PidAlive $qaPidFile)) {
-                                # Silent QA death or first time in qa-review (e.g. from transition)
-                                Write-Log "INFO" "[$taskRef] Starting QA in $roomId..."
-                                Start-WorkerJob -RoomDir $roomDir -Role 'qa' -Script $startQA -TaskRef $taskRef
-                            }
-                        }
-                    }
-                }
-            }
-
-            'manager-triage' {
-                $allPassed = $false
-                $allTerminal = $false
-                $totalActive++
-
-                # Classify the failure
-                $feedback = ""
-                $escalateCount = Get-MsgCount $roomDir "escalate"
-                if ($escalateCount -gt 0) {
-                    $feedback = Get-LatestBody $roomDir "escalate"
-                } else {
-                    $feedback = Get-LatestBody $roomDir "fail"
-                    if (-not $feedback) {
-                        $feedback = Get-LatestBody $roomDir "error"
-                    }
-                }
-
-                $classification = Invoke-ManagerTriage -RoomDir $roomDir -QaFeedback $feedback
-                
-                # --- Unified Plan Negotiation: Handle feedback via AI expansion ---
-                if ($taskRef -eq 'PLAN-REVIEW') {
-                    Write-Log "INFO" "[$taskRef] Applying feedback via AI architect..."
-                    $expandScript = Join-Path $agentsDir "plan" "Expand-Plan.ps1"
-                    if (Test-Path $expandScript) {
-                        $expandArgs = @("-NoProfile", "-NonInteractive", "-File", "`"$expandScript`"", "-PlanFile", "`"$PlanFile`"", "-OutFile", "`"$PlanFile`"", "-Feedback", "`"$($feedback -replace '"', '\"')`"", "-RoomDir", "`"$roomDir`"")
-                        & pwsh @expandArgs
-                        
-                        if ($LASTEXITCODE -eq 0) {
-                            Write-Log "INFO" "[$taskRef] Plan updated with feedback. Resetting to pending."
-                            Write-RoomStatus $roomDir "pending"
-                        } else {
-                            Write-Log "ERROR" "[$taskRef] Failed to expand plan with feedback. ExitCode: $LASTEXITCODE"
-                            Write-Log "WARN" "[$taskRef] AI expansion failed. Resetting to pending for manual review/update."
-                            Write-RoomStatus $roomDir "pending"
-                        }
-                    } else {
-                        Write-Log "ERROR" "[$taskRef] Expand-Plan.ps1 not found."
-                        Write-RoomStatus $roomDir "failed-final"
-                    }
-                    continue
-                }
-
-                Write-Log "INFO" "[$taskRef] Triage classification: $classification"
-
-                switch ($classification) {
-                    'no-feedback' {
-                        Write-Log "WARN" "[$taskRef] Triage with no feedback. Retrying initial state..."
-                        if ($retries -lt $maxRetries) {
-                            ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                            $retryState = if ($lifecycle -and $lifecycle.initial_state) { $lifecycle.initial_state } else { "engineering" }
-                            Write-RoomStatus $roomDir $retryState
-                            Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                        } else {
-                            Write-Log "ERROR" "[$taskRef] Max retries exceeded (no feedback). Marking as failed."
-                            Write-RoomStatus $roomDir "failed-final"
-                            Set-BlockedDescendants $taskRef
-                        }
-                    }
-                    'implementation-bug' {
-                        if ($retries -lt $maxRetries) {
-                            Write-Log "INFO" "[$taskRef] Implementation bug. Routing fix to engineer (retry $($retries + 1)/$maxRetries)..."
-                            ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                            Write-TriageContext -RoomDir $roomDir -Classification $classification -QaFeedback $feedback -ManagerNotes "Classified as implementation bug. Engineer should fix the specific issues."
-                            & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $feedback
-                            Write-RoomStatus $roomDir "fixing"
-                            Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                        }
-                        else {
-                            Write-Log "ERROR" "[$taskRef] Max retries exceeded after triage. Marking as failed."
-                            Write-RoomStatus $roomDir "failed-final"
-                            Set-BlockedDescendants $taskRef
-                        }
-                    }
-                    'design-issue' {
-                        Write-Log "INFO" "[$taskRef] Design issue detected. Routing to architect..."
-                        & $postMessage -RoomDir $roomDir -From "manager" -To "architect" -Type "design-review" -Ref $taskRef -Body "Design issue detected in $taskRef. QA feedback: $feedback"
-                        Write-RoomStatus $roomDir "architect-review"
-                        if (Test-Path $startArchitect) {
-                            Start-WorkerJob -RoomDir $roomDir -Role 'architect' -Script $startArchitect -TaskRef $taskRef -SkipLockCheck
-                        } else {
-                            Write-Log "WARN" "[$taskRef] Start-Architect.ps1 not found. Falling back to engineer fix."
-                            Write-TriageContext -RoomDir $roomDir -Classification $classification -QaFeedback $feedback -ManagerNotes "Design issue detected but architect unavailable. Engineer should attempt redesign."
-                            if ($retries -lt $maxRetries) {
-                                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $feedback
-                                Write-RoomStatus $roomDir "fixing"
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                            } else {
-                                Write-RoomStatus $roomDir "failed-final"
-                                Set-BlockedDescendants $taskRef
-                            }
-                        }
-                    }
-                    'plan-gap' {
-                        Write-Log "INFO" "[$taskRef] Plan gap detected. Routing to architect for plan revision..."
-                        & $postMessage -RoomDir $roomDir -From "manager" -To "architect" -Type "design-review" -Ref $taskRef -Body "Plan gap in $taskRef. Requirements may need updating. QA feedback: $feedback"
-                        Write-RoomStatus $roomDir "architect-review"
-                        if (Test-Path $startArchitect) {
-                            Start-WorkerJob -RoomDir $roomDir -Role 'architect' -Script $startArchitect -TaskRef $taskRef -SkipLockCheck
-                        } else {
-                            Write-Log "WARN" "[$taskRef] Start-Architect.ps1 not found. Routing to plan-revision directly."
-                            Write-RoomStatus $roomDir "plan-revision"
-                        }
-                    }
-                }
-
-                if ($classification -match '^subcommand-failure:(.+)$') {
-                    $subcommand = $Matches[1]
-                    $redesigns = if (Test-Path (Join-Path $roomDir "redesigns")) {
-                        [int](Get-Content (Join-Path $roomDir "redesigns") -Raw).Trim()
-                    } else { 0 }
-
-                    if ($redesigns -lt $maxRedesigns) {
-                        Write-Log "INFO" "[$taskRef] Subcommand failure detected ($subcommand). Routing to subcommand redesign (retry $($redesigns + 1)/$maxRedesigns)..."
-                        ($redesigns + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "redesigns") -Encoding utf8 -NoNewline
-                        Write-RoomStatus $roomDir "subcommand-redesign"
-                        
-                        $redesignScript = Join-Path $agentsDir "roles" "manager" "Redesign-Subcommand.ps1"
-                        if (Test-Path $redesignScript) {
-                            Write-SpawnLock -RoomDir $roomDir -Role $baseRole
-                            Start-Job -ScriptBlock {
-                                param($script, $room, $role, $sc, $feedback, $ref)
-                                & $script -RoomDir $room -RoleName $role -SubcommandName $sc -ErrorContext $feedback -TaskRef $ref
-                            } -ArgumentList $redesignScript, $roomDir, $baseRole, $subcommand, $feedback, $taskRef | Out-Null
-                        } else {
-                            Write-Log "ERROR" "[$taskRef] Redesign-Subcommand.ps1 not found. Failing."
-                            Write-RoomStatus $roomDir "failed-final"
-                        }
-                    } else {
-                        Write-Log "ERROR" "[$taskRef] Max subcommand redesigns exceeded ($maxRedesigns)."
-                        Write-RoomStatus $roomDir "failed-final"
-                        Set-BlockedDescendants $taskRef
-                    }
-                }
-            }
-
-            #BUG in this block
-            'architect-review' {
-                $allPassed = $false
-                $allTerminal = $false
-                $totalActive++
-
-                # Track PID for deadlock detection — scan all PIDs in room
-                $anyPidAlive = $false; $anySpawnLock = $false
-                $pidDir = Join-Path $roomDir "pids"
-                if (Test-Path $pidDir) {
-                    Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
-                        if (Test-PidAlive $_.FullName) { $anyPidAlive = $true }
-                    }
-                    Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
-                        if (Test-SpawnLock -RoomDir $roomDir -Role $_.BaseName) { $anySpawnLock = $true }
-                    }
-                }
-                if (-not $anyPidAlive -and -not $anySpawnLock) { $activeWithNoPid++ }
-
-                # Check for state timeout
-                if (Test-StateTimedOut $roomDir) {
-                    Write-Log "ERROR" "[$taskRef] Architect review timed out. Falling back to engineer fix."
-                    Stop-RoomProcesses $roomDir
-                    $feedback = Get-LatestBody $roomDir "fail"
-                    if (-not $feedback) { $feedback = Get-LatestBody $roomDir "escalate" }
-                    if (-not $feedback) { $feedback = Get-LatestBody $roomDir "error" }
-                    Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $feedback -ManagerNotes "Architect review timed out. Engineer should attempt best-effort fix."
-                    if ($retries -lt $maxRetries) {
-                        ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $feedback
-                        Write-RoomStatus $roomDir "fixing"
-                        Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                    } else {
-                        Write-RoomStatus $roomDir "failed-final"
-                        Set-BlockedDescendants $taskRef
-                    }
-                    continue
-                }
-
-                # Check for architect's design-guidance response
-                $guidanceCount = Get-MsgCount $roomDir "design-guidance"
-                if ($guidanceCount -gt 0) {
-                    $guidance = Get-LatestBody $roomDir "design-guidance"
-                    Write-Log "INFO" "[$taskRef] Architect guidance received."
-
-                    # Parse recommendation: FIX, REDESIGN, or REPLAN
-                    $recommendation = 'FIX'
-                    if ($guidance -match 'RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-                        $recommendation = $Matches[1].ToUpper()
-                    }
-
-                    $qaFeedback = Get-LatestBody $roomDir "fail"
-                    if (-not $qaFeedback) { $qaFeedback = Get-LatestBody $roomDir "escalate" }
-                    if (-not $qaFeedback) { $qaFeedback = Get-LatestBody $roomDir "error" }
-
-                    switch ($recommendation) {
-                        'FIX' {
-                            Write-Log "INFO" "[$taskRef] Architect says FIX. Routing to engineer with guidance."
-                            Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $qaFeedback -ArchitectGuidance $guidance -ManagerNotes "Architect reviewed and recommends targeted fix."
-                            if ($retries -lt $maxRetries) {
-                                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $guidance
-                                Write-RoomStatus $roomDir "fixing"
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                            } else {
-                                Write-RoomStatus $roomDir "failed-final"
-                                Set-BlockedDescendants $taskRef
-                            }
-                        }
-                        'REDESIGN' {
-                            Write-Log "INFO" "[$taskRef] Architect says REDESIGN. Routing to engineer with design guidance."
-                            Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $qaFeedback -ArchitectGuidance $guidance -ManagerNotes "Architect recommends redesign. Engineer must follow architect's approach."
-                            if ($retries -lt $maxRetries) {
-                                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $guidance
-                                Write-RoomStatus $roomDir "fixing"
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                            } else {
-                                Write-RoomStatus $roomDir "failed-final"
-                                Set-BlockedDescendants $taskRef
-                            }
-                        }
-                        'REPLAN' {
-                            Write-Log "INFO" "[$taskRef] Architect says REPLAN. Transitioning to plan-revision."
-                            Write-TriageContext -RoomDir $roomDir -Classification 'plan-gap' -QaFeedback $qaFeedback -ArchitectGuidance $guidance -ManagerNotes "Architect recommends plan revision. Brief will be updated."
-                            Write-RoomStatus $roomDir "plan-revision"
-                        }
-                    }
-                }
-                else {
-                    # Check if architect process is alive
-                    $archPidFile = Join-Path $roomDir "pids" "architect.pid"
-                    if ((Test-Path $archPidFile) -and -not (Test-PidAlive $archPidFile)) {
-                        $archErrorCount = Get-MsgCount $roomDir "error"
-                        Write-Log "WARN" "[$taskRef] Architect process died. Falling back to engineer fix."
-                        $qaFeedback = Get-LatestBody $roomDir "fail"
-                        if (-not $qaFeedback) { $qaFeedback = Get-LatestBody $roomDir "escalate" }
-                        if (-not $qaFeedback) { $qaFeedback = Get-LatestBody $roomDir "error" }
-                        Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $qaFeedback -ManagerNotes "Architect review failed. Engineer should attempt best-effort fix."
-                        if ($retries -lt $maxRetries) {
-                            ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                            & $postMessage -RoomDir $roomDir -From "manager" -To "engineer" -Type "fix" -Ref $taskRef -Body $qaFeedback
-                            Write-RoomStatus $roomDir "fixing"
-                            Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                        } else {
-                            Write-RoomStatus $roomDir "failed-final"
-                            Set-BlockedDescendants $taskRef
-                        }
-                    }
-                    elseif (-not (Test-Path $archPidFile) -and -not (Test-SpawnLock -RoomDir $roomDir -Role 'architect')) {
-                        # No PID file and spawn lock expired — architect never started or was cleaned up. Respawn it.
-                        Write-Log "WARN" "[$taskRef] Architect has no PID file. Respawning..."
-                        if (Test-Path $startArchitect) {
-                            Start-WorkerJob -RoomDir $roomDir -Role 'architect' -Script $startArchitect -TaskRef $taskRef -SkipLockCheck
-                        } else {
-                            Write-Log "WARN" "[$taskRef] Start-Architect.ps1 not found. Falling back to engineer fix."
-                            $qaFeedback = Get-LatestBody $roomDir "fail"
-                            if (-not $qaFeedback) { $qaFeedback = Get-LatestBody $roomDir "escalate" }
-                            if (-not $qaFeedback) { $qaFeedback = "Architect unavailable." }
-                            Write-TriageContext -RoomDir $roomDir -Classification 'design-issue' -QaFeedback $qaFeedback -ManagerNotes "Architect unavailable. Engineer should attempt best-effort fix."
-                            if ($retries -lt $maxRetries) {
-                                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body $qaFeedback
-                                Write-RoomStatus $roomDir "fixing"
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                            } else {
-                                Write-RoomStatus $roomDir "failed-final"
-                                Set-BlockedDescendants $taskRef
-                            }
-                        }
-                    }
-                }
-            }
-
-            'plan-revision' {
-                $allPassed = $false
-                $allTerminal = $false
-                $totalActive++
-
-                # Update brief.md with triage context and architect guidance
-                $briefFile = Join-Path $roomDir "brief.md"
-                $triageFile = Join-Path $roomDir "artifacts" "triage-context.md"
-                if (Test-Path $briefFile) {
-                    $originalBrief = Get-Content $briefFile -Raw
-                    $revisionNote = ""
-                    if (Test-Path $triageFile) {
-                        $triageContent = Get-Content $triageFile -Raw
-                        $revisionNote = "`n`n---`n`n## Plan Revision Notes`n`n$triageContent"
-                    }
-                    $updatedBrief = $originalBrief + $revisionNote
-                    $updatedBrief | Out-File -FilePath $briefFile -Encoding utf8 -Force
-                    Write-Log "INFO" "[$taskRef] Brief updated with revision notes. Resetting to engineering."
-                } else {
-                    Write-Log "WARN" "[$taskRef] No brief.md found. Resetting to engineering anyway."
-                }
-
-                # Reset qa_retries for fresh QA cycle
-                $qaRetriesFile = Join-Path $roomDir "qa_retries"
-                if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
-
-                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "plan-update" -Ref $taskRef -Body "Brief has been revised. Please re-read brief.md and implement accordingly."
-                Write-RoomStatus $roomDir "engineering"
-                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-            }
-
-            'passed' {
-                # Good — this room is done
-            }
-
-            'subcommand-redesign' {
-                $allPassed = $false
-                $allTerminal = $false
-                $totalActive++
-
-                if (Test-StateTimedOut $roomDir) {
-                    Write-Log "ERROR" "[$taskRef] Subcommand redesign timed out."
-                    Write-RoomStatus $roomDir "failed-final"
-                    continue
-                }
-
-                $redesignDone = Get-MsgCount $roomDir "redesign-done"
-                if ($redesignDone -gt 0) {
-                    Write-Log "INFO" "[$taskRef] Subcommand redesign complete. Retrying engineering."
-                    Write-RoomStatus $roomDir "engineering"
-                    & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "task" -Ref $taskRef -Body "Subcommand redesign complete. Please retry the task with updated subcommands."
-                    Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                } else {
-                    $redesignError = Get-MsgCount $roomDir "error"
-                    if ($redesignError -gt 0) {
-                        Write-Log "ERROR" "[$taskRef] Subcommand redesign failed."
-                        Write-RoomStatus $roomDir "failed-final"
-                    }
-                }
-            }
-
-            'failed-final' {
-                # Safety net: if retries not exhausted, an external agent may have
-                # bypassed the manager (e.g., QA called warroom_update_status directly).
-                # Rescue the room back to manager-triage so the normal flow can proceed.
-                if ($retries -lt $maxRetries) {
-                    $failFeedback = Get-LatestBody $roomDir "fail"
-                    if (-not $failFeedback) { $failFeedback = Get-LatestBody $roomDir "error" }
-                    if ($failFeedback) {
-                        Write-Log "WARN" "[$taskRef] failed-final with retries=$retries < max=$maxRetries. Rescuing to manager-triage."
-                        Write-RoomStatus $roomDir "manager-triage"
-                        $allPassed = $false
-                        $allTerminal = $false
-                    }
-                    else {
-                        # No feedback messages — truly terminal
-                        $allPassed = $false
-                        $failedCount++
-                    }
-                }
-                else {
-                    $allPassed = $false
-                    $failedCount++
-                }
-            }
-
-            'blocked' {
-                $allPassed = $false
-                $failedCount++
-            }
-
+            # === V2 SIGNAL-BASED STATE HANDLER ===
+            # All non-pending states are handled via lifecycle.json signals
             default {
-                # --- GENERIC LIFECYCLE-AWARE STATE HANDLER ---
-                # Handles any custom state defined in lifecycle.json (e.g., security-review, schema-review)
-                if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status) {
-                    $customStateDef = $lifecycle.states.$status
-                    $allPassed = $false
-                    $allTerminal = $false
-                    $totalActive++
+                $v2StateDef = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status) { $lifecycle.states.$status } else { $null }
+                $v2MaxRetries = if ($lifecycle -and $lifecycle.max_retries) { $lifecycle.max_retries } else { $maxRetries }
 
-                    # Track PID for deadlock detection — scan all PIDs in room
-                    $anyPidAlive = $false; $anySpawnLock = $false
-                    $pidDir = Join-Path $roomDir "pids"
-                    if (Test-Path $pidDir) {
-                        Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
-                            if (Test-PidAlive $_.FullName) { $anyPidAlive = $true }
-                        }
-                        Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
-                            if (Test-SpawnLock -RoomDir $roomDir -Role $_.BaseName) { $anySpawnLock = $true }
+                if (-not $v2StateDef) {
+                    # Unknown state with no lifecycle definition
+                    Write-Log "WARN" "[$taskRef] Unknown state '$status' in $roomId (no lifecycle definition)"
+                    $allPassed = $false; $allTerminal = $false
+                    continue
+                }
+
+                switch ($v2StateDef.type) {
+                    'terminal' {
+                        if ($status -eq 'passed') {
+                            Handle-PlanApproval -TaskRef $taskRef
+                        } elseif ($status -eq 'failed-final') {
+                            if ($retries -lt $v2MaxRetries) {
+                                $failFeedback = Get-LatestBody $roomDir "fail"
+                                if (-not $failFeedback) { $failFeedback = Get-LatestBody $roomDir "error" }
+                                if ($failFeedback) {
+                                    Write-Log "WARN" "[$taskRef] failed-final with retries=$retries < max=$v2MaxRetries. Rescuing to triage."
+                                    Write-RoomStatus $roomDir "triage"
+                                    $allPassed = $false; $allTerminal = $false
+                                } else {
+                                    $allPassed = $false; $failedCount++
+                                }
+                            } else {
+                                $allPassed = $false; $failedCount++
+                            }
+                            Set-BlockedDescendants $taskRef
+                        } else {
+                            # blocked or other terminal
+                            $allPassed = $false; $failedCount++
                         }
                     }
-                    if (-not $anyPidAlive -and -not $anySpawnLock) { $activeWithNoPid++ }
-
-                    # Check for state timeout
-                    if (Test-StateTimedOut $roomDir) {
-                        Write-Log "ERROR" "[$taskRef] Custom state '$status' timed out after ${stateTimeout}s."
-                        Stop-RoomProcesses $roomDir
-                        if ($customStateDef.transitions.fail) {
-                            Write-RoomStatus $roomDir $customStateDef.transitions.fail
-                        } elseif ($retries -lt $maxRetries) {
-                            ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
-                            # Retry the SAME custom state with the correct role agent
-                            Write-Log "WARN" "[$taskRef] Retrying custom state '$status' (attempt $($retries + 1)/$maxRetries)..."
-                            Write-RoomStatus $roomDir $status
-                            $stateRole = if ($customStateDef.role) { $customStateDef.role } else { $baseRole }
-                            if (Test-Path $resolveRoleScript) {
-                                $retryResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                Start-WorkerJob -RoomDir $roomDir -Role ($stateRole -replace ':.*$','') -Script $retryResolved.Runner -TaskRef $taskRef -SkipLockCheck
-                            } else {
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
-                            }
+                    'decision' {
+                        $allPassed = $false; $allTerminal = $false; $totalActive++
+                        if ($retries -lt $v2MaxRetries) {
+                            Write-Log "INFO" "[$taskRef] Decision: retries ($retries) < max ($v2MaxRetries). Retrying."
+                            Write-RoomStatus $roomDir $v2StateDef.signals.retry.target
                         } else {
-                            Write-Log "ERROR" "[$taskRef] Max retries exceeded after custom state timeout."
-                            Write-RoomStatus $roomDir "failed-final"
+                            Write-Log "ERROR" "[$taskRef] Decision: retries exhausted. Failing."
+                            Write-RoomStatus $roomDir $v2StateDef.signals.exhaust.target
                             Set-BlockedDescendants $taskRef
                         }
-                        continue
                     }
+                    { $_ -in @('work', 'review', 'triage') } {
+                        $allPassed = $false; $allTerminal = $false; $totalActive++
 
-                    $stateRole = if ($customStateDef.role) { $customStateDef.role } else { $baseRole }
-                    $stateBaseRole = $stateRole -replace ':.*$', ''
-
-                    if ($customStateDef.type -eq 'review' -or $status -match '(review|audit|check|verify)') {
-                        # --- REVIEW STATE: expects pass/fail/escalate ---
-                        $passCount = Get-MsgCount $roomDir "pass"
-                        $failCount = Get-MsgCount $roomDir "fail"
-                        $escalateCount = Get-MsgCount $roomDir "escalate"
-
-                        if ($passCount -gt 0) {
-                            $nextState = if ($customStateDef.transitions.pass) { $customStateDef.transitions.pass } else { 'passed' }
-                            Write-Log "INFO" "[$taskRef] Custom review '$status' by '$stateRole' PASSED. Transitioning to $nextState."
-                            Write-RoomStatus $roomDir $nextState
+                        # PID tracking for deadlock detection
+                        $anyPidAlive = $false; $anySpawnLock = $false
+                        $pidDir = Join-Path $roomDir "pids"
+                        if (Test-Path $pidDir) {
+                            Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
+                                if (Test-PidAlive $_.FullName) { $anyPidAlive = $true }
+                            }
+                            Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
+                                if (Test-SpawnLock -RoomDir $roomDir -Role $_.BaseName) { $anySpawnLock = $true }
+                            }
                         }
-                        elseif ($failCount -gt 0 -or $escalateCount -gt 0) {
-                            $feedback = if ($escalateCount -gt 0) { Get-LatestBody $roomDir "escalate" } else { Get-LatestBody $roomDir "fail" }
-                            $nextState = if ($customStateDef.transitions.fail) { $customStateDef.transitions.fail } else { 'manager-triage' }
-                            Write-Log "INFO" "[$taskRef] Custom review '$status' by '$stateRole' FAILED. Transitioning to $nextState."
-                            # Save triage input
-                            $artifactsDir = Join-Path $roomDir "artifacts"
-                            if (-not (Test-Path $artifactsDir)) { New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null }
-                            "# $status Report`n`n$feedback" | Out-File -FilePath (Join-Path $artifactsDir "triage-input.md") -Encoding utf8 -Force
-                            Write-RoomStatus $roomDir $nextState
+                        if (-not $anyPidAlive -and -not $anySpawnLock) { $activeWithNoPid++ }
+
+                        # State timeout
+                        if (Test-StateTimedOut $roomDir) {
+                            Write-Log "ERROR" "[$taskRef] V2 state '$status' timed out after ${stateTimeout}s."
+                            Stop-RoomProcesses $roomDir
+                            if ($retries -lt $v2MaxRetries) {
+                                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
+                                & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "State '$status' timed out. Please try again."
+                                Write-RoomStatus $roomDir ($lifecycle.initial_state)
+                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                            } else {
+                                Write-RoomStatus $roomDir 'failed-final'
+                                Set-BlockedDescendants $taskRef
+                            }
+                            continue
                         }
-                        else {
-                            # Check if review agent is alive, spawn if needed
-                            $reviewPidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
-                            if (-not (Test-PidAlive $reviewPidFile)) {
-                                # Resolve the reviewer's runner script
+
+                        # PLAN-REVIEW shortcut
+                        if ($taskRef -eq 'PLAN-REVIEW') {
+                            $approveCount = Get-MsgCount $roomDir "plan-approve"
+                            $guidanceCount = Get-MsgCount $roomDir "design-guidance"
+                            $guidanceApproval = $false
+                            if ($guidanceCount -gt 0 -and $approveCount -eq 0) {
+                                $guidanceBody = Get-LatestBody $roomDir "design-guidance"
+                                if ($guidanceBody -match 'plan-approve|signoff|APPROVED') { $guidanceApproval = $true }
+                            }
+                            if ($approveCount -gt 0 -or $guidanceApproval) {
+                                Write-Log "INFO" "[$taskRef] Plan APPROVED. Transitioning to passed."
+                                Write-RoomStatus $roomDir 'passed'
+                                Handle-PlanApproval -TaskRef $taskRef
+                                continue
+                            }
+                        }
+
+                        # Signal detection
+                        $expectedSignals = @($v2StateDef.signals.PSObject.Properties.Name)
+                        $matchedSignal = Find-LatestSignal $roomDir $expectedSignals
+
+                        if ($matchedSignal) {
+                            $transitionDef = $v2StateDef.signals.$matchedSignal
+                            $targetState = $transitionDef.target
+                            $actions = @()
+                            if ($transitionDef.actions) { $actions = @($transitionDef.actions) }
+
+                            Write-Log "INFO" "[$taskRef] V2 signal '$matchedSignal' in '$status' -> '$targetState'."
+                            Invoke-SignalActions -RoomDir $roomDir -Actions $actions -TaskRef $taskRef -BaseRole $baseRole
+                            Write-RoomStatus $roomDir $targetState
+
+                            # Spawn target state's role agent
+                            $targetDef = $lifecycle.states.$targetState
+                            if ($targetDef -and $targetDef.role -and $targetDef.type -in @('work', 'review')) {
+                                $targetRole = $targetDef.role
+                                $targetBaseRole = $targetRole -replace ':.*$', ''
                                 if (Test-Path $resolveRoleScript) {
-                                    $reviewResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                    Write-Log "INFO" "[$taskRef] Starting '$stateRole' for custom review state '$status'..."
-                                    Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $reviewResolved.Runner -TaskRef $taskRef
+                                    $targetResolved = & $resolveRoleScript -RoleName $targetRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                    Start-WorkerJob -RoomDir $roomDir -Role $targetBaseRole -Script $targetResolved.Runner -TaskRef $taskRef -SkipLockCheck
                                 } else {
-                                    Write-Log "WARN" "[$taskRef] Cannot resolve runner for '$stateRole'. Resolve-Role.ps1 not found."
+                                    Start-WorkerJob -RoomDir $roomDir -Role $targetBaseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
                                 }
                             }
                         }
-                    }
-                    else {
-                        # --- WORKER STATE: expects done ---
-                        $doneCount = Get-MsgCount $roomDir "done"
-                        if ($doneCount -ge ($retries + 1)) {
-                            $nextState = if ($customStateDef.transitions.done) { $customStateDef.transitions.done } else { 'qa-review' }
-                            Write-Log "INFO" "[$taskRef] Custom worker '$status' by '$stateRole' done. Transitioning to $nextState."
-                            Write-RoomStatus $roomDir $nextState
-
-                            # If next state needs a different agent, resolve and spawn it
-                            if ($lifecycle.states.$nextState) {
-                                $nextDef = $lifecycle.states.$nextState
-                                if ($nextDef.role -and $nextDef.role -ne $stateRole) {
+                        else {
+                            # No signal — ensure worker/reviewer is alive
+                            $stateRole = $v2StateDef.role
+                            if ($stateRole -and $v2StateDef.type -ne 'triage') {
+                                $stateBaseRole = $stateRole -replace ':.*$', ''
+                                $statePidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
+                                if (-not (Test-PidAlive $statePidFile) -and -not (Test-SpawnLock -RoomDir $roomDir -Role $stateBaseRole)) {
                                     if (Test-Path $resolveRoleScript) {
-                                        $nextResolved = & $resolveRoleScript -RoleName $nextDef.role -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                        Write-Log "INFO" "[$taskRef] Auto-spawning '$($nextDef.role)' for state '$nextState'..."
-                                        Start-WorkerJob -RoomDir $roomDir -Role ($nextDef.role -replace ':.*$','') -Script $nextResolved.Runner -TaskRef $taskRef -SkipLockCheck
+                                        $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                        Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
+                                        Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                    } else {
+                                        Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
                                     }
                                 }
                             }
                         }
-                        else {
-                            # Check if worker is alive, spawn if needed
-                            $workerPidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
-                            if (-not (Test-PidAlive $workerPidFile)) {
-                                Write-Log "INFO" "[$taskRef] Starting '$stateRole' for custom worker state '$status'..."
-                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
-                            }
-                        }
                     }
-                }
-                else {
-                    Write-Log "WARN" "Unknown status '$status' for $roomId (no lifecycle definition found)"
-                    $allPassed = $false
-                    $allTerminal = $false
+                    default {
+                        Write-Log "WARN" "[$taskRef] Unknown lifecycle type '$($v2StateDef.type)' for state '$status'"
+                        $allPassed = $false; $allTerminal = $false
+                    }
                 }
             }
         }
@@ -1496,6 +911,11 @@ while (-not $script:shuttingDown) {
                 $ls = if (Test-Path (Join-Path $rd "status")) { (Get-Content (Join-Path $rd "status") -Raw).Trim() } else { "" }
                 $lr = if (Test-Path (Join-Path $rd "retries")) { [int](Get-Content (Join-Path $rd "retries") -Raw).Trim() } else { 0 }
                 $lt = if (Test-Path (Join-Path $rd "task-ref")) { (Get-Content (Join-Path $rd "task-ref") -Raw).Trim() } else { "UNKNOWN" }
+
+                # --- Skip rooms in terminal states (already completed or failed) ---
+                if ($ls -in @('passed', 'failed-final', 'blocked', '')) {
+                    return  # ForEach-Object: skip this room
+                }
 
                 # --- Safety net: cap total deadlock recoveries per room ---
                 $dlFile = Join-Path $rd "deadlock_recoveries"
@@ -1518,31 +938,26 @@ while (-not $script:shuttingDown) {
                     }
                 }
 
-                if ($ls -in @('engineering', 'fixing')) {
-                    if ($lr -lt $maxRetries) {
-                        Write-Log "WARN" "[$lt] Deadlock recovery: restarting $dlRole via transition to fixing."
+                # V2 lifecycle: use lifecycle.json to determine recovery
+                $dlLifecycleFile = Join-Path $rd "lifecycle.json"
+                $dlLifecycle = if (Test-Path $dlLifecycleFile) { Get-Content $dlLifecycleFile -Raw | ConvertFrom-Json } else { $null }
+                $dlStateDef = if ($dlLifecycle -and $dlLifecycle.states -and $dlLifecycle.states.$ls) { $dlLifecycle.states.$ls } else { $null }
+
+                if ($dlStateDef -and $dlStateDef.type -in @('work', 'review', 'triage')) {
+                    $dlMaxRetries = if ($dlLifecycle.max_retries) { $dlLifecycle.max_retries } else { $maxRetries }
+                    $restartState = if ($dlLifecycle.initial_state) { $dlLifecycle.initial_state } else { 'developing' }
+                    if ($lr -lt $dlMaxRetries) {
+                        Write-Log "WARN" "[$lt] Deadlock recovery: restarting $dlRole via transition to $restartState."
                         ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
                         & $postMessage -RoomDir $rd -From "manager" -To $dlRole -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting $dlRole."
-                        Write-RoomStatus $rd "fixing"
-                        # Worker will be started by main loop in next iteration
-                    }
-                    else {
+                        Write-RoomStatus $rd $restartState
+                    } else {
                         Write-Log "ERROR" "[$lt] Deadlock recovery: max retries exceeded."
                         Write-RoomStatus $rd "failed-final"
                         Set-BlockedDescendants $lt
                     }
-                }
-                elseif ($ls -eq 'qa-review') {
-                    # Let the main loop handle restarting QA if it's dead
-                    Write-Log "WARN" "[$lt] Deadlock recovery: QA process not running. Will be restarted by main loop."
-                }
-                elseif ($ls -eq 'manager-triage') {
-                    # Triage is stateless — will re-process on next loop iteration
-                    Write-Log "INFO" "[$lt] Deadlock recovery: will re-process manager-triage."
-                }
-                elseif ($ls -eq 'architect-review') {
-                    # Let the main loop handle restarting architect
-                    Write-Log "WARN" "[$lt] Deadlock recovery: architect review stalled. Will be restarted by main loop."
+                } else {
+                    Write-Log "WARN" "[$lt] Deadlock recovery: state '$ls' not recoverable. Skipping."
                 }
             }
             $stallCycles = 0
