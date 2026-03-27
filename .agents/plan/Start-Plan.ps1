@@ -698,7 +698,7 @@ function New-PlanWarRooms {
     # --- Build dependency graph ---
     Write-Host "[DAG] Building dependency graph..." -ForegroundColor Cyan
     $buildDag = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
-    & $buildDag -WarRoomsDir $warRoomsDir
+    $null = & $buildDag -WarRoomsDir $warRoomsDir
 }
 
 # --- Unified Negotiation Handoff ---

@@ -46,6 +46,60 @@ def _get_role_aware_skills_dir(self) -> "Path | None":
 
 Settings.get_project_agent_skills_dir = _get_role_aware_skills_dir
 
+# ---------------------------------------------------------------------------
+# Monkey-patch _stream_agent to retry on transient ClosedResourceError.
+#
+# The remote LangGraph server intermittently drops the SSE connection
+# (ClosedResourceError) during MCP tool calls. deepagents-cli v0.0.34 has
+# zero retry logic in _stream_agent, so any transport error kills the
+# session. This patch adds exponential-backoff retry with Command(resume=)
+# so the run can continue from the server's last checkpoint.
+# ---------------------------------------------------------------------------
+import deepagents_cli.non_interactive as _ni  # noqa: E402
+
+_original_stream_agent = _ni._stream_agent
+
+
+async def _resilient_stream_agent(agent, stream_input, config, state, console, file_op_tracker):
+    """Wrap _stream_agent with retry on transient ClosedResourceError."""
+    import asyncio as _aio
+
+    max_retries = 3
+    _original_input = stream_input  # preserve for fresh-run retries
+
+    for attempt in range(max_retries):
+        try:
+            await _original_stream_agent(
+                agent, stream_input, config, state, console, file_op_tracker,
+            )
+            return  # success
+        except Exception as exc:
+            err_str = str(exc)
+            is_transient = (
+                "ClosedResourceError" in err_str
+                or "ReadError" in err_str
+                or "WriteError" in err_str
+            )
+            if is_transient and attempt < max_retries - 1:
+                wait = 2 ** (attempt + 1)
+                console.print(
+                    f"[yellow]\u26a0 Remote connection lost ({type(exc).__name__}), "
+                    f"retrying in {wait}s ({attempt + 1}/{max_retries})\u2026[/yellow]"
+                )
+                await _aio.sleep(wait)
+                # Server-side ClosedResourceError means internal crash — resume
+                # may not work.  Try resume first, fall back to fresh input.
+                try:
+                    from langgraph.types import Command as _Cmd
+                    stream_input = _Cmd(resume={})
+                except Exception:
+                    stream_input = _original_input
+                continue
+            raise
+
+
+_ni._stream_agent = _resilient_stream_agent
+
 import warnings
 
 warnings.filterwarnings("ignore", module="langchain_core._api.deprecation")
