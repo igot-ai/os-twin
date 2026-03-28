@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+set -euo pipefail
+#
+# Agent OS — Memory CLI
+#
+# Shell wrapper so agents can use shared memory via their shell tool
+# even when MCP is disabled (no_mcp: true).
+#
+# Usage:
+#   memory publish artifact "Created users table" --tags db,users --room room-001 --ref EPIC-001
+#   memory publish decision "Chose JWT" --tags auth --room room-001 --ref EPIC-001 --detail "..."
+#   memory query --tags auth,db
+#   memory query --kind artifact --room room-001
+#   memory search "authentication flow"
+#   memory context room-002 --keywords auth,users
+#   memory list
+#   memory list --kind decision
+#
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+MCP_DIR="$SCRIPT_DIR/mcp"
+MEMORY_CLI="$MCP_DIR/memory-cli.py"
+
+# Resolve Python: prefer the project/ostwin venv, fall back to system
+if [[ -x "$SCRIPT_DIR/.venv/bin/python" ]]; then
+    PYTHON="$SCRIPT_DIR/.venv/bin/python"
+elif [[ -x "$HOME/.ostwin/.venv/bin/python" ]]; then
+    PYTHON="$HOME/.ostwin/.venv/bin/python"
+else
+    PYTHON="python3"
+fi
+
+# Resolve AGENT_OS_ROOT: env var > AGENT_OS_ROOM_DIR > script location
+if [[ -z "${AGENT_OS_ROOT:-}" ]]; then
+    if [[ -n "${AGENT_OS_ROOM_DIR:-}" ]]; then
+        # AGENT_OS_ROOM_DIR is <project>/.war-rooms/room-XXX → project root is ../..
+        export AGENT_OS_ROOT="$(cd "$AGENT_OS_ROOM_DIR/../.." && pwd)"
+    else
+        # Script is at <project>/.agents/bin/memory → project root is ../..
+        export AGENT_OS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    fi
+fi
+
+CMD="${1:-help}"
+shift || true
+
+build_json() {
+    # Build JSON from shell args. Uses Python for reliable JSON encoding.
+    "$PYTHON" -c "
+import json, sys
+args = sys.argv[1:]
+data = {}
+i = 0
+while i < len(args):
+    a = args[i]
+    if a == '--tags':
+        i += 1; data['tags'] = [t.strip() for t in args[i].split(',')]
+    elif a == '--kind':
+        i += 1; data['kind'] = args[i]
+    elif a == '--room':
+        i += 1; data['room_id'] = args[i]
+    elif a == '--ref':
+        i += 1; data['ref'] = args[i]
+    elif a == '--role':
+        i += 1; data['author_role'] = args[i]
+    elif a == '--detail':
+        i += 1; data['detail'] = args[i]
+    elif a == '--supersedes':
+        i += 1; data['supersedes'] = args[i]
+    elif a == '--exclude-room':
+        i += 1; data['exclude_room'] = args[i]
+    elif a == '--last':
+        i += 1; data['last_n'] = int(args[i])
+    elif a == '--max':
+        i += 1; data['max_results'] = int(args[i])
+    elif a == '--keywords':
+        i += 1; data['brief_keywords'] = [k.strip() for k in args[i].split(',')]
+    elif a == '--max-entries':
+        i += 1; data['max_entries'] = int(args[i])
+    else:
+        # Positional args
+        if 'kind' not in data:
+            data['kind'] = a
+        elif 'summary' not in data:
+            data['summary'] = a
+        elif 'text' not in data:
+            data['text'] = a
+        elif 'room_id' not in data:
+            data['room_id'] = a
+    i += 1
+print(json.dumps(data))
+" "$@"
+}
+
+case "$CMD" in
+    publish)
+        # memory publish <kind> <summary> --tags x,y --room r --ref E --role engineer [--detail ...] [--supersedes ...]
+        KIND="${1:-}"; shift || true
+        SUMMARY="${1:-}"; shift || true
+        # Auto-detect room and role from env vars set by Invoke-Agent.ps1
+        EXTRA_ARGS=""
+        if [[ -n "${AGENT_OS_ROOM_DIR:-}" ]] && ! echo "$*" | grep -q '\-\-room'; then
+            ROOM_ID="$(basename "$AGENT_OS_ROOM_DIR")"
+            EXTRA_ARGS="--room $ROOM_ID"
+        fi
+        if [[ -n "${AGENT_OS_ROLE:-}" ]] && ! echo "$*" | grep -q '\-\-role'; then
+            EXTRA_ARGS="$EXTRA_ARGS --role $AGENT_OS_ROLE"
+        fi
+        # shellcheck disable=SC2086
+        JSON=$(build_json "$KIND" "$SUMMARY" $EXTRA_ARGS "$@")
+        exec "$PYTHON" "$MEMORY_CLI" publish "$JSON"
+        ;;
+    query)
+        JSON=$(build_json "$@")
+        exec "$PYTHON" "$MEMORY_CLI" query "$JSON"
+        ;;
+    search)
+        TEXT="${1:-}"; shift || true
+        JSON=$(build_json "$TEXT" "$@")
+        # Rename 'kind' key to 'text' if it was set as positional
+        JSON=$("$PYTHON" -c "
+import json, sys
+d = json.loads(sys.argv[1])
+if 'kind' in d and 'text' not in d:
+    d['text'] = d.pop('kind')
+print(json.dumps(d))
+" "$JSON")
+        exec "$PYTHON" "$MEMORY_CLI" search "$JSON"
+        ;;
+    context)
+        ROOM="${1:-}"; shift || true
+        JSON=$(build_json "$@")
+        JSON=$("$PYTHON" -c "
+import json, sys
+d = json.loads(sys.argv[1])
+d['room_id'] = sys.argv[2]
+print(json.dumps(d))
+" "$JSON" "$ROOM")
+        exec "$PYTHON" "$MEMORY_CLI" get_context "$JSON"
+        ;;
+    list)
+        JSON=$(build_json "$@")
+        exec "$PYTHON" "$MEMORY_CLI" list "$JSON"
+        ;;
+    help|--help|-h)
+        cat <<'EOF'
+Usage: memory <command> [args]
+
+Commands:
+  publish <kind> <summary> [options]   Publish a memory entry
+    Kinds: code, artifact, decision, interface, convention, warning
+    Options:
+      --tags tag1,tag2       Tags for discovery
+      --room room-id         War-room ID (auto-detected from $AGENT_OS_ROOM_DIR)
+      --ref EPIC-001         Epic/task reference
+      --role engineer        Author role (auto-detected from $AGENT_OS_ROLE)
+      --detail "..."         Code snippets, file contents, JSON shapes (IMPORTANT)
+      --supersedes mem-id    ID of entry this replaces
+
+  query [options]                      Query memory with filters
+      --tags tag1,tag2       Filter by tags (OR match)
+      --kind artifact        Filter by kind
+      --room room-id         Filter by room
+      --ref EPIC-001         Filter by reference
+      --role engineer        Filter by author role
+      --exclude-room room-id Exclude a room
+      --last N               Last N entries only
+
+  search <text> [options]              Full-text search
+      --kind artifact        Filter by kind
+      --exclude-room room-id Exclude a room
+      --max N                Max results (default 10)
+
+  context <room-id> [options]          Get cross-room context for a room
+      --keywords auth,db     Filter by keywords
+      --max-entries N        Max entries (default 15)
+
+  list [options]                       List all memory entries
+      --kind artifact        Filter by kind
+
+Environment (auto-detected by agents):
+  AGENT_OS_ROOM_DIR   Auto-sets --room
+  AGENT_OS_ROLE       Auto-sets --role
+  AGENT_OS_ROOT       Project root for memory storage
+EOF
+        ;;
+    *)
+        echo "Unknown command: $CMD. Run 'memory help' for usage." >&2
+        exit 1
+        ;;
+esac

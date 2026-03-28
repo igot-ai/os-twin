@@ -1,0 +1,19 @@
+{
+  "name": "backend-engineer",
+  "description": "Implement robust backend APIs for authentication, metadata CRUD, and the video processing pipeline.",
+  "capabilities": [
+    "database",
+    "security",
+    "api-design",
+    "video-processing"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

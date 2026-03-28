@@ -86,10 +86,35 @@ $gateList
 "@)
 }
 
-# Section 4: Skills — NOT concatenated into the prompt.
-# Skills are resolved and copied to AGENT_OS_SKILLS_DIR by Invoke-Agent.ps1.
-# The agent CLI discovers them via that path at runtime.
-# This keeps the system prompt focused on the role definition only.
+# Section 4: Skills — most are resolved and copied to AGENT_OS_SKILLS_DIR
+# by Invoke-Agent.ps1 for the agent CLI to discover at runtime.
+# However, critical global skills (like shared-memory) are injected directly
+# into the prompt to ensure agents always have access to them.
+$agentsDir = Split-Path (Split-Path $PSScriptRoot)
+$globalSkillsDir = Join-Path $agentsDir "skills" "global"
+if (Test-Path $globalSkillsDir) {
+    $injectedSkills = [System.Collections.Generic.List[string]]::new()
+    Get-ChildItem $globalSkillsDir -Directory | ForEach-Object {
+        $skillMd = Join-Path $_.FullName "SKILL.md"
+        if (Test-Path $skillMd) {
+            $skillContent = Get-Content $skillMd -Raw
+            # Strip YAML frontmatter (between --- markers)
+            $skillContent = $skillContent -replace '(?s)^---.*?---\s*', ''
+            $injectedSkills.Add($skillContent.Trim())
+        }
+    }
+    if ($injectedSkills.Count -gt 0) {
+        $skillsBlock = ($injectedSkills -join "`n`n---`n`n")
+        $sections.Add(@"
+
+---
+
+## Available Skills
+
+$skillsBlock
+"@)
+    }
+}
 
 # Section 5: War-room context
 if ($RoomDir -and (Test-Path $RoomDir)) {
