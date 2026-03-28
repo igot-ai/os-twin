@@ -79,6 +79,13 @@
     "timeout_seconds": 600,
     "no_mcp": true
   },
+  "memory": {
+    "enabled": true,
+    "max_summary_bytes": 4096,
+    "max_detail_bytes": 16384,
+    "max_context_entries": 15,
+    "auto_publish_on_done": true
+  },
   "channel": {
     "format": "jsonl",
     "max_message_size_bytes": 65536

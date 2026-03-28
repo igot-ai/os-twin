@@ -141,13 +141,14 @@ if (Test-Path $configPath) {
         $WorkingDir = $instanceConfig.working_dir
     }
 
-    # no_mcp: instance → role (disables MCP tools to avoid ClosedResourceError on remote exec)
-    $NoMcp = $false
-    if ($instanceConfig -and $instanceConfig.no_mcp -eq $true) {
-        $NoMcp = $true
+    # no_mcp: instance → role → default true (disables MCP tools to avoid ClosedResourceError on remote exec)
+    # Default to true for all roles — MCP via LangGraph is unstable. Agents use shell tools instead.
+    $NoMcp = $true
+    if ($instanceConfig -and $instanceConfig.PSObject.Properties['no_mcp']) {
+        $NoMcp = [bool]$instanceConfig.no_mcp
     }
-    elseif ($config.$RoleName.no_mcp -eq $true) {
-        $NoMcp = $true
+    elseif ($config.$RoleName -and $config.$RoleName.PSObject.Properties['no_mcp']) {
+        $NoMcp = [bool]$config.$RoleName.no_mcp
     }
 
     # --- Resolve ProjectDir from RoomDir (parent of .war-rooms) ---
