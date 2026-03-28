@@ -290,35 +290,47 @@ async def summarize_plan(
     temp_prompt_path = Path(f"/tmp/plan-prompt-{uuid.uuid4().hex}.txt")
     temp_prompt_path.write_text(prompt)
 
-    deepagents_cmd = "deepagents"
-    if agents_dir:
-        local_agent = agents_dir / "bin" / "agent"
-        if local_agent.exists():
-            deepagents_cmd = str(local_agent)
+        async for event in agent.astream_events(
+            {"messages": messages},
+            version="v2",
+        ):
+            kind = event.get("event", "")
+            if kind == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    content = chunk.content
+                    # Gemini returns content as a list of blocks:
+                    #   [{"type": "text", "text": "..."}]
+                    # Other providers return a plain string.
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("text"):
+                                yield block["text"]
+                            elif isinstance(block, str):
+                                yield block
+                    elif isinstance(content, str):
+                        yield content
+    except Exception as e:
+        logger.error("Plan agent streaming error: %s", e)
+        yield f"\n\n[Error: {str(e)}]"
 
-    try:
-        env = os.environ.copy()
-        proc = await asyncio.create_subprocess_shell(
-            f"\"{deepagents_cmd}\" -n \"$(cat '{temp_prompt_path}')\" -M \"{model}\" -q --auto-approve",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env
-        )
-
-        stdout, stderr = await proc.communicate()
-
-        if proc.returncode != 0:
-            error_msg = stderr.decode().strip()
-            logger.error(f"Summarize agent CLI failed ({proc.returncode}): {error_msg}")
-            return f"Summary unavailable. (Error: {proc.returncode})"
-
-        result = stdout.decode().strip()
-
-        # Clean up tags if present
-        if "<plan>" in result and "</plan>" in result:
-             result = result.split("<plan>")[1].split("</plan>")[0].strip()
-
-        return result
-    finally:
-        if temp_prompt_path.exists():
-            temp_prompt_path.unlink()
+async def summarize_plan(
+    plan_content: str,
+    model: str = "",
+    plans_dir: Optional[Path] = None,
+) -> str:
+    """Invoke the agent to summarize a drafted plan."""
+    llm = _resolve_model(model)
+    prompt = (
+        "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
+        "of the following software project plan. Highlight the main objective, "
+        "the key epics, and any notable architecture/roles.\n\n"
+        "Plan:\n"
+        f"{plan_content}"
+    )
+    from langchain_core.messages import HumanMessage
+    result = await llm.ainvoke([HumanMessage(content=prompt)])
+    content = result.content
+    if isinstance(content, list):
+        content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+    return content.strip()
