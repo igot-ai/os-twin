@@ -53,7 +53,7 @@
     "temperature": 0.7,
     "budget_tokens_max": 500000,
     "max_retries": 3,
-    "timeout_seconds": 900,
+    "timeout_seconds": 2400,
     "skill_refs": [
       "risk-decision",
       "war-room-communication"
@@ -84,7 +84,7 @@
     "temperature": 0.7,
     "budget_tokens_max": 500000,
     "max_retries": 3,
-    "timeout_seconds": 900,
+    "timeout_seconds": 2400,
     "skill_refs": [
       "scope-investigation",
       "analytical-lenses",
