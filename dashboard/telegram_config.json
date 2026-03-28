@@ -1,8 +1,8 @@
 {
-    "bot_token": "test_token",
-    "chat_id": "test_chat",
+    "bot_token": "YOUR_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID",
     "authorized_chats": [
-        "test_chat"
+        "YOUR_CHAT_ID"
     ],
     "pairing_code": "test_code"
 }
