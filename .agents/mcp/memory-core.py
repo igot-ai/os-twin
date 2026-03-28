@@ -12,6 +12,7 @@ Storage:
 
 import fcntl
 import json
+import math
 import os
 import re
 import time
@@ -85,20 +86,18 @@ def _read_ledger() -> list[dict]:
     return entries
 
 
-def _rebuild_index(entries: list[dict]) -> list[dict]:
-    """Build a live index from ledger entries, respecting supersedes."""
+def _get_live(entries: list[dict]) -> list[dict]:
+    """Filter out superseded entries (read-only, no disk writes)."""
     superseded_ids: set[str] = set()
     for entry in entries:
         sup = entry.get("supersedes")
         if sup:
             superseded_ids.add(sup)
+    return [e for e in entries if e["id"] not in superseded_ids]
 
-    live = []
-    for entry in entries:
-        if entry["id"] not in superseded_ids:
-            live.append(entry)
 
-    # Write index to disk for dashboard/external consumption
+def _write_index(live: list[dict]) -> None:
+    """Write the materialized index to disk for dashboard/external consumption."""
     index_path = _index_path()
     with open(index_path, "w") as f:
         json.dump(
@@ -110,17 +109,11 @@ def _rebuild_index(entries: list[dict]) -> list[dict]:
             f,
             indent=2,
         )
-    return live
 
 
 def _tokenize(text: str) -> list[str]:
     """Tokenize text into lowercase words (preserves duplicates for TF)."""
     return re.findall(r"[a-z0-9_-]+", text.lower())
-
-
-def _tokenize_unique(text: str) -> set[str]:
-    """Tokenize text into unique lowercase words."""
-    return set(_tokenize(text))
 
 
 # Half-life in seconds per kind — how fast each kind loses relevance
@@ -178,7 +171,6 @@ def _time_decay(entry: dict, reference: Optional[datetime] = None) -> float:
     if age_seconds == 0:
         return 1.0
     half_life = _HALF_LIFE.get(entry.get("kind", ""), _DEFAULT_HALF_LIFE)
-    import math
     return math.pow(0.5, age_seconds / half_life)
 
 
@@ -231,8 +223,6 @@ def _bm25_score(query_tokens: list[str], doc_tokens: list[str],
     n_docs:       total number of documents in the corpus
     avgdl:        average document length across corpus
     """
-    import math
-
     doc_len = len(doc_tokens)
     if doc_len == 0 or avgdl == 0:
         return 0.0
@@ -370,9 +360,10 @@ def publish(
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
-    # Rebuild index
+    # Rebuild index (only publish writes to disk)
     all_entries = _read_ledger()
-    _rebuild_index(all_entries)
+    live = _get_live(all_entries)
+    _write_index(live)
 
     return f"published:{mem_id}"
 
@@ -388,7 +379,7 @@ def query(
 ) -> str:
     """Query shared memory with optional filters."""
     all_entries = _read_ledger()
-    live = _rebuild_index(all_entries)
+    live = _get_live(all_entries)
 
     results = []
     for entry in live:
@@ -423,7 +414,7 @@ def search(
 ) -> str:
     """Full-text search across shared memory."""
     all_entries = _read_ledger()
-    live = _rebuild_index(all_entries)
+    live = _get_live(all_entries)
 
     query_tokens = _tokenize(text)
     if not query_tokens:
@@ -456,7 +447,7 @@ def get_context(
 ) -> str:
     """Generate a curated cross-room context summary for a specific war-room."""
     all_entries = _read_ledger()
-    live = _rebuild_index(all_entries)
+    live = _get_live(all_entries)
 
     candidates = [e for e in live if e.get("room_id") != room_id]
 
@@ -513,7 +504,7 @@ def list_memories(
 ) -> str:
     """List all live memory entries (lightweight index view)."""
     all_entries = _read_ledger()
-    live = _rebuild_index(all_entries)
+    live = _get_live(all_entries)
 
     results = []
     for entry in live:

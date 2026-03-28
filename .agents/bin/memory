@@ -98,16 +98,22 @@ case "$CMD" in
         KIND="${1:-}"; shift || true
         SUMMARY="${1:-}"; shift || true
         # Auto-detect room and role from env vars set by Invoke-Agent.ps1
-        EXTRA_ARGS=""
-        if [[ -n "${AGENT_OS_ROOM_DIR:-}" ]] && ! echo "$*" | grep -q '\-\-room'; then
+        # Check if --room / --role were explicitly passed
+        HAS_ROOM=false
+        HAS_ROLE=false
+        for arg in "$@"; do
+            [[ "$arg" == "--room" ]] && HAS_ROOM=true
+            [[ "$arg" == "--role" ]] && HAS_ROLE=true
+        done
+        EXTRA_ARGS=()
+        if [[ -n "${AGENT_OS_ROOM_DIR:-}" ]] && [[ "$HAS_ROOM" == false ]]; then
             ROOM_ID="$(basename "$AGENT_OS_ROOM_DIR")"
-            EXTRA_ARGS="--room $ROOM_ID"
+            EXTRA_ARGS+=(--room "$ROOM_ID")
         fi
-        if [[ -n "${AGENT_OS_ROLE:-}" ]] && ! echo "$*" | grep -q '\-\-role'; then
-            EXTRA_ARGS="$EXTRA_ARGS --role $AGENT_OS_ROLE"
+        if [[ -n "${AGENT_OS_ROLE:-}" ]] && [[ "$HAS_ROLE" == false ]]; then
+            EXTRA_ARGS+=(--role "$AGENT_OS_ROLE")
         fi
-        # shellcheck disable=SC2086
-        JSON=$(build_json "$KIND" "$SUMMARY" $EXTRA_ARGS "$@")
+        JSON=$(build_json "$KIND" "$SUMMARY" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" "$@")
         exec "$PYTHON" "$MEMORY_CLI" publish "$JSON"
         ;;
     query)
