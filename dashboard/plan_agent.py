@@ -400,3 +400,24 @@ async def refine_plan_stream(
     except Exception as e:
         logger.error("Plan agent streaming error: %s", e)
         yield f"\n\n[Error: {str(e)}]"
+
+async def summarize_plan(
+    plan_content: str,
+    model: str = "",
+    plans_dir: Optional[Path] = None,
+) -> str:
+    """Invoke the agent to summarize a drafted plan."""
+    llm = _resolve_model(model)
+    prompt = (
+        "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
+        "of the following software project plan. Highlight the main objective, "
+        "the key epics, and any notable architecture/roles.\n\n"
+        "Plan:\n"
+        f"{plan_content}"
+    )
+    from langchain_core.messages import HumanMessage
+    result = await llm.ainvoke([HumanMessage(content=prompt)])
+    content = result.content
+    if isinstance(content, list):
+        content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+    return content.strip()
