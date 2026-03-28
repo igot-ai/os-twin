@@ -149,6 +149,15 @@
         "risk-decision-recorded"
       ],
       "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "technical-writer",
+      "description": "Document gameplay instructions and verify final project state",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/technical-writer/role.json",
+      "prompt": "roles/technical-writer/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
     }
   ],
   "assignment_rules": {
@@ -211,7 +220,11 @@
         "description": "Fetch LangGraph documentation for accurate, up-to-date guidance",
         "path": "skills/global/lang/SKILL.md",
         "skills": "engineer, python, code-generation",
-        "tags": ["engineer", "python", "code-generation"],
+        "tags": [
+          "engineer",
+          "python",
+          "code-generation"
+        ],
         "trust_level": "core"
       },
       {
@@ -219,7 +232,11 @@
         "description": "Scaffold a new agent role — generates role.json, ROLE.md, and registers in registry.json",
         "path": "skills/roles/architect/create-role/SKILL.md",
         "skills": "architect, manager, scaffolding",
-        "tags": ["architect", "manager", "scaffolding"],
+        "tags": [
+          "architect",
+          "manager",
+          "scaffolding"
+        ],
         "trust_level": "core"
       },
       {
@@ -227,7 +244,11 @@
         "description": "Generate architecture docs for an epic — ADRs, component diagrams, data flows, tech-stack rationale",
         "path": "skills/global/create-architecture/SKILL.md",
         "skills": "architect, documentation, design",
-        "tags": ["architect", "documentation", "design"],
+        "tags": [
+          "architect",
+          "documentation",
+          "design"
+        ],
         "trust_level": "core"
       },
       {
@@ -235,7 +256,11 @@
         "description": "Define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, escalation rules",
         "path": "skills/global/create-lifecycle/SKILL.md",
         "skills": "architect, manager, process",
-        "tags": ["architect", "manager", "process"],
+        "tags": [
+          "architect",
+          "manager",
+          "process"
+        ],
         "trust_level": "core"
       },
       {
@@ -243,7 +268,12 @@
         "description": "Define investigation boundaries using the DEPT framework before commissioning analytical work",
         "path": "skills/roles/audit/scope-investigation/SKILL.md",
         "skills": "audit, risk-officer, scoping",
-        "tags": ["audit", "risk-officer", "scoping", "investigation"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "scoping",
+          "investigation"
+        ],
         "trust_level": "core"
       },
       {
@@ -251,7 +281,12 @@
         "description": "Select analytical lenses (Distribution, Deviation, Relationship, Temporality, Compounding) and formulate precise questions",
         "path": "skills/roles/audit/analytical-lenses/SKILL.md",
         "skills": "audit, risk-officer, analytics",
-        "tags": ["audit", "risk-officer", "analytics", "questioning"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "analytics",
+          "questioning"
+        ],
         "trust_level": "core"
       },
       {
@@ -259,7 +294,12 @@
         "description": "Maintain and query a reusable library of proven risk questions organized by Risk Theme × Data Domain × Analytical Lens",
         "path": "skills/roles/audit/question-library/SKILL.md",
         "skills": "audit, risk-officer, playbook",
-        "tags": ["audit", "risk-officer", "question-library", "continuous-audit"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "question-library",
+          "continuous-audit"
+        ],
         "trust_level": "core"
       },
       {
@@ -267,7 +307,12 @@
         "description": "Compose formal structured data requests using the DATA template and send as task messages to data analysts",
         "path": "skills/roles/audit/structure-data-request/SKILL.md",
         "skills": "audit, risk-officer, data-request",
-        "tags": ["audit", "risk-officer", "data-request", "war-room"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "data-request",
+          "war-room"
+        ],
         "trust_level": "core"
       },
       {
@@ -275,7 +320,12 @@
         "description": "Pressure-test data analyst output using the Five Validation Questions before acting on findings",
         "path": "skills/roles/audit/validate-output/SKILL.md",
         "skills": "audit, risk-officer, validation",
-        "tags": ["audit", "risk-officer", "validation", "quality-gate"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "validation",
+          "quality-gate"
+        ],
         "trust_level": "core"
       },
       {
@@ -283,10 +333,14 @@
         "description": "Convert validated findings into decision categories (Accept, Mitigate, Investigate, Escalate) with Risk Decision Records",
         "path": "skills/roles/audit/risk-decision/SKILL.md",
         "skills": "audit, risk-officer, decision-making",
-        "tags": ["audit", "risk-officer", "risk-management", "governance"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "risk-management",
+          "governance"
+        ],
         "trust_level": "core"
       }
     ]
   }
 }
-
