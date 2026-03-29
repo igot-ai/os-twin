@@ -1683,10 +1683,18 @@ def cli_main() -> None:
 
     When not set, behaves identically to the original deepagents CLI.
     """
+    import logging
+    
+    # Force default logging level to ERROR
+    logging.basicConfig(level=logging.ERROR, force=True)
+    
+    # Suppress non-error logging from core packages
+    logging.getLogger("deepagents_cli").setLevel(logging.ERROR)
+    logging.getLogger("deepagents").setLevel(logging.ERROR)
+
     role = os.environ.get("AGENT_OS_ROLE")
     skills_dir = os.environ.get("AGENT_OS_SKILLS_DIR")
     if role and skills_dir:
-        import logging
         logger = logging.getLogger("agent_os.cli")
         logger.info(
             "Agent OS CLI: role=%s skills_dir=%s",

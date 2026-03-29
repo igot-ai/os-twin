@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { EpicNode, EpicSection, EpicDocument } from '@/lib/epic-parser';
 import { Badge } from '@/components/ui/Badge';
 import { MarkdownRenderer } from '@/lib/markdown-renderer';
@@ -92,6 +92,18 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
   const [titleValue, setTitleValue] = useState(epic.title);
   const descriptionSection = epic.sections.find(s => s.heading.toLowerCase() === 'description');
   const [descriptionValue, setDescriptionValue] = useState(descriptionSection?.content || '');
+  const [addingItemSection, setAddingItemSection] = useState<string | null>(null);
+  const [newItemText, setNewItemText] = useState('');
+  const newItemInputRef = useRef<HTMLInputElement>(null);
+
+  // Inline editing state for checklist items (AC + DoD)
+  const [editingCheckItem, setEditingCheckItem] = useState<string | null>(null); // "sectionHeading:idx"
+  const [editingCheckText, setEditingCheckText] = useState('');
+
+  // Inline editing state for task items
+  const [editingTask, setEditingTask] = useState<string | null>(null); // "sectionHeading:taskId"
+  const [editingTaskTitle, setEditingTaskTitle] = useState('');
+  const [editingTaskBody, setEditingTaskBody] = useState('');
 
   // Sync state with props when NOT editing
   if (!editingTitle && titleValue !== epic.title) {
@@ -137,7 +149,67 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
     });
   };
 
-  const handleAddItem = (sectionHeading: string) => {
+  // ── Edit existing checklist item ──
+  const handleStartEditCheckItem = (sectionHeading: string, idx: number, text: string) => {
+    setEditingCheckItem(`${sectionHeading}:${idx}`);
+    setEditingCheckText(text);
+  };
+
+  const handleCommitEditCheckItem = (sectionHeading: string, idx: number) => {
+    const trimmed = editingCheckText.trim();
+    if (trimmed) {
+      updateParsedPlan((doc: EpicDocument) => {
+        const epicToUpdate = doc.epics.find(e => e.ref === epic.ref);
+        if (epicToUpdate) {
+          const section = epicToUpdate.sections.find(s => s.heading === sectionHeading);
+          if (section?.items?.[idx]) {
+            section.items[idx].text = trimmed;
+            section.items[idx].rawLine = `${section.items[idx].prefix}${trimmed}`;
+          }
+        }
+        return doc;
+      });
+    }
+    setEditingCheckItem(null);
+    setEditingCheckText('');
+  };
+
+  // ── Edit existing task item ──
+  const handleStartEditTask = (sectionHeading: string, taskId: string, title: string, body: string) => {
+    setEditingTask(`${sectionHeading}:${taskId}`);
+    setEditingTaskTitle(title);
+    setEditingTaskBody(body);
+  };
+
+  const handleCommitEditTask = (sectionHeading: string, taskId: string) => {
+    const trimmedTitle = editingTaskTitle.trim();
+    if (trimmedTitle) {
+      updateParsedPlan((doc: EpicDocument) => {
+        const epicToUpdate = doc.epics.find(e => e.ref === epic.ref);
+        if (epicToUpdate) {
+          const section = epicToUpdate.sections.find(s => s.heading === sectionHeading);
+          if (section?.tasks) {
+            const task = section.tasks.find(t => t.id === taskId);
+            if (task) {
+              task.title = trimmedTitle;
+              task.body = editingTaskBody;
+              task.bodyLines = editingTaskBody ? editingTaskBody.split('\n') : [];
+              // Reconstruct rawHeader
+              const checkbox = task.completed ? '[x]' : '[ ]';
+              task.rawHeader = `${task.prefix.replace(/\[[ x]\]/, checkbox)}${task.idPrefix}${task.id}${task.idSuffix}${task.delimiter}${trimmedTitle}`;
+            }
+          }
+        }
+        return doc;
+      });
+    }
+    setEditingTask(null);
+    setEditingTaskTitle('');
+    setEditingTaskBody('');
+  };
+
+  const handleAddItem = (sectionHeading: string, text: string) => {
+    if (!text.trim()) return;
     updateParsedPlan((doc: EpicDocument) => {
       const epicToUpdate = doc.epics.find(e => e.ref === epic.ref);
       if (epicToUpdate) {
@@ -146,30 +218,38 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
           if (section.type === 'checklist') {
             if (!section.items) section.items = [];
             section.items.push({
-              text: 'New item',
+              text: text.trim(),
               checked: false,
-              rawLine: '- [ ] New item',
+              rawLine: `- [ ] ${text.trim()}`,
               prefix: '- [ ] '
             });
           } else if (section.type === 'tasklist') {
             if (!section.tasks) section.tasks = [];
-            // Find max task number
+            // Derive the task ID prefix from existing tasks (e.g. "T-G001" from "T-G001.6")
+            // Fall back to "T-" + epic ref number if no existing tasks
+            let idBase = '';
             let maxNum = 0;
             section.tasks.forEach(t => {
-              const match = t.id.match(/\.(\d+)$/);
+              const match = t.id.match(/^(.+)\.(\d+)$/);
               if (match) {
-                const num = parseInt(match[1]);
+                idBase = match[1];
+                const num = parseInt(match[2]);
                 if (num > maxNum) maxNum = num;
               }
             });
-            const nextTaskId = `${epic.ref}.${maxNum + 1}`;
+            if (!idBase) {
+              // Generate from epic ref: EPIC-001 → T-G001
+              const refNum = epic.ref.replace(/^EPIC-/, '');
+              idBase = `T-G${refNum}`;
+            }
+            const nextTaskId = `${idBase}.${maxNum + 1}`;
             section.tasks.push({
               id: nextTaskId,
-              title: 'New task',
+              title: text.trim(),
               completed: false,
               body: '',
               bodyLines: [],
-              rawHeader: `- [ ] **${nextTaskId}** — New task`,
+              rawHeader: `- [ ] **${nextTaskId}** — ${text.trim()}`,
               prefix: '- [ ] ',
               idPrefix: '**',
               idSuffix: '**',
@@ -181,6 +261,26 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
       return doc;
     });
   };
+
+  const handleStartAddItem = useCallback((sectionHeading: string) => {
+    setAddingItemSection(sectionHeading);
+    setNewItemText('');
+    // Focus the input after render
+    setTimeout(() => newItemInputRef.current?.focus(), 50);
+  }, []);
+
+  const handleCommitNewItem = useCallback((sectionHeading: string) => {
+    if (newItemText.trim()) {
+      handleAddItem(sectionHeading, newItemText);
+    }
+    setAddingItemSection(null);
+    setNewItemText('');
+  }, [newItemText]);
+
+  const handleCancelNewItem = useCallback(() => {
+    setAddingItemSection(null);
+    setNewItemText('');
+  }, []);
 
   const handleTitleSubmit = () => {
     setEditingTitle(false);
@@ -270,6 +370,8 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
             <div className="space-y-1">
               {section.items.map((item, idx) => {
                 const isAC = section.heading.toLowerCase() === 'acceptance criteria';
+                const checkKey = `${section.heading}:${idx}`;
+                const isEditing = editingCheckItem === checkKey;
                 return (
                   <div key={idx} className="flex items-start gap-2 group/item">
                     <input
@@ -280,22 +382,75 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                         isAC ? (item.checked ? 'text-success' : 'text-danger') : 'text-primary'
                       }`}
                     />
-                    <span className={`text-sm leading-relaxed transition-colors ${
-                      item.checked ? (isAC ? 'text-success-text font-medium' : 'text-text-muted line-through') : (isAC ? 'text-danger-text' : 'text-text-main')
-                    }`}>
-                      {renderInlineCode(item.text)}
-                    </span>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editingCheckText}
+                        onChange={(e) => setEditingCheckText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); handleCommitEditCheckItem(section.heading, idx); }
+                          if (e.key === 'Escape') { setEditingCheckItem(null); setEditingCheckText(''); }
+                        }}
+                        onBlur={() => handleCommitEditCheckItem(section.heading, idx)}
+                        className="flex-1 bg-background border border-primary/40 focus:border-primary px-2 py-0.5 rounded text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        className={`text-sm leading-relaxed transition-colors cursor-text hover:bg-surface-hover/50 px-1 -mx-1 rounded ${
+                          item.checked ? (isAC ? 'text-success-text font-medium' : 'text-text-muted line-through') : (isAC ? 'text-danger-text' : 'text-text-main')
+                        }`}
+                        onClick={(e) => { e.stopPropagation(); handleStartEditCheckItem(section.heading, idx, item.text); }}
+                        title="Click to edit"
+                      >
+                        {renderInlineCode(item.text)}
+                      </span>
+                    )}
                   </div>
                 );
               })}
             </div>
-            <button 
-              onClick={() => handleAddItem(section.heading)}
-              className="flex items-center gap-1.5 text-[10px] font-bold text-primary hover:text-primary-dark transition-colors mt-2 uppercase tracking-wider pl-1"
-            >
-              <span className="material-symbols-outlined text-[14px]">add_circle</span>
-              Add item
-            </button>
+            {addingItemSection === section.heading ? (
+              <div className="flex items-center gap-2 mt-2 pl-1">
+                <input
+                  type="checkbox"
+                  disabled
+                  className="h-3.5 w-3.5 rounded border-border opacity-40"
+                />
+                <input
+                  ref={newItemInputRef}
+                  type="text"
+                  value={newItemText}
+                  onChange={(e) => setNewItemText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCommitNewItem(section.heading);
+                    }
+                    if (e.key === 'Escape') handleCancelNewItem();
+                  }}
+                  onBlur={() => handleCommitNewItem(section.heading)}
+                  placeholder="Type new item and press Enter…"
+                  className="flex-1 bg-background border border-primary/40 focus:border-primary px-2 py-1 rounded text-sm text-text-main placeholder:text-text-faint/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  autoFocus
+                />
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); handleCancelNewItem(); }}
+                  className="p-0.5 rounded hover:bg-red-50 transition-colors"
+                  title="Cancel"
+                >
+                  <span className="material-symbols-outlined text-[14px] text-text-faint hover:text-red-500">close</span>
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => handleStartAddItem(section.heading)}
+                className="flex items-center gap-1.5 text-[10px] font-bold text-primary hover:text-primary-dark transition-colors mt-2 uppercase tracking-wider pl-1"
+              >
+                <span className="material-symbols-outlined text-[14px]">add_circle</span>
+                Add item
+              </button>
+            )}
             {section.postamble && section.postamble.length > 0 && (
               <MarkdownRenderer content={section.postamble.join('\n')} className="text-sm text-text-main mt-2" />
             )}
@@ -311,37 +466,124 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
               ) : null;
             })()}
             <div className="space-y-3">
-              {section.tasks.map((task, idx) => (
-                <div key={task.id} className="p-3 rounded-lg border border-border bg-background/50 hover:border-text-faint transition-colors">
-                  <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={task.completed}
-                      onChange={() => handleToggleTask(section.heading, idx)}
-                      className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary/20 cursor-pointer"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="outline" className="font-mono text-[9px] px-1 py-0 h-4">{task.id}</Badge>
-                        <span className={`text-sm font-bold truncate ${task.completed ? 'text-text-muted line-through' : 'text-text-main'}`}>
-                          {renderInlineCode(task.title)}
-                        </span>
+              {section.tasks.map((task, idx) => {
+                const taskKey = `${section.heading}:${task.id}`;
+                const isEditingThisTask = editingTask === taskKey;
+                return (
+                  <div key={task.id} className={`p-3 rounded-lg border transition-colors ${
+                    isEditingThisTask 
+                      ? 'border-primary bg-background shadow-md' 
+                      : 'border-border bg-background/50 hover:border-text-faint'
+                  }`}>
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={task.completed}
+                        onChange={() => handleToggleTask(section.heading, idx)}
+                        className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary/20 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        {isEditingThisTask ? (
+                          <div className="space-y-2">
+                            {/* Task title input */}
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="font-mono text-[9px] px-1 py-0 h-4 shrink-0">{task.id}</Badge>
+                              <input
+                                type="text"
+                                value={editingTaskTitle}
+                                onChange={(e) => setEditingTaskTitle(e.target.value)}
+                                className="flex-1 bg-background border border-primary/40 focus:border-primary px-2 py-1 rounded text-sm font-bold text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                                autoFocus
+                              />
+                            </div>
+                            {/* Task body markdown editor */}
+                            <textarea
+                              value={editingTaskBody}
+                              onChange={(e) => setEditingTaskBody(e.target.value)}
+                              placeholder="Task details (markdown supported)…"
+                              className="w-full bg-background border border-border focus:border-primary px-3 py-2 rounded text-xs text-text-main font-mono min-h-[80px] focus:outline-none focus:ring-2 focus:ring-primary/20 resize-y transition-all placeholder:text-text-faint/40"
+                              rows={Math.max(3, editingTaskBody.split('\n').length + 1)}
+                            />
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-2 justify-end">
+                              <button
+                                onMouseDown={(e) => { e.preventDefault(); setEditingTask(null); }}
+                                className="px-3 py-1 text-[10px] font-bold text-text-faint hover:text-text-main rounded-md border border-border hover:bg-surface-hover transition-all uppercase tracking-wider"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onMouseDown={(e) => { e.preventDefault(); handleCommitEditTask(section.heading, task.id); }}
+                                className="px-3 py-1 text-[10px] font-bold text-white bg-primary hover:bg-primary-dark rounded-md shadow-sm transition-all uppercase tracking-wider"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            className="cursor-text hover:bg-surface-hover/30 p-1 -m-1 rounded transition-colors"
+                            onClick={(e) => { e.stopPropagation(); handleStartEditTask(section.heading, task.id, task.title, task.body); }}
+                            title="Click to edit task"
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge variant="outline" className="font-mono text-[9px] px-1 py-0 h-4">{task.id}</Badge>
+                              <span className={`text-sm font-bold truncate ${task.completed ? 'text-text-muted line-through' : 'text-text-main'}`}>
+                                {renderInlineCode(task.title)}
+                              </span>
+                            </div>
+                            {task.body && (
+                              <MarkdownRenderer content={task.body} className="mt-2 text-xs text-text-muted" />
+                            )}
+                          </div>
+                        )}
                       </div>
-                      {task.body && (
-                        <MarkdownRenderer content={task.body} className="mt-2 text-xs text-text-muted" />
-                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-            <button 
-              onClick={() => handleAddItem(section.heading)}
-              className="w-full py-2 mt-3 border border-dashed border-border rounded-lg text-[10px] font-bold text-text-faint hover:text-primary hover:border-primary transition-all flex items-center justify-center gap-1.5 uppercase tracking-wider"
-            >
-              <span className="material-symbols-outlined text-[14px]">add_circle</span>
-              Add task
-            </button>
+            {addingItemSection === section.heading ? (
+              <div className="flex items-center gap-2 mt-3 px-3">
+                <input
+                  type="checkbox"
+                  disabled
+                  className="h-4 w-4 rounded border-border opacity-40"
+                />
+                <input
+                  ref={newItemInputRef}
+                  type="text"
+                  value={newItemText}
+                  onChange={(e) => setNewItemText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCommitNewItem(section.heading);
+                    }
+                    if (e.key === 'Escape') handleCancelNewItem();
+                  }}
+                  onBlur={() => handleCommitNewItem(section.heading)}
+                  placeholder="Type new task title and press Enter…"
+                  className="flex-1 bg-background border border-primary/40 focus:border-primary px-2 py-1.5 rounded text-sm font-bold text-text-main placeholder:text-text-faint/50 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  autoFocus
+                />
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); handleCancelNewItem(); }}
+                  className="p-0.5 rounded hover:bg-red-50 transition-colors"
+                  title="Cancel"
+                >
+                  <span className="material-symbols-outlined text-[14px] text-text-faint hover:text-red-500">close</span>
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => handleStartAddItem(section.heading)}
+                className="w-full py-2 mt-3 border border-dashed border-border rounded-lg text-[10px] font-bold text-text-faint hover:text-primary hover:border-primary transition-all flex items-center justify-center gap-1.5 uppercase tracking-wider"
+              >
+                <span className="material-symbols-outlined text-[14px]">add_circle</span>
+                Add task
+              </button>
+            )}
             {section.postamble && section.postamble.length > 0 && (
               <MarkdownRenderer content={section.postamble.join('\n')} className="text-sm text-text-main mt-3" />
             )}

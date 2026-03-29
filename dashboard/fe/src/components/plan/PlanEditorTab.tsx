@@ -12,7 +12,7 @@ interface PlanEditorTabProps {
 type ViewMode = 'edit' | 'preview' | 'split' | 'structured';
 
 export default function PlanEditorTab({ content, onChange }: PlanEditorTabProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('edit');
+  const [viewMode, setViewMode] = useState<ViewMode>('structured');
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -39,7 +39,7 @@ export default function PlanEditorTab({ content, onChange }: PlanEditorTabProps)
             }`}
           >
             <span className="material-symbols-outlined text-[16px]">edit</span>
-            Edit
+            Markdown Editor
           </button>
           <button
             onClick={() => setViewMode('preview')}
@@ -70,10 +70,10 @@ export default function PlanEditorTab({ content, onChange }: PlanEditorTabProps)
                 ? 'bg-primary text-white shadow-sm'
                 : 'text-text-muted hover:text-text-main hover:bg-surface-hover'
             }`}
-            title="Structured View (Ctrl+Shift+S)"
+            title="Epic Design View (Ctrl+Shift+S)"
           >
             <span className="material-symbols-outlined text-[16px]">account_tree</span>
-            Structured
+            Epic Design
           </button>
         </div>
         
