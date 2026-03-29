@@ -20,28 +20,38 @@ import {
   defaultDropAnimationSideEffects,
 } from '@dnd-kit/core';
 
+// V2 lifecycle states from Resolve-Pipeline.ps1
 const stateMapping = [
   { state: 'pending', label: 'Pending' },
-  { state: 'engineering', label: 'Engineering' },
-  { state: 'qa-review', label: 'QA Review' },
-  { state: 'fixing', label: 'Fixing' },
-  { state: 'manager-triage', label: 'Triage' },
-  { state: 'passed', label: 'Passed' },
-  { state: 'signoff', label: 'Signoff' },
-  { state: 'failed-final', label: 'Failed' },
+  { state: 'developing', label: 'Developing' },
+  { state: 'in-review', label: 'In Review' },     // bucket for dynamic {role}-review states
+  { state: 'review', label: 'QA Gate' },            // final QA review gate
+  { state: 'optimize', label: 'Optimize' },         // fixing after review feedback
+  { state: 'triage', label: 'Triage' },             // manager escalation handling
+  { state: 'failed', label: 'Auto-Retry' },         // auto-decision: retry or exhaust
+  { state: 'passed', label: 'Passed' },             // terminal: success
+  { state: 'failed-final', label: 'Failed' },       // terminal: exhausted retries
 ];
 
 type ViewMode = 'LIFECYCLE' | 'TIMELINE';
 
-// Valid transitions: roughly linear, but allow backtracking to engineering/fixing
+// Valid transitions matching V2 lifecycle state machine from Resolve-Pipeline.ps1
+// developing.done → in-review (first reviewer) or review (no reviewer chain)
+// optimize.done   → in-review or review
+// {role}-review.pass → next reviewer or review (final gate) or passed
+// {role}-review.fail → optimize
+// review.pass → passed | review.fail → developing
+// triage.fix → developing | triage.redesign → developing | triage.reject → failed-final
+// failed (auto) → developing (retry) or failed-final (exhausted)
 const validTransitions: Record<string, string[]> = {
-  pending: ['engineering'],
-  engineering: ['qa-review', 'fixing'],
-  'qa-review': ['passed', 'fixing', 'manager-triage'],
-  fixing: ['qa-review'],
-  'manager-triage': ['engineering', 'fixing', 'failed-final'],
-  passed: ['signoff', 'fixing'],
-  signoff: [],
+  'pending':      ['developing'],
+  'developing':   ['in-review', 'review', 'failed'],
+  'in-review':    ['review', 'optimize', 'triage', 'passed', 'in-review'],
+  'review':       ['passed', 'developing', 'triage'],
+  'optimize':     ['in-review', 'review', 'failed'],
+  'triage':       ['developing', 'failed-final'],
+  'failed':       ['developing', 'failed-final'],
+  'passed':       [],
   'failed-final': [],
 };
 
@@ -49,7 +59,7 @@ export default function KanbanBoard() {
   const { epics, isLoading, updateEpicState, planId } = usePlanContext();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overState, setOverState] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('LIFECYCLE');
+  const [viewMode, setViewMode] = useState<ViewMode>('TIMELINE');
 
   // Fetch DAG and progress for column grouping & status overlay
   const { dag } = useDAG(planId);
@@ -78,6 +88,7 @@ export default function KanbanBoard() {
     return map;
   }, [progress]);
 
+
   const groupedEpics = useMemo(() => {
     if (!epics) return {} as Record<string, Epic[]>;
     
@@ -93,6 +104,9 @@ export default function KanbanBoard() {
       if (viewMode === 'TIMELINE' && dag?.waves) {
         const wave = Object.entries(dag.waves).find(([_, refs]) => refs.includes(epic.epic_ref))?.[0];
         state = wave ? `wave-${wave}` : 'unknown';
+      } else {
+        // Normalize to V2 lifecycle column buckets
+        state = normalizeLifecycleState(state);
       }
 
       if (!acc[state]) acc[state] = [];
@@ -141,14 +155,17 @@ export default function KanbanBoard() {
       const newState = over.id as string;
       const epic = epics.find(e => e.epic_ref === epicRef);
 
-      if (epic && (epic.lifecycle_state || 'pending') !== newState) {
-        // Validate transition
-        const allowed = validTransitions[epic.lifecycle_state || 'pending'] || [];
-        if (allowed.includes(newState) || newState === (epic.lifecycle_state || 'pending')) {
-          try {
-            await updateEpicState(epicRef, newState, newState as EpicStatus);
-          } catch (err) {
-            console.error('Failed to move epic:', err);
+      if (epic) {
+        const currentNormalized = normalizeLifecycleState(epic.lifecycle_state || 'pending');
+        if (currentNormalized !== newState) {
+          // Validate transition against V2 state machine
+          const allowed = validTransitions[currentNormalized] || [];
+          if (allowed.includes(newState)) {
+            try {
+              await updateEpicState(epicRef, newState, newState as EpicStatus);
+            } catch (err) {
+              console.error('Failed to move epic:', err);
+            }
           }
         }
       }
@@ -173,16 +190,16 @@ export default function KanbanBoard() {
   const activeEpic = activeId ? epics?.find(e => e.epic_ref === activeId) : null;
 
   // Count summary stats — use progress data if available, else count from epics
-  const passedCount = progress?.passed ?? epics?.filter(e => (e.lifecycle_state || 'pending') === 'passed' || (e.lifecycle_state || 'pending') === 'signoff').length ?? 0;
-  const failedCount = progress?.failed ?? epics?.filter(e => (e.lifecycle_state || 'pending') === 'failed-final').length ?? 0;
-  const activeCount = progress?.active ?? epics?.filter(e => !['pending', 'passed', 'signoff', 'failed-final'].includes(e.lifecycle_state || 'pending')).length ?? 0;
+  const passedCount = progress?.passed ?? epics?.filter(e => normalizeLifecycleState(e.lifecycle_state || 'pending') === 'passed').length ?? 0;
+  const failedCount = progress?.failed ?? epics?.filter(e => normalizeLifecycleState(e.lifecycle_state || 'pending') === 'failed-final').length ?? 0;
+  const activeCount = progress?.active ?? epics?.filter(e => !['pending', 'passed', 'failed-final'].includes(normalizeLifecycleState(e.lifecycle_state || 'pending'))).length ?? 0;
 
   return (
     <div className="h-full flex flex-col p-6 overflow-hidden">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-extrabold text-text-main">
-            {viewMode === 'LIFECYCLE' ? 'EPIC Lifecycle' : 'EPIC Timeline'}
+            {viewMode === 'TIMELINE' ? 'EPIC Timeline' : 'EPIC Lifecycle'}
           </h2>
           <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-surface border border-border text-text-muted shadow-sm">
             {progress?.total ?? epics?.length ?? 0} TOTAL
@@ -208,20 +225,20 @@ export default function KanbanBoard() {
         <div className="flex items-center gap-3">
           <div className="flex p-1 rounded-lg bg-surface border border-border">
             <button
-              onClick={() => setViewMode('LIFECYCLE')}
-              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
-                viewMode === 'LIFECYCLE' ? 'bg-primary text-white shadow-sm' : 'text-text-faint hover:text-text-main'
-              }`}
-            >
-              EXECUTION
-            </button>
-            <button
               onClick={() => setViewMode('TIMELINE')}
               className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
                 viewMode === 'TIMELINE' ? 'bg-primary text-white shadow-sm' : 'text-text-faint hover:text-text-main'
               }`}
             >
               TIMELINE (WAVES)
+            </button>
+            <button
+              onClick={() => setViewMode('LIFECYCLE')}
+              className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+                viewMode === 'LIFECYCLE' ? 'bg-primary text-white shadow-sm' : 'text-text-faint hover:text-text-main'
+              }`}
+            >
+              EXECUTION
             </button>
           </div>
           <div className="h-4 w-[1px] bg-border mx-1" />
@@ -251,16 +268,19 @@ export default function KanbanBoard() {
       >
         <div className="flex-1 flex gap-6 overflow-x-auto custom-scrollbar pb-6 min-h-0 select-none">
           {columns.map((item) => {
+            const columnEpics = groupedEpics[item.state] || [];
+            const isEmpty = columnEpics.length === 0;
             return (
               <KanbanColumn 
                 key={item.state} 
                 state={item.state} 
                 label={item.label} 
-                epics={groupedEpics[item.state] || []}
+                epics={columnEpics}
                 isOver={overState === item.state}
                 isInvalid={isOverStateInvalid(activeEpic, item.state)}
                 criticalPathSet={criticalPathSet}
                 warRoomStatusMap={warRoomStatusMap}
+                collapsed={viewMode === 'LIFECYCLE' && isEmpty && !activeId}
               />
             );
           })}
@@ -294,7 +314,25 @@ export default function KanbanBoard() {
 
 function isOverStateInvalid(activeEpic: Epic | null | undefined, overState: string) {
   if (!activeEpic) return false;
-  if ((activeEpic.lifecycle_state || 'pending') === overState) return false;
-  const allowed = validTransitions[activeEpic.lifecycle_state || 'pending'] || [];
+  const currentState = normalizeLifecycleState(activeEpic.lifecycle_state || 'pending');
+  if (currentState === overState) return false;
+  const allowed = validTransitions[currentState] || [];
   return !allowed.includes(overState);
+}
+
+// Exported for external use — normalizes any raw lifecycle state to a V2 column key
+function normalizeLifecycleState(rawState: string): string {
+  const fixedStates = new Set([
+    'pending', 'developing', 'optimize', 'review',
+    'triage', 'failed', 'passed', 'failed-final',
+  ]);
+  if (fixedStates.has(rawState)) return rawState;
+  if (rawState.endsWith('-review')) return 'in-review';
+  const legacyMap: Record<string, string> = {
+    'engineering': 'developing',
+    'fixing': 'optimize',
+    'manager-triage': 'triage',
+    'signoff': 'passed',
+  };
+  return legacyMap[rawState] || 'pending';
 }

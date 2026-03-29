@@ -58,8 +58,14 @@ export interface Epic {
 }
 
 export type EpicStatus =
-  | 'pending' | 'engineering' | 'qa-review' | 'fixing'
-  | 'manager-triage' | 'passed' | 'signoff' | 'failed-final';
+  // V2 lifecycle states (from Resolve-Pipeline.ps1)
+  | 'pending' | 'developing' | 'optimize' | 'review'
+  | 'triage' | 'failed' | 'passed' | 'failed-final'
+  // Bucket for dynamic {role}-review states
+  | 'in-review'
+  // Legacy aliases (backward compat)
+  | 'engineering' | 'qa-review' | 'fixing'
+  | 'manager-triage' | 'signoff';
 
 // ──────────────────────────────────────────────────
 // Task
