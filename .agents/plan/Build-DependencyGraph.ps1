@@ -318,8 +318,8 @@ process {
                 task_ref         = if ($r.TaskRef) { $r.TaskRef } else { $r.Id }
                 role             = $r.Role
                 candidate_roles  = $r.CandidateRoles
-                depends_on       = $r.DependsOn
-                dependents       = $r.Dependents
+                depends_on       = @($r.DependsOn)
+                dependents       = @($r.Dependents)
                 depth            = $r.Depth
                 on_critical_path = $r.OnCriticalPath
             }

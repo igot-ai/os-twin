@@ -107,7 +107,7 @@ $config = [ordered]@{
     room_id    = $RoomId
     task_ref   = $TaskRef
     plan_id    = $PlanId
-    depends_on = $DependsOn
+    depends_on = @($DependsOn)
     created_at = $ts
     working_dir = (Resolve-Path $WorkingDir -ErrorAction SilentlyContinue).Path
 

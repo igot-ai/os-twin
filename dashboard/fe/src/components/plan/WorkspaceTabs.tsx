@@ -2,7 +2,6 @@
 
 import React, { Suspense, lazy } from 'react';
 import { usePlanContext } from './PlanWorkspace';
-import { MarkdownPreview } from './MarkdownPreview';
 
 // Lazy-load tab components
 const KanbanBoard = lazy(() => import('./KanbanBoard'));
@@ -24,8 +23,6 @@ export default function WorkspaceTabs() {
         return <DAGTab />;
       case 'editor':
         return <PlanEditorTab content={planContent} onChange={setPlanContent} />;
-      case 'preview':
-        return <div className="h-full overflow-hidden bg-background"><MarkdownPreview content={planContent} /></div>;
       case 'history':
         return <PlanHistoryTab planId={planId} />;
       default:

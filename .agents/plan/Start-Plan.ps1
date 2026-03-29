@@ -385,17 +385,29 @@ if (-not $DryRun -and (Test-Path $buildPlanningDag)) {
         Write-Host "[PLANNING-DAG] Generating advisory DAG from plan content..." -ForegroundColor Cyan
         & $buildPlanningDag -PlanFile $PlanFile -OutFile $planningDagFile
     }
-    # Merge planning-DAG roles into parsed entries (advisory: only where no explicit Roles: found)
+    # Merge planning-DAG roles AND dependencies into parsed entries (advisory)
     if (Test-Path $planningDagFile) {
         try {
             $planningDag = Get-Content $planningDagFile -Raw | ConvertFrom-Json
             foreach ($pdNode in $planningDag.nodes) {
                 $matchedEntry = $parsed | Where-Object { $_.TaskRef -eq $pdNode.task_ref }
-                if ($matchedEntry -and -not $matchedEntry.HasExplicitRoles) {
-                    # Only override entries that defaulted (no explicit Roles: directive in markdown)
-                    if ($pdNode.role) {
-                        Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): role $($matchedEntry.Roles[0]) → $($pdNode.role) (advisory)" -ForegroundColor Yellow
-                        $matchedEntry.Roles = @($pdNode.candidate_roles)
+                if (-not $matchedEntry) { continue }
+
+                # --- Merge advisory roles (only where no explicit Roles: directive in markdown) ---
+                if (-not $matchedEntry.HasExplicitRoles -and $pdNode.role) {
+                    Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): role $($matchedEntry.Roles[0]) → $($pdNode.role) (advisory)" -ForegroundColor Yellow
+                    $matchedEntry.Roles = @($pdNode.candidate_roles)
+                }
+
+                # --- Merge advisory depends_on (only where no explicit depends_on in markdown) ---
+                # If the entry only has the auto-injected PLAN-REVIEW dependency (no author-specified deps),
+                # adopt the AI-suggested inter-epic dependencies.
+                $hasExplicitDeps = $matchedEntry.DependsOn | Where-Object { $_ -ne 'PLAN-REVIEW' }
+                if (-not $hasExplicitDeps -and $pdNode.depends_on -and @($pdNode.depends_on).Count -gt 0) {
+                    $aiDeps = @($pdNode.depends_on) | Where-Object { $_ -and $_ -ne 'PLAN-REVIEW' }
+                    if ($aiDeps.Count -gt 0) {
+                        $matchedEntry.DependsOn = @("PLAN-REVIEW") + $aiDeps
+                        Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): deps → $($matchedEntry.DependsOn -join ', ') (advisory)" -ForegroundColor Yellow
                     }
                 }
             }
@@ -612,6 +624,28 @@ function New-PlanWarRooms {
     foreach ($item in $parsed) {
         if ($item.DependsOn -notcontains "PLAN-REVIEW") {
             $item.DependsOn = @("PLAN-REVIEW") + $item.DependsOn
+        }
+    }
+
+    # --- Merge advisory deps from planning-DAG.json (mirrors first-parse logic) ---
+    $planningDagFile = Join-Path (Split-Path $PlanFile) ".planning-DAG.json"
+    if (Test-Path $planningDagFile) {
+        try {
+            $planningDag = Get-Content $planningDagFile -Raw | ConvertFrom-Json
+            foreach ($pdNode in $planningDag.nodes) {
+                $matchedEntry = $parsed | Where-Object { $_.TaskRef -eq $pdNode.task_ref }
+                if (-not $matchedEntry) { continue }
+                $hasExplicitDeps = $matchedEntry.DependsOn | Where-Object { $_ -ne 'PLAN-REVIEW' }
+                if (-not $hasExplicitDeps -and $pdNode.depends_on -and @($pdNode.depends_on).Count -gt 0) {
+                    $aiDeps = @($pdNode.depends_on) | Where-Object { $_ -and $_ -ne 'PLAN-REVIEW' }
+                    if ($aiDeps.Count -gt 0) {
+                        $matchedEntry.DependsOn = @("PLAN-REVIEW") + $aiDeps
+                        Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): deps → $($matchedEntry.DependsOn -join ', ') (advisory)" -ForegroundColor Yellow
+                    }
+                }
+            }
+        } catch {
+            Write-Warning "Failed to read planning-DAG.json for dep merge: $_"
         }
     }
 

@@ -118,6 +118,25 @@ if [[ ! -f "$TARGET_AGENTS/mcp/mcp-config.json" ]]; then
   else
     echo '{"mcpServers":{}}' > "$TARGET_AGENTS/mcp/mcp-config.json"
   fi
+
+  # Resolve ${AGENT_DIR} and ${PROJECT_DIR} → absolute paths
+  AGENT_DIR_ABS=""
+  if [[ -d "$HOME/.ostwin" ]]; then
+    AGENT_DIR_ABS="$HOME/.ostwin"
+  else
+    AGENT_DIR_ABS="$SCRIPT_DIR"
+  fi
+  PROJECT_DIR_ABS="$(cd "$TARGET_DIR" 2>/dev/null && pwd || echo "$TARGET_DIR")"
+
+  "$PYTHON" - <<PYEOF
+with open('$TARGET_AGENTS/mcp/mcp-config.json') as _f:
+    _raw = _f.read()
+_raw = _raw.replace('\${AGENT_DIR}', '$AGENT_DIR_ABS')
+_raw = _raw.replace('\${PROJECT_DIR}', '$PROJECT_DIR_ABS')
+with open('$TARGET_AGENTS/mcp/mcp-config.json', 'w') as _f:
+    _f.write(_raw)
+PYEOF
+
   ok "MCP config created"
 else
   ok "MCP config exists (preserved)"

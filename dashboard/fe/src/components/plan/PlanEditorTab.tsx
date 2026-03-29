@@ -1,17 +1,29 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MarkdownPreview } from './MarkdownPreview';
+import { StructuredPlanView } from './StructuredPlanView';
 
 interface PlanEditorTabProps {
   content: string;
   onChange: (content: string) => void;
 }
 
-type ViewMode = 'edit' | 'preview' | 'split';
+type ViewMode = 'edit' | 'preview' | 'split' | 'structured';
 
 export default function PlanEditorTab({ content, onChange }: PlanEditorTabProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        setViewMode('structured');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -51,6 +63,18 @@ export default function PlanEditorTab({ content, onChange }: PlanEditorTabProps)
             <span className="material-symbols-outlined text-[16px]">vertical_split</span>
             Split
           </button>
+          <button
+            onClick={() => setViewMode('structured')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-2 ${
+              viewMode === 'structured'
+                ? 'bg-primary text-white shadow-sm'
+                : 'text-text-muted hover:text-text-main hover:bg-surface-hover'
+            }`}
+            title="Structured View (Ctrl+Shift+S)"
+          >
+            <span className="material-symbols-outlined text-[16px]">account_tree</span>
+            Structured
+          </button>
         </div>
         
         <div className="text-[10px] font-bold text-text-faint uppercase tracking-widest">
@@ -72,9 +96,24 @@ export default function PlanEditorTab({ content, onChange }: PlanEditorTabProps)
           />
         )}
         
-        {(viewMode === 'preview' || viewMode === 'split') && (
-          <div className={`${viewMode === 'split' ? 'w-1/2' : 'w-full'} h-full bg-background/30`}>
+        {viewMode === 'preview' && (
+          <div className="w-full h-full bg-background/30">
             <MarkdownPreview content={content} />
+          </div>
+        )}
+
+        {viewMode === 'split' && (
+          <div className="w-1/2 h-full bg-background/30">
+            {/* When in split mode, decide between Structured and Preview based on context. 
+                For now, split mode defaults to Preview, but we could add a toggle here.
+                Let's stick with the request: "Split mode with structured: left = raw editor, right = structured view" */}
+            <StructuredPlanView />
+          </div>
+        )}
+
+        {viewMode === 'structured' && (
+          <div className="w-full h-full bg-background/30">
+            <StructuredPlanView />
           </div>
         )}
       </div>

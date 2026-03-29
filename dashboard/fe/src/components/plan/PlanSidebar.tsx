@@ -10,7 +10,6 @@ export default function PlanSidebar() {
   const tabs = [
     { id: 'epics', label: 'EPICs', icon: 'view_kanban', count: epics?.length },
     { id: 'editor', label: 'Editor', icon: 'edit_document' },
-    { id: 'preview', label: 'Preview', icon: 'visibility' },
     { id: 'roles', label: 'Roles & Config', icon: 'group' },
     { id: 'dag', label: 'DAG View', icon: 'account_tree' },
     { id: 'history', label: 'History', icon: 'history' },
