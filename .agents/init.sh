@@ -224,6 +224,28 @@ else
   fi
 fi
 
+# ─── Compile project-level config ─────────────────────────────────────────────
+
+step "Compiling project-level MCP config..."
+bash "$MCP_EXTENSION_SCRIPT" compile --project-dir "$TARGET_DIR"
+
+# ─── Update .gitignore ────────────────────────────────────────────────────────
+
+GITIGNORE="$TARGET_DIR/.gitignore"
+if [[ -f "$GITIGNORE" ]]; then
+  if ! grep -q ".agents/mcp/.env.mcp" "$GITIGNORE"; then
+    echo "" >> "$GITIGNORE"
+    echo "# Ostwin MCP secrets" >> "$GITIGNORE"
+    echo ".agents/mcp/.env.mcp" >> "$GITIGNORE"
+    ok "Added .agents/mcp/.env.mcp to .gitignore"
+  else
+    ok ".agents/mcp/.env.mcp already in .gitignore"
+  fi
+else
+  echo ".agents/mcp/.env.mcp" > "$GITIGNORE"
+  ok "Created .gitignore with .agents/mcp/.env.mcp"
+fi
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 echo ""
