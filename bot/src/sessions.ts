@@ -18,6 +18,7 @@ export interface Session {
   mode: SessionMode;
   chatHistory: ChatMessage[];
   lastActivity: number;
+  lastTranscription?: string;
 }
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes

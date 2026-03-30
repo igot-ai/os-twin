@@ -39,6 +39,7 @@ const commands = [
   new SlashCommandBuilder().setName('viewplan').setDescription('View a plan\'s content'),
   new SlashCommandBuilder().setName('startplan').setDescription('Select and launch a plan'),
   new SlashCommandBuilder().setName('cancel').setDescription('Exit current editing session'),
+  new SlashCommandBuilder().setName('transcribe').setDescription('Transcribe a voice recording and optionally draft a plan'),
   // System commands
   new SlashCommandBuilder().setName('new').setDescription('Wipe old War-Room data to start fresh'),
   new SlashCommandBuilder().setName('restart').setDescription('Reboot the Command Center background process'),
