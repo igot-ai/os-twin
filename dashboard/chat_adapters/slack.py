@@ -2,19 +2,47 @@ import httpx
 import logging
 import re
 from typing import Any, Dict, Optional
-from .base import BaseChatAdapter
+from .base import BaseChatAdapter, NotificationFormatter
 
 logger = logging.getLogger(__name__)
 
+
+class SlackFormatter(NotificationFormatter):
+    """Slack mrkdwn formatting."""
+
+    def bold(self, text: str) -> str:
+        return f"*{text}*"
+
+    def italic(self, text: str) -> str:
+        return f"_{text}_"
+
+    def code(self, text: str) -> str:
+        return f"`{text}`"
+
+    def code_block(self, text: str, lang: str = "") -> str:
+        return f"```\n{text}\n```"
+
+    def link(self, text: str, url: str) -> str:
+        return f"<{url}|{self.escape(text)}>"
+
+    def quote(self, text: str) -> str:
+        return "\n".join(f"> {line}" for line in text.split("\n"))
+
+    def escape(self, text: str) -> str:
+        return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 class SlackAdapter(BaseChatAdapter):
     """Adapter for sending/receiving messages via Slack."""
+
+    formatter_class = SlackFormatter
 
     async def send_message(self, text: str, room_id: Optional[str] = None) -> bool:
         webhook_url = self.config.get("webhook_url")
         # Check if we have a proper Slack token for chat.postMessage
         bot_token = self.config.get("bot_token")
         channel_id = self.config.get("channel_id")
-        
+
         if bot_token and channel_id:
             url = "https://slack.com/api/chat.postMessage"
             headers = {"Authorization": f"Bearer {bot_token}"}
@@ -42,7 +70,7 @@ class SlackAdapter(BaseChatAdapter):
         if not webhook_url:
             logger.warning("Slack webhook URL is not configured.")
             return False
-            
+
         payload = {"text": text}
         try:
             async with httpx.AsyncClient() as client:
@@ -83,22 +111,22 @@ class SlackAdapter(BaseChatAdapter):
         # URL verification for Slack Events API
         if payload.get("type") == "url_verification":
             return {"challenge": payload.get("challenge")}
-            
+
         event = payload.get("event", {})
         if not event:
             return None
-            
+
         # Ignore bot messages to avoid loops
         if event.get("bot_id"):
             return None
-            
+
         # 0. Check for @mention or AI ask
         if event.get("type") == "app_mention":
             from dashboard.agent_bridge import ask_agent
             text = event.get("text", "")
             # Remove @bot_id from text
             clean_text = re.sub(r"<@U[A-Z0-9]+>", "", text).strip()
-            
+
             async def respond():
                 answer = await ask_agent(clean_text, platform="slack")
                 await self.send_message(answer)
@@ -109,39 +137,39 @@ class SlackAdapter(BaseChatAdapter):
         text = event.get("text", "")
         thread_ts = event.get("thread_ts")
         room_id = None
-        
+
         # 1. Resolve room from thread if possible
         if thread_ts:
             from dashboard.api_utils import get_room_id_from_thread
             room_id = get_room_id_from_thread("slack", thread_ts)
-            
+
         # 2. Resolve room from message text (explicit targeting)
         if not room_id:
             m = re.search(r"(room-\d+)", text)
             if m:
                 room_id = m.group(1)
-                
+
         # 3. Fallback to last active room for this channel
         if not room_id:
             channel_id = event.get("channel")
             if channel_id:
                 from dashboard.api_utils import get_last_active_room
                 room_id = get_last_active_room(f"slack:{channel_id}")
-                
+
         if room_id:
             # Save this as last active for the channel
             channel_id = event.get("channel")
             if channel_id:
                 from dashboard.api_utils import save_last_active_room
                 save_last_active_room(f"slack:{channel_id}", room_id)
-                
+
             # Clean up text (remove mention and room ID)
             body = re.sub(r"<@.*?>", "", text).strip()
             body = body.replace(room_id, "").strip()
             # If body is empty but it was a mention, maybe the user just pinged it
             if not body:
                 return None
-                
+
             from_user = event.get("user") or "slack_user"
             return {
                 "room_id": room_id,

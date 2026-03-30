@@ -23,8 +23,8 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
     """Parse the structured Markdown response from the Plan Architect."""
     sections = {"explanation": "", "actions": [], "plan": "", "full_response": text}
 
-    # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, support multiple #)
-    pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\b"
+    # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, must be the whole line header)
+    pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\s*$"
     parts = re.split(pattern, text, flags=re.MULTILINE | re.IGNORECASE)
 
     # Re-split returns [prefix, header1, content1, header2, content2, ...]
