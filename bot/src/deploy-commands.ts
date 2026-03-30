@@ -6,7 +6,9 @@
 
 import dotenv from 'dotenv';
 import path from 'path';
+import os from 'os';
 
+dotenv.config({ path: path.join(os.homedir(), '.ostwin', '.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 import { REST, Routes, SlashCommandBuilder } from 'discord.js';
