@@ -31,13 +31,7 @@ export default function McpPage() {
       </div>
 
       {/* Main Content */}
-      <div className="space-y-6">
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden ring-1 ring-slate-900/5">
-          <div className="p-1">
-            <McpServersTable />
-          </div>
-        </div>
-      </div>
+      <McpServersTable />
 
       {/* Dialogs */}
       <AddServerDialog
