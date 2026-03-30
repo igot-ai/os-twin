@@ -146,7 +146,7 @@ The project plan at '$PlanFile' requires review and potential refinement.
 5. If you cannot proceed without more context, post 'plan-reject' with your feedback.
 "@
 if (-not $DryRun -and -not (Test-Path $room000Dir)) {
-    & $newWarRoom -RoomId "room-000" -TaskRef "PLAN-REVIEW" -TaskDescription $negotiationTask -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir -AssignedRole "architect" -CandidateRoles @("manager","architect") | Out-Null
+    & $newWarRoom -RoomId "room-000" -TaskRef "PLAN-REVIEW" -TaskDescription $negotiationTask -WarRoomsDir $warRoomsDir -WorkingDir $ProjectDir -AssignedRole "architect" -CandidateRoles @("architect","manager") | Out-Null
 } elseif (-not $DryRun -and (Test-Path $room000Dir)) {
     # --- Update room-000 if the plan file has changed ---
     $room000Config = Join-Path $room000Dir "config.json"
@@ -165,7 +165,7 @@ if (-not $DryRun -and -not (Test-Path $room000Dir)) {
             }
             # Reset status if stuck on old plan
             $r0Status = if (Test-Path (Join-Path $room000Dir "status")) { (Get-Content (Join-Path $room000Dir "status") -Raw).Trim() } else { "pending" }
-            if ($r0Status -in @('engineering', 'fixing', 'failed-final')) {
+            if ($r0Status -in @('developing', 'optimize', 'review', 'triage', 'failed', 'failed-final')) {
                 Write-Host "  → Resetting room-000 to pending (was: $r0Status)" -ForegroundColor Yellow
                 "pending" | Out-File -FilePath (Join-Path $room000Dir "status") -Encoding utf8 -NoNewline
                 # Clear stale channel messages
@@ -385,17 +385,29 @@ if (-not $DryRun -and (Test-Path $buildPlanningDag)) {
         Write-Host "[PLANNING-DAG] Generating advisory DAG from plan content..." -ForegroundColor Cyan
         & $buildPlanningDag -PlanFile $PlanFile -OutFile $planningDagFile
     }
-    # Merge planning-DAG roles into parsed entries (advisory: only where no explicit Roles: found)
+    # Merge planning-DAG roles AND dependencies into parsed entries (advisory)
     if (Test-Path $planningDagFile) {
         try {
             $planningDag = Get-Content $planningDagFile -Raw | ConvertFrom-Json
             foreach ($pdNode in $planningDag.nodes) {
                 $matchedEntry = $parsed | Where-Object { $_.TaskRef -eq $pdNode.task_ref }
-                if ($matchedEntry -and -not $matchedEntry.HasExplicitRoles) {
-                    # Only override entries that defaulted (no explicit Roles: directive in markdown)
-                    if ($pdNode.role) {
-                        Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): role $($matchedEntry.Roles[0]) → $($pdNode.role) (advisory)" -ForegroundColor Yellow
-                        $matchedEntry.Roles = @($pdNode.candidate_roles)
+                if (-not $matchedEntry) { continue }
+
+                # --- Merge advisory roles (only where no explicit Roles: directive in markdown) ---
+                if (-not $matchedEntry.HasExplicitRoles -and $pdNode.role) {
+                    Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): role $($matchedEntry.Roles[0]) → $($pdNode.role) (advisory)" -ForegroundColor Yellow
+                    $matchedEntry.Roles = @($pdNode.candidate_roles)
+                }
+
+                # --- Merge advisory depends_on (only where no explicit depends_on in markdown) ---
+                # If the entry only has the auto-injected PLAN-REVIEW dependency (no author-specified deps),
+                # adopt the AI-suggested inter-epic dependencies.
+                $hasExplicitDeps = $matchedEntry.DependsOn | Where-Object { $_ -ne 'PLAN-REVIEW' }
+                if (-not $hasExplicitDeps -and $pdNode.depends_on -and @($pdNode.depends_on).Count -gt 0) {
+                    $aiDeps = @($pdNode.depends_on) | Where-Object { $_ -and $_ -ne 'PLAN-REVIEW' }
+                    if ($aiDeps.Count -gt 0) {
+                        $matchedEntry.DependsOn = @("PLAN-REVIEW") + $aiDeps
+                        Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): deps → $($matchedEntry.DependsOn -join ', ') (advisory)" -ForegroundColor Yellow
                     }
                 }
             }
@@ -615,6 +627,28 @@ function New-PlanWarRooms {
         }
     }
 
+    # --- Merge advisory deps from planning-DAG.json (mirrors first-parse logic) ---
+    $planningDagFile = Join-Path (Split-Path $PlanFile) ".planning-DAG.json"
+    if (Test-Path $planningDagFile) {
+        try {
+            $planningDag = Get-Content $planningDagFile -Raw | ConvertFrom-Json
+            foreach ($pdNode in $planningDag.nodes) {
+                $matchedEntry = $parsed | Where-Object { $_.TaskRef -eq $pdNode.task_ref }
+                if (-not $matchedEntry) { continue }
+                $hasExplicitDeps = $matchedEntry.DependsOn | Where-Object { $_ -ne 'PLAN-REVIEW' }
+                if (-not $hasExplicitDeps -and $pdNode.depends_on -and @($pdNode.depends_on).Count -gt 0) {
+                    $aiDeps = @($pdNode.depends_on) | Where-Object { $_ -and $_ -ne 'PLAN-REVIEW' }
+                    if ($aiDeps.Count -gt 0) {
+                        $matchedEntry.DependsOn = @("PLAN-REVIEW") + $aiDeps
+                        Write-Host "  [PLANNING-DAG] $($pdNode.task_ref): deps → $($matchedEntry.DependsOn -join ', ') (advisory)" -ForegroundColor Yellow
+                    }
+                }
+            }
+        } catch {
+            Write-Warning "Failed to read planning-DAG.json for dep merge: $_"
+        }
+    }
+
     # --- Create missing war-rooms or reconcile existing ones ---
     $newWarRoom = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
     foreach ($entry in $parsed) {
@@ -698,7 +732,7 @@ function New-PlanWarRooms {
     # --- Build dependency graph ---
     Write-Host "[DAG] Building dependency graph..." -ForegroundColor Cyan
     $buildDag = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
-    & $buildDag -WarRoomsDir $warRoomsDir
+    $null = & $buildDag -WarRoomsDir $warRoomsDir
 }
 
 # --- Unified Negotiation Handoff ---
@@ -776,35 +810,35 @@ while ($shouldNegotiate) {
 }
 
 # --- Pre-flight: Index project codebase for semantic search ---
-$codeIndexScript = Join-Path $agentsDir "memory" "code_index.py"
-if (Test-Path $codeIndexScript) {
-    Write-Host ""
-    Write-Host "[INDEX] Indexing project codebase for semantic search..." -ForegroundColor Cyan
-    # Resolve Python: prefer .agents/.venv, then ~/.ostwin/.venv, then system python3
-    $indexPython = Join-Path $agentsDir ".venv" "bin" "python"
-    if (-not (Test-Path $indexPython)) {
-        $indexPython = Join-Path $HOME ".ostwin" ".venv" "bin" "python"
-    }
-    if (-not (Test-Path $indexPython)) { $indexPython = "python3" }
-    # Load .env for COCOINDEX_DATABASE_URL (from project root)
-    $memoryEnv = Join-Path $ProjectDir ".env"
-    if (Test-Path $memoryEnv) {
-        Get-Content $memoryEnv | ForEach-Object {
-            if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$' -and $_ -notmatch '^\s*#') {
-                $envKey = $Matches[1]; $envVal = $Matches[2].Trim('"').Trim("'")
-                if (-not [Environment]::GetEnvironmentVariable($envKey)) {
-                    [Environment]::SetEnvironmentVariable($envKey, $envVal)
-                }
-            }
-        }
-    }
-    try {
-        & $indexPython $codeIndexScript build --path $ProjectDir
-        Write-Host "[INDEX] ✓ Code index updated." -ForegroundColor Green
-    } catch {
-        Write-Warning "[INDEX] Code indexing failed (non-fatal): $_"
-    }
-}
+# TEMPORARILY DISABLED — requires GEMINI_API_KEY
+# $codeIndexScript = Join-Path $agentsDir "memory" "code_index.py"
+# if (Test-Path $codeIndexScript) {
+#     Write-Host ""
+#     Write-Host "[INDEX] Indexing project codebase for semantic search..." -ForegroundColor Cyan
+#     $indexPython = Join-Path $agentsDir ".venv" "bin" "python"
+#     if (-not (Test-Path $indexPython)) {
+#         $indexPython = Join-Path $HOME ".ostwin" ".venv" "bin" "python"
+#     }
+#     if (-not (Test-Path $indexPython)) { $indexPython = "python3" }
+#     $memoryEnv = Join-Path $ProjectDir ".env"
+#     if (Test-Path $memoryEnv) {
+#         Get-Content $memoryEnv | ForEach-Object {
+#             if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$' -and $_ -notmatch '^\s*#') {
+#                 $envKey = $Matches[1]; $envVal = $Matches[2].Trim('"').Trim("'")
+#                 if (-not [Environment]::GetEnvironmentVariable($envKey)) {
+#                     [Environment]::SetEnvironmentVariable($envKey, $envVal)
+#                 }
+#             }
+#         }
+#     }
+#     try {
+#         & $indexPython $codeIndexScript build --path $ProjectDir
+#         Write-Host "[INDEX] ✓ Code index updated." -ForegroundColor Green
+#     } catch {
+#         Write-Warning "[INDEX] Code indexing failed (non-fatal): $_"
+#     }
+# }
+Write-Host "[INDEX] Skipped (temporarily disabled)" -ForegroundColor Yellow
 
 # --- Create missing war-rooms (after negotiation) ---
 New-PlanWarRooms -PlanFile $PlanFile -ProjectDir $ProjectDir -warRoomsDir $warRoomsDir -agentsDir $agentsDir -parsed $parsed -planId $planId

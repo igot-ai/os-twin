@@ -1,0 +1,14 @@
+{
+  "prompt_file": "ROLE.md",
+  "model": "gemini-3-flash-preview",
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "capabilities": [],
+  "quality_gates": [],
+  "name": "engineer",
+  "timeout": 600,
+  "description": "Structured EPIC Markdown Parser & Serializer"
+}

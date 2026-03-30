@@ -45,7 +45,21 @@ process {
     # --- Build nodes from WarRoomsDir if specified ---
     if ($PSCmdlet.ParameterSetName -eq 'WarRooms') {
         $Nodes = @()
+        # First pass: collect all task-refs and detect duplicates
+        $taskRefCounts = @{}
         $roomDirs = Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue
+        foreach ($rd in $roomDirs) {
+            $configFile = Join-Path $rd.FullName "config.json"
+            if (-not (Test-Path $configFile)) { continue }
+            $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
+            $tr = $cfg.task_ref
+            if ($tr) {
+                if (-not $taskRefCounts.ContainsKey($tr)) { $taskRefCounts[$tr] = 0 }
+                $taskRefCounts[$tr]++
+            }
+        }
+
+        # Second pass: build nodes, disambiguating duplicate task-refs with room suffix
         foreach ($rd in $roomDirs) {
             $configFile = Join-Path $rd.FullName "config.json"
             if (-not (Test-Path $configFile)) {
@@ -54,15 +68,42 @@ process {
             }
             $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
             $taskRef = $cfg.task_ref
+            # Disambiguate: if multiple rooms share the same task-ref, append :room-NNN
+            $nodeId = if ($taskRefCounts[$taskRef] -gt 1) { "$taskRef`:$($rd.Name)" } else { $taskRef }
             $roomDeps = if ($cfg.depends_on) { @($cfg.depends_on) } else { @() }
             $assignedRole = if ($cfg.assignment -and $cfg.assignment.assigned_role) { $cfg.assignment.assigned_role } else { "engineer" }
             $candidateRoles = @(if ($cfg.assignment -and $cfg.assignment.candidate_roles) { @($cfg.assignment.candidate_roles) } else { @($assignedRole) })
             $Nodes += @{
-                Id              = $taskRef
+                Id              = $nodeId
+                TaskRef         = $taskRef
                 DependsOn       = $roomDeps
                 RoomId          = $rd.Name
                 Role            = $assignedRole
                 CandidateRoles  = $candidateRoles
+            }
+        }
+
+        # Rewrite depends_on references: if a dependency has been disambiguated,
+        # expand it to all its disambiguated variants so the graph stays connected.
+        $disambiguated = @{}
+        foreach ($n in $Nodes) {
+            $tr = $n.TaskRef
+            if ($tr -and $n.Id -ne $tr) {
+                if (-not $disambiguated.ContainsKey($tr)) { $disambiguated[$tr] = @() }
+                $disambiguated[$tr] += $n.Id
+            }
+        }
+        if ($disambiguated.Count -gt 0) {
+            foreach ($n in $Nodes) {
+                $expandedDeps = @()
+                foreach ($dep in $n.DependsOn) {
+                    if ($disambiguated.ContainsKey($dep)) {
+                        $expandedDeps += $disambiguated[$dep]
+                    } else {
+                        $expandedDeps += $dep
+                    }
+                }
+                $n.DependsOn = $expandedDeps
             }
         }
     }
@@ -249,6 +290,7 @@ process {
         $orig = $nodeMap[$id]
         $enriched = [PSCustomObject]@{
             Id             = $id
+            TaskRef        = if ($orig.TaskRef) { $orig.TaskRef } else { $id }
             DependsOn      = if ($orig.DependsOn) { @($orig.DependsOn) } else { @() }
             Dependents     = @($adjacencyList[$id])
             Depth          = $depth[$id]
@@ -273,10 +315,11 @@ process {
         foreach ($r in $result) {
             $nodesHash[$r.Id] = [ordered]@{
                 room_id          = $r.RoomId
+                task_ref         = if ($r.TaskRef) { $r.TaskRef } else { $r.Id }
                 role             = $r.Role
                 candidate_roles  = $r.CandidateRoles
-                depends_on       = $r.DependsOn
-                dependents       = $r.Dependents
+                depends_on       = @($r.DependsOn)
+                dependents       = @($r.Dependents)
                 depth            = $r.Depth
                 on_critical_path = $r.OnCriticalPath
             }

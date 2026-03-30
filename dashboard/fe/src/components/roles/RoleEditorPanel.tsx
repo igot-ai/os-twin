@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { mutate } from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { Role } from '@/types';
+import { apiPost, apiPut } from '@/lib/api-client';
 import ProviderSelector from './ProviderSelector';
 import SkillChipInput from './SkillChipInput';
 import TestConnectionButton from './TestConnectionButton';
@@ -16,18 +17,22 @@ interface RoleEditorPanelProps {
 }
 
 export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }: RoleEditorPanelProps) {
+  const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
+  const { data: apiKeysStatus, isLoading: isLoadingKeys } = useSWR<Record<string, boolean>>('/providers/api-keys');
   const { dependencies } = useRoleDependencies(role?.id || '');
   const [activeTab, setActiveTab] = useState<'config' | 'dependencies'>('config');
   const [formData, setFormData] = useState<Partial<Role>>({
     name: '',
-    provider: 'claude',
-    version: 'claude-3-5-sonnet-20241022',
+    provider: undefined,
+    version: '',
     temperature: 0.3,
     budget_tokens_max: 500000,
     max_retries: 3,
     timeout_seconds: 900,
     skill_refs: [],
+    description: '',
+    instructions: '',
     system_prompt_override: '',
   });
 
@@ -44,24 +49,39 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
     return normalized;
   }, [registry]);
 
+  const defaultProvider = useMemo((): Role['provider'] => {
+    const priority: { key: string; provider: Role['provider'] }[] = [
+      { key: 'Claude', provider: 'claude' },
+      { key: 'Gemini', provider: 'gemini' },
+      { key: 'GPT', provider: 'gpt' },
+    ];
+    if (apiKeysStatus) {
+      const configured = priority.find(p => apiKeysStatus[p.key]);
+      if (configured) return configured.provider;
+    }
+    return 'claude';
+  }, [apiKeysStatus]);
+
   useEffect(() => {
     if (role) {
-      setFormData(role);
-    } else {
+      setFormData({ ...role, provider: (role.provider?.toLowerCase() as Role['provider']) || defaultProvider });
+    } else if (!isLoadingKeys) {
       setFormData({
         name: '',
-        provider: 'claude',
-        version: normalizedRegistry?.claude?.[0]?.id || 'claude-3-5-sonnet-20241022',
+        provider: defaultProvider,
+        version: normalizedRegistry?.[defaultProvider]?.[0]?.id || '',
         temperature: 0.3,
         budget_tokens_max: 500000,
         max_retries: 3,
         timeout_seconds: 900,
         skill_refs: [],
+        description: '',
+        instructions: '',
         system_prompt_override: '',
       });
     }
     setErrors({});
-  }, [role, isOpen, normalizedRegistry]);
+  }, [role, isOpen, normalizedRegistry, defaultProvider, isLoadingKeys]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -83,19 +103,14 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
 
     setIsSaving(true);
     try {
-      const url = role ? `/api/roles/${role.id}` : '/api/roles';
-      const method = role ? 'PUT' : 'POST';
-      
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      if (response.ok) {
-        mutate('/api/roles');
-        onClose();
+      if (role) {
+        await apiPut(`/roles/${role.id}`, formData);
+      } else {
+        await apiPost('/roles', formData);
       }
+      await mutate('/roles', undefined, { revalidate: true });
+      if (role) await mutate(`/roles/${role.id}`, undefined, { revalidate: true });
+      onClose();
     } catch (error) {
       console.error('Failed to save role:', error);
     } finally {
@@ -124,8 +139,8 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
             <h2 className="text-xl font-extrabold" style={{ color: 'var(--color-text-main)' }}>{role ? 'Edit Role' : 'New Role'}</h2>
             <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Configure agent identity and model binding</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-            <span className="material-symbols-outlined text-xl">close</span>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+            <span className="material-symbols-outlined text-base" style={{ color: 'var(--color-text-muted)' }}>close</span>
           </button>
         </div>
 
@@ -172,6 +187,17 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               />
               {errors.name && <p className="text-[10px] font-bold text-red-500 px-1">{errors.name}</p>}
             </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Description</label>
+              <textarea
+                rows={2}
+                placeholder="Brief description of what this role does..."
+                className="w-full p-3 rounded-xl border bg-white text-xs resize-none focus:ring-4 focus:ring-primary/10 transition-all"
+                value={formData.description || ''}
+                onChange={e => setFormData({ ...formData, description: e.target.value })}
+              />
+            </div>
           </div>
 
           {/* Section: Model Binding */}
@@ -181,9 +207,10 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Model Binding</h3>
             </div>
             
-            <ProviderSelector 
-              value={formData.provider || 'claude'}
+            <ProviderSelector
+              value={(formData.provider?.toLowerCase() as Role['provider']) || defaultProvider}
               onChange={p => setFormData({ ...formData, provider: p, version: normalizedRegistry?.[p]?.[0]?.id || '' })}
+              apiKeysStatus={apiKeysStatus}
             />
 
             <div className="space-y-1.5 mt-4">
@@ -193,7 +220,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
                 value={formData.version}
                 onChange={e => setFormData({ ...formData, version: e.target.value })}
               >
-                {normalizedRegistry?.[formData.provider || 'claude']?.map(m => (
+                {normalizedRegistry?.[formData.provider?.toLowerCase() || defaultProvider]?.map(m => (
                   <option key={m.id} value={m.id}>
                     {m.id} ({m.tier}) — {m.context_window}
                   </option>
@@ -278,18 +305,29 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
             />
           </div>
 
-          {/* Section: Advanced */}
+          {/* Section: Instructions */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">05</span>
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Advanced Configuration</h3>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Role Instructions</h3>
             </div>
-            
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Instructions (ROLE.md)</label>
+              <textarea
+                rows={10}
+                placeholder="Define responsibilities, guidelines, and output format for this role..."
+                className="w-full p-3 rounded-xl border bg-white text-xs font-mono resize-none focus:ring-4 focus:ring-primary/10 transition-all"
+                value={formData.instructions || ''}
+                onChange={e => setFormData({ ...formData, instructions: e.target.value })}
+              />
+            </div>
+
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">System Prompt Override</label>
-              <textarea 
+              <textarea
                 rows={6}
-                placeholder="Optional: Custom system instructions for this role..."
+                placeholder="Optional: Custom system instructions that override defaults..."
                 className="w-full p-3 rounded-xl border bg-white text-xs font-mono resize-none focus:ring-4 focus:ring-primary/10 transition-all"
                 value={formData.system_prompt_override || ''}
                 onChange={e => setFormData({ ...formData, system_prompt_override: e.target.value })}

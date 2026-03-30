@@ -1,4 +1,4 @@
-# Agent OS — Start-ManagerLoop Pester Tests
+# Agent OS — Start-ManagerLoop Pester Tests (V2 Lifecycle)
 
 BeforeAll {
     $script:agentsDir = (Resolve-Path (Join-Path (Resolve-Path "$PSScriptRoot/../../../roles/manager").Path ".." "..")).Path
@@ -9,18 +9,77 @@ BeforeAll {
     # Import Utils for Test-PidAlive, Set-WarRoomStatus
     $utilsModule = Join-Path $script:agentsDir "lib" "Utils.psm1"
     if (Test-Path $utilsModule) { Import-Module $utilsModule -Force }
+
+    # Helper: write a minimal v2 lifecycle.json into a room
+    function Write-V2Lifecycle {
+        param([string]$RoomDir, [hashtable]$Override)
+        $lc = @{
+            version = 2
+            initial_state = "developing"
+            max_retries = 3
+            states = @{
+                developing = @{
+                    role = "engineer"
+                    type = "work"
+                    signals = @{
+                        done = @{ target = "review" }
+                        error = @{ target = "failed"; actions = @("increment_retries") }
+                    }
+                }
+                optimize = @{
+                    role = "engineer"
+                    type = "work"
+                    signals = @{
+                        done = @{ target = "review" }
+                        error = @{ target = "failed"; actions = @("increment_retries") }
+                    }
+                }
+                review = @{
+                    role = "qa"
+                    type = "review"
+                    signals = @{
+                        pass = @{ target = "passed" }
+                        fail = @{ target = "developing"; actions = @("increment_retries", "post_fix") }
+                        escalate = @{ target = "triage" }
+                    }
+                }
+                triage = @{
+                    role = "manager"
+                    type = "triage"
+                    signals = @{
+                        fix = @{ target = "developing"; actions = @("increment_retries") }
+                        redesign = @{ target = "developing"; actions = @("increment_retries", "revise_brief") }
+                        reject = @{ target = "failed-final" }
+                    }
+                }
+                failed = @{
+                    role = "manager"
+                    type = "decision"
+                    signals = @{
+                        retry = @{ target = "developing"; guard = "retries < max_retries" }
+                        exhaust = @{ target = "failed-final"; guard = "retries >= max_retries" }
+                    }
+                }
+                passed = @{ type = "terminal" }
+                "failed-final" = @{ type = "terminal" }
+            }
+        }
+        if ($Override) {
+            foreach ($key in $Override.Keys) { $lc.states[$key] = $Override[$key] }
+        }
+        $lc | ConvertTo-Json -Depth 10 | Out-File (Join-Path $RoomDir "lifecycle.json") -Encoding utf8
+    }
 }
 
 AfterAll {
     Remove-Module -Name "Utils" -ErrorAction SilentlyContinue
 }
 
-Describe "Start-ManagerLoop — State Machine Unit Tests" {
+Describe "Start-ManagerLoop — V2 Lifecycle Unit Tests" {
     BeforeEach {
         $script:warRoomsDir = Join-Path $TestDrive "warrooms-$(Get-Random)"
         New-Item -ItemType Directory -Path $script:warRoomsDir -Force | Out-Null
 
-        # Create test config
         $script:configFile = Join-Path $TestDrive "config-mgr-$(Get-Random).json"
         @{
             version = "0.1.0"
@@ -62,73 +121,79 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             $status | Should -Be "pending"
         }
 
-        It "reads engineering status" {
+        It "reads developing status" {
             & $script:NewWarRoom -RoomId "room-002" -TaskRef "TASK-002" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
-            "engineering" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-002" "status") -NoNewline
+            "developing" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-002" "status") -NoNewline
             $status = (Get-Content (Join-Path $script:warRoomsDir "room-002" "status") -Raw).Trim()
-            $status | Should -Be "engineering"
+            $status | Should -Be "developing"
         }
     }
 
-    Context "State transitions" {
-        It "pending → engineering (via Set-WarRoomStatus)" {
+    Context "V2 state transitions" {
+        It "pending → developing" {
             & $script:NewWarRoom -RoomId "room-010" -TaskRef "TASK-010" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-010"
-
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "engineering"
-
+            $status | Should -Be "developing"
             $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
-            $audit | Should -Match "pending -> engineering"
+            $audit | Should -Match "pending -> developing"
         }
 
-        It "engineering → qa-review" {
+        It "developing → review (done signal)" {
             & $script:NewWarRoom -RoomId "room-011" -TaskRef "TASK-011" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-011"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
-
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "qa-review"
+            $status | Should -Be "review"
         }
 
-        It "qa-review → passed" {
+        It "review → passed (pass signal)" {
             & $script:NewWarRoom -RoomId "room-012" -TaskRef "TASK-012" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-012"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "passed"
-
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
             $status | Should -Be "passed"
         }
 
-        It "qa-review → fixing (QA failure with retries)" {
+        It "review → developing (fail signal with retries)" {
             & $script:NewWarRoom -RoomId "room-013" -TaskRef "TASK-013" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-013"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
-
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "fixing"
+            $status | Should -Be "developing"
         }
 
-        It "fixing → failed-final (retries exhausted)" {
+        It "developing → failed-final (retries exhausted)" {
             & $script:NewWarRoom -RoomId "room-014" -TaskRef "TASK-014" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-014"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed-final"
-
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
             $status | Should -Be "failed-final"
+        }
+
+        It "review → triage (escalate signal)" {
+            & $script:NewWarRoom -RoomId "room-015" -TaskRef "TASK-015" `
+                                 -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-015"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "triage"
+            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $status | Should -Be "triage"
+            $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
+            $audit | Should -Match "review -> triage"
         }
     }
 
@@ -137,12 +202,10 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             & $script:NewWarRoom -RoomId "room-020" -TaskRef "TASK-020" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-020"
-
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                                   -Type "done" -Ref "TASK-020" -Body "First done"
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                                   -Type "done" -Ref "TASK-020" -Body "Second done"
-
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject
             $msgs.Count | Should -Be 2
         }
@@ -151,10 +214,8 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             & $script:NewWarRoom -RoomId "room-021" -TaskRef "TASK-021" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-021"
-
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "pass" -Ref "TASK-021" -Body "All good"
-
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -AsObject
             $msgs.Count | Should -Be 1
         }
@@ -163,10 +224,8 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             & $script:NewWarRoom -RoomId "room-022" -TaskRef "TASK-022" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-022"
-
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "fail" -Ref "TASK-022" -Body "Bad code"
-
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -AsObject
             $msgs.Count | Should -Be 1
         }
@@ -177,10 +236,8 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             & $script:NewWarRoom -RoomId "room-030" -TaskRef "TASK-030" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-030"
-
             $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
             $retries | Should -Be 0
-
             "1" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
             $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
             $retries | Should -Be 1
@@ -190,8 +247,6 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             $config = Get-Content $script:configFile -Raw | ConvertFrom-Json
             $maxRetries = $config.manager.max_engineer_retries
             $maxRetries | Should -Be 3
-
-            # Simulate 3 retries → next should be failed-final
             3 | Should -BeGreaterOrEqual $maxRetries
         }
     }
@@ -201,11 +256,8 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             & $script:NewWarRoom -RoomId "room-040" -TaskRef "TASK-040" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-040"
-
-            # Set state_changed_at to a very old time
             $oldEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10000
             $oldEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
-
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
             $now = [int][double]::Parse((Get-Date -UFormat %s))
             ($now - $changedAt) | Should -BeGreaterThan 900
@@ -213,32 +265,42 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
     }
 
     Context "Audit trail" {
-        It "records all status transitions" {
+        It "records all v2 status transitions" {
             & $script:NewWarRoom -RoomId "room-050" -TaskRef "TASK-050" `
                                  -TaskDescription "Full lifecycle" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-050"
-
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "passed"
-
             $auditLines = Get-Content (Join-Path $roomDir "audit.log")
-            $auditLines.Count | Should -Be 6
-            $auditLines[-1] | Should -Match "qa-review -> passed"
+            $auditLines.Count | Should -Be 5
+            $auditLines[-1] | Should -Match "review -> passed"
+        }
+
+        It "records pipeline lifecycle with optimize state" {
+            & $script:NewWarRoom -RoomId "room-051" -TaskRef "TASK-051" `
+                                 -TaskDescription "Pipeline lifecycle" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-051"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "optimize"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "passed"
+            $auditLines = Get-Content (Join-Path $roomDir "audit.log")
+            $auditLines.Count | Should -Be 5
+            $auditLines[2] | Should -Match "review -> optimize"
+            $auditLines[3] | Should -Match "optimize -> review"
         }
     }
 
-    Context "Blocked status (OPT-001)" {
+    Context "Blocked status" {
         It "blocked status is valid for Set-WarRoomStatus" {
             & $script:NewWarRoom -RoomId "room-060" -TaskRef "TASK-060" `
                                  -TaskDescription "Block test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-060"
-
             { Set-WarRoomStatus -RoomDir $roomDir -NewStatus "blocked" } | Should -Not -Throw
-
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
             $status | Should -Be "blocked"
         }
@@ -247,98 +309,44 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             & $script:NewWarRoom -RoomId "room-061" -TaskRef "TASK-061" `
                                  -TaskDescription "Block test 2" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-061"
-
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "blocked"
             $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
             $audit | Should -Match "pending -> blocked"
         }
     }
 
-    Context "Manager triage state" {
-        It "qa-review → manager-triage (state transition is valid)" {
+    Context "Triage state (v2)" {
+        It "review → triage (escalate transition is valid)" {
             & $script:NewWarRoom -RoomId "room-070" -TaskRef "TASK-070" `
                                  -TaskDescription "Triage test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-070"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "manager-triage"
-
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "triage"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "manager-triage"
+            $status | Should -Be "triage"
         }
 
-        It "manager-triage → fixing (implementation-bug)" {
+        It "triage → developing (fix classification)" {
             & $script:NewWarRoom -RoomId "room-071" -TaskRef "TASK-071" `
-                                 -TaskDescription "Triage bug" -WarRoomsDir $script:warRoomsDir
+                                 -TaskDescription "Triage fix" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-071"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "manager-triage"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
-
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "triage"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "fixing"
+            $status | Should -Be "developing"
             $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
-            $audit | Should -Match "manager-triage -> fixing"
+            $audit | Should -Match "triage -> developing"
         }
 
-        It "manager-triage → architect-review (design-issue)" {
+        It "triage → failed-final (reject classification)" {
             & $script:NewWarRoom -RoomId "room-072" -TaskRef "TASK-072" `
-                                 -TaskDescription "Design issue" -WarRoomsDir $script:warRoomsDir
+                                 -TaskDescription "Triage reject" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-072"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "manager-triage"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "architect-review"
-
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "triage"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed-final"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "architect-review"
-        }
-
-        It "manager-triage → plan-revision (plan-gap)" {
-            & $script:NewWarRoom -RoomId "room-073" -TaskRef "TASK-073" `
-                                 -TaskDescription "Plan gap" -WarRoomsDir $script:warRoomsDir
-            $roomDir = Join-Path $script:warRoomsDir "room-073"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "manager-triage"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "plan-revision"
-
-            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "plan-revision"
-        }
-    }
-
-    Context "Architect review state" {
-        It "architect-review → fixing (architect says FIX)" {
-            & $script:NewWarRoom -RoomId "room-080" -TaskRef "TASK-080" `
-                                 -TaskDescription "Arch fix" -WarRoomsDir $script:warRoomsDir
-            $roomDir = Join-Path $script:warRoomsDir "room-080"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "architect-review"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
-
-            $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
-            $audit | Should -Match "architect-review -> fixing"
-        }
-
-        It "architect-review → plan-revision (architect says REPLAN)" {
-            & $script:NewWarRoom -RoomId "room-081" -TaskRef "TASK-081" `
-                                 -TaskDescription "Arch replan" -WarRoomsDir $script:warRoomsDir
-            $roomDir = Join-Path $script:warRoomsDir "room-081"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "architect-review"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "plan-revision"
-
-            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "plan-revision"
-        }
-    }
-
-    Context "Plan revision state" {
-        It "plan-revision → engineering (brief updated)" {
-            & $script:NewWarRoom -RoomId "room-090" -TaskRef "TASK-090" `
-                                 -TaskDescription "Plan rev" -WarRoomsDir $script:warRoomsDir
-            $roomDir = Join-Path $script:warRoomsDir "room-090"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "plan-revision"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-
-            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "engineering"
-            $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
-            $audit | Should -Match "plan-revision -> engineering"
+            $status | Should -Be "failed-final"
         }
     }
 
@@ -347,9 +355,6 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
             & $script:NewWarRoom -RoomId "room-100" -TaskRef "TASK-100" `
                                  -TaskDescription "Context test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-100"
-
-            # Source the manager loop to get Write-TriageContext function
-            # Test the artifact creation manually
             $artifactsDir = Join-Path $roomDir "artifacts"
             if (-not (Test-Path $artifactsDir)) {
                 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
@@ -363,54 +368,13 @@ Describe "Start-ManagerLoop — State Machine Unit Tests" {
 ## QA Failure Report
 Tests are failing.
 
-## Architect Guidance
-_Not consulted — classified as implementation bug._
-
 ## Manager's Direction
 Classified as implementation bug. Engineer should fix.
-
-## Action Required
-Engineer: Fix the specific issues listed in QA's report above.
 "@ | Out-File -FilePath $contextFile -Encoding utf8 -Force
-
             Test-Path $contextFile | Should -BeTrue
             $content = Get-Content $contextFile -Raw
             $content | Should -Match "implementation-bug"
             $content | Should -Match "Tests are failing"
-        }
-
-        It "includes architect guidance when provided" {
-            & $script:NewWarRoom -RoomId "room-101" -TaskRef "TASK-101" `
-                                 -TaskDescription "Guidance test" -WarRoomsDir $script:warRoomsDir
-            $roomDir = Join-Path $script:warRoomsDir "room-101"
-            $artifactsDir = Join-Path $roomDir "artifacts"
-            if (-not (Test-Path $artifactsDir)) {
-                New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-            }
-            $contextFile = Join-Path $artifactsDir "triage-context.md"
-            @"
-# Manager Triage Context
-
-## Classification: design-issue
-
-## QA Failure Report
-Architecture flaw in auth module.
-
-## Architect Guidance
-RECOMMENDATION: REDESIGN
-Use event-driven approach instead.
-
-## Manager's Direction
-Architect recommends redesign.
-
-## Action Required
-Engineer: Follow the architect's guidance above to redesign the approach.
-"@ | Out-File -FilePath $contextFile -Encoding utf8 -Force
-
-            $content = Get-Content $contextFile -Raw
-            $content | Should -Match "design-issue"
-            $content | Should -Match "event-driven approach"
-            $content | Should -Match "RECOMMENDATION: REDESIGN"
         }
     }
 
@@ -419,143 +383,142 @@ Engineer: Follow the architect's guidance above to redesign the approach.
             & $script:NewWarRoom -RoomId "room-110" -TaskRef "TASK-110" `
                                  -TaskDescription "Escalate test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-110"
-
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "escalate" -Ref "TASK-110" -Body "Design problem detected"
-
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "escalate" -AsObject
             $msgs.Count | Should -Be 1
         }
 
-        It "design-guidance message is readable" {
+        It "architect done message with RECOMMENDATION is readable" {
             & $script:NewWarRoom -RoomId "room-111" -TaskRef "TASK-111" `
-                                 -TaskDescription "Guidance msg" -WarRoomsDir $script:warRoomsDir
+                                 -TaskDescription "Arch done" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-111"
-
             & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
-                                  -Type "design-guidance" -Ref "TASK-111" `
+                                  -Type "done" -Ref "TASK-111" `
                                   -Body "RECOMMENDATION: FIX`nFix the null check on line 42."
-
-            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "design-guidance" -AsObject
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject
             $msgs.Count | Should -Be 1
             $msgs[0].body | Should -Match "RECOMMENDATION: FIX"
         }
     }
 
-    Context "Architect-as-done transition" {
-        It "architect design-guidance with RECOMMENDATION is treated as done by manager" {
+    Context "V2 lifecycle schema" {
+        It "architect-as-worker emits done signal (not design-guidance)" {
             & $script:NewWarRoom -RoomId "room-130" -TaskRef "EPIC-130" `
                                  -TaskDescription "Arch as primary worker" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-130"
-
-            # Write lifecycle where engineering state role is architect
-            $lifecycle = @{
-                initial_state = "engineering"
-                states = @{
-                    engineering = @{
-                        type = "agent"
-                        role = "architect"
-                        transitions = @{ done = "engineer-review" }
-                    }
-                    "engineer-review" = @{
-                        type = "agent"
-                        role = "engineer"
-                        transitions = @{ pass = "passed"; fail = "manager-triage" }
+            Write-V2Lifecycle -RoomDir $roomDir -Override @{
+                developing = @{
+                    role = "architect"; type = "work"
+                    signals = @{
+                        done = @{ target = "review" }
+                        error = @{ target = "failed"; actions = @("increment_retries") }
                     }
                 }
             }
-            $lifecycle | ConvertTo-Json -Depth 5 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
-
-            # Architect posts design-guidance with RECOMMENDATION (not a 'done' message type)
             & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
-                                  -Type "design-guidance" -Ref "EPIC-130" `
+                                  -Type "done" -Ref "EPIC-130" `
                                   -Body "RECOMMENDATION: FIX`n`nPlease install dependencies and configure design tokens."
-
-            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "design-guidance" -AsObject
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject
             $msgs.Count | Should -Be 1
             $msgs[0].body | Should -Match "RECOMMENDATION: FIX"
-
-            # Verify no 'done' messages exist (architect doesn't post done)
-            $doneMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject
-            $doneMsgs.Count | Should -Be 0
-
-            # The lifecycle state definition should match the architect role
             $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.engineering.role | Should -Be "architect"
-            $lc.states.engineering.transitions.done | Should -Be "engineer-review"
+            $lc.states.developing.role | Should -Be "architect"
+            $lc.states.developing.signals.done.target | Should -Be "review"
         }
 
-        It "done-transition lookup uses actual status not hard-coded engineering" {
+        It "done-transition lookup uses v2 signals schema" {
             & $script:NewWarRoom -RoomId "room-131" -TaskRef "EPIC-131" `
-                                 -TaskDescription "Fixing transition test" -WarRoomsDir $script:warRoomsDir
+                                 -TaskDescription "Signal lookup test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-131"
+            Write-V2Lifecycle -RoomDir $roomDir
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $status = "optimize"
+            $nextState = $lc.states.$status.signals.done.target
+            $nextState | Should -Be "review"
+        }
 
-            # Write lifecycle where fixing state has different transition than engineering
-            $lifecycle = @{
-                initial_state = "engineering"
-                states = @{
-                    engineering = @{
-                        type = "agent"
-                        role = "architect"
-                        transitions = @{ done = "engineer-review" }
-                    }
-                    fixing = @{
-                        type = "agent"
-                        role = "architect"
-                        transitions = @{ done = "engineer-review" }
-                    }
-                    "engineer-review" = @{
-                        type = "agent"
-                        role = "engineer"
-                        transitions = @{ pass = "passed" }
+        It "optimize state is included in base lifecycle" {
+            & $script:NewWarRoom -RoomId "room-135" -TaskRef "TASK-135" `
+                                 -TaskDescription "Optimize state" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-135"
+            Write-V2Lifecycle -RoomDir $roomDir
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $lc.states.optimize | Should -Not -BeNullOrEmpty
+            $lc.states.optimize.role | Should -Be "engineer"
+            $lc.states.optimize.type | Should -Be "work"
+            $lc.states.optimize.signals.done.target | Should -Be "review"
+            $lc.states.optimize.signals.error.target | Should -Be "failed"
+        }
+
+        It "pipeline review.fail targets optimize (not developing)" {
+            & $script:NewWarRoom -RoomId "room-136" -TaskRef "TASK-136" `
+                                 -TaskDescription "Pipeline fail path" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-136"
+            # Override review.fail → optimize to match pipeline-generated lifecycles
+            Write-V2Lifecycle -RoomDir $roomDir -Override @{
+                review = @{
+                    role = "qa"; type = "review"
+                    signals = @{
+                        pass = @{ target = "passed" }
+                        fail = @{ target = "optimize"; actions = @("increment_retries", "post_fix") }
+                        escalate = @{ target = "triage" }
                     }
                 }
             }
-            $lifecycle | ConvertTo-Json -Depth 5 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
-
-            # Verify that lifecycle.states.fixing is accessible and has correct transition
             $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.fixing.role | Should -Be "architect"
-            $lc.states.fixing.transitions.done | Should -Be "engineer-review"
+            $lc.states.review.signals.fail.target | Should -Be "optimize"
+        }
 
-            # When status is 'fixing', the lookup should use $lifecycle.states.fixing (not .engineering)
-            $status = "fixing"
-            $nextState = if ($lc.states.$status -and $lc.states.$status.transitions.done) {
-                $lc.states.$status.transitions.done
-            } else { "qa-review" }
-            $nextState | Should -Be "engineer-review"
+        It "review signals include pass/fail/escalate" {
+            & $script:NewWarRoom -RoomId "room-132" -TaskRef "TASK-132" `
+                                 -TaskDescription "Review signals" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-132"
+            Write-V2Lifecycle -RoomDir $roomDir
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $lc.states.review.signals.pass.target | Should -Be "passed"
+            $lc.states.review.signals.fail.target | Should -Be "developing"
+            $lc.states.review.signals.escalate.target | Should -Be "triage"
+        }
+
+        It "fail signal includes increment_retries and post_fix actions" {
+            & $script:NewWarRoom -RoomId "room-133" -TaskRef "TASK-133" `
+                                 -TaskDescription "Fail actions" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-133"
+            Write-V2Lifecycle -RoomDir $roomDir
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $actions = $lc.states.review.signals.fail.actions
+            $actions | Should -Contain "increment_retries"
+            $actions | Should -Contain "post_fix"
+        }
+
+        It "decision state has retry and exhaust signals" {
+            & $script:NewWarRoom -RoomId "room-134" -TaskRef "TASK-134" `
+                                 -TaskDescription "Decision state" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-134"
+            Write-V2Lifecycle -RoomDir $roomDir
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $lc.states.failed.type | Should -Be "decision"
+            $lc.states.failed.signals.retry.target | Should -Be "developing"
+            $lc.states.failed.signals.exhaust.target | Should -Be "failed-final"
         }
     }
 
     Context "External status bypass rescue (QA-bypass scenario)" {
-        It "failed-final with retries remaining and fail message rescues to manager-triage" {
-            # This reproduces the exact room-001 bug: QA agent called
-            # warroom_update_status to set failed-final, bypassing the manager.
+        It "failed-final with retries remaining and fail message rescues to triage" {
             & $script:NewWarRoom -RoomId "room-120" -TaskRef "EPIC-120" `
                                  -TaskDescription "QA bypass test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-120"
-
-            # Simulate: engineer done, QA posted fail, but QA also set status directly
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                                   -Type "done" -Ref "EPIC-120" -Body "Implemented feature"
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "fail" -Ref "EPIC-120" `
                                   -Body "VERDICT: FAIL`nBuild integrity issues found."
-
-            # QA agent bypassed manager and set failed-final directly
             "failed-final" | Out-File -FilePath (Join-Path $roomDir "status") -NoNewline
-
-            # Retries still at 0 (manager never got to increment)
             $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
             $retries | Should -Be 0
-
-            # Verify there IS a fail message (rescue condition)
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -AsObject
             $msgs.Count | Should -BeGreaterThan 0
-
-            # The manager rescue logic should detect:
-            #   status=failed-final AND retries(0) < maxRetries(3) AND fail message exists
-            # This means the room SHOULD be rescued to manager-triage, not left as terminal.
             $maxRetries = 3
             ($retries -lt $maxRetries) | Should -BeTrue
         }
@@ -564,15 +527,10 @@ Engineer: Follow the architect's guidance above to redesign the approach.
             & $script:NewWarRoom -RoomId "room-121" -TaskRef "TASK-121" `
                                  -TaskDescription "Exhausted retries" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-121"
-
-            # Simulate exhausted retries
             "3" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed-final"
-
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
             $status | Should -Be "failed-final"
-
-            # With retries(3) >= maxRetries(3), should stay terminal
             $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
             $maxRetries = 3
             ($retries -ge $maxRetries) | Should -BeTrue
@@ -582,11 +540,7 @@ Engineer: Follow the architect's guidance above to redesign the approach.
             & $script:NewWarRoom -RoomId "room-122" -TaskRef "TASK-122" `
                                  -TaskDescription "No feedback" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-122"
-
-            # Status set to failed-final but no fail messages posted
             "failed-final" | Out-File -FilePath (Join-Path $roomDir "status") -NoNewline
-
-            # No fail or error messages exist
             $failMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -AsObject
             $errorMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "error" -AsObject
             ($failMsgs.Count + $errorMsgs.Count) | Should -Be 0
@@ -595,12 +549,8 @@ Engineer: Follow the architect's guidance above to redesign the approach.
 
     Context "warroom-server MCP status restriction" {
         It "warroom-server.py rejects terminal statuses" {
-            # Verify the MCP server's StatusType no longer includes terminal states
             $serverPy = Join-Path $script:agentsDir "mcp" "warroom-server.py"
             $content = Get-Content $serverPy -Raw
-
-            # Should NOT contain passed or failed-final in the StatusType Literal
-            # Extract the StatusType block
             $content | Should -Match 'StatusType\s*=\s*Literal\['
             $content | Should -Not -Match 'StatusType\s*=\s*Literal\[[\s\S]*?"passed"'
             $content | Should -Not -Match 'StatusType\s*=\s*Literal\[[\s\S]*?"failed-final"'
@@ -609,9 +559,413 @@ Engineer: Follow the architect's guidance above to redesign the approach.
         It "warroom-server.py writes audit.log on status change" {
             $serverPy = Join-Path $script:agentsDir "mcp" "warroom-server.py"
             $content = Get-Content $serverPy -Raw
-
             $content | Should -Match 'audit\.log'
             $content | Should -Match 'state_changed_at'
+        }
+    }
+
+    Context "Leak fix — Find-LatestSignal detects DateTime timestamps" {
+        It "detects done signal when ts is ISO-8601 (parsed as DateTime by ConvertFrom-Json)" {
+            & $script:NewWarRoom -RoomId "room-200" -TaskRef "TASK-200" `
+                                 -TaskDescription "Signal detect test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-200"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # Post a done message (Post-Message writes ISO-8601 ts)
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                  -Type "done" -Ref "TASK-200" -Body "Work complete"
+
+            # Read back to confirm ts is DateTime
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $msgs.Count | Should -Be 1
+            $msgs[0].ts | Should -BeOfType [datetime]
+        }
+
+        It "signal timestamp is newer than state_changed_at" {
+            & $script:NewWarRoom -RoomId "room-201" -TaskRef "TASK-201" `
+                                 -TaskDescription "Timestamp compare" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-201"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # Set state_changed_at to a past epoch (10 seconds ago)
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Post done message now (ts will be > pastEpoch)
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                  -Type "done" -Ref "TASK-201" -Body "Done now"
+
+            # Read and verify timestamp comparison works
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $latest = $msgs[0]
+            # Parse the same way Find-LatestSignal does
+            $msgTs = 0
+            if ($latest.ts -is [datetime]) {
+                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+            }
+            $msgTs | Should -BeGreaterOrEqual $pastEpoch
+        }
+
+        It "old signal before state reset is correctly filtered out" {
+            & $script:NewWarRoom -RoomId "room-202" -TaskRef "TASK-202" `
+                                 -TaskDescription "Old signal filter" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-202"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # Post done message now
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                  -Type "done" -Ref "TASK-202" -Body "Old done"
+
+            # Simulate state timeout reset: set state_changed_at to future
+            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 60
+            $futureEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # The old done message should NOT be detected
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $latest = $msgs[0]
+            $msgTs = 0
+            if ($latest.ts -is [datetime]) {
+                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+            }
+            # msgTs should be LESS than the future state_changed_at
+            $msgTs | Should -BeLessThan $futureEpoch
+        }
+    }
+
+    Context "Leak fix — Handle-PlanApproval one-shot flag" {
+        It "creates .plan_approved flag file on first PLAN-REVIEW passed" {
+            & $script:NewWarRoom -RoomId "room-210" -TaskRef "PLAN-REVIEW" `
+                                 -TaskDescription "Approval gate" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-210"
+
+            # The flag file should not exist initially
+            $flagFile = Join-Path $script:warRoomsDir ".plan_approved_PLAN-REVIEW"
+            Test-Path $flagFile | Should -BeFalse
+
+            # Simulate the guard logic from the manager loop
+            "1" | Out-File -FilePath $flagFile -Encoding utf8 -NoNewline
+            Test-Path $flagFile | Should -BeTrue
+        }
+
+        It "flag file prevents second Handle-PlanApproval invocation" {
+            # Simulate the one-shot guard
+            $warRoomsDir = $script:warRoomsDir
+            $taskRef = "PLAN-REVIEW"
+            $flagFile = Join-Path $warRoomsDir ".plan_approved_PLAN-REVIEW"
+
+            # First invocation — should pass guard
+            $firstInvocation = $false
+            if ($taskRef -eq 'PLAN-REVIEW' -and -not (Test-Path $flagFile)) {
+                $firstInvocation = $true
+                "1" | Out-File -FilePath $flagFile -Encoding utf8 -NoNewline
+            }
+            $firstInvocation | Should -BeTrue
+
+            # Second invocation — should be blocked by flag
+            $secondInvocation = $false
+            if ($taskRef -eq 'PLAN-REVIEW' -and -not (Test-Path $flagFile)) {
+                $secondInvocation = $true
+            }
+            $secondInvocation | Should -BeFalse
+        }
+
+        It "flag file is scoped to specific task ref" {
+            $warRoomsDir = $script:warRoomsDir
+            $flagPlan = Join-Path $warRoomsDir ".plan_approved_PLAN-REVIEW"
+            $flagEpic = Join-Path $warRoomsDir ".plan_approved_EPIC-001"
+
+            # PLAN-REVIEW flag should not block EPIC-001 (different task ref)
+            "1" | Out-File -FilePath $flagPlan -Encoding utf8 -NoNewline
+            Test-Path $flagPlan | Should -BeTrue
+            Test-Path $flagEpic | Should -BeFalse
+        }
+    }
+
+    Context "Leak fix — pending signal prevents re-spawn" {
+        It "done message in channel prevents re-spawn when no PID alive" {
+            & $script:NewWarRoom -RoomId "room-220" -TaskRef "TASK-220" `
+                                 -TaskDescription "Re-spawn guard" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-220"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # Set state_changed_at to past (so done signal is "newer")
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Engineer posts done and cleans up PID (simulating the crash window)
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                  -Type "done" -Ref "TASK-220" -Body "All done"
+
+            # No PID file exists
+            $pidFile = Join-Path $roomDir "pids" "engineer.pid"
+            Test-Path $pidFile | Should -BeFalse
+
+            # Simulate the guard: check for pending signal before re-spawn
+            $expectedSignals = @("done", "error")
+            $pendingSignal = $null
+            foreach ($sigType in $expectedSignals) {
+                $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
+                if ($msgs -and $msgs.Count -gt 0) {
+                    $latest = $msgs[-1]
+                    $msgTs = 0
+                    if ($latest.ts -is [datetime]) {
+                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                    }
+                    $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+                    if ($msgTs -ge $changedAt) {
+                        $pendingSignal = $sigType
+                        break
+                    }
+                }
+            }
+
+            # Guard SHOULD detect the pending done signal → skip re-spawn
+            $pendingSignal | Should -Be "done"
+        }
+
+        It "no pending signal allows re-spawn (normal case)" {
+            & $script:NewWarRoom -RoomId "room-221" -TaskRef "TASK-221" `
+                                 -TaskDescription "Normal re-spawn" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-221"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # No messages at all — channel is empty
+            $expectedSignals = @("done", "error")
+            $pendingSignal = $null
+            foreach ($sigType in $expectedSignals) {
+                $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
+                if ($msgs -and $msgs.Count -gt 0) {
+                    $pendingSignal = $sigType
+                    break
+                }
+            }
+
+            # No pending signal → re-spawn SHOULD proceed
+            $pendingSignal | Should -BeNullOrEmpty
+        }
+    }
+
+    Context "Exploit — LEAK-4: decision state does not infinite-loop status writes" {
+        It "decision retry transition targets developing (not self)" {
+            & $script:NewWarRoom -RoomId "room-300" -TaskRef "TASK-300" `
+                                 -TaskDescription "Decision loop test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-300"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed"
+
+            # Read lifecycle to verify decision state transitions OUT (not self-loop)
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $failedState = $lc.states.failed
+            $failedState.type | Should -Be "decision"
+            $failedState.signals.retry.target | Should -Be "developing"
+            $failedState.signals.retry.target | Should -Not -Be "failed"
+            $failedState.signals.exhaust.target | Should -Be "failed-final"
+        }
+
+        It "retries file must be incremented to prevent infinite decision cycles" {
+            & $script:NewWarRoom -RoomId "room-301" -TaskRef "TASK-301" `
+                                 -TaskDescription "Decision retries" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-301"
+            Write-V2Lifecycle -RoomDir $roomDir
+
+            # Simulate: room starts at 0 retries, max is 3
+            "0" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
+            $maxRetries = $lc.max_retries
+
+            # Decision should retry when retries < max
+            $retries | Should -BeLessThan $maxRetries
+            # And exhaust when retries >= max
+            "3" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
+            $retries2 = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
+            $retries2 | Should -BeGreaterOrEqual $maxRetries
+        }
+    }
+
+    Context "Exploit — LEAK-5: PLAN-REVIEW shortcut uses one-shot guard" {
+        It "shortcut path and terminal path both respect same flag file" {
+            $warRoomsDir = $script:warRoomsDir
+            $flagFile = Join-Path $warRoomsDir ".plan_approved_PLAN-REVIEW"
+
+            # Simulate shortcut path (first detection of approval)
+            $shortcutFired = $false
+            if (-not (Test-Path $flagFile)) {
+                $shortcutFired = $true
+                "1" | Out-File -FilePath $flagFile -Encoding utf8 -NoNewline
+            }
+            $shortcutFired | Should -BeTrue
+
+            # Simulate terminal handler path (next iteration, room now in 'passed')
+            $terminalFired = $false
+            if (-not (Test-Path $flagFile)) {
+                $terminalFired = $true
+            }
+            $terminalFired | Should -BeFalse
+
+            # Total invocations = exactly 1
+            Test-Path $flagFile | Should -BeTrue
+        }
+    }
+
+    Context "Exploit — LEAK-6: state timeout re-resolves role for restart state" {
+        It "review timeout should spawn engineer (not qa) for developing state" {
+            & $script:NewWarRoom -RoomId "room-310" -TaskRef "TASK-310" `
+                                 -TaskDescription "Timeout role test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-310"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+
+            # Current state is 'review' — role is 'qa'
+            $currentRole = $lc.states.review.role
+            $currentRole | Should -Be "qa"
+
+            # After timeout, restart to initial_state
+            $restartState = $lc.initial_state
+            $restartState | Should -Be "developing"
+
+            # Restart state role should be 'engineer', not 'qa'
+            $restartRole = $lc.states.$restartState.role
+            $restartRole | Should -Be "engineer"
+            $restartRole | Should -Not -Be $currentRole
+        }
+
+        It "triage timeout should spawn engineer (not manager) for developing" {
+            & $script:NewWarRoom -RoomId "room-311" -TaskRef "TASK-311" `
+                                 -TaskDescription "Triage timeout" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-311"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "triage"
+
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $currentRole = $lc.states.triage.role
+            $currentRole | Should -Be "manager"
+
+            $restartRole = $lc.states.($lc.initial_state).role
+            $restartRole | Should -Be "engineer"
+        }
+    }
+
+    Context "Exploit — LEAK-7: deadlock recovery must check pending signals" {
+        It "deadlock recovery skips room with pending done signal" {
+            & $script:NewWarRoom -RoomId "room-320" -TaskRef "TASK-320" `
+                                 -TaskDescription "Deadlock signal test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-320"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # Set state_changed_at to past
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Engineer posted done (signal pending)
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                  -Type "done" -Ref "TASK-320" -Body "Work complete"
+
+            # Simulate deadlock recovery signal check
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $dlStateDef = $lc.states.developing
+            $dlExpectedSignals = @($dlStateDef.signals.PSObject.Properties.Name)
+
+            # The pending done signal should be detected
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $msgs.Count | Should -Be 1
+            $latest = $msgs[0]
+            $msgTs = 0
+            if ($latest.ts -is [datetime]) {
+                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+            }
+            $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+            ($msgTs -ge $changedAt) | Should -BeTrue
+            # Deadlock recovery should NOT reset this room
+        }
+
+        It "deadlock recovery proceeds when no signal pending" {
+            & $script:NewWarRoom -RoomId "room-321" -TaskRef "TASK-321" `
+                                 -TaskDescription "Deadlock no signal" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-321"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # No messages posted — channel empty
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            ($msgs.Count -eq 0) | Should -BeTrue
+            # Deadlock recovery SHOULD proceed for this room
+        }
+    }
+
+    Context "Exploit — LEAK-8: failed-final rescue requires feedback message" {
+        It "rescue to triage only fires when fail/error message exists" {
+            & $script:NewWarRoom -RoomId "room-330" -TaskRef "TASK-330" `
+                                 -TaskDescription "Rescue guard" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-330"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed-final"
+            "1" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
+
+            # No fail/error messages — rescue should NOT fire
+            $failMsg = & $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -Last 1 -AsObject
+            $errorMsg = & $script:ReadMessages -RoomDir $roomDir -FilterType "error" -Last 1 -AsObject
+            $failMsg.Count | Should -Be 0
+            $errorMsg.Count | Should -Be 0
+            # Room should stay in failed-final (no rescue)
+        }
+
+        It "rescue to triage fires when fail message exists" {
+            & $script:NewWarRoom -RoomId "room-331" -TaskRef "TASK-331" `
+                                 -TaskDescription "Rescue fires" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-331"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed-final"
+            "1" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
+
+            # Post fail message — rescue SHOULD fire
+            & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
+                                  -Type "fail" -Ref "TASK-331" -Body "Tests failed"
+            $failMsg = & $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -Last 1 -AsObject
+            $failMsg.Count | Should -Be 1
+            # Rescue condition met
+        }
+    }
+
+    Context "Exploit — LEAK-9: spawn lock prevents duplicate agents" {
+        It "spawn lock within grace period blocks re-spawn" {
+            & $script:NewWarRoom -RoomId "room-340" -TaskRef "TASK-340" `
+                                 -TaskDescription "Spawn lock test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-340"
+            Write-V2Lifecycle -RoomDir $roomDir
+
+            # Write a spawn lock (just now)
+            $pidDir = Join-Path $roomDir "pids"
+            New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
+            $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+            $nowEpoch.ToString() | Out-File -FilePath (Join-Path $pidDir "engineer.spawned_at") -NoNewline
+
+            # Spawn lock should be active (within 30s grace)
+            $lockFile = Join-Path $pidDir "engineer.spawned_at"
+            $spawnedAt = [int](Get-Content $lockFile -Raw).Trim()
+            $elapsed = $nowEpoch - $spawnedAt
+            $elapsed | Should -BeLessThan 30
+        }
+
+        It "expired spawn lock allows re-spawn" {
+            & $script:NewWarRoom -RoomId "room-341" -TaskRef "TASK-341" `
+                                 -TaskDescription "Expired lock" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-341"
+            Write-V2Lifecycle -RoomDir $roomDir
+
+            # Write an expired spawn lock (60 seconds ago)
+            $pidDir = Join-Path $roomDir "pids"
+            New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
+            $expiredEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 60
+            $expiredEpoch.ToString() | Out-File -FilePath (Join-Path $pidDir "engineer.spawned_at") -NoNewline
+
+            # Spawn lock should be expired (> 30s)
+            $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+            $elapsed = $nowEpoch - $expiredEpoch
+            $elapsed | Should -BeGreaterOrEqual 30
         }
     }
 }

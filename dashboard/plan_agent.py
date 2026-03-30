@@ -1,20 +1,64 @@
 """
 Plan Agent — deepagents-powered plan refinement.
 
-Uses deepagents CLI as a subprocess to help users refine rough ideas into
+Uses create_deep_agent() to help users refine rough ideas into
 properly structured plans with Epics, acceptance criteria,
 and working directories.
 """
 
 import os
 import json
+import re
 import logging
-import asyncio
-import uuid
 from pathlib import Path
-from typing import Optional, AsyncIterator
+from typing import Optional, AsyncIterator, Dict, Any
+
+from deepagents import create_deep_agent
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 logger = logging.getLogger(__name__)
+
+def parse_structured_response(text: str) -> Dict[str, Any]:
+    """Parse the structured Markdown response from the Plan Architect."""
+    sections = {
+        "explanation": "",
+        "actions": [],
+        "plan": "",
+        "full_response": text
+    }
+
+    # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, support multiple #)
+    pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\b"
+    parts = re.split(pattern, text, flags=re.MULTILINE | re.IGNORECASE)
+
+    # Re-split returns [prefix, header1, content1, header2, content2, ...]
+    for i in range(1, len(parts), 2):
+        header = parts[i].upper()
+        content = parts[i+1].strip()
+
+        if header == "EXPLANATION":
+            sections["explanation"] = (sections["explanation"] + "\n" + content).strip()
+        elif header == "ACTIONS":
+            # Parse lines like "- ACTION: path/to/file"
+            lines = content.splitlines()
+            for line in lines:
+                # Support formats: "- CREATE: path", "UPDATE: path", "- [DELETE] path"
+                m = re.search(r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)", line.strip(), re.IGNORECASE)
+                if m:
+                    sections["actions"].append({
+                        "action": m.group(1).upper(),
+                        "path": m.group(2).strip()
+                    })
+        elif header == "PLAN":
+            sections["plan"] = (sections["plan"] + "\n" + content).strip()
+
+    # Fallback: if we didn't find specific sections but have text,
+    # and it looks like a plan, put it in the 'plan' field for backward compatibility.
+    if not sections["plan"] and not sections["explanation"] and text.strip():
+        if "# Plan" in text or "## Epics" in text:
+            sections["plan"] = text
+
+    return sections
 
 def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
     """Read roles from registry.json and format them for the prompt."""
@@ -78,8 +122,31 @@ executed by autonomous agents inside **war-rooms**.
 
 ## OUTPUT FORMAT AND INSTRUCTIONS
 
-You MUST produce a plan strictly following the format and rules defined in the template below.
-The template includes both instructions (in HTML comments or text) and the exact structure to use.
+You MUST separate your output into the following three labeled sections in this exact order:
+
+# EXPLANATION
+A brief, high-level summary of the changes or improvements you've made to the plan.
+
+# ACTIONS
+A list of discrete file operations required to implement the refinement.
+Format each line as: `- ACTION: path/to/file` (where ACTION is CREATE, UPDATE, or DELETE).
+If you are refining an existing plan, ALWAYS include `- UPDATE: PLAN.md`.
+Example:
+- CREATE: dashboard/models.py
+- UPDATE: PLAN.md
+
+# PLAN
+The full, updated plan content strictly following the template format below.
+
+## RULES
+1. ONLY output the three sections above. Do NOT include any introductory or concluding text.
+2. Each section MUST start with its corresponding '#' header on a new line.
+3. The `# ACTIONS` section MUST list one action per line for all files created or modified.
+4. The `# PLAN` section MUST contain the full, valid Markdown content of the plan, starting from its title.
+5. Maintain consistency and accuracy in all file paths.
+
+## PLAN TEMPLATE
+Strictly follow the structure and rules defined in the template below.
 Pay special attention to the dynamic Roles and Lifecycle sections.
 
 ```markdown
@@ -100,47 +167,147 @@ Pay special attention to the dynamic Roles and Lifecycle sections.
 3. Be concise, technical, and precise. Write like a senior engineering lead scoping work.
 """
 
-def detect_model() -> str:
-    """Pick the best available model based on which API keys are set.
-    Uses deepagents provider formatting natively.
-    """
-    # Overriding to force the correct provider/key despite environment leaks
-    os.environ["GOOGLE_API_KEY"] = "AIzaSyDxJlQhiEfW_LYHHzJICY7bkFkasnKk5e0"
-    return "google_genai:gemini-3.1-pro-preview"
+# ── Auto-detect available AI provider ──────────────────────────────
 
-def build_prompt_text(
+def detect_model() -> tuple[str, str]:
+    """Pick the best available model based on which API keys are set.
+
+    Returns:
+        A tuple of (model_name, provider) for langchain's init_chat_model.
+    """
+    if os.environ.get("GOOGLE_API_KEY"):
+        return ("gemini-3.1-pro-preview", "google_genai")
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return ("claude-sonnet-4-6", "anthropic")
+    if os.environ.get("OPENAI_API_KEY"):
+        return ("gpt-4o", "openai")
+    raise RuntimeError(
+        "No AI API key found. Set GOOGLE_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY in ~/.ostwin/.env"
+    )
+
+
+def _resolve_model(model_str: str = ""):
+    """Resolve a model string into an initialized ChatModel.
+
+    If model_str is empty, auto-detects from environment.
+    If model_str contains ':', splits as 'provider:model'.
+    Otherwise uses init_chat_model's auto-detection.
+    """
+    from langchain.chat_models import init_chat_model
+
+    if not model_str:
+        model_name, provider = detect_model()
+        return init_chat_model(model_name, model_provider=provider)
+
+    if ":" in model_str:
+        provider, model_name = model_str.split(":", 1)
+        # Normalize provider names
+        provider_map = {
+            "google-genai": "google_genai",
+            "google-vertexai": "google_vertexai",
+        }
+        provider = provider_map.get(provider, provider)
+        return init_chat_model(model_name, model_provider=provider)
+
+    return init_chat_model(model_str)
+
+
+# ── Agent factory ──────────────────────────────────────────────────
+
+def create_plan_agent(
+    model: str = "",
+    plans_dir: Optional[Path] = None,
+):
+    """Create a deepagent configured for plan refinement.
+
+    Args:
+        model: LLM model identifier. Supports formats:
+               - Empty string: auto-detect from env vars
+               - "provider:model" (e.g. "google-genai:gemini-2.5-flash")
+               - Plain model name (e.g. "claude-sonnet-4-6")
+        plans_dir: Path to the plans directory for the read_existing_plan tool.
+
+    Returns:
+        A compiled LangGraph agent.
+    """
+    from langchain_core.tools import tool as lc_tool
+
+    _plans_dir = plans_dir
+
+    @lc_tool
+    def read_existing_plan(plan_id: str) -> str:
+        """Read the current content of a plan file by its ID.
+
+        Use this when the user references an existing plan or asks to
+        review/modify a previously saved plan.
+
+        Args:
+            plan_id: The plan identifier (filename stem without .md).
+
+        Returns:
+            The full plan file content, or an error message.
+        """
+        if not _plans_dir:
+            return "Error: Plans directory not configured."
+        plan_file = _plans_dir / f"{plan_id}.md"
+        if not plan_file.exists():
+            return f"Error: Plan '{plan_id}' not found."
+        return plan_file.read_text()
+
+    chat_model = _resolve_model(model)
+    logger.info("Plan agent using model: %s", type(chat_model).__name__)
+
+    # Resolve agents_dir from plans_dir
+    agents_dir = plans_dir.parent if plans_dir else None
+
+    agent = create_deep_agent(
+        model=chat_model,
+        tools=[read_existing_plan],
+        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir),
+    )
+
+    return agent
+
+
+# ── Invoke helpers ─────────────────────────────────────────────────
+
+def build_messages(
     user_message: str,
     plan_content: str = "",
     chat_history: list[dict] | None = None,
-    plans_dir: Optional[Path] = None,
-    agents_dir: Optional[Path] = None,
-) -> str:
-    """Build the raw prompt text to send to deepagents CLI."""
-    lines = []
-    
-    # 1. System Prompt
-    lines.append(get_system_prompt(plans_dir, agents_dir))
-    lines.append("\n" + "="*40 + "\n")
-    
-    # 2. Inject current plan as system context
+) -> list:
+    """Build the message list for the agent invocation.
+
+    Args:
+        user_message: The user's latest instruction.
+        plan_content: Current editor content to provide as context.
+        chat_history: Previous conversation turns [{role, content}, ...].
+
+    Returns:
+        List of LangChain message objects.
+    """
+    messages = []
+
+    # Inject current plan as system context
     if plan_content and plan_content.strip():
-        lines.append("The user's current plan in the editor:\n\n```markdown\n" + plan_content + "\n```")
-        lines.append("\n" + "="*40 + "\n")
-        
-    # 3. Add chat history
+        messages.append(
+            SystemMessage(content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```")
+        )
+
+    # Add chat history
     if chat_history:
         for msg in chat_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            lines.append(f"[{role.upper()}]:\n{content}\n")
-            
-    # 4. Add the latest user message
-    lines.append(f"[USER]:\n{user_message}\n")
-    
-    # 5. Output instruction
-    lines.append("\nReturn ONLY the markdown plan, with no additional conversational text or wrapper text.")
-    
-    return "\n".join(lines)
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                messages.append(AIMessage(content=content))
+
+    # Add the latest user message
+    messages.append(HumanMessage(content=user_message))
+
+    return messages
 
 
 async def refine_plan(
@@ -149,79 +316,41 @@ async def refine_plan(
     chat_history: list[dict] | None = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
-) -> str:
-    """Invoke the plan agent using the deepagents CLI as a subprocess.
-    This exactly mirrors the agent execution method (Invoke-Agent.ps1).
+) -> Dict[str, Any]:
+    """Invoke the plan agent and return the refined plan structured data.
+
+    Args:
+        user_message: User's refinement instruction.
+        plan_content: Current editor content.
+        chat_history: Previous turns.
+        model: LLM model to use.
+        plans_dir: Path to plans directory.
+
+    Returns:
+        A dictionary with explanation, actions, and plan content.
     """
-    if not model:
-        model = detect_model()
-        
-    agents_dir = plans_dir.parent if plans_dir else None
-    
-    full_prompt = build_prompt_text(
-        user_message=user_message,
-        plan_content=plan_content,
-        chat_history=chat_history,
-        plans_dir=plans_dir,
-        agents_dir=agents_dir
-    )
-    
-    # Write prompt to a temp file to avoid CLI argument escaping issues
-    temp_prompt_path = Path(f"/tmp/plan-prompt-{uuid.uuid4().hex}.txt")
-    temp_prompt_path.write_text(full_prompt)
-    
-    # Resolve deepagents CLI (from local .agents/bin if available)
-    deepagents_cmd = "deepagents"
-    if agents_dir:
-        local_agent = agents_dir / "bin" / "agent"
-        if local_agent.exists():
-            deepagents_cmd = str(local_agent)
-            
-    try:
-        args = [
-            deepagents_cmd,
-            "-n", f"$(cat '{temp_prompt_path}')",
-            "-M", model,
-            "-q",
-            "--auto-approve"
-        ]
-        
-        logger.info(f"Refining plan with subprocess: {args}")
-        
-        env = os.environ.copy()
-        
-        # Use shell=True since we are doing "$(cat ...)"
-        proc = await asyncio.create_subprocess_shell(
-            f"\"{deepagents_cmd}\" -n \"$(cat '{temp_prompt_path}')\" -M \"{model}\" -q --auto-approve",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env
-        )
-        
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode != 0:
-            error_msg = stderr.decode().strip()
-            logger.error(f"Plan agent CLI failed ({proc.returncode}): {error_msg}")
-            return f"Error: Plan agent failed. {error_msg}"
-            
-        result = stdout.decode().strip()
-        
-        # Strip potential markdown wrapping blocks
-        if result.startswith("```markdown"):
-            result = result[11:]
-        elif result.startswith("```"):
-            result = result[3:]
-            
-        if result.endswith("```"):
-            result = result[:-3]
-            
-        return result.strip()
-        
-    finally:
-        # Cleanup temp prompt file
-        if temp_prompt_path.exists():
-            temp_prompt_path.unlink()
+    agent = create_plan_agent(model=model, plans_dir=plans_dir)
+    messages = build_messages(user_message, plan_content, chat_history)
+
+    result = await agent.ainvoke({"messages": messages})
+
+    # Extract the last AI message
+    raw_content = ""
+    for msg in reversed(result.get("messages", [])):
+        if hasattr(msg, "content") and msg.content:
+            content = msg.content
+            if isinstance(content, list):
+                # Handle Gemini blocks
+                raw_content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+            else:
+                raw_content = content
+            break
+
+    if not raw_content:
+        return {"error": "No response from plan agent."}
+
+    return parse_structured_response(raw_content)
+
 
 async def refine_plan_stream(
     user_message: str,
@@ -230,17 +359,47 @@ async def refine_plan_stream(
     model: str = "",
     plans_dir: Optional[Path] = None,
 ) -> AsyncIterator[str]:
-    """Streaming is not supported when using deepagents CLI via subprocess quietly.
-    Falling back to non-streaming buffer for full compatibility with agent execution method.
+    """Stream the plan agent's response token-by-token.
+
+    Yields individual content chunks as they arrive from the LLM.
+
+    Args:
+        user_message: User's refinement instruction.
+        plan_content: Current editor content.
+        chat_history: Previous turns.
+        model: LLM model to use.
+        plans_dir: Path to plans directory.
+
+    Returns:
+        AsyncIterator of string tokens.
     """
-    result = await refine_plan(
-        user_message=user_message,
-        plan_content=plan_content,
-        chat_history=chat_history,
-        model=model,
-        plans_dir=plans_dir
-    )
-    yield result
+    agent = create_plan_agent(model=model, plans_dir=plans_dir)
+    messages = build_messages(user_message, plan_content, chat_history)
+
+    try:
+        async for event in agent.astream_events(
+            {"messages": messages},
+            version="v2",
+        ):
+            kind = event.get("event", "")
+            if kind == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    content = chunk.content
+                    # Gemini returns content as a list of blocks:
+                    #   [{"type": "text", "text": "..."}]
+                    # Other providers return a plain string.
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("text"):
+                                yield block["text"]
+                            elif isinstance(block, str):
+                                yield block
+                    elif isinstance(content, str):
+                        yield content
+    except Exception as e:
+        logger.error("Plan agent streaming error: %s", e)
+        yield f"\n\n[Error: {str(e)}]"
 
 async def summarize_plan(
     plan_content: str,
@@ -248,11 +407,7 @@ async def summarize_plan(
     plans_dir: Optional[Path] = None,
 ) -> str:
     """Invoke the agent to summarize a drafted plan."""
-    if not model:
-        model = detect_model()
-
-    agents_dir = plans_dir.parent if plans_dir else None
-
+    llm = _resolve_model(model)
     prompt = (
         "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
         "of the following software project plan. Highlight the main objective, "
@@ -260,39 +415,9 @@ async def summarize_plan(
         "Plan:\n"
         f"{plan_content}"
     )
-
-    temp_prompt_path = Path(f"/tmp/plan-prompt-{uuid.uuid4().hex}.txt")
-    temp_prompt_path.write_text(prompt)
-
-    deepagents_cmd = "deepagents"
-    if agents_dir:
-        local_agent = agents_dir / "bin" / "agent"
-        if local_agent.exists():
-            deepagents_cmd = str(local_agent)
-
-    try:
-        env = os.environ.copy()
-        proc = await asyncio.create_subprocess_shell(
-            f"\"{deepagents_cmd}\" -n \"$(cat '{temp_prompt_path}')\" -M \"{model}\" -q --auto-approve",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env
-        )
-
-        stdout, stderr = await proc.communicate()
-
-        if proc.returncode != 0:
-            error_msg = stderr.decode().strip()
-            logger.error(f"Summarize agent CLI failed ({proc.returncode}): {error_msg}")
-            return f"Summary unavailable. (Error: {proc.returncode})"
-
-        result = stdout.decode().strip()
-
-        # Clean up tags if present
-        if "<plan>" in result and "</plan>" in result:
-             result = result.split("<plan>")[1].split("</plan>")[0].strip()
-
-        return result
-    finally:
-        if temp_prompt_path.exists():
-            temp_prompt_path.unlink()
+    from langchain_core.messages import HumanMessage
+    result = await llm.ainvoke([HumanMessage(content=prompt)])
+    content = result.content
+    if isinstance(content, list):
+        content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+    return content.strip()

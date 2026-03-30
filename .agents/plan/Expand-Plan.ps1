@@ -257,12 +257,214 @@ if (-not $DryRun) {
     }
 }
 
-# --- Generate planning-DAG.json from enriched plan content ---
-if (-not $DryRun) {
+# --- Holistic Dependency Analysis Pass ---
+# After all EPICs are expanded with rich DoD/AC content, do ONE analysis
+# that sees all EPIC titles + deliverables together to determine real dependencies.
+if (-not $DryRun -and $refinedEpics.Count -gt 0) {
+    # Re-parse the expanded plan for all EPICs
+    $expandedContent = Get-Content $OutFile -Raw
+    $expandedEpicMatches = [regex]::Matches($expandedContent, $epicPattern)
+
+    if ($expandedEpicMatches.Count -gt 1) {
+        Write-Host "[DEP-ANALYSIS] Analyzing dependencies across $($expandedEpicMatches.Count) EPICs..." -NoNewline
+
+        # Build summary context: EPIC ref + title + DoD deliverables
+        $epicSummaries = @()
+        foreach ($exm in $expandedEpicMatches) {
+            $exRef = $exm.Groups[1].Value
+            $exTitle = $exm.Groups[2].Value.Trim()
+            $exStart = $exm.Index
+            $exNext = $expandedEpicMatches | Where-Object { $_.Index -gt $exStart } | Select-Object -First 1
+            $exEnd = if ($exNext) { $exNext.Index } else { $expandedContent.Length }
+            $exSection = $expandedContent.Substring($exStart, $exEnd - $exStart)
+
+            # Extract DoD items
+            $dodItems = @()
+            $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|$)'
+            if ($exSection -match $dodPattern) {
+                $dodItems = [regex]::Matches($Matches[1], '(?m)^[-*] \[[ x]\]\s*(.+)') |
+                    ForEach-Object { $_.Groups[1].Value.Trim() }
+            }
+
+            # Extract brief description (first meaningful paragraph after header)
+            $descBrief = ""
+            $descMatch = [regex]::Match($exSection, '(?s)^#{2,3}\s+.+?\n\s*\n(.+?)(?=\n\s*\n|####)')
+            if ($descMatch.Success) {
+                $descBrief = $descMatch.Groups[1].Value.Trim()
+                if ($descBrief.Length -gt 300) { $descBrief = $descBrief.Substring(0, 300) + "..." }
+            }
+
+            $dodStr = if ($dodItems.Count -gt 0) { ($dodItems | ForEach-Object { "  - $_" }) -join "`n" } else { "  (none specified)" }
+            $epicSummaries += @"
+### $exRef — $exTitle
+$descBrief
+
+**Deliverables (Definition of Done):**
+$dodStr
+"@
+        }
+
+        $allEpicContext = $epicSummaries -join "`n`n"
+
+        $depPrompt = @"
+You are a Dependency Analyst for a software project. Given the EPICs below with their titles, descriptions, and Definition of Done deliverables, determine the MINIMUM dependency graph that allows MAXIMUM parallelism.
+
+## EPICs
+
+$allEpicContext
+
+## Rules
+- Only add a dependency edge if EPIC-B genuinely CANNOT START until EPIC-A COMPLETES
+- Look at DoD deliverables: if EPIC-A produces an API/schema/config that EPIC-B consumes, that's a real dependency
+- Infrastructure/environment EPICs (Docker, CI/CD) are typically prerequisites for others
+- Do NOT assume sequential order — parallel execution is strongly preferred
+- Do NOT include PLAN-REVIEW (that is injected automatically)
+
+## Output Format
+Return ONLY valid JSON, no markdown fences, no preamble:
+{
+  "edges": [
+    {"from": "EPIC-001", "to": "EPIC-003", "reason": "EPIC-003 needs the DB schema from EPIC-001"}
+  ],
+  "parallel_groups": [
+    ["EPIC-001"],
+    ["EPIC-002", "EPIC-003"],
+    ["EPIC-004"]
+  ]
+}
+
+If no dependencies exist, return: {"edges": [], "parallel_groups": [["EPIC-001", "EPIC-002", ...]]}
+"@
+
+        $depResult = if ($AgentCmd) {
+            $depOutput = if (Test-Path $AgentCmd) {
+                & $AgentCmd $depPrompt | Out-String
+            } else {
+                Invoke-Expression "$AgentCmd '$($depPrompt -replace "'", "''")'"
+            }
+            $depCode = if ($?) { 0 } else { 1 }
+            [PSCustomObject]@{ ExitCode = $depCode; Output = $depOutput }
+        } else {
+            & $invokeAgent -RoomDir $expansionRoom -RoleName "architect" `
+                             -Prompt $depPrompt -TimeoutSeconds 300
+        }
+
+        if ($depResult.ExitCode -eq 0) {
+            $rawDepOutput = $depResult.Output.Trim()
+            $rawDepOutput = $rawDepOutput -replace '(?s)^```(?:json)?\s*', '' -replace '(?s)\s*```$', ''
+
+            try {
+                $depData = $rawDepOutput | ConvertFrom-Json -ErrorAction Stop
+
+                if ($depData.edges -and $depData.edges.Count -gt 0) {
+                    # Build a lookup: EPIC-ref → list of dependencies
+                    $depMap = @{}
+                    foreach ($edge in $depData.edges) {
+                        $to = $edge.to
+                        $from = $edge.from
+                        if (-not $depMap.ContainsKey($to)) { $depMap[$to] = @() }
+                        $depMap[$to] += $from
+                    }
+
+                    # Update depends_on: lines in the plan content
+                    $updatedPlan = $expandedContent
+                    foreach ($epicRef in $depMap.Keys) {
+                        $deps = $depMap[$epicRef]
+                        $depsStr = ($deps | ForEach-Object { """$_""" }) -join ', '
+                        $newDepsLine = "depends_on: [$depsStr]"
+
+                        # Replace existing depends_on: line for this EPIC
+                        # Find the EPIC section boundaries
+                        $epicHeaderMatch = [regex]::Match($updatedPlan, "(?m)^#{2,3}\s+${epicRef}\s*[-—–]\s*.+$")
+                        if ($epicHeaderMatch.Success) {
+                            $secStart = $epicHeaderMatch.Index
+                            $afterHeader = $updatedPlan.Substring($secStart)
+                            $nextEpicMatch = [regex]::Match($afterHeader.Substring($epicHeaderMatch.Length), '(?m)^#{2,3}\s+EPIC-')
+                            $secEnd = if ($nextEpicMatch.Success) { $secStart + $epicHeaderMatch.Length + $nextEpicMatch.Index } else { $updatedPlan.Length }
+                            $section = $updatedPlan.Substring($secStart, $secEnd - $secStart)
+
+                            # Replace or append depends_on: line
+                            $existingDepsMatch = [regex]::Match($section, '(?m)^\s*depends_on:\s*\[.*\]\s*$')
+                            if ($existingDepsMatch.Success) {
+                                $newSection = $section.Remove($existingDepsMatch.Index, $existingDepsMatch.Length).Insert($existingDepsMatch.Index, $newDepsLine)
+                            } else {
+                                # Append before the section ends
+                                $newSection = $section.TrimEnd() + "`n`n$newDepsLine`n"
+                            }
+                            $updatedPlan = $updatedPlan.Remove($secStart, $secEnd - $secStart).Insert($secStart, $newSection)
+                        }
+                    }
+
+                    # Re-write the plan with updated dependencies
+                    $updatedPlan | Out-File -FilePath $OutFile -Encoding utf8
+                    $newPlanContent = $updatedPlan
+                    Write-Host " [DONE]" -ForegroundColor Green
+
+                    # Display discovered edges
+                    foreach ($edge in $depData.edges) {
+                        $reasonStr = if ($edge.reason) { " ($($edge.reason))" } else { "" }
+                        Write-Host "  $($edge.to) depends_on $($edge.from)$reasonStr" -ForegroundColor White
+                    }
+                } else {
+                    Write-Host " [DONE — no inter-epic dependencies]" -ForegroundColor Green
+                }
+
+                # --- Write .planning-DAG.json for backward compat with Start-Plan.ps1 ---
+                $planningDagOut = Join-Path $planDir ".planning-DAG.json"
+                $dagNodes = @()
+                foreach ($exm in $expandedEpicMatches) {
+                    $ref = $exm.Groups[1].Value
+                    $deps = if ($depMap -and $depMap.ContainsKey($ref)) { @($depMap[$ref]) } else { @() }
+                    $dagNodes += [ordered]@{
+                        task_ref       = $ref
+                        title          = $exm.Groups[2].Value.Trim()
+                        role           = "engineer"
+                        candidate_roles = @("engineer")
+                        depends_on     = $deps
+                    }
+                }
+                $planningDag = [ordered]@{
+                    generated_at      = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                    source            = (Split-Path $OutFile -Leaf)
+                    stage             = "planning"
+                    total_nodes       = $dagNodes.Count
+                    nodes             = $dagNodes
+                    topological_order = @($dagNodes | ForEach-Object { $_.task_ref })
+                }
+                $planningDag | ConvertTo-Json -Depth 10 | Out-File -FilePath $planningDagOut -Encoding utf8
+                Write-Host "[DEP-ANALYSIS] Written to $planningDagOut" -ForegroundColor Cyan
+
+            } catch {
+                Write-Warning "Failed to parse dependency analysis output: $_"
+                Write-Host " [SKIPPED]" -ForegroundColor Yellow
+                # Fall back to Build-PlanningDAG.ps1 if available
+                $buildPlanningDag = Join-Path $scriptDir "Build-PlanningDAG.ps1"
+                if (Test-Path $buildPlanningDag) {
+                    $planningDagOut = Join-Path $planDir ".planning-DAG.json"
+                    Write-Host "[FALLBACK] Using Build-PlanningDAG.ps1..." -ForegroundColor Yellow
+                    & $buildPlanningDag -PlanFile $OutFile -OutFile $planningDagOut -RoomDir $expansionRoom
+                }
+            }
+        } else {
+            Write-Host " [FAILED]" -ForegroundColor Red
+            Write-Warning "Dependency analysis failed: $($depResult.Output)"
+            # Fall back to Build-PlanningDAG.ps1
+            $buildPlanningDag = Join-Path $scriptDir "Build-PlanningDAG.ps1"
+            if (Test-Path $buildPlanningDag) {
+                $planningDagOut = Join-Path $planDir ".planning-DAG.json"
+                Write-Host "[FALLBACK] Using Build-PlanningDAG.ps1..." -ForegroundColor Yellow
+                & $buildPlanningDag -PlanFile $OutFile -OutFile $planningDagOut -RoomDir $expansionRoom
+            }
+        }
+    } else {
+        Write-Host "[DEP-ANALYSIS] Single EPIC — no dependency analysis needed." -ForegroundColor DarkGray
+    }
+} elseif (-not $DryRun) {
+    # No epics were refined but we still need a planning-DAG — fall back to Build-PlanningDAG.ps1
     $buildPlanningDag = Join-Path $scriptDir "Build-PlanningDAG.ps1"
     if (Test-Path $buildPlanningDag) {
         $planningDagOut = Join-Path $planDir ".planning-DAG.json"
-        Write-Host "[EXPAND] Generating planning-DAG.json from expanded plan..." -ForegroundColor Cyan
+        Write-Host "[EXPAND] Generating planning-DAG.json (no expansion needed)..." -ForegroundColor Cyan
         & $buildPlanningDag -PlanFile $OutFile -OutFile $planningDagOut -RoomDir $expansionRoom
     }
 }

@@ -84,6 +84,38 @@ $taskRef = if (Test-Path (Join-Path $RoomDir "task-ref")) {
     (Get-Content (Join-Path $RoomDir "task-ref") -Raw).Trim()
 } else { "UNKNOWN" }
 
+$roomName = Split-Path $RoomDir -Leaf
+
+# --- Debug: show resolved config ---
+$qaModel = if ($qaConfigs) {
+    $qaRoleConfig = Get-Content $qaConfigs[0].FullName -Raw | ConvertFrom-Json
+    $qaRoleConfig.model
+} else { "gemini-3-flash-preview" }
+Write-Host "[QA] === Debug Config ==="
+Write-Host "[QA]   Room:      $roomName"
+Write-Host "[QA]   TaskRef:   $taskRef"
+Write-Host "[QA]   Model:     $qaModel"
+Write-Host "[QA]   Timeout:   ${TimeoutSeconds}s"
+Write-Host "[QA]   RoomDir:   $RoomDir"
+Write-Host "[QA]   Config:    $qaRoleConfigFile"
+Write-Host "[QA] ==================="
+
+# --- Write per-role context.md ---
+$contextsDir = Join-Path $RoomDir "contexts"
+if (-not (Test-Path $contextsDir)) {
+    New-Item -ItemType Directory -Path $contextsDir -Force | Out-Null
+}
+$contextFile = Join-Path $contextsDir "qa.md"
+$contextContent = @"
+# QA Context
+
+## Assignment
+- Task: $taskRef
+- Room: $roomName
+- Started: $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))
+"@
+$contextContent | Out-File -FilePath $contextFile -Encoding utf8 -Force
+
 # --- Detect Epic vs Task ---
 $isEpic = $taskRef -match '^EPIC-'
 
@@ -154,6 +186,42 @@ else {
 "@
 }
 
+# --- Inject predecessor context from DAG ---
+$predecessorSection = ""
+$dagFile = Join-Path (Split-Path $RoomDir) "DAG.json"
+if (Test-Path $dagFile) {
+    $dag = Get-Content $dagFile -Raw | ConvertFrom-Json
+    $myNode = $dag.nodes.$taskRef
+    if ($myNode -and $myNode.depends_on -and $myNode.depends_on.Count -gt 0) {
+        $sections = @()
+        foreach ($depRef in $myNode.depends_on) {
+            $depNode = $dag.nodes.$depRef
+            if (-not $depNode) { continue }
+            $depRoomDir = Join-Path (Split-Path $RoomDir) $depNode.room_id
+            try {
+                $doneMsgs = & $readMessages -RoomDir $depRoomDir -FilterType "done" -Last 1 -AsObject
+                if ($doneMsgs -and $doneMsgs.Count -gt 0) {
+                    $body = $doneMsgs[-1].body
+                    if ($body.Length -gt 10240) { $body = $body.Substring(0, 10240) + "`n[TRUNCATED]" }
+                    $sections += "### $depRef`n$body"
+                }
+            } catch { }
+        }
+        if ($sections.Count -gt 0) {
+            $predecessorSection = "`n`n## Predecessor Outputs`n`n$($sections -join "`n`n")"
+            Write-Host "[QA] Injected $($sections.Count) predecessor context(s)"
+        }
+    }
+}
+
+# --- Read triage context if available (from manager triage) ---
+$triageContext = ""
+$triageFile = Join-Path $RoomDir "artifacts" "triage-context.md"
+if (Test-Path $triageFile) {
+    $triageContext = Get-Content $triageFile -Raw
+    Write-Host "[QA] Loaded triage context from artifacts/triage-context.md"
+}
+
 # --- Assemble final prompt using Build-SystemPrompt.ps1 ---
 $buildPrompt = Join-Path $agentsDir "roles" "_base" "Build-SystemPrompt.ps1"
 $extraContext = @"
@@ -181,17 +249,21 @@ $prompt = & $buildPrompt -RoleName "qa" -RolePath $scriptDir `
                          -RoomDir $RoomDir -TaskRef $taskRef `
                          -ExtraContext $extraContext
 
+Write-Host "[QA] Prompt assembled ($($prompt.Length) chars)"
+
 # --- Log start ---
 if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-    Write-OstwinLog -Level INFO -Message "Starting review of $taskRef in $(Split-Path $RoomDir -Leaf)"
+    Write-OstwinLog -Level INFO -Message "Starting review of $taskRef in $roomName (model: $qaModel, timeout: ${TimeoutSeconds}s)"
 }
 else {
-    Write-Host "[QA] Starting review of $taskRef in $(Split-Path $RoomDir -Leaf)"
+    Write-Host "[QA] Starting review of $taskRef in $roomName (model: $qaModel, timeout: ${TimeoutSeconds}s)"
 }
 
 # --- Run the agent ---
+Write-Host "[QA] Invoking agent: qa, room=$roomName, timeout=${TimeoutSeconds}s"
 $result = & $invokeAgent -RoomDir $RoomDir -RoleName "qa" `
                          -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
+Write-Host "[QA] Agent returned: exitCode=$($result.ExitCode), timedOut=$($result.TimedOut), outputLen=$($result.Output.Length)"
 
 # --- Parse verdict from output ---
 $rawOutput = $result.Output
@@ -279,16 +351,18 @@ else {
     }
 }
 
-# --- Clean up PID file (after channel message is posted) ---
-$qaPidFile = Join-Path $RoomDir "pids" "qa.pid"
-Remove-Item $qaPidFile -Force -ErrorAction SilentlyContinue
-
 # --- Update per-role config status ---
 if (Test-Path $qaRoleConfigFile) {
     $qaFinalConfig = Get-Content $qaRoleConfigFile -Raw | ConvertFrom-Json
     $qaFinalConfig.status = if ($verdict -eq "PASS") { "completed" } else { "failed" }
     $qaFinalConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $qaRoleConfigFile -Encoding utf8
 }
+
+# --- Clean up PID file (after channel message is posted) ---
+$qaPidFile = Join-Path $RoomDir "pids" "qa.pid"
+Remove-Item $qaPidFile -Force -ErrorAction SilentlyContinue
+
+Write-Host "[QA] Finished $taskRef in $roomName — verdict: $(if ($verdict) { $verdict } else { 'UNPARSED' }), exitCode: $($result.ExitCode)"
 
 exit $result.ExitCode
 

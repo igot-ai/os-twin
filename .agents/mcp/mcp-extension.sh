@@ -5,6 +5,9 @@
 # Install, list, remove, and sync MCP server extensions.
 # Extensions can be installed by name (from mcp-catalog.json) or by git URL.
 #
+# MCP config is per-project only: $PROJECT/.agents/mcp/mcp-config.json
+# Catalog + builtins come from global ~/.ostwin/mcp/
+#
 # Usage:
 #   mcp-extension.sh install <name|git-url> [--name NAME] [--branch BRANCH]
 #   mcp-extension.sh list
@@ -26,27 +29,35 @@ else
   INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
-MCP_DIR="$INSTALL_DIR/mcp"
-EXTENSIONS_DIR="$MCP_DIR/extensions"
-CATALOG_FILE="$MCP_DIR/mcp-catalog.json"
-EXTENSIONS_FILE="$MCP_DIR/extensions.json"
-BUILTIN_FILE="$MCP_DIR/mcp-builtin.json"
-CONFIG_FILE="$MCP_DIR/mcp-config.json"
+# Catalog + builtins always come from global install
+CATALOG_FILE="$HOME/.ostwin/mcp/mcp-catalog.json"
+BUILTIN_FILE="$HOME/.ostwin/mcp/mcp-builtin.json"
 
-# Also check script-local catalog (dev mode: running from repo)
-if [[ ! -f "$CATALOG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-catalog.json" ]]; then
-  CATALOG_FILE="$SCRIPT_DIR/mcp-catalog.json"
-fi
-if [[ ! -f "$EXTENSIONS_FILE" ]] && [[ -f "$SCRIPT_DIR/extensions.json" ]]; then
-  EXTENSIONS_FILE="$SCRIPT_DIR/extensions.json"
-fi
-if [[ ! -f "$BUILTIN_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-builtin.json" ]]; then
-  BUILTIN_FILE="$SCRIPT_DIR/mcp-builtin.json"
-fi
+# Dev mode fallbacks
+[[ ! -f "$CATALOG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-catalog.json" ]] && CATALOG_FILE="$SCRIPT_DIR/mcp-catalog.json"
+[[ ! -f "$BUILTIN_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-builtin.json" ]] && BUILTIN_FILE="$SCRIPT_DIR/mcp-builtin.json"
+
+# Project-local paths — set after --project-dir is parsed (see MAIN)
+MCP_DIR=""
+EXTENSIONS_DIR=""
+EXTENSIONS_FILE=""
+CONFIG_FILE="$HOME/.ostwin/mcp/mcp-config.json"
+PROJECT_DIR=""
 
 # Python: prefer venv, fallback to system
-PYTHON="$INSTALL_DIR/.venv/bin/python"
+PYTHON="$HOME/.ostwin/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
+
+# Trigger vault hook (non-fatal — vault is lazy-loaded per subcommand)
+"$PYTHON" -c "
+import sys
+sys.path.append('$SCRIPT_DIR')
+try:
+    from vault import get_vault
+    get_vault()
+except Exception:
+    pass
+" 2>/dev/null || true
 
 # ─── Colors ──────────────────────────────────────────────────────────────────
 
@@ -66,14 +77,23 @@ step() { echo -e "  ${CYAN}→${NC} $1"; }
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+# Resolve project dir → set all project-local paths
+apply_project_dir() {
+  PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
+  MCP_DIR="$PROJECT_DIR/.agents/mcp"
+  EXTENSIONS_DIR="$MCP_DIR/extensions"
+  EXTENSIONS_FILE="$HOME/.ostwin/mcp/extensions.json"
+  # CONFIG_FILE is now global: $HOME/.ostwin/mcp/mcp-config.json
+}
+
 ensure_dirs() {
   mkdir -p "$EXTENSIONS_DIR"
+  mkdir -p "$(dirname "$EXTENSIONS_FILE")"
   if [[ ! -f "$EXTENSIONS_FILE" ]]; then
     echo '{"extensions":[]}' > "$EXTENSIONS_FILE"
   fi
 }
 
-# Read a field from catalog for a package name
 catalog_field() {
   local pkg="$1" field="$2"
   "$PYTHON" -c "
@@ -93,7 +113,6 @@ else:
 " 2>/dev/null
 }
 
-# Check if a package name exists in the catalog
 is_in_catalog() {
   local name="$1"
   "$PYTHON" -c "
@@ -106,9 +125,9 @@ sys.exit(1)
 " 2>/dev/null
 }
 
-# Check if already installed
 is_installed() {
   local name="$1"
+  [[ -f "$EXTENSIONS_FILE" ]] || return 1
   "$PYTHON" -c "
 import json, sys
 with open('$EXTENSIONS_FILE') as f:
@@ -123,46 +142,56 @@ sys.exit(1)
 # ─── INSTALL ─────────────────────────────────────────────────────────────────
 
 cmd_install() {
-  local target="${1:-}"
-  shift || true
+  local target=""
+  local opt_name="" opt_branch="" opt_env="" opt_headers=""
+  local build_type="auto"
 
-  if [[ -z "$target" ]]; then
-    fail "Usage: ostwin mcp install <name|git-url> [--name NAME] [--branch BRANCH]"
-    exit 1
-  fi
-
-  # Parse optional args
-  local opt_name="" opt_branch="" opt_env=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --name)   opt_name="$2"; shift 2 ;;
-      --branch) opt_branch="$2"; shift 2 ;;
-      --env)    opt_env="$2"; shift 2 ;;
-      *)        warn "Unknown option: $1"; shift ;;
+      --name)        opt_name="$2"; shift 2 ;;
+      --branch)      opt_branch="$2"; shift 2 ;;
+      --env)         opt_env="$2"; shift 2 ;;
+      --http)        build_type="http"; target="$2"; shift 2 ;;
+      --header)      opt_headers="${opt_headers:-} $2"; shift 2 ;;
+      --project-dir) shift 2 ;;  # already handled globally
+      -*)            warn "Unknown option: $1"; shift ;;
+      *)             target="$1"; shift ;;
     esac
   done
 
+  if [[ -z "$target" ]]; then
+    fail "Usage: ostwin mcp install <name|git-url> [--name NAME] [--branch BRANCH] [--http URL]"
+    exit 1
+  fi
+
   ensure_dirs
 
-  local name="" repo="" branch="" build_type="" config_json=""
+  local name="" repo="" branch="" config_json=""
 
-  # Determine if target is a catalog name or a git URL
-  if [[ "$target" == http* ]] || [[ "$target" == git@* ]] || [[ "$target" == *.git ]]; then
-    # ── Git URL mode ──
+  if [[ "${build_type:-}" == "http" ]]; then
     repo="$target"
-    if [[ -n "$opt_name" ]]; then
-      name="$opt_name"
-    else
-      # Derive name from URL: https://github.com/org/nanobanana.git → nanobanana
-      name=$(basename "$repo" .git)
+    name="${opt_name:-$(echo "$repo" | awk -F/ '{print $3}' | tr '.' '-')}"
+    branch="main"
+    config_json="{\"httpUrl\": \"$repo\", \"headers\": {}}"
+    # Parse headers: --header "X-Key=Val"
+    if [[ -n "${opt_headers:-}" ]]; then
+      for h in $opt_headers; do
+        k="${h%%=*}"
+        v="${h#*=}"
+        config_json=$(echo "$config_json" | "$PYTHON" -c "import json, sys; c=json.load(sys.stdin); c['headers']['$k']='$v'; print(json.dumps(c))")
+      done
     fi
+    info "Installing HTTP MCP server: $repo"
+  elif [[ "$target" == http* ]] || [[ "$target" == git@* ]] || [[ "$target" == *.git ]]; then
+    repo="$target"
+    name="${opt_name:-$(basename "$repo" .git)}"
     branch="${opt_branch:-main}"
     build_type="auto"
     config_json=""
     info "Installing from git URL: $repo"
   else
-    # ── Catalog name mode ──
     name="$target"
+    build_type="auto"
     if ! is_in_catalog "$name"; then
       fail "Package '$name' not found in catalog."
       echo ""
@@ -173,7 +202,6 @@ cmd_install() {
       info "  ostwin mcp install https://github.com/org/repo.git --name my-mcp"
       exit 1
     fi
-
     repo=$(catalog_field "$name" "repo")
     branch="${opt_branch:-$(catalog_field "$name" "branch")}"
     build_type=$(catalog_field "$name" "build_type")
@@ -181,33 +209,34 @@ cmd_install() {
     info "Installing from catalog: $name"
   fi
 
-  # Check if already installed
-  if is_installed "$name"; then
-    warn "'$name' is already installed."
-    info "To reinstall: ostwin mcp remove $name && ostwin mcp install $name"
-    exit 0
-  fi
-
-  local ext_path="$EXTENSIONS_DIR/$name"
-
-  # ── Clone ──
-  step "Cloning $repo (branch: $branch)..."
-  if ! git clone --depth 1 --branch "$branch" "$repo" "$ext_path" 2>/dev/null; then
-    # Retry without --branch for default branch
-    if ! git clone --depth 1 "$repo" "$ext_path" 2>/dev/null; then
-      fail "Failed to clone $repo"
-      exit 1
+  if [[ "$build_type" == "http" ]]; then
+    ext_path=""
+  else
+    if is_installed "$name"; then
+      warn "'$name' is already installed."
+      info "To reinstall: ostwin mcp remove $name && ostwin mcp install $name"
+      exit 0
     fi
+    ext_path="$EXTENSIONS_DIR/$name"
   fi
-  ok "Cloned to $ext_path"
 
-  # ── Auto-detect build type if not from catalog ──
+  # ── Clone (skip for npx/http extensions) ──
+  if [[ "$build_type" != "npx" ]] && [[ "$build_type" != "http" ]]; then
+    step "Cloning $repo (branch: $branch)..."
+    if ! git clone --depth 1 --branch "$branch" "$repo" "$ext_path" 2>/dev/null; then
+      if ! git clone --depth 1 "$repo" "$ext_path" 2>/dev/null; then
+        fail "Failed to clone $repo"
+        exit 1
+      fi
+    fi
+    ok "Cloned to $ext_path"
+  fi
+
+  # ── Auto-detect build type ──
   if [[ "$build_type" == "auto" ]]; then
     if [[ -f "$ext_path/package.json" ]]; then
       build_type="node"
-    elif [[ -f "$ext_path/requirements.txt" ]]; then
-      build_type="python"
-    elif [[ -f "$ext_path/setup.py" ]] || [[ -f "$ext_path/pyproject.toml" ]]; then
+    elif [[ -f "$ext_path/requirements.txt" ]] || [[ -f "$ext_path/setup.py" ]] || [[ -f "$ext_path/pyproject.toml" ]]; then
       build_type="python"
     else
       build_type="none"
@@ -217,10 +246,13 @@ cmd_install() {
 
   # ── Build ──
   case "$build_type" in
+    npx)
+      [[ -d "$ext_path" ]] && rm -rf "$ext_path"
+      info "npx-based extension — no build required (fetched on demand)"
+      ;;
     node)
       if ! command -v node &>/dev/null; then
         fail "Node.js is required but not installed."
-        info "Install: brew install node"
         rm -rf "$ext_path"
         exit 1
       fi
@@ -228,223 +260,267 @@ cmd_install() {
       (
         cd "$ext_path"
         npm install --silent 2>/dev/null || npm install
-        if grep -q '"build"' package.json 2>/dev/null; then
-          npm run build 2>/dev/null || npm run build
-        fi
-      ) && ok "Build complete" || {
-        fail "Build failed"
-        rm -rf "$ext_path"
-        exit 1
-      }
+        grep -q '"build"' package.json 2>/dev/null && { npm run build 2>/dev/null || npm run build; }
+      ) && ok "Build complete" || { fail "Build failed"; rm -rf "$ext_path"; exit 1; }
       ;;
     python)
       step "Installing Python dependencies..."
-      if [[ -f "$ext_path/requirements.txt" ]]; then
-        "$PYTHON" -m pip install --quiet -r "$ext_path/requirements.txt" 2>/dev/null || {
-          warn "pip install failed — trying with --user"
-          "$PYTHON" -m pip install --user -r "$ext_path/requirements.txt"
-        }
-      fi
+      [[ -f "$ext_path/requirements.txt" ]] && {
+        "$PYTHON" -m pip install --quiet -r "$ext_path/requirements.txt" 2>/dev/null || \
+        "$PYTHON" -m pip install --user -r "$ext_path/requirements.txt"
+      }
       ok "Python deps installed"
       ;;
-    none)
-      info "No build step required"
-      ;;
-    *)
-      warn "Unknown build type: $build_type — skipping build"
-      ;;
+    none|http) info "No build step required" ;;
+    *)    warn "Unknown build type: $build_type — skipping build" ;;
   esac
 
-  # ── Resolve config: scan repo JSON files for mcpServers declaration ──
-  if [[ -z "$config_json" ]]; then
+  # ── Resolve config from repo JSON if not from catalog ──
+  if [[ -z "$config_json" ]] && [[ "$build_type" != "http" ]]; then
     step "Scanning for mcpServers declaration in repo..."
     config_json=$("$PYTHON" -c "
 import json, os, glob, sys
-
 ext_path = '$ext_path'
 name = '$name'
-
-# Priority order for JSON files containing mcpServers:
-#   1. gemini-extension.json  (Gemini CLI extension standard)
-#   2. mcp-config.json        (generic MCP config)
-#   3. Any other *.json in root directory
-#   4. Any *.json in subdirectories (max depth 2)
-
 candidates = []
-
-# Priority 1: gemini-extension.json
-gemini_ext = os.path.join(ext_path, 'gemini-extension.json')
-if os.path.isfile(gemini_ext):
-    candidates.insert(0, gemini_ext)
-
-# Priority 2: mcp-config.json
-mcp_cfg = os.path.join(ext_path, 'mcp-config.json')
-if os.path.isfile(mcp_cfg):
-    candidates.append(mcp_cfg)
-
-# Priority 3-4: all other JSON files (root first, then subdirs)
-for json_file in sorted(glob.glob(os.path.join(ext_path, '*.json'))):
-    if json_file not in candidates:
-        candidates.append(json_file)
-for json_file in sorted(glob.glob(os.path.join(ext_path, '*', '*.json'))):
-    if json_file not in candidates:
-        candidates.append(json_file)
-
-# Scan each candidate for mcpServers
-found_config = None
-found_source = None
+for f in ['gemini-extension.json', 'mcp-config.json']:
+    p = os.path.join(ext_path, f)
+    if os.path.isfile(p): candidates.append(p)
+for p in sorted(glob.glob(os.path.join(ext_path, '*.json'))):
+    if p not in candidates: candidates.append(p)
+for p in sorted(glob.glob(os.path.join(ext_path, '*', '*.json'))):
+    if p not in candidates: candidates.append(p)
 for filepath in candidates:
     try:
         with open(filepath) as f:
             data = json.load(f)
         servers = data.get('mcpServers', {})
         if servers:
-            # Extract the server config for this extension
-            # If the extension name matches a key, use that; otherwise take first
-            if name in servers:
-                found_config = servers[name]
-            else:
-                first_key = list(servers.keys())[0]
-                found_config = servers[first_key]
-            found_source = os.path.basename(filepath)
-            break
-    except (json.JSONDecodeError, KeyError, TypeError):
-        continue
-
-if found_config:
-    # Include metadata about where we found the config
-    print(json.dumps(found_config))
-    print('SOURCE:' + found_source, file=sys.stderr)
-else:
-    print('{}')
-    print('SOURCE:none', file=sys.stderr)
-" 2>/tmp/mcp_detect_source)
-
-    local detect_source
-    detect_source=$(grep '^SOURCE:' /tmp/mcp_detect_source 2>/dev/null | sed 's/^SOURCE://' || echo "none")
-    rm -f /tmp/mcp_detect_source
+            cfg = servers.get(name, list(servers.values())[0])
+            print(json.dumps(cfg))
+            sys.exit(0)
+    except: continue
+print('{}')
+" 2>/dev/null)
 
     if [[ "$config_json" != "{}" ]] && [[ -n "$config_json" ]]; then
-      ok "Found mcpServers in $detect_source"
+      ok "Found mcpServers declaration"
     else
-      warn "No mcpServers declaration found in any JSON file"
-      info "You may need to configure manually in extensions.json"
+      warn "No mcpServers declaration found"
       config_json='{}'
     fi
   fi
 
-  # Resolve ${extensionPath} and ${AGENT_DIR} → actual absolute paths
-  config_json=$(echo "$config_json" | sed "s|\${extensionPath}|$ext_path|g; s|\${AGENT_DIR}|$INSTALL_DIR|g")
+  # Resolve placeholders → absolute paths
+  local abs_ext_path="" abs_project_dir
+  if [[ -n "$ext_path" ]]; then
+    abs_ext_path="$(cd "$ext_path" 2>/dev/null && pwd || echo "$ext_path")"
+  fi
+  abs_project_dir="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
+  config_json=$(echo "$config_json" | sed "s|\${extensionPath}|$abs_ext_path|g; s|\${AGENT_DIR}|$INSTALL_DIR|g; s|\${PROJECT_DIR}|$abs_project_dir|g")
 
   # ── Merge --env file if provided ──
-  if [[ -n "$opt_env" ]]; then
-    if [[ -f "$opt_env" ]]; then
-      step "Merging environment variables from $opt_env..."
-      config_json=$(echo "$config_json" | "$PYTHON" -c "
-import json, sys, os
-
-try:
-    config = json.load(sys.stdin)
-except Exception:
-    config = {}
-
+  if [[ -n "$opt_env" ]] && [[ -f "$opt_env" ]]; then
+    step "Merging environment variables from $opt_env..."
+    config_json=$(echo "$config_json" | "$PYTHON" -c "
+import json, sys
+config = json.load(sys.stdin) if True else {}
 env_dict = config.get('env', {})
-
 with open('$opt_env') as f:
     for line in f:
         line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        if '=' in line:
-            k, v = line.split('=', 1)
-            v = v.strip()
-            if v.startswith('\"') and v.endswith('\"'):
-                v = v[1:-1]
-            elif v.startswith(\"'\") and v.endswith(\"'\"):
-                v = v[1:-1]
-            env_dict[k.strip()] = v
-
-if env_dict:
-    config['env'] = env_dict
-
+        if not line or line.startswith('#') or '=' not in line: continue
+        k, v = line.split('=', 1)
+        env_dict[k.strip()] = v.strip().strip('\"').strip(\"'\")
+if env_dict: config['env'] = env_dict
 print(json.dumps(config))
 " 2>/dev/null || echo "$config_json")
-      ok "Environment variables merged"
-    else
-      warn "Env file '$opt_env' not found — skipping env injection"
-    fi
+    ok "Environment variables merged"
   fi
 
   # ── Register in extensions.json ──
   local now
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-  "$PYTHON" -c "
+# Detect potential secrets
+detected_secrets=$(CONFIG_JSON="$config_json" "$PYTHON" - <<PYEOF
+import json, sys, re, os
+config = json.loads(os.environ.get('CONFIG_JSON', '{}'))
+server_name = '$name'
+
+def is_secret(val):
+    if not isinstance(val, str): return False
+    if re.match(r'^[A-Za-z0-9_-]{20,}$', val): return True
+    if any(p in val for p in ['AIza', 'sk-', 'shpat_', 'ghp_']): return True
+    return False
+
+secrets = []
+def scan_dict(d):
+    for k, v in d.items():
+        if isinstance(v, dict): scan_dict(v)
+        elif is_secret(v): secrets.append((k, v))
+
+if 'env' in config: scan_dict(config['env'])
+if 'headers' in config: scan_dict(config['headers'])
+
+for k, v in secrets:
+    print(f'{k}={v}')
+PYEOF
+)
+
+if [[ -n "$detected_secrets" ]]; then
+  echo ""
+  warn "Detected potential secrets in configuration."
+  for line in $detected_secrets; do
+    key="${line%%=*}"
+    val="${line#*=}"
+    echo -n "  Store '$key' in secure vault? [Y/n] "
+    read -r response
+    if [[ "$response" =~ ^[Yy] ]] || [[ -z "$response" ]]; then
+      # Store in vault and update config_json
+      "$PYTHON" - <<PYEOF
+import sys, json
+try:
+    from vault import get_vault
+except ImportError:
+    sys.path.append('$SCRIPT_DIR')
+    from vault import get_vault
+get_vault().set('$name', '$key', '$val')
+PYEOF
+
+      config_json=$(CONFIG_JSON="$config_json" "$PYTHON" - <<PYEOF
+import json, sys, os
+config = json.loads(os.environ.get('CONFIG_JSON', '{}'))
+server_name = '$name'
+key = '$key'
+
+def replace_in_dict(d):
+    if key in d: d[key] = f'\${{vault:{server_name}/{key}}}'
+    for v in d.values():
+        if isinstance(v, dict): replace_in_dict(v)
+
+if 'env' in config: replace_in_dict(config['env'])
+if 'headers' in config: replace_in_dict(config['headers'])
+print(json.dumps(config))
+PYEOF
+)
+      ok "Stored '$key' in vault and updated config."
+    fi
+  done
+  echo ""
+fi
+
+  "$PYTHON" - <<PYEOF
 import json
 with open('$EXTENSIONS_FILE') as f:
     data = json.load(f)
-
-entry = {
-    'name': '$name',
-    'repo': '$repo',
-    'branch': '$branch',
-    'build_type': '$build_type',
-    'installed_at': '$now',
-    'path': '$ext_path',
-    'config': $config_json
-}
-data['extensions'].append(entry)
-
+data['extensions'].append({
+    'name': '$name', 'repo': '$repo', 'branch': '$branch',
+    'build_type': '$build_type', 'installed_at': '$now',
+    'path': '$abs_ext_path', 'config': $config_json
+})
 with open('$EXTENSIONS_FILE', 'w') as f:
     json.dump(data, f, indent=2)
-"
+PYEOF
   ok "Registered in extensions.json"
 
-  # ── Sync mcp-config.json ──
   cmd_sync_quiet
   ok "mcp-config.json updated"
 
   echo ""
   echo -e "  ${GREEN}${BOLD}✅ '$name' installed successfully!${NC}"
   echo ""
-  info "Extension path: $ext_path"
+  info "Extension path: $abs_ext_path"
   info "Run 'ostwin mcp list' to see all installed extensions."
 }
 
 # ─── LIST ────────────────────────────────────────────────────────────────────
 
 cmd_list() {
-  if [[ ! -f "$EXTENSIONS_FILE" ]]; then
-    info "No extensions installed."
-    return
-  fi
+  "$PYTHON" - <<PYEOF
+import json, os, sys, re
 
-  "$PYTHON" -c "
-import json
-with open('$EXTENSIONS_FILE') as f:
-    data = json.load(f)
+# Show builtin servers
+builtin_file = '$BUILTIN_FILE'
+try:
+    from vault import get_vault
+except ImportError:
+    sys.path.append('$SCRIPT_DIR')
+    from vault import get_vault
+vault = get_vault()
 
-exts = data.get('extensions', [])
+def check_vault_status(config, server_name):
+    # Regex to match \${vault:server/key}
+    pattern = re.compile(r"\\\$\{vault:([^/]+)/([^}]+)\}")
+    status = []
+    
+    def scan(obj):
+        if isinstance(obj, dict):
+            for v in obj.values(): scan(v)
+        elif isinstance(obj, list):
+            for v in obj: scan(v)
+        elif isinstance(obj, str):
+            for match in pattern.finditer(obj):
+                s, k = match.groups()
+                val = vault.get(s, k)
+                status.append((k, val is not None))
+
+    scan(config)
+    return status
+
+if os.path.isfile(builtin_file):
+    with open(builtin_file) as f:
+        builtins = json.load(f).get('mcpServers', {})
+    if builtins:
+        print(f'  Builtin servers ({len(builtins)}):')
+        print()
+        for name, cfg in builtins.items():
+            cmd = cfg.get('command', '?')
+            vault_info = check_vault_status(cfg, name)
+            cred_status = ""
+            if vault_info:
+                parts = []
+                for key, exists in vault_info:
+                    icon = "\033[32m✓\033[0m" if exists else "\033[31m✗\033[0m"
+                    parts.append(f"{key} {icon}")
+                cred_status = "  " + "  ".join(parts)
+            print(f'    \033[1m{name}\033[0m  \033[2m(builtin)\033[0m{cred_status}')
+            print(f'      command: {cmd}')
+            print()
+
+# Show installed extensions
+ext_file = '$EXTENSIONS_FILE'
+if not os.path.isfile(ext_file):
+    print('  No extensions installed.')
+    sys.exit(0)
+
+with open(ext_file) as f:
+    exts = json.load(f).get('extensions', [])
+
 if not exts:
     print('  No extensions installed.')
-    print('  Run: ostwin mcp catalog   to see available packages.')
-    print('  Run: ostwin mcp install <name>  to install one.')
+    print('  Run: ostwin mcp install <name>')
 else:
-    print(f'  Installed MCP extensions ({len(exts)}):')
+    print(f'  Installed extensions ({len(exts)}):')
     print()
     for ext in exts:
-        name = ext.get('name', '?')
-        repo = ext.get('repo', '?')
-        btype = ext.get('build_type', '?')
-        date = ext.get('installed_at', '?')
-        print(f'    \033[1m{name}\033[0m')
-        print(f'      repo:       {repo}')
-        print(f'      build_type: {btype}')
-        print(f'      installed:  {date}')
-        cmd = ext.get('config', {}).get('command', '?')
-        print(f'      command:    {cmd}')
+        name = ext.get("name","?")
+        config = ext.get("config",{})
+        vault_info = check_vault_status(config, name)
+        cred_status = ""
+        if vault_info:
+            parts = []
+            for key, exists in vault_info:
+                icon = "\033[32m✓\033[0m" if exists else "\033[31m✗\033[0m"
+                parts.append(f"{key} {icon}")
+            cred_status = "  " + "  ".join(parts)
+        print(f'    \033[1m{name}\033[0m{cred_status}')
+        print(f'      repo:       {ext.get("repo","?")}')
+        print(f'      build_type: {ext.get("build_type","?")}')
+        print(f'      installed:  {ext.get("installed_at","?")}')
+        print(f'      command:    {config.get("command","?")}')
         print()
-"
+PYEOF
 }
 
 # ─── CATALOG ─────────────────────────────────────────────────────────────────
@@ -454,31 +530,24 @@ cmd_catalog() {
     fail "Catalog file not found: $CATALOG_FILE"
     exit 1
   fi
-
   "$PYTHON" -c "
-import json
+import json, os
 with open('$CATALOG_FILE') as f:
     catalog = json.load(f)
-
-with open('$EXTENSIONS_FILE') as f:
-    installed = json.load(f)
-installed_names = {e['name'] for e in installed.get('extensions', [])}
-
+installed_names = set()
+if os.path.isfile('$EXTENSIONS_FILE'):
+    with open('$EXTENSIONS_FILE') as f:
+        installed_names = {e['name'] for e in json.load(f).get('extensions', [])}
 pkgs = catalog.get('packages', {})
-ver = catalog.get('catalog_version', '?')
-print(f'  MCP Extension Catalog v{ver}')
+print(f'  MCP Extension Catalog v{catalog.get(\"catalog_version\", \"?\")}')
 print(f'  {len(pkgs)} package(s) available:')
 print()
-
 for name, spec in pkgs.items():
     status = '\033[32m[installed]\033[0m' if name in installed_names else ''
-    desc = spec.get('description', '')
-    btype = spec.get('build_type', '?')
     print(f'    \033[1m{name}\033[0m  {status}')
-    print(f'      {desc}')
-    print(f'      build: {btype}  |  repo: {spec.get(\"repo\", \"?\")}')
+    print(f'      {spec.get(\"description\",\"\")}')
+    print(f'      build: {spec.get(\"build_type\",\"?\")}  |  repo: {spec.get(\"repo\",\"?\")}')
     print()
-
 print('  Install with: ostwin mcp install <name>')
 "
 }
@@ -487,49 +556,32 @@ print('  Install with: ostwin mcp install <name>')
 
 cmd_remove() {
   local name="${1:-}"
-  if [[ -z "$name" ]]; then
-    fail "Usage: ostwin mcp remove <name>"
-    exit 1
-  fi
+  [[ -z "$name" ]] && { fail "Usage: ostwin mcp remove <name>"; exit 1; }
+  is_installed "$name" || { fail "'$name' is not installed."; exit 1; }
 
-  if ! is_installed "$name"; then
-    fail "'$name' is not installed."
-    exit 1
-  fi
-
-  # Get path before removing from registry
   local ext_path
   ext_path=$("$PYTHON" -c "
 import json
 with open('$EXTENSIONS_FILE') as f:
     data = json.load(f)
 for ext in data.get('extensions', []):
-    if ext.get('name') == '$name':
-        print(ext.get('path', ''))
-        break
+    if ext.get('name') == '$name': print(ext.get('path', '')); break
 ")
 
-  # Remove from extensions.json
   "$PYTHON" -c "
 import json
 with open('$EXTENSIONS_FILE') as f:
     data = json.load(f)
-data['extensions'] = [e for e in data.get('extensions', []) if e.get('name') != '$name']
+data['extensions'] = [e for e in data['extensions'] if e.get('name') != '$name']
 with open('$EXTENSIONS_FILE', 'w') as f:
     json.dump(data, f, indent=2)
 "
   ok "Removed from extensions.json"
 
-  # Delete files
-  if [[ -n "$ext_path" ]] && [[ -d "$ext_path" ]]; then
-    rm -rf "$ext_path"
-    ok "Deleted $ext_path"
-  fi
+  [[ -n "$ext_path" ]] && [[ -d "$ext_path" ]] && { rm -rf "$ext_path"; ok "Deleted $ext_path"; }
 
-  # Sync config
   cmd_sync_quiet
   ok "mcp-config.json updated"
-
   echo ""
   echo -e "  ${GREEN}✅ '$name' removed.${NC}"
 }
@@ -539,16 +591,11 @@ with open('$EXTENSIONS_FILE', 'w') as f:
 cmd_sync_quiet() {
   "$PYTHON" -c "
 import json
-
-# Load builtin servers
 builtin = {}
 try:
     with open('$BUILTIN_FILE') as f:
         builtin = json.load(f).get('mcpServers', {})
-except FileNotFoundError:
-    pass
-
-# Load installed extensions
+except FileNotFoundError: pass
 extensions = {}
 try:
     with open('$EXTENSIONS_FILE') as f:
@@ -556,25 +603,21 @@ try:
     for ext in data.get('extensions', []):
         name = ext.get('name')
         config = ext.get('config', {})
-        if name and config:
-            extensions[name] = config
-except FileNotFoundError:
-    pass
-
-# Merge: builtin + extensions
+        if name and config: extensions[name] = config
+except FileNotFoundError: pass
 merged = {'mcpServers': {**builtin, **extensions}}
-
 with open('$CONFIG_FILE', 'w') as f:
     json.dump(merged, f, indent=2)
     f.write('\n')
 "
-
-  # Post-process: resolve ${AGENT_DIR} → real INSTALL_DIR path so server
-  # paths in mcp-config.json are always absolute.
+  # Resolve ${AGENT_DIR} and ${PROJECT_DIR} → absolute paths
+  local abs_project_dir
+  abs_project_dir="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
   "$PYTHON" - <<PYEOF
 with open('$CONFIG_FILE') as _f:
     _raw = _f.read()
 _raw = _raw.replace('\${AGENT_DIR}', '$INSTALL_DIR')
+_raw = _raw.replace('\${PROJECT_DIR}', '$abs_project_dir')
 with open('$CONFIG_FILE', 'w') as _f:
     _f.write(_raw)
 PYEOF
@@ -584,60 +627,443 @@ cmd_sync() {
   step "Syncing mcp-config.json (builtin + extensions)..."
   cmd_sync_quiet
   ok "mcp-config.json rebuilt"
-
-  # Show summary
   "$PYTHON" -c "
 import json
 with open('$CONFIG_FILE') as f:
-    data = json.load(f)
-servers = data.get('mcpServers', {})
+    servers = json.load(f).get('mcpServers', {})
 print(f'  {len(servers)} server(s) in mcp-config.json:')
 for name in servers:
-    cmd = servers[name].get('command', '?')
-    print(f'    • {name} ({cmd})')
+    print(f'    • {name} ({servers[name].get(\"command\",\"?\")})')
 "
+}
+
+# ─── INIT PROJECT ────────────────────────────────────────────────────────────
+
+cmd_init_project() {
+  local project_dir="${1:-}"
+  [[ -z "$project_dir" ]] && { fail "Usage: mcp-extension.sh init-project <project-dir>"; exit 1; }
+
+  local project_mcp="$project_dir/.agents/mcp"
+  mkdir -p "$project_mcp"
+
+  [[ ! -f "$project_mcp/extensions.json" ]] && echo '{"extensions":[]}' > "$project_mcp/extensions.json"
+  [[ -f "$CATALOG_FILE" ]] && cp "$CATALOG_FILE" "$project_mcp/mcp-catalog.json"
+  [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_mcp/mcp-builtin.json"
+
+  # Copy extension manager script (skip if same file)
+  local self_script dest_script
+  self_script="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  dest_script="$project_mcp/mcp-extension.sh"
+  [[ "$(realpath "$self_script" 2>/dev/null)" != "$(realpath "$dest_script" 2>/dev/null)" ]] && cp "$self_script" "$dest_script"
+  chmod +x "$dest_script"
+
+  if [[ ! -f "$project_mcp/mcp-config.json" ]]; then
+    [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_mcp/mcp-config.json" || echo '{"mcpServers":{}}' > "$project_mcp/mcp-config.json"
+  fi
+
+  ok "Project MCP scaffolded at $project_mcp"
+}
+
+# ─── CREDENTIALS ─────────────────────────────────────────────────────────────
+
+cmd_credentials() {
+  local sub="${1:-}"
+  shift || true
+
+  case "$sub" in
+    set)
+      local server="${1:-}"
+      local key="${2:-}"
+      [[ -z "$server" ]] || [[ -z "$key" ]] && { fail "Usage: ostwin mcp credentials set <server> <key>"; exit 1; }
+      echo -n "Enter value for $server/$key: "
+      read -rs value
+      echo ""
+      "$PYTHON" -c "
+import sys, os
+try:
+    from vault import get_vault
+except ImportError:
+    sys.path.append('$SCRIPT_DIR')
+    from vault import get_vault
+get_vault().set('$server', '$key', '$value')
+"
+      ok "Stored $server/$key in vault."
+      ;;
+    list)
+      local server="${1:-}"
+      "$PYTHON" -c "
+import sys, os, json
+try:
+    from vault import get_vault
+except ImportError:
+    sys.path.append('$SCRIPT_DIR')
+    from vault import get_vault
+vault = get_vault()
+server = '$server'
+
+# If server is provided, list keys for that server
+# If not, try to list all servers from config or extensions
+servers = []
+if server:
+    servers = [server]
+else:
+    if os.path.exists('$EXTENSIONS_FILE'):
+        with open('$EXTENSIONS_FILE') as f:
+            servers = [e['name'] for e in json.load(f).get('extensions', [])]
+    if os.path.exists('$BUILTIN_FILE'):
+        with open('$BUILTIN_FILE') as f:
+            servers.extend(json.load(f).get('mcpServers', {}).keys())
+    servers = sorted(list(set(servers)))
+
+for s in servers:
+    keys = vault.list_keys(s)
+    if keys or server:
+        print(f'  {s}:')
+        for k in keys:
+            print(f'    • {k}  \033[32m✓ set\033[0m')
+        if not keys:
+            print(f'    (no credentials set)')
+"
+      ;;
+    delete)
+      local server="${1:-}"
+      local key="${2:-}"
+      [[ -z "$server" ]] || [[ -z "$key" ]] && { fail "Usage: ostwin mcp credentials delete <server> <key>"; exit 1; }
+      "$PYTHON" -c "
+import sys, os
+try:
+    from vault import get_vault
+except ImportError:
+    sys.path.append('$SCRIPT_DIR')
+    from vault import get_vault
+get_vault().delete('$server', '$key')
+"
+      ok "Deleted $server/$key from vault."
+      ;;
+    *)
+      fail "Usage: ostwin mcp credentials <set|list|delete> [args]"
+      exit 1
+      ;;
+  esac
+}
+
+# ─── MIGRATE ─────────────────────────────────────────────────────────────────
+
+cmd_migrate() {
+  step "Scanning for plaintext secrets in $CONFIG_FILE..."
+  "$PYTHON" -c "
+import json, sys, os, re
+try:
+    from vault import get_vault
+except ImportError:
+    sys.path.append('$SCRIPT_DIR')
+    from vault import get_vault
+
+config_file = '$CONFIG_FILE'
+if not os.path.exists(config_file):
+    print(f'  Config file not found: {config_file}')
+    sys.exit(0)
+
+with open(config_file) as f:
+    config = json.load(f)
+
+vault = get_vault()
+changed = False
+
+def is_secret(val):
+    if not isinstance(val, str): return False
+    if '\${vault:' in val: return False
+    # Heuristic: looks like a token or API key
+    if re.match(r'^[A-Za-z0-9_-]{20,}$', val): return True
+    if any(p in val for p in ['AIza', 'sk-', 'shpat_', 'ghp_']): return True
+    return False
+
+def process_dict(d, server_name):
+    global changed
+    for k, v in d.items():
+        if isinstance(v, dict):
+            process_dict(v, server_name)
+        elif is_secret(v):
+            print(f'  Found secret in {server_name}/{k} -> moving to vault')
+            vault.set(server_name, k, v)
+            d[k] = f'\${{vault:{server_name}/{k}}}'
+            changed = True
+
+for server_name, server_cfg in config.get('mcpServers', {}).items():
+    if 'env' in server_cfg: process_dict(server_cfg['env'], server_name)
+    if 'headers' in server_cfg: process_dict(server_cfg['headers'], server_name)
+
+if changed:
+    with open(config_file, 'w') as f:
+        json.dump(config, f, indent=2)
+    print('  Migration complete. Config updated with vault references.')
+else:
+    print('  No plaintext secrets found.')
+"
+}
+
+# ─── TEST ────────────────────────────────────────────────────────────────────
+
+cmd_test() {
+  local server_name="${1:-}"
+  if [[ "$server_name" == "--all" ]]; then
+    server_name=""
+  fi
+
+  export _SCRIPT_DIR="$SCRIPT_DIR"
+  export _CONFIG_FILE="$CONFIG_FILE"
+  export _BUILTIN_FILE="$BUILTIN_FILE"
+  export _INSTALL_DIR="$INSTALL_DIR"
+  export _PROJECT_DIR="$PROJECT_DIR"
+  export _SERVER_NAME="$server_name"
+
+  step "Testing MCP connectivity..."
+  "$PYTHON" - <<'PYEOF'
+import json, sys, os
+script_dir = os.environ.get("_SCRIPT_DIR")
+config_file = os.environ.get("_CONFIG_FILE")
+builtin_file = os.environ.get("_BUILTIN_FILE")
+agent_dir = os.environ.get("_INSTALL_DIR")
+project_dir = os.environ.get("_PROJECT_DIR")
+target_server = os.environ.get("_SERVER_NAME")
+
+sys.path.append(script_dir)
+try:
+    from vault import get_vault
+    from config_resolver import ConfigResolver
+    from mcp_test import test_http_server, test_stdio_server
+except ImportError as e:
+    print(f"  ✗ Import error: {e}")
+    sys.exit(1)
+
+if not os.path.exists(config_file):
+    print(f'  ✗ Config file not found: {config_file}')
+    sys.exit(1)
+
+with open(config_file) as f:
+    config = json.load(f)
+
+# Also load builtins to test everything
+if os.path.exists(builtin_file):
+    with open(builtin_file) as f:
+        builtins_raw = f.read()
+        builtins_raw = builtins_raw.replace('${AGENT_DIR}', agent_dir)
+        builtins_raw = builtins_raw.replace('${PROJECT_DIR}', project_dir)
+        builtins = json.loads(builtins_raw).get('mcpServers', {})
+        config.setdefault('mcpServers', {}).update(builtins)
+
+resolver = ConfigResolver()
+servers = config.get('mcpServers', {})
+
+if target_server and target_server not in servers:
+    print(f'  ✗ Server not found in config: {target_server}')
+    sys.exit(1)
+
+test_list = [target_server] if target_server else sorted(servers.keys())
+
+results = []
+for name in test_list:
+    cfg = servers[name]
+    try:
+        # Resolve vault refs for testing
+        resolved_cfg = resolver.resolve_config(cfg)
+        
+        if 'httpUrl' in resolved_cfg:
+            res = test_http_server(resolved_cfg['httpUrl'], resolved_cfg.get('headers'))
+        elif 'command' in resolved_cfg:
+            res = test_stdio_server(resolved_cfg['command'], resolved_cfg.get('args', []), resolved_cfg.get('env'))
+        else:
+            res = {"status": "error", "message": "Unknown server type (no httpUrl or command)"}
+            
+        results.append((name, res))
+    except Exception as e:
+        results.append((name, {"status": "error", "message": str(e)}))
+
+# Print results table
+print(f"{'Server':<20} {'Status':<15} {'Details':<30}")
+print("-" * 65)
+for name, res in results:
+    status_str = ""
+    if res['status'] == 'connected':
+        status_str = f"\033[32m✓ Connected\033[0m"
+        details = f"{res.get('tools_count', 0)} tools"
+        if res.get('version'): details += f" (v{res['version']})"
+    else:
+        status_str = f"\033[31m✗ {res['status'].capitalize()}\033[0m"
+        details = res.get('message', 'Unknown error')
+        
+    print(f"{name:<20} {status_str:<25} {details:<30}")
+
+PYEOF
+}
+
+# ─── COMPILE ─────────────────────────────────────────────────────────────────
+
+cmd_compile() {
+  local project_dir="${PROJECT_DIR:-$(pwd)}"
+  export _SCRIPT_DIR="$SCRIPT_DIR"
+  export _CONFIG_FILE="$CONFIG_FILE"
+  export _BUILTIN_FILE="$BUILTIN_FILE"
+  export _PROJECT_DIR="$project_dir"
+
+  step "Compiling MCP config for project at $project_dir..."
+  
+  "$PYTHON" - <<'PYEOF'
+import json, sys, os
+script_dir = os.environ.get("_SCRIPT_DIR")
+home_config_file = os.environ.get("_CONFIG_FILE")
+builtin_file = os.environ.get("_BUILTIN_FILE")
+project_dir = os.environ.get("_PROJECT_DIR")
+
+mcp_dir = os.path.join(project_dir, '.agents', 'mcp')
+env_mcp_file = os.path.join(mcp_dir, '.env.mcp')
+compiled_config_file = os.path.join(mcp_dir, 'mcp-config.json')
+manifest_file = os.path.join(mcp_dir, 'mcp-manifest.json')
+
+sys.path.append(script_dir)
+try:
+    from config_resolver import ConfigResolver
+except ImportError as e:
+    print(f"  ✗ Import error: {e}")
+    sys.exit(1)
+
+if not os.path.exists(home_config_file):
+    # Bootstrap from builtins if home config doesn't exist yet
+    os.makedirs(os.path.dirname(home_config_file), exist_ok=True)
+    home_config = {"mcpServers": {}}
+    with open(home_config_file, 'w') as f:
+        json.dump(home_config, f, indent=2)
+    print(f'  ✓ Created home config: {home_config_file}')
+
+with open(home_config_file) as f:
+    home_config = json.load(f)
+
+builtin_config = {}
+if os.path.exists(builtin_file):
+    with open(builtin_file) as f:
+        builtin_config = json.load(f)
+
+resolver = ConfigResolver()
+compiled_config, env_vars = resolver.compile_config(home_config, builtin_config)
+
+# Ensure directory exists
+os.makedirs(mcp_dir, exist_ok=True)
+
+# Write compiled config
+with open(compiled_config_file, 'w') as f:
+    json.dump(compiled_config, f, indent=2)
+    f.write('\n')
+
+# Write .env.mcp
+with open(env_mcp_file, 'w') as f:
+    f.write("# Generated by ostwin mcp compile - DO NOT COMMIT\n")
+    for k, v in sorted(env_vars.items()):
+        f.write(f"{k}={v}\n")
+
+# Write mcp-manifest.json (declarative list without secrets)
+manifest = {
+    "mcpServers": {}
+}
+for name, cfg in compiled_config['mcpServers'].items():
+    # Strip env/headers that might contain secrets (though they should be ${ENV_VAR} now)
+    manifest['mcpServers'][name] = {
+        "type": "http" if "httpUrl" in cfg else "stdio",
+        "description": f"MCP server {name}"
+    }
+
+with open(manifest_file, 'w') as f:
+    json.dump(manifest, f, indent=2)
+    f.write('\n')
+
+print(f'  ✓ Compiled {len(compiled_config["mcpServers"])} servers')
+print(f'  ✓ Generated {compiled_config_file}')
+print(f'  ✓ Generated {env_mcp_file}')
+print(f'  ✓ Generated {manifest_file}')
+PYEOF
 }
 
 # ─── HELP ────────────────────────────────────────────────────────────────────
 
 cmd_help() {
   cat <<HELP
-ostwin mcp — MCP Extension Manager
+ostwin mcp — MCP Extension Manager (global registry)
 
 Usage:
-  ostwin mcp install <name>              Install from catalog by name
-  ostwin mcp install <git-url> --name X  Install custom repo (not in catalog)
-  ostwin mcp list                        Show installed extensions
-  ostwin mcp catalog                     Show available packages from catalog
-  ostwin mcp remove <name>              Uninstall an extension
-  ostwin mcp sync                       Rebuild mcp-config.json from registry
+  ostwin mcp install <name>                Install from catalog by name
+  ostwin mcp install <git-url> --name X    Install from git URL
+  ostwin mcp install --http <url> --header H Install HTTP MCP server
+  ostwin mcp list                          Show installed extensions
+  ostwin mcp catalog                       Show available packages
+  ostwin mcp remove <name>                 Uninstall an extension
+  ostwin mcp sync                         Rebuild mcp-config.json
+  ostwin mcp test [server|--all]          Test MCP server connectivity
+  ostwin mcp compile                      Compile home config for project
+  ostwin mcp credentials <set|list|delete> Manage credentials in vault
+  ostwin mcp migrate                       Migrate secrets to vault
+  ostwin mcp init-project <dir>           Scaffold per-project MCP directory
 
-Options (install):
-  --name NAME      Override extension name (required for git URLs)
-  --branch BRANCH  Git branch to clone (default: main)
-  --env PATH       Path to a .env file to inject into the MCP configuration
+Options:
+  --name NAME        Override extension name
+  --branch BRANCH    Git branch to clone (default: main)
+  --env PATH         .env file to inject into MCP config
+  --http URL         Install an HTTP-based MCP server
+  --header "K=V"     Add a header to HTTP MCP server (can be used multiple times)
+  --project-dir DIR  Target project (auto-detected from cwd)
 
 Examples:
   ostwin mcp catalog
-  ostwin mcp install nanobanana
-  ostwin mcp install https://github.com/org/my-mcp.git --name my-mcp
-  ostwin mcp list
-  ostwin mcp remove nanobanana
+  ostwin mcp install chrome-devtools
+  ostwin mcp install --http https://stitch.googleapis.com/mcp --header "X-Goog-Api-Key=AIza..."
+  ostwin mcp credentials list
+  ostwin mcp migrate
 HELP
 }
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 
-case "${1:-}" in
-  install)  shift; cmd_install "$@" ;;
-  list)     cmd_list ;;
-  catalog)  cmd_catalog ;;
-  remove)   shift; cmd_remove "$@" ;;
-  sync)     cmd_sync ;;
-  -h|--help|help|"")  cmd_help ;;
+# Parse global options
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project-dir)
+      PROJECT_DIR="$2"
+      shift 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+# Apply project dir → set all project-local paths
+# Note: PROJECT_DIR is now used for local extensions, but CONFIG_FILE is global
+if [[ -z "$PROJECT_DIR" ]]; then
+  if [[ -d "$(pwd)/.agents/mcp" ]]; then
+    PROJECT_DIR="$(pwd)"
+  else
+    # Fallback to a default if not in a project
+    PROJECT_DIR="$HOME/.ostwin"
+  fi
+fi
+apply_project_dir
+
+subcmd="${1:-help}"
+[[ $# -gt 0 ]] && shift
+
+case "$subcmd" in
+  install)      cmd_install "$@" ;;
+  list)         cmd_list ;;
+  catalog)      cmd_catalog ;;
+  remove)       cmd_remove "$@" ;;
+  sync)         cmd_sync ;;
+  test)         cmd_test "$@" ;;
+  compile)      cmd_compile "$@" ;;
+  credentials)  cmd_credentials "$@" ;;
+  migrate)      cmd_migrate ;;
+  init-project) cmd_init_project "$@" ;;
+  -h|--help|help|"") cmd_help ;;
   *)
-    fail "Unknown subcommand: $1"
-    echo "  Run 'ostwin mcp --help' for usage."
-    exit 1
+    fail "Unknown subcommand: $subcmd"
+    cmd_help
+    exit 0
     ;;
 esac

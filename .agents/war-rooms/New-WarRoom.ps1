@@ -107,7 +107,7 @@ $config = [ordered]@{
     room_id    = $RoomId
     task_ref   = $TaskRef
     plan_id    = $PlanId
-    depends_on = $DependsOn
+    depends_on = @($DependsOn)
     created_at = $ts
     working_dir = (Resolve-Path $WorkingDir -ErrorAction SilentlyContinue).Path
 
@@ -153,13 +153,40 @@ if (Test-Path $configPath) {
     $globalConfig = Get-Content $configPath -Raw | ConvertFrom-Json
 }
 
+# --- Load plan-specific roles config (~/.ostwin/plans/{plan_id}.roles.json) ---
+$planRolesConfig = $null
+if ($PlanId) {
+    $planRolesFile = Join-Path $env:HOME ".ostwin" "plans" "$PlanId.roles.json"
+    if (Test-Path $planRolesFile) {
+        $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+    }
+}
+
 # Parse base role name (strip instance suffix like "engineer:fe" → "engineer")
 $baseRole = $AssignedRole -replace ':.*$', ''
 $instanceSuffix = if ($AssignedRole -match ':(.+)$') { $Matches[1] } else { '' }
 
-# Resolve model for this role: instance → global config → role.json → default
+# Resolve model for this role: plan roles.json → instance → global config → role.json → default
 $roleModel = "gemini-3-flash-preview"
-if ($globalConfig) {
+$roleTimeout = $TimeoutSeconds
+$roleSkillRefs = @()
+
+# Priority 1: plan-specific roles.json
+if ($planRolesConfig -and $planRolesConfig.$baseRole) {
+    $planRoleConfig = $planRolesConfig.$baseRole
+    if ($planRoleConfig.default_model) {
+        $roleModel = $planRoleConfig.default_model
+    }
+    if ($planRoleConfig.timeout_seconds) {
+        $roleTimeout = $planRoleConfig.timeout_seconds
+    }
+    if ($planRoleConfig.skill_refs) {
+        $roleSkillRefs = @($planRoleConfig.skill_refs)
+    }
+}
+
+# Priority 2: global config.json (only fill in what plan config didn't set)
+if ($roleModel -eq "gemini-3-flash-preview" -and $globalConfig) {
     if ($instanceSuffix -and $globalConfig.$baseRole.instances.$instanceSuffix.default_model) {
         $roleModel = $globalConfig.$baseRole.instances.$instanceSuffix.default_model
     }
@@ -167,7 +194,8 @@ if ($globalConfig) {
         $roleModel = $globalConfig.$baseRole.default_model
     }
 }
-# Fallback: try role.json
+
+# Priority 3: role.json fallback
 if ($roleModel -eq "gemini-3-flash-preview") {
     $roleJsonPath = Join-Path $agentsDir "roles" $baseRole "role.json"
     if (Test-Path $roleJsonPath) {
@@ -187,9 +215,13 @@ $roleConfig = [ordered]@{
     instance_type = $instanceSuffix
     display_name  = if ($instanceSuffix) { "$baseRole`:$instanceSuffix #$instanceId" } else { "$baseRole #$instanceId" }
     model         = $roleModel
+    timeout_seconds = $roleTimeout
     assigned_at   = $ts
     status        = "pending"
     config_override = [ordered]@{}
+}
+if ($roleSkillRefs.Count -gt 0) {
+    $roleConfig['skill_refs'] = $roleSkillRefs
 }
 
 $roleConfigFile = Join-Path $roomDir "${baseRole}_${instanceId}.json"
@@ -251,73 +283,77 @@ if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)
 }
 
 # --- FALLBACK: Generate default lifecycle from CandidateRoles ---
-# Purely derived from candidate_roles — no hardcoded states.
-# Each candidate role maps to a lifecycle stage:
-#   candidate_roles[0]    → engineering (worker) + fixing
-#   candidate_roles[1..N] → review stages (named by role)
+# AssignedRole is the authoritative primary worker for the engineering stage.
+# Review stages are derived from CandidateRoles minus the AssignedRole.
 # Only roles present in candidate_roles appear in the lifecycle.
 $lifecyclePath = Join-Path $roomDir "lifecycle.json"
 if (-not (Test-Path $lifecyclePath)) {
-    $effectiveCandidates = @(if ($CandidateRoles.Count -gt 0) { $CandidateRoles } else { $AssignedRole })
-    $primaryRole = $effectiveCandidates[0]
-
-    # Role → state name mapping for review stages
-    $roleStateMap = @{
-        'qa'                   = 'qa-review'
-        'architect'            = 'architect-review'
-        'database-architect'   = 'schema-review'
-        'security-auditor'     = 'security-review'
-        'devops'               = 'infra-review'
-        'reporter'             = 'reporting'
-    }
-
-    $states = [ordered]@{}
-    $stageOrder = [System.Collections.Generic.List[string]]::new()
-
-    # Stage 1: engineering — primary role does the work
-    $stageOrder.Add('engineering')
-
-    # Additional stages from candidate_roles[1..N]
-    $reviewRoles = @(if ($effectiveCandidates.Count -gt 1) { $effectiveCandidates[1..($effectiveCandidates.Count - 1)] })
-    foreach ($role in $reviewRoles) {
-        $stateName = if ($roleStateMap.ContainsKey($role)) { $roleStateMap[$role] } else { "$role-review" }
-        $stageOrder.Add($stateName)
-    }
-
-    # Build state definitions with transitions chained in order → last → passed
-    for ($i = 0; $i -lt $stageOrder.Count; $i++) {
-        $stateName = $stageOrder[$i]
-        $nextState = if ($i -lt ($stageOrder.Count - 1)) { $stageOrder[$i + 1] } else { 'passed' }
-
-        if ($i -eq 0) {
-            # Engineering: worker stage
-            $states[$stateName] = [ordered]@{
-                type = 'agent'; role = $primaryRole
-                transitions = [ordered]@{ done = $nextState }
-            }
-        } else {
-            # Review stages
-            $reviewRole = $reviewRoles[$i - 1]
-            $states[$stateName] = [ordered]@{
-                type = 'agent'; role = $reviewRole
-                transitions = [ordered]@{ pass = $nextState; fail = 'manager-triage'; escalate = 'manager-triage' }
+    $effectiveCandidates = @(if ($CandidateRoles.Count -gt 0) { $CandidateRoles } else { @($AssignedRole) })
+    $resolvePipeline = Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")).Path "lifecycle" "Resolve-Pipeline.ps1"
+    if (Test-Path $resolvePipeline) {
+        # Use Resolve-Pipeline to generate v2 lifecycle from candidate roles
+        & $resolvePipeline `
+            -CandidateRoles $effectiveCandidates `
+            -AssignedRole $AssignedRole `
+            -MaxRetries $MaxRetries `
+            -OutputPath $lifecyclePath
+    } else {
+        # Inline v2 fallback — minimal developing → review → passed
+        $primaryRole = $AssignedRole
+        $v2Lifecycle = [ordered]@{
+            version       = 2
+            initial_state = 'developing'
+            max_retries   = $MaxRetries
+            states        = [ordered]@{
+                developing = [ordered]@{
+                    role    = $primaryRole
+                    type    = 'work'
+                    signals = [ordered]@{
+                        done  = [ordered]@{ target = 'review' }
+                        error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+                    }
+                }
+                optimize = [ordered]@{
+                    role    = $primaryRole
+                    type    = 'work'
+                    signals = [ordered]@{
+                        done  = [ordered]@{ target = 'review' }
+                        error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+                    }
+                }
+                review = [ordered]@{
+                    role    = 'qa'
+                    type    = 'review'
+                    signals = [ordered]@{
+                        pass     = [ordered]@{ target = 'passed' }
+                        fail     = [ordered]@{ target = 'developing'; actions = @('increment_retries', 'post_fix') }
+                        escalate = [ordered]@{ target = 'triage' }
+                    }
+                }
+                triage = [ordered]@{
+                    role    = 'manager'
+                    type    = 'triage'
+                    signals = [ordered]@{
+                        fix      = [ordered]@{ target = 'developing'; actions = @('increment_retries') }
+                        redesign = [ordered]@{ target = 'developing'; actions = @('increment_retries', 'revise_brief') }
+                        reject   = [ordered]@{ target = 'failed-final' }
+                    }
+                }
+                failed = [ordered]@{
+                    role            = 'manager'
+                    type            = 'decision'
+                    auto_transition = $true
+                    signals         = [ordered]@{
+                        retry   = [ordered]@{ target = 'developing'; guard = 'retries < max_retries' }
+                        exhaust = [ordered]@{ target = 'failed-final'; guard = 'retries >= max_retries' }
+                    }
+                }
+                passed        = [ordered]@{ type = 'terminal' }
+                'failed-final' = [ordered]@{ type = 'terminal' }
             }
         }
+        $v2Lifecycle | ConvertTo-Json -Depth 10 | Out-File -FilePath $lifecyclePath -Encoding utf8 -Force
     }
-
-    # Builtin states (always present)
-    $states['manager-triage'] = [ordered]@{ type = 'builtin'; role = 'manager'; transitions = [ordered]@{} }
-    $states['plan-revision']  = [ordered]@{ type = 'builtin'; role = 'manager'; transitions = [ordered]@{} }
-
-    # Fixing state — routes back to first review stage (or passed if none)
-    $firstReviewState = if ($stageOrder.Count -gt 1) { $stageOrder[1] } else { 'passed' }
-    $states['fixing'] = [ordered]@{
-        type = 'agent'; role = $primaryRole
-        transitions = [ordered]@{ done = $firstReviewState }
-    }
-
-    $defaultLifecycle = [ordered]@{ initial_state = 'engineering'; states = $states }
-    $defaultLifecycle | ConvertTo-Json -Depth 10 | Out-File -FilePath $lifecyclePath -Encoding utf8 -Force
 }
 
 # --- Parse ASCII lifecycle text into lifecycle.json (if provided and not already generated) ---
@@ -341,8 +377,9 @@ if ($Lifecycle) {
 # --- Initialize status ---
 "pending" | Out-File -FilePath (Join-Path $roomDir "status") -Encoding utf8 -NoNewline
 
-# --- Initialize retry counter ---
+# --- Initialize retry counter and done epoch ---
 "0" | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
+"0" | Out-File -FilePath (Join-Path $roomDir "done_epoch") -Encoding utf8 -NoNewline
 
 # --- Store task ref for quick lookup ---
 $TaskRef | Out-File -FilePath (Join-Path $roomDir "task-ref") -Encoding utf8 -NoNewline

@@ -12,8 +12,18 @@ Transport: stdio (invoked via deepagents --mcp-config)
 
 import json
 import os
+import pathlib
 from datetime import datetime, timezone
 from typing import Annotated, get_args, Literal
+
+# Monkey patch pathlib to bypass macOS SIP PermissionError on .env files
+original_is_file = pathlib.Path.is_file
+def safe_is_file(self):
+    try:
+        return original_is_file(self)
+    except PermissionError:
+        return False
+pathlib.Path.is_file = safe_is_file
 
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
@@ -25,7 +35,7 @@ StatusType = Literal[
     "fixing",
 ]
 
-mcp = FastMCP("agent-os-warroom")
+mcp = FastMCP("agent-os-warroom", log_level="CRITICAL")
 
 
 @mcp.tool()

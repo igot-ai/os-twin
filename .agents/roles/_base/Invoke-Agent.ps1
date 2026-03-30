@@ -74,6 +74,22 @@ $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromP
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
               else { Join-Path $agentsDir "config.json" }
 
+# --- Load plan-specific roles config from room's config.json → plan_id ---
+$planRolesConfig = $null
+$roomConfigFile = Join-Path $absRoomDir "config.json"
+if (Test-Path $roomConfigFile) {
+    try {
+        $roomCfg = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
+        $roomPlanId = $roomCfg.plan_id
+        if ($roomPlanId) {
+            $planRolesFile = Join-Path $env:HOME ".ostwin" "plans" "$roomPlanId.roles.json"
+            if (Test-Path $planRolesFile) {
+                $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+            }
+        }
+    } catch { }
+}
+
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
@@ -83,9 +99,13 @@ if (Test-Path $configPath) {
         $instanceConfig = $config.$RoleName.instances.$InstanceId
     }
 
-    # Model: instance → role config.json → role.json → hardcoded default
+    # Model: plan roles.json → instance → role config.json → role.json → hardcoded default
     if (-not $Model) {
-        if ($instanceConfig -and $instanceConfig.default_model) {
+        # Priority 1: plan-specific roles.json
+        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.default_model) {
+            $Model = $planRolesConfig.$RoleName.default_model
+        }
+        elseif ($instanceConfig -and $instanceConfig.default_model) {
             $Model = $instanceConfig.default_model
         }
         elseif ($config.$RoleName.default_model) {
@@ -103,9 +123,12 @@ if (Test-Path $configPath) {
         }
     }
 
-    # Timeout: instance → role
+    # Timeout: plan roles.json → instance → role
     if ($TimeoutSeconds -eq 600) {
-        if ($instanceConfig -and $instanceConfig.timeout_seconds) {
+        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.timeout_seconds) {
+            $TimeoutSeconds = $planRolesConfig.$RoleName.timeout_seconds
+        }
+        elseif ($instanceConfig -and $instanceConfig.timeout_seconds) {
             $TimeoutSeconds = $instanceConfig.timeout_seconds
         }
         elseif ($config.$RoleName.timeout_seconds) {
@@ -117,6 +140,34 @@ if (Test-Path $configPath) {
     if (-not $WorkingDir -and $instanceConfig -and $instanceConfig.working_dir) {
         $WorkingDir = $instanceConfig.working_dir
     }
+
+    # no_mcp: instance → role → default true (disables MCP tools to avoid ClosedResourceError on remote exec)
+    # Default to true for all roles — MCP via LangGraph is unstable. Agents use shell tools instead.
+    $NoMcp = $true
+    if ($instanceConfig -and $instanceConfig.PSObject.Properties['no_mcp']) {
+        $NoMcp = [bool]$instanceConfig.no_mcp
+    }
+    elseif ($config.$RoleName -and $config.$RoleName.PSObject.Properties['no_mcp']) {
+        $NoMcp = [bool]$config.$RoleName.no_mcp
+    }
+
+    # --- Resolve ProjectDir from RoomDir (parent of .war-rooms) ---
+    # War-room paths follow: $PROJECT/.war-rooms/<plan>/<room>/
+    # Walk up from RoomDir to find the directory containing .war-rooms
+    $ProjectDir = ""
+    $searchDir = $absRoomDir
+    for ($i = 0; $i -lt 6; $i++) {
+        $parentDir = Split-Path $searchDir -Parent
+        if (-not $parentDir -or $parentDir -eq $searchDir) { break }
+        if ((Split-Path $searchDir -Leaf) -eq ".war-rooms") {
+            $ProjectDir = $parentDir
+            break
+        }
+        $searchDir = $parentDir
+    }
+    # Fallback: env variable or WorkingDir
+    if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
+    if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
     # --- CLI resolution: local wrapper → role config → global fallback ---
     if (-not $AgentCmd) {
@@ -146,7 +197,7 @@ New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
 New-Item -ItemType Directory -Path $pidsDir -Force | Out-Null
 
 # --- Skill Isolation (EPIC-002) ---
-$isolatedSkillsDir = Join-Path $artifactsDir "skills"
+$isolatedSkillsDir = Join-Path $absRoomDir "skills"
 
 # Clear isolated skills for each invocation to ensure no stale skills remain
 if (Test-Path $isolatedSkillsDir) {
@@ -186,20 +237,8 @@ if (Test-Path $resolveSkillsScript) {
     }
 }
 
-# --- Room-Level Skills (discovered from brief.md via Resolve-RoomSkills) ---
-$roomSkillsDir = Join-Path $absRoomDir "skills"
-if (Test-Path $roomSkillsDir) {
-    Get-ChildItem $roomSkillsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $skillMd = Join-Path $_.FullName "SKILL.md"
-        if (Test-Path $skillMd) {
-            $destPath = Join-Path $isolatedSkillsDir $_.Name
-            if (-not (Test-Path $destPath)) {
-                New-Item -ItemType Directory -Path $destPath -Force | Out-Null
-                Copy-Item -Path (Join-Path $_.FullName "*") -Destination $destPath -Recurse -Force
-            }
-        }
-    }
-}
+# Room-level skills are already in $absRoomDir/skills (populated by Resolve-RoomSkills).
+# No copy needed — $isolatedSkillsDir points there directly.
 
 $outputFile = Join-Path $artifactsDir "$RoleName-output.txt"
 $pidFile = Join-Path $pidsDir "$RoleName.pid"
@@ -209,38 +248,62 @@ $PID | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
 
 
 
-# --- Execute with timeout ---
+# --- Execute with timeout and transient-error retry ---
+$maxProcessRetries = 3
 $exitCode = 0
-try {
-    $stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
-                 else { "NUL" }
 
-    # Write prompt to a file to avoid shell escaping issues
-    $promptFile = Join-Path $artifactsDir "prompt.txt"
-    $Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
+$stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
+             else { "NUL" }
 
-    # --- Debug: write a human-readable copy of the compiled prompt ---
-    $debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
-    $Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
+# Write prompt to a file to avoid shell escaping issues
+$promptFile = Join-Path $artifactsDir "prompt.txt"
+$Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
 
-    # Build non-prompt CLI args safely
-    $extraCliArgs = @()
-    if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
-    if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
-    if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
-    if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
-    if ($Quiet) { $extraCliArgs += "--quiet" }
+# --- Debug: write a human-readable copy of the compiled prompt ---
+$debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
+$Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
 
-    # --- MCP config: let agents pick the best tool server available ---
+# Build non-prompt CLI args safely
+$extraCliArgs = @()
+if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
+if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
+if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
+if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
+if ($Quiet) { $extraCliArgs += "--quiet" }
+
+# --- MCP config: prefer project-local, fall back to global ---
+# If no_mcp is set in role config, skip MCP entirely to avoid ClosedResourceError
+# on remote LangGraph execution. Role scripts handle channel communication instead.
+if ($NoMcp) {
+    $extraCliArgs += "--no-mcp"
+}
+else {
     $resolvedMcpConfig = $McpConfig
     if (-not $resolvedMcpConfig) {
-        $resolvedMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+        # Priority 1: project-local MCP config (via ProjectDir resolved from RoomDir)
+        if ($ProjectDir) {
+            $projectMcpConfig = Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json"
+            if (Test-Path $projectMcpConfig) {
+                $resolvedMcpConfig = $projectMcpConfig
+            }
+        }
+        # Priority 2: global agents dir
+        if (-not $resolvedMcpConfig) {
+            $resolvedMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+        }
     }
     if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
         $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
-        # Expand ${AGENT_DIR} → absolute agentsDir so deepagents gets concrete paths
+        # Expand ${AGENT_DIR} → absolute agentsDir
         if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
             $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
+        }
+        # Expand ${PROJECT_DIR} → absolute project dir
+        if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
+            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
+        }
+        # Write resolved config if any placeholders were expanded
+        if ($mcpConfigContent -ne (Get-Content $resolvedMcpConfig -Raw)) {
             $tempMcpConfig = Join-Path $artifactsDir "mcp-config-resolved.json"
             $mcpConfigContent | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
             $resolvedMcpConfig = $tempMcpConfig
@@ -248,58 +311,75 @@ try {
         $extraCliArgs += "--mcp-config"
         $extraCliArgs += (Resolve-Path $resolvedMcpConfig).Path
     }
+}
 
-    $extraCliArgs += $ExtraArgs
+$extraCliArgs += $ExtraArgs
 
-    $argsLine = ($extraCliArgs | ForEach-Object {
-        if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
-    }) -join ' '
+$argsLine = ($extraCliArgs | ForEach-Object {
+    if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
+}) -join ' '
 
-    # Write wrapper script
-    $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
-    $safeOutput = $outputFile -replace "'", "'\''"
-    $safePrompt = $promptFile -replace "'", "'\''"
-    $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
-    $safeRoomDir = $absRoomDir.Replace('\', '/').Replace("'", "'\''")
-    $safeSkillsDir = $isolatedSkillsDir.Replace('\', '/').Replace("'", "'\''")
-    $safeRole = $RoleName -replace "'", "'\''"
+for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
+    $exitCode = 0
+    try {
+        # Write wrapper script
+        $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+        $safeOutput = $outputFile -replace "'", "'\''"
+        $safePrompt = $promptFile -replace "'", "'\''"
+        $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
+        $safeRoomDir = $absRoomDir.Replace('\', '/').Replace("'", "'\''")
+        $safeSkillsDir = $isolatedSkillsDir.Replace('\', '/').Replace("'", "'\''")
+        $safeRole = $RoleName -replace "'", "'\''"
 
-    $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
-    $scriptContent = @"
+        $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
+        $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
 export AGENT_OS_ROLE='$safeRole'
 export AGENT_OS_PARENT_PID='$PID'
 export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 $cwdLine
-$AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
+exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
 "@
-    $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
-    chmod +x $wrapperScript 2>$null
+        $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
+        chmod +x $wrapperScript 2>$null
 
-    $proc = Start-Process -FilePath "bash" `
-        -ArgumentList $wrapperScript `
-        -NoNewWindow -PassThru `
-        -RedirectStandardInput $stdinNull
+        $proc = Start-Process -FilePath "bash" `
+            -ArgumentList $wrapperScript `
+            -NoNewWindow -PassThru `
+            -RedirectStandardInput $stdinNull
 
-    # Overwrite PID file with the actual bash child PID (not PS $PID)
-    # so manager's Test-PidAlive can detect when the agent process dies.
-    $proc.Id | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
+        # Overwrite PID file with the actual bash child PID (not PS $PID)
+        # so manager's Test-PidAlive can detect when the agent process dies.
+        $proc.Id | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
 
-    $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
-    if (-not $proc.HasExited) {
-        # Timeout
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        $exitCode = 124
-        "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+        $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
+        if (-not $proc.HasExited) {
+            # Timeout
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            $exitCode = 124
+            "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+        }
+        else {
+            $exitCode = $proc.ExitCode
+        }
     }
-    else {
-        $exitCode = $proc.ExitCode
+    catch {
+        $exitCode = 1
+        $_.Exception.Message | Out-File -FilePath $outputFile -Encoding utf8
     }
-}
-catch {
-    $exitCode = 1
-    $_.Exception.Message | Out-File -FilePath $outputFile -Encoding utf8
+
+    # --- Retry on transient remote errors (ClosedResourceError, RemoteException) ---
+    if ($exitCode -ne 0 -and $exitCode -ne 124 -and $processAttempt -lt $maxProcessRetries) {
+        $agentOutput = if (Test-Path $outputFile) { Get-Content $outputFile -Raw -ErrorAction SilentlyContinue } else { "" }
+        if ($agentOutput -match "ClosedResourceError|RemoteException.*ClosedResource|ReadError|WriteError") {
+            $backoff = [math]::Pow(2, $processAttempt)
+            Write-Host "[Invoke-Agent] Transient remote error on attempt $processAttempt/$maxProcessRetries, retrying in ${backoff}s..."
+            Start-Sleep -Seconds $backoff
+            continue
+        }
+    }
+    break  # Success or non-transient error — stop retrying
 }
 
 # --- Read output ---

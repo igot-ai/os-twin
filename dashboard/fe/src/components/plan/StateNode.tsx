@@ -14,6 +14,12 @@ interface StateNodeProps {
   role?: string;
   roleInitial?: string;
   roleColor?: string;
+  mode?: 'live' | 'authoring';
+  onStartDrag?: (nodeId: string, x: number, y: number) => void;
+  onEnterPort?: (nodeId: string, type: 'input' | 'output') => void;
+  onLeavePort?: () => void;
+  onClick?: (id: string) => void;
+  onContextMenu?: (e: React.MouseEvent, id: string) => void;
 }
 
 const statusLabels: Record<string, string> = {
@@ -29,7 +35,10 @@ const statusLabels: Record<string, string> = {
   signoff: 'SIGNOFF',
 };
 
-export default function StateNode({ id, label, status, x, y, role, roleInitial, roleColor }: StateNodeProps) {
+export default function StateNode({ 
+  id, label, status, x, y, role, roleInitial, roleColor, mode,
+  onStartDrag, onEnterPort, onLeavePort, onClick, onContextMenu
+}: StateNodeProps) {
   const { selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen } = usePlanContext();
   const isSelected = selectedEpicRef === id;
   const stateColor = stateColors[status] || stateColors.pending;
@@ -37,19 +46,64 @@ export default function StateNode({ id, label, status, x, y, role, roleInitial, 
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setSelectedEpicRef(id);
-    setIsContextPanelOpen(true);
+    if (onClick) {
+      onClick(id);
+    } else {
+      setSelectedEpicRef(id);
+      setIsContextPanelOpen(true);
+    }
+  };
+
+  const handlePortMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onStartDrag?.(id, e.clientX, e.clientY);
+  };
+
+  const handleMouseEnter = (type: 'input' | 'output') => {
+    onEnterPort?.(id, type);
+  };
+
+  const handleContextMenuInternal = (e: React.MouseEvent) => {
+    if (onContextMenu) {
+      onContextMenu(e, id);
+    }
   };
 
   return (
     <foreignObject x={x} y={y} width="180" height="80" className="overflow-visible">
       <div
         onClick={handleClick}
-        className={`flex flex-col p-2 rounded-lg border bg-surface transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md ${
+        onContextMenu={handleContextMenuInternal}
+        className={`flex flex-col p-2 rounded-lg border bg-surface transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md group relative ${
           isSelected ? 'border-primary ring-2 ring-primary/20 scale-105' : 'border-border'
         }`}
         style={{ borderLeftWidth: '4px', borderLeftColor: stateColor, minHeight: '80px' }}
       >
+        {/* Ports */}
+        {mode === 'authoring' && (
+          <>
+            {/* Input port (Left) - dependency target */}
+            <div 
+              className="absolute left-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 border-indigo-500 bg-white opacity-0 group-hover:opacity-100 transition-opacity cursor-crosshair z-20 hover:scale-125"
+              data-port="input"
+              data-node-id={id}
+              title="Drag here to add dependency"
+              onMouseEnter={() => handleMouseEnter('input')}
+              onMouseLeave={onLeavePort}
+            />
+            {/* Output port (Right) - dependency source */}
+            <div 
+              className="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 border-indigo-500 bg-white opacity-0 group-hover:opacity-100 transition-opacity cursor-crosshair z-20 hover:scale-125"
+              data-port="output"
+              data-node-id={id}
+              title="Drag to create dependency"
+              onMouseDown={handlePortMouseDown}
+              onMouseEnter={() => handleMouseEnter('output')}
+              onMouseLeave={onLeavePort}
+            />
+          </>
+        )}
+        
         {/* Header: ID + Status */}
         <div className="flex items-center justify-between mb-1">
           <span className="text-[8px] font-bold text-text-faint uppercase tracking-wider">

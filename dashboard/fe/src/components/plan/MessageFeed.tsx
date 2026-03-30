@@ -3,20 +3,12 @@
 import React from 'react';
 import { useMessages } from '@/hooks/use-messages';
 import { AnimatePresence, motion } from 'framer-motion';
+import { getRoleColor } from '@/lib/role-utils';
 
 interface MessageFeedProps {
   planId: string;
   epicRef: string;
 }
-
-const roleColors: Record<string, string> = {
-  System: '#38bdf8',
-  'Data Analyst': '#8b5cf6',
-  Security: '#f59e0b',
-  QA: '#10b981',
-  Engineer: '#3b82f6',
-  Manager: '#64748b',
-};
 
 function formatTime(ts: string) {
   const d = new Date(ts);
@@ -46,7 +38,7 @@ export default function MessageFeed({ planId, epicRef }: MessageFeedProps) {
     <div className="space-y-4 p-4">
       <AnimatePresence initial={false} mode="popLayout">
         {messages?.map((msg) => {
-          const rc = roleColors[msg.from] || '#64748b';
+          const rc = getRoleColor(msg.from);
           const isEscalation = msg.type === 'escalate';
 
           return (

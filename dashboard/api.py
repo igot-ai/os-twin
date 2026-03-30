@@ -8,6 +8,28 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+# ── Load ~/.ostwin/.env early (before any module reads env at import time) ──
+# This makes the dashboard self-contained: it works whether started via
+# `ostwin dashboard` (which already sources .env) or directly via `python api.py`.
+_env_file = Path.home() / ".ostwin" / ".env"
+if _env_file.is_file():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_file, override=False)
+    except ImportError:
+        # Manual fallback — only set vars not already in the environment
+        with _env_file.open() as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if not _line or _line.startswith("#"):
+                    continue
+                if "=" in _line:
+                    _k, _, _v = _line.partition("=")
+                    _k = _k.strip()
+                    _v = _v.strip().strip("\"'")
+                    if _k and _k not in os.environ:
+                        os.environ[_k] = _v
+
 # Add the project root and dashboard dir to sys.path
 _dashboard_dir = os.path.dirname(os.path.abspath(__file__))
 _root = os.path.dirname(_dashboard_dir)
@@ -25,12 +47,35 @@ from dashboard.api_utils import (
     FE_OUT_DIR,
 )
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory
 from dashboard.global_state import broadcaster
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging — file + console
+# All dashboard logs are written to ~/.ostwin/dashboard/debug.log (DEBUG level)
+# Console output stays at INFO to keep the terminal clean.
+_log_dir = Path.home() / ".ostwin" / "dashboard"
+_log_dir.mkdir(parents=True, exist_ok=True)
+_log_file = _log_dir / "debug.log"
+
+from logging.handlers import RotatingFileHandler
+
+_file_handler = RotatingFileHandler(
+    str(_log_file), maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
+)
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s  %(message)s")
+)
+
+_console_handler = logging.StreamHandler()
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(
+    logging.Formatter("%(levelname)-8s  %(name)s  %(message)s")
+)
+
+logging.basicConfig(level=logging.DEBUG, handlers=[_file_handler, _console_handler])
 logger = logging.getLogger(__name__)
+logger.info("Dashboard log file: %s", _log_file)
 
 app = FastAPI(title="OS Twin Command Center", version="0.1.0")
 
@@ -51,7 +96,8 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
+                    import time
+                    await websocket.send_json({"type": "pong", "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
             except: pass
     except WebSocketDisconnect:
         pass
@@ -76,6 +122,7 @@ app.include_router(system.router)
 app.include_router(mcp.router)
 app.include_router(skills.router)
 app.include_router(roles.router)
+app.include_router(memory.router)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:

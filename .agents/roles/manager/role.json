@@ -1,6 +1,6 @@
 {
   "name": "manager",
-  "description": "Manager — orchestrates war-rooms, routes work, handles retries, skill discovery, and release",
+  "description": "Manager \u2014 orchestrates war-rooms, routes work, handles retries, skill discovery, and release",
   "capabilities": [
     "task-routing",
     "retry-management",
@@ -11,7 +11,10 @@
   ],
   "prompt_file": "ROLE.md",
   "quality_gates": [],
-  "skill_refs": [],
+  "skill_refs": [
+    "risk-decision",
+    "war-room-communication"
+  ],
   "cli": "agent",
   "model": "gemini-3.1-pro-preview",
   "timeout": 900

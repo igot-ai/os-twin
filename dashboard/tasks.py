@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.api_utils import (
-    WARROOMS_DIR, AGENTS_DIR, PROJECT_ROOT, 
+    WARROOMS_DIR, AGENTS_DIR, PLANS_DIR, PROJECT_ROOT, 
     read_room, read_channel, process_notification
 )
 import dashboard.global_state as global_state
+from dashboard.epic_manager import EpicSkillsManager
 from dashboard.zvec_store import OSTwinStore
 from dashboard.telegram_poller import start_polling
 
@@ -25,7 +26,7 @@ async def poll_war_rooms():
         if WARROOMS_DIR.exists():
             dirs.add(WARROOMS_DIR)
         # Scan plans meta for plan-specific war-room dirs
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         if plans_dir.exists():
             for meta_file in plans_dir.glob("*.meta.json"):
                 try:
@@ -41,6 +42,25 @@ async def poll_war_rooms():
                     pass
         return list(dirs)
 
+    def _find_plan_id_for_warroom_dir(warroom_dir: Path) -> str | None:
+        """Find the plan_id whose warrooms_dir matches."""
+        if not PLANS_DIR.exists():
+            return None
+        resolved = warroom_dir.resolve()
+        for meta_file in PLANS_DIR.glob("*.meta.json"):
+            try:
+                meta = json.loads(meta_file.read_text())
+                wd = meta.get("warrooms_dir") or meta.get("working_dir")
+                if wd:
+                    wd_path = Path(wd)
+                    if wd_path.name != ".war-rooms":
+                        wd_path = wd_path / ".war-rooms"
+                    if wd_path.resolve() == resolved:
+                        return meta.get("plan_id", meta_file.stem.replace(".meta", ""))
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return None
+
     # Initialize snapshot
     for warroom_dir in _discover_warroom_dirs():
         for room_dir in sorted(warroom_dir.glob("room-*")):
@@ -54,7 +74,7 @@ async def poll_war_rooms():
         last_snapshot["__release__"] = {"mtime": release_file.stat().st_mtime}
 
     # Plans
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     if plans_dir.exists():
         for plan_file in plans_dir.glob("*.md"):
             last_snapshot[f"__plan_{plan_file.name}__"] = {"mtime": plan_file.stat().st_mtime}
@@ -77,14 +97,21 @@ async def poll_war_rooms():
                     await process_notification("room_created", {"room": room})
                     if global_state.store:
                         global_state.store.upsert_room_metadata(room_id, room)
-                    
-                    # Ensure initial messages are broadcast
-                    # Find the correct warroom dir for this room
+
                     room_parent = None
                     for wd in _discover_warroom_dirs():
                         if (wd / room_id).is_dir():
                             room_parent = wd
                             break
+
+                    if room_parent:
+                        plan_id = _find_plan_id_for_warroom_dir(room_parent)
+                        if plan_id:
+                            try:
+                                EpicSkillsManager.sync_room_skills(room_parent / room_id, plan_id)
+                            except Exception as e:
+                                logger.warning("Failed to sync skills for room %s: %s", room_id, e)
+
                     if room_parent and room["message_count"] > 0:
                         messages = read_channel(room_parent / room_id)
                         event_data = {"room": room, "new_messages": messages}
@@ -121,7 +148,7 @@ async def poll_war_rooms():
                             if epic_ref:
                                 # Find plan_id from plans dir (latest launched)
                                 try:
-                                    p_dir = AGENTS_DIR / "plans"
+                                    p_dir = PLANS_DIR
                                     if p_dir.exists():
                                         latest = max(
                                             p_dir.glob("agent-os-plan-*.md"),
@@ -182,6 +209,15 @@ async def startup_all():
         global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
         global_state.store.ensure_collections()
         global_state.store.sync_from_disk()
+        from dashboard.api_utils import SKILLS_DIRS
+        global_state.store.sync_skills(SKILLS_DIRS)
+        logger.info("Skills synced from disk")
+        global_state.store.sync_roles(AGENTS_DIR / "roles")
+        logger.info("Roles synced from disk")
+        from dashboard.routes.roles import sync_roles_from_disk
+        result = sync_roles_from_disk()
+        if result["synced"]:
+            logger.info("Roles bridged from disk role.json: %s", result["synced"])
     except Exception as e:
         logger.error(f"zvec init failed: {e}")
         global_state.store = None

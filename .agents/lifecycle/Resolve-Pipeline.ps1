@@ -1,15 +1,19 @@
 <#
 .SYNOPSIS
-    Generates a lifecycle.json for a war-room based on explicit pipeline,
-    capabilities, or default fallback.
+    Generates a lifecycle.json (v2) for a war-room based on explicit pipeline,
+    capabilities, candidate roles, or default fallback.
  
 .PARAMETER PipelineString
     Explicit pipeline like "engineer -> security-review -> qa".
-    Each segment becomes a state. The last segment's "done" transitions to "passed".
 .PARAMETER RequiredCapabilities
     Array of capabilities. Used to insert review stages.
 .PARAMETER AssignedRole
     The primary role. Used for role-derived pipeline generation.
+.PARAMETER CandidateRoles
+    Ordered list of candidate roles from DAG.json. [0] = primary worker,
+    [1..N] = reviewers. Takes precedence over RequiredCapabilities.
+.PARAMETER MaxRetries
+    Max retries for the lifecycle. Default: 3.
 .PARAMETER OutputPath
     Where to write the lifecycle.json. If empty, outputs JSON to stdout.
 .PARAMETER AgentsDir
@@ -23,6 +27,8 @@ param(
     [string]$PipelineString = '',
     [string[]]$RequiredCapabilities = @(),
     [string]$AssignedRole = 'engineer',
+    [string[]]$CandidateRoles = @(),
+    [int]$MaxRetries = 3,
     [string]$OutputPath = '',
     [string]$AgentsDir = ''
 )
@@ -34,158 +40,184 @@ if (-not $AgentsDir) {
 $defaultLifecyclePath = Join-Path $AgentsDir "lifecycle" "default.json"
  
 # ------------------------------------------------------------------
-# HELPER: Build lifecycle from an ordered list of stage definitions
+# V2 LIFECYCLE BUILDER — signal-based, role-per-state state machine
 # ------------------------------------------------------------------
-function New-LinearPipeline {
+function Build-LifecycleV2 {
     param(
-        [PSCustomObject[]]$Stages  # Each: { StateName, Role, Type }
+        [string]$PrimaryRole,           # Who does the work (developing/optimize)
+        [string[]]$ReviewChain = @(),   # Ordered reviewer roles (may be empty)
+        [int]$MaxRetries = 3
     )
+
     $states = [ordered]@{}
-    for ($i = 0; $i -lt $Stages.Count; $i++) {
-        $stage = $Stages[$i]
-        $stateName = $stage.StateName
-        $nextStateName = $null
- 
-        # Determine what "done"/"pass" transitions to
-        if ($i -lt ($Stages.Count - 1)) {
-            $nextStateName = $Stages[$i + 1].StateName
-        } else {
-            $nextStateName = 'passed'
+
+    # --- Determine review chain targets ---
+    # developing.done → first reviewer (or review if no chain)
+    # optimize.done   → first reviewer (or review if no chain)
+    # Each reviewer.pass → next reviewer or "review" (final gate) or "passed"
+
+    $hasExplicitReviewers = $ReviewChain.Count -gt 0
+    $firstReviewTarget = if ($hasExplicitReviewers) {
+        "$($ReviewChain[0])-review"
+    } else {
+        'review'
+    }
+
+    # --- developing: primary role does initial implementation ---
+    $states['developing'] = [ordered]@{
+        role    = $PrimaryRole
+        type    = 'work'
+        signals = [ordered]@{
+            done  = [ordered]@{ target = $firstReviewTarget }
+            error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
         }
- 
-        $transitions = [ordered]@{}
-        if ($stage.Type -eq 'review') {
-            # Review stages emit pass/fail/escalate
-            $transitions['pass'] = $nextStateName
-            $transitions['fail'] = 'manager-triage'
-            $transitions['escalate'] = 'manager-triage'
-        } else {
-            # Worker stages emit done
-            $transitions['done'] = $nextStateName
+    }
+
+    # --- optimize: primary role fixes after review feedback ---
+    $states['optimize'] = [ordered]@{
+        role    = $PrimaryRole
+        type    = 'work'
+        signals = [ordered]@{
+            done  = [ordered]@{ target = $firstReviewTarget }
+            error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
         }
- 
+    }
+
+    # --- Review chain: each reviewer in sequence ---
+    for ($i = 0; $i -lt $ReviewChain.Count; $i++) {
+        $reviewer = $ReviewChain[$i]
+        $stateName = "$reviewer-review"
+
+        # Determine pass target: next reviewer, or final "review", or "passed"
+        $passTarget = if ($i -lt ($ReviewChain.Count - 1)) {
+            "$($ReviewChain[$i + 1])-review"
+        } else {
+            # Last in chain — goes to final QA review (unless this IS qa)
+            if ($reviewer -eq 'qa') { 'passed' } else { 'review' }
+        }
+
         $states[$stateName] = [ordered]@{
-            type        = 'agent'
-            role        = $stage.Role
-            transitions = $transitions
+            role    = $reviewer
+            type    = 'review'
+            signals = [ordered]@{
+                pass     = [ordered]@{ target = $passTarget }
+                fail     = [ordered]@{ target = 'optimize'; actions = @('increment_retries', 'post_fix') }
+                escalate = [ordered]@{ target = 'triage' }
+            }
         }
     }
- 
-    # Always include builtin states for triage and plan-revision
-    $states['manager-triage'] = [ordered]@{
-        type        = 'builtin'
-        role        = 'manager'
-        transitions = [ordered]@{}
+
+    # --- review: final QA gate (if qa not already in the chain) ---
+    $qaInChain = $ReviewChain -contains 'qa'
+    if (-not $qaInChain) {
+        $states['review'] = [ordered]@{
+            role    = 'qa'
+            type    = 'review'
+            signals = [ordered]@{
+                pass     = [ordered]@{ target = 'passed' }
+                fail     = [ordered]@{ target = 'developing'; actions = @('increment_retries', 'post_fix') }
+                escalate = [ordered]@{ target = 'triage' }
+            }
+        }
     }
-    $states['plan-revision'] = [ordered]@{
-        type        = 'builtin'
-        role        = 'manager'
-        transitions = [ordered]@{}
+
+    # --- triage: manager handles escalations ---
+    $states['triage'] = [ordered]@{
+        role    = 'manager'
+        type    = 'triage'
+        signals = [ordered]@{
+            fix      = [ordered]@{ target = 'developing'; actions = @('increment_retries') }
+            redesign = [ordered]@{ target = 'developing'; actions = @('increment_retries', 'revise_brief') }
+            reject   = [ordered]@{ target = 'failed-final' }
+        }
     }
- 
-    # fixing state — routes back to the first review stage (or passed)
-    $firstReview = $Stages | Where-Object { $_.Type -eq 'review' } | Select-Object -First 1
-    $fixTarget = if ($firstReview) { $firstReview.StateName } else { 'passed' }
-    $states['fixing'] = [ordered]@{
-        type        = 'agent'
-        role        = $Stages[0].Role  # Primary role does the fixing
-        transitions = [ordered]@{ done = $fixTarget }
+
+    # --- failed: auto-decision node ---
+    $states['failed'] = [ordered]@{
+        role            = 'manager'
+        type            = 'decision'
+        auto_transition = $true
+        signals         = [ordered]@{
+            retry   = [ordered]@{ target = 'developing'; guard = 'retries < max_retries' }
+            exhaust = [ordered]@{ target = 'failed-final'; guard = 'retries >= max_retries' }
+        }
     }
- 
-    $initialState = $Stages[0].StateName
- 
+
+    # --- terminal states ---
+    $states['passed']       = [ordered]@{ type = 'terminal' }
+    $states['failed-final'] = [ordered]@{ type = 'terminal' }
+
     return [ordered]@{
-        initial_state = $initialState
+        version       = 2
+        initial_state = 'developing'
+        max_retries   = $MaxRetries
         states        = $states
     }
 }
- 
+
 # ------------------------------------------------------------------
 # MODE 1: Explicit pipeline string  (e.g., "engineer -> security-review -> qa")
 # ------------------------------------------------------------------
 if ($PipelineString) {
     $segments = ($PipelineString -split '\s*->\s*') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
- 
-    $stages = [System.Collections.Generic.List[PSObject]]::new()
-    foreach ($seg in $segments) {
-        # Heuristic: if segment contains "review", "qa", "audit", "check", treat as review stage
-        $isReview = $seg -match '(review|qa|audit|check|validate|verify|test)'
-        $stateName = $seg -replace ':', '-'  # Normalize colons for state names
- 
-        $stages.Add([PSCustomObject]@{
-            StateName = $stateName
-            Role      = $seg
-            Type      = if ($isReview) { 'review' } else { 'worker' }
-        })
+    
+    $primaryRole = $segments[0]
+    $reviewers = @()
+    if ($segments.Count -gt 1) {
+        $reviewers = @($segments[1..($segments.Count - 1)])
     }
- 
-    $lifecycle = New-LinearPipeline -Stages $stages.ToArray()
+
+    $lifecycle = Build-LifecycleV2 -PrimaryRole $primaryRole -ReviewChain $reviewers -MaxRetries $MaxRetries
 }
 # ------------------------------------------------------------------
-# MODE 2: Capability-derived pipeline (insert review stages for each capability)
+# MODE 2: CandidateRoles from DAG (preferred)
+# ------------------------------------------------------------------
+elseif ($CandidateRoles.Count -gt 0) {
+    $primaryRole = $CandidateRoles[0]
+    $orchestratorRoles = @('manager')
+    $reviewers = @()
+    if ($CandidateRoles.Count -gt 1) {
+        $reviewers = @($CandidateRoles[1..($CandidateRoles.Count - 1)] | Where-Object { $_ -notin $orchestratorRoles })
+    }
+
+    $lifecycle = Build-LifecycleV2 -PrimaryRole $primaryRole -ReviewChain $reviewers -MaxRetries $MaxRetries
+}
+# ------------------------------------------------------------------
+# MODE 3: Capability-derived pipeline
 # ------------------------------------------------------------------
 elseif ($RequiredCapabilities.Count -gt 0) {
-    $stages = [System.Collections.Generic.List[PSObject]]::new()
- 
-    # Primary work stage
     $baseRole = $AssignedRole -replace ':.*$', ''
-    $stages.Add([PSCustomObject]@{
-        StateName = 'engineering'
-        Role      = $AssignedRole
-        Type      = 'worker'
-    })
- 
-    # Insert specialized review stages for notable capabilities
-    $reviewCapabilities = @{
-        'security'       = @{ StateName = 'security-review';  Role = 'security-auditor' }
-        'database'       = @{ StateName = 'schema-review';    Role = 'database-architect' }
-        'architecture'   = @{ StateName = 'architect-review'; Role = 'architect' }
-        'infrastructure' = @{ StateName = 'infra-review';     Role = 'devops' }
-        'accessibility'  = @{ StateName = 'a11y-review';      Role = 'accessibility-specialist' }
+
+    $capReviewerMap = @{
+        'security'       = 'security-auditor'
+        'database'       = 'database-architect'
+        'architecture'   = 'architect'
+        'infrastructure' = 'devops'
+        'accessibility'  = 'accessibility-specialist'
     }
- 
+
+    $reviewers = [System.Collections.Generic.List[string]]::new()
     foreach ($cap in $RequiredCapabilities) {
         $capLower = $cap.ToLower()
-        if ($reviewCapabilities.ContainsKey($capLower)) {
-            $rc = $reviewCapabilities[$capLower]
-            $stages.Add([PSCustomObject]@{
-                StateName = $rc.StateName
-                Role      = $rc.Role
-                Type      = 'review'
-            })
+        if ($capReviewerMap.ContainsKey($capLower)) {
+            $reviewers.Add($capReviewerMap[$capLower])
         }
     }
- 
-    # Always end with QA and Reporting
-    $stages.Add([PSCustomObject]@{
-        StateName = 'qa-review'
-        Role      = 'qa'
-        Type      = 'review'
-    })
-    $stages.Add([PSCustomObject]@{
-        StateName = 'reporting'
-        Role      = 'reporter'
-        Type      = 'worker'
-    })
- 
-    $lifecycle = New-LinearPipeline -Stages $stages.ToArray()
+    # QA is added automatically by Build-LifecycleV2 if not in chain
+
+    $lifecycle = Build-LifecycleV2 -PrimaryRole $baseRole -ReviewChain $reviewers.ToArray() -MaxRetries $MaxRetries
 }
 # ------------------------------------------------------------------
-# MODE 3: Default lifecycle fallback
+# MODE 4: Default lifecycle fallback
 # ------------------------------------------------------------------
 else {
     if (Test-Path $defaultLifecyclePath) {
         $lifecycle = Get-Content $defaultLifecyclePath -Raw | ConvertFrom-Json
     } else {
-        # Hardcoded minimal default
-        $lifecycle = New-LinearPipeline -Stages @(
-            [PSCustomObject]@{ StateName = 'engineering'; Role = $AssignedRole; Type = 'worker' },
-            [PSCustomObject]@{ StateName = 'qa-review';   Role = 'qa';         Type = 'review' },
-            [PSCustomObject]@{ StateName = 'reporting';   Role = 'reporter';   Type = 'worker' }
-        )
+        $lifecycle = Build-LifecycleV2 -PrimaryRole $AssignedRole -ReviewChain @() -MaxRetries $MaxRetries
     }
 }
- 
+
 # ------------------------------------------------------------------
 # Output
 # ------------------------------------------------------------------

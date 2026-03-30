@@ -46,6 +46,60 @@ def _get_role_aware_skills_dir(self) -> "Path | None":
 
 Settings.get_project_agent_skills_dir = _get_role_aware_skills_dir
 
+# ---------------------------------------------------------------------------
+# Monkey-patch _stream_agent to retry on transient ClosedResourceError.
+#
+# The remote LangGraph server intermittently drops the SSE connection
+# (ClosedResourceError) during MCP tool calls. deepagents-cli v0.0.34 has
+# zero retry logic in _stream_agent, so any transport error kills the
+# session. This patch adds exponential-backoff retry with Command(resume=)
+# so the run can continue from the server's last checkpoint.
+# ---------------------------------------------------------------------------
+import deepagents_cli.non_interactive as _ni  # noqa: E402
+
+_original_stream_agent = _ni._stream_agent
+
+
+async def _resilient_stream_agent(agent, stream_input, config, state, console, file_op_tracker):
+    """Wrap _stream_agent with retry on transient ClosedResourceError."""
+    import asyncio as _aio
+
+    max_retries = 3
+    _original_input = stream_input  # preserve for fresh-run retries
+
+    for attempt in range(max_retries):
+        try:
+            await _original_stream_agent(
+                agent, stream_input, config, state, console, file_op_tracker,
+            )
+            return  # success
+        except Exception as exc:
+            err_str = str(exc)
+            is_transient = (
+                "ClosedResourceError" in err_str
+                or "ReadError" in err_str
+                or "WriteError" in err_str
+            )
+            if is_transient and attempt < max_retries - 1:
+                wait = 2 ** (attempt + 1)
+                console.print(
+                    f"[yellow]\u26a0 Remote connection lost ({type(exc).__name__}), "
+                    f"retrying in {wait}s ({attempt + 1}/{max_retries})\u2026[/yellow]"
+                )
+                await _aio.sleep(wait)
+                # Server-side ClosedResourceError means internal crash — resume
+                # may not work.  Try resume first, fall back to fresh input.
+                try:
+                    from langgraph.types import Command as _Cmd
+                    stream_input = _Cmd(resume={})
+                except Exception:
+                    stream_input = _original_input
+                continue
+            raise
+
+
+_ni._stream_agent = _resilient_stream_agent
+
 import warnings
 
 warnings.filterwarnings("ignore", module="langchain_core._api.deprecation")
@@ -1620,6 +1674,70 @@ def cli_main() -> None:
 from deepagents_cli.main import cli_main as _original_cli_main  # noqa: E402
 
 
+def load_mcp_env() -> None:
+    """Load .agents/mcp/.env.mcp if it exists, error if config exists without env."""
+    import os
+    import sys
+    from pathlib import Path
+    
+    # Resolve project root by walking up from cwd to find .agents/mcp
+    curr = Path.cwd().resolve()
+    while True:
+        mcp_dir = curr / ".agents" / "mcp"
+        config_mcp = mcp_dir / "mcp-config.json"
+        env_mcp = mcp_dir / ".env.mcp"
+        
+        # If we have a project-level MCP config but no credentials file, error out
+        if config_mcp.is_file():
+            if env_mcp.is_file():
+                # Found it, load it
+                try:
+                    import dotenv
+                    dotenv.load_dotenv(env_mcp)
+                except ImportError:
+                    # Manual parsing if dotenv is not available yet
+                    with env_mcp.open() as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            if "=" in line:
+                                key, val = line.split("=", 1)
+                                os.environ[key.strip()] = val.strip()
+                return
+            else:
+                # Config exists but no .env.mcp — warn but don't block.
+                # The user may not have run 'ostwin mcp compile' yet, or
+                # the project config may not need credentials at all.
+                import logging as _log
+                _log.getLogger("agent_os.mcp").warning(
+                    "MCP config found at %s but no .env.mcp — "
+                    "run 'ostwin mcp compile' if MCP servers need credentials.",
+                    config_mcp,
+                )
+                return
+        
+        # Also check for .env.mcp standalone (legacy support or loose files)
+        if env_mcp.is_file():
+            try:
+                import dotenv
+                dotenv.load_dotenv(env_mcp)
+            except ImportError:
+                with env_mcp.open() as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if "=" in line:
+                            key, val = line.split("=", 1)
+                            os.environ[key.strip()] = val.strip()
+            return
+            
+        if curr == curr.parent:
+            break
+        curr = curr.parent
+
+
 def cli_main() -> None:
     """Agent OS CLI entry point with role-aware skill loading.
 
@@ -1629,10 +1747,21 @@ def cli_main() -> None:
 
     When not set, behaves identically to the original deepagents CLI.
     """
+    import logging
+    
+    # Load MCP credentials from project-local .env.mcp
+    load_mcp_env()
+    
+    # Force default logging level to ERROR
+    logging.basicConfig(level=logging.ERROR, force=True)
+    
+    # Suppress non-error logging from core packages
+    logging.getLogger("deepagents_cli").setLevel(logging.ERROR)
+    logging.getLogger("deepagents").setLevel(logging.ERROR)
+
     role = os.environ.get("AGENT_OS_ROLE")
     skills_dir = os.environ.get("AGENT_OS_SKILLS_DIR")
     if role and skills_dir:
-        import logging
         logger = logging.getLogger("agent_os.cli")
         logger.info(
             "Agent OS CLI: role=%s skills_dir=%s",

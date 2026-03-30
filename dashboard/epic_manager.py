@@ -41,6 +41,38 @@ class EpicSkillsManager:
                     return data["content"] if data else ""
         return ""
 
+    @staticmethod
+    def sync_room_skills(room_dir: Path, plan_id: str):
+        """Inject plan-level skill_refs into a warroom's config.json."""
+        config_file = room_dir / "config.json"
+        if not config_file.exists():
+            return
+
+        try:
+            config = json.loads(config_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            return
+
+        if "skill_refs" in config:
+            return
+
+        assigned_role = config.get("assignment", {}).get("assigned_role", "")
+        if not assigned_role:
+            return
+
+        plan_config = get_plan_roles_config(plan_id)
+        role_config = plan_config.get(assigned_role, {})
+
+        skill_refs = set(role_config.get("skill_refs", []))
+        skill_refs.update(plan_config.get("attached_skills", []))
+
+        disabled = set(role_config.get("disabled_skills", []))
+        skill_refs -= disabled
+
+        if skill_refs:
+            config["skill_refs"] = sorted(skill_refs)
+            config_file.write_text(json.dumps(config, indent=2))
+
     @classmethod
     def resolve_config(cls, plan_id: str, task_ref: str, role_name: str) -> Dict[str, Any]:
         plan_config = get_plan_roles_config(plan_id)
@@ -69,7 +101,12 @@ class EpicSkillsManager:
         skill_refs.update(plan_config.get("attached_skills", [])) # Global plan skills
         skill_refs.update(plan_role_config.get("skill_refs", [])) # Plan-Role specific
         skill_refs.update(room_overrides.get("skill_refs", []))    # Epic-Role specific
-        
+
+        disabled = set()
+        disabled.update(plan_role_config.get("disabled_skills", []))
+        disabled.update(room_overrides.get("disabled_skills", []))
+        skill_refs -= disabled
+
         merged = {
             "model": room_overrides.get("default_model") or plan_role_config.get("default_model") or role_defaults.get("default_model", "gemini-3-flash-preview"),
             "temperature": room_overrides.get("temperature") if room_overrides.get("temperature") is not None else plan_role_config.get("temperature") if plan_role_config.get("temperature") is not None else 0.7,

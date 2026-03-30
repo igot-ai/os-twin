@@ -65,16 +65,31 @@ fi
 # Resolve project dir to absolute path
 PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
+# Build frontend if source is newer than output
+FE_DIR="$DASHBOARD_DIR/fe"
+FE_OUT="$FE_DIR/out"
+if [[ -d "$FE_DIR" && -f "$FE_DIR/package.json" ]]; then
+  if [[ ! -d "$FE_OUT" ]] || [[ -n "$(find "$FE_DIR/src" -newer "$FE_OUT" -print -quit 2>/dev/null)" ]]; then
+    echo "[DASHBOARD] Building frontend..."
+    (cd "$FE_DIR" && npm install --silent 2>/dev/null && npm run build 2>&1) || {
+      echo "[WARN] Frontend build failed — serving with stale assets" >&2
+    }
+  fi
+fi
+
 PID_FILE="$AGENTS_DIR/dashboard.pid"
 
 if $BACKGROUND; then
+  DASHBOARD_LOG_DIR="$HOME/.ostwin/dashboard"
+  mkdir -p "$DASHBOARD_LOG_DIR"
   echo "[DASHBOARD] Starting in background on http://localhost:${PORT}"
   echo "  Project: $PROJECT_DIR"
   cd "$DASHBOARD_DIR"
-  nohup "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR" > "$AGENTS_DIR/logs/dashboard.log" 2>&1 &
+  nohup "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR" > "$DASHBOARD_LOG_DIR/stdout.log" 2>&1 &
   DASH_PID=$!
   echo "$DASH_PID" > "$PID_FILE"
-  echo "  PID: $DASH_PID (log: $AGENTS_DIR/logs/dashboard.log)"
+  echo "  PID: $DASH_PID"
+  echo "  Logs: $DASHBOARD_LOG_DIR/debug.log (debug) | stdout.log (raw)"
 else
   echo "[DASHBOARD] Starting web dashboard on http://localhost:${PORT}"
   echo "  Project: $PROJECT_DIR"

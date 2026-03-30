@@ -220,7 +220,7 @@ if ($result.TimedOut) {
 }
 else {
     & $postMessage -RoomDir $RoomDir -From "architect" -To "manager" `
-                   -Type "design-guidance" -Ref $taskRef -Body $output
+                   -Type "done" -Ref $taskRef -Body $output
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level INFO -Message "Architect review complete for $taskRef. Recommendation: $recommendation"
     }

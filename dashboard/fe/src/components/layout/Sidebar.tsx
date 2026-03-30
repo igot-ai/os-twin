@@ -9,8 +9,9 @@ import { useUIStore } from '@/lib/stores/uiStore';
 const navItems = [
   { href: '/', icon: 'grid_view', label: 'Dashboard' },
   { href: '/plans', icon: 'folder', label: 'Plans' },
-  { href: '/skills', icon: 'extension', label: 'Skills' },
   { href: '/roles', icon: 'person', label: 'Roles' },
+  { href: '/skills', icon: 'extension', label: 'Skills' },
+  { href: '/mcp', icon: 'terminal', label: 'MCP' },
   { href: '/settings', icon: 'settings', label: 'Settings' },
 ];
 

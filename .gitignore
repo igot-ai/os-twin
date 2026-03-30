@@ -1,12 +1,11 @@
 # ── Runtime / Process ─────────────────────────────────────────────────────────
 .env
 *pid
-.agents/plans/**
-.agents/.zvec/**
 *.war-rooms/**
-.agents/logs/**
 .war-rooms/**
-.agents/mcp/mcp-config.json
+
+# ── Agents (entire framework — installed to ~/.ostwin, not committed) ────────
+.agents/
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
@@ -16,13 +15,38 @@ __pycache__/
 **/__pycache__/**
 
 # ── Local data & secrets ──────────────────────────────────────────────────────
+.ostwin/mcp/mcp-config.json
 .claude/
-.agents/plans/
 /plans/
 .data/
 .data/**
 dashboard/.war-rooms
+
+# ── Generated docs ────────────────────────────────────────────────────────────
+**/TODO.md
+**/release_note.md
+
 # ── Dummy project ──────────────────────────────────────────────────────────────
 cypress/screenshots
 quant_proj/
 os-twin-twin/**
+dashboard/nextjs/
+
+# ── Bot (Telegram + Discord) ──────────────────────────────────────────────────
+bot/logs/
+bot/recordings/
+bot/dist/
+bot/.env
+
+# ── Dashboard FE ───────────────────────────────────────────────────────────────
+dashboard/fe/pnpm-lock.yaml
+
+# ── OS / IDE ───────────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+coverage/
+bk/
+.deepagents/
+
+# Ostwin MCP secrets
+.agents/mcp/.env.mcp

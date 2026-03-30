@@ -64,20 +64,6 @@ async def read_users_me(request: Request):
     return user
 
 
-@router.get("/local-key")
-async def get_local_key(request: Request):
-    """Serve the API key to local frontend clients.
-
-    This endpoint is intentionally unauthenticated so the frontend
-    can bootstrap itself. In a cloud deployment, this endpoint should
-    be disabled or restricted to localhost only.
-    """
-    if not _API_KEY:
-        return {"key": None, "auth_enabled": True}
-
-    return {"key": _API_KEY, "auth_enabled": True}
-
-
 @router.post("/logout")
 async def logout():
     """Clear the auth cookie."""

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Epic } from '@/types';
 import EpicCard from './EpicCard';
 import { stateColors } from './EpicCard';
@@ -14,13 +14,48 @@ interface KanbanColumnProps {
   isInvalid?: boolean;
   criticalPathSet?: Set<string>;
   warRoomStatusMap?: Map<string, string>;
+  collapsed?: boolean;
 }
 
-export default function KanbanColumn({ state, label, epics, isOver, isInvalid, criticalPathSet, warRoomStatusMap }: KanbanColumnProps) {
+export default function KanbanColumn({ state, label, epics, isOver, isInvalid, criticalPathSet, warRoomStatusMap, collapsed }: KanbanColumnProps) {
   const color = stateColors[state] || stateColors.pending;
   const { setNodeRef } = useDroppable({
     id: state,
   });
+  const [hovered, setHovered] = useState(false);
+
+  // Collapsed rendering: slim vertical pill for empty lifecycle columns
+  if (collapsed && !isOver) {
+    return (
+      <div
+        ref={setNodeRef}
+        className="flex flex-col items-center shrink-0 h-full transition-all duration-300 group/col cursor-default"
+        style={{ width: hovered ? '120px' : '48px' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <div 
+          className="flex flex-col items-center gap-2 py-3 px-1 rounded-xl border border-border/50 bg-surface/50 h-full w-full transition-all duration-300 hover:border-border hover:bg-surface"
+        >
+          <span 
+            className="w-2.5 h-2.5 rounded-full shrink-0" 
+            style={{ background: color }} 
+          />
+          <span 
+            className="text-[9px] font-bold text-text-faint uppercase tracking-tight transition-all duration-300"
+            style={{ 
+              writingMode: hovered ? 'horizontal-tb' : 'vertical-rl',
+              textOrientation: 'mixed',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+          </span>
+          <span className="text-[9px] font-bold text-text-faint/50 mt-auto">0</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 

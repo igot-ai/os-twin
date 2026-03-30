@@ -2,8 +2,12 @@ import type { NextConfig } from "next";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:9000';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 const nextConfig: NextConfig = {
-  output: 'export',
+  // Only use static export for production builds (next build).
+  // In dev mode, dynamic routes work natively without generateStaticParams.
+  ...(isDev ? {} : { output: 'export' }),
   images: {
     unoptimized: true,
   },

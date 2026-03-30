@@ -1,664 +1,0 @@
-/Users/paulaan/PycharmProjects/agent-os/dashboard/api.py:119: DeprecationWarning: 
-        on_event is deprecated, use lifespan event handlers instead.
-
-        Read more about it in the
-        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
-        
-  @app.on_event("startup")
-INFO:     Started server process [19394]
-INFO:     Waiting for application startup.
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 index_mapping.cc:543] Index segments meta checksum is invalid.
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 index.cc:278] Failed to open storage, path: /Users/paulaan/PycharmProjects/agent-os/dashboard/.war-rooms/.zvec/messages/4/embedding.index.4.proxima, err: Invalid checksum
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:3948] Failed to open vector indexer for field: FieldSchema{name:'embedding',data_type:VECTOR_FP32,nullable:false,dimension:384,index_params:FlatIndexParams{metric:COSINE,quantize:UNDEFINED}}, err: Failed to open index
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:10 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 index_mapping.cc:543] Index segments meta checksum is invalid.
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 index.cc:278] Failed to open storage, path: /Users/paulaan/PycharmProjects/agent-os/dashboard/.war-rooms/.zvec/metadata/0/_placeholder.index.12.proxima, err: Invalid checksum
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:3948] Failed to open vector indexer for field: FieldSchema{name:'_placeholder',data_type:VECTOR_FP32,nullable:false,dimension:1,index_params:FlatIndexParams{metric:L2,quantize:UNDEFINED}}, err: Failed to open index
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-[ERROR 2026-03-23 20:59:11 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-INFO:zvec_store:zvec collections ready at /Users/paulaan/PycharmProjects/agent-os/dashboard/.war-rooms/.zvec
-INFO:numexpr.utils:Note: NumExpr detected 12 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
-INFO:numexpr.utils:NumExpr defaulting to 8 threads.
-/opt/anaconda3/lib/python3.11/site-packages/torchvision/io/image.py:13: UserWarning: Failed to load image Python extension: 'Could not load this library: /opt/anaconda3/lib/python3.11/site-packages/torchvision/image.so'If you don't plan on using image functionality from `torchvision.io`, you can ignore this warning. Otherwise, there might be something wrong with your environment. Did you have `libjpeg` or `libpng` installed before building `torchvision` from source?
-  warn(
-INFO:sentence_transformers.SentenceTransformer:Use pytorch device_name: mps
-INFO:sentence_transformers.SentenceTransformer:Load pretrained SentenceTransformer: all-MiniLM-L6-v2
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-WARNING:huggingface_hub.utils._http:Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
-⬡ OS Twin Command Center (Modular)
-  Project:   /Users/paulaan/PycharmProjects/agent-os
-  War-rooms: /Users/paulaan/PycharmProjects/agent-os/dashboard/.war-rooms
-  URL:       http://localhost:9000
-Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 5209.44it/s]
-[1mBertModel LOAD REPORT[0m from: sentence-transformers/all-MiniLM-L6-v2
-Key                     | Status     |  | 
-------------------------+------------+--+-
-embeddings.position_ids | UNEXPECTED |  | 
-
-[3mNotes:
-- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical arch.[0m
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
-INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
-INFO:httpx:HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
-INFO:zvec_store:Embedding model loaded (dim=384)
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.22it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.22it/s]
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 12.73it/s]
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 13.56it/s]
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 87.74it/s]
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 92.58it/s]
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 12.45it/s]
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 103.93it/s]
-[ERROR 2026-03-23 20:59:26 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 15.94it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 103.21it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 118.21it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 133.06it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 105.80it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 116.89it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 114.83it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 113.96it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 115.90it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 122.63it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 19.12it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 144.83it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 125.17it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 20.43it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 120.56it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 115.22it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 121.08it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 133.94it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 112.48it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 120.57it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 121.61it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 129.73it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 127.98it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 148.68it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 24.55it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 183.78it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 146.82it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 138.99it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 146.43it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 152.34it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 23.32it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 152.14it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 117.01it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 131.03it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 138.79it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 153.71it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 130.57it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 154.39it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 152.35it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 154.39it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 130.40it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 138.64it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 140.47it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 157.87it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 23.51it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 160.85it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 141.64it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 139.31it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 151.06it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 115.11it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 138.93it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 160.10it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 160.10it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 148.72it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 120.18it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 129.32it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 130.66it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 127.83it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 121.96it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 165.54it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 119.21it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 22.66it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 172.74it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 146.52it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 147.25it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 23.09it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 137.51it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 118.34it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 120.16it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 107.63it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 128.45it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 116.93it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 125.30it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 214.18it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 186.81it/s]
-[ERROR 2026-03-23 20:59:27 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 192.34it/s]
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 208.46it/s]
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 24.29it/s]
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 133.80it/s]
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 118.15it/s]
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 133.44it/s]
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 138.97it/s]
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field embedding
-[ERROR 2026-03-23 20:59:28 0x1eda558c0 segment.cc:711] vector indexer not found for field _placeholder
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 153.07it/s]
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 121.08it/s]
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 117.88it/s]
-INFO:zvec_store:zvec sync complete: 0 messages, 3 plans indexed
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:9000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  7.34it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  7.31it/s]
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58173 - "WebSocket /api/ws" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58175 - "WebSocket /api/ws" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.56it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.56it/s]
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58178 - "GET /api/auth/local-key HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58181 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58185 - "GET /api/run_tests_direct HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58189 - "GET /api/run_tests_direct HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.01it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.99it/s]
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 29.87it/s]
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58203 - "POST /api/roles HTTP/1.1" 201 Created
-INFO:     127.0.0.1:58205 - "GET /api/roles HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58207 - "PUT /api/roles/7bf243a0-8fde-41fc-a211-0483cf86dc1a HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58209 - "GET /api/roles/7bf243a0-8fde-41fc-a211-0483cf86dc1a/dependencies HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58211 - "DELETE /api/roles/7bf243a0-8fde-41fc-a211-0483cf86dc1a HTTP/1.1" 204 No Content
-INFO:     127.0.0.1:58213 - "GET /api/roles HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58215 - "GET /api/models/registry HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58217 - "POST /api/models/claude-3-5-sonnet-20241022/test HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.52it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.52it/s]
-INFO:     127.0.0.1:58230 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  4.64it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  4.63it/s]
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58234 - "POST /api/roles HTTP/1.1" 201 Created
-INFO:     127.0.0.1:58236 - "GET /api/roles HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58238 - "PUT /api/roles/69ad5986-9ac3-4137-bf46-f7d5ef2b6100 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58240 - "GET /api/roles/69ad5986-9ac3-4137-bf46-f7d5ef2b6100/dependencies HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58242 - "DELETE /api/roles/69ad5986-9ac3-4137-bf46-f7d5ef2b6100 HTTP/1.1" 204 No Content
-INFO:     127.0.0.1:58244 - "GET /api/roles HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58246 - "GET /api/models/registry HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58248 - "POST /api/models/claude-3-5-sonnet-20241022/test HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "POST /api/auth/token HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "POST /api/auth/token HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58165 - "POST /api/auth/token HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58165 - "POST /api/auth/token HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58165 - "GET / HTTP/1.1" 200 OK
-INFO:     connection closed
-INFO:     127.0.0.1:58165 - "GET /api/auth/me HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58254 - "GET /api/notifications?limit=50 HTTP/1.1" 422 Unprocessable Entity
-INFO:     127.0.0.1:58255 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58257 - "WebSocket /api/ws" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:58255 - "GET /api/plans HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58254 - "GET /api/config HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58254 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58254 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58255 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58254 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/plans/19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/plans/19a50e7d9f1b/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58254 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58254 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58255 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58165 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/notifications?plan_id=107240b7fe28&room_id=room-000&limit=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET / HTTP/1.1" 200 OK
-INFO:     connection closed
-INFO:     127.0.0.1:58261 - "GET /api/auth/me HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58266 - "GET /api/notifications?limit=50 HTTP/1.1" 422 Unprocessable Entity
-INFO:     127.0.0.1:58268 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58270 - "WebSocket /api/ws" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:58268 - "GET /api/plans HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58266 - "GET /api/config HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58266 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58266 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58266 - "GET /api/plans/19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58266 - "GET /api/plans/19a50e7d9f1b/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58266 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58261 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58291 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58295 - "WebSocket /api/ws" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58328 - "WebSocket /api/ws" [accepted]
-INFO:     connection open
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.11it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.10it/s]
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  5.24it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  5.23it/s]
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.23it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.23it/s]
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.10it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.10it/s]
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58357 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58378 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58378 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58378 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/plans/19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/plans/19a50e7d9f1b/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/19a50e7d9f1b/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/plans/19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/plans/19a50e7d9f1b/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/notifications?limit=50&plan_id=19a50e7d9f1b HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/107240b7fe28/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58420 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58418 - "GET /api/release HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58268 - "GET /api/plans/107240b7fe28/rooms/room-000/channel HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/notifications?limit=50&plan_id=107240b7fe28 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  1.83it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  1.82it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.34it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.34it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/notifications?plan_id=107240b7fe28&room_id=room-003&limit=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58465 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58465 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58467 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/notifications?plan_id=107240b7fe28&room_id=room-007&limit=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.29it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.29it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.21it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.20it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.58it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.58it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.49it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.46it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  8.52it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  8.50it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58479 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58479 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58481 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.19it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.18it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 20.61it/s]
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  4.30it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  4.29it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.26it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.26it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.36it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.36it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58495 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58495 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58497 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58499 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58502 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58504 - "GET /api/stats HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  6.01it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  5.99it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58509 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58509 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58511 - "GET /api/status HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58517 - "POST /api/shell HTTP/1.1" 422 Unprocessable Entity
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58519 - "POST /api/shell?command=ls+-l+%2FUsers%2Fpaulaan%2FPycharmProjects%2Fagent-os%2Fdashboard%2Fnextjs%2Fsrc%2Fcomponents%2Fshared%2F__tests__%2F HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58521 - "POST /api/shell?command=date HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58526 - "POST /api/shell?command=cd+%2FUsers%2Fpaulaan%2FPycharmProjects%2Fagent-os%2Fdashboard%2Fnextjs+%26%26+npm+test HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58531 - "GET /api/rooms HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58533 - "POST /api/shell?command=ls+-l+%2FUsers%2Fpaulaan%2FPycharmProjects%2Fagent-os%2Fdashboard%2Fverify_stats.py+%2FUsers%2Fpaulaan%2FPycharmProjects%2Fagent-os%2Fdashboard%2Fqa_verify_api.py HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58536 - "POST /api/shell?command=python3+%2FUsers%2Fpaulaan%2FPycharmProjects%2Fagent-os%2Fdashboard%2Fverify_stats.py HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.38it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  2.37it/s]
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58542 - "POST /api/shell?command=python3+%2FUsers%2Fpaulaan%2FPycharmProjects%2Fagent-os%2Fdashboard%2Fverify_stats.py HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58416 - "GET /api/status HTTP/1.1" 200 OK
-INFO:     Shutting down
-ERROR:dashboard.tasks:poll_war_rooms error: [Errno 2] No such file or directory: '/Users/paulaan/PycharmProjects/agent-os/dashboard/.war-rooms/room-000/run_pytest_now'
-INFO:     Finished server process [19394]
-INFO:     connection closed
-INFO:     connection closed
-INFO:     connection closed
-INFO:     connection closed
-ERROR:    Traceback (most recent call last):
-  File "/opt/anaconda3/lib/python3.11/site-packages/starlette/routing.py", line 701, in lifespan
-    await receive()
-  File "/opt/anaconda3/lib/python3.11/site-packages/uvicorn/lifespan/on.py", line 137, in receive
-    return await self.receive_queue.get()
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/anaconda3/lib/python3.11/asyncio/queues.py", line 158, in get
-    await getter
-asyncio.exceptions.CancelledError
-

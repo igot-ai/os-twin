@@ -1,0 +1,69 @@
+name: Agent OS — Pester Tests
+
+on:
+  push:
+    branches: [main, hotfix/*, feature/*]
+    paths:
+      - '.agents/**'
+      - '.github/workflows/pester-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.agents/**'
+      - '.github/workflows/pester-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  pester-tests:
+    name: Run Pester Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PowerShell
+        shell: bash
+        run: |
+          # pwsh is pre-installed on ubuntu-latest runners
+          pwsh --version
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.7.0 -Force -Scope CurrentUser
+
+      - name: Run all Pester tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = '.agents/tests/'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'JUnitXml'
+          $config.TestResult.OutputPath = 'test-results/pester-results.xml'
+
+          # Ensure output directory exists
+          New-Item -ItemType Directory -Path 'test-results' -Force | Out-Null
+
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-test-results
+          path: test-results/pester-results.xml
+          retention-days: 30
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Pester Test Report
+          path: test-results/pester-results.xml
+          reporter: java-junit
+          fail-on-error: true
