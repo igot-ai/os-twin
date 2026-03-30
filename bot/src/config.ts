@@ -1,13 +1,20 @@
 /**
  * config.ts — Shared configuration for both bots.
  *
- * Loads .env from the project root (one level above bot/).
+ * Loads env vars from two sources (later values don't overwrite earlier ones):
+ *   1. ~/.ostwin/.env   — global install (API keys, OSTWIN_API_KEY)
+ *   2. <project>/.env   — project-level overrides (bot tokens, model, etc.)
+ *
  * Exported as a mutable object so tests can override values.
  */
 
 import dotenv from 'dotenv';
 import path from 'path';
+import os from 'os';
 
+// Load global ~/.ostwin/.env first (API keys, OSTWIN_API_KEY)
+dotenv.config({ path: path.join(os.homedir(), '.ostwin', '.env') });
+// Load project root .env second (dotenv won't overwrite existing vars)
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 export interface AppConfig {
