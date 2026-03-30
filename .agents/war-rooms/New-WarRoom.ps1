@@ -356,20 +356,7 @@ if (-not (Test-Path $lifecyclePath)) {
     }
 }
 
-# --- Parse ASCII lifecycle text into lifecycle.json (if provided and not already generated) ---
-if ($Lifecycle -and -not (Test-Path $lifecyclePath)) {
-    $parserScript = Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")).Path "lifecycle" "ConvertFrom-AsciiLifecycle.ps1"
-    if (Test-Path $parserScript) {
-        . $parserScript
-        $parsedLifecycle = ConvertFrom-AsciiLifecycle -Text $Lifecycle
-        if ($parsedLifecycle) {
-            $parsedLifecycle | ConvertTo-Json -Depth 10 | Out-File -FilePath $lifecyclePath -Encoding utf8 -Force
-            Write-Output "  Lifecycle: parsed from ASCII diagram"
-        }
-    }
-}
-
-# --- Store extracted lifecycle block ---
+# --- Store lifecycle notation (documentation only, not consumed at runtime) ---
 if ($Lifecycle) {
     $Lifecycle | Out-File -FilePath (Join-Path $roomDir "lifecycle.md") -Encoding utf8
 }

@@ -199,11 +199,10 @@ New-Item -ItemType Directory -Path $pidsDir -Force | Out-Null
 # --- Skill Isolation (EPIC-002) ---
 $isolatedSkillsDir = Join-Path $absRoomDir "skills"
 
-# Clear isolated skills for each invocation to ensure no stale skills remain
-if (Test-Path $isolatedSkillsDir) {
-    Remove-Item -Path $isolatedSkillsDir -Recurse -Force -ErrorAction SilentlyContinue
+# Ensure isolated skills dir exists without wiping existing API-matched skills
+if (-not (Test-Path $isolatedSkillsDir)) {
+    New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
 }
-New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
 
 $rolePath = Join-Path $agentsDir "roles" $RoleName
 $resolveSkillsScript = Join-Path $PSScriptRoot "Resolve-RoleSkills.ps1"
@@ -225,7 +224,7 @@ if (Test-Path $resolveSkillsScript) {
                 New-Item -ItemType Directory -Path $destPath -Force | Out-Null
                 
                 # Copy contents specifically to avoid nested directory issues
-                Copy-Item -Path (Join-Path $skillSrcDir "*") -Destination $destPath -Recurse -Force
+                Copy-Item -Path (Join-Path $skillSrcDir "*") -Destination $destPath -Recurse -Force -ErrorAction SilentlyContinue
             }
             else {
                 Write-Warning "Skill source path not found for '$($skill.Name)': $($skill.Path)"
@@ -237,8 +236,6 @@ if (Test-Path $resolveSkillsScript) {
     }
 }
 
-# Room-level skills are already in $absRoomDir/skills (populated by Resolve-RoomSkills).
-# No copy needed — $isolatedSkillsDir points there directly.
 
 $outputFile = Join-Path $artifactsDir "$RoleName-output.txt"
 $pidFile = Join-Path $pidsDir "$RoleName.pid"
