@@ -86,10 +86,12 @@ $gateList
 "@)
 }
 
-# Section 4: Skills — NOT concatenated into the prompt.
-# Skills are resolved and copied to AGENT_OS_SKILLS_DIR by Invoke-Agent.ps1.
-# The agent CLI discovers them via that path at runtime.
-# This keeps the system prompt focused on the role definition only.
+# Section 4: Skills — resolved at runtime by Invoke-Agent.ps1
+# Skills are NOT compiled into the prompt. Instead, Invoke-Agent.ps1 calls
+# Resolve-RoleSkills.ps1, copies skill directories into $RoomDir/skills/,
+# and sets AGENT_OS_SKILLS_DIR for the agent CLI to discover them at runtime.
+# This keeps the system prompt lean and avoids duplicating skill content.
+$agentsDir = Split-Path (Split-Path $PSScriptRoot)
 
 # Section 5: War-room context
 if ($RoomDir -and (Test-Path $RoomDir)) {

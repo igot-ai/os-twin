@@ -319,4 +319,121 @@ Short desc.
         # In DryRun mode — server must NOT have been hit
         (Test-Path $hitFile) | Should -BeFalse -Because "DryRun must not call the save API"
     }
+
+    It "runs holistic dependency analysis on multi-EPIC plan and updates depends_on" {
+        # Plan with TWO underspecified EPICs
+        $content = @"
+# Plan: Multi-EPIC Dep Test
+
+## EPIC-001 - Database Schema
+
+Short desc.
+
+#### Definition of Done
+- [ ] Schema created
+
+## EPIC-002 - API Layer
+
+Short desc.
+
+#### Definition of Done
+- [ ] API endpoints
+"@
+        $content | Out-File -FilePath $script:planFile -Encoding utf8
+
+        # Mock agent that returns per-EPIC expansion AND dependency analysis JSON
+        $depMockAgent = Join-Path $script:tempDir "dep-mock-agent.sh"
+        @'
+#!/bin/bash
+PROMPT="$*"
+
+# Dependency analysis prompt (contains "Dependency Analyst")
+if [[ "$PROMPT" == *"Dependency Analyst"* ]]; then
+  echo '{"edges": [{"from": "EPIC-001", "to": "EPIC-002", "reason": "API needs DB schema"}], "parallel_groups": [["EPIC-001"], ["EPIC-002"]]}'
+  exit 0
+fi
+
+# Per-EPIC expansion: check EPIC-002 FIRST (EPIC-001 glob would match both)
+if [[ "$PROMPT" == *"## EPIC-002"* ]]; then
+  echo "## EPIC-002 - API Layer
+
+This builds REST APIs on top of the database.
+
+#### Implementation Strategy
+1. Define routes
+2. Implement controllers
+
+#### Definition of Done
+- [ ] REST endpoints implemented
+- [ ] Input validation
+- [ ] Error handling
+- [ ] API documentation
+- [ ] Integration tests
+
+#### Acceptance Criteria
+- [ ] GET /resources returns 200
+- [ ] POST /resources creates record
+- [ ] Invalid input returns 422
+- [ ] Auth required returns 401
+- [ ] Rate limiting works
+
+depends_on: []"
+  exit 0
+fi
+
+if [[ "$PROMPT" == *"EPIC-001"* ]]; then
+  echo "## EPIC-001 - Database Schema
+
+This builds the database foundation.
+
+#### Implementation Strategy
+1. Design schema
+2. Create migrations
+
+#### Definition of Done
+- [ ] Schema migrations created
+- [ ] Indexes optimized
+- [ ] Seed data scripts
+- [ ] Schema docs updated
+- [ ] Migration rollback tested
+
+#### Acceptance Criteria
+- [ ] Tables created successfully
+- [ ] Foreign keys enforced
+- [ ] Rollback works cleanly
+- [ ] Seed data loads
+- [ ] Performance baseline set
+
+depends_on: []"
+  exit 0
+fi
+
+echo "UNEXPECTED PROMPT"
+exit 1
+'@ | Out-File -FilePath $depMockAgent -Encoding utf8 -NoNewline
+        chmod +x $depMockAgent
+
+        $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$depMockAgent'" 2>&1
+        $outputStr = $output -join "`n"
+
+        # Verify the dep analysis ran
+        $outputStr | Should -Match "DEP-ANALYSIS.*Analyzing dependencies"
+        $outputStr | Should -Match "EPIC-002 depends_on EPIC-001"
+
+        # Verify the plan file has updated depends_on
+        $updatedContent = Get-Content $script:planFile -Raw
+        $updatedContent | Should -Match 'depends_on:.*EPIC-001'
+
+        # Verify .planning-DAG.json was created
+        $dagFile = Join-Path $script:tempDir ".planning-DAG.json"
+        Test-Path $dagFile | Should -BeTrue
+
+        $dag = Get-Content $dagFile -Raw | ConvertFrom-Json
+        $dag.total_nodes | Should -Be 2
+        $dag.stage | Should -Be "planning"
+
+        # Verify the EPIC-002 node has EPIC-001 as dependency
+        $epic2Node = $dag.nodes | Where-Object { $_.task_ref -eq 'EPIC-002' }
+        $epic2Node.depends_on | Should -Contain 'EPIC-001'
+    }
 }

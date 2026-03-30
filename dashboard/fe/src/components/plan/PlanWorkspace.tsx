@@ -9,6 +9,7 @@ import { usePlanRefine } from '@/hooks/use-plan-refine';
 import { apiPost } from '@/lib/api-client';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
 import { Plan, Epic, EpicStatus, WarRoomProgress } from '@/types';
+import { parseEpicMarkdown, serializeEpicMarkdown, EpicDocument } from '@/lib/epic-parser';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
 import ContextPanel from './ContextPanel';
@@ -41,9 +42,15 @@ interface PlanContextType {
   isAIChatOpen: boolean;
   setIsAIChatOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   isRefining: boolean;
+  parsedPlan: EpicDocument | null;
+  updateParsedPlan: (updater: (doc: EpicDocument) => void) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
-const PlanContext = createContext<PlanContextType | undefined>(undefined);
+export const PlanContext = createContext<PlanContextType | undefined>(undefined);
 
 export function usePlanContext() {
   const context = useContext(PlanContext);
@@ -79,7 +86,92 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   // Initialize tab from URL ?tab= param, then manage via React state (SPA — no reloads)
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [planContent, setPlanContent] = useState('');
+  const [parsedPlan, setParsedPlan] = useState<EpicDocument | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Undo/Redo Stack
+  const [undoStack, setUndoStack] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
+
+  const pushToUndo = useCallback((content: string) => {
+    setUndoStack(prev => ({
+      past: [content, ...prev.past].slice(0, 50),
+      future: []
+    }));
+  }, []);
+
+  const undo = useCallback(() => {
+    if (undoStack.past.length === 0) return;
+    const nextContent = undoStack.past[0];
+    const newPast = undoStack.past.slice(1);
+    const newFuture = [planContent, ...undoStack.future].slice(0, 50);
+    
+    setUndoStack({ past: newPast, future: newFuture });
+    setPlanContent(nextContent);
+  }, [undoStack, planContent]);
+
+  const redo = useCallback(() => {
+    if (undoStack.future.length === 0) return;
+    const nextContent = undoStack.future[0];
+    const newFuture = undoStack.future.slice(1);
+    const newPast = [planContent, ...undoStack.past].slice(0, 50);
+    
+    setUndoStack({ past: newPast, future: newFuture });
+    setPlanContent(nextContent);
+  }, [undoStack, planContent]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
+
+  useEffect(() => {
+    if (planContent) {
+      try {
+        const parsed = parseEpicMarkdown(planContent);
+        setParsedPlan(parsed);
+      } catch (err) {
+        console.error('Failed to parse plan:', err);
+        setParsedPlan(null);
+      }
+    }
+  }, [planContent]);
+
+  const updateParsedPlan = useCallback((updater: (doc: EpicDocument) => void) => {
+    if (!parsedPlan) return;
+    
+    // Save current content to undo stack BEFORE updating
+    pushToUndo(planContent);
+    
+    // We create a new doc object and shallow copy epics to allow the updater to replace them.
+    const docCopy: EpicDocument = {
+      ...parsedPlan,
+      epics: parsedPlan.epics.map(e => ({
+        ...e,
+        frontmatter: new Map(e.frontmatter),
+        sections: e.sections.map(s => ({
+          ...s,
+          items: s.items ? s.items.map(i => ({ ...i })) : undefined,
+          tasks: s.tasks ? s.tasks.map(t => ({ ...t })) : undefined,
+        }))
+      }))
+    };
+    
+    updater(docCopy);
+    const newContent = serializeEpicMarkdown(docCopy);
+    setPlanContent(newContent);
+    setParsedPlan(docCopy);
+  }, [parsedPlan, planContent, pushToUndo]);
   const addToast = useNotificationStore((state) => state.addToast);
 
   const {
@@ -108,11 +200,11 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
         message: 'Your plan changes have been successfully persisted.',
         autoDismiss: true,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       addToast({
         type: 'error',
         title: 'Save Failed',
-        message: err.message || 'There was an error saving your plan. Please try again.',
+        message: err instanceof Error ? err.message : 'There was an error saving your plan. Please try again.',
         autoDismiss: false,
       });
     } finally {
@@ -201,6 +293,12 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     isAIChatOpen,
     setIsAIChatOpen,
     isRefining,
+    parsedPlan,
+    updateParsedPlan,
+    undo,
+    redo,
+    canUndo: undoStack.past.length > 0,
+    canRedo: undoStack.future.length > 0,
   };
 
   if (planLoading && !plan) {

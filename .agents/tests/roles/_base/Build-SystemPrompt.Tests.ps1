@@ -76,6 +76,7 @@ Describe "Build-SystemPrompt" {
             $prompt = & $script:BuildPrompt -RolePath $rolePath
             # Skills should NOT be in the prompt — they are loaded via AGENT_OS_SKILLS_DIR by Invoke-Agent.ps1
             $prompt | Should -Not -Match "## Skills"
+            $prompt | Should -Not -Match "## Available Skills"
             $prompt | Should -Not -Match "### Skill:"
             $prompt | Should -Not -Match "Test Skill content"
         }

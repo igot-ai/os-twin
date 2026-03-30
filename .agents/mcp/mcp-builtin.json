@@ -18,6 +18,15 @@
         "AGENT_OS_ROOT": "."
       }
     },
+    "memory": {
+      "command": "${AGENT_DIR}/.venv/bin/python",
+      "args": [
+        "${AGENT_DIR}/mcp/memory-server.py"
+      ],
+      "env": {
+        "AGENT_OS_ROOT": "${PROJECT_DIR}"
+      }
+    },
     "serena": {
       "command": "uvx",
       "args": [

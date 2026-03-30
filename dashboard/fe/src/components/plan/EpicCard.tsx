@@ -8,14 +8,22 @@ import { CSS } from '@dnd-kit/utilities';
 import { getRoleColor, getRoleInitials } from '@/lib/role-utils';
 
 export const stateColors: Record<string, string> = {
+  // V2 lifecycle states (from Resolve-Pipeline.ps1)
   pending: '#94a3b8',
+  developing: '#3b82f6',
+  'in-review': '#8b5cf6',
+  review: '#a855f7',          // final QA gate — distinct purple
+  optimize: '#f59e0b',
+  triage: '#ef4444',
+  failed: '#f97316',          // auto-retry decision node — orange
+  passed: '#10b981',
+  'failed-final': '#ef4444',
+  // Legacy aliases for backward compat
   engineering: '#3b82f6',
   'qa-review': '#8b5cf6',
   fixing: '#f59e0b',
   'manager-triage': '#ef4444',
-  passed: '#10b981',
   signoff: '#10b981',
-  'failed-final': '#ef4444',
   'wave-0': '#64748b',
   'wave-1': '#3b82f6',
   'wave-2': '#10b981',
@@ -28,10 +36,18 @@ export const stateColors: Record<string, string> = {
 };
 
 const warRoomStatusIcons: Record<string, { icon: string; color: string; label: string }> = {
+  // V2 lifecycle states
+  pending: { icon: 'schedule', color: '#94a3b8', label: 'Pending' },
+  developing: { icon: 'code', color: '#3b82f6', label: 'Developing' },
+  'in-review': { icon: 'rate_review', color: '#8b5cf6', label: 'In Review' },
+  review: { icon: 'verified', color: '#a855f7', label: 'QA Gate' },
+  optimize: { icon: 'build', color: '#f59e0b', label: 'Optimizing' },
+  triage: { icon: 'warning', color: '#ef4444', label: 'Triage' },
+  failed: { icon: 'replay', color: '#f97316', label: 'Auto-Retry' },
   passed: { icon: 'check_circle', color: '#10b981', label: 'Passed' },
   'failed-final': { icon: 'cancel', color: '#ef4444', label: 'Failed' },
+  // Progress-based statuses
   active: { icon: 'play_circle', color: '#3b82f6', label: 'Active' },
-  pending: { icon: 'schedule', color: '#94a3b8', label: 'Pending' },
   blocked: { icon: 'block', color: '#f59e0b', label: 'Blocked' },
 };
 

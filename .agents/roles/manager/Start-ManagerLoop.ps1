@@ -262,9 +262,13 @@ function Find-LatestSignal {
                 $latest = $msgs[-1]
                 $msgTs = 0
                 if ($latest.ts) {
-                    if ($latest.ts -match '^\d+$') { $msgTs = [int]$latest.ts }
-                    elseif ($latest.ts -match '^\d{4}-') {
-                        try { $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s)) } catch { }
+                    if ($latest.ts -is [datetime]) {
+                        # ConvertFrom-Json auto-converts ISO timestamps to DateTime
+                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                    } elseif ("$($latest.ts)" -match '^\d+$') {
+                        $msgTs = [int]"$($latest.ts)"
+                    } else {
+                        try { $msgTs = [int][double]::Parse((Get-Date "$($latest.ts)" -UFormat %s)) } catch { }
                     }
                 }
                 if ($msgTs -ge $changedAt) { return $sigType }
@@ -761,7 +765,12 @@ while (-not $script:shuttingDown) {
                 switch ($v2StateDef.type) {
                     'terminal' {
                         if ($status -eq 'passed') {
-                            Handle-PlanApproval -TaskRef $taskRef
+                            # Guard: only fire Handle-PlanApproval once per plan
+                            $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')" 
+                            if ($taskRef -eq 'PLAN-REVIEW' -and -not (Test-Path $planApprovedFlag)) {
+                                Handle-PlanApproval -TaskRef $taskRef
+                                "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline
+                            }
                         } elseif ($status -eq 'failed-final') {
                             if ($retries -lt $v2MaxRetries) {
                                 $failFeedback = Get-LatestBody $roomDir "fail"
@@ -816,8 +825,18 @@ while (-not $script:shuttingDown) {
                             if ($retries -lt $v2MaxRetries) {
                                 ($retries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
                                 & $postMessage -RoomDir $roomDir -From "manager" -To $baseRole -Type "fix" -Ref $taskRef -Body "State '$status' timed out. Please try again."
-                                Write-RoomStatus $roomDir ($lifecycle.initial_state)
-                                Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                                $restartState = if ($lifecycle.initial_state) { $lifecycle.initial_state } else { 'developing' }
+                                Write-RoomStatus $roomDir $restartState
+                                # LEAK-6 fix: re-resolve role from the restart state, not the timed-out state
+                                $restartStateDef = $lifecycle.states.$restartState
+                                $restartRole = if ($restartStateDef -and $restartStateDef.role) { $restartStateDef.role } else { $baseRole }
+                                $restartBaseRole = $restartRole -replace ':.*$', ''
+                                if (Test-Path $resolveRoleScript) {
+                                    $restartResolved = & $resolveRoleScript -RoleName $restartRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                    Start-WorkerJob -RoomDir $roomDir -Role $restartBaseRole -Script $restartResolved.Runner -TaskRef $taskRef -SkipLockCheck
+                                } else {
+                                    Start-WorkerJob -RoomDir $roomDir -Role $restartBaseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                                }
                             } else {
                                 Write-RoomStatus $roomDir 'failed-final'
                                 Set-BlockedDescendants $taskRef
@@ -835,9 +854,14 @@ while (-not $script:shuttingDown) {
                                 if ($doneBody -match 'plan-approve|signoff|APPROVED') { $doneApproval = $true }
                             }
                             if ($approveCount -gt 0 -or $doneApproval) {
+                                # LEAK-5 fix: use one-shot guard (same as terminal handler)
+                                $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')" 
                                 Write-Log "INFO" "[$taskRef] Plan APPROVED. Transitioning to passed."
                                 Write-RoomStatus $roomDir 'passed'
-                                Handle-PlanApproval -TaskRef $taskRef
+                                if (-not (Test-Path $planApprovedFlag)) {
+                                    Handle-PlanApproval -TaskRef $taskRef
+                                    "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline
+                                }
                                 continue
                             }
                         }
@@ -872,16 +896,24 @@ while (-not $script:shuttingDown) {
                         else {
                             # No signal — ensure worker/reviewer is alive
                             $stateRole = $v2StateDef.role
-                            if ($stateRole -and $v2StateDef.type -ne 'triage') {
+                            if ($stateRole -and $v2StateDef.type -notin @('triage', 'decision')) {
                                 $stateBaseRole = $stateRole -replace ':.*$', ''
                                 $statePidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
                                 if (-not (Test-PidAlive $statePidFile) -and -not (Test-SpawnLock -RoomDir $roomDir -Role $stateBaseRole)) {
-                                    if (Test-Path $resolveRoleScript) {
-                                        $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                        Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
-                                        Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                    # Guard: check if a signal is pending but hasn't been processed yet.
+                                    # This happens when the worker posted done/error and cleaned up its PID
+                                    # before the manager could process the signal transition.
+                                    $pendingSignalCheck = Find-LatestSignal $roomDir $expectedSignals
+                                    if ($pendingSignalCheck) {
+                                        Write-Log "DEBUG" "[$taskRef] Signal '$pendingSignalCheck' pending in '$status' — skipping re-spawn."
                                     } else {
-                                        Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
+                                        if (Test-Path $resolveRoleScript) {
+                                            $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                            Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
+                                            Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                        } else {
+                                            Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
+                                        }
                                     }
                                 }
                             }
@@ -941,6 +973,21 @@ while (-not $script:shuttingDown) {
                 if ($dlStateDef -and $dlStateDef.type -in @('work', 'review', 'triage')) {
                     $dlMaxRetries = if ($dlLifecycle.max_retries) { $dlLifecycle.max_retries } else { $maxRetries }
                     $restartState = if ($dlLifecycle.initial_state) { $dlLifecycle.initial_state } else { 'developing' }
+
+                    # LEAK-7 fix: check for pending signals before deadlock reset
+                    $dlExpectedSignals = @()
+                    if ($dlStateDef.signals) {
+                        $dlExpectedSignals = @($dlStateDef.signals.PSObject.Properties.Name)
+                    }
+                    $dlPendingSignal = $null
+                    if ($dlExpectedSignals.Count -gt 0) {
+                        $dlPendingSignal = Find-LatestSignal $rd $dlExpectedSignals
+                    }
+                    if ($dlPendingSignal) {
+                        Write-Log "INFO" "[$lt] Deadlock recovery: signal '$dlPendingSignal' pending — skipping reset."
+                        return  # Let normal signal detection handle it next iteration
+                    }
+
                     if ($lr -lt $dlMaxRetries) {
                         Write-Log "WARN" "[$lt] Deadlock recovery: restarting $dlRole via transition to $restartState."
                         ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline

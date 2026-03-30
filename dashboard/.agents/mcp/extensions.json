@@ -1,0 +1,20 @@
+{
+  "extensions": [
+    {
+      "name": "chrome-devtools",
+      "repo": "https://github.com/ChromeDevTools/chrome-devtools-mcp.git",
+      "branch": "main",
+      "build_type": "npx",
+      "installed_at": "2026-03-29T05:54:15Z",
+      "path": "/Users/paulaan/PycharmProjects/agent-os/dashboard/.agents/mcp/extensions/chrome-devtools",
+      "config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "chrome-devtools-mcp@latest"
+        ],
+        "env": {}
+      }
+    }
+  ]
+}

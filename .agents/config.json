@@ -7,14 +7,14 @@
     "max_concurrent_rooms": 50,
     "max_engineer_retries": 10,
     "auto_approve_tools": true,
-    "state_timeout_seconds": 900,
+    "state_timeout_seconds": 2400,
     "auto_expand_plan": false,
     "preflight_skill_check": "warn",
     "smart_assignment": false,
     "dynamic_pipelines": true,
     "capability_matching": true,
     "external_roles_dirs": [],
-    "timeout_seconds": 900,
+    "timeout_seconds": 2400,
     "skill_refs": [
       "risk-decision",
       "war-room-communication"
@@ -41,7 +41,7 @@
       "fe": {
         "display_name": "Frontend Engineer",
         "default_model": "gemini-3.1-pro-preview",
-        "timeout_seconds": 900,
+        "timeout_seconds": 2400,
         "working_dir": "dashboard",
         "skills": [
           "javascript",
@@ -78,6 +78,13 @@
     "approval_mode": "auto-approve",
     "timeout_seconds": 600,
     "no_mcp": true
+  },
+  "memory": {
+    "enabled": true,
+    "max_summary_bytes": 4096,
+    "max_detail_bytes": 16384,
+    "max_context_entries": 15,
+    "auto_publish_on_done": true
   },
   "channel": {
     "format": "jsonl",

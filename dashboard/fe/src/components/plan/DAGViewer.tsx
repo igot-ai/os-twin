@@ -6,8 +6,17 @@ import { usePlanContext } from './PlanWorkspace';
 import { DAG, DAGNodeRaw } from '@/types';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { roleColorMap, getRoleColor, getRoleInitial } from '@/lib/role-utils';
+import { deriveDAGFromDocument, wouldCreateCycle } from '@/lib/dag-layout';
+import { useNotificationStore } from '@/lib/stores/notificationStore';
+import { EpicDetailDrawer } from './EpicDetailDrawer';
 import StateNode from './StateNode';
 import DAGEdge from './DAGEdge';
+
+// ─── Drag state type ──────────────────────────────────────────────────────────
+
+type DragState =
+  | { type: 'idle' }
+  | { type: 'dragging'; sourceRef: string; cursorX: number; cursorY: number; targetRef?: string; isValid?: boolean };
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 
@@ -104,14 +113,37 @@ function layoutDAG(dag: DAG, statusMap: Map<string, string>) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function DAGViewer() {
-  const { planId } = usePlanContext();
-  const { data: dag, error, isLoading } = useSWR<DAG>(planId ? `/plans/${planId}/dag` : null);
+export interface DAGViewerProps {
+  mode?: 'live' | 'authoring';
+}
+
+export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
+  const { 
+    planId, parsedPlan, updateParsedPlan, 
+    setSelectedEpicRef, setIsContextPanelOpen, setActiveTab,
+    undo, redo, canUndo, canRedo, savePlan
+  } = usePlanContext();
+  const addToast = useNotificationStore(state => state.addToast);
+  const { data: serverDag, error, isLoading: isServerLoading } = useSWR<DAG>(planId ? `/plans/${planId}/dag` : null);
   const { progress } = useWarRoomProgress(planId);
+
+  const derivedDAG = useMemo(() => {
+    if (!parsedPlan) return null;
+    return deriveDAGFromDocument(parsedPlan);
+  }, [parsedPlan]);
+
+  const mode = modeProp || (progress?.rooms?.length ? 'live' : 'authoring');
+  const dag = mode === 'live' ? serverDag : derivedDAG;
+  const isLoading = mode === 'live' ? isServerLoading : !dag;
 
   const [scale, setScale] = useState(1);
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [showCriticalOnly, setShowCriticalOnly] = useState(false);
+  const [dragState, setDragState] = useState<DragState>({ type: 'idle' });
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [editingEpicRef, setEditingEpicRef] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, ref: string } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Build status lookup from progress.json
@@ -130,6 +162,167 @@ export default function DAGViewer() {
     return layoutDAG(dag, statusMap);
   }, [dag, statusMap]);
 
+  const { nodePositions } = layout || {};
+
+  const editingEpic = useMemo(() => {
+    if (!editingEpicRef || !parsedPlan) return null;
+    return parsedPlan.epics.find(e => e.ref === editingEpicRef) || null;
+  }, [editingEpicRef, parsedPlan]);
+
+  const handleNodeClick = (ref: string) => {
+    if (mode === 'authoring') {
+      setEditingEpicRef(ref);
+      setIsDrawerOpen(true);
+    } else {
+      setSelectedEpicRef(ref);
+      setIsContextPanelOpen(true);
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, ref: string) => {
+    if (mode === 'authoring') {
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY, ref });
+    }
+  };
+
+  const handleDuplicateEpic = (ref: string) => {
+    updateParsedPlan((doc) => {
+      const source = doc.epics.find(e => e.ref === ref);
+      if (source) {
+        // Find next ref
+        const refs = doc.epics.map(e => {
+            const match = e.ref.match(/EPIC-(\d+)/);
+            return match ? parseInt(match[1]) : 0;
+        });
+        const nextNum = Math.max(0, ...refs) + 1;
+        const nextRef = `EPIC-${nextNum.toString().padStart(3, '0')}`;
+        
+        // Proper deep copy of EpicNode, handling Map
+        const newEpic = {
+          ...JSON.parse(JSON.stringify(source)),
+          frontmatter: new Map(source.frontmatter)
+        };
+        newEpic.ref = nextRef;
+        newEpic.depends_on = [];
+        const prefix = newEpic.headingLevel === 3 ? '###' : '##';
+        newEpic.title = `${source.title} (Copy)`;
+        newEpic.rawHeading = `${prefix} ${nextRef} — ${newEpic.title}`;
+        
+        doc.epics.push(newEpic);
+        addToast({
+          type: 'success',
+          title: 'EPIC Duplicated',
+          message: `Created ${nextRef}`
+        });
+      }
+      return doc;
+    });
+    setContextMenu(null);
+  };
+
+  const handleDeleteEpic = (ref: string) => {
+    if (window.confirm(`Are you sure you want to delete ${ref}?`)) {
+      updateParsedPlan((doc) => {
+        const newDoc = { ...doc };
+        newDoc.epics = newDoc.epics.filter(e => e.ref !== ref);
+        newDoc.epics.forEach(e => e.depends_on = e.depends_on.filter(d => d !== ref));
+        return newDoc;
+      });
+      addToast({
+        type: 'success',
+        title: 'EPIC Deleted',
+        message: `${ref} has been removed`
+      });
+    }
+    setContextMenu(null);
+  };
+
+  const getCanvasCoords = (clientX: number, clientY: number) => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    // transform: scale(S) translate(TX, TY)
+    // x_screen = S * (x_canvas + TX) + rect.left
+    // x_canvas = (x_screen - rect.left) / S - TX
+    const x = (clientX - rect.left) / scale - translate.x;
+    const y = (clientY - rect.top) / scale - translate.y;
+    return { x, y };
+  };
+
+  const handleStartDrag = (nodeId: string, clientX: number, clientY: number) => {
+    setDragState({ type: 'dragging', sourceRef: nodeId, cursorX: clientX, cursorY: clientY });
+  };
+
+  const handleEnterPort = (nodeId: string, type: 'input' | 'output') => {
+    if (dragState.type === 'dragging' && type === 'input') {
+      const isValid = nodeId !== dragState.sourceRef && !wouldCreateCycle(parsedPlan!, dragState.sourceRef, nodeId);
+      setDragState(prev => ({ ...prev, targetRef: nodeId, isValid }));
+      if (dragState.sourceRef !== nodeId && !isValid) {
+        addToast({
+          type: 'warning',
+          title: 'Invalid Connection',
+          message: 'This would create a circular dependency'
+        });
+      }
+    }
+  };
+
+  const handleLeavePort = () => {
+    if (dragState.type === 'dragging') {
+      setDragState(prev => ({ ...prev, targetRef: undefined, isValid: undefined }));
+    }
+  };
+
+  const handleConnect = (sourceRef: string, targetRef: string) => {
+    if (!parsedPlan) return;
+    
+    updateParsedPlan((doc) => {
+      const targetEpic = doc.epics.find(e => e.ref === targetRef);
+      if (targetEpic) {
+        if (!targetEpic.depends_on.includes(sourceRef)) {
+          targetEpic.depends_on = [...targetEpic.depends_on, sourceRef];
+        }
+      }
+      return doc;
+    });
+    addToast({
+      type: 'success',
+      title: 'Dependency Added',
+      message: `${sourceRef} → ${targetRef}`
+    });
+  };
+
+  const handleDeleteDependency = (from: string, to: string) => {
+    if (!parsedPlan) return;
+    updateParsedPlan((doc) => {
+      const targetEpic = doc.epics.find(e => e.ref === to);
+      if (targetEpic) {
+        targetEpic.depends_on = targetEpic.depends_on.filter(ref => ref !== from);
+      }
+      return doc;
+    });
+    addToast({
+      type: 'success',
+      title: 'Dependency Removed',
+      message: `${from} → ${to}`
+    });
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (dragState.type === 'dragging') {
+      setDragState(prev => ({ ...prev, cursorX: e.clientX, cursorY: e.clientY }));
+    }
+  };
+
+  const onMouseUp = () => {
+    if (dragState.type === 'dragging') {
+      if (dragState.targetRef && dragState.isValid) {
+        handleConnect(dragState.sourceRef, dragState.targetRef);
+      }
+      setDragState({ type: 'idle' });
+    }
+  };
+
   const handleZoom = (delta: number) => {
     setScale(prev => Math.min(Math.max(prev + delta, 0.3), 2.5));
   };
@@ -137,6 +330,93 @@ export default function DAGViewer() {
   const handleFitToView = () => {
     setScale(1);
     setTranslate({ x: 0, y: 0 });
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await savePlan();
+    } catch (err) {
+      addToast({
+        type: 'error',
+        title: 'Save Failed',
+        message: 'Could not persist changes to disk'
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddEpic = () => {
+    updateParsedPlan((doc) => {
+      const refs = doc.epics.map(e => {
+        const match = e.ref.match(/EPIC-(\d+)/);
+        return match ? parseInt(match[1]) : 0;
+      });
+      const nextNum = Math.max(0, ...refs) + 1;
+      const nextRef = `EPIC-${nextNum.toString().padStart(3, '0')}`;
+      
+      const newEpic = {
+        ref: nextRef,
+        title: 'New EPIC',
+        headingLevel: 2,
+        rawHeading: `## ${nextRef} — New EPIC`,
+        frontmatter: new Map([['Owner', 'engineer'], ['Priority', 'P1']]),
+        sections: [
+          {
+            heading: 'Description',
+            headingLevel: 3,
+            type: 'text' as const,
+            content: 'Describe the high-level goal of this EPIC.',
+            rawLines: ['Describe the high-level goal of this EPIC.'],
+            preamble: [],
+            postamble: []
+          },
+          {
+            heading: 'Definition of Done',
+            headingLevel: 3,
+            type: 'checklist' as const,
+            content: '',
+            items: [{ text: 'Placeholder item', checked: false, rawLine: '- [ ] Placeholder item', prefix: '- [ ] ' }],
+            rawLines: ['- [ ] Placeholder item'],
+            preamble: [],
+            postamble: []
+          },
+          {
+            heading: 'Tasks',
+            headingLevel: 3,
+            type: 'tasklist' as const,
+            content: '',
+            tasks: [{ 
+              id: `${nextRef}.1`, 
+              title: 'Initial task', 
+              completed: false, 
+              body: '', 
+              bodyLines: [], 
+              rawHeader: `- [ ] **${nextRef}.1** — Initial task`,
+              prefix: '- [ ] ',
+              idPrefix: '**',
+              idSuffix: '**',
+              delimiter: ' — '
+            }],
+            rawLines: [`- [ ] **${nextRef}.1** — Initial task`],
+            preamble: [],
+            postamble: []
+          }
+        ],
+        depends_on: [],
+        rawDependsOn: 'depends_on: []'
+      };
+      
+      doc.epics.push(newEpic);
+      setEditingEpicRef(nextRef);
+      setIsDrawerOpen(true);
+      addToast({
+        type: 'success',
+        title: 'EPIC Created',
+        message: `New node ${nextRef} added`
+      });
+    });
   };
 
   // ── Loading / Error states ──
@@ -148,10 +428,10 @@ export default function DAGViewer() {
     );
   }
 
-  if (error || !dag || !layout) {
+  if ((error && mode === 'live') || !dag || !layout) {
     return (
       <div className="flex-1 flex items-center justify-center h-full text-text-faint italic font-medium">
-        Failed to load DAG or DAG not available for this plan.
+        {mode === 'live' ? 'Failed to load DAG or DAG not available for this plan.' : 'Parsing plan document...'}
       </div>
     );
   }
@@ -170,6 +450,44 @@ export default function DAGViewer() {
     <div className="relative w-full h-full bg-surface-alt/10 flex flex-col overflow-hidden">
       {/* ── Toolbar ── */}
       <div className="absolute top-4 left-4 z-10 flex items-center gap-2 p-1 bg-surface/80 backdrop-blur-sm border border-border rounded-lg shadow-sm">
+        <div className="flex items-center gap-1.5 px-2 py-1 mr-1 border-r border-border">
+          <span className={`w-2 h-2 rounded-full ${mode === 'live' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-text-main">
+            {mode === 'live' ? 'Live Mode' : 'Authoring'}
+          </span>
+        </div>
+
+        {mode === 'authoring' && (
+          <>
+            <button
+              onClick={handleAddEpic}
+              className="px-2 py-1.5 hover:bg-surface-hover rounded-md text-text-main transition-colors flex items-center gap-1.5"
+              title="Add EPIC"
+            >
+              <span className="material-symbols-outlined text-[18px]">add_box</span>
+              <span className="text-[10px] font-bold uppercase">Add EPIC</span>
+            </button>
+            <div className="w-[1px] h-4 bg-border mx-0.5" />
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="p-1.5 hover:bg-surface-hover rounded-md text-text-main transition-colors disabled:opacity-30"
+              title="Undo (Ctrl+Z)"
+            >
+              <span className="material-symbols-outlined text-[18px]">undo</span>
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="p-1.5 hover:bg-surface-hover rounded-md text-text-main transition-colors disabled:opacity-30"
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <span className="material-symbols-outlined text-[18px]">redo</span>
+            </button>
+            <div className="w-[1px] h-4 bg-border mx-0.5" />
+          </>
+        )}
+
         <button
           onClick={() => handleZoom(0.1)}
           className="p-1.5 hover:bg-surface-hover rounded-md text-text-main transition-colors"
@@ -205,6 +523,21 @@ export default function DAGViewer() {
           <span className="material-symbols-outlined text-[14px]">route</span>
           Critical Path
         </button>
+
+        {mode === 'authoring' && (
+          <>
+            <div className="w-[1px] h-4 bg-border mx-0.5" />
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className={`px-2 py-1 flex items-center gap-1.5 rounded-md text-[10px] font-bold uppercase transition-all bg-primary text-white hover:opacity-90 disabled:opacity-50`}
+              title="Save Plan"
+            >
+              <span className="material-symbols-outlined text-[14px]">{isSaving ? 'sync' : 'save'}</span>
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          </>
+        )}
       </div>
 
       {/* ── DAG Info badges ── */}
@@ -229,6 +562,9 @@ export default function DAGViewer() {
       <div
         ref={containerRef}
         className="flex-1 w-full h-full overflow-auto cursor-grab active:cursor-grabbing"
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
       >
         <svg
           width={canvasW * scale}
@@ -257,9 +593,25 @@ export default function DAGViewer() {
                   edge={edge}
                   fromPos={{ x: fromNode.x, y: fromNode.y }}
                   toPos={{ x: toNode.x, y: toNode.y }}
+                  mode={mode}
+                  onDelete={handleDeleteDependency}
                 />
               );
             })}
+
+            {/* Ghost edge during drag */}
+            {dragState.type === 'dragging' && nodePositions && (
+              <line
+                x1={nodePositions[dragState.sourceRef].x + NODE_W}
+                y1={nodePositions[dragState.sourceRef].y + NODE_H / 2}
+                x2={(dragState.cursorX - (containerRef.current?.getBoundingClientRect().left || 0)) / scale - translate.x}
+                y2={(dragState.cursorY - (containerRef.current?.getBoundingClientRect().top || 0)) / scale - translate.y}
+                stroke={dragState.targetRef ? (dragState.isValid ? "#10b981" : "#ef4444") : "#6366f1"}
+                strokeWidth={2}
+                strokeDasharray="5,5"
+                markerEnd="url(#arrowhead-normal)"
+              />
+            )}
 
             {/* Nodes */}
             {filteredNodes.map((node) => (
@@ -273,11 +625,68 @@ export default function DAGViewer() {
                 role={node.role}
                 roleInitial={node.roleInitial}
                 roleColor={node.roleColor}
+                mode={mode}
+                onStartDrag={handleStartDrag}
+                onEnterPort={handleEnterPort}
+                onLeavePort={handleLeavePort}
+                onClick={handleNodeClick}
+                onContextMenu={handleContextMenu}
               />
             ))}
           </g>
         </svg>
       </div>
+
+      {/* ── Context Menu ── */}
+      {contextMenu && (
+        <>
+          <div 
+            className="fixed inset-0 z-[110]" 
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+          />
+          <div 
+            className="fixed z-[111] bg-surface border border-border rounded-lg shadow-xl py-1 min-w-[160px] animate-in fade-in zoom-in duration-100"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button 
+              onClick={() => { setEditingEpicRef(contextMenu.ref); setIsDrawerOpen(true); setContextMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">edit</span>
+              Edit EPIC
+            </button>
+            <button 
+              onClick={() => handleDuplicateEpic(contextMenu.ref)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">content_copy</span>
+              Duplicate
+            </button>
+            <button 
+              onClick={() => { setActiveTab('editor'); setContextMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">code</span>
+              View Source
+            </button>
+            <div className="h-[1px] bg-border my-1" />
+            <button 
+              onClick={() => handleDeleteEpic(contextMenu.ref)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">delete</span>
+              Delete
+            </button>
+          </div>
+        </>
+      )}
+
+      <EpicDetailDrawer
+        epic={editingEpic}
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+      />
 
       {/* ── Critical Path Strip ── */}
       {dag.critical_path && dag.critical_path.length > 0 && (

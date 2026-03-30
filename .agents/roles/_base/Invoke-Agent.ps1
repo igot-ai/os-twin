@@ -74,6 +74,22 @@ $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromP
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
               else { Join-Path $agentsDir "config.json" }
 
+# --- Load plan-specific roles config from room's config.json → plan_id ---
+$planRolesConfig = $null
+$roomConfigFile = Join-Path $absRoomDir "config.json"
+if (Test-Path $roomConfigFile) {
+    try {
+        $roomCfg = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
+        $roomPlanId = $roomCfg.plan_id
+        if ($roomPlanId) {
+            $planRolesFile = Join-Path $env:HOME ".ostwin" "plans" "$roomPlanId.roles.json"
+            if (Test-Path $planRolesFile) {
+                $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+            }
+        }
+    } catch { }
+}
+
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
@@ -83,9 +99,13 @@ if (Test-Path $configPath) {
         $instanceConfig = $config.$RoleName.instances.$InstanceId
     }
 
-    # Model: instance → role config.json → role.json → hardcoded default
+    # Model: plan roles.json → instance → role config.json → role.json → hardcoded default
     if (-not $Model) {
-        if ($instanceConfig -and $instanceConfig.default_model) {
+        # Priority 1: plan-specific roles.json
+        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.default_model) {
+            $Model = $planRolesConfig.$RoleName.default_model
+        }
+        elseif ($instanceConfig -and $instanceConfig.default_model) {
             $Model = $instanceConfig.default_model
         }
         elseif ($config.$RoleName.default_model) {
@@ -103,9 +123,12 @@ if (Test-Path $configPath) {
         }
     }
 
-    # Timeout: instance → role
+    # Timeout: plan roles.json → instance → role
     if ($TimeoutSeconds -eq 600) {
-        if ($instanceConfig -and $instanceConfig.timeout_seconds) {
+        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.timeout_seconds) {
+            $TimeoutSeconds = $planRolesConfig.$RoleName.timeout_seconds
+        }
+        elseif ($instanceConfig -and $instanceConfig.timeout_seconds) {
             $TimeoutSeconds = $instanceConfig.timeout_seconds
         }
         elseif ($config.$RoleName.timeout_seconds) {
@@ -118,13 +141,14 @@ if (Test-Path $configPath) {
         $WorkingDir = $instanceConfig.working_dir
     }
 
-    # no_mcp: instance → role (disables MCP tools to avoid ClosedResourceError on remote exec)
-    $NoMcp = $false
-    if ($instanceConfig -and $instanceConfig.no_mcp -eq $true) {
-        $NoMcp = $true
+    # no_mcp: instance → role → default true (disables MCP tools to avoid ClosedResourceError on remote exec)
+    # Default to true for all roles — MCP via LangGraph is unstable. Agents use shell tools instead.
+    $NoMcp = $true
+    if ($instanceConfig -and $instanceConfig.PSObject.Properties['no_mcp']) {
+        $NoMcp = [bool]$instanceConfig.no_mcp
     }
-    elseif ($config.$RoleName.no_mcp -eq $true) {
-        $NoMcp = $true
+    elseif ($config.$RoleName -and $config.$RoleName.PSObject.Properties['no_mcp']) {
+        $NoMcp = [bool]$config.$RoleName.no_mcp
     }
 
     # --- Resolve ProjectDir from RoomDir (parent of .war-rooms) ---

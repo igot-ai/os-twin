@@ -1,0 +1,553 @@
+# PLAN: Growth — osTwin Interactive EPIC Editor & DAG Authoring (Frontend)
+
+## Goal
+
+Transform the plan editor from a plain textarea + read-only DAG viewer into a bidirectional authoring environment. The frontend parses EPIC markdown into a structured AST, renders it as interactive checklists and form fields, and lets users edit EPICs visually from the DAG canvas. All changes serialize back to markdown and save via the existing `POST /api/plans/{id}/save` endpoint. No backend changes required.
+
+## Config
+
+working_dir: /Users/paulaan/PycharmProjects/agent-os/dashboard/fe
+
+---
+
+# Epics
+
+## EPIC-001 — Structured EPIC Markdown Parser & Serializer
+
+**Phase:** 1
+**Priority:** P0 — Foundation
+**Estimated Effort:** 2 days
+Roles: engineer, qa
+### Description
+
+The current `MarkdownPreview.tsx` is a naive line-by-line renderer that doesn't understand the EPIC plan schema. `PlanEditorTab.tsx` is a raw `<textarea>` with no structured awareness. This EPIC builds the parsing layer that every other feature depends on: a TypeScript module in `src/lib/epic-parser.ts` that converts plan markdown into a typed AST (`EpicDocument`) and back again. The parser must handle all elements present in real plan files — frontmatter fields (`**Phase:** 1`, `**Owner:** engineer`), `- [ ]` / `- [x]` checklists for DoD/Tasks/AC, task IDs (`**T-005.1**`), nested code blocks inside tasks, `depends_on: [...]` YAML blocks, and horizontal rules between EPICs. The serializer must round-trip perfectly: `serialize(parse(original)) === original` for every existing `.md` file in the repo.
+
+### Context
+
+Currently used markdown files to parse against:
+- `PLAN.md` (8 EPICs, 23 tasks, mixed checkbox states, one `depends_on`)
+- `PLAN-GROWTH.md` (this file — 3 EPICs with code blocks in tasks)
+- `refactor-skills-ui.md` (3 EPICs, different heading styles using `####`)
+- Plan templates in `src/lib/plan-templates.ts` (3 templates with varying structures)
+
+Key pattern variations to handle:
+- `### EPIC-001` vs `## EPIC-001` heading levels
+- `#### Objective` vs `### Description` section headers
+- `Roles: engineer, qa` inline metadata vs `**Owner:** engineer` bold-key format
+- `depends_on: []` inline vs ` ```yaml\ndepends_on: [...]\n``` ` fenced blocks
+- Task descriptions with nested markdown (code blocks, sub-lists, bold text)
+
+### Definition of Done
+
+- [ ] `parseEpicMarkdown(md: string): EpicDocument` parses all plan files in the repo without errors
+- [ ] `serializeEpicMarkdown(doc: EpicDocument): string` produces output identical to the input for every test file
+- [ ] Parser extracts: plan title, goal, config block, and per-EPIC: ref, title, frontmatter, description, DoD[], tasks[], AC[], depends_on[]
+- [ ] Checkbox items (`- [ ]` / `- [x]`) correctly map to `{ text, checked }` and back
+- [ ] Task IDs (`**T-XXX.N**`) parsed into `{ id, title, description, completed }` objects
+- [ ] Code blocks within task descriptions preserved verbatim through round-trip
+- [ ] `depends_on` extracted whether inline or in fenced YAML block
+- [ ] Vitest test suite with 100% coverage of parser and serializer
+
+### Tasks
+
+- [ ] **T-G001.1** — Define the `EpicDocument` AST types in `src/lib/epic-parser.ts`:
+  ```typescript
+  // ── AST Types ─────────────────────────────────────
+  export interface EpicDocument {
+    title: string;                          // H1 line: "# PLAN: ..."
+    preamble: string;                       // Content between H1 and first EPIC (Goal, Config, etc.)
+    epics: EpicNode[];
+    postamble: string;                      // Content after last EPIC (Verification Plan, etc.)
+  }
+
+  export interface EpicNode {
+    ref: string;                            // "EPIC-001"
+    title: string;                          // Text after " — " dash in heading
+    headingLevel: number;                   // 2 for ##, 3 for ###
+    rawHeading: string;                     // Full heading line for exact reproduction
+    frontmatter: Map<string, string>;       // **Key:** Value pairs (Phase, Owner, Priority, Effort)
+    sections: EpicSection[];                // Ordered sections preserving original structure
+    depends_on: string[];                   // Extracted from YAML block
+    rawDependsOn: string;                   // Original depends_on block text for round-trip
+  }
+
+  export interface EpicSection {
+    heading: string;                        // "Description", "Definition of Done", "Tasks", etc.
+    headingLevel: number;
+    type: 'text' | 'checklist' | 'tasklist';  // Inferred from content
+    content: string;                        // Raw content for 'text' type
+    items?: CheckItem[];                    // For 'checklist' type (DoD, AC)
+    tasks?: TaskNode[];                     // For 'tasklist' type
+  }
+
+  export interface CheckItem {
+    text: string;
+    checked: boolean;
+    rawLine: string;                        // Original line for exact reproduction
+  }
+
+  export interface TaskNode {
+    id: string;                             // "T-G001.1"
+    title: string;                          // Text after " — " in the task line
+    completed: boolean;
+    body: string;                           // Everything after the task header line (may include code blocks)
+    rawHeader: string;                      // Original first line for exact reproduction
+  }
+  ```
+
+- [ ] **T-G001.2** — Implement `parseEpicMarkdown()` core logic:
+  - Split input by EPIC heading boundaries (regex: `/^#{2,3}\s+EPIC-/m`)
+  - Extract preamble (everything before first EPIC) and postamble (content after last EPIC's depends_on block + separator)
+  - For each EPIC section:
+    - Parse heading: extract ref, title, heading level
+    - Parse frontmatter: scan `**Key:** Value` lines until first sub-heading
+    - Parse sub-sections by heading boundaries (### or ####)
+    - Classify sections: lines starting with `- [ ]` or `- [x]` → checklist or tasklist
+    - Detect tasklist vs checklist: if items match `- [ ] **T-XXX.N**` → tasklist
+    - For tasklists: capture multi-line body including code blocks (track ``` open/close)
+    - Extract depends_on from fenced YAML or inline format
+  - Edge cases:
+    - Empty sections (heading with no content)
+    - Sections with mixed content (text paragraphs + checklists)
+    - Code blocks that contain `- [ ]` text (must not be parsed as checklist items)
+    - `---` horizontal rules as EPIC separators
+
+- [ ] **T-G001.3** — Implement `serializeEpicMarkdown()`:
+  - Reconstruct: preamble + EPICs in order + postamble
+  - Each EPIC: heading + frontmatter lines + sections in original order + depends_on block
+  - Use `rawLine` / `rawHeader` / `rawHeading` fields for exact reproduction where available
+  - Handle newline/spacing: preserve blank lines between sections
+  - Code blocks: emit verbatim from stored body text
+
+- [ ] **T-G001.4** — Implement targeted mutation helpers (pure functions returning new `EpicDocument`):
+  ```typescript
+  // Toggle a checkbox in DoD, AC, or Task completion
+  export function toggleCheckItem(doc: EpicDocument, epicRef: string,
+    section: 'dod' | 'ac' | 'tasks', index: number): EpicDocument;
+
+  // Update a frontmatter field
+  export function updateFrontmatter(doc: EpicDocument, epicRef: string,
+    key: string, value: string): EpicDocument;
+
+  // Update depends_on array
+  export function updateDependsOn(doc: EpicDocument, epicRef: string,
+    deps: string[]): EpicDocument;
+
+  // Add a new EPIC skeleton
+  export function addEpic(doc: EpicDocument, afterRef?: string): EpicDocument;
+
+  // Remove an EPIC (also cleans up depends_on references in other EPICs)
+  export function removeEpic(doc: EpicDocument, ref: string): EpicDocument;
+
+  // Update EPIC title
+  export function updateEpicTitle(doc: EpicDocument, epicRef: string,
+    title: string): EpicDocument;
+
+  // Get all EPIC refs (for autocomplete)
+  export function getEpicRefs(doc: EpicDocument): string[];
+
+  // Validate depends_on references (returns invalid refs)
+  export function validateDependencies(doc: EpicDocument): Map<string, string[]>;
+
+  // Detect circular dependencies (returns cycle path or null)
+  export function detectCycles(doc: EpicDocument): string[] | null;
+  ```
+
+- [ ] **T-G001.5** — Write Vitest test suite `src/__tests__/epic-parser.test.ts`:
+  - Round-trip tests: for each `.md` file, assert `serialize(parse(file)) === file`
+  - Unit tests for each parse case: headings, frontmatter, checklists, tasklists, code blocks, depends_on
+  - Mutation helper tests: toggle, update, add, remove, validate
+  - Edge case tests: empty plan, single EPIC, EPIC with no tasks, malformed markdown
+  - Cycle detection tests: no cycle, simple A→B→A, complex A→B→C→A
+
+- [ ] **T-G001.6** — Integrate parser into `PlanWorkspace` context:
+  - Add `parsedPlan: EpicDocument | null` to `PlanContextType`
+  - Parse `planContent` on change (debounced 200ms) via `useMemo` or `useEffect`
+  - Expose `updateParsedPlan(mutator: (doc: EpicDocument) => EpicDocument)` that:
+    1. Applies the mutation to `parsedPlan`
+    2. Serializes back to markdown
+    3. Updates `planContent` (which triggers re-render of editor/preview)
+  - Parse errors: set `parsedPlan = null`, show warning banner
+
+### Acceptance Criteria
+
+- [ ] `parse(PLAN.md)` returns 8 EPICs with correct refs, all DoD/Task/AC items, and EPIC-008's `depends_on: [EPIC-003]`
+- [ ] `parse(refactor-skills-ui.md)` handles `####` sub-headings and `Roles:` inline metadata
+- [ ] `serialize(parse(PLAN.md))` produces byte-identical output (tested via vitest `toBe()`)
+- [ ] `toggleCheckItem(doc, 'EPIC-001', 'dod', 0)` flips `- [ ]` to `- [x]` in serialized output
+- [ ] `addEpic(doc)` creates `EPIC-009` (next available ref) with skeleton sections
+- [ ] `detectCycles()` catches A→B→A and returns `['A', 'B', 'A']`
+- [ ] Parser handles this plan file (PLAN-GROWTH.md) with code blocks inside tasks without corruption
+- [ ] All tests pass: `cd fe && bun run test`
+
+```yaml
+depends_on: []
+```
+
+---
+
+## EPIC-002 — Enhanced Markdown Preview with Interactive EPIC Rendering
+
+**Phase:** 1
+**Owner:** engineer
+**Priority:** P0 — Foundation
+**Estimated Effort:** 2 days
+
+### Description
+
+Replace the naive `MarkdownPreview.tsx` line-by-line renderer with a structured EPIC-aware preview that uses the parser from EPIC-001. Instead of rendering raw lines, it renders each EPIC as a collapsible card with interactive checklists, styled frontmatter badges, syntax-highlighted code blocks, and a visual dependency tag. Clicking a checkbox toggles it in the underlying markdown. The preview becomes the "Structured" view mode in the editor — a form-based editing surface layered on top of the markdown source.
+
+### Context
+
+The current `MarkdownPreview.tsx` (63 lines) only handles `#`, `##`, `###`, `- `, `* `, and plain text. It doesn't render:
+- Bold (`**text**`) or italic
+- Code blocks (``` ... ```)
+- Checkbox lists (`- [ ]` / `- [x]`)
+- Links or inline code
+- Tables
+- EPIC-specific structure (frontmatter, task IDs, depends_on)
+
+The `PlanEditorTab.tsx` already has Edit/Preview/Split modes. This EPIC adds a 4th mode: "Structured" that renders the parsed `EpicDocument` as editable cards.
+
+### Definition of Done
+
+- [ ] Preview mode renders EPICs as styled, collapsible cards with frontmatter badges
+- [ ] Checkboxes (DoD, Tasks, AC) are clickable — toggling updates the markdown source
+- [ ] Code blocks render with syntax highlighting (using a lightweight highlighter)
+- [ ] `depends_on` renders as clickable EPIC reference chips
+- [ ] "Structured" mode added to PlanEditorTab toolbar (4th toggle option)
+- [ ] Structured mode allows inline editing of EPIC titles and descriptions
+- [ ] Changes in any mode (Edit/Preview/Structured/Split) stay in sync via `planContent`
+
+### Tasks
+
+- [ ] **T-G002.1** — Build `EpicCardPreview` component (`src/components/plan/EpicCardPreview.tsx`):
+  - Renders a single `EpicNode` as a collapsible card
+  - Header: EPIC ref badge + title (editable on double-click) + collapse toggle
+  - Frontmatter bar: Phase, Owner, Priority, Effort as styled chips/badges
+  - Description: rendered markdown (bold, italic, inline code, links)
+  - DoD section: interactive checkbox list
+  - Tasks section: collapsible task cards with ID badge, title, completion checkbox, body with code blocks
+  - AC section: interactive checkbox list with pass/fail styling
+  - Dependencies footer: `depends_on` refs as clickable chips that scroll to the target EPIC
+  - Styling: match existing dashboard theme (surface colors, border-border, text-text-main)
+
+- [ ] **T-G002.2** — Build `StructuredPlanView` component (`src/components/plan/StructuredPlanView.tsx`):
+  - Reads `parsedPlan` from `PlanContext`
+  - Renders plan header (title, goal) as editable fields
+  - Maps `parsedPlan.epics` to `EpicCardPreview` components
+  - "Add EPIC" button at the bottom
+  - Scroll-to-EPIC when clicking a `depends_on` chip (smooth scroll via `id` anchors)
+  - Empty state when `parsedPlan` is null (parse error or empty content)
+  - Error state: shows parse error message with "Switch to Edit mode" button
+
+- [ ] **T-G002.3** — Implement inline editing in `EpicCardPreview`:
+  - Double-click EPIC title → inline text input → Enter/blur saves → calls `updateEpicTitle()`
+  - Double-click description → auto-expanding textarea → blur saves
+  - Checkbox click → calls `toggleCheckItem()` → markdown updates → all views re-render
+  - "Add item" buttons for DoD, Tasks, AC sections
+  - All mutations go through `PlanContext.updateParsedPlan()` → serialize → update `planContent`
+
+- [ ] **T-G002.4** — Build lightweight markdown inline renderer (for description/body text):
+  - Handle: `**bold**`, `*italic*`, `` `inline code` ``, `[links](url)`
+  - Handle fenced code blocks: detect language, apply CSS classes for basic highlighting
+  - Use `<pre><code>` with monospace font and surface-alt background
+  - No external library needed — regex-based inline renderer (~100 lines)
+  - XSS-safe: escape HTML entities before processing markdown tokens
+
+- [ ] **T-G002.5** — Add "Structured" mode to `PlanEditorTab`:
+  - Add 4th button to the toolbar: "Structured" with `account_tree` icon
+  - When active: render `StructuredPlanView` instead of textarea/preview
+  - Mode state: `'edit' | 'preview' | 'split' | 'structured'`
+  - Split mode with structured: left = raw editor, right = structured view
+  - Keyboard shortcut: `Ctrl+Shift+S` to toggle structured mode
+
+- [ ] **T-G002.6** — Enhance existing `MarkdownPreview` for non-EPIC content:
+  - When `parsedPlan` is available: delegate to `StructuredPlanView`
+  - When `parsedPlan` is null (not a plan file or parse error): use enhanced generic renderer
+  - Enhanced generic renderer adds: bold, italic, code blocks, checkboxes, links
+  - Keep backwards-compatible: existing preview tab still works for any markdown
+
+### Acceptance Criteria
+
+- [ ] Opening `PLAN.md` in Structured mode shows 8 EPIC cards with correct frontmatter, checklists, and tasks
+- [ ] Clicking a DoD checkbox on EPIC-001 toggles `- [ ]` → `- [x]` in the raw editor pane (split mode)
+- [ ] Double-clicking EPIC-003's title, changing it, pressing Enter — raw markdown heading updates
+- [ ] Code blocks in task T-G001.1 render with monospace font and background, content preserved on round-trip
+- [ ] Clicking `depends_on: [EPIC-003]` chip on EPIC-008 scrolls to the EPIC-003 card
+- [ ] Adding a new EPIC via "Add EPIC" button creates `EPIC-009` card and corresponding markdown section
+- [ ] Split mode (raw left + structured right) stays in sync with < 200ms latency
+
+```yaml
+depends_on: [EPIC-001]
+```
+
+---
+
+## EPIC-003 — Interactive DAG Editor with Visual Dependency Management
+
+**Phase:** 2
+**Owner:** engineer
+**Priority:** P0 — Differentiator
+**Estimated Effort:** 3 days
+
+### Description
+
+Upgrade the read-only `DAGViewer.tsx` into a visual authoring surface. Users click a node to open an EPIC detail drawer, drag between nodes to create `depends_on` edges, and add/remove nodes directly on the canvas. All graph operations serialize back to markdown via the parser and save through the existing `POST /api/plans/{id}/save` endpoint. The DAG becomes a first-class editing mode — complementary to the Structured view — where the dependency graph is the primary editing metaphor.
+
+The key technical challenge: the current `DAGViewer` fetches its DAG from `GET /api/plans/{id}/dag` (a backend-computed graph). For frontend-only editing, we need a **client-side DAG derivation** from the parsed `EpicDocument` — computing nodes, edges, waves, and critical path entirely in the browser. The backend DAG endpoint remains the source of truth for launched plans with war rooms; the client-side DAG is used for authoring plans that haven't been launched yet.
+
+### Context
+
+Current `DAGViewer.tsx` limitations (309 lines):
+- Data from `useSWR<DAG>('/plans/{id}/dag')` — backend-only, no client-side graph
+- `StateNode.tsx`: click selects EPIC, opens ContextPanel — no editing, no ports
+- `DAGEdge.tsx`: static straight lines — no hover actions, no drag interaction
+- No way to add/remove nodes or edges from the UI
+- Layout: `layoutDAG()` function does wave-based positioning — works well, should be reused
+- Zoom/pan via scale state + overflow scroll — basic but functional
+
+What this EPIC adds:
+- Client-side DAG derivation from `EpicDocument` (no backend dependency for authoring)
+- Connection ports on nodes (drag to create edges)
+- Edge deletion (click edge → delete button)
+- Node CRUD (add, edit via drawer, delete)
+- Auto-relayout on topology change
+- Undo/redo for graph operations
+- Bidirectional sync: graph changes ↔ markdown
+
+### Definition of Done
+
+- [ ] Client-side DAG derived from `parsedPlan` with nodes, edges, waves, and critical path
+- [ ] Connection ports on nodes: left (input) and right (output), visible on hover
+- [ ] Drag from output port to input port creates a `depends_on` edge
+- [ ] Cycle detection rejects invalid edges with toast message
+- [ ] Click node → opens `EpicDetailDrawer` with full EPIC editing (reuses EPIC-002 components)
+- [ ] Right-click node → context menu: Edit, Delete, Duplicate
+- [ ] "Add EPIC" toolbar button creates a new node
+- [ ] Edge click → delete button appears on edge midpoint
+- [ ] Undo/redo via Ctrl+Z / Ctrl+Shift+Z (50-operation stack)
+- [ ] All changes persist to markdown via `savePlan()` on the existing API
+
+### Tasks
+
+- [ ] **T-G003.1** — Build `deriveDAGFromDocument()` client-side graph computation in `src/lib/dag-layout.ts`:
+  ```typescript
+  import { EpicDocument } from './epic-parser';
+  import { DAG, DAGNodeRaw } from '@/types';
+
+  /**
+   * Derive a DAG structure from a parsed EpicDocument.
+   * This replaces the backend /dag endpoint for authoring mode.
+   * Reuses the existing DAG type so DAGViewer can render it.
+   */
+  export function deriveDAGFromDocument(doc: EpicDocument): DAG {
+    // 1. Build nodes from doc.epics
+    // 2. Build adjacency list from depends_on
+    // 3. Topological sort (Kahn's algorithm)
+    // 4. Assign waves (depth-based: wave[n] = max(wave[deps]) + 1)
+    // 5. Compute critical path (longest path in DAG)
+    // 6. Return DAG shape compatible with existing DAGViewer
+  }
+
+  /**
+   * Detect if adding an edge would create a cycle.
+   * Used to validate drag-to-connect before committing.
+   */
+  export function wouldCreateCycle(
+    doc: EpicDocument, fromRef: string, toRef: string
+  ): boolean;
+  ```
+
+- [ ] **T-G003.2** — Refactor `DAGViewer` to support dual data sources:
+  - New prop: `mode: 'live' | 'authoring'`
+  - `live` mode (default): fetch from `/plans/{id}/dag` via SWR (current behavior)
+  - `authoring` mode: derive from `parsedPlan` via `deriveDAGFromDocument()`
+  - Auto-detect: if plan has war rooms (progress data exists) → live mode; otherwise → authoring mode
+  - Both modes use the same `layoutDAG()` and rendering pipeline
+  - Authoring mode enables interactive editing (ports, drag, context menu)
+
+- [ ] **T-G003.3** — Add connection ports to `StateNode.tsx`:
+  - Left edge: input circle (dependency target), 8px diameter
+  - Right edge: output circle (dependency source), 8px diameter
+  - Ports hidden by default, visible on node hover (opacity transition)
+  - Port color: `#6366f1` (indigo) with white fill
+  - Only rendered when DAGViewer is in `authoring` mode
+  - Cursor: `crosshair` on port hover
+
+- [ ] **T-G003.4** — Implement edge creation via mouse drag:
+  - `onMouseDown` on output port: start drag mode, store source node ref
+  - `onMouseMove` (on SVG): render ghost edge from source port to cursor position
+    - Ghost edge: dashed line, indigo color, 2px width
+  - `onMouseEnter` on input port: highlight target node (green ring) if valid connection
+    - Invalid if: self-loop, would create cycle, edge already exists
+    - Invalid target: red ring with tooltip "Would create cycle"
+  - `onMouseUp` on valid input port:
+    - Call `updateDependsOn(doc, targetRef, [...existing, sourceRef])`
+    - Serialize → update planContent → DAG re-derives → auto-relayout
+    - Toast: "Added dependency: {source} → {target}"
+  - `onMouseUp` elsewhere: cancel drag, remove ghost edge
+  - State management: `dragState` in DAGViewer local state
+    ```typescript
+    type DragState =
+      | { type: 'idle' }
+      | { type: 'dragging'; sourceRef: string; cursorX: number; cursorY: number }
+    ```
+
+- [ ] **T-G003.5** — Implement edge deletion:
+  - On edge hover (existing invisible hit area in `DAGEdge.tsx`): show delete icon at edge midpoint
+  - Delete icon: red circle with × symbol, 16px
+  - Click delete icon:
+    - Remove source from target's `depends_on` array
+    - Serialize → update → re-derive → relayout
+    - Toast: "Removed dependency: {from} → {to}"
+  - Only available in authoring mode
+
+- [ ] **T-G003.6** — Build `EpicDetailDrawer` slide-out panel:
+  - Opens on node click in authoring mode (instead of ContextPanel)
+  - Slides from right, 420px wide, over the main content
+  - Content: reuses `EpicCardPreview` from EPIC-002 with full editing
+  - Header: EPIC ref + title + status badge + close button
+  - Sections: Description, DoD checklist, Tasks list, AC checklist, Dependencies
+  - Dependencies section: multi-select dropdown of sibling EPIC refs
+  - "Delete EPIC" button at bottom with confirmation dialog
+  - Close: Escape key, click outside, or close button
+  - Changes auto-save to markdown (no separate save button in drawer)
+
+- [ ] **T-G003.7** — Implement node context menu:
+  - Right-click on node → floating menu at cursor position
+  - Menu items:
+    - **Edit** (pencil icon) → opens EpicDetailDrawer
+    - **Duplicate** (copy icon) → creates new EPIC with next ref, copies content, no dependencies
+    - **Delete** (trash icon) → confirmation dialog → removes EPIC + cleans depends_on refs
+    - **View Source** (code icon) → switches to Editor tab, scrolls to EPIC's markdown section
+  - Click outside menu → dismiss
+  - Only available in authoring mode
+
+- [ ] **T-G003.8** — Add DAG toolbar actions for authoring mode:
+  - "Add EPIC" button → creates new node at next available position
+    - Default content: skeleton with empty DoD, one placeholder task, empty AC
+    - Node appears in rightmost wave (no dependencies)
+    - Drawer opens immediately for editing
+  - "Auto Layout" button → recomputes wave positions (already exists as Fit to View, enhance it)
+  - "Save" button → calls `savePlan()` from PlanContext (visual confirmation)
+  - Toolbar shows "Authoring Mode" vs "Live Mode" indicator badge
+
+- [ ] **T-G003.9** — Implement undo/redo stack:
+  - Command pattern using markdown snapshots (simpler than operation-level undo):
+    ```typescript
+    interface UndoStack {
+      past: string[];     // Previous planContent snapshots
+      future: string[];   // Redo snapshots
+      maxSize: 50;
+    }
+    ```
+  - Before each graph mutation: push current `planContent` to `past`
+  - Ctrl+Z: pop `past` → push current to `future` → set as `planContent`
+  - Ctrl+Shift+Z: pop `future` → push current to `past` → set as `planContent`
+  - Stack stored in `PlanWorkspace` state (cleared on plan switch)
+  - Toolbar buttons: Undo / Redo with disabled state when stack empty
+
+- [ ] **T-G003.10** — Wire DAG tab to use authoring mode:
+  - Update `placeholder/DAGTab.tsx` to pass `mode` prop to `DAGViewer`
+  - Detect mode: check if `progress?.rooms` has data → live, else → authoring
+  - In authoring mode: hide progress-related UI (completion %, status badges)
+  - In authoring mode: show editing-related UI (ports, toolbar, undo buttons)
+
+### Acceptance Criteria
+
+- [ ] Opening DAG tab for an unlaunched plan shows nodes derived from `planContent` with correct waves and edges
+- [ ] Dragging from EPIC-001 output port to EPIC-003 input port adds `EPIC-001` to G003's `depends_on` — markdown updates within 500ms
+- [ ] Attempting to drag an edge that would create a cycle (G003→G001 when G001→G002→G003 exists) shows red highlight and is rejected
+- [ ] Clicking a node opens the `EpicDetailDrawer` — checking a DoD item updates the markdown checkbox
+- [ ] Right-click → Delete on EPIC-002 removes the node, all connected edges, and the markdown section. Also removes `EPIC-002` from G003's `depends_on` list
+- [ ] "Add EPIC" creates EPIC-004 node, opens drawer, and new EPIC appears in Editor tab
+- [ ] Undo (Ctrl+Z) after adding an edge restores the previous state — edge disappears, markdown reverts
+- [ ] Save button persists to backend via existing `POST /api/plans/{id}/save` — no backend changes needed
+- [ ] DAG with 20 EPICs renders, layouts, and responds to interactions within 1 second
+- [ ] Switching between DAG tab and Editor tab: both views reflect the same state at all times
+
+```yaml
+depends_on: [EPIC-001, EPIC-002]
+```
+
+---
+
+## Dependency Graph
+
+```
+Phase 1 (Foundation):
+  EPIC-001 (Parser & Serializer)    ← no dependencies
+  EPIC-002 (Structured Preview)     ← depends on G001
+
+Phase 2 (Visual Authoring):
+  EPIC-003 (Interactive DAG Editor) ← depends on G001, G002
+```
+
+```
+┌───────────────────────┐
+│      EPIC-001        │
+│  Markdown Parser &    │
+│  Serializer           │
+│  (P0, 2 days)         │
+└─────┬──────┬──────────┘
+      │      │
+      ▼      │
+┌─────────────────────┐  │
+│      EPIC-002      │  │
+│  Structured Preview  │  │
+│  & Inline Editing    │  │
+│  (P0, 2 days)        │  │
+└─────┬───────────────┘  │
+      │                   │
+      ▼                   ▼
+┌──────────────────────────┐
+│       EPIC-003          │
+│  Interactive DAG Editor  │
+│  (P0, 3 days)            │
+└──────────────────────────┘
+```
+
+**Execution:** G001 first (2 days) → G002 can start (2 days, G001 output as input) → G003 after both (3 days). Total: ~7 days sequential, ~5 days with parallel work on G002 tests while starting G003 node rendering.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+Run all tests: `cd fe && bun run test`
+
+**EPIC-001 tests** (`src/__tests__/epic-parser.test.ts`):
+- Round-trip: `serialize(parse(readFile('../../PLAN.md'))) === readFile('../../PLAN.md')`
+- Round-trip: same for `refactor-skills-ui.md` and `PLAN-GROWTH.md`
+- Unit: parse single EPIC heading with all field variations
+- Unit: parse checkbox lists (mixed checked/unchecked)
+- Unit: parse tasks with nested code blocks
+- Unit: parse depends_on (inline and fenced YAML)
+- Unit: mutation helpers (toggle, add, remove, update)
+- Unit: cycle detection (no cycle, simple cycle, complex cycle)
+
+**EPIC-002 tests** (`src/__tests__/structured-view.test.ts`):
+- Render: `EpicCardPreview` renders correct number of checklist items
+- Interaction: checkbox click calls `updateParsedPlan` with correct mutation
+- Render: code blocks have `<pre><code>` wrapper
+- Render: depends_on chips show correct EPIC refs
+- Edge case: empty EPIC (no tasks, no DoD) renders without error
+
+**EPIC-003 tests** (`src/__tests__/dag-editor.test.ts`):
+- `deriveDAGFromDocument()`: 3 EPICs with known deps → correct waves and edges
+- `wouldCreateCycle()`: true for A→B→A, false for A→B + A→C
+- Undo stack: push 3 states, undo 2, redo 1 → correct state
+- Layout: 20 EPICs → all nodes have valid x,y positions, no overlaps
+
+### Browser Verification
+
+1. Open plan in Editor tab → switch to Structured mode → verify all EPICs render as cards
+2. Click checkbox in Structured mode → switch to Edit mode → verify `[x]` updated
+3. Open DAG tab for unlaunched plan → verify nodes match EPICs in editor
+4. Drag edge between two nodes → verify markdown `depends_on` updated
+5. Right-click node → Delete → verify node, edges, and markdown all removed
+6. Add EPIC from DAG toolbar → verify appears in both DAG and Editor
+7. Ctrl+Z after edit → verify state reverts in both DAG and Editor
+
