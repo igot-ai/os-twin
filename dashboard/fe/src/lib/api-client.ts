@@ -3,7 +3,7 @@
  * Wraps fetch with base URL, standard error handling, and typed responses.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
+import { getApiBaseUrl } from './runtime-config';
 
 export class ApiError extends Error {
   status: number;
@@ -21,6 +21,7 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const BASE_URL = getApiBaseUrl();
   const url = `${BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
   
   const response = await fetch(url, {

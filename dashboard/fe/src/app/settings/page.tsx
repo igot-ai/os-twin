@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiGet } from '@/lib/api-client';
+import { getApiBaseUrl, getWebSocketUrl } from '@/lib/runtime-config';
 import { useUIStore } from '@/lib/stores/uiStore';
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -21,8 +22,8 @@ const API_KEY_DISPLAY: Record<string, { label: string; prefix: string }> = {
 export default function SettingsPage() {
   const { theme, setTheme } = useUIStore();
 
-  const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
-  const wsUrl = BASE_URL.replace(/^http/, 'ws') + '/ws';
+  const BASE_URL = getApiBaseUrl();
+  const wsUrl = getWebSocketUrl();
 
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [themeMode, setThemeMode] = useState<ThemeMode>('light');

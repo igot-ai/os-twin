@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { getApiBaseUrl } from '@/lib/runtime-config';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -24,8 +25,6 @@ const AuthContext = createContext<AuthState>({
 
 export const useAuth = () => useContext(AuthContext);
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -36,6 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const doLogin = useCallback(async (key: string): Promise<boolean> => {
     try {
       setError(null);
+      const API_BASE = getApiBaseUrl();
       const res = await fetch(`${API_BASE}/auth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function bootstrap() {
       try {
+        const API_BASE = getApiBaseUrl();
         // 1. Check if already authed (cookie)
         const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
         if (meRes.ok) {
@@ -102,6 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      const API_BASE = getApiBaseUrl();
       await fetch(`${API_BASE}/auth/logout`, {
         method: 'POST',
         credentials: 'include',

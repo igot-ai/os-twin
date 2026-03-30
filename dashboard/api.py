@@ -59,9 +59,13 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 # --- Middleware ---
+is_dev = os.environ.get("NODE_ENV") == "development" or os.environ.get("OSTWIN_DEV_MODE") == "1"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[] if is_dev else ["*"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$" if is_dev else None,
+    allow_credentials=is_dev,
     allow_methods=["*"],
     allow_headers=["*"],
 )
