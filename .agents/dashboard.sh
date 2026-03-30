@@ -80,13 +80,16 @@ fi
 PID_FILE="$AGENTS_DIR/dashboard.pid"
 
 if $BACKGROUND; then
+  DASHBOARD_LOG_DIR="$HOME/.ostwin/dashboard"
+  mkdir -p "$DASHBOARD_LOG_DIR"
   echo "[DASHBOARD] Starting in background on http://localhost:${PORT}"
   echo "  Project: $PROJECT_DIR"
   cd "$DASHBOARD_DIR"
-  nohup "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR" > "$AGENTS_DIR/logs/dashboard.log" 2>&1 &
+  nohup "$PYTHON" api.py --port "$PORT" --project-dir "$PROJECT_DIR" > "$DASHBOARD_LOG_DIR/stdout.log" 2>&1 &
   DASH_PID=$!
   echo "$DASH_PID" > "$PID_FILE"
-  echo "  PID: $DASH_PID (log: $AGENTS_DIR/logs/dashboard.log)"
+  echo "  PID: $DASH_PID"
+  echo "  Logs: $DASHBOARD_LOG_DIR/debug.log (debug) | stdout.log (raw)"
 else
   echo "[DASHBOARD] Starting web dashboard on http://localhost:${PORT}"
   echo "  Project: $PROJECT_DIR"

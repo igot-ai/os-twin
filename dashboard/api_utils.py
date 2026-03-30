@@ -407,6 +407,8 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
         "changelog": skill_data.get("changelog", []),
         "author": skill_data.get("author"),
         "forked_from": skill_data.get("forked_from"),
+        "author": skill_data.get("author"),
+        "forked_from": skill_data.get("forked_from"),
         "is_draft": skill_data.get("is_draft", False),
     }
     

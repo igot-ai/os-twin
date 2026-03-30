@@ -93,12 +93,12 @@ fi
 
 # Copy catalog from source if not present or outdated
 if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
-  cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$TARGET_AGENTS/mcp/mcp-catalog.json"
+  cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$TARGET_AGENTS/mcp/mcp-catalog.json" 2>/dev/null || true
 fi
 
 # Copy builtin config from source
 if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
-  cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json"
+  cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json" 2>/dev/null || true
 fi
 
 # Copy extension manager script
@@ -128,6 +128,7 @@ if [[ ! -f "$TARGET_AGENTS/mcp/mcp-config.json" ]]; then
   fi
   PROJECT_DIR_ABS="$(cd "$TARGET_DIR" 2>/dev/null && pwd || echo "$TARGET_DIR")"
 
+  PYTHON="python3"
   "$PYTHON" - <<PYEOF
 with open('$TARGET_AGENTS/mcp/mcp-config.json') as _f:
     _raw = _f.read()
@@ -222,6 +223,28 @@ else
     info "Non-interactive mode — skipping MCP extension install"
     info "Install later with: ostwin mcp install <name>"
   fi
+fi
+
+# ─── Compile project-level config ─────────────────────────────────────────────
+
+step "Compiling project-level MCP config..."
+bash "$MCP_EXTENSION_SCRIPT" compile --project-dir "$TARGET_DIR"
+
+# ─── Update .gitignore ────────────────────────────────────────────────────────
+
+GITIGNORE="$TARGET_DIR/.gitignore"
+if [[ -f "$GITIGNORE" ]]; then
+  if ! grep -q ".agents/mcp/.env.mcp" "$GITIGNORE"; then
+    echo "" >> "$GITIGNORE"
+    echo "# Ostwin MCP secrets" >> "$GITIGNORE"
+    echo ".agents/mcp/.env.mcp" >> "$GITIGNORE"
+    ok "Added .agents/mcp/.env.mcp to .gitignore"
+  else
+    ok ".agents/mcp/.env.mcp already in .gitignore"
+  fi
+else
+  echo ".agents/mcp/.env.mcp" > "$GITIGNORE"
+  ok "Created .gitignore with .agents/mcp/.env.mcp"
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────

@@ -15,8 +15,14 @@ client = TestClient(app)
 
 @pytest.fixture
 def mock_dirs(tmp_path):
+    import dashboard.api_utils as api_utils
+    import dashboard.tasks as tasks
+    
     orig_warrooms = api_utils.WARROOMS_DIR
     orig_agents = api_utils.AGENTS_DIR
+    orig_tasks_warrooms = tasks.WARROOMS_DIR
+    orig_tasks_agents = tasks.AGENTS_DIR
+    orig_tasks_plans = tasks.PLANS_DIR
     
     api_utils.WARROOMS_DIR = tmp_path / ".war-rooms"
     api_utils.WARROOMS_DIR.mkdir()
@@ -26,10 +32,17 @@ def mock_dirs(tmp_path):
     plans_dir = api_utils.AGENTS_DIR / "plans"
     plans_dir.mkdir()
     
+    tasks.WARROOMS_DIR = api_utils.WARROOMS_DIR
+    tasks.AGENTS_DIR = api_utils.AGENTS_DIR
+    tasks.PLANS_DIR = plans_dir
+    
     yield
     
     api_utils.WARROOMS_DIR = orig_warrooms
     api_utils.AGENTS_DIR = orig_agents
+    tasks.WARROOMS_DIR = orig_tasks_warrooms
+    tasks.AGENTS_DIR = orig_tasks_agents
+    tasks.PLANS_DIR = orig_tasks_plans
 
 @pytest.mark.asyncio
 async def test_initial_messages_broadcast_on_room_creation(mock_dirs):

@@ -11,6 +11,7 @@ const navItems = [
   { href: '/plans', icon: 'folder', label: 'Plans' },
   { href: '/roles', icon: 'person', label: 'Roles' },
   { href: '/skills', icon: 'extension', label: 'Skills' },
+  { href: '/mcp', icon: 'terminal', label: 'MCP' },
   { href: '/settings', icon: 'settings', label: 'Settings' },
 ];
 

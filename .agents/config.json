@@ -97,5 +97,20 @@
       "manager"
     ],
     "auto_draft": true
+  },
+  "test-engineer": {
+    "default_model": "claude-3-5-sonnet-20241022",
+    "timeout_seconds": 600,
+    "skill_refs": [
+      "web-research"
+    ]
+  },
+  "unique-role": {
+    "default_model": "gpt-4o",
+    "timeout_seconds": 300
+  },
+  "active-role": {
+    "default_model": "gemini-1.5-pro",
+    "timeout_seconds": 300
   }
 }

@@ -37,7 +37,7 @@ def test_get_room_state_extended():
     assert "initial_state" in data["lifecycle"]
     assert "states" in data["lifecycle"]
     assert len(data["roles"]) > 0
-    assert data["roles"][0]["role"] == "e"
+    assert data["roles"][0]["role"] == "engineer"
     
     print("SUCCESS: API endpoint /api/rooms/room-003/state returns full metadata.")
 
