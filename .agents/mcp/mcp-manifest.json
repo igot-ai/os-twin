@@ -12,13 +12,17 @@
       "type": "stdio",
       "description": "MCP server memory"
     },
-    "stitch": {
-      "type": "http",
-      "description": "MCP server stitch"
-    },
-    "github": {
+    "serena": {
       "type": "stdio",
-      "description": "MCP server github"
+      "description": "MCP server serena"
+    },
+    "context7": {
+      "type": "stdio",
+      "description": "MCP server context7"
+    },
+    "ai-game-developer": {
+      "type": "stdio",
+      "description": "MCP server ai-game-developer"
     }
   }
 }
