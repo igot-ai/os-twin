@@ -111,7 +111,13 @@ if [[ -f "$SCRIPT_DIR/mcp/mcp-extension.sh" ]]; then
   chmod +x "$TARGET_AGENTS/mcp/mcp-extension.sh"
 fi
 
-# Generate initial mcp-config.json from builtins (if not already present)
+# Copy vault.py and config_resolver.py (required by mcp-extension.sh)
+for _py_file in vault.py config_resolver.py; do
+  if [[ -f "$SCRIPT_DIR/mcp/$_py_file" ]]; then
+    cp "$SCRIPT_DIR/mcp/$_py_file" "$TARGET_AGENTS/mcp/$_py_file" 2>/dev/null || true
+  fi
+done
+
 if [[ ! -f "$TARGET_AGENTS/mcp/mcp-config.json" ]]; then
   if [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
     cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-config.json"
@@ -226,6 +232,15 @@ else
 fi
 
 # ─── Compile project-level config ─────────────────────────────────────────────
+
+# Ensure home mcp-config.json exists (compile needs it)
+if [[ ! -f "$HOME/.ostwin/mcp/mcp-config.json" ]]; then
+  if [[ -f "$HOME/.ostwin/mcp/mcp-builtin.json" ]]; then
+    cp "$HOME/.ostwin/mcp/mcp-builtin.json" "$HOME/.ostwin/mcp/mcp-config.json"
+  else
+    echo '{"mcpServers":{}}' > "$HOME/.ostwin/mcp/mcp-config.json"
+  fi
+fi
 
 step "Compiling project-level MCP config..."
 bash "$MCP_EXTENSION_SCRIPT" compile --project-dir "$TARGET_DIR"
