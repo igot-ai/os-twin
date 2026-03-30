@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "channel": {
+      "type": "stdio",
+      "description": "MCP server channel"
+    },
+    "warroom": {
+      "type": "stdio",
+      "description": "MCP server warroom"
+    },
+    "memory": {
+      "type": "stdio",
+      "description": "MCP server memory"
+    },
+    "stitch": {
+      "type": "http",
+      "description": "MCP server stitch"
+    },
+    "github": {
+      "type": "stdio",
+      "description": "MCP server github"
+    }
+  }
+}
