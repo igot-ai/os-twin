@@ -1,6 +1,6 @@
 {
   "name": "game-ui-analyst",
-  "description": "Analyses Unity UI screens — detects UI elements from screenshots and extracts animation behaviour from video recordings",
+  "description": "Analyses Unity UI screens \u2014 detects UI elements from screenshots and extracts animation behaviour from video recordings",
   "capabilities": [
     "ui-detection",
     "motion-extraction",
@@ -20,5 +20,6 @@
   "skill_refs": [
     "detect-ui",
     "detect-anim"
-  ]
+  ],
+  "instance_type": "worker"
 }

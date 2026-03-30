@@ -1,6 +1,6 @@
 {
   "name": "ux-researcher",
-  "description": "UX Researcher — conducts playtesting, user research, analytics interpretation, and usability audits for Unity mobile games",
+  "description": "UX Researcher \u2014 conducts playtesting, user research, analytics interpretation, and usability audits for Unity mobile games",
   "capabilities": [
     "playtest-facilitation",
     "user-research",
@@ -19,5 +19,6 @@
   "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 600,
-  "skill_refs": []
+  "skill_refs": [],
+  "instance_type": "evaluator"
 }

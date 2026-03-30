@@ -1,6 +1,6 @@
 {
   "name": "narrative-designer",
-  "description": "Narrative Designer — crafts dialogue, lore, story arcs, and localization-ready narrative content for Unity mobile games",
+  "description": "Narrative Designer \u2014 crafts dialogue, lore, story arcs, and localization-ready narrative content for Unity mobile games",
   "capabilities": [
     "dialogue-writing",
     "lore-creation",
@@ -19,5 +19,6 @@
   "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 600,
-  "skill_refs": []
+  "skill_refs": [],
+  "instance_type": "worker"
 }

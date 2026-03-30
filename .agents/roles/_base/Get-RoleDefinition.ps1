@@ -148,6 +148,7 @@ $role = [PSCustomObject]@{
     skill_refs    = if ($roleData.skill_refs) { @($roleData.skill_refs) } else { @() }
     SkillRefs     = if ($roleData.skill_refs) { @($roleData.skill_refs) } else { @() }
     CLI           = if ($roleData.cli) { $roleData.cli } else { "deepagents" }
+    InstanceType  = if ($roleData.instance_type) { $roleData.instance_type } else { "worker" }
     Model         = $roleData.model
     Timeout       = if ($roleData.timeout) { $roleData.timeout } else { 600 }
     RolePath      = $RolePath

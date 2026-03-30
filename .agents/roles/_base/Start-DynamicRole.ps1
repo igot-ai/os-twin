@@ -350,6 +350,18 @@ $triageContent
 }
 
 # --- Assemble final prompt ---
+$evaluatorInstruction = if ($agentInstanceType -eq 'evaluator') {
+@"
+
+## Evaluator Output Requirement
+
+IMPORTANT: Your response MUST include exactly one of these lines to indicate your final decision:
+  VERDICT: PASS
+  VERDICT: FAIL
+  VERDICT: ESCALATE
+"@
+} else { "" }
+
 $prompt = @"
 $rolePrompt
 
@@ -373,6 +385,7 @@ $predecessorSection
 ## Instructions
 
 $instructions
+$evaluatorInstruction
 "@
 
 # --- Prompt size guard ---
@@ -400,11 +413,38 @@ elseif ($agentModel) { $invokeArgs['Model'] = $agentModel }
 
 $result = & $invokeAgent @invokeArgs
 
+$finalVerdict = "PASS"
+
 # --- Post result to channel ---
 if ($result.ExitCode -eq 0) {
-    & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `
-                   -Type "done" -Ref $taskRef -Body $result.Output
-    Write-Log "INFO" "[$baseRole] Completed $taskRef successfully."
+    if ($agentInstanceType -eq 'evaluator') {
+        # Parse verdict
+        $verdict = "FAIL" # Default if not found
+        if ($result.Output -match '(?m)^VERDICT:\s*(PASS|FAIL|ESCALATE)') {
+            $verdict = $Matches[1].ToUpper()
+        } elseif ($result.Output -match 'VERDICT:\s*(PASS|FAIL|ESCALATE)') {
+            $verdict = $Matches[1].ToUpper()
+        }
+        $finalVerdict = $verdict
+        $postType = $verdict.ToLower()
+        
+        # Strip noise
+        $cleanLines = ($result.Output -split "`n") | Where-Object {
+            $line = $_.Trim()
+            if (-not $line -or $line.Length -lt 4) { return $false }
+            -not ($line -match '^🔧' -or $line -match '[Cc]alling tool:' -or $line -match '^Loading MCP' -or $line -match '^Running task non-interactively' -or $line -match '^Agent active' -or $line -match '^Usage Stats' -or $line -match '^\s*Reqs\s+InputTok' -or $line -match '^✓ Task completed' -or $line -match '^System\.Management\.Automation')
+        }
+        $cleanOutput = ($cleanLines -join "`n").Trim()
+        if (-not $cleanOutput) { $cleanOutput = $result.Output }
+        
+        & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `
+                       -Type $postType -Ref $taskRef -Body $cleanOutput
+        Write-Log "INFO" "[$baseRole] Evaluator finished $taskRef with verdict $verdict."
+    } else {
+        & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `
+                       -Type "done" -Ref $taskRef -Body $result.Output
+        Write-Log "INFO" "[$baseRole] Completed $taskRef successfully."
+    }
 }
 elseif ($result.TimedOut) {
     & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `
@@ -421,7 +461,11 @@ else {
 # --- Update per-role config status ---
 if ($roleConfigs) {
     $latestRoleConfig = Get-Content $roleConfigs[0].FullName -Raw | ConvertFrom-Json
-    $latestRoleConfig.status = if ($result.ExitCode -eq 0) { "completed" } else { "failed" }
+    if ($agentInstanceType -eq 'evaluator') {
+        $latestRoleConfig.status = if ($finalVerdict -eq "PASS") { "completed" } else { "failed" }
+    } else {
+        $latestRoleConfig.status = if ($result.ExitCode -eq 0) { "completed" } else { "failed" }
+    }
     $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $roleConfigs[0].FullName -Encoding utf8
 }
 

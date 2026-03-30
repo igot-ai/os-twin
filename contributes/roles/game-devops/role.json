@@ -1,6 +1,6 @@
 {
   "name": "game-devops",
-  "description": "Game DevOps Engineer — manages CI/CD pipelines, Unity Cloud Build, automated testing, and distribution for Unity mobile games",
+  "description": "Game DevOps Engineer \u2014 manages CI/CD pipelines, Unity Cloud Build, automated testing, and distribution for Unity mobile games",
   "capabilities": [
     "ci-cd-pipelines",
     "unity-cloud-build",
@@ -19,5 +19,6 @@
   "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 600,
-  "skill_refs": []
+  "skill_refs": [],
+  "instance_type": "worker"
 }

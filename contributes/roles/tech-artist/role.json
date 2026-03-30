@@ -1,6 +1,6 @@
 {
   "name": "tech-artist",
-  "description": "Technical Artist — bridges art and engineering with shaders, VFX, animation polish, and art pipeline optimization for Unity mobile",
+  "description": "Technical Artist \u2014 bridges art and engineering with shaders, VFX, animation polish, and art pipeline optimization for Unity mobile",
   "capabilities": [
     "shader-development",
     "vfx-creation",
@@ -21,5 +21,6 @@
   "timeout": 600,
   "skill_refs": [
     "unity-coding"
-  ]
+  ],
+  "instance_type": "worker"
 }

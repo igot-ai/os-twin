@@ -1,6 +1,6 @@
 {
   "name": "game-designer",
-  "description": "Upstream design pipeline — game brief, GDD, UX design, epics, stories, and brainstorming for Unity mobile games",
+  "description": "Upstream design pipeline \u2014 game brief, GDD, UX design, epics, stories, and brainstorming for Unity mobile games",
   "capabilities": [
     "game-brief",
     "gdd-creation",
@@ -32,5 +32,6 @@
     "unity-coding",
     "unity-ugui",
     "code-explorer"
-  ]
+  ],
+  "instance_type": "worker"
 }
