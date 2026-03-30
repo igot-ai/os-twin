@@ -5,6 +5,7 @@ import re
 import yaml
 import subprocess
 import logging
+import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, AsyncIterator, Optional, Any, Dict
@@ -281,6 +282,120 @@ async def process_notification(event_type: str, data: dict):
     log_entry = json.dumps({"ts": timestamp, "event": event_type, "data": data})
     with open(notifications_file, "a") as f:
         f.write(log_entry + "\n")
+
+def find_room_dir(room_id: str) -> Optional[Path]:
+    """Find the directory for a war-room, searching across PROJECT_ROOT and PLANS_DIR."""
+    room_dir = WARROOMS_DIR / room_id
+    if room_dir.exists():
+        return room_dir
+        
+    # Search plan-specific war-room directories
+    if PLANS_DIR.exists():
+        for meta_file in PLANS_DIR.glob("*.meta.json"):
+            try:
+                meta = json.loads(meta_file.read_text())
+                wd = meta.get("working_dir")
+                if wd:
+                    candidate = Path(wd) / ".war-rooms" / room_id
+                    if candidate.exists():
+                        return candidate
+            except (ValueError, KeyError, OSError):
+                pass
+    return None
+
+def save_thread_mapping(platform: str, thread_id: str, room_id: str):
+    """Save a mapping between a chat platform thread and a war-room."""
+    mapping_file = PROJECT_ROOT / ".data" / f"{platform}_threads.json"
+    mapping_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    data = {}
+    if mapping_file.exists():
+        try:
+            data = json.loads(mapping_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+            
+    data[thread_id] = room_id
+    mapping_file.write_text(json.dumps(data, indent=2))
+
+def get_room_id_from_thread(platform: str, thread_id: str) -> Optional[str]:
+    """Retrieve the room_id associated with a chat platform thread."""
+    mapping_file = PROJECT_ROOT / ".data" / f"{platform}_threads.json"
+    if not mapping_file.exists():
+        return None
+        
+    try:
+        data = json.loads(mapping_file.read_text())
+        return data.get(thread_id)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+def save_last_active_room(user_id: str, room_id: str):
+    """Save the last active war-room for a user/channel."""
+    mapping_file = PROJECT_ROOT / ".data" / "last_active_rooms.json"
+    mapping_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    data = {}
+    if mapping_file.exists():
+        try:
+            data = json.loads(mapping_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+            
+    data[user_id] = room_id
+    mapping_file.write_text(json.dumps(data, indent=2))
+
+def get_last_active_room(user_id: str) -> Optional[str]:
+    """Retrieve the last active war-room for a user/channel."""
+    mapping_file = PROJECT_ROOT / ".data" / "last_active_rooms.json"
+    if not mapping_file.exists():
+        return None
+        
+    try:
+        data = json.loads(mapping_file.read_text())
+        return data.get(user_id)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+# Per-room locks to prevent concurrent write issues to channel.jsonl
+ROOM_LOCKS: Dict[str, asyncio.Lock] = {}
+
+async def post_message_to_room(room_dir: Path, message: dict):
+    """Post a message to a room's channel.jsonl with locking.
+    
+    This function handles both writing to disk and broadcasting to the dashboard.
+    """
+    room_id = room_dir.name
+    if room_id not in ROOM_LOCKS:
+        ROOM_LOCKS[room_id] = asyncio.Lock()
+    
+    async with ROOM_LOCKS[room_id]:
+        channel_file = room_dir / "channel.jsonl"
+        
+        # Ensure timestamp and ID if missing
+        if "ts" not in message:
+            message["ts"] = datetime.now(timezone.utc).isoformat()
+        if "id" not in message:
+            message["id"] = f"msg-{uuid.uuid4().hex[:8]}"
+        
+        # Ensure we have a version if missing
+        if "v" not in message:
+            message["v"] = 1
+            
+        with open(channel_file, "a") as f:
+            f.write(json.dumps(message) + "\n")
+
+    # Broadcast to dashboard if broadcaster is available
+    try:
+        from dashboard.global_state import broadcaster
+        # We broadcast the message as a room_message event
+        await broadcaster.broadcast("room_message", {
+            "room_id": room_id,
+            "message": message
+        })
+    except (ImportError, AttributeError):
+        # Broadcaster not available (e.g. during some tests or early startup)
+        pass
 
 def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str, Any]]:
     """Parse a skill markdown file (default SKILL.md) for metadata and content using YAML frontmatter."""

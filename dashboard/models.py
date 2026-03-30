@@ -47,6 +47,25 @@ class TelegramConfigRequest(BaseModel):
     chat_id: str
 
 
+class RoomMessageRequest(BaseModel):
+    body: str
+    from_: str = Field("human", alias="from")
+    to: str = "manager"
+    type: str = "human-directive"
+
+    model_config = {"populate_by_name": True}
+
+
+class ChatAdapterConfigRequest(BaseModel):
+    platform: str
+    config: Dict[str, Any]
+
+
+class ChatNotificationSettings(BaseModel):
+    important_events: List[str]
+    enabled_platforms: List[str]
+
+
 class CreatePlanRequest(BaseModel):
     path: str
     title: str = "Untitled"

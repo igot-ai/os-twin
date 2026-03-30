@@ -9,10 +9,11 @@ from pathlib import Path
 
 from dashboard.api_utils import (
     WARROOMS_DIR, PROJECT_ROOT, AGENTS_DIR, PLANS_DIR,
-    read_room, read_channel, process_notification
+    read_room, read_channel, process_notification, post_message_to_room, find_room_dir
 )
 import dashboard.global_state as global_state
 from dashboard.auth import get_current_user
+from dashboard.models import RoomMessageRequest
 
 router = APIRouter(tags=["rooms"])
 
@@ -70,23 +71,8 @@ async def get_channel(
     user: dict = Depends(get_current_user)
 ):
     """Get messages for a specific war-room with filtering support."""
-    room_dir = WARROOMS_DIR / room_id
-    if not room_dir.exists():
-        # Search plan-specific war-room directories
-        plans_dir = PLANS_DIR
-        if plans_dir.exists():
-            for meta_file in plans_dir.glob("*.meta.json"):
-                try:
-                    meta = json.loads(meta_file.read_text())
-                    wd = meta.get("working_dir")
-                    if wd:
-                        candidate = Path(wd) / ".war-rooms" / room_id
-                        if candidate.exists():
-                            room_dir = candidate
-                            break
-                except (ValueError, KeyError):
-                    pass
-    if not room_dir.exists():
+    room_dir = find_room_dir(room_id)
+    if not room_dir:
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
         
     messages = read_channel(
@@ -99,6 +85,21 @@ async def get_channel(
         limit=limit
     )
     return {"messages": messages}
+
+@router.post("/api/rooms/{room_id}/message")
+async def post_room_message(
+    room_id: str,
+    message: RoomMessageRequest,
+    user: dict = Depends(get_current_user)
+):
+    """Post a message to a specific war-room."""
+    room_dir = find_room_dir(room_id)
+    if not room_dir:
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
+
+    msg_dict = message.model_dump(by_alias=True)
+    await post_message_to_room(room_dir, msg_dict)
+    return {"status": "success", "message": msg_dict}
 
 @router.get("/api/rooms/{room_id}/analyze")
 async def analyze_messages(

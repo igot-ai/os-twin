@@ -47,7 +47,7 @@ from dashboard.api_utils import (
     FE_OUT_DIR,
 )
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, chat_adapters, agent
 from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
@@ -124,6 +124,8 @@ app.include_router(skills.router)
 app.include_router(roles.router)
 app.include_router(memory.router)
 app.include_router(channels.router)
+app.include_router(chat_adapters.router)
+app.include_router(agent.router)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:

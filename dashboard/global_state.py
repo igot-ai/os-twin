@@ -2,6 +2,7 @@ import json
 import asyncio
 from typing import List
 from dashboard.ws_router import manager
+from dashboard.notification_dispatcher import notification_dispatcher
 
 class Broadcaster:
     def __init__(self):
@@ -27,6 +28,9 @@ class Broadcaster:
             
         # WebSocket format
         await manager.broadcast(event_dict)
+
+        # Notify external platforms (async, non-blocking for this method's completion)
+        asyncio.create_task(notification_dispatcher.dispatch(event_type, data))
 
 broadcaster = Broadcaster()
 
