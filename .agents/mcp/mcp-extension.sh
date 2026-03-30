@@ -48,8 +48,16 @@ PROJECT_DIR=""
 PYTHON="$HOME/.ostwin/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
-# Trigger vault hook
-"$PYTHON" -c "import sys; sys.path.append('$SCRIPT_DIR'); from vault import get_vault; get_vault()"
+# Trigger vault hook (non-fatal — vault is lazy-loaded per subcommand)
+"$PYTHON" -c "
+import sys
+sys.path.append('$SCRIPT_DIR')
+try:
+    from vault import get_vault
+    get_vault()
+except Exception:
+    pass
+" 2>/dev/null || true
 
 # ─── Colors ──────────────────────────────────────────────────────────────────
 
@@ -920,8 +928,12 @@ except ImportError as e:
     sys.exit(1)
 
 if not os.path.exists(home_config_file):
-    print(f'  ✗ Home config not found: {home_config_file}')
-    sys.exit(1)
+    # Bootstrap from builtins if home config doesn't exist yet
+    os.makedirs(os.path.dirname(home_config_file), exist_ok=True)
+    home_config = {"mcpServers": {}}
+    with open(home_config_file, 'w') as f:
+        json.dump(home_config, f, indent=2)
+    print(f'  ✓ Created home config: {home_config_file}')
 
 with open(home_config_file) as f:
     home_config = json.load(f)
