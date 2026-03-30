@@ -3,7 +3,7 @@ import sys
 import uvicorn
 import logging
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
@@ -16,6 +16,14 @@ if _root not in sys.path:
 if _dashboard_dir not in sys.path:
     sys.path.insert(0, _dashboard_dir)
 
+# Respect --project-dir early so imported modules resolve paths correctly.
+if "--project-dir" in sys.argv:
+    try:
+        project_dir_arg = sys.argv[sys.argv.index("--project-dir") + 1]
+        os.environ["OSTWIN_PROJECT_DIR"] = os.path.abspath(project_dir_arg)
+    except (IndexError, ValueError):
+        pass
+
 from dashboard.api_utils import (
     PROJECT_ROOT,
     AGENTS_DIR,
@@ -27,6 +35,7 @@ from dashboard.api_utils import (
 from dashboard.tasks import startup_all
 from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills
 from dashboard.global_state import broadcaster
+from dashboard.auth import get_current_user, get_current_user_ws
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,7 +48,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from dashboard.ws_router import manager
 
 @app.websocket("/api/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, user: dict = Depends(get_current_user_ws)):
     await manager.connect(websocket)
     try:
         await websocket.send_json({
@@ -69,12 +78,12 @@ app.add_middleware(
 # --- Routes ---
 # (removed importlib logic for ws_router)
 app.include_router(auth.router)
-app.include_router(engagement.router)
-app.include_router(plans.router)
-app.include_router(rooms.router)
-app.include_router(system.router)
-app.include_router(mcp.router)
-app.include_router(skills.router)
+app.include_router(engagement.router, dependencies=[Depends(get_current_user)])
+app.include_router(plans.router, dependencies=[Depends(get_current_user)])
+app.include_router(rooms.router, dependencies=[Depends(get_current_user)])
+app.include_router(system.router, dependencies=[Depends(get_current_user)])
+app.include_router(mcp.router, dependencies=[Depends(get_current_user)])
+app.include_router(skills.router, dependencies=[Depends(get_current_user)])
 
 # --- Static Frontend Serving ---
 if USE_NEXTJS:

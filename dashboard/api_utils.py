@@ -43,7 +43,9 @@ SKILLS_DIRS = [
 ]
 if os.environ.get("OSTWIN_PROJECT_DIR"):
     PROJECT_ROOT = Path(os.environ.get("OSTWIN_PROJECT_DIR"))
-    AGENTS_DIR = PROJECT_ROOT / ".agents"
+    project_agents_dir = PROJECT_ROOT / ".agents"
+    if project_agents_dir.exists():
+        AGENTS_DIR = project_agents_dir
     WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
 # Next.js export detection

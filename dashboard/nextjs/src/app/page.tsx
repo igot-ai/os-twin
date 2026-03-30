@@ -148,6 +148,10 @@ export default function Dashboard() {
   }, [loadNotifications]);
 
   useEffect(() => {
+    loadInitialRooms();
+  }, [loadInitialRooms]);
+
+  useEffect(() => {
     if (activePlanId) {
       loadNotifications();
     }

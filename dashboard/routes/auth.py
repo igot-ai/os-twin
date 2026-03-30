@@ -1,6 +1,7 @@
 import os
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
+from dashboard.auth import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -57,10 +58,8 @@ async def login_for_access_token(request: Request):
 
 
 @router.get("/me")
-async def read_users_me(request: Request):
+async def read_users_me(user: dict = Depends(get_current_user)):
     """Return current user info — validates the API key from header or cookie."""
-    from dashboard.auth import get_current_user as _get_user
-    user = await _get_user(request)
     return user
 
 

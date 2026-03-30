@@ -156,7 +156,7 @@ async def analyze_messages(
     }
 
 @router.get("/api/events")
-async def sse_events():
+async def sse_events(user: dict = Depends(get_current_user)):
     """Server-Sent Events stream."""
     async def event_generator() -> AsyncIterator[str]:
         queue = await global_state.broadcaster.subscribe_sse()
@@ -185,6 +185,7 @@ async def search_messages(
     room_id: str | None = Query(None),
     type: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(get_current_user)
 ):
     """Semantic vector search across all indexed messages."""
     store = global_state.store
@@ -198,6 +199,7 @@ async def search_room_context(
     room_id: str,
     q: str = Query(..., min_length=1),
     limit: int = Query(10, ge=1, le=50),
+    user: dict = Depends(get_current_user)
 ):
     """Semantic search scoped to a single room."""
     store = global_state.store
@@ -207,7 +209,7 @@ async def search_room_context(
     return {"results": results, "count": len(results)}
 
 @router.get("/api/rooms/{room_id}/state")
-async def get_room_state(room_id: str):
+async def get_room_state(room_id: str, user: dict = Depends(get_current_user)):
     """Get room metadata."""
     store = global_state.store
     if store:
@@ -222,7 +224,7 @@ async def get_room_state(room_id: str):
 
 
 @router.post("/api/rooms/{room_id}/action")
-async def room_action(room_id: str, background_tasks: BackgroundTasks, action: str = Query(...)):
+async def room_action(room_id: str, background_tasks: BackgroundTasks, action: str = Query(...), user: dict = Depends(get_current_user)):
     """Perform an action on a room (stop, pause, resume)."""
     room_dir = WARROOMS_DIR / room_id
     if not room_dir.exists():

@@ -34,3 +34,5 @@ snake-game/
 .agents/memory/
 memory_note_001.txt
 install-node.sh
+gold-mining-game/
+gold-mining-game-old/

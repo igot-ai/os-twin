@@ -122,18 +122,18 @@ async def get_config(user: dict = Depends(get_current_user)):
     return json.loads(config_file.read_text())
 
 @router.get("/telegram/config")
-async def get_telegram_config():
+async def get_telegram_config(user: dict = Depends(get_current_user)):
     return telegram_bot.get_config()
 
 @router.post("/telegram/config")
-async def save_telegram_config(config: TelegramConfigRequest):
+async def save_telegram_config(config: TelegramConfigRequest, user: dict = Depends(get_current_user)):
     success = telegram_bot.save_config(config.bot_token, config.chat_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save telegram config")
     return {"status": "success"}
 
 @router.post("/telegram/test")
-async def test_telegram_connection():
+async def test_telegram_connection(user: dict = Depends(get_current_user)):
     success = await telegram_bot.send_message("Test message from OS Twin!")
     if not success:
         raise HTTPException(status_code=500, detail="Failed to send test message")
@@ -175,7 +175,7 @@ async def get_role_config(role_name: str, user: dict = Depends(get_current_user)
     }
 
 @router.get("/fs/browse")
-async def browse_filesystem(path: str = Query(None)):
+async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_current_user)):
     if not path:
         path = str(Path.home())
     target = Path(path).expanduser().resolve()
@@ -196,12 +196,12 @@ async def browse_filesystem(path: str = Query(None)):
     return {"current": str(target), "parent": parent, "dirs": dirs}
 
 @router.post("/shell")
-async def shell_command(command: str):
+async def shell_command(command: str, user: dict = Depends(get_current_user)):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
 
 @router.get("/run_pytest_auth")
-async def run_pytest_auth():
+async def run_pytest_auth(user: dict = Depends(get_current_user)):
     import asyncio
     cmd = ["python3", "-m", "pytest", str(PROJECT_ROOT / "test_auth.py"), "-v"]
     process = await asyncio.create_subprocess_exec(
@@ -217,7 +217,7 @@ async def run_pytest_auth():
     }
 
 @router.get("/test_ws")
-async def run_ws_test():
+async def run_ws_test(user: dict = Depends(get_current_user)):
     import subprocess
     cmd = ["python3", str(PROJECT_ROOT / "test_ws.py")]
     process = subprocess.run(cmd, capture_output=True, text=True)

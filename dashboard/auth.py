@@ -14,7 +14,7 @@ import secrets
 from typing import Optional
 from datetime import timedelta
 
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, WebSocket
 
 # Kept for API compatibility with existing imports
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -43,7 +43,7 @@ def generate_api_key() -> str:
     return f"ostwin_{secrets.token_urlsafe(32)}"
 
 
-def _extract_api_key(request: Request) -> Optional[str]:
+def _extract_api_key_from_request(request: Request) -> Optional[str]:
     """Extract API key from request headers or cookies.
 
     Checks (in order):
@@ -51,7 +51,6 @@ def _extract_api_key(request: Request) -> Optional[str]:
       2. Authorization: Bearer <key>
       3. Cookie: ostwin_auth_key
     """
-    # Check X-API-Key header
     api_key = request.headers.get("x-api-key")
     if api_key:
         return api_key
@@ -69,13 +68,29 @@ def _extract_api_key(request: Request) -> Optional[str]:
     return None
 
 
-async def get_current_user(request: Request) -> dict:
-    """Validate API key — always required.
+def _extract_api_key_from_websocket(websocket: WebSocket) -> Optional[str]:
+    """Extract API key from websocket headers, cookies, or query params."""
+    api_key = websocket.headers.get("x-api-key")
+    if api_key:
+        return api_key
 
-    The key can be provided via header or cookie.
-    Returns 401 if missing or invalid.
-    """
-    provided_key = _extract_api_key(request)
+    auth_header = websocket.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:].strip()
+
+    cookie_key = websocket.cookies.get(AUTH_COOKIE_NAME)
+    if cookie_key:
+        return cookie_key
+
+    q_key = websocket.query_params.get("key")
+    if q_key:
+        return q_key
+
+    return None
+
+
+def _validate_api_key(provided_key: Optional[str]) -> dict:
+    """Validate a provided API key and return the authenticated user."""
     if not provided_key:
         raise HTTPException(
             status_code=401,
@@ -89,3 +104,17 @@ async def get_current_user(request: Request) -> dict:
         )
 
     return {"username": "api-key-user"}
+
+
+async def get_current_user(request: Request) -> dict:
+    """Validate API key for HTTP requests.
+
+    The key can be provided via header or cookie.
+    Returns 401 if missing or invalid.
+    """
+    return _validate_api_key(_extract_api_key_from_request(request))
+
+
+async def get_current_user_ws(websocket: WebSocket) -> dict:
+    """Validate API key for websocket connections."""
+    return _validate_api_key(_extract_api_key_from_websocket(websocket))
