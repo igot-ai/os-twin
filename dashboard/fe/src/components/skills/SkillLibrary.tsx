@@ -16,6 +16,8 @@ const categoryColors: Record<SkillCategory, string> = {
   triage: '#ef4444',
 };
 
+const PAGE_SIZE = 16;
+
 type SortOption = 'name' | 'most-used' | 'recently-updated' | 'category';
 
 interface SkillLibraryProps {
@@ -28,6 +30,7 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
   const [selectedCategories, setSelectedCategories] = useState<SkillCategory[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('name');
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   
   const { skills, isLoading, isError, syncWithDisk } = useSkills(
     selectedCategories.length === 1 ? selectedCategories[0] : undefined,
@@ -83,6 +86,32 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
         }
       });
   }, [skills, debouncedSearch, selectedCategories, sortOption]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedCategories, sortOption]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSkills.length / PAGE_SIZE));
+  const paginatedSkills = filteredSkills.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
+
+  const getPageNumbers = () => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push('ellipsis');
+      for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+        pages.push(i);
+      }
+      if (currentPage < totalPages - 2) pages.push('ellipsis');
+      pages.push(totalPages);
+    }
+    return pages;
+  };
 
   if (isError) return <div className="p-8 text-red-500">Failed to load skills</div>;
 
@@ -163,9 +192,9 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
             <div key={i} className="h-32 rounded-xl bg-slate-100 animate-pulse" />
           ))}
         </div>
-      ) : filteredSkills.length > 0 ? (
+      ) : paginatedSkills.length > 0 ? (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
-          {filteredSkills.map((skill) => (
+          {paginatedSkills.map((skill) => (
             <SkillCard
               key={skill.id}
               skill={skill}
@@ -179,6 +208,53 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
             sentiment_dissatisfied
           </span>
           <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>No skills found matching your filters</p>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-1 pt-2">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="flex items-center justify-center w-8 h-8 rounded-md text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100"
+            style={{ color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}
+          >
+            <span className="material-symbols-outlined text-sm">chevron_left</span>
+          </button>
+          {getPageNumbers().map((page, i) =>
+            page === 'ellipsis' ? (
+              <span key={`e-${i}`} className="w-8 h-8 flex items-center justify-center text-xs" style={{ color: 'var(--color-text-faint)' }}>
+                ...
+              </span>
+            ) : (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`w-8 h-8 rounded-md text-xs font-medium transition-colors ${
+                  currentPage === page ? 'text-white' : 'hover:bg-slate-100'
+                }`}
+                style={{
+                  background: currentPage === page ? 'var(--color-accent, #3b82f6)' : 'transparent',
+                  color: currentPage === page ? '#fff' : 'var(--color-text-muted)',
+                  border: currentPage === page ? 'none' : '1px solid var(--color-border)',
+                }}
+              >
+                {page}
+              </button>
+            )
+          )}
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="flex items-center justify-center w-8 h-8 rounded-md text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100"
+            style={{ color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}
+          >
+            <span className="material-symbols-outlined text-sm">chevron_right</span>
+          </button>
+          <span className="ml-3 text-[11px]" style={{ color: 'var(--color-text-faint)' }}>
+            {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredSkills.length)} of {filteredSkills.length}
+          </span>
         </div>
       )}
 

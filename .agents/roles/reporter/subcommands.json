@@ -1,9 +1,13 @@
 {
   "role": "reporter",
-  "subcommands": {
-    "test-append": {
-      "description": "Test",
-      "invoke": "bash /private/tmp/77f7b1f5-8d93-4a36-b9bd-445f8a2a0d8f/mock-script-append.sh"
+  "language": "python",
+  "subcommands": [
+    {
+      "name": "start",
+      "type": "script",
+      "entrypoint": "__main__.py",
+      "invoke": "python -m dashboard {args}",
+      "description": "Start the reporter"
     }
-  }
+  ]
 }

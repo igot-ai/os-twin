@@ -11,21 +11,22 @@ import os
 import sys
 import json
 import httpx
+from fastapi.testclient import TestClient
+from dashboard.api import app
+from dotenv import load_dotenv
+from pathlib import Path as pathlib_Path
+
+_env = pathlib_Path.home() / ".ostwin" / ".env"
+if _env.is_file():
+    load_dotenv(_env, override=True)
 import time
 from pathlib import Path
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
 
-# Resolve AGENTS_DIR: same heuristic as api_utils.py
-_this_dir = Path(__file__).parent
-if (_this_dir.parent / ".agents").exists():
-    AGENTS_DIR = _this_dir.parent / ".agents"
-elif _this_dir.name == "dashboard" and (_this_dir.parent.name == ".agents"):
-    AGENTS_DIR = _this_dir.parent
-else:
-    AGENTS_DIR = _this_dir.parent / ".agents"
-
-PLANS_DIR = AGENTS_DIR / "plans"
+import sys
+sys.path.insert(0, str(pathlib_Path(__file__).resolve().parent.parent.parent))
+from dashboard.api_utils import PLANS_DIR
 
 
 def test_create_plan_produces_meta_json():
@@ -33,7 +34,9 @@ def test_create_plan_produces_meta_json():
     title = f"Test Plan Meta {int(time.time())}"
     working_dir = "/tmp/test-plan-meta"
 
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    API_KEY = os.environ.get("OSTWIN_API_KEY", "")
+    HEADERS = {"X-API-Key": API_KEY}
+    with TestClient(app, headers=HEADERS) as client:
         # --- 1. Create plan ---
         resp = client.post("/api/plans/create", json={
             "path": working_dir,

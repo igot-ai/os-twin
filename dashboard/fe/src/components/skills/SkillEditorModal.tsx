@@ -118,13 +118,20 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[100] flex justify-end animate-in fade-in duration-300">
+      {/* Backdrop */}
       <div
-        className="rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-300"
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div
+        className="relative w-full max-w-2xl h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden"
         style={{ background: 'var(--color-surface)' }}
       >
         {/* Header */}
-        <div className="px-6 py-5 border-b flex items-center justify-between" style={{ borderColor: 'var(--color-border)' }}>
+        <div className="px-6 py-5 border-b flex items-center justify-between sticky top-0 z-10" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
               <span className="material-symbols-outlined text-xl text-primary">extension</span>
@@ -266,14 +273,18 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
                 </div>
               )}
             </div>
-            <div className="relative border rounded-xl overflow-hidden min-h-[250px] flex flex-col bg-white" style={{ borderColor: 'var(--color-border)' }}>
+            <div className="relative border rounded-xl min-h-[250px] max-h-[50vh] bg-white overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
               <textarea
                 value={content}
                 onChange={e => setContent(e.target.value)}
-                className="w-full flex-1 p-4 font-mono text-xs outline-none resize-none bg-transparent relative z-10 text-transparent caret-black focus:ring-4 focus:ring-primary/10"
+                onScroll={e => {
+                  const overlay = e.currentTarget.nextElementSibling as HTMLElement;
+                  if (overlay) overlay.scrollTop = e.currentTarget.scrollTop;
+                }}
+                className="w-full h-full min-h-[250px] max-h-[50vh] p-4 font-mono text-xs outline-none resize-none bg-transparent relative z-10 text-transparent caret-black focus:ring-4 focus:ring-primary/10 overflow-y-auto custom-scrollbar"
                 placeholder="Write your skill instructions here... Use {{variable}} for dynamic content."
               />
-              <div className="absolute inset-0 p-4 font-mono text-xs pointer-events-none whitespace-pre-wrap break-words overflow-y-auto" style={{ color: 'var(--color-text-main)' }}>
+              <div className="absolute inset-0 p-4 font-mono text-xs pointer-events-none whitespace-pre-wrap break-words overflow-y-hidden" style={{ color: 'var(--color-text-main)' }}>
                 {renderContentWithHighlights()}
               </div>
             </div>
@@ -294,7 +305,7 @@ export const SkillEditorModal: React.FC<SkillEditorModalProps> = ({
 
         {/* Footer */}
         <div
-          className="px-6 py-4 border-t flex items-center justify-between shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.06)]"
+          className="px-6 py-4 border-t flex items-center justify-between sticky bottom-0 z-10 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)]"
           style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
         >
           <div>
