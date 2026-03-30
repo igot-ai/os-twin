@@ -16,6 +16,14 @@ import os
 import sys
 import json
 import httpx
+from fastapi.testclient import TestClient
+from dashboard.api import app
+from dotenv import load_dotenv
+from pathlib import Path as pathlib_Path
+
+_env = pathlib_Path.home() / ".ostwin" / ".env"
+if _env.is_file():
+    load_dotenv(_env, override=True)
 import time
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
@@ -79,7 +87,9 @@ def test_create_with_initfile_content():
     title = "Migrate Auth to OAuth2"
     working_dir = "/tmp/test-initfile"
 
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    API_KEY = os.environ.get("OSTWIN_API_KEY", "")
+    HEADERS = {"X-API-Key": API_KEY}
+    with TestClient(app, headers=HEADERS) as client:
         # --- 1. Create plan WITH content (simulates -InitFile) ---
         resp = client.post("/api/plans/create", json={
             "path": working_dir,
@@ -153,7 +163,9 @@ def test_create_without_content_uses_default():
     title = f"Default Template Test {int(time.time())}"
     working_dir = "/tmp/test-no-initfile"
 
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    API_KEY = os.environ.get("OSTWIN_API_KEY", "")
+    HEADERS = {"X-API-Key": API_KEY}
+    with TestClient(app, headers=HEADERS) as client:
         # --- 1. Create plan WITHOUT content (no -InitFile) ---
         resp = client.post("/api/plans/create", json={
             "path": working_dir,
@@ -208,7 +220,9 @@ def test_content_with_explicit_title_override():
     override_title = f"Override Title {int(time.time())}"
     working_dir = "/tmp/test-title-override"
 
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    API_KEY = os.environ.get("OSTWIN_API_KEY", "")
+    HEADERS = {"X-API-Key": API_KEY}
+    with TestClient(app, headers=HEADERS) as client:
         resp = client.post("/api/plans/create", json={
             "path": working_dir,
             "title": override_title,               # explicit title
@@ -249,7 +263,9 @@ def test_empty_content_treated_as_no_content():
     title = f"Empty Content Test {int(time.time())}"
     working_dir = "/tmp/test-empty-content"
 
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    API_KEY = os.environ.get("OSTWIN_API_KEY", "")
+    HEADERS = {"X-API-Key": API_KEY}
+    with TestClient(app, headers=HEADERS) as client:
         resp = client.post("/api/plans/create", json={
             "path": working_dir,
             "title": title,
@@ -284,7 +300,9 @@ def test_content_not_mutated_by_api():
     title = f"Minimal Content Test {int(time.time())}"
     working_dir = "/tmp/test-minimal"
 
-    with httpx.Client(base_url=DASHBOARD_URL, timeout=10) as client:
+    API_KEY = os.environ.get("OSTWIN_API_KEY", "")
+    HEADERS = {"X-API-Key": API_KEY}
+    with TestClient(app, headers=HEADERS) as client:
         resp = client.post("/api/plans/create", json={
             "path": working_dir,
             "title": title,

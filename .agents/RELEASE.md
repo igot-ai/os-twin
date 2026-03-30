@@ -1,6 +1,6 @@
 # Release: v0.1.0-20260330
 
-**Date**: 2026-03-30 04:48:41 UTC
+**Date**: 2026-03-29 18:09:39 UTC
 **Status**: Approved
 
 ## Summary
@@ -25,11 +25,11 @@ Install: https://github.com/BurntSushi/ripgrep#installation
 To suppress, add to ~/.deepagents/config.toml:
 [warnings]
 suppress = ["ripgrep"]
-The review of EPIC-001 for the YouTube Clone MVP is complete. All architectural inconsistencies and quality gaps identified in the previous review have been systematically addressed.
-VERDICT: PASS
-### Reasoning
-1.  **Unified Architecture**: The redundant and inconsistent mock data files have been consolidated into a single source of truth at `src/data/mockData.ts`, governed by unified TypeScript interfaces in `src/types/video.ts`.
-2.  **Resolved Navigation & Logic**: Navigation between the `HomePage` and `WatchPage` is now fully synchronized. The application correctly handles all 8 mock video IDs and provides a fallback mechanism for non-existent IDs.
+The implementation of **EPIC-001 — MCP Home Registry with Vault Credentials** has been thoroughly reviewed and tested. The engineer has successfully addressed all the architectural flaws and AC failures identified in the previous review cycle.
+### Key Improvements & Verifications:
+1.  **Global Registry**: The registry is now truly global. `extensions.json` and `mcp-config.json` are stored in `~/.ostwin/mcp/`, ensuring a single source of truth across all projects.
+2.  **Vault Integration**: The `MacOSKeychainVault` correctly uses the `security` CLI to manage credentials in the system keychain with the specified namespace (`ostwin-mcp/{server}/{key}`).
+3.  **Config Resolution**: The `ConfigResolver` (implemented as requested, though named differently than the DoD's `VaultResolver`) correctly handles `${vault:...}` placeholders and, crucially, now raises a clear `ValueError` when a reference cannot be resolved.
 
 ### EPIC-002 — EPIC-002
 
@@ -40,11 +40,11 @@ Install: https://github.com/BurntSushi/ripgrep#installation
 To suppress, add to ~/.deepagents/config.toml:
 [warnings]
 suppress = ["ripgrep"]
-VERDICT: PASS
-The implementation of EPIC-002 is complete and meets all acceptance criteria. The Watch Page features a responsive two-column layout with a functional video player area, metadata (including channel info and actions), a comments section populated with mock data, and a sidebar for recommended videos.
-**Key Findings:**
-1. **Core Functionality**: Navigation from the Home page to the Watch page works seamlessly using `react-router-dom` v7. Clicking recommended videos correctly updates the watch page.
-2. **Data Integrity**: Mock data has been consolidated into `src/data/mockData.ts`, and the `Comment` and `Video` interfaces in `src/types/video.ts` are correctly implemented and utilized.
+The implementation of **EPIC-002 — CLI MCP Test & Project Config Compilation** has been fully reviewed. The engineer has successfully addressed all requirements, including the critical fix for the missing credential error message that caused the previous review cycle to fail.
+### Key Implementation Strengths:
+1.  **Connectivity Testing**: `mcp_test.py` correctly implements both HTTP and stdio connectivity checks, including full JSON-RPC `initialize` handshakes and tool discovery.
+2.  **Configuration Compilation**: `ConfigResolver.compile_config` (in `config_resolver.py`) accurately handles the merging of home and builtin configs while substituting `${vault:...}` references with `${ENV_VAR}` placeholders.
+3.  **Credential Management**: `.env.mcp` generation and its automatic exclusion via `.gitignore` are correctly handled in both `mcp-extension.sh` and `init.sh`.
 
 ### EPIC-003 — EPIC-003
 
@@ -55,19 +55,20 @@ Install: https://github.com/BurntSushi/ripgrep#installation
 To suppress, add to ~/.deepagents/config.toml:
 [warnings]
 suppress = ["ripgrep"]
-VERDICT: PASS
-The EPIC-003 Search and Polish has been successfully implemented and verified. All acceptance criteria from TASKS.md are fully met.
-### Summary of Review
-- **Search Functionality**: Functional search state lifted to `App.tsx` and implemented in `Navbar.tsx`. Case-insensitive filtering by video title and channel name is correctly implemented in `HomePage.tsx`.
-- **Navigation**: Searching from the `WatchPage` correctly redirects the user back to the `HomePage` to display results.
+The EPIC-003 implementation of the Dashboard MCP Management UI has been successfully updated to address all previous QA concerns. 
+**Summary of Improvements:**
+- **AddServerDialog**: Fully implemented with new fields for environment variables and HTTP headers, including the required "Store in Vault" toggle.
+- **Vault Integration**: Backend `add_mcp_server` now correctly handles sensitive values by storing them in the macOS Keychain/Vault and using `${vault:...}` references in the configuration file.
+- **Real Connectivity Testing**: Replaced the simulated check with a full protocol handshake using the `mcp` SDK (`stdio_client`/`sse_client` and `ClientSession`). The `/test` endpoint now verifies that the server can actually initialize and communicate.
 
 
 ## Sign-offs
 
 | Role     | Status  | Timestamp |
 |----------|---------|-----------|
-| Engineer | Approved | 2026-03-30T04:48:41Z |
-| Manager | Approved | 2026-03-30T04:48:41Z |
+| Engineer | Approved | 2026-03-29T18:09:39Z |
+| Qa | Approved | 2026-03-29T18:09:39Z |
+| Manager | Approved | 2026-03-29T18:09:39Z |
 
 ---
 

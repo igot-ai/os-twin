@@ -61,12 +61,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Try to bootstrap from local-key or existing cookie on mount
+  // Check existing cookie on mount
   useEffect(() => {
     async function bootstrap() {
       try {
         const API_BASE = getApiBaseUrl();
-        // 1. Check if already authed (cookie)
         const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
         if (meRes.ok) {
           const me = await meRes.json();
@@ -74,20 +73,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUsername(me.username || 'user');
           setIsLoading(false);
           return;
-        }
-
-        // 2. Try local-key bootstrap (dev mode)
-        const localRes = await fetch(`${API_BASE}/auth/local-key`);
-        if (localRes.ok) {
-          const data = await localRes.json();
-          if (data.key) {
-            // Auto-login with the local key
-            const success = await doLogin(data.key);
-            if (success) {
-              setIsLoading(false);
-              return;
-            }
-          }
         }
       } catch {
         // Backend not reachable — show auth overlay

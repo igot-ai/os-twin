@@ -210,16 +210,19 @@ async def search_room_context(
 @router.get("/api/rooms/{room_id}/state")
 async def get_room_state(room_id: str):
     """Get room metadata."""
+    room_dir = WARROOMS_DIR / room_id
+    if not room_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
+    
+    data = read_room(room_dir, include_metadata=True)
+    
     store = global_state.store
     if store:
         meta = store.get_room_metadata(room_id)
         if meta:
-            return meta
-    # Fallback to file-based read
-    room_dir = WARROOMS_DIR / room_id
-    if not room_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
-    return read_room(room_dir, include_metadata=True)
+            data.update(meta)
+            
+    return data
 
 
 @router.post("/api/rooms/{room_id}/action")

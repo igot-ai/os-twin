@@ -17,6 +17,7 @@ __pycache__/
 **/__pycache__/**
 
 # ── Local data & secrets ──────────────────────────────────────────────────────
+.ostwin/mcp/mcp-config.json
 .claude/
 .agents/plans/
 /plans/
@@ -47,3 +48,6 @@ dashboard/fe/pnpm-lock.yaml
 coverage/
 bk/
 .deepagents/
+
+# Ostwin MCP secrets
+.agents/mcp/.env.mcp
