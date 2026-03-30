@@ -1,14 +1,10 @@
 {
   "engineer": {
     "status": "approved",
-    "timestamp": "2026-04-07T08:33:33Z"
-  },
-  "qa": {
-    "status": "approved",
-    "timestamp": "2026-04-07T08:33:33Z"
+    "timestamp": "2026-03-30T04:48:41Z"
   },
   "manager": {
     "status": "approved",
-    "timestamp": "2026-04-07T08:33:33Z"
+    "timestamp": "2026-03-30T04:48:41Z"
   }
 }
