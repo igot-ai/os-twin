@@ -108,5 +108,21 @@
     "system_prompt_override": null,
     "created_at": "2026-03-26T05:07:32.879619+00:00",
     "updated_at": "2026-03-30T04:38:40.967075+00:00"
+  },
+  {
+    "id": "c7b48d81-317c-4e85-947a-735fb348461b",
+    "name": "unique-role",
+    "description": "",
+    "instructions": "",
+    "provider": "GPT",
+    "version": "gpt-4o",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "skill_refs": [],
+    "system_prompt_override": null,
+    "created_at": "2026-03-30T06:19:51.600650+00:00",
+    "updated_at": "2026-03-30T06:19:51.600650+00:00"
   }
 ]

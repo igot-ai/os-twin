@@ -49,7 +49,7 @@ PYTHON="$HOME/.ostwin/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
 # Trigger vault hook
-"$PYTHON" -c "import sys; sys.path.append('$(dirname "$0")'); from vault import get_vault; get_vault()"
+"$PYTHON" -c "import sys; sys.path.append('$SCRIPT_DIR'); from vault import get_vault; get_vault()"
 
 # ─── Colors ──────────────────────────────────────────────────────────────────
 

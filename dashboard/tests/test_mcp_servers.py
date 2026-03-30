@@ -94,8 +94,12 @@ def test_add_mcp_server():
 async def test_test_mcp_server_success():
     mock_session = MagicMock()
     async def mock_init():
-        return None
+        return MagicMock(serverInfo=MagicMock(name="test", version="1.0"))
     mock_session.initialize = mock_init
+    
+    async def mock_list_tools():
+        return MagicMock(tools=[MagicMock(name="tool1", description="desc1")])
+    mock_session.list_tools = mock_list_tools
     
     mock_stdio = MagicMock()
     mock_stdio.__aenter__.return_value = (MagicMock(), MagicMock())
@@ -111,7 +115,7 @@ async def test_test_mcp_server_success():
         response = client.post("/api/mcp/servers/test/test")
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        assert "initialized stdio MCP server" in response.json()["message"]
+        assert "Connected" in response.json()["message"]
 
 def test_set_server_credential():
     mock_vault = MagicMock()
@@ -143,8 +147,11 @@ def test_delete_server_credential():
 @pytest.mark.asyncio
 async def test_test_mcp_server_http():
     mock_session = MagicMock()
-    async def mock_init(): return None
+    async def mock_init(): return MagicMock(serverInfo=MagicMock(name="test", version="1.0"))
     mock_session.initialize = mock_init
+    
+    async def mock_list_tools(): return MagicMock(tools=[MagicMock(name="tool1", description="desc1")])
+    mock_session.list_tools = mock_list_tools
     
     mock_sse = MagicMock()
     mock_sse.__aenter__.return_value = (MagicMock(), MagicMock())
@@ -159,7 +166,7 @@ async def test_test_mcp_server_http():
         response = client.post("/api/mcp/servers/test/test")
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        assert "HTTP MCP server" in response.json()["message"]
+        assert "Connected" in response.json()["message"]
 
 def test_remove_mcp_server():
     with patch("dashboard.routes.mcp.HOME_CONFIG_FILE") as mock_home_path, \

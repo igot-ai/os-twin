@@ -30,9 +30,8 @@ class TestBuildSkillsListLimit(unittest.TestCase):
     """Tests for the limit parameter in build_skills_list."""
 
     def _patch_store(self, store):
-        """Create a mock global_state module with the given store."""
-        mock_module = SimpleNamespace(store=store)
-        return patch.dict("sys.modules", {"dashboard.global_state": mock_module})
+        """Mock global_state.store."""
+        return patch("dashboard.global_state.store", store)
 
     @patch("dashboard.api_utils.SKILLS_DIRS", new=[])
     def test_limit_caps_results_from_store(self):

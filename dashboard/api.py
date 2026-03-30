@@ -96,7 +96,8 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
+                    import time
+                    await websocket.send_json({"type": "pong", "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
             except: pass
     except WebSocketDisconnect:
         pass

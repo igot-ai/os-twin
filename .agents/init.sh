@@ -93,12 +93,12 @@ fi
 
 # Copy catalog from source if not present or outdated
 if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
-  cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$TARGET_AGENTS/mcp/mcp-catalog.json"
+  cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$TARGET_AGENTS/mcp/mcp-catalog.json" 2>/dev/null || true
 fi
 
 # Copy builtin config from source
 if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
-  cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json"
+  cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json" 2>/dev/null || true
 fi
 
 # Copy extension manager script
@@ -128,6 +128,7 @@ if [[ ! -f "$TARGET_AGENTS/mcp/mcp-config.json" ]]; then
   fi
   PROJECT_DIR_ABS="$(cd "$TARGET_DIR" 2>/dev/null && pwd || echo "$TARGET_DIR")"
 
+  PYTHON="python3"
   "$PYTHON" - <<PYEOF
 with open('$TARGET_AGENTS/mcp/mcp-config.json') as _f:
     _raw = _f.read()
