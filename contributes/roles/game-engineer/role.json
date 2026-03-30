@@ -1,6 +1,6 @@
 {
   "name": "game-engineer",
-  "description": "Unity C# code generator — produces SceneBuilder and AnimCreator scripts, implements dev stories, and validates with tests",
+  "description": "Unity C# code generator \u2014 produces SceneBuilder and AnimCreator scripts, implements dev stories, and validates with tests",
   "capabilities": [
     "code-generation",
     "unity-editor-scripting",
@@ -39,5 +39,6 @@
     "unity-coding",
     "unity-ugui",
     "unity-editor"
-  ]
+  ],
+  "instance_type": "worker"
 }

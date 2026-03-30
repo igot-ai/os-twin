@@ -49,6 +49,7 @@ param(
     [string]$Model = 'gemini-3-flash-preview',
     [int]$Timeout = 600,
     [string]$CLI = 'agent',
+    [string]$InstanceType = 'worker',
     [string]$PromptContent = ''
 )
 
@@ -98,6 +99,7 @@ $roleDefinition = [ordered]@{
     quality_gates = @()
     skills        = @($Skills)
     cli           = $CLI
+    instance_type = $InstanceType
     model         = $Model
     timeout       = $Timeout
 }

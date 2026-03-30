@@ -236,7 +236,6 @@ $reviewInstructions
 IMPORTANT: Your response MUST include exactly one of these lines:
   VERDICT: PASS
   VERDICT: FAIL
-  VERDICT: ESCALATE
 
 Use ESCALATE when the failure is NOT an implementation bug — e.g., the requirements
 are wrong, the architecture is fundamentally flawed, or the acceptance criteria are

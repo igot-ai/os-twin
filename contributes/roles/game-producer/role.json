@@ -1,6 +1,6 @@
 {
   "name": "game-producer",
-  "description": "Game Producer — orchestrates sprint planning, milestone tracking, team coordination, and war-room management for game projects",
+  "description": "Game Producer \u2014 orchestrates sprint planning, milestone tracking, team coordination, and war-room management for game projects",
   "capabilities": [
     "sprint-planning",
     "milestone-tracking",
@@ -19,5 +19,6 @@
   "cli": "agent",
   "model": "gemini-3.1-pro-preview",
   "timeout": 600,
-  "skill_refs": []
+  "skill_refs": [],
+  "instance_type": "worker"
 }
