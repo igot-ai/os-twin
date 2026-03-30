@@ -1,6 +1,0 @@
-.pnpm-store/
-node_modules/
-coverage/
-logs/
-recordings/
-.env

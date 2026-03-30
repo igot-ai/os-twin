@@ -12,8 +12,6 @@ from dashboard.api_utils import (
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
 from dashboard.zvec_store import OSTwinStore
-from dashboard.telegram_poller import start_polling
-
 logger = logging.getLogger(__name__)
 
 async def poll_war_rooms():
@@ -202,7 +200,6 @@ async def poll_war_rooms():
 async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
-    asyncio.create_task(start_polling())
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         # Initialize store in global state
