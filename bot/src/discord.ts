@@ -13,7 +13,6 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChatInputCommandInteraction,
-  ButtonInteraction,
   Message,
   VoiceState,
   TextChannel,
@@ -24,9 +23,10 @@ import path from 'path';
 import { EOL } from 'os';
 
 import config from './config';
-import { routeCommand, routeCallback, handleStatefulText, cmdHelp, BotResponse, Button } from './commands';
+import { routeCommand, routeCallback, handleStatefulText, BotResponse, Button } from './commands';
 import { askAgent } from './agent-bridge';
 import { getSession } from './sessions';
+import { transcribeAndLaunch } from './audio-transcript';
 
 // Voice command imports
 import * as pingCommand from './commands/ping';
@@ -213,7 +213,7 @@ export function createDiscordBot(): Client | null {
 
     // Shared bot commands
     const userId = String(interaction.user.id);
-    const longRunning = ['draft', 'edit', 'startplan', 'new', 'restart'].includes(commandName);
+    const longRunning = ['draft', 'edit', 'startplan', 'new', 'restart', 'transcribe'].includes(commandName);
     if (longRunning) await interaction.deferReply();
 
     const args = commandName === 'draft'
@@ -299,7 +299,28 @@ export function createDiscordBot(): Client | null {
       if (humans === 0) {
         console.log(`📭 [AUTO] All users left ${leftChannel.name} — saving and disconnecting...`);
         joinCommand.cleanupSession(guildId)
-          .then(({ saved }) => console.log(`📭 [AUTO] Saved ${saved.length} recording(s)`))
+          .then(async ({ saved }) => {
+            console.log(`📭 [AUTO] Saved ${saved.length} recording(s)`);
+            // Auto-pipeline: transcribe → plan → launch
+            if (saved.length > 0) {
+              // Find a text channel in the guild to post updates
+              const guild = leftChannel.guild;
+              const textChannel = guild.channels.cache.find(
+                ch => ch.isTextBased() && !ch.isVoiceBased()
+              ) as TextChannel | undefined;
+
+              const send = async (msg: string) => {
+                try { await textChannel?.send(msg); } catch { /* best effort */ }
+              };
+
+              const result = await transcribeAndLaunch(saved, send);
+              if (result.error) {
+                await send(`⚠️ Voice-to-code: ${result.error}`);
+              } else {
+                await send(`🎙→📝→🚀 *Voice-to-Code Complete!*\nPlan \`${result.planId}\` launched. Use /dashboard to monitor.`);
+              }
+            }
+          })
           .catch(err => console.error('[AUTO] Cleanup error:', err.message));
       }
     } catch {

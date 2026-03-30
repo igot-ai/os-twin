@@ -98,7 +98,7 @@ export function createTelegramBot(): Telegraf | null {
   const COMMANDS = [
     'menu', 'dashboard', 'status', 'compact', 'plans', 'errors',
     'skills', 'usage', 'help', 'start', 'cancel', 'edit',
-    'startplan', 'viewplan',
+    'startplan', 'viewplan', 'transcribe',
   ] as const;
 
   for (const cmd of COMMANDS) {

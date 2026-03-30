@@ -9,6 +9,7 @@
 
 import api from './api';
 import { getSession, clearSession, setMode, setPlan } from './sessions';
+import { listRecordings, transcribeAudio } from './audio-transcript';
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ function cmdSubmenuMonitoring(): BotResponse {
 function cmdSubmenuPlans(): BotResponse {
   return menu('📝 *Plans & AI*\nDraft, view, edit, and launch plans:', [
     [{ label: '✨ Draft New Plan', callbackData: 'cmd:draft_prompt' }],
+    [{ label: '🎙 Transcribe Recording', callbackData: 'cmd:transcribe' }],
     [{ label: '👁 View Plan', callbackData: 'cmd:viewplan' }],
     [{ label: '✏️ Edit Plan', callbackData: 'cmd:edit' }],
     [{ label: '🚀 Launch Plan', callbackData: 'cmd:startplan' }],
@@ -219,6 +221,7 @@ export function cmdHelp(): BotResponse {
 *Interactive AI Agent*
   /menu — Main interactive command menu.
   /draft <idea> — Create a new plan from a text prompt.
+  /transcribe — Transcribe a voice recording with AI.
   /edit — Select a plan to edit and refine with AI.
   /startplan — Select and launch a plan.
   /viewplan — Select and read a plan.
@@ -410,6 +413,64 @@ export async function handleStatefulText(userId: string, platform: string, userT
   return responses;
 }
 
+// ── Audio transcription ───────────────────────────────────────────
+
+async function cmdTranscribe(userId: string, platform: string): Promise<BotResponse[]> {
+  const files = listRecordings();
+  if (!files.length) return [text('ℹ️ No recordings found. Use `/join` in a voice channel first.')];
+
+  // If multiple recordings, show selection buttons
+  if (files.length > 1) {
+    const buttons = files.slice(0, 8).map(f => {
+      const label = f.length > 30 ? f.slice(0, 27) + '...' : f;
+      return [{ label: `🎙 ${label}`, callbackData: `menu:transcribe:${f}` }];
+    });
+    return [menu('🎙 *Select a recording to transcribe:*', buttons)];
+  }
+
+  // Single recording — transcribe directly
+  return transcribeFile(userId, platform, files[0]);
+}
+
+async function transcribeFile(userId: string, platform: string, filename: string): Promise<BotResponse[]> {
+  const responses: BotResponse[] = [text(`⏳ *Transcribing* \`${filename}\`...\nThis may take a moment.`)];
+
+  try {
+    const result = await transcribeAudio(filename);
+    const mins = Math.floor(result.durationSecs / 60);
+    const secs = Math.round(result.durationSecs % 60);
+
+    const session = getSession(userId, platform);
+    session.lastTranscription = result.text;
+    session.lastActivity = Date.now();
+
+    let transcriptDisplay = result.text;
+    if (transcriptDisplay.length > 3000) {
+      transcriptDisplay = transcriptDisplay.slice(0, 3000) + '\n...[truncated]';
+    }
+
+    responses.push(text(`🎙 *Transcription* (${mins}m ${secs}s)\n\n${transcriptDisplay}`));
+    responses.push(menu('What would you like to do with this transcription?', [
+      [{ label: '📝 Draft Plan from Recording', callbackData: 'cmd:transcribe_plan' }],
+      [{ label: '🔄 Transcribe Another', callbackData: 'cmd:transcribe' }],
+    ]));
+  } catch (err: any) {
+    responses.push(text(`❌ Transcription failed: ${err.message}`));
+  }
+
+  return responses;
+}
+
+async function cmdTranscribePlan(userId: string, platform: string): Promise<BotResponse[]> {
+  const session = getSession(userId, platform);
+  if (!session.lastTranscription) {
+    return [text('⚠️ No transcription available. Run /transcribe first.')];
+  }
+
+  const idea = `Plan based on voice discussion:\n\n${session.lastTranscription}`;
+  return processDraft(userId, platform, idea);
+}
+
 function _generateSlug(idea: string): string {
   const stopWords = new Set(['a', 'an', 'the', 'build', 'create', 'make', 'write', 'i', 'want', 'to', 'for', 'of', 'some']);
   const words = idea.replace(/[^a-zA-Z0-9\s]/g, '').toLowerCase().split(/\s+/);
@@ -447,6 +508,8 @@ export async function routeCommand(userId: string, platform: string, command: st
       }
       return processDraft(userId, platform, idea);
     }
+    case 'transcribe':  return cmdTranscribe(userId, platform);
+    case 'transcribe_plan': return cmdTranscribePlan(userId, platform);
     case 'edit':        return [await cmdEditMenu()];
     case 'startplan':   return [await cmdStartplanMenu()];
     case 'viewplan':    return [await cmdViewplanMenu()];
@@ -470,6 +533,10 @@ export async function routeCallback(userId: string, platform: string, callbackDa
     return routeCommand(userId, platform, cmd);
   }
 
+  if (callbackData.startsWith('menu:transcribe:')) {
+    const filename = callbackData.slice('menu:transcribe:'.length);
+    return transcribeFile(userId, platform, filename);
+  }
   if (callbackData.startsWith('menu:view:')) {
     const planId = callbackData.split(':')[2];
     return [await cmdViewPlan(planId)];
