@@ -1,0 +1,77 @@
+rules:
+  - id: prompt-injection-string-interpolation-js
+    patterns:
+      - pattern: |
+          `$PREFIX${$USER_INPUT}$SUFFIX`
+      - pattern-either:
+          - pattern: |
+              generateContent({contents: [{..., parts: [{text: `...${ $USER_INPUT }...`}]}]})
+          - pattern: |
+              const $PROMPT = `...${ $USER_INPUT }...`
+              ...
+              generateContent(...)
+    message: >
+      User-controlled input '$USER_INPUT' is string-interpolated directly into
+      an LLM prompt. An attacker can inject instructions to override system
+      behavior, exfiltrate context data, or produce harmful output (Prompt Injection).
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      cwe: CWE-74
+      category: security
+      technology: [gemini, llm]
+
+  - id: prompt-injection-user-input-llm-concat
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $PROMPT = $PREFIX + $USER_INPUT
+          - pattern: |
+              $PROMPT = f"...${ $USER_INPUT }..."
+          - pattern: |
+              $PROMPT = f"...{$USER_INPUT}..."
+    message: >
+      User input concatenated into an LLM prompt without sanitization.
+      Enables prompt injection attacks that override system instructions (CWE-74).
+    languages: [python, javascript]
+    severity: ERROR
+    metadata:
+      cwe: CWE-74
+      category: security
+
+  - id: prompt-injection-discord-mention-gemini
+    patterns:
+      - pattern: |
+          const $QUESTION = $MSG.content.replace(...)...trim()
+          ...
+          $FUNC($QUESTION)
+      - pattern-either:
+          - pattern: |
+              `...${ $QUESTION }...`
+    message: >
+      Discord message content (after stripping @mention) flows unsanitized into
+      a Gemini prompt. Any Discord user can inject prompt instructions (CWE-74).
+    languages: [javascript]
+    severity: ERROR
+    metadata:
+      cwe: CWE-74
+      category: security
+      technology: [discord, gemini]
+
+  - id: ssrf-env-controlled-url
+    patterns:
+      - pattern: |
+          const $URL = process.env.$ENV_VAR || $DEFAULT
+          ...
+          fetch(`${$URL}${$PATH}`, ...)
+      - pattern-not: |
+          if (!$URL.startsWith("https://")) { ... }
+    message: >
+      URL base '$URL' is read from environment variable without scheme or host
+      validation. If the env var is attacker-controlled, all fetch calls become
+      SSRF vectors and any attached API key is exfiltrated (CWE-918).
+    languages: [javascript]
+    severity: WARNING
+    metadata:
+      cwe: CWE-918
+      category: security

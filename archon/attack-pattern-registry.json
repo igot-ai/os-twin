@@ -1,0 +1,230 @@
+{
+  "patterns": [
+    {
+      "id": "AP-001",
+      "title": "Unauthenticated shell=True Command Injection",
+      "cwe": "CWE-78",
+      "severity": "CRITICAL",
+      "detection_signature": {
+        "semgrep": "pattern: subprocess.run($CMD, shell=True, ...) in function without Depends(get_current_user)",
+        "grep": "subprocess\\.run\\(.*shell=True",
+        "codeql": "import python; from DataFlow::PathNode source, DataFlow::PathNode sink where sink = subprocess.run() and source = HttpRequest"
+      },
+      "confirmed_instances": [
+        "dashboard/routes/system.py:168",
+        "dashboard/routes/plans.py:759 (V-006 plan-launch-subprocess-path-injection)",
+        "dashboard/routes/plans.py:902-944 (V-007 git-subprocess-user-working-dir)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-002",
+      "title": "CORS Wildcard Enabling Cross-Origin RCE",
+      "cwe": "CWE-346",
+      "severity": "CRITICAL",
+      "detection_signature": {
+        "semgrep": "pattern: CORSMiddleware(... allow_origins=[\"*\"] ...)",
+        "grep": "allow_origins.*\\[\"\\*\"\\]"
+      },
+      "confirmed_instances": [
+        "dashboard/api.py:110"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-003",
+      "title": "DEBUG Backdoor in Auth Flow",
+      "cwe": "CWE-287",
+      "severity": "CRITICAL",
+      "detection_signature": {
+        "semgrep": "pattern: if $KEY == \"DEBUG\": return ...",
+        "grep": "== \"DEBUG\"|== 'DEBUG'"
+      },
+      "confirmed_instances": [
+        "dashboard/auth.py:79"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-004",
+      "title": "Unauthenticated Subprocess Trigger (Fixed Command)",
+      "cwe": "CWE-306",
+      "severity": "MEDIUM",
+      "detection_signature": {
+        "semgrep": "pattern: async def $FUNC() without Depends containing subprocess or create_subprocess_exec",
+        "grep": "router\\.(get|post).*\\n.*async def.*\\(\\):|create_subprocess_exec"
+      },
+      "confirmed_instances": [
+        "dashboard/routes/system.py:171-185",
+        "dashboard/routes/system.py:187-196"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-005",
+      "title": "Unauthenticated Stored LLM Prompt Injection",
+      "cwe": "CWE-74",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: $FILE.write_text($USER_INPUT) ... $FILE.read_text() passed to LLM without auth check",
+        "grep": "write_text\\(request\\.content\\)|plan_content.*read_text.*refine_plan"
+      },
+      "confirmed_instances": [
+        "dashboard/routes/plans.py:472",
+        "dashboard/routes/plans.py:1134-1138",
+        "dashboard/routes/plans.py:1128",
+        "dashboard/routes/plans.py:1154",
+        "dashboard/routes/plans.py:1128 (V-001 unauth-refine-llm-injection)",
+        "dashboard/routes/plans.py:1154 (V-002 unauth-refine-stream-llm-injection)",
+        "dashboard/plan_agent.py:292-295 (V-003 second-order-plan-content-llm-injection)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-020",
+      "title": "Hardcoded Cryptographic Key",
+      "cwe": "CWE-321",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: base64.urlsafe_b64encode(b\"...\") used as encryption key",
+        "grep": "urlsafe_b64encode\\(b\".*hardcoded|default.*insecure.*key"
+      },
+      "confirmed_instances": [
+        ".agents/mcp/vault.py:117"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-021",
+      "title": "Silent Crypto Downgrade to Plaintext",
+      "cwe": "CWE-312",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: except ImportError ... CRYPTOGRAPHY_AVAILABLE = False",
+        "grep": "CRYPTOGRAPHY_AVAILABLE\\s*=\\s*False|except ImportError.*crypt"
+      },
+      "confirmed_instances": [
+        ".agents/mcp/vault.py:15-16"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-022",
+      "title": "Missing Auth on Credential-Returning Endpoint",
+      "cwe": "CWE-306",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: async def $FUNC(...) without Depends(get_current_user) returning config/token/key",
+        "grep": "router\\.(get|post).*telegram|router\\.(get|post).*config.*\\n.*async def.*\\):"
+      },
+      "confirmed_instances": [
+        "dashboard/routes/system.py:148-150",
+        "dashboard/routes/system.py:152-157",
+        "dashboard/routes/system.py:159-164",
+        "dashboard/routes/rooms.py:159",
+        "dashboard/routes/rooms.py:183",
+        "dashboard/routes/rooms.py:197",
+        "dashboard/routes/rooms.py:210",
+        "dashboard/routes/rooms.py:228",
+        "dashboard/routes/engagement.py:50",
+        "dashboard/routes/plans.py:1108",
+        "dashboard/routes/plans.py:1188",
+        "dashboard/routes/plans.py:1205",
+        "dashboard/routes/plans.py:1212"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-024",
+      "title": "Credential in Response Body",
+      "cwe": "CWE-200",
+      "severity": "MEDIUM",
+      "detection_signature": {
+        "semgrep": "pattern: JSONResponse(content={... \"access_token\": $KEY ...})",
+        "grep": "access_token.*_API_KEY|JSONResponse.*api.key|token.*_API_KEY"
+      },
+      "confirmed_instances": [
+        "dashboard/routes/auth.py:43-44"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-025",
+      "title": "Path Traversal in Custom Static File Handler",
+      "cwe": "CWE-22",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: $DIR / $PATH ... FileResponse(str($VAR)) without is_relative_to check",
+        "grep": "FE_OUT_DIR\\s*/\\s*path|FileResponse.*exact|catch_all.*path.*FileResponse"
+      },
+      "confirmed_instances": [
+        "dashboard/api.py:149-151",
+        "dashboard/routes/system.py:273-295 (fs/browse arbitrary directory listing)",
+        "dashboard/routes/skills.py:132-160 (install_skill arbitrary path read)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-026",
+      "title": "Newline Injection in Configuration Serialization",
+      "cwe": "CWE-93",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: f\"{$KEY}={$VALUE}\" without newline stripping written to .env",
+        "grep": "f\"{.*}={.*}\".*\\n.*write_text|_serialize_env"
+      },
+      "confirmed_instances": [
+        "dashboard/routes/system.py:65",
+        "dashboard/routes/system.py:268-269 (V-008 save-env-newline-injection-variant)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-040",
+      "title": "LLM Prompt Injection via Unsanitized User Input (No System Instruction Separation)",
+      "cwe": "CWE-74",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: generateContent({contents: [{role: 'user', parts: [{text: $PROMPT + $USER_INPUT}]}]})",
+        "grep": "generateContent|systemPrompt.*question|contextBlock.*question"
+      },
+      "confirmed_instances": [
+        "discord-bot/src/agent-bridge.js:119-121",
+        "discord-bot/src/agent-bridge.js:110-111 (V-004 discord-mention-contextblock-injection)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-042",
+      "title": "Credential Forwarding to Unvalidated URL from Environment Variable",
+      "cwe": "CWE-522",
+      "severity": "MEDIUM",
+      "detection_signature": {
+        "semgrep": "pattern: fetch(`${$ENV_URL}...`, {headers: {...$KEY_HEADER...}})",
+        "grep": "process\\.env\\.[A-Z_]*URL.*fetch|DASHBOARD_URL.*fetch"
+      },
+      "confirmed_instances": [
+        "discord-bot/src/agent-bridge.js:10-21"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-043",
+      "title": "Path Traversal in MCP Tool Parameters (No Containment Check)",
+      "cwe": "CWE-22",
+      "severity": "HIGH",
+      "detection_signature": {
+        "semgrep": "pattern: os.makedirs($USER_PATH, exist_ok=True) ... open(os.path.join($USER_PATH, ...), 'w')",
+        "grep": "os\\.makedirs\\(room_dir|os\\.path\\.join\\(room_dir"
+      },
+      "confirmed_instances": [
+        ".agents/mcp/warroom-server.py:61",
+        ".agents/mcp/warroom-server.py:130",
+        ".agents/mcp/channel-server.py:78",
+        ".agents/mcp/warroom-server.py:87-116 (list_artifacts arbitrary os.walk)",
+        ".agents/mcp/channel-server.py:136,179 (read_messages/get_latest arbitrary file read)"
+      ],
+      "untested_candidates": []
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+rules:
+  - id: path-traversal-user-input-pathlib
+    patterns:
+      - pattern: Path($USER_INPUT)
+      - pattern-not: Path($SAFE / ...)
+    message: >
+      Path() constructed from user-supplied input without validation.
+      An attacker can supply '../' sequences to traverse outside the
+      intended directory (CWE-22).
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: CWE-22
+      category: security
+
+  - id: path-traversal-file-serve-no-bounds-check
+    patterns:
+      - pattern: |
+          $TARGET = Path($BASE) / $USER_INPUT
+          ...
+          FileResponse(str($TARGET))
+      - pattern-not: |
+          $TARGET = Path($BASE) / $USER_INPUT
+          ...
+          if not str($TARGET).startswith(str($BASE)):
+              ...
+    message: >
+      FileResponse serves a path derived from user input without a bounds check.
+      The path may escape the intended base directory (CWE-22).
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: CWE-22
+      category: security
+      technology: [fastapi]
+
+  - id: path-traversal-open-user-controlled
+    patterns:
+      - pattern: open($PATH, ...)
+      - focus-metavariable: $PATH
+      - pattern-either:
+          - pattern: open($ROOT / $USER_INPUT, ...)
+          - pattern: open(str($ANYTHING / $USER_INPUT), ...)
+    message: >
+      File open() with user-controlled path component. Without resolving and
+      verifying the final path stays within the intended directory, this
+      enables path traversal (CWE-22).
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: CWE-22
+      category: security

