@@ -1,6 +1,6 @@
 ---
 name: war-room-communication
-description: Use this skill for standard war-room channel communication — message types, progress reporting, handoff patterns, and protocol rules.
+description: "Use this skill for standard war-room channel communication -- message types, progress reporting, handoff patterns, and protocol rules."
 tags: [global, communication, protocol, war-room]
 trust_level: core
 ---
@@ -84,7 +84,7 @@ All roles should report progress periodically:
 ```python
 # Report progress at meaningful milestones
 report_progress(25, "Reading brief and planning approach")
-report_progress(50, "Implementation in progress — 3 of 6 sub-tasks complete")
+report_progress(50, "Implementation in progress -- 3 of 6 sub-tasks complete")
 report_progress(75, "Running tests and self-verifying")
 report_progress(100, "Posting done message")
 ```
@@ -92,7 +92,7 @@ report_progress(100, "Posting done message")
 **Rules:**
 - Report at 25% intervals minimum
 - Include a meaningful message, not just the percentage
-- Don't spam progress — milestone-based, not time-based
+- Don't spam progress -- milestone-based, not time-based
 
 ## Channel Operations
 
@@ -122,27 +122,27 @@ post_message(
 
 ### Happy Path
 ```
-Manager → task → Engineer → done → Manager → review → QA → pass → Manager → release
+Manager  task  Engineer  done  Manager  review  QA  pass  Manager  release
 ```
 
 ### Failure Path
 ```
-QA → fail → Manager (triage) → fix → Engineer → done → Manager → review → QA
+QA  fail  Manager (triage)  fix  Engineer  done  Manager  review  QA
 ```
 
 ### Escalation Path
 ```
-QA → escalate → Manager (triage) → design-review → Architect → design-guidance → Manager → fix → Engineer
+QA  escalate  Manager (triage)  design-review  Architect  design-guidance  Manager  fix  Engineer
 ```
 
 ## Protocol Rules
 
 1. **Always include the epic/task reference** in every message
-2. **Never skip QA** — every `done` must lead to a `review`
+2. **Never skip QA** -- every `done` must lead to a `review`
 3. **Include QA feedback verbatim** when routing `fix` to engineer
-4. **Post to the channel** — don't communicate out-of-band
-5. **Use correct message types** — the manager parses these programmatically
-6. **Progress updates are not done messages** — only `done` signals completion
+4. **Post to the channel** -- don't communicate out-of-band
+5. **Use correct message types** -- the manager parses these programmatically
+6. **Progress updates are not done messages** -- only `done` signals completion
 
 ## Verification
 

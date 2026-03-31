@@ -30,21 +30,30 @@ param(
 
     [string]$RoleName = '',
 
-    [int]$TimeoutSeconds = 0
+    [int]$TimeoutSeconds = 0,
+
+    [string]$AgentsDir = '',
+    [string]$OverrideInvokeAgent = '',
+    [string]$OverridePostMessage = '',
+    [string]$OverrideReadMessages = '',
+    [string]$OverrideGetRoleDef = '',
+    [string]$OverrideBuildSystemPrompt = ''
 )
 
 # --- Resolve paths ---
 $scriptDir = $PSScriptRoot
-$agentsDir = (Resolve-Path (Join-Path $scriptDir ".." "..")).Path
-$channelDir = Join-Path $agentsDir "channel"
-$invokeAgent = Join-Path $agentsDir "roles" "_base" "Invoke-Agent.ps1"
-$buildSystemPrompt = Join-Path $agentsDir "roles" "_base" "Build-SystemPrompt.ps1"
-$getRoleDef = Join-Path $agentsDir "roles" "_base" "Get-RoleDefinition.ps1"
-$postMessage = Join-Path $channelDir "Post-Message.ps1"
-$readMessages = Join-Path $channelDir "Read-Messages.ps1"
+if (-not $AgentsDir) {
+    $AgentsDir = (Resolve-Path (Join-Path $scriptDir ".." "..")).Path
+}
+$channelDir = Join-Path $AgentsDir "channel"
+$invokeAgent = if ($OverrideInvokeAgent) { $OverrideInvokeAgent } else { Join-Path $AgentsDir "roles" "_base" "Invoke-Agent.ps1" }
+$buildSystemPrompt = if ($OverrideBuildSystemPrompt) { $OverrideBuildSystemPrompt } else { Join-Path $AgentsDir "roles" "_base" "Build-SystemPrompt.ps1" }
+$getRoleDef = if ($OverrideGetRoleDef) { $OverrideGetRoleDef } else { Join-Path $AgentsDir "roles" "_base" "Get-RoleDefinition.ps1" }
+$postMessage = if ($OverridePostMessage) { $OverridePostMessage } else { Join-Path $channelDir "Post-Message.ps1" }
+$readMessages = if ($OverrideReadMessages) { $OverrideReadMessages } else { Join-Path $channelDir "Read-Messages.ps1" }
 
 # --- Import logging ---
-$logModule = Join-Path $agentsDir "lib" "Log.psm1"
+$logModule = Join-Path $AgentsDir "lib" "Log.psm1"
 if (Test-Path $logModule) { Import-Module $logModule -Force }
 
 function Write-Log {
@@ -76,8 +85,8 @@ $instanceSuffix = if ($assignedRole -match ':(.+)$') { $Matches[1] } else { '' }
 $overrideDir = Join-Path $RoomDir (Join-Path "overrides" $baseRole)
 $roleWorkingDir = if (Test-Path $overrideDir) {
     if ((Test-Path (Join-Path $overrideDir "subcommands.json")) -or (Test-Path (Join-Path $overrideDir "role.json"))) { $overrideDir } 
-    else { Join-Path $agentsDir (Join-Path "roles" $baseRole) }
-} else { Join-Path $agentsDir (Join-Path "roles" $baseRole) }
+    else { Join-Path $AgentsDir (Join-Path "roles" $baseRole) }
+} else { Join-Path $AgentsDir (Join-Path "roles" $baseRole) }
 
 # Allow parameter override
 if ($RoleName) { 
@@ -114,7 +123,7 @@ function Cleanup-And-Exit {
 
 # --- Load global config ---
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
-              else { Join-Path $agentsDir "config.json" }
+              else { Join-Path $AgentsDir "config.json" }
 
 $config = $null
 $maxPromptBytes = 102400
@@ -152,6 +161,7 @@ if ($TimeoutSeconds -eq 0) {
 }
 
 $agentModel = if ($roleDef -and $roleDef.Model) { $roleDef.Model } else { "gemini-3-flash-preview" }
+$agentInstanceType = if ($roleDef -and $roleDef.InstanceType) { $roleDef.InstanceType } else { "worker" }
 
 # --- Resolve instance-specific config ---
 $instanceWorkingDir = ""
@@ -350,18 +360,21 @@ $triageContent
 }
 
 # --- Assemble final prompt ---
+<<<<<<< Updated upstream
+=======
 $evaluatorInstruction = if ($agentInstanceType -eq 'evaluator') {
 @"
 
 ## Evaluator Output Requirement
 
 IMPORTANT: Your response MUST include exactly one of these lines to indicate your final decision:
-  VERDICT: PASS
+  VERDICT: DONE (approves and entirely finishes the workflow)
   VERDICT: FAIL
   VERDICT: ESCALATE
 "@
 } else { "" }
 
+>>>>>>> Stashed changes
 $prompt = @"
 $rolePrompt
 
@@ -385,7 +398,6 @@ $predecessorSection
 ## Instructions
 
 $instructions
-$evaluatorInstruction
 "@
 
 # --- Prompt size guard ---
@@ -413,16 +425,19 @@ elseif ($agentModel) { $invokeArgs['Model'] = $agentModel }
 
 $result = & $invokeAgent @invokeArgs
 
-$finalVerdict = "PASS"
-
 # --- Post result to channel ---
 if ($result.ExitCode -eq 0) {
+<<<<<<< Updated upstream
+    & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `
+                   -Type "done" -Ref $taskRef -Body $result.Output
+    Write-Log "INFO" "[$baseRole] Completed $taskRef successfully."
+=======
     if ($agentInstanceType -eq 'evaluator') {
         # Parse verdict
         $verdict = "FAIL" # Default if not found
-        if ($result.Output -match '(?m)^VERDICT:\s*(PASS|FAIL|ESCALATE)') {
+        if ($result.Output -match '(?m)^VERDICT:\s*(PASS|FAIL|ESCALATE|DONE)') {
             $verdict = $Matches[1].ToUpper()
-        } elseif ($result.Output -match 'VERDICT:\s*(PASS|FAIL|ESCALATE)') {
+        } elseif ($result.Output -match 'VERDICT:\s*(PASS|FAIL|ESCALATE|DONE)') {
             $verdict = $Matches[1].ToUpper()
         }
         $finalVerdict = $verdict
@@ -445,6 +460,7 @@ if ($result.ExitCode -eq 0) {
                        -Type "done" -Ref $taskRef -Body $result.Output
         Write-Log "INFO" "[$baseRole] Completed $taskRef successfully."
     }
+>>>>>>> Stashed changes
 }
 elseif ($result.TimedOut) {
     & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `
@@ -461,11 +477,7 @@ else {
 # --- Update per-role config status ---
 if ($roleConfigs) {
     $latestRoleConfig = Get-Content $roleConfigs[0].FullName -Raw | ConvertFrom-Json
-    if ($agentInstanceType -eq 'evaluator') {
-        $latestRoleConfig.status = if ($finalVerdict -eq "PASS") { "completed" } else { "failed" }
-    } else {
-        $latestRoleConfig.status = if ($result.ExitCode -eq 0) { "completed" } else { "failed" }
-    }
+    $latestRoleConfig.status = if ($result.ExitCode -eq 0) { "completed" } else { "failed" }
     $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $roleConfigs[0].FullName -Encoding utf8
 }
 

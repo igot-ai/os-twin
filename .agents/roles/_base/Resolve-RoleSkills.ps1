@@ -61,37 +61,8 @@ if (-not $ApiKey) {
 
 $resolvedSkills = @{} # Using hashtable for deduplication by Name
 
-# --- 1. Global Skills ---
-$globalDir = Join-Path $SkillsBaseDir "global"
-if (Test-Path $globalDir) {
-    Get-ChildItem $globalDir -Directory | ForEach-Object {
-        $skillMd = Join-Path $_.FullName "SKILL.md"
-        if (Test-Path $skillMd) {
-            $resolvedSkills[$_.Name] = [PSCustomObject]@{
-                Name = $_.Name
-                Path = $skillMd
-                Tier = "Global"
-            }
-        }
-    }
-}
+# --- Explicit skill_refs from role.json ---
 
-# --- 2. Role-Specific Skills ---
-$roleDir = Join-Path $SkillsBaseDir "roles" $RoleName
-if (Test-Path $roleDir) {
-    Get-ChildItem $roleDir -Directory | ForEach-Object {
-        $skillMd = Join-Path $_.FullName "SKILL.md"
-        if (Test-Path $skillMd) {
-            $resolvedSkills[$_.Name] = [PSCustomObject]@{
-                Name = $_.Name
-                Path = $skillMd
-                Tier = "Role"
-            }
-        }
-    }
-}
-
-# --- 3. Explicit skill_refs from role.json ---
 $jsonFile = Join-Path $RolePath "role.json"
 if (Test-Path $jsonFile) {
     try {
@@ -117,12 +88,8 @@ if (Test-Path $jsonFile) {
                     }
                 }
 
-                # Check if already resolved via role-specific (Tier: Role) or Global
+                # Check if already resolved
                 if ($resolvedSkills.ContainsKey($ref)) {
-                    if ($resolvedSkills[$ref].Tier -eq "Role" -or $resolvedSkills[$ref].Tier -eq "Global") {
-                        # Upgrade tier to Explicit for direct visibility
-                        $resolvedSkills[$ref].Tier = "Explicit"
-                    }
                     continue
                 }
 

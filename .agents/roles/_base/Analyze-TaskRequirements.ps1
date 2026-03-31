@@ -127,11 +127,10 @@ foreach ($cap in $detectedCapabilities) {
     if ($cap -in @('security', 'database', 'architecture', 'infrastructure', 'accessibility')) {
         $reviewRole = $roleMapping[$cap]
         if ($reviewRole -ne $result.SuggestedRole) {
-            $pipelineStages += "$($reviewRole)-review"
+            $pipelineStages += $reviewRole
         }
     }
 }
-$pipelineStages += 'qa'
 $result.SuggestedPipeline = $pipelineStages
  
 Write-Output $result
