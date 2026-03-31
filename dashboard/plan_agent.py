@@ -18,14 +18,10 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 logger = logging.getLogger(__name__)
 
+
 def parse_structured_response(text: str) -> Dict[str, Any]:
     """Parse the structured Markdown response from the Plan Architect."""
-    sections = {
-        "explanation": "",
-        "actions": [],
-        "plan": "",
-        "full_response": text
-    }
+    sections = {"explanation": "", "actions": [], "plan": "", "full_response": text}
 
     # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, support multiple #)
     pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\b"
@@ -34,7 +30,7 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
     # Re-split returns [prefix, header1, content1, header2, content2, ...]
     for i in range(1, len(parts), 2):
         header = parts[i].upper()
-        content = parts[i+1].strip()
+        content = parts[i + 1].strip()
 
         if header == "EXPLANATION":
             sections["explanation"] = (sections["explanation"] + "\n" + content).strip()
@@ -43,12 +39,15 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
             lines = content.splitlines()
             for line in lines:
                 # Support formats: "- CREATE: path", "UPDATE: path", "- [DELETE] path"
-                m = re.search(r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)", line.strip(), re.IGNORECASE)
+                m = re.search(
+                    r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)",
+                    line.strip(),
+                    re.IGNORECASE,
+                )
                 if m:
-                    sections["actions"].append({
-                        "action": m.group(1).upper(),
-                        "path": m.group(2).strip()
-                    })
+                    sections["actions"].append(
+                        {"action": m.group(1).upper(), "path": m.group(2).strip()}
+                    )
         elif header == "PLAN":
             sections["plan"] = (sections["plan"] + "\n" + content).strip()
 
@@ -60,14 +59,19 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
 
     return sections
 
+
 def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
     """Read roles from registry.json and format them for the prompt."""
     if not agents_dir:
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
     registry_file = agents_dir / "roles" / "registry.json"
     if not registry_file.exists():
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
     try:
         registry = json.loads(registry_file.read_text())
@@ -84,15 +88,24 @@ def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
             lines.append(f"  - **{name}**: {desc}{caps_str}")
 
         lines.append("")
-        lines.append("You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs.")
-        lines.append("Custom roles will be dynamically resolved at runtime via the ephemeral agent system.")
+        lines.append(
+            "You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs."
+        )
+        lines.append(
+            "Custom roles will be dynamically resolved at runtime via the ephemeral agent system."
+        )
         return "\n".join(lines)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to read roles registry: {e}")
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
 
-def get_system_prompt(plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None) -> str:
+def get_system_prompt(
+    plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
+) -> str:
     """Generate the system prompt dynamically based on the plan template."""
     plan_format_spec = "Error: Template not found."
     if plans_dir:
@@ -113,6 +126,19 @@ def get_system_prompt(plans_dir: Optional[Path] = None, agents_dir: Optional[Pat
     # Substitute {{AVAILABLE_ROLES}} placeholder with dynamic roles
     roles_text = _load_available_roles(agents_dir)
     plan_format_spec = plan_format_spec.replace("{{AVAILABLE_ROLES}}", roles_text)
+
+    # Resolve actual project working directory
+    if working_dir:
+        project_dir = working_dir
+    else:
+        # OSTWIN_PROJECT_DIR is set by `ostwin dashboard --project-dir`
+        # This is the directory where the user ran `ostwin init`
+        env_project = os.environ.get("OSTWIN_PROJECT_DIR")
+        if env_project:
+            project_dir = str(Path(env_project) / "projects")
+        else:
+            from dashboard.api_utils import PROJECT_ROOT
+            project_dir = str(PROJECT_ROOT / "projects")
 
     return f"""\
 You are a **Plan Architect** for OS Twin — an AI-powered development orchestration system.
@@ -160,6 +186,13 @@ Pay special attention to the dynamic Roles and Lifecycle sections.
 3. Custom roles will be dynamically resolved at runtime via the ephemeral agent system.
 4. Lifecycle state names MUST match the role names used in the Roles: directive.
 
+## PROJECT CONTEXT
+
+The project base directory is: `{project_dir}`
+For `> Project:` and `working_dir:` in the Config section, use a short kebab-case subfolder name under this base.
+Example: if the user wants to build a "YouTube Clone", set `working_dir: {project_dir}/youtube-clone`.
+Do NOT invent arbitrary paths — always use `{project_dir}/<short-name>`.
+
 ## ADDITIONAL RULES
 
 1. If the user provides an existing plan, improve it while preserving their intent.
@@ -167,7 +200,9 @@ Pay special attention to the dynamic Roles and Lifecycle sections.
 3. Be concise, technical, and precise. Write like a senior engineering lead scoping work.
 """
 
+
 # ── Auto-detect available AI provider ──────────────────────────────
+
 
 def detect_model() -> tuple[str, str]:
     """Pick the best available model based on which API keys are set.
@@ -176,7 +211,7 @@ def detect_model() -> tuple[str, str]:
         A tuple of (model_name, provider) for langchain's init_chat_model.
     """
     if os.environ.get("GOOGLE_API_KEY"):
-        return ("gemini-3.1-pro-preview", "google_genai")
+        return ("gemini-3-flash-preview", "google_genai")
     if os.environ.get("ANTHROPIC_API_KEY"):
         return ("claude-sonnet-4-6", "anthropic")
     if os.environ.get("OPENAI_API_KEY"):
@@ -214,9 +249,11 @@ def _resolve_model(model_str: str = ""):
 
 # ── Agent factory ──────────────────────────────────────────────────
 
+
 def create_plan_agent(
     model: str = "",
     plans_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
 ):
     """Create a deepagent configured for plan refinement.
 
@@ -263,13 +300,14 @@ def create_plan_agent(
     agent = create_deep_agent(
         model=chat_model,
         tools=[read_existing_plan],
-        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir),
+        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir),
     )
 
     return agent
 
 
 # ── Invoke helpers ─────────────────────────────────────────────────
+
 
 def build_messages(
     user_message: str,
@@ -291,7 +329,9 @@ def build_messages(
     # Inject current plan as system context
     if plan_content and plan_content.strip():
         messages.append(
-            SystemMessage(content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```")
+            SystemMessage(
+                content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```"
+            )
         )
 
     # Add chat history
@@ -316,6 +356,7 @@ async def refine_plan(
     chat_history: list[dict] | None = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Invoke the plan agent and return the refined plan structured data.
 
@@ -325,11 +366,12 @@ async def refine_plan(
         chat_history: Previous turns.
         model: LLM model to use.
         plans_dir: Path to plans directory.
+        working_dir: Target project directory for this plan.
 
     Returns:
         A dictionary with explanation, actions, and plan content.
     """
-    agent = create_plan_agent(model=model, plans_dir=plans_dir)
+    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
     messages = build_messages(user_message, plan_content, chat_history)
 
     result = await agent.ainvoke({"messages": messages})
@@ -341,7 +383,12 @@ async def refine_plan(
             content = msg.content
             if isinstance(content, list):
                 # Handle Gemini blocks
-                raw_content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+                raw_content = "".join(
+                    [
+                        b["text"] if isinstance(b, dict) and "text" in b else str(b)
+                        for b in content
+                    ]
+                )
             else:
                 raw_content = content
             break
@@ -358,10 +405,9 @@ async def refine_plan_stream(
     chat_history: list[dict] | None = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """Stream the plan agent's response token-by-token.
-
-    Yields individual content chunks as they arrive from the LLM.
 
     Args:
         user_message: User's refinement instruction.
@@ -369,11 +415,12 @@ async def refine_plan_stream(
         chat_history: Previous turns.
         model: LLM model to use.
         plans_dir: Path to plans directory.
+        working_dir: Target project directory for this plan.
 
     Returns:
         AsyncIterator of string tokens.
     """
-    agent = create_plan_agent(model=model, plans_dir=plans_dir)
+    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
     messages = build_messages(user_message, plan_content, chat_history)
 
     try:
@@ -400,3 +447,24 @@ async def refine_plan_stream(
     except Exception as e:
         logger.error("Plan agent streaming error: %s", e)
         yield f"\n\n[Error: {str(e)}]"
+
+async def summarize_plan(
+    plan_content: str,
+    model: str = "",
+    plans_dir: Optional[Path] = None,
+) -> str:
+    """Invoke the agent to summarize a drafted plan."""
+    llm = _resolve_model(model)
+    prompt = (
+        "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
+        "of the following software project plan. Highlight the main objective, "
+        "the key epics, and any notable architecture/roles.\n\n"
+        "Plan:\n"
+        f"{plan_content}"
+    )
+    from langchain_core.messages import HumanMessage
+    result = await llm.ainvoke([HumanMessage(content=prompt)])
+    content = result.content
+    if isinstance(content, list):
+        content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+    return content.strip()

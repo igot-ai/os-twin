@@ -1,0 +1,14 @@
+{
+  "quality_gates": [],
+  "capabilities": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "prompt_file": "ROLE.md",
+  "timeout": 600,
+  "description": "Document gameplay instructions and verify final project state",
+  "name": "technical-writer",
+  "cli": "agent",
+  "model": "gemini-3-flash-preview"
+}
