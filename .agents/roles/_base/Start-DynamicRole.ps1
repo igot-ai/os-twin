@@ -360,8 +360,6 @@ $triageContent
 }
 
 # --- Assemble final prompt ---
-<<<<<<< Updated upstream
-=======
 $evaluatorInstruction = if ($agentInstanceType -eq 'evaluator') {
 @"
 
@@ -374,7 +372,6 @@ IMPORTANT: Your response MUST include exactly one of these lines to indicate you
 "@
 } else { "" }
 
->>>>>>> Stashed changes
 $prompt = @"
 $rolePrompt
 
@@ -398,6 +395,7 @@ $predecessorSection
 ## Instructions
 
 $instructions
+$evaluatorInstruction
 "@
 
 # --- Prompt size guard ---
@@ -427,11 +425,6 @@ $result = & $invokeAgent @invokeArgs
 
 # --- Post result to channel ---
 if ($result.ExitCode -eq 0) {
-<<<<<<< Updated upstream
-    & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `
-                   -Type "done" -Ref $taskRef -Body $result.Output
-    Write-Log "INFO" "[$baseRole] Completed $taskRef successfully."
-=======
     if ($agentInstanceType -eq 'evaluator') {
         # Parse verdict
         $verdict = "FAIL" # Default if not found
@@ -460,7 +453,6 @@ if ($result.ExitCode -eq 0) {
                        -Type "done" -Ref $taskRef -Body $result.Output
         Write-Log "INFO" "[$baseRole] Completed $taskRef successfully."
     }
->>>>>>> Stashed changes
 }
 elseif ($result.TimedOut) {
     & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" `

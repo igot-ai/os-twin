@@ -75,50 +75,7 @@ $TestDrive
         }
     }
 
-    Context "Recommendation parsing" {
-        It "parses RECOMMENDATION: FIX from strict format" {
-            $output = "Analysis complete.`nRECOMMENDATION: FIX`nThe engineer should fix the null check."
-            if ($output -match '(?m)^RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-                $Matches[1] | Should -Be "FIX"
-            }
-        }
 
-        It "parses RECOMMENDATION: REDESIGN from strict format" {
-            $output = "Architectural flaw found.`nRECOMMENDATION: REDESIGN`nNeed event-driven approach."
-            if ($output -match '(?m)^RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-                $Matches[1] | Should -Be "REDESIGN"
-            }
-        }
-
-        It "parses RECOMMENDATION: REPLAN from strict format" {
-            $output = "Requirements gap.`nRECOMMENDATION: REPLAN`nAcceptance criteria are incomplete."
-            if ($output -match '(?m)^RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-                $Matches[1] | Should -Be "REPLAN"
-            }
-        }
-
-        It "parses RECOMMENDATION: REDESIGN from inline format" {
-            $output = "The result is RECOMMENDATION: REDESIGN because..."
-            if ($output -match 'RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-                $Matches[1] | Should -Be "REDESIGN"
-            }
-        }
-
-        It "defaults to FIX when no recommendation found" {
-            $output = "Some analysis without a clear recommendation."
-            $recommendation = ""
-            if ($output -match '(?m)^RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-                $recommendation = $Matches[1]
-            }
-            if (-not $recommendation -and $output -match 'RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-                $recommendation = $Matches[1]
-            }
-            if (-not $recommendation) {
-                $recommendation = "FIX"
-            }
-            $recommendation | Should -Be "FIX"
-        }
-    }
 
     Context "QA feedback reading" {
         It "reads escalate messages when present" {

@@ -156,20 +156,8 @@ $managerRequest
 
 ## Instructions
 
-Analyze the failure and determine whether this is:
-1. An **implementation bug** that the engineer can fix with specific guidance
-2. An **architectural/design flaw** that requires a fundamentally different approach
-3. A **scope/requirements gap** where the brief or acceptance criteria need updating
-
-Your response MUST include exactly one of these lines:
-  RECOMMENDATION: FIX
-  RECOMMENDATION: REDESIGN
-  RECOMMENDATION: REPLAN
-
-Follow with detailed guidance:
-- For FIX: specific code-level guidance for the engineer
-- For REDESIGN: the new architectural approach to follow
-- For REPLAN: what needs to change in the brief, DoD, or acceptance criteria
+Analyze the QA failure, the engineer's submission, and the manager's request.
+Provide detailed technical guidance and architectural advice on how the engineering team should proceed to resolve the issue.
 "@
 
 $prompt = & $buildPrompt -RoleName "architect" -RolePath $scriptDir `
@@ -188,27 +176,7 @@ else {
 $result = & $invokeAgent -RoomDir $RoomDir -RoleName "architect" `
                          -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
 
-# --- Parse recommendation from output ---
 $output = $result.Output
-$recommendation = ""
-
-# Strategy 1: line starts with RECOMMENDATION:
-if ($output -match '(?m)^RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-    $recommendation = $Matches[1].ToUpper()
-}
-
-# Strategy 2: RECOMMENDATION: anywhere in a line
-if (-not $recommendation -and $output -match 'RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-    $recommendation = $Matches[1].ToUpper()
-}
-
-# Strategy 3: default to FIX if no recommendation found
-if (-not $recommendation) {
-    $recommendation = "FIX"
-    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-        Write-OstwinLog -Level WARN -Message "Could not parse recommendation for $taskRef. Defaulting to FIX."
-    }
-}
 
 # --- Post result to channel ---
 if ($result.TimedOut) {
@@ -222,7 +190,7 @@ else {
     & $postMessage -RoomDir $RoomDir -From "architect" -To "manager" `
                    -Type "done" -Ref $taskRef -Body $output
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-        Write-OstwinLog -Level INFO -Message "Architect review complete for $taskRef. Recommendation: $recommendation"
+        Write-OstwinLog -Level INFO -Message "Architect review complete for $taskRef."
     }
 }
 

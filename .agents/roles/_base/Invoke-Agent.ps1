@@ -329,12 +329,14 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         $safeRole = $RoleName -replace "'", "'\''"
 
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
+        $safePidFile = $pidFile -replace "'", "'\''"
         $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
 export AGENT_OS_ROLE='$safeRole'
 export AGENT_OS_PARENT_PID='$PID'
 export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
+echo "`$$" > '$safePidFile'
 $cwdLine
 exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
 "@
@@ -346,9 +348,8 @@ exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
             -NoNewWindow -PassThru `
             -RedirectStandardInput $stdinNull
 
-        # Overwrite PID file with the actual bash child PID (not PS $PID)
-        # so manager's Test-PidAlive can detect when the agent process dies.
-        $proc.Id | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
+        # Let the bash wrapper write its own PID instead of trusting `$proc.Id`,
+        # which on macOS/Linux Core is often a transient wrapper process.
 
         $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
         if (-not $proc.HasExited) {
