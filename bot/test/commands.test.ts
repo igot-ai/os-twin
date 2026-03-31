@@ -203,14 +203,14 @@ describe('commands', () => {
 
   describe('routeCommand — new', () => {
     it('wipes war-rooms and returns confirmation', async () => {
-      sandbox.stub(api, 'shellCommand').resolves({ stdout: '', returncode: 0 });
+      sandbox.stub(api, 'resetRooms').resolves({ status: 'ok' });
 
       const [resp] = await routeCommand('u1', 'telegram', 'new');
       expect(resp.text).to.include('Cleaned up');
     });
 
     it('handles error during wipe', async () => {
-      sandbox.stub(api, 'shellCommand').resolves({ _error: 'permission denied' });
+      sandbox.stub(api, 'resetRooms').resolves({ _error: 'permission denied' });
 
       const [resp] = await routeCommand('u1', 'telegram', 'new');
       expect(resp.text).to.include('Failed');

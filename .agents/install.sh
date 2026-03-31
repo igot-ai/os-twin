@@ -8,7 +8,7 @@
 #   ./install.sh               # Interactive mode — prompts before each step
 #   ./install.sh --yes         # Non-interactive — auto-approve all installs
 #   ./install.sh --dir /path   # Install to custom location (default: ~/.ostwin)
-#   ./install.sh --bot            # Also install & start the unified bot (Telegram + Discord)
+
 #   ./install.sh --dashboard-only  # Install dashboard API + frontend only
 #   ./install.sh --help        # Show this help
 #
@@ -35,7 +35,7 @@ SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 AUTO_YES=false
 SKIP_OPTIONAL=false
 DASHBOARD_ONLY=false
-START_BOT=false
+
 DASHBOARD_PORT=9000
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
@@ -52,8 +52,7 @@ while [[ $# -gt 0 ]]; do
     --port)          DASHBOARD_PORT="$2"; shift 2 ;;
     --skip-optional) SKIP_OPTIONAL=true; shift ;;
     --dashboard-only) DASHBOARD_ONLY=true; AUTO_YES=true; shift ;;
-    --bot)           START_BOT=true; shift ;;
-    --discord)       START_BOT=true; shift ;;  # legacy alias
+
     --help|-h)
       head -22 "$0" | tail -20
       exit 0
@@ -1272,96 +1271,94 @@ else
   info "Re-run: ./install.sh --source-dir /path/to/agent-os"
 fi
 
-# ─── 9c. Start unified bot (optional, --bot flag) ──────────────────────────
+# ─── 9c. Start unified bot ──────────────────────────────────────────────────
 
-if $START_BOT; then
-  header "9c. Starting unified bot (Telegram + Discord)"
+header "9c. Starting unified bot (Telegram + Discord)"
 
-  # Locate the bot directory
-  BOT_DIR=""
-  for candidate in \
-    "${SOURCE_DIR}/bot" \
-    "${SCRIPT_DIR}/../bot"; do
-    if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
-      BOT_DIR="$(cd "$candidate" && pwd)"
-      break
+# Locate the bot directory
+BOT_DIR=""
+for candidate in \
+  "${SOURCE_DIR}/bot" \
+  "${SCRIPT_DIR}/../bot"; do
+  if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
+    BOT_DIR="$(cd "$candidate" && pwd)"
+    break
+  fi
+done
+
+if [[ -z "$BOT_DIR" ]]; then
+  warn "bot/ not found — skipping"
+  info "Expected at bot/package.json relative to the repo root"
+elif ! check_node; then
+  warn "Node.js not found — cannot start bot"
+  info "Install Node.js and re-run install.sh"
+else
+  # Install dependencies if needed
+  if [[ ! -d "$BOT_DIR/node_modules" ]]; then
+    step "Installing bot dependencies (npm)..."
+    (cd "$BOT_DIR" && npm install --legacy-peer-deps) \
+      && ok "Dependencies installed" || warn "Dependency install failed"
+  fi
+
+  # Install tsx if not present (needed for TypeScript runtime)
+  if [[ ! -f "$BOT_DIR/node_modules/.bin/tsx" ]]; then
+    step "Installing tsx (TypeScript runtime)..."
+    (cd "$BOT_DIR" && npm install --legacy-peer-deps) \
+      && ok "tsx available" || warn "tsx install failed"
+  fi
+
+  # Source .env so DISCORD_TOKEN, TELEGRAM_BOT_TOKEN, GOOGLE_API_KEY are available
+  ENV_FILE="$INSTALL_DIR/.env"
+  BOT_ENV="$BOT_DIR/.env"
+  if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
+  fi
+
+  # Kill any previously running instance
+  BOT_PID_FILE="$INSTALL_DIR/bot.pid"
+  if [[ -f "$BOT_PID_FILE" ]]; then
+    OLD_PID=$(cat "$BOT_PID_FILE" 2>/dev/null || true)
+    if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+      step "Stopping previous bot (PID $OLD_PID)..."
+      kill "$OLD_PID" 2>/dev/null || true
+      sleep 1
     fi
-  done
+  fi
 
-  if [[ -z "$BOT_DIR" ]]; then
-    warn "bot/ not found — skipping"
-    info "Expected at bot/package.json relative to the repo root"
-  elif ! check_node; then
-    warn "Node.js not found — cannot start bot"
-    info "Install Node.js and re-run with --bot"
+  # Deploy Discord slash commands (non-blocking, best-effort)
+  if [[ -n "${DISCORD_TOKEN:-}" ]] && [[ -n "${DISCORD_CLIENT_ID:-}" ]]; then
+    step "Registering Discord slash commands..."
+    (cd "$BOT_DIR" && npx tsx src/deploy-commands.ts 2>/dev/null) \
+      && ok "Discord commands registered" || warn "Discord command registration failed (non-critical)"
+  fi
+
+  mkdir -p "$INSTALL_DIR/logs"
+  step "Starting bot from $BOT_DIR..."
+  (
+    cd "$BOT_DIR"
+    # Pass bot-specific env vars if a .env exists in the bot dir
+    if [[ -f "$BOT_ENV" ]]; then
+      set -a; source "$BOT_ENV"; set +a
+    fi
+    nohup npm start \
+      > "$INSTALL_DIR/logs/bot.log" 2>&1 &
+    echo $! > "$BOT_PID_FILE"
+    echo "$!"
+  ) | { read -r BOT_PID; ok "Bot started (PID $BOT_PID) — log: $INSTALL_DIR/logs/bot.log"; }
+
+  # Show which platforms are enabled
+  if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+    ok "Telegram bot: enabled"
   else
-    # Install dependencies if needed
-    if [[ ! -d "$BOT_DIR/node_modules" ]]; then
-      step "Installing bot dependencies (npm)..."
-      (cd "$BOT_DIR" && npm install --legacy-peer-deps) \
-        && ok "Dependencies installed" || warn "Dependency install failed"
-    fi
-
-    # Install tsx if not present (needed for TypeScript runtime)
-    if [[ ! -f "$BOT_DIR/node_modules/.bin/tsx" ]]; then
-      step "Installing tsx (TypeScript runtime)..."
-      (cd "$BOT_DIR" && npm install --legacy-peer-deps) \
-        && ok "tsx available" || warn "tsx install failed"
-    fi
-
-    # Source .env so DISCORD_TOKEN, TELEGRAM_BOT_TOKEN, GOOGLE_API_KEY are available
-    ENV_FILE="$INSTALL_DIR/.env"
-    BOT_ENV="$BOT_DIR/.env"
-    if [[ -f "$ENV_FILE" ]]; then
-      set -a
-      # shellcheck source=/dev/null
-      source "$ENV_FILE"
-      set +a
-    fi
-
-    # Kill any previously running instance
-    BOT_PID_FILE="$INSTALL_DIR/bot.pid"
-    if [[ -f "$BOT_PID_FILE" ]]; then
-      OLD_PID=$(cat "$BOT_PID_FILE" 2>/dev/null || true)
-      if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
-        step "Stopping previous bot (PID $OLD_PID)..."
-        kill "$OLD_PID" 2>/dev/null || true
-        sleep 1
-      fi
-    fi
-
-    # Deploy Discord slash commands (non-blocking, best-effort)
-    if [[ -n "${DISCORD_TOKEN:-}" ]] && [[ -n "${DISCORD_CLIENT_ID:-}" ]]; then
-      step "Registering Discord slash commands..."
-      (cd "$BOT_DIR" && npx tsx src/deploy-commands.ts 2>/dev/null) \
-        && ok "Discord commands registered" || warn "Discord command registration failed (non-critical)"
-    fi
-
-    mkdir -p "$INSTALL_DIR/logs"
-    step "Starting bot from $BOT_DIR..."
-    (
-      cd "$BOT_DIR"
-      # Pass bot-specific env vars if a .env exists in the bot dir
-      if [[ -f "$BOT_ENV" ]]; then
-        set -a; source "$BOT_ENV"; set +a
-      fi
-      nohup npm start \
-        > "$INSTALL_DIR/logs/bot.log" 2>&1 &
-      echo $! > "$BOT_PID_FILE"
-      echo "$!"
-    ) | { read -r BOT_PID; ok "Bot started (PID $BOT_PID) — log: $INSTALL_DIR/logs/bot.log"; }
-
-    # Show which platforms are enabled
-    if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-      ok "Telegram bot: enabled"
-    else
-      info "Telegram bot: disabled (set TELEGRAM_BOT_TOKEN in bot/.env)"
-    fi
-    if [[ -n "${DISCORD_TOKEN:-}" ]]; then
-      ok "Discord bot: enabled"
-    else
-      info "Discord bot: disabled (set DISCORD_TOKEN in bot/.env)"
-    fi
+    info "Telegram bot: disabled (set TELEGRAM_BOT_TOKEN in bot/.env)"
+  fi
+  if [[ -n "${DISCORD_TOKEN:-}" ]]; then
+    ok "Discord bot: enabled"
+  else
+    info "Discord bot: disabled (set DISCORD_TOKEN in bot/.env)"
   fi
 fi
 
@@ -1384,12 +1381,10 @@ echo ""
 echo -e "  ${BOLD}Dashboard:${NC}"
 echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
-if $START_BOT; then
 echo -e ""
 echo -e "  ${BOLD}Bot (Telegram + Discord):${NC}"
 echo -e "    ${DIM}Running in background — log: $INSTALL_DIR/logs/bot.log${NC}"
 echo -e "    ${DIM}Stop with: kill \$(cat $INSTALL_DIR/bot.pid)${NC}"
-fi
 echo ""
 
 # Display OSTWIN_API_KEY for frontend authentication

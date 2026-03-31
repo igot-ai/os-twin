@@ -5,9 +5,9 @@ import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 try:
-    import telegram_bot
+    import notify
 except ImportError:
-    telegram_bot = None
+    notify = None
 
 from dashboard.models import TelegramConfigRequest, UpdatePlanRoleConfigRequest
 from dashboard.api_utils import (
@@ -147,18 +147,18 @@ async def get_config(user: dict = Depends(get_current_user)):
 
 @router.get("/telegram/config")
 async def get_telegram_config():
-    return telegram_bot.get_config()
+    return notify.get_config()
 
 @router.post("/telegram/config")
 async def save_telegram_config(config: TelegramConfigRequest):
-    success = telegram_bot.save_config(config.bot_token, config.chat_id)
+    success = notify.save_config(config.bot_token, config.chat_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save telegram config")
     return {"status": "success"}
 
 @router.post("/telegram/test")
 async def test_telegram_connection():
-    success = await telegram_bot.send_message("Test message from OS Twin!")
+    success = await notify.send_message("Test message from OS Twin!")
     if not success:
         raise HTTPException(status_code=500, detail="Failed to send test message")
     return {"status": "success"}

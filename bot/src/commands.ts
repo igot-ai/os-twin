@@ -246,7 +246,7 @@ export function cmdHelp(): BotResponse {
 // ── System commands ───────────────────────────────────────────────
 
 async function cmdNew(): Promise<BotResponse> {
-  const result = await api.shellCommand('rm -rf .war-rooms && mkdir .war-rooms');
+  const result = await api.resetRooms();
   if (result?._error) return text(`❌ Failed to clean War-Rooms: ${result._error}`);
   return text('🧹 *Cleaned up all War-Rooms data.* Ready for a new Plan.');
 }
@@ -538,19 +538,19 @@ export async function routeCallback(userId: string, platform: string, callbackDa
     return transcribeFile(userId, platform, filename);
   }
   if (callbackData.startsWith('menu:view:')) {
-    const planId = callbackData.split(':')[2];
+    const planId = callbackData.slice('menu:view:'.length);
     return [await cmdViewPlan(planId)];
   }
   if (callbackData.startsWith('menu:edit:')) {
-    const planId = callbackData.split(':')[2];
+    const planId = callbackData.slice('menu:edit:'.length);
     return [cmdStartEditing(userId, platform, planId)];
   }
   if (callbackData.startsWith('menu:launch_prompt:')) {
-    const planId = callbackData.split(':')[2];
+    const planId = callbackData.slice('menu:launch_prompt:'.length);
     return [cmdPromptLaunch(planId)];
   }
   if (callbackData.startsWith('menu:launch_confirm:')) {
-    const planId = callbackData.split(':')[2];
+    const planId = callbackData.slice('menu:launch_confirm:'.length);
     return cmdLaunchPlan(planId);
   }
 

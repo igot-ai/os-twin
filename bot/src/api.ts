@@ -203,8 +203,8 @@ export async function stopDashboard(): Promise<any> {
   return postJSON('/api/stop', {});
 }
 
-export async function shellCommand(command: string): Promise<any> {
-  return postJSON('/api/shell', command);
+export async function resetRooms(): Promise<any> {
+  return postJSON('/api/rooms/reset', {});
 }
 
 // Default export as a mutable object for testability (sinon stubs)
@@ -221,7 +221,7 @@ const api = {
   getSkills,
   semanticSearch,
   stopDashboard,
-  shellCommand,
+  resetRooms,
 };
 
 export default api;

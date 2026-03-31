@@ -1,7 +1,7 @@
 
 from fastapi.testclient import TestClient
 from api import app
-import telegram_bot
+import notify
 import json
 from pathlib import Path
 import unittest
@@ -34,10 +34,10 @@ class TestApiTelegram(unittest.TestCase):
         response = client.get("/api/telegram/config")
         self.assertEqual(response.json()["bot_token"], "token123")
 
-    @patch("telegram_bot.send_message")
+    @patch("notify.send_message")
     def test_test_connection_success(self, mock_send):
         # We need to use a mock that returns a coroutine for async functions if they are awaited
-        # But here we are mocking at the telegram_bot module level which api.py imports
+        # But here we are mocking at the notify module level which api.py imports
         async def mock_async_send(*args, **kwargs):
             return True
         mock_send.side_effect = mock_async_send
@@ -46,7 +46,7 @@ class TestApiTelegram(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "success"})
 
-    @patch("telegram_bot.send_message")
+    @patch("notify.send_message")
     def test_test_connection_failure(self, mock_send):
         async def mock_async_send(*args, **kwargs):
             return False

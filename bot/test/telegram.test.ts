@@ -99,8 +99,10 @@ function patchCallApi(telegram: any, captured: Array<{ method: string; body: any
   targetProto.callApi = async function (method: string, data: any) {
     captured.push({ method, body: data });
     if (method === 'sendMessage') return { message_id: 1 };
+    if (method === 'editMessageText') return { message_id: 1 };
     if (method === 'answerCallbackQuery') return true;
     if (method === 'setMyCommands') return true;
+    if (method === 'sendChatAction') return true;
     return {};
   };
 
@@ -285,14 +287,15 @@ describe('telegram integration', () => {
 
     it('handles menu:main callback and returns main menu', async () => {
       await bot.handleUpdate(makeCallbackUpdate('menu:main'));
-      const msgs = captured.filter(c => c.method === 'sendMessage');
+      const msgs = captured.filter(c => c.method === 'editMessageText' || c.method === 'sendMessage');
       expect(msgs.length).to.be.greaterThan(0);
       expect(msgs[0].body.text).to.include('Control Center');
     });
 
     it('handles menu:cat:monitoring callback', async () => {
       await bot.handleUpdate(makeCallbackUpdate('menu:cat:monitoring'));
-      const msgs = captured.filter(c => c.method === 'sendMessage');
+      const msgs = captured.filter(c => c.method === 'editMessageText' || c.method === 'sendMessage');
+      expect(msgs.length).to.be.greaterThan(0);
       expect(msgs[0].body.text).to.include('Monitoring');
     });
 
@@ -328,10 +331,11 @@ describe('telegram integration', () => {
     afterEach(() => { captured.length = 0; sessions.clearSession('123', 'telegram'); });
     after(() => { restoreCallApi(); config.TELEGRAM_BOT_TOKEN = origToken; });
 
-    it('ignores text when session is idle', async () => {
+    it('replies with hint when session is idle', async () => {
       await bot.handleUpdate(makeTextUpdate('hello world'));
       const msgs = captured.filter(c => c.method === 'sendMessage');
-      expect(msgs).to.have.lengthOf(0);
+      expect(msgs).to.have.lengthOf(1);
+      expect(msgs[0].body.text).to.include('/menu');
     });
 
     it('processes text when in awaiting_idea mode', async () => {

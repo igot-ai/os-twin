@@ -6,44 +6,83 @@
  */
 
 import { Telegraf, Markup, Context } from 'telegraf';
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import config from './config';
 import { routeCommand, routeCallback, handleStatefulText, BotResponse } from './commands';
 import { getSession } from './sessions';
 
 /** Authorized chat IDs (loaded from env or paired at runtime) */
 const authorizedChats = new Set<string>();
-const PAIRING_CODE = process.env.TELEGRAM_PAIRING_CODE || Math.random().toString(16).slice(2, 10);
+const PAIRING_CODE = process.env.TELEGRAM_PAIRING_CODE || crypto.randomBytes(4).toString('hex');
+
+const AUTHORIZED_CHATS_FILE = path.resolve(__dirname, '../.authorized-chats.json');
+
+function loadAuthorizedChats(): void {
+  const envChatId = process.env.TELEGRAM_CHAT_ID;
+  if (envChatId) authorizedChats.add(String(envChatId));
+  try {
+    if (fs.existsSync(AUTHORIZED_CHATS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(AUTHORIZED_CHATS_FILE, 'utf-8'));
+      if (Array.isArray(data)) data.forEach((id: string) => authorizedChats.add(String(id)));
+    }
+  } catch { /* ignore corrupt file */ }
+}
+
+function persistAuthorizedChats(): void {
+  try {
+    fs.writeFileSync(AUTHORIZED_CHATS_FILE, JSON.stringify([...authorizedChats]), 'utf-8');
+  } catch (err) {
+    console.warn('[TELEGRAM] Failed to persist authorized chats:', err);
+  }
+}
+
+// ── Message splitting for Telegram's 4096 char limit ──────────────
+
+const TELEGRAM_MAX_LENGTH = 4096;
+
+function splitMessage(text: string): string[] {
+  if (text.length <= TELEGRAM_MAX_LENGTH) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= TELEGRAM_MAX_LENGTH) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitAt = remaining.lastIndexOf('\n', TELEGRAM_MAX_LENGTH);
+    if (splitAt < TELEGRAM_MAX_LENGTH / 2) splitAt = TELEGRAM_MAX_LENGTH;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt);
+  }
+  return chunks;
+}
 
 // ── Response renderer ─────────────────────────────────────────────
 
+function buildMarkup(buttons: BotResponse['buttons']) {
+  if (!buttons?.length) return {};
+  const keyboard = buttons.map(row =>
+    row.map(btn => Markup.button.callback(btn.label, btn.callbackData))
+  );
+  return Markup.inlineKeyboard(keyboard);
+}
+
 async function sendResponses(ctx: Context, responses: BotResponse[]): Promise<void> {
   for (const resp of responses) {
-    if (resp.buttons && resp.buttons.length) {
-      const keyboard = resp.buttons.map(row =>
-        row.map(btn => Markup.button.callback(btn.label, btn.callbackData))
-      );
-      await ctx.reply(resp.text, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(keyboard),
-      });
-    } else {
-      await ctx.reply(resp.text, { parse_mode: 'Markdown' });
+    const extra = { parse_mode: 'Markdown' as const, ...buildMarkup(resp.buttons) };
+    for (const chunk of splitMessage(resp.text)) {
+      await ctx.reply(chunk, extra);
     }
   }
 }
 
 async function sendResponsesChat(bot: Telegraf, chatId: string, responses: BotResponse[]): Promise<void> {
   for (const resp of responses) {
-    if (resp.buttons && resp.buttons.length) {
-      const keyboard = resp.buttons.map(row =>
-        row.map(btn => Markup.button.callback(btn.label, btn.callbackData))
-      );
-      await bot.telegram.sendMessage(chatId, resp.text, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(keyboard),
-      });
-    } else {
-      await bot.telegram.sendMessage(chatId, resp.text, { parse_mode: 'Markdown' });
+    const extra = { parse_mode: 'Markdown' as const, ...buildMarkup(resp.buttons) };
+    for (const chunk of splitMessage(resp.text)) {
+      await bot.telegram.sendMessage(chatId, chunk, extra);
     }
   }
 }
@@ -58,14 +97,12 @@ export function createTelegramBot(): Telegraf | null {
 
   const bot = new Telegraf(config.TELEGRAM_BOT_TOKEN);
 
-  // Add initial authorized chat from env
-  const envChatId = process.env.TELEGRAM_CHAT_ID;
-  if (envChatId) authorizedChats.add(String(envChatId));
+  loadAuthorizedChats();
 
   // ── Authorization middleware ──────────────────────────────────
   bot.use(async (ctx, next) => {
-    const chatId = String(ctx.chat?.id);
-    if (!chatId) return;
+    if (!ctx.chat?.id) return;
+    const chatId = String(ctx.chat.id);
 
     // Always allow /pair
     if ((ctx.message as any)?.text?.startsWith('/pair')) return next();
@@ -88,6 +125,7 @@ export function createTelegramBot(): Telegraf | null {
     const args = ctx.message.text.split(/\s+/).slice(1).join(' ');
     if (args === PAIRING_CODE) {
       authorizedChats.add(chatId);
+      persistAuthorizedChats();
       await ctx.reply('✅ *Pairing successful!* You are now authorized.', { parse_mode: 'Markdown' });
     } else {
       await ctx.reply('❌ *Invalid pairing code.*', { parse_mode: 'Markdown' });
@@ -103,45 +141,81 @@ export function createTelegramBot(): Telegraf | null {
 
   for (const cmd of COMMANDS) {
     bot.command(cmd, async (ctx) => {
-      const userId = String(ctx.chat.id);
-      const responses = await routeCommand(userId, 'telegram', cmd);
-      await sendResponses(ctx, responses);
+      try {
+        await ctx.sendChatAction('typing');
+        const userId = String(ctx.chat.id);
+        const responses = await routeCommand(userId, 'telegram', cmd);
+        await sendResponses(ctx, responses);
+      } catch (err) {
+        console.error(`[TELEGRAM] Error in /${cmd}:`, err);
+        await ctx.reply('⚠️ Something went wrong. Please try again.').catch(() => {});
+      }
     });
   }
 
   // /draft with optional inline argument
   bot.command('draft', async (ctx) => {
-    const userId = String(ctx.chat.id);
-    const args = ctx.message.text.replace(/^\/draft(@\S+)?/, '').trim();
-    const responses = await routeCommand(userId, 'telegram', 'draft', args);
-    await sendResponses(ctx, responses);
+    try {
+      await ctx.sendChatAction('typing');
+      const userId = String(ctx.chat.id);
+      const args = ctx.message.text.replace(/^\/draft(@\S+)?/, '').trim();
+      const responses = await routeCommand(userId, 'telegram', 'draft', args);
+      await sendResponses(ctx, responses);
+    } catch (err) {
+      console.error('[TELEGRAM] Error in /draft:', err);
+      await ctx.reply('⚠️ Something went wrong. Please try again.').catch(() => {});
+    }
   });
 
   // ── Callback queries (inline keyboard buttons) ────────────────
   bot.on('callback_query', async (ctx) => {
-    const cbQuery = ctx.callbackQuery;
-    const userId = String((cbQuery as any).message?.chat?.id);
-    const data = (cbQuery as any).data as string | undefined;
-    if (!userId || !data) return;
+    try {
+      const cbQuery = ctx.callbackQuery;
+      const chatId = 'message' in cbQuery ? cbQuery.message?.chat?.id : undefined;
+      const data = 'data' in cbQuery ? cbQuery.data : undefined;
+      if (!chatId || !data) return;
 
-    await ctx.answerCbQuery(); // stop loading spinner
+      const userId = String(chatId);
+      await ctx.answerCbQuery();
 
-    const responses = await routeCallback(userId, 'telegram', data);
-    await sendResponsesChat(bot, userId, responses);
+      const responses = await routeCallback(userId, 'telegram', data);
+
+      // Try editing the original message for menu navigation, fall back to new message
+      if (responses.length === 1 && data.startsWith('menu:')) {
+        try {
+          const extra = { parse_mode: 'Markdown' as const, ...buildMarkup(responses[0].buttons) };
+          await ctx.editMessageText(responses[0].text, extra);
+          return;
+        } catch {
+          // Edit failed (message too old, same content, etc.) — fall through to send
+        }
+      }
+
+      await sendResponsesChat(bot, userId, responses);
+    } catch (err) {
+      console.error('[TELEGRAM] Error in callback_query:', err);
+    }
   });
 
   // ── Free text (stateful AI editing) ───────────────────────────
   bot.on('text', async (ctx) => {
-    const userId = String(ctx.chat.id);
-    const msgText = ctx.message.text.trim();
+    try {
+      const userId = String(ctx.chat.id);
+      const msgText = ctx.message.text.trim();
 
-    // Skip if it's a command
-    if (msgText.startsWith('/')) return;
+      if (msgText.startsWith('/')) return;
 
-    const session = getSession(userId, 'telegram');
-    if (['drafting', 'editing', 'awaiting_idea'].includes(session.mode)) {
-      const responses = await handleStatefulText(userId, 'telegram', msgText);
-      await sendResponses(ctx, responses);
+      const session = getSession(userId, 'telegram');
+      if (['drafting', 'editing', 'awaiting_idea'].includes(session.mode)) {
+        await ctx.sendChatAction('typing');
+        const responses = await handleStatefulText(userId, 'telegram', msgText);
+        await sendResponses(ctx, responses);
+      } else {
+        await ctx.reply('💡 Use /menu to get started, or /help for all commands.', { parse_mode: 'Markdown' });
+      }
+    } catch (err) {
+      console.error('[TELEGRAM] Error in text handler:', err);
+      await ctx.reply('⚠️ Something went wrong. Please try again.').catch(() => {});
     }
   });
 

@@ -22,6 +22,7 @@ export interface Session {
 }
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const MAX_CHAT_HISTORY = 50;
 
 const sessions = new Map<string, Session>();
 
@@ -76,3 +77,26 @@ export function setPlan(userId: string | number, platform: string, planId: strin
   session.activePlanId = planId;
   session.lastActivity = Date.now();
 }
+
+export function addChatMessage(userId: string | number, platform: string, message: ChatMessage): void {
+  const session = getSession(userId, platform);
+  session.chatHistory.push(message);
+  if (session.chatHistory.length > MAX_CHAT_HISTORY) {
+    session.chatHistory = session.chatHistory.slice(-MAX_CHAT_HISTORY);
+  }
+  session.lastActivity = Date.now();
+}
+
+// Evict expired sessions every 10 minutes
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+
+function _cleanupStaleSessions(): void {
+  const now = Date.now();
+  for (const [key, session] of sessions) {
+    if (now - session.lastActivity > SESSION_TIMEOUT_MS) {
+      sessions.delete(key);
+    }
+  }
+}
+
+setInterval(_cleanupStaleSessions, CLEANUP_INTERVAL_MS).unref();

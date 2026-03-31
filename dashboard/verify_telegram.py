@@ -4,12 +4,12 @@ import unittest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
-# Add the current directory to sys.path to ensure telegram_bot can be imported
+# Add the current directory to sys.path to ensure notify can be imported
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import telegram_bot
+import notify
 
 class TestTelegramBot(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -22,8 +22,8 @@ class TestTelegramBot(unittest.IsolatedAsyncioTestCase):
             self.config_path.unlink()
 
     def test_save_and_get_config(self):
-        telegram_bot.save_config("test_token", "test_chat_id")
-        config = telegram_bot.get_config()
+        notify.save_config("test_token", "test_chat_id")
+        config = notify.get_config()
         self.assertEqual(config["bot_token"], "test_token")
         self.assertEqual(config["chat_id"], "test_chat_id")
 
@@ -33,8 +33,8 @@ class TestTelegramBot(unittest.IsolatedAsyncioTestCase):
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
         
-        telegram_bot.save_config("test_token", "test_chat_id")
-        success = await telegram_bot.send_message("test message")
+        notify.save_config("test_token", "test_chat_id")
+        success = await notify.send_message("test message")
         
         self.assertTrue(success)
         mock_post.assert_called_once()
@@ -47,13 +47,13 @@ class TestTelegramBot(unittest.IsolatedAsyncioTestCase):
     async def test_send_message_failure(self, mock_post):
         mock_post.side_effect = Exception("API error")
         
-        telegram_bot.save_config("test_token", "test_chat_id")
-        success = await telegram_bot.send_message("test message")
+        notify.save_config("test_token", "test_chat_id")
+        success = await notify.send_message("test message")
         
         self.assertFalse(success)
 
     async def test_send_message_no_config(self):
-        success = await telegram_bot.send_message("test message")
+        success = await notify.send_message("test message")
         self.assertFalse(success)
 
 if __name__ == "__main__":
