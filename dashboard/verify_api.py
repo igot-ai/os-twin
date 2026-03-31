@@ -11,7 +11,7 @@ client = TestClient(app)
 
 class TestApiTelegram(unittest.TestCase):
     def setUp(self):
-        self.config_path = Path("telegram_config.json")
+        self.config_path = Path("notify_config.json")
         if self.config_path.exists():
             self.config_path.unlink()
 

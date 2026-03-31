@@ -37,6 +37,9 @@ bot/logs/
 bot/recordings/
 bot/dist/
 bot/.env
+bot/.authorized-chats.json
+dashboard/notify_config.json
+dashboard/telegram_config.json
 
 # ── Dashboard FE ───────────────────────────────────────────────────────────────
 dashboard/fe/pnpm-lock.yaml

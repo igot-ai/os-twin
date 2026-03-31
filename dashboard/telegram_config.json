@@ -1,8 +1,0 @@
-{
-    "bot_token": "7666903409:AAGDShI2uSp76aeBbFYYYJIz2gLm05MeiBk",
-    "chat_id": "YOUR_CHAT_ID",
-    "authorized_chats": [
-        "YOUR_CHAT_ID"
-    ],
-    "pairing_code": "test_code"
-}

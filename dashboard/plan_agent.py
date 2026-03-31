@@ -1,7 +1,7 @@
 """
 Plan Agent — deepagents-powered plan refinement.
 
-Uses deepagents CLI as a subprocess to help users refine rough ideas into
+Uses create_deep_agent() to help users refine rough ideas into
 properly structured plans with Epics, acceptance criteria,
 and working directories.
 """
@@ -10,21 +10,18 @@ import os
 import json
 import re
 import logging
-import asyncio
-import uuid
 from pathlib import Path
 from typing import Optional, AsyncIterator, Dict, Any
 
+from deepagents import create_deep_agent
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
 logger = logging.getLogger(__name__)
+
 
 def parse_structured_response(text: str) -> Dict[str, Any]:
     """Parse the structured Markdown response from the Plan Architect."""
-    sections = {
-        "explanation": "",
-        "actions": [],
-        "plan": "",
-        "full_response": text
-    }
+    sections = {"explanation": "", "actions": [], "plan": "", "full_response": text}
 
     # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, support multiple #)
     pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\b"
@@ -33,7 +30,7 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
     # Re-split returns [prefix, header1, content1, header2, content2, ...]
     for i in range(1, len(parts), 2):
         header = parts[i].upper()
-        content = parts[i+1].strip()
+        content = parts[i + 1].strip()
 
         if header == "EXPLANATION":
             sections["explanation"] = (sections["explanation"] + "\n" + content).strip()
@@ -42,12 +39,15 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
             lines = content.splitlines()
             for line in lines:
                 # Support formats: "- CREATE: path", "UPDATE: path", "- [DELETE] path"
-                m = re.search(r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)", line.strip(), re.IGNORECASE)
+                m = re.search(
+                    r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)",
+                    line.strip(),
+                    re.IGNORECASE,
+                )
                 if m:
-                    sections["actions"].append({
-                        "action": m.group(1).upper(),
-                        "path": m.group(2).strip()
-                    })
+                    sections["actions"].append(
+                        {"action": m.group(1).upper(), "path": m.group(2).strip()}
+                    )
         elif header == "PLAN":
             sections["plan"] = (sections["plan"] + "\n" + content).strip()
 
@@ -59,14 +59,19 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
 
     return sections
 
+
 def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
     """Read roles from registry.json and format them for the prompt."""
     if not agents_dir:
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
     registry_file = agents_dir / "roles" / "registry.json"
     if not registry_file.exists():
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
     try:
         registry = json.loads(registry_file.read_text())
@@ -83,15 +88,23 @@ def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
             lines.append(f"  - **{name}**: {desc}{caps_str}")
 
         lines.append("")
-        lines.append("You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs.")
-        lines.append("Custom roles will be dynamically resolved at runtime via the ephemeral agent system.")
+        lines.append(
+            "You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs."
+        )
+        lines.append(
+            "Custom roles will be dynamically resolved at runtime via the ephemeral agent system."
+        )
         return "\n".join(lines)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to read roles registry: {e}")
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
 
-def get_system_prompt(plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None) -> str:
+def get_system_prompt(
+    plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None
+) -> str:
     """Generate the system prompt dynamically based on the plan template."""
     plan_format_spec = "Error: Template not found."
     if plans_dir:
@@ -166,47 +179,153 @@ Pay special attention to the dynamic Roles and Lifecycle sections.
 3. Be concise, technical, and precise. Write like a senior engineering lead scoping work.
 """
 
-def detect_model() -> str:
-    """Pick the best available model based on which API keys are set.
-    Uses deepagents provider formatting natively.
-    """
-    # Overriding to force the correct provider/key despite environment leaks
-    os.environ["GOOGLE_API_KEY"] = "AIzaSyDxJlQhiEfW_LYHHzJICY7bkFkasnKk5e0"
-    return "google_genai:gemini-3.1-pro-preview"
 
-def build_prompt_text(
+# ── Auto-detect available AI provider ──────────────────────────────
+
+
+def detect_model() -> tuple[str, str]:
+    """Pick the best available model based on which API keys are set.
+
+    Returns:
+        A tuple of (model_name, provider) for langchain's init_chat_model.
+    """
+    if os.environ.get("GOOGLE_API_KEY"):
+        return ("gemini-3-flash-preview", "google_genai")
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return ("claude-sonnet-4-6", "anthropic")
+    if os.environ.get("OPENAI_API_KEY"):
+        return ("gpt-4o", "openai")
+    raise RuntimeError(
+        "No AI API key found. Set GOOGLE_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY in ~/.ostwin/.env"
+    )
+
+
+def _resolve_model(model_str: str = ""):
+    """Resolve a model string into an initialized ChatModel.
+
+    If model_str is empty, auto-detects from environment.
+    If model_str contains ':', splits as 'provider:model'.
+    Otherwise uses init_chat_model's auto-detection.
+    """
+    from langchain.chat_models import init_chat_model
+
+    if not model_str:
+        model_name, provider = detect_model()
+        return init_chat_model(model_name, model_provider=provider)
+
+    if ":" in model_str:
+        provider, model_name = model_str.split(":", 1)
+        # Normalize provider names
+        provider_map = {
+            "google-genai": "google_genai",
+            "google-vertexai": "google_vertexai",
+        }
+        provider = provider_map.get(provider, provider)
+        return init_chat_model(model_name, model_provider=provider)
+
+    return init_chat_model(model_str)
+
+
+# ── Agent factory ──────────────────────────────────────────────────
+
+
+def create_plan_agent(
+    model: str = "",
+    plans_dir: Optional[Path] = None,
+):
+    """Create a deepagent configured for plan refinement.
+
+    Args:
+        model: LLM model identifier. Supports formats:
+               - Empty string: auto-detect from env vars
+               - "provider:model" (e.g. "google-genai:gemini-2.5-flash")
+               - Plain model name (e.g. "claude-sonnet-4-6")
+        plans_dir: Path to the plans directory for the read_existing_plan tool.
+
+    Returns:
+        A compiled LangGraph agent.
+    """
+    from langchain_core.tools import tool as lc_tool
+
+    _plans_dir = plans_dir
+
+    @lc_tool
+    def read_existing_plan(plan_id: str) -> str:
+        """Read the current content of a plan file by its ID.
+
+        Use this when the user references an existing plan or asks to
+        review/modify a previously saved plan.
+
+        Args:
+            plan_id: The plan identifier (filename stem without .md).
+
+        Returns:
+            The full plan file content, or an error message.
+        """
+        if not _plans_dir:
+            return "Error: Plans directory not configured."
+        plan_file = _plans_dir / f"{plan_id}.md"
+        if not plan_file.exists():
+            return f"Error: Plan '{plan_id}' not found."
+        return plan_file.read_text()
+
+    chat_model = _resolve_model(model)
+    logger.info("Plan agent using model: %s", type(chat_model).__name__)
+
+    # Resolve agents_dir from plans_dir
+    agents_dir = plans_dir.parent if plans_dir else None
+
+    agent = create_deep_agent(
+        model=chat_model,
+        tools=[read_existing_plan],
+        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir),
+    )
+
+    return agent
+
+
+# ── Invoke helpers ─────────────────────────────────────────────────
+
+
+def build_messages(
     user_message: str,
     plan_content: str = "",
     chat_history: list[dict] | None = None,
-    plans_dir: Optional[Path] = None,
-    agents_dir: Optional[Path] = None,
-) -> str:
-    """Build the raw prompt text to send to deepagents CLI."""
-    lines = []
-    
-    # 1. System Prompt
-    lines.append(get_system_prompt(plans_dir, agents_dir))
-    lines.append("\n" + "="*40 + "\n")
-    
-    # 2. Inject current plan as system context
+) -> list:
+    """Build the message list for the agent invocation.
+
+    Args:
+        user_message: The user's latest instruction.
+        plan_content: Current editor content to provide as context.
+        chat_history: Previous conversation turns [{role, content}, ...].
+
+    Returns:
+        List of LangChain message objects.
+    """
+    messages = []
+
+    # Inject current plan as system context
     if plan_content and plan_content.strip():
-        lines.append("The user's current plan in the editor:\n\n```markdown\n" + plan_content + "\n```")
-        lines.append("\n" + "="*40 + "\n")
-        
-    # 3. Add chat history
+        messages.append(
+            SystemMessage(
+                content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```"
+            )
+        )
+
+    # Add chat history
     if chat_history:
         for msg in chat_history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            lines.append(f"[{role.upper()}]:\n{content}\n")
-            
-    # 4. Add the latest user message
-    lines.append(f"[USER]:\n{user_message}\n")
-    
-    # 5. Output instruction
-    lines.append("\nReturn ONLY the markdown plan, with no additional conversational text or wrapper text.")
-    
-    return "\n".join(lines)
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                messages.append(AIMessage(content=content))
+
+    # Add the latest user message
+    messages.append(HumanMessage(content=user_message))
+
+    return messages
 
 
 async def refine_plan(
@@ -240,7 +359,12 @@ async def refine_plan(
             content = msg.content
             if isinstance(content, list):
                 # Handle Gemini blocks
-                raw_content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+                raw_content = "".join(
+                    [
+                        b["text"] if isinstance(b, dict) and "text" in b else str(b)
+                        for b in content
+                    ]
+                )
             else:
                 raw_content = content
             break
@@ -250,6 +374,7 @@ async def refine_plan(
 
     return parse_structured_response(raw_content)
 
+
 async def refine_plan_stream(
     user_message: str,
     plan_content: str = "",
@@ -257,39 +382,24 @@ async def refine_plan_stream(
     model: str = "",
     plans_dir: Optional[Path] = None,
 ) -> AsyncIterator[str]:
-    """Non-streaming wrapper — yields the full result as a single JSON chunk."""
-    import json as _json
-    result = await refine_plan(
-        user_message=user_message,
-        plan_content=plan_content,
-        chat_history=chat_history,
-        model=model,
-        plans_dir=plans_dir
-    )
-    yield _json.dumps(result)
+    """Stream the plan agent's response token-by-token.
 
-async def summarize_plan(
-    plan_content: str,
-    model: str = "",
-    plans_dir: Optional[Path] = None,
-) -> str:
-    """Invoke the agent to summarize a drafted plan."""
-    if not model:
-        model = detect_model()
+    Yields individual content chunks as they arrive from the LLM.
 
-    agents_dir = plans_dir.parent if plans_dir else None
+    Args:
+        user_message: User's refinement instruction.
+        plan_content: Current editor content.
+        chat_history: Previous turns.
+        model: LLM model to use.
+        plans_dir: Path to plans directory.
 
-    prompt = (
-        "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
-        "of the following software project plan. Highlight the main objective, "
-        "the key epics, and any notable architecture/roles.\n\n"
-        "Plan:\n"
-        f"{plan_content}"
-    )
+    Returns:
+        AsyncIterator of string tokens.
+    """
+    agent = create_plan_agent(model=model, plans_dir=plans_dir)
+    messages = build_messages(user_message, plan_content, chat_history)
 
-    temp_prompt_path = Path(f"/tmp/plan-prompt-{uuid.uuid4().hex}.txt")
-    temp_prompt_path.write_text(prompt)
-
+    try:
         async for event in agent.astream_events(
             {"messages": messages},
             version="v2",
@@ -313,24 +423,3 @@ async def summarize_plan(
     except Exception as e:
         logger.error("Plan agent streaming error: %s", e)
         yield f"\n\n[Error: {str(e)}]"
-
-async def summarize_plan(
-    plan_content: str,
-    model: str = "",
-    plans_dir: Optional[Path] = None,
-) -> str:
-    """Invoke the agent to summarize a drafted plan."""
-    llm = _resolve_model(model)
-    prompt = (
-        "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
-        "of the following software project plan. Highlight the main objective, "
-        "the key epics, and any notable architecture/roles.\n\n"
-        "Plan:\n"
-        f"{plan_content}"
-    )
-    from langchain_core.messages import HumanMessage
-    result = await llm.ainvoke([HumanMessage(content=prompt)])
-    content = result.content
-    if isinstance(content, list):
-        content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
-    return content.strip()
