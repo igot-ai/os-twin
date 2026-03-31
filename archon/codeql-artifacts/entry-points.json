@@ -1,0 +1,203 @@
+{
+  "count": 22,
+  "entry_points": [
+    {
+      "id": "EP-001",
+      "file": "dashboard/routes/system.py",
+      "line": 166,
+      "method": "POST",
+      "path": "/api/shell",
+      "auth": false,
+      "description": "Arbitrary shell command execution"
+    },
+    {
+      "id": "EP-002",
+      "file": "dashboard/routes/system.py",
+      "line": 171,
+      "method": "GET",
+      "path": "/api/run_pytest_auth",
+      "auth": false,
+      "description": "Unauthenticated pytest subprocess trigger"
+    },
+    {
+      "id": "EP-003",
+      "file": "dashboard/routes/system.py",
+      "line": 187,
+      "method": "GET",
+      "path": "/api/test_ws",
+      "auth": false,
+      "description": "Unauthenticated script subprocess trigger"
+    },
+    {
+      "id": "EP-004",
+      "file": "dashboard/routes/system.py",
+      "line": 148,
+      "method": "GET",
+      "path": "/api/telegram/config",
+      "auth": false,
+      "description": "Telegram config read (leaks bot token)"
+    },
+    {
+      "id": "EP-005",
+      "file": "dashboard/routes/system.py",
+      "line": 152,
+      "method": "POST",
+      "path": "/api/telegram/config",
+      "auth": false,
+      "description": "Telegram config overwrite"
+    },
+    {
+      "id": "EP-006",
+      "file": "dashboard/routes/system.py",
+      "line": 159,
+      "method": "POST",
+      "path": "/api/telegram/test",
+      "auth": false,
+      "description": "Send arbitrary Telegram message"
+    },
+    {
+      "id": "EP-007",
+      "file": "dashboard/routes/plans.py",
+      "line": 461,
+      "method": "POST",
+      "path": "/api/plans/create",
+      "auth": false,
+      "description": "Unauthenticated plan creation with file write"
+    },
+    {
+      "id": "EP-008",
+      "file": "dashboard/routes/plans.py",
+      "line": 768,
+      "method": "POST",
+      "path": "/api/plans/{id}/status",
+      "auth": false,
+      "description": "Unauthenticated plan status mutation"
+    },
+    {
+      "id": "EP-009",
+      "file": "dashboard/routes/plans.py",
+      "line": 1108,
+      "method": "GET",
+      "path": "/api/goals",
+      "auth": false,
+      "description": "Goals aggregation - info disclosure"
+    },
+    {
+      "id": "EP-010",
+      "file": "dashboard/routes/plans.py",
+      "line": 1128,
+      "method": "POST",
+      "path": "/api/plans/refine",
+      "auth": false,
+      "description": "Unauthenticated LLM plan refine"
+    },
+    {
+      "id": "EP-011",
+      "file": "dashboard/routes/plans.py",
+      "line": 1154,
+      "method": "POST",
+      "path": "/api/plans/refine/stream",
+      "auth": false,
+      "description": "Unauthenticated streaming LLM refine"
+    },
+    {
+      "id": "EP-012",
+      "file": "dashboard/routes/plans.py",
+      "line": 1188,
+      "method": "GET",
+      "path": "/api/plans/{id}/epics",
+      "auth": false,
+      "description": "Epic listing - info disclosure"
+    },
+    {
+      "id": "EP-013",
+      "file": "dashboard/routes/plans.py",
+      "line": 1205,
+      "method": "GET",
+      "path": "/api/search/plans",
+      "auth": false,
+      "description": "Plan search"
+    },
+    {
+      "id": "EP-014",
+      "file": "dashboard/routes/plans.py",
+      "line": 1212,
+      "method": "GET",
+      "path": "/api/search/epics",
+      "auth": false,
+      "description": "Epic search"
+    },
+    {
+      "id": "EP-015",
+      "file": "dashboard/routes/rooms.py",
+      "line": 159,
+      "method": "GET",
+      "path": "/api/events",
+      "auth": false,
+      "description": "SSE event stream - info disclosure"
+    },
+    {
+      "id": "EP-016",
+      "file": "dashboard/routes/rooms.py",
+      "line": 183,
+      "method": "GET",
+      "path": "/api/search",
+      "auth": false,
+      "description": "Semantic search - info disclosure"
+    },
+    {
+      "id": "EP-017",
+      "file": "dashboard/routes/rooms.py",
+      "line": 197,
+      "method": "GET",
+      "path": "/api/rooms/{id}/context",
+      "auth": false,
+      "description": "Room context query"
+    },
+    {
+      "id": "EP-018",
+      "file": "dashboard/routes/rooms.py",
+      "line": 210,
+      "method": "GET",
+      "path": "/api/rooms/{id}/state",
+      "auth": false,
+      "description": "Room state read"
+    },
+    {
+      "id": "EP-019",
+      "file": "dashboard/routes/rooms.py",
+      "line": 228,
+      "method": "POST",
+      "path": "/api/rooms/{id}/action",
+      "auth": false,
+      "description": "Room action mutation"
+    },
+    {
+      "id": "EP-020",
+      "file": "dashboard/api.py",
+      "line": 86,
+      "method": "WS",
+      "path": "/api/ws",
+      "auth": false,
+      "description": "Unauthenticated WebSocket broadcasts all agent events"
+    },
+    {
+      "id": "EP-021",
+      "file": "discord-bot/src/client.js",
+      "line": 104,
+      "method": "EVENT",
+      "path": "messageCreate",
+      "auth": true,
+      "description": "Discord @mention \u2192 Gemini prompt injection"
+    },
+    {
+      "id": "EP-022",
+      "file": "discord-bot/src/agent-bridge.js",
+      "line": 10,
+      "method": "INTERNAL",
+      "path": "DASHBOARD_URL",
+      "auth": false,
+      "description": "SSRF via DASHBOARD_URL env var"
+    }
+  ]
+}

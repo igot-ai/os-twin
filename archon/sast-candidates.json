@@ -1,0 +1,290 @@
+[
+  {
+    "id": "SAST-001",
+    "rule": "py/command-line-injection + subprocess-shell-true-unauthenticated-route",
+    "severity": "CRITICAL",
+    "file": "dashboard/routes/system.py",
+    "line": 168,
+    "message": "subprocess.run(command, shell=True) with HTTP request parameter 'command' and no authentication dependency. Unauthenticated OS command injection (RCE).",
+    "cwe": "CWE-78"
+  },
+  {
+    "id": "SAST-002",
+    "rule": "debug-auth-bypass-key",
+    "severity": "CRITICAL",
+    "file": "dashboard/auth.py",
+    "line": 79,
+    "message": "When OSTWIN_API_KEY=DEBUG all authentication checks are bypassed. X-User header can impersonate any identity.",
+    "cwe": "CWE-287"
+  },
+  {
+    "id": "SAST-003",
+    "rule": "wildcard-cors + cors-allow-all-origins",
+    "severity": "HIGH",
+    "file": "dashboard/api.py",
+    "line": 110,
+    "message": "CORSMiddleware configured with allow_origins=['*']. Combined with cookie auth enables cross-origin credential theft and drive-by exploitation.",
+    "cwe": "CWE-346"
+  },
+  {
+    "id": "SAST-004",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "HIGH",
+    "file": "dashboard/routes/plans.py",
+    "line": 461,
+    "message": "POST /api/plans/create has no Depends(get_current_user). Unauthenticated attackers can write arbitrary files to ~/.ostwin/plans/.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-005",
+    "rule": "hardcoded-fernet-encryption-key",
+    "severity": "HIGH",
+    "file": ".agents/mcp/vault.py",
+    "line": 117,
+    "message": "Hardcoded fallback encryption key 'ostwin-default-insecure-key-32ch'. Any attacker with vault file access can decrypt all stored secrets.",
+    "cwe": "CWE-321"
+  },
+  {
+    "id": "SAST-006",
+    "rule": "prompt-injection-discord-mention-gemini",
+    "severity": "HIGH",
+    "file": "discord-bot/src/agent-bridge.js",
+    "line": 121,
+    "message": "Discord message.content flows unsanitized into Gemini generateContent prompt. Enables prompt injection, context exfiltration, and output hijacking.",
+    "cwe": "CWE-74"
+  },
+  {
+    "id": "SAST-007a",
+    "rule": "fastapi-route-missing-auth-subprocess",
+    "severity": "HIGH",
+    "file": "dashboard/routes/system.py",
+    "line": 171,
+    "message": "GET /api/run_pytest_auth has no authentication and spawns pytest subprocess. Unauthenticated subprocess execution with stdout/stderr disclosure.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-007b",
+    "rule": "fastapi-route-missing-auth-subprocess",
+    "severity": "HIGH",
+    "file": "dashboard/routes/system.py",
+    "line": 187,
+    "message": "GET /api/test_ws has no authentication and spawns subprocess. Unauthenticated subprocess execution.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-008a",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "HIGH",
+    "file": "dashboard/routes/system.py",
+    "line": 148,
+    "message": "GET /api/telegram/config has no authentication. Exposes bot token and chat ID to unauthenticated callers.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-008b",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "HIGH",
+    "file": "dashboard/routes/system.py",
+    "line": 152,
+    "message": "POST /api/telegram/config has no authentication. Allows overwriting Telegram bot credentials.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-008c",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "HIGH",
+    "file": "dashboard/routes/system.py",
+    "line": 159,
+    "message": "POST /api/telegram/test has no authentication. Allows sending arbitrary Telegram messages.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-009",
+    "rule": "py/clear-text-storage-sensitive-data",
+    "severity": "HIGH",
+    "file": "dashboard/routes/auth.py",
+    "line": 44,
+    "message": "Raw API key (_API_KEY) returned in JSON response body as access_token. Key exposed in browser devtools, proxy logs, and JavaScript memory.",
+    "cwe": "CWE-200"
+  },
+  {
+    "id": "SAST-010",
+    "rule": "ssrf-env-controlled-url",
+    "severity": "MEDIUM",
+    "file": "discord-bot/src/agent-bridge.js",
+    "line": 10,
+    "message": "DASHBOARD_URL read from process.env without scheme/host validation. Attacker-controlled env redirects all API calls (with X-API-Key) to arbitrary hosts (SSRF).",
+    "cwe": "CWE-918"
+  },
+  {
+    "id": "SAST-011",
+    "rule": "cookie-missing-secure-flag",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/auth.py",
+    "line": 48,
+    "message": "Session cookie set without secure=True. The API key cookie is transmitted in plaintext over HTTP connections.",
+    "cwe": "CWE-614"
+  },
+  {
+    "id": "SAST-012",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "MEDIUM",
+    "file": "dashboard/api.py",
+    "line": 86,
+    "message": "WebSocket /api/ws has no authentication. Any client can connect and receive real-time agent event broadcasts.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-013a",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/plans.py",
+    "line": 768,
+    "message": "POST /api/plans/{id}/status has no authentication. Unauthenticated plan status mutation.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-013b",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/plans.py",
+    "line": 1128,
+    "message": "POST /api/plans/refine has no authentication. Unauthenticated LLM prompt injection via refine endpoint.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-013c",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/rooms.py",
+    "line": 159,
+    "message": "GET /api/events SSE endpoint has no authentication. Internal agent events broadcast to unauthenticated clients.",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-013d",
+    "rule": "fastapi-route-missing-auth-dependency",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/rooms.py",
+    "line": 228,
+    "message": "POST /api/rooms/{id}/action has no authentication. Unauthenticated room state mutation (stop/pause/resume).",
+    "cwe": "CWE-306"
+  },
+  {
+    "id": "SAST-014a",
+    "rule": "py/path-injection",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/system.py",
+    "line": 277,
+    "message": "GET /api/fs/browse?path= passes user-supplied path to Path().expanduser().resolve() without base-directory bounds check. Directory traversal to any readable path.",
+    "cwe": "CWE-22"
+  },
+  {
+    "id": "SAST-014b",
+    "rule": "py/path-injection",
+    "severity": "MEDIUM",
+    "file": "dashboard/api_utils.py",
+    "line": 75,
+    "message": "User-supplied plan_id/room_id values flow into Path() construction across api_utils.py without sanitization. Multiple path traversal sinks.",
+    "cwe": "CWE-22"
+  },
+  {
+    "id": "SAST-014c",
+    "rule": "py/path-injection",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/rooms.py",
+    "line": 61,
+    "message": "room_id from HTTP path parameter flows into filesystem path construction. Path traversal risk in room directory resolution.",
+    "cwe": "CWE-22"
+  },
+  {
+    "id": "SAST-014d",
+    "rule": "py/path-injection",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/plans.py",
+    "line": 1421,
+    "message": "plan_id from HTTP path parameter flows into filesystem path construction without bounds validation.",
+    "cwe": "CWE-22"
+  },
+  {
+    "id": "SAST-015",
+    "rule": "py/regex-injection",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/plans.py",
+    "line": 1019,
+    "message": "User-supplied search query passed to re.match() without re.escape(). Enables regex injection and potential ReDoS.",
+    "cwe": "CWE-730"
+  },
+  {
+    "id": "SAST-016a",
+    "rule": "py/polynomial-redos",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/skills.py",
+    "line": 337,
+    "message": "Polynomial-time regular expression applied to user-provided value. Crafted input can cause catastrophic backtracking (DoS).",
+    "cwe": "CWE-1333"
+  },
+  {
+    "id": "SAST-016b",
+    "rule": "py/polynomial-redos",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/skills.py",
+    "line": 349,
+    "message": "Polynomial-time regular expression applied to user-provided value. Crafted input can cause catastrophic backtracking (DoS).",
+    "cwe": "CWE-1333"
+  },
+  {
+    "id": "SAST-017a",
+    "rule": "py/stack-trace-exposure",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/mcp.py",
+    "line": 238,
+    "message": "Stack trace information flows to API response and may be exposed to external users. Leaks internal file paths and module structure.",
+    "cwe": "CWE-209"
+  },
+  {
+    "id": "SAST-017b",
+    "rule": "py/stack-trace-exposure",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/mcp.py",
+    "line": 300,
+    "message": "Stack trace information flows to API response and may be exposed to external users.",
+    "cwe": "CWE-209"
+  },
+  {
+    "id": "SAST-017c",
+    "rule": "py/stack-trace-exposure",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/plans.py",
+    "line": 1184,
+    "message": "Stack trace information flows to API response and may be exposed to external users.",
+    "cwe": "CWE-209"
+  },
+  {
+    "id": "SAST-017d",
+    "rule": "py/stack-trace-exposure",
+    "severity": "MEDIUM",
+    "file": "dashboard/routes/roles.py",
+    "line": 492,
+    "message": "Stack trace information flows to API response and may be exposed to external users.",
+    "cwe": "CWE-209"
+  },
+  {
+    "id": "SAST-018",
+    "rule": "py/clear-text-logging-sensitive-data",
+    "severity": "MEDIUM",
+    "file": ".agents/mcp/config_resolver.py",
+    "line": 126,
+    "message": "Sensitive secret value logged via standard logging module. Log files may be accessible to unauthorized parties.",
+    "cwe": "CWE-312"
+  },
+  {
+    "id": "SAST-019",
+    "rule": "manual-always-true-verify-password",
+    "severity": "LOW",
+    "file": "dashboard/auth.py",
+    "line": 30,
+    "message": "verify_password() always returns True regardless of input. Any future invocation will accept arbitrary passwords (dormant vulnerability).",
+    "cwe": "CWE-798"
+  }
+]

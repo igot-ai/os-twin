@@ -1,0 +1,49 @@
+rules:
+  - id: subprocess-shell-true-user-input
+    pattern: subprocess.run($CMD, shell=True, ...)
+    message: >
+      subprocess.run() called with shell=True. If '$CMD' contains any
+      user-controlled input, this enables OS command injection (CWE-78).
+      Found in: $CMD
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: CWE-78
+      category: security
+
+  - id: subprocess-call-shell-true
+    patterns:
+      - pattern: subprocess.$FUNC($CMD, ..., shell=True, ...)
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: ^(run|call|check_call|check_output|Popen)$
+    message: >
+      subprocess.$FUNC() called with shell=True (CWE-78). Any user-controlled
+      data in the command string enables arbitrary OS command execution.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: CWE-78
+      category: security
+
+  - id: subprocess-shell-true-unauthenticated-route
+    patterns:
+      - pattern: |
+          @$ROUTER.$METHOD(...)
+          async def $FUNC($PARAM: $TYPE):
+              ...
+              subprocess.run($CMD, shell=True, ...)
+              ...
+      - pattern-not: |
+          @$ROUTER.$METHOD(...)
+          async def $FUNC(..., $USER = Depends(...), ...):
+              ...
+    message: >
+      CRITICAL: Unauthenticated FastAPI route '$FUNC' executes subprocess with
+      shell=True. Parameter '$PARAM' may reach the shell unescaped (CWE-78, CWE-306).
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: CWE-78
+      category: security
+      technology: [fastapi]

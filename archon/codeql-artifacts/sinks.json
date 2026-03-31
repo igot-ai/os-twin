@@ -1,0 +1,113 @@
+{
+  "count": 12,
+  "sinks": [
+    {
+      "id": "SK-001",
+      "file": "dashboard/routes/system.py",
+      "line": 168,
+      "type": "os-command",
+      "api": "subprocess.run(shell=True)",
+      "cwe": "CWE-78",
+      "tainted": true
+    },
+    {
+      "id": "SK-002",
+      "file": "dashboard/api.py",
+      "line": 110,
+      "type": "cors-config",
+      "api": "CORSMiddleware(allow_origins=['*'])",
+      "cwe": "CWE-346",
+      "tainted": false
+    },
+    {
+      "id": "SK-003",
+      "file": "dashboard/routes/auth.py",
+      "line": 48,
+      "type": "cookie-set",
+      "api": "response.set_cookie(missing secure=True)",
+      "cwe": "CWE-614",
+      "tainted": false
+    },
+    {
+      "id": "SK-004",
+      "file": "dashboard/routes/auth.py",
+      "line": 43,
+      "type": "secret-exposure",
+      "api": "JSONResponse(access_token=_API_KEY)",
+      "cwe": "CWE-200",
+      "tainted": false
+    },
+    {
+      "id": "SK-005",
+      "file": ".agents/mcp/vault.py",
+      "line": 117,
+      "type": "crypto-key",
+      "api": "base64.urlsafe_b64encode(b'ostwin-default-insecure-key-32ch')",
+      "cwe": "CWE-321",
+      "tainted": false
+    },
+    {
+      "id": "SK-006",
+      "file": "dashboard/auth.py",
+      "line": 79,
+      "type": "auth-bypass",
+      "api": "_API_KEY == 'DEBUG'",
+      "cwe": "CWE-287",
+      "tainted": false
+    },
+    {
+      "id": "SK-007",
+      "file": "dashboard/auth.py",
+      "line": 30,
+      "type": "auth-bypass",
+      "api": "verify_password() always returns True",
+      "cwe": "CWE-798",
+      "tainted": false
+    },
+    {
+      "id": "SK-008",
+      "file": "dashboard/routes/plans.py",
+      "line": 472,
+      "type": "file-write",
+      "api": "plan_file.write_text(request.content)",
+      "cwe": "CWE-22",
+      "tainted": true
+    },
+    {
+      "id": "SK-009",
+      "file": "discord-bot/src/agent-bridge.js",
+      "line": 121,
+      "type": "llm-prompt",
+      "api": "generateContent({...question...})",
+      "cwe": "CWE-74",
+      "tainted": true
+    },
+    {
+      "id": "SK-010",
+      "file": "discord-bot/src/agent-bridge.js",
+      "line": 21,
+      "type": "ssrf",
+      "api": "fetch(DASHBOARD_URL + path)",
+      "cwe": "CWE-918",
+      "tainted": true
+    },
+    {
+      "id": "SK-011",
+      "file": "dashboard/routes/system.py",
+      "line": 277,
+      "type": "path-traversal",
+      "api": "Path(path).expanduser().resolve()",
+      "cwe": "CWE-22",
+      "tainted": true
+    },
+    {
+      "id": "SK-012",
+      "file": "dashboard/routes/plans.py",
+      "line": 759,
+      "type": "subprocess",
+      "api": "subprocess call with plan content",
+      "cwe": "CWE-78",
+      "tainted": true
+    }
+  ]
+}

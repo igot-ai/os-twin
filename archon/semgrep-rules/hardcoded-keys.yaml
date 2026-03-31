@@ -1,0 +1,40 @@
+rules:
+  - id: hardcoded-fernet-encryption-key
+    patterns:
+      - pattern: base64.urlsafe_b64encode(b"...")
+      - pattern-not: base64.urlsafe_b64encode(os.environ.get(...))
+    message: >
+      Hardcoded bytes used as Fernet encryption key. Any attacker who reads the
+      source code can decrypt all vault data (CWE-321).
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: CWE-321
+      category: security
+
+  - id: hardcoded-secret-fallback
+    pattern: |
+      if $ENV_VAR:
+          ...
+      return base64.urlsafe_b64encode(b"$SECRET")
+    message: >
+      Fallback hardcoded secret '$SECRET' used when environment variable is
+      absent. This creates a known encryption key that attackers can exploit (CWE-321).
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: CWE-321
+      category: security
+
+  - id: debug-auth-bypass-key
+    pattern: |
+      if $KEY == "DEBUG":
+          ...
+    message: >
+      Hardcoded "DEBUG" value bypasses authentication entirely. If deployed with
+      this value set, the application has no authentication (CWE-287, CWE-798).
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: CWE-287
+      category: security

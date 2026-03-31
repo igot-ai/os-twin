@@ -1,0 +1,11 @@
+Environment: macOS Darwin 25.3.0, Python3 with FastAPI/uvicorn
+Server started with: OSTWIN_API_KEY=test_key_12345 uvicorn dashboard.api:app --host 127.0.0.1 --port 19022
+Commit: 4c06f66 (HEAD of main)
+
+Healthcheck: GET /api/status without auth returns 401 (auth is working for protected endpoints)
+
+Test: GET /api/telegram/config without any authentication headers
+Result: HTTP 200, body: {"bot_token":"test_token","chat_id":"test_chat"}
+The bot token is returned in plaintext without authentication.
+
+Control comparison: GET /api/status without auth returns 401, proving auth mechanism exists but is not applied to telegram endpoints.
