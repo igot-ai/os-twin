@@ -68,7 +68,7 @@ Configure per-epic pipelines based on content type:
 | Content Type | Recommended Pipeline |
 |-------------|---------------------|
 | Core Mechanic | `game-architect → game-engineer → game-qa` |
-| UI Screen | `cv-analytics → game-engineer → game-qa` |
+| UI Screen | `game-ui-analyst → game-engineer → game-qa` |
 | New Feature | `game-designer → game-architect → game-engineer → game-qa` |
 | Bug Fix | `game-engineer → game-qa` |
 | Art / VFX | `tech-artist → game-qa` |

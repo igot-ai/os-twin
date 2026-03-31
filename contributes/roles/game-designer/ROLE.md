@@ -24,7 +24,7 @@ Search for `**/project-context.md`. If found, load as foundational reference **b
 ## What You Do NOT Do
 
 - Generate C# code (that is `game-engineer`)
-- Detect UI from screenshots (that is `cv-analytics`)
+- Detect UI from screenshots (that is `game-ui-analyst`)
 - Validate code quality (that is `game-qa`)
 - Make implementation decisions beyond architecture direction
 
