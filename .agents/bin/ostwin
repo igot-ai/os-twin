@@ -48,8 +48,8 @@ if [[ -z "$AGENTS_DIR" ]]; then
   fi
   AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
 fi
-PYTHON="${AGENTS_DIR}/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
+PYTHON="$HOME/.ostwin/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="${AGENTS_DIR}/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
 # --- Load .env files (available to ALL subcommands) ---
@@ -214,9 +214,8 @@ Commands:
   dashboard         Launch web dashboard
                     Options: --port PORT, --project-dir PATH
   channel <sub>     Manage communication channels (telegram, discord, slack)
-                    Subcommands: list, connect, disconnect, test, pair
-  bot               Manage the unified bot (Telegram + Discord)
-                    Subcommands: start, stop, status, logs, deploy
+                    Subcommands: start, stop, status, logs, deploy,
+                                 list, connect, disconnect, test, pair
   clone-role <role> Clone a role to project-local for override
                     Options: --project-dir PATH
   config            View or update configuration
@@ -611,105 +610,7 @@ else:
     ;;
   channel)
     shift
-    exec "$DEEPAGENTS_PYTHON" "$AGENTS_DIR/bin/channel_cmd.py" "$@"
-    ;;
-  bot|discord)
-    shift
-    BOT_SUB="${1:-start}"
-    BOT_PID_FILE="$HOME/.ostwin/bot.pid"
-    BOT_LOG="$HOME/.ostwin/logs/bot.log"
-
-    # Locate bot dir: prefer alongside the project, then alongside agents dir
-    BOT_DIR=""
-    for _candidate in \
-      "$(cd "$AGENTS_DIR/.." 2>/dev/null && pwd)/bot" \
-      "$(pwd)/bot"; do
-      if [[ -d "$_candidate" ]] && [[ -f "$_candidate/package.json" ]]; then
-        BOT_DIR="$_candidate"
-        break
-      fi
-    done
-
-    case "$BOT_SUB" in
-      start)
-        shift 2>/dev/null || true
-        if [[ -z "$BOT_DIR" ]]; then
-          echo "✗ bot/ not found (expected bot/package.json)" >&2
-          exit 1
-        fi
-        if ! command -v node &>/dev/null; then
-          echo "✗ Node.js not found" >&2; exit 1
-        fi
-        # Install deps (always update)
-        echo "→ Installing bot dependencies..."
-        (cd "$BOT_DIR" && npm install --legacy-peer-deps) || { echo "✗ npm install failed" >&2; exit 1; }
-        # Kill existing
-        if [[ -f "$BOT_PID_FILE" ]]; then
-          _OLD=$(cat "$BOT_PID_FILE" 2>/dev/null || true)
-          if [[ -n "$_OLD" ]] && kill -0 "$_OLD" 2>/dev/null; then
-            echo "→ Stopping existing bot (PID $_OLD)..."
-            kill "$_OLD" 2>/dev/null || true; sleep 1
-          fi
-        fi
-        # Source env files
-        [[ -f "$HOME/.ostwin/.env" ]] && { set -a; source "$HOME/.ostwin/.env"; set +a; }
-        [[ -f "$BOT_DIR/.env" ]] && { set -a; source "$BOT_DIR/.env"; set +a; }
-        mkdir -p "$HOME/.ostwin/logs"
-        echo "→ Starting bot ($BOT_DIR)..."
-        (cd "$BOT_DIR" && nohup npm start > "$BOT_LOG" 2>&1 &
-         echo $! > "$BOT_PID_FILE"; echo $!)
-        echo "✓ Bot started — log: $BOT_LOG"
-        # Show which platforms are enabled
-        [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && echo "  Telegram: enabled" || echo "  Telegram: disabled (set TELEGRAM_BOT_TOKEN)"
-        [[ -n "${DISCORD_TOKEN:-}" ]] && echo "  Discord:  enabled" || echo "  Discord:  disabled (set DISCORD_TOKEN)"
-        echo "  Stop with: ostwin bot stop"
-        ;;
-      stop)
-        if [[ -f "$BOT_PID_FILE" ]]; then
-          _PID=$(cat "$BOT_PID_FILE" 2>/dev/null || true)
-          if [[ -n "$_PID" ]] && kill -0 "$_PID" 2>/dev/null; then
-            kill "$_PID" && echo "✓ Bot stopped (PID $_PID)"
-            rm -f "$BOT_PID_FILE"
-          else
-            echo "Bot is not running (stale PID file removed)"
-            rm -f "$BOT_PID_FILE"
-          fi
-        else
-          echo "Bot is not running"
-        fi
-        ;;
-      status)
-        if [[ -f "$BOT_PID_FILE" ]]; then
-          _PID=$(cat "$BOT_PID_FILE" 2>/dev/null || true)
-          if [[ -n "$_PID" ]] && kill -0 "$_PID" 2>/dev/null; then
-            echo "✓ Bot is running (PID $_PID)"
-          else
-            echo "✗ Bot is NOT running (stale PID)"
-          fi
-        else
-          echo "✗ Bot is not running"
-        fi
-        ;;
-      logs)
-        if [[ -f "$BOT_LOG" ]]; then
-          tail -f "$BOT_LOG"
-        else
-          echo "No log file found at $BOT_LOG" >&2; exit 1
-        fi
-        ;;
-      deploy)
-        if [[ -z "$BOT_DIR" ]]; then
-          echo "✗ bot/ not found" >&2; exit 1
-        fi
-        echo "→ Deploying Discord slash commands..."
-        (cd "$BOT_DIR" && npx tsx src/deploy-commands.ts) \
-          && echo "✓ Discord commands registered" \
-          || { echo "✗ Failed to register commands" >&2; exit 1; }
-        ;;
-      *)
-        echo "Usage: ostwin bot [start|stop|status|logs|deploy]" >&2; exit 1
-        ;;
-    esac
+    exec "$PYTHON" "$AGENTS_DIR/bin/channel_cmd.py" "$@"
     ;;
   clone-role)
     shift

@@ -32,6 +32,10 @@ quant_proj/
 os-twin-twin/**
 dashboard/nextjs/
 
+# ── Logs ──────────────────────────────────────────────────────────────────────
+.agents/logs/
+*.log
+
 # ── Bot (Telegram + Discord) ──────────────────────────────────────────────────
 bot/logs/
 bot/recordings/
