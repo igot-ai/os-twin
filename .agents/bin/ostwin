@@ -225,6 +225,12 @@ Commands:
   channel <sub>     Manage communication channels (telegram, discord, slack)
                     Subcommands: start, stop, status, logs, deploy,
                                  list, connect, disconnect, test, pair
+  connectors <sub>  Manage chat platform connectors
+                    Subcommands: list, configure <platform>, test <platform>,
+                                 enable <platform>, disable <platform>,
+                                 events [set <events>], remove <platform>
+  discord           Manage the Discord bot
+                    Subcommands: start, stop, status, logs
   clone-role <role> Clone a role to project-local for override
                     Options: --project-dir PATH
   config            View or update configuration
@@ -618,6 +624,14 @@ else:
     fi
     ;;
   channel)
+    shift
+    exec "$PYTHON" "$AGENTS_DIR/bin/channel_cmd.py" "$@"
+    ;;
+  connectors)
+    shift
+    exec "$PYTHON" "$AGENTS_DIR/bin/connectors.py" "$@"
+    ;;
+  discord)
     shift
     exec "$PYTHON" "$AGENTS_DIR/bin/channel_cmd.py" "$@"
     ;;
