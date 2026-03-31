@@ -1,5 +1,8 @@
 """
-Telegram Integration Module for Ostwin Dashboard
+notify.py — Outbound notification config & messaging for Ostwin Dashboard.
+
+Manages Telegram bot configuration (token, authorized chats, pairing)
+and provides send_message() for pushing notifications to users.
 """
 
 import httpx
@@ -14,7 +17,7 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = Path(__file__).parent / "telegram_config.json"
+CONFIG_FILE = Path(__file__).parent / "notify_config.json"
 PROJECT_ROOT = Path(__file__).parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
 

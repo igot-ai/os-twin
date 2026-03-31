@@ -91,6 +91,7 @@ class OSTwinStore:
         else:
             self.zvec_dir = zvec_real_dir
 
+
         self._messages: Optional[zvec.Collection] = None
         self._metadata: Optional[zvec.Collection] = None
         self._plans: Optional[zvec.Collection] = None

@@ -18,14 +18,10 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 logger = logging.getLogger(__name__)
 
+
 def parse_structured_response(text: str) -> Dict[str, Any]:
     """Parse the structured Markdown response from the Plan Architect."""
-    sections = {
-        "explanation": "",
-        "actions": [],
-        "plan": "",
-        "full_response": text
-    }
+    sections = {"explanation": "", "actions": [], "plan": "", "full_response": text}
 
     # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, support multiple #)
     pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\b"
@@ -34,7 +30,7 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
     # Re-split returns [prefix, header1, content1, header2, content2, ...]
     for i in range(1, len(parts), 2):
         header = parts[i].upper()
-        content = parts[i+1].strip()
+        content = parts[i + 1].strip()
 
         if header == "EXPLANATION":
             sections["explanation"] = (sections["explanation"] + "\n" + content).strip()
@@ -43,12 +39,15 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
             lines = content.splitlines()
             for line in lines:
                 # Support formats: "- CREATE: path", "UPDATE: path", "- [DELETE] path"
-                m = re.search(r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)", line.strip(), re.IGNORECASE)
+                m = re.search(
+                    r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)",
+                    line.strip(),
+                    re.IGNORECASE,
+                )
                 if m:
-                    sections["actions"].append({
-                        "action": m.group(1).upper(),
-                        "path": m.group(2).strip()
-                    })
+                    sections["actions"].append(
+                        {"action": m.group(1).upper(), "path": m.group(2).strip()}
+                    )
         elif header == "PLAN":
             sections["plan"] = (sections["plan"] + "\n" + content).strip()
 
@@ -60,14 +59,19 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
 
     return sections
 
+
 def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
     """Read roles from registry.json and format them for the prompt."""
     if not agents_dir:
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
     registry_file = agents_dir / "roles" / "registry.json"
     if not registry_file.exists():
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
     try:
         registry = json.loads(registry_file.read_text())
@@ -84,15 +88,23 @@ def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
             lines.append(f"  - **{name}**: {desc}{caps_str}")
 
         lines.append("")
-        lines.append("You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs.")
-        lines.append("Custom roles will be dynamically resolved at runtime via the ephemeral agent system.")
+        lines.append(
+            "You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs."
+        )
+        lines.append(
+            "Custom roles will be dynamically resolved at runtime via the ephemeral agent system."
+        )
         return "\n".join(lines)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to read roles registry: {e}")
-        return "Available roles: engineer, qa, architect, or any custom role you define."
+        return (
+            "Available roles: engineer, qa, architect, or any custom role you define."
+        )
 
 
-def get_system_prompt(plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None) -> str:
+def get_system_prompt(
+    plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None
+) -> str:
     """Generate the system prompt dynamically based on the plan template."""
     plan_format_spec = "Error: Template not found."
     if plans_dir:
@@ -167,7 +179,9 @@ Pay special attention to the dynamic Roles and Lifecycle sections.
 3. Be concise, technical, and precise. Write like a senior engineering lead scoping work.
 """
 
+
 # ── Auto-detect available AI provider ──────────────────────────────
+
 
 def detect_model() -> tuple[str, str]:
     """Pick the best available model based on which API keys are set.
@@ -176,7 +190,7 @@ def detect_model() -> tuple[str, str]:
         A tuple of (model_name, provider) for langchain's init_chat_model.
     """
     if os.environ.get("GOOGLE_API_KEY"):
-        return ("gemini-3.1-pro-preview", "google_genai")
+        return ("gemini-3-flash-preview", "google_genai")
     if os.environ.get("ANTHROPIC_API_KEY"):
         return ("claude-sonnet-4-6", "anthropic")
     if os.environ.get("OPENAI_API_KEY"):
@@ -213,6 +227,7 @@ def _resolve_model(model_str: str = ""):
 
 
 # ── Agent factory ──────────────────────────────────────────────────
+
 
 def create_plan_agent(
     model: str = "",
@@ -271,6 +286,7 @@ def create_plan_agent(
 
 # ── Invoke helpers ─────────────────────────────────────────────────
 
+
 def build_messages(
     user_message: str,
     plan_content: str = "",
@@ -291,7 +307,9 @@ def build_messages(
     # Inject current plan as system context
     if plan_content and plan_content.strip():
         messages.append(
-            SystemMessage(content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```")
+            SystemMessage(
+                content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```"
+            )
         )
 
     # Add chat history
@@ -341,7 +359,12 @@ async def refine_plan(
             content = msg.content
             if isinstance(content, list):
                 # Handle Gemini blocks
-                raw_content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+                raw_content = "".join(
+                    [
+                        b["text"] if isinstance(b, dict) and "text" in b else str(b)
+                        for b in content
+                    ]
+                )
             else:
                 raw_content = content
             break

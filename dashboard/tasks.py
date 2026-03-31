@@ -12,7 +12,8 @@ from dashboard.api_utils import (
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
 from dashboard.zvec_store import OSTwinStore
-from dashboard.telegram_poller import start_polling
+# Telegram command handling is now in the Node.js bot (bot/src/telegram.ts).
+# Outbound notifications use notify.py (formerly telegram_bot.py).
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,7 @@ async def poll_war_rooms():
 async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
-    asyncio.create_task(start_polling())
+    # Telegram polling removed — handled by the Node.js bot (bot/src/telegram.ts)
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         # Initialize store in global state
