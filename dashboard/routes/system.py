@@ -5,9 +5,9 @@ import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 try:
-    import telegram_bot
+    import notify
 except ImportError:
-    telegram_bot = None
+    notify = None
 
 from dashboard.models import TelegramConfigRequest, UpdatePlanRoleConfigRequest
 from dashboard.api_utils import (
@@ -17,6 +17,10 @@ from dashboard.api_utils import (
 )
 from dashboard.constants import ROLE_DEFAULTS
 from dashboard.auth import get_current_user
+
+# Resolve Python: ~/.ostwin/.venv → system fallback
+_VENV_PYTHON = Path.home() / ".ostwin" / ".venv" / "bin" / "python"
+PYTHON = str(_VENV_PYTHON) if _VENV_PYTHON.is_file() else "python3"
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -110,8 +114,8 @@ async def check_api_keys(user: dict = Depends(get_current_user)):
 @router.get("/run_tests_direct")
 async def run_tests_direct(user: dict = Depends(get_current_user)):
     import subprocess
-    # Note: Using absolute path as in original code
-    result = subprocess.run(["python3", "/Users/paulaan/PycharmProjects/agent-os/dashboard/test_room_state_backend.py"], capture_output=True, text=True)
+    test_file = Path(__file__).parent.parent / "tests" / "test_room_state_backend.py"
+    result = subprocess.run([PYTHON, str(test_file)], capture_output=True, text=True)
     return {"stdout": result.stdout, "stderr": result.stderr, "code": result.returncode}
 
 @router.post("/stop")
@@ -147,18 +151,18 @@ async def get_config(user: dict = Depends(get_current_user)):
 
 @router.get("/telegram/config")
 async def get_telegram_config():
-    return telegram_bot.get_config()
+    return notify.get_config()
 
 @router.post("/telegram/config")
 async def save_telegram_config(config: TelegramConfigRequest):
-    success = telegram_bot.save_config(config.bot_token, config.chat_id)
+    success = notify.save_config(config.bot_token, config.chat_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save telegram config")
     return {"status": "success"}
 
 @router.post("/telegram/test")
 async def test_telegram_connection():
-    success = await telegram_bot.send_message("Test message from OS Twin!")
+    success = await notify.send_message("Test message from OS Twin!")
     if not success:
         raise HTTPException(status_code=500, detail="Failed to send test message")
     return {"status": "success"}
@@ -171,7 +175,7 @@ async def shell_command(command: str):
 @router.get("/run_pytest_auth")
 async def run_pytest_auth():
     import asyncio
-    cmd = ["python3", "-m", "pytest", str(PROJECT_ROOT / "test_auth.py"), "-v"]
+    cmd = [PYTHON, "-m", "pytest", str(PROJECT_ROOT / "test_auth.py"), "-v"]
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -187,7 +191,7 @@ async def run_pytest_auth():
 @router.get("/test_ws")
 async def run_ws_test():
     import subprocess
-    cmd = ["python3", str(PROJECT_ROOT / "test_ws.py")]
+    cmd = [PYTHON, str(PROJECT_ROOT / "test_ws.py")]
     process = subprocess.run(cmd, capture_output=True, text=True)
     return {
         "stdout": process.stdout,

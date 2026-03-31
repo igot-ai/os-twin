@@ -453,6 +453,15 @@
         "recommendations-prioritized"
       ],
       "default_model": "gemini-3-flash-preview"
+    },
+    {
+      "name": "technical-writer",
+      "description": "Document gameplay instructions and verify final project state",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/technical-writer/role.json",
+      "prompt": "roles/technical-writer/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
     }
   ],
   "assignment_rules": {

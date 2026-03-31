@@ -4,6 +4,7 @@ from typing import AsyncIterator
 from datetime import datetime, timezone
 import asyncio
 import json
+import shutil
 from pathlib import Path
 
 from dashboard.api_utils import (
@@ -44,6 +45,18 @@ async def list_rooms(user: dict = Depends(get_current_user)):
             "agents_dir": str(AGENTS_DIR)
         }
     }
+
+@router.post("/api/rooms/reset")
+async def reset_rooms(user: dict = Depends(get_current_user)):
+    """Wipe all war-room data to start fresh."""
+    if not WARROOMS_DIR.exists():
+        return {"status": "ok", "message": "No war-rooms to clean."}
+    try:
+        shutil.rmtree(WARROOMS_DIR)
+        WARROOMS_DIR.mkdir()
+        return {"status": "ok", "message": "All war-rooms cleaned."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset war-rooms: {e}")
 
 @router.get("/api/rooms/{room_id}/channel")
 async def get_channel(

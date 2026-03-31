@@ -466,7 +466,16 @@ async def create_plan(request: CreatePlanRequest):
     plans_dir = PLANS_DIR
     plans_dir.mkdir(exist_ok=True)
     plan_file = plans_dir / f"{plan_id}.md"
-    working_dir = request.working_dir or request.path or str(Path.cwd())
+    working_dir = request.working_dir or request.path or ''
+
+    # Auto-create project subfolder under PROJECT_ROOT/projects/ if no dir specified
+    if not working_dir or working_dir == '.':
+        slug = _re_mod.sub(r'[^a-zA-Z0-9]+', '-', request.title.lower()).strip('-')[:40]
+        if not slug:
+            slug = plan_id
+        project_dir = PROJECT_ROOT / "projects" / slug
+        project_dir.mkdir(parents=True, exist_ok=True)
+        working_dir = str(project_dir)
 
     if request.content:
         plan_file.write_text(request.content)
@@ -679,8 +688,16 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     wd_match = _re_mod.search(r"working_dir:\s*(.+)", plan)
     if wd_match:
         working_dir = wd_match.group(1).strip()
-    if not working_dir:
+    if not working_dir or working_dir == '.':
         working_dir = str(PROJECT_ROOT)
+
+    # If working_dir is relative, resolve under PROJECT_ROOT/projects/
+    wd_path = Path(working_dir)
+    if not wd_path.is_absolute():
+        wd_path = PROJECT_ROOT / "projects" / working_dir
+    # Create the directory if it doesn't exist
+    wd_path.mkdir(parents=True, exist_ok=True)
+    working_dir = str(wd_path)
 
     # --- .meta.json: upsert — merge into existing, preserve created_at ---
     meta_path = plans_dir / f"{plan_id}.meta.json"
@@ -755,10 +772,28 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         except Exception as e:
             logger.error(f"zvec: plan indexing failed ({e})")
 
+    # Ensure target project is initialized with ostwin
+    wd_path = Path(working_dir) if Path(working_dir).is_absolute() else PROJECT_ROOT / working_dir
+    if not (wd_path / ".agents").exists():
+        logger.info(f"run_plan: target dir {wd_path} not initialized, running ostwin init...")
+        ostwin_bin = AGENTS_DIR / "bin" / "ostwin"
+        if ostwin_bin.exists():
+            init_result = subprocess.run(
+                [str(ostwin_bin), "init"],
+                cwd=str(wd_path),
+                capture_output=True, text=True, timeout=120,
+            )
+            if init_result.returncode != 0:
+                logger.error(f"ostwin init failed in {wd_path}: {init_result.stderr}")
+                raise HTTPException(status_code=500, detail=f"ostwin init failed in {wd_path}: {init_result.stderr[:200]}")
+            logger.info(f"run_plan: ostwin init completed in {wd_path}")
+        else:
+            logger.warning(f"ostwin binary not found at {ostwin_bin}, skipping init")
+
     # Spawn OS Twin in background
     subprocess.Popen(
         [str(run_sh), plan_path],
-        cwd=str(PROJECT_ROOT),
+        cwd=str(wd_path),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -1135,7 +1170,7 @@ async def refine_plan_endpoint(request: RefineRequest):
             p_file = plans_dir / f"{request.plan_id}.md"
             if p_file.exists():
                 plan_content = p_file.read_text()
-        result = await refine_plan(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None)
+        result = await refine_plan(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None)
         if isinstance(result, dict):
             # Backward compatible: refined_plan is a string. Rich info is also available.
             return {
@@ -1165,7 +1200,7 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
             try:
                 from plan_agent import parse_structured_response
                 full_response = ""
-                async for chunk in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None):
+                async for chunk in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None):
                     if isinstance(chunk, dict):
                         # If a dictionary is yielded, treat it as a rich event and accumulate if it has a 'token'
                         token = chunk.get("token", "")
