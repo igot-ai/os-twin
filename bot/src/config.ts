@@ -42,7 +42,7 @@ const config: AppConfig = {
   SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN || '',
   SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET || '',
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || '',
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
 };
 
 export default config;

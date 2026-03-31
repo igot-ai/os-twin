@@ -640,11 +640,9 @@ else:
         if ! command -v node &>/dev/null; then
           echo "✗ Node.js not found" >&2; exit 1
         fi
-        # Install deps if needed
-        if [[ ! -d "$BOT_DIR/node_modules" ]]; then
-          echo "→ Installing bot dependencies..."
-          (cd "$BOT_DIR" && npm install --legacy-peer-deps) || { echo "✗ npm install failed" >&2; exit 1; }
-        fi
+        # Install deps (always update)
+        echo "→ Installing bot dependencies..."
+        (cd "$BOT_DIR" && npm install --legacy-peer-deps) || { echo "✗ npm install failed" >&2; exit 1; }
         # Kill existing
         if [[ -f "$BOT_PID_FILE" ]]; then
           _OLD=$(cat "$BOT_PID_FILE" 2>/dev/null || true)

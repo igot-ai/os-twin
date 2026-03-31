@@ -135,12 +135,14 @@ export async function refinePlan(params: {
   planContent?: string;
   planId?: string;
   chatHistory?: Array<{ role: string; content: string }>;
+  workingDir?: string;
 }): Promise<RefineResult> {
   return postJSON('/api/plans/refine', {
     message: params.message,
     plan_content: params.planContent || '',
     plan_id: params.planId || '',
     chat_history: params.chatHistory || [],
+    working_dir: params.workingDir || '',
   });
 }
 

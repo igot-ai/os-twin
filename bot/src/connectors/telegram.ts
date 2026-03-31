@@ -71,13 +71,15 @@ export class TelegramConnector implements Connector {
       });
     }
 
-    // /draft with optional inline argument
-    this.bot.command('draft', async (ctx) => {
-      const userId = String(ctx.chat.id);
-      const args = ctx.message.text.replace(/^\/draft(@\S+)?/, '').trim();
-      const responses = await routeCommand(userId, 'telegram', 'draft', args);
-      await this.sendResponses(ctx, responses);
-    });
+    // Commands with inline arguments
+    for (const cmd of ['draft', 'setdir', 'feedback'] as const) {
+      this.bot.command(cmd, async (ctx) => {
+        const userId = String(ctx.chat.id);
+        const args = ctx.message.text.replace(new RegExp(`^\\/${cmd}(@\\S+)?`), '').trim();
+        const responses = await routeCommand(userId, 'telegram', cmd, args);
+        await this.sendResponses(ctx, responses);
+      });
+    }
 
     // ── Callback queries (inline keyboard buttons) ────────────────
     this.bot.on('callback_query', async (ctx) => {
@@ -111,6 +113,7 @@ export class TelegramConnector implements Connector {
     await this.bot.telegram.setMyCommands([
       { command: 'menu', description: '🏢 Main Control Center' },
       { command: 'dashboard', description: '📊 Real-time War-Room progress' },
+      { command: 'setdir', description: '📂 Set target project directory' },
       { command: 'draft', description: '📝 Draft a new Plan with AI' },
       { command: 'status', description: '💻 List running War-Rooms' },
       { command: 'help', description: '❓ Detailed user guide' },

@@ -50,6 +50,9 @@ async function main() {
   }
 
   const dcConfig = registry.getConfig('discord');
+  const dcAllowedChannels = process.env.DISCORD_ALLOWED_CHANNELS
+    ? process.env.DISCORD_ALLOWED_CHANNELS.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
   if (!dcConfig && config.DISCORD_TOKEN) {
     console.log('[REGISTRY] Seeding Discord config from .env...');
     const defaultDc: ConnectorConfig = {
@@ -60,12 +63,17 @@ async function main() {
         client_id: config.DISCORD_CLIENT_ID,
         guild_id: config.GUILD_ID,
       },
-      settings: {},
+      settings: { allowed_channels: dcAllowedChannels },
       authorized_users: [],
       pairing_code: '',
       notification_preferences: { events: [], enabled: true },
     };
     await registry.updateConfig('discord', defaultDc);
+  } else if (dcConfig && dcAllowedChannels.length) {
+    // Always sync channel restrictions from .env — they take priority
+    await registry.updateConfig('discord', {
+      settings: { ...dcConfig.settings, allowed_channels: dcAllowedChannels },
+    });
   }
 
   const slackConfig = registry.getConfig('slack');

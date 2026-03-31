@@ -103,7 +103,8 @@ def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
 
 
 def get_system_prompt(
-    plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None
+    plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
 ) -> str:
     """Generate the system prompt dynamically based on the plan template."""
     plan_format_spec = "Error: Template not found."
@@ -125,6 +126,19 @@ def get_system_prompt(
     # Substitute {{AVAILABLE_ROLES}} placeholder with dynamic roles
     roles_text = _load_available_roles(agents_dir)
     plan_format_spec = plan_format_spec.replace("{{AVAILABLE_ROLES}}", roles_text)
+
+    # Resolve actual project working directory
+    if working_dir:
+        project_dir = working_dir
+    else:
+        # OSTWIN_PROJECT_DIR is set by `ostwin dashboard --project-dir`
+        # This is the directory where the user ran `ostwin init`
+        env_project = os.environ.get("OSTWIN_PROJECT_DIR")
+        if env_project:
+            project_dir = str(Path(env_project) / "projects")
+        else:
+            from dashboard.api_utils import PROJECT_ROOT
+            project_dir = str(PROJECT_ROOT / "projects")
 
     return f"""\
 You are a **Plan Architect** for OS Twin — an AI-powered development orchestration system.
@@ -171,6 +185,13 @@ Pay special attention to the dynamic Roles and Lifecycle sections.
 2. You MAY define custom roles (e.g., "researcher", "technical-writer", "data-scientist") when no registered role fits the epic's needs.
 3. Custom roles will be dynamically resolved at runtime via the ephemeral agent system.
 4. Lifecycle state names MUST match the role names used in the Roles: directive.
+
+## PROJECT CONTEXT
+
+The project base directory is: `{project_dir}`
+For `> Project:` and `working_dir:` in the Config section, use a short kebab-case subfolder name under this base.
+Example: if the user wants to build a "YouTube Clone", set `working_dir: {project_dir}/youtube-clone`.
+Do NOT invent arbitrary paths — always use `{project_dir}/<short-name>`.
 
 ## ADDITIONAL RULES
 
@@ -232,6 +253,7 @@ def _resolve_model(model_str: str = ""):
 def create_plan_agent(
     model: str = "",
     plans_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
 ):
     """Create a deepagent configured for plan refinement.
 
@@ -278,7 +300,7 @@ def create_plan_agent(
     agent = create_deep_agent(
         model=chat_model,
         tools=[read_existing_plan],
-        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir),
+        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir),
     )
 
     return agent
@@ -334,6 +356,7 @@ async def refine_plan(
     chat_history: list[dict] | None = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Invoke the plan agent and return the refined plan structured data.
 
@@ -343,11 +366,12 @@ async def refine_plan(
         chat_history: Previous turns.
         model: LLM model to use.
         plans_dir: Path to plans directory.
+        working_dir: Target project directory for this plan.
 
     Returns:
         A dictionary with explanation, actions, and plan content.
     """
-    agent = create_plan_agent(model=model, plans_dir=plans_dir)
+    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
     messages = build_messages(user_message, plan_content, chat_history)
 
     result = await agent.ainvoke({"messages": messages})
@@ -381,10 +405,9 @@ async def refine_plan_stream(
     chat_history: list[dict] | None = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
+    working_dir: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """Stream the plan agent's response token-by-token.
-
-    Yields individual content chunks as they arrive from the LLM.
 
     Args:
         user_message: User's refinement instruction.
@@ -392,11 +415,12 @@ async def refine_plan_stream(
         chat_history: Previous turns.
         model: LLM model to use.
         plans_dir: Path to plans directory.
+        working_dir: Target project directory for this plan.
 
     Returns:
         AsyncIterator of string tokens.
     """
-    agent = create_plan_agent(model=model, plans_dir=plans_dir)
+    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
     messages = build_messages(user_message, plan_content, chat_history)
 
     try:

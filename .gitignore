@@ -53,3 +53,5 @@ bk/
 
 # Ostwin MCP secrets
 .agents/mcp/.env.mcp
+
+projects/

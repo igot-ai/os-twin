@@ -9,7 +9,7 @@
 
 import api from './api';
 import { registry } from './connectors/registry';
-import { getSession, clearSession, setMode, setPlan } from './sessions';
+import { getSession, clearSession, setMode, setPlan, setWorkingDir } from './sessions';
 import { listRecordings, transcribeAudio } from './audio-transcript';
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -223,6 +223,7 @@ export function cmdHelp(): BotResponse {
 
 *Interactive AI Agent*
   /menu — Main interactive command menu.
+  /setdir <path> — Set the target project directory for new plans.
   /draft <idea> — Create a new plan from a text prompt.
   /transcribe — Transcribe a voice recording with AI.
   /edit — Select a plan to edit and refine with AI.
@@ -327,10 +328,15 @@ async function processDraft(userId: string, platform: string, idea: string): Pro
   setPlan(userId, platform, 'new');
   setMode(userId, platform, 'drafting');
 
-  const responses: BotResponse[] = [text(`⏳ *Drafting Plan...*\nIdea: \`${idea}\`\nPlease wait while the AI generates the initial plan.`)];
+  const session = getSession(userId, platform);
+  const workingDir = session.workingDir
+    || registry.getConfig(platform as any)?.settings?.working_dir
+    || '';
+  const dirLabel = workingDir ? `\nDir: \`${workingDir}\`` : '';
+  const responses: BotResponse[] = [text(`⏳ *Drafting Plan...*\nIdea: \`${idea}\`${dirLabel}\nPlease wait while the AI generates the initial plan.`)];
 
   try {
-    const result = await api.refinePlan({ message: `Draft a new plan for: ${idea}` });
+    const result = await api.refinePlan({ message: `Draft a new plan for: ${idea}`, workingDir });
 
     if (result?._error) {
       clearSession(userId, platform);
@@ -341,7 +347,7 @@ async function processDraft(userId: string, platform: string, idea: string): Pro
     const planText = result.plan || result.refined_plan || result.raw_result?.full_response || '';
     const planId = result.raw_result?.plan_id || _generateSlug(idea);
 
-    const created = await api.createPlan({ title: idea, content: planText, workingDir: '.' });
+    const created = await api.createPlan({ title: idea, content: planText, workingDir: workingDir || '.' });
 
     setMode(userId, platform, 'editing');
     setPlan(userId, platform, created?.plan_id || planId);
@@ -385,6 +391,7 @@ export async function handleStatefulText(userId: string, platform: string, userT
       message: userText,
       planId,
       chatHistory: session.chatHistory.slice(0, -1),
+      workingDir: session.workingDir || registry.getConfig(platform as any)?.settings?.working_dir,
     });
 
     if (result?._error) {
@@ -614,6 +621,20 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'cancel':
       clearSession(userId, platform);
       return [text('🛑 Action cancelled. Session cleared.')];
+    case 'setdir': {
+      const dir = args.trim();
+      if (!dir) {
+        const saved = registry.getConfig(platform as any)?.settings?.working_dir;
+        const current = saved || '(default — dashboard project root)';
+        return [text(`📂 *Current working directory:* \`${current}\`\n\nUsage: \`/setdir /path/to/project\``)];
+      }
+      // Persist to session + connector config (survives restarts)
+      setWorkingDir(userId, platform, dir);
+      await registry.updateConfig(platform as any, {
+        settings: { ...registry.getConfig(platform as any)?.settings, working_dir: dir },
+      });
+      return [text(`📂 *Working directory set to:* \`${dir}\`\n\nAll new plans will target this directory.`)];
+    }
     case 'draft': {
       const idea = args.trim();
       if (!idea) {

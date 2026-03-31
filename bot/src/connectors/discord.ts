@@ -54,6 +54,7 @@ export class DiscordConnector implements Connector {
   public status: ConnectorStatus = 'disconnected';
   public client: Client | null = null;
   private voiceCommands: Collection<string, VoiceCommand> = new Collection();
+  private allowedChannels: Set<string> | null = null;  // null = all channels
 
   constructor() {
     if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -74,6 +75,16 @@ export class DiscordConnector implements Connector {
       throw new Error('Discord token or client_id is missing in credentials');
     }
 
+    // Load channel restrictions from settings
+    const channels = config.settings?.allowed_channels;
+    this.allowedChannels = Array.isArray(channels) && channels.length
+      ? new Set(channels.map(String))
+      : null;
+
+    if (this.allowedChannels) {
+      console.log(`[DISCORD] Channel filter: ${[...this.allowedChannels].join(', ')}`);
+    }
+
     this.status = 'connecting';
     this.client = new Client({
       intents: [
@@ -85,6 +96,15 @@ export class DiscordConnector implements Connector {
     });
 
     this.client.on('interactionCreate', async (interaction) => {
+      // Channel restriction: ignore interactions from non-allowed text channels
+      const channelId = interaction.channelId;
+      if (this.allowedChannels && channelId && !this.allowedChannels.has(channelId)) {
+        if (interaction.isRepliable()) {
+          await interaction.reply({ content: '⚠️ This bot is restricted to specific channels.', flags: 64 as const }).catch(() => {});
+        }
+        return;
+      }
+
       if (interaction.isButton()) {
         const userId = String(interaction.user.id);
         const data = interaction.customId;
@@ -102,6 +122,15 @@ export class DiscordConnector implements Connector {
       const commandName = interaction.commandName;
       const voiceCmd = this.voiceCommands.get(commandName);
       if (voiceCmd) {
+        // Voice channel restriction: check if the user's voice channel is allowed
+        if (this.allowedChannels && (commandName === 'join' || commandName === 'leave')) {
+          const member = interaction.member as any;
+          const voiceChannelId = member?.voice?.channelId;
+          if (voiceChannelId && !this.allowedChannels.has(voiceChannelId)) {
+            await interaction.reply({ content: '⚠️ This bot is restricted to specific voice channels.', flags: 64 as const }).catch(() => {});
+            return;
+          }
+        }
         try {
           await voiceCmd.execute(interaction);
         } catch (error) {
@@ -123,6 +152,8 @@ export class DiscordConnector implements Connector {
       let args = '';
       if (commandName === 'draft') {
         args = interaction.options.getString('idea') || '';
+      } else if (commandName === 'setdir') {
+        args = interaction.options.getString('path') || '';
       } else if (commandName === 'feedback') {
         args = interaction.options.getString('text') || '';
       }
@@ -134,6 +165,7 @@ export class DiscordConnector implements Connector {
     this.client.on('messageCreate', async (message: Message) => {
       if (message.author.bot) return;
       if (!message.guild) return;
+      if (this.allowedChannels && !this.allowedChannels.has(message.channel.id)) return;
 
       const entry: LogEntry = {
         id: message.id,
@@ -208,6 +240,7 @@ export class DiscordConnector implements Connector {
                 const guild = leftChannel.guild;
                 const textChannel = guild.channels.cache.find(
                   ch => ch.isTextBased() && !ch.isVoiceBased()
+                    && (!this.allowedChannels || this.allowedChannels.has(ch.id))
                 ) as TextChannel | undefined;
 
                 const send = async (msg: string) => {
@@ -249,6 +282,10 @@ export class DiscordConnector implements Connector {
 
   public async sendMessage(targetId: string, response: BotResponse): Promise<void> {
     if (!this.client) throw new Error('Discord bot not started');
+    if (this.allowedChannels && !this.allowedChannels.has(targetId)) {
+      console.warn(`[DISCORD] Blocked sendMessage to non-allowed channel ${targetId}`);
+      return;
+    }
     const channel = await this.client.channels.fetch(targetId);
     if (channel?.isTextBased()) {
       await this.sendToChannel(channel as TextChannel, [response]);
@@ -349,6 +386,10 @@ export class DiscordConnector implements Connector {
       new SlashCommandBuilder().setName('skills').setDescription('View available AI skills'),
       new SlashCommandBuilder().setName('usage').setDescription('Stats report'),
       new SlashCommandBuilder().setName('help').setDescription('Detailed user guide'),
+      new SlashCommandBuilder()
+        .setName('setdir')
+        .setDescription('Set target project directory for new plans')
+        .addStringOption(opt => opt.setName('path').setDescription('Absolute path to project directory').setRequired(false)),
       new SlashCommandBuilder()
         .setName('draft')
         .setDescription('Draft a new Plan with AI')

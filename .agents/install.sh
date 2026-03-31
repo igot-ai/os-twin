@@ -35,7 +35,7 @@ SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 AUTO_YES=false
 SKIP_OPTIONAL=false
 DASHBOARD_ONLY=false
-START_BOT=false
+START_BOT=true
 DASHBOARD_PORT=9000
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
@@ -1295,12 +1295,10 @@ if $START_BOT; then
     warn "Node.js not found — cannot start bot"
     info "Install Node.js and re-run with --bot"
   else
-    # Install dependencies if needed
-    if [[ ! -d "$BOT_DIR/node_modules" ]]; then
-      step "Installing bot dependencies (npm)..."
-      (cd "$BOT_DIR" && npm install --legacy-peer-deps) \
-        && ok "Dependencies installed" || warn "Dependency install failed"
-    fi
+    # Install dependencies (always update)
+    step "Installing bot dependencies (npm)..."
+    (cd "$BOT_DIR" && npm install --legacy-peer-deps) \
+      && ok "Dependencies installed" || warn "Dependency install failed"
 
     # Install tsx if not present (needed for TypeScript runtime)
     if [[ ! -f "$BOT_DIR/node_modules/.bin/tsx" ]]; then

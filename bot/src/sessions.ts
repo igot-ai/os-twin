@@ -19,6 +19,7 @@ export interface Session {
   chatHistory: ChatMessage[];
   lastActivity: number;
   lastTranscription?: string;
+  workingDir?: string;
 }
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -74,5 +75,11 @@ export function setMode(userId: string | number, platform: string, mode: Session
 export function setPlan(userId: string | number, platform: string, planId: string): void {
   const session = getSession(userId, platform);
   session.activePlanId = planId;
+  session.lastActivity = Date.now();
+}
+
+export function setWorkingDir(userId: string | number, platform: string, dir: string): void {
+  const session = getSession(userId, platform);
+  session.workingDir = dir;
   session.lastActivity = Date.now();
 }
