@@ -8,6 +8,7 @@
  */
 
 import api from './api';
+import { registry } from './connectors/registry';
 import { getSession, clearSession, setMode, setPlan } from './sessions';
 import { listRecordings, transcribeAudio } from './audio-transcript';
 
@@ -47,6 +48,7 @@ function cmdMenu(): BotResponse {
 function cmdSubmenuMonitoring(): BotResponse {
   return menu('📊 *Monitoring*\nReal-time War-Room insights:', [
     [{ label: '📊 Dashboard', callbackData: 'cmd:dashboard' }],
+    [{ label: '📈 Progress', callbackData: 'cmd:progress' }],
     [{ label: '💻 Status', callbackData: 'cmd:status' }],
     [{ label: '💬 Compact View', callbackData: 'cmd:compact' }],
     [{ label: '⚠️ Errors', callbackData: 'cmd:errors' }],
@@ -70,6 +72,7 @@ function cmdSubmenuSystem(): BotResponse {
   return menu('⚙️ *System*\nSystem operations & resources:', [
     [{ label: '📈 Token Usage', callbackData: 'cmd:usage' }],
     [{ label: '🧠 Skills', callbackData: 'cmd:skills' }],
+    [{ label: '🔔 Notifications', callbackData: 'cmd:preferences' }],
     [{ label: '⬅️ Back', callbackData: 'menu:main' }],
   ]);
 }
@@ -480,6 +483,118 @@ function _generateSlug(idea: string): string {
   return slug ? `${slug}-${hash}` : `plan-${hash}`;
 }
 
+// ── Notification & Feedback commands ──────────────────────────────
+
+async function cmdFeedback(userId: string, platform: string, args: string): Promise<BotResponse[]> {
+  const idea = args.trim();
+  if (!idea) {
+    return [text('📝 *Feedback:* Please include your feedback message.\nUsage: `/feedback <your feedback>`')];
+  }
+  
+  // Try to find the latest active room for this user to associate feedback with
+  const { rooms } = await api.getRooms();
+  const latestRoom = (rooms && rooms[0]?.room_id) || 'global';
+  
+  try {
+    await api.postComment(latestRoom, `${platform}:${userId}`, idea);
+    return [text('✅ *Feedback received!* Thank you for your input. It has been posted to the dashboard.')];
+  } catch (err: any) {
+    return [text(`❌ Failed to post feedback: ${err.message}`)];
+  }
+}
+
+async function cmdPreferences(userId: string, platform: string): Promise<BotResponse[]> {
+  const config = registry.getConfig(platform as any);
+  if (!config) return [text('❌ Connector configuration not found.')];
+
+  const prefs = config.notification_preferences || { events: [], enabled: true };
+  const status = prefs.enabled ? '🔔 *Enabled*' : '🔕 *Disabled*';
+  
+  const buttons: Button[][] = [
+    [{ 
+      label: prefs.enabled ? '🔕 Disable All' : '🔔 Enable All', 
+      callbackData: `prefs:toggle_global:${!prefs.enabled}` 
+    }],
+    [{ label: '🎯 Manage Subscriptions', callbackData: 'cmd:subscriptions' }],
+    [{ label: '⬅️ Back', callbackData: 'menu:cat:system' }],
+  ];
+
+  return [menu(`⚙️ *Notification Preferences*\n\nStatus: ${status}\n\nYou can toggle global notifications or subscribe to specific events.`, buttons)];
+}
+
+async function cmdSubscriptions(userId: string, platform: string): Promise<BotResponse[]> {
+  const config = registry.getConfig(platform as any);
+  if (!config) return [text('❌ Connector configuration not found.')];
+
+  const prefs = config.notification_preferences || { events: [], enabled: true };
+  const events: { id: string; label: string }[] = [
+    { id: 'plan_started', label: '🚀 Plan Started' },
+    { id: 'epic_passed', label: '✅ EPIC Passed' },
+    { id: 'epic_failed', label: '❌ EPIC Failed' },
+    { id: 'epic_retry', label: '🔄 EPIC Retry' },
+    { id: 'feedback_needed', label: '🤔 Feedback Needed' },
+    { id: 'error', label: '⚠️ Errors' },
+  ];
+
+  const buttons: Button[][] = events.map(e => {
+    const isSubscribed = prefs.events.includes(e.id);
+    return [{
+      label: `${isSubscribed ? '✅' : '⬜️'} ${e.label}`,
+      callbackData: `prefs:toggle_event:${e.id}`
+    }];
+  });
+
+  buttons.push([{ label: '⬅️ Back', callbackData: 'cmd:preferences' }]);
+
+  return [menu('🎯 *Event Subscriptions*\nSelect which events you want to be notified about:', buttons)];
+}
+
+async function cmdProgress(): Promise<BotResponse[]> {
+  const { plans } = await api.getPlans();
+  const activePlans = plans ? plans.filter(p => p.status !== 'completed' && p.status !== 'failed') : [];
+  
+  if (activePlans.length === 0) {
+    return [text('ℹ️ No active plans found.')];
+  }
+
+  const progressLines = activePlans.map(p => {
+    const pct = p.pct_complete || 0;
+    const bar = '█'.repeat(Math.floor(pct / 10)) + '░'.repeat(10 - Math.floor(pct / 10));
+    return `*${p.title || p.plan_id}*\n\`${bar}\` ${pct}%\nStatus: ${p.status}`;
+  });
+
+  return [text(`📈 *Current Progress*\n\n${progressLines.join('\n\n')}`)];
+}
+
+async function handleToggleGlobal(userId: string, platform: string, enabled: boolean): Promise<BotResponse[]> {
+  const config = registry.getConfig(platform as any);
+  const prefs = config?.notification_preferences || { events: [], enabled: true };
+  await registry.updateConfig(platform as any, {
+    notification_preferences: { ...prefs, enabled }
+  });
+  return cmdPreferences(userId, platform);
+}
+
+async function handleToggleEvent(userId: string, platform: string, eventId: string): Promise<BotResponse[]> {
+  const config = registry.getConfig(platform as any);
+  if (!config) return [];
+
+  const prefs = config.notification_preferences || { events: [], enabled: true };
+  let newEvents = [...prefs.events];
+  
+  if (newEvents.includes(eventId)) {
+    newEvents = newEvents.filter(e => e !== eventId);
+  } else {
+    newEvents.push(eventId);
+  }
+
+  await registry.updateConfig(platform as any, {
+    notification_preferences: { ...prefs, events: newEvents }
+  });
+  
+  return cmdSubscriptions(userId, platform);
+}
+
 // ── Unified router ────────────────────────────────────────────────
 
 export async function routeCommand(userId: string, platform: string, command: string, args = ''): Promise<BotResponse[]> {
@@ -513,6 +628,10 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'edit':        return [await cmdEditMenu()];
     case 'startplan':   return [await cmdStartplanMenu()];
     case 'viewplan':    return [await cmdViewplanMenu()];
+    case 'feedback':    return await cmdFeedback(userId, platform, args);
+    case 'preferences': return await cmdPreferences(userId, platform);
+    case 'subscriptions': return await cmdSubscriptions(userId, platform);
+    case 'progress':    return await cmdProgress();
     default:            return [text('⚠️ Unknown command. Type /help for a list of commands.')];
   }
 }
@@ -552,6 +671,15 @@ export async function routeCallback(userId: string, platform: string, callbackDa
   if (callbackData.startsWith('menu:launch_confirm:')) {
     const planId = callbackData.split(':')[2];
     return cmdLaunchPlan(planId);
+  }
+
+  if (callbackData.startsWith('prefs:toggle_global:')) {
+    const enabled = callbackData.split(':')[2] === 'true';
+    return await handleToggleGlobal(userId, platform, enabled);
+  }
+  if (callbackData.startsWith('prefs:toggle_event:')) {
+    const eventId = callbackData.split(':')[2];
+    return await handleToggleEvent(userId, platform, eventId);
   }
 
   return [];

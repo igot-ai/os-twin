@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 import api from '../src/api';
+import { registry } from '../src/connectors/registry';
 import * as sessions from '../src/sessions';
 import { routeCommand, routeCallback, handleStatefulText, cmdHelp } from '../src/commands';
 
@@ -94,6 +95,82 @@ describe('commands', () => {
 
       const [resp] = await routeCommand('u1', 'telegram', 'dashboard');
       expect(resp.text).to.include('0');
+    });
+  });
+
+  describe('routeCommand — feedback', () => {
+    it('requires arguments', async () => {
+      const [resp] = await routeCommand('u1', 'telegram', 'feedback', '');
+      expect(resp.text).to.include('Please include your feedback message');
+    });
+
+    it('posts feedback to the dashboard', async () => {
+      sandbox.stub(api, 'getRooms').resolves(MOCK_ROOMS);
+      const postStub = sandbox.stub(api, 'postComment').resolves({ ok: true });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'feedback', 'Looks good!');
+      expect(resp.text).to.include('Feedback received');
+      expect(postStub.calledOnce).to.be.true;
+      expect(postStub.firstCall.args[0]).to.equal('room-1');
+      expect(postStub.firstCall.args[1]).to.equal('telegram:u1');
+      expect(postStub.firstCall.args[2]).to.equal('Looks good!');
+    });
+  });
+
+  describe('routeCommand — progress', () => {
+    it('shows progress for active plans', async () => {
+      sandbox.stub(api, 'getPlans').resolves({
+        plans: [
+          { plan_id: 'p1', title: 'Plan 1', status: 'launched', pct_complete: 50 },
+        ]
+      });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'progress');
+      expect(resp.text).to.include('Plan 1');
+      expect(resp.text).to.include('50%');
+      expect(resp.text).to.include('█████░░░░░');
+    });
+
+    it('shows message when no active plans', async () => {
+      sandbox.stub(api, 'getPlans').resolves({ plans: [] });
+      const [resp] = await routeCommand('u1', 'telegram', 'progress');
+      expect(resp.text).to.include('No active plans');
+    });
+  });
+
+  describe('routeCallback — preferences', () => {
+    it('handles prefs:toggle_global', async () => {
+      const updateStub = sandbox.stub(registry, 'updateConfig').resolves();
+      const getConfigStub = sandbox.stub(registry, 'getConfig');
+      
+      getConfigStub.onFirstCall().returns({
+        platform: 'telegram', enabled: true, notification_preferences: { events: [], enabled: true }
+      } as any);
+      
+      getConfigStub.onSecondCall().returns({
+        platform: 'telegram', enabled: true, notification_preferences: { events: [], enabled: false }
+      } as any);
+
+      const [resp] = await routeCallback('u1', 'telegram', 'prefs:toggle_global:false');
+      expect(updateStub.calledOnce).to.be.true;
+      expect(resp.text).to.include('Disabled');
+    });
+
+    it('handles prefs:toggle_event', async () => {
+      const updateStub = sandbox.stub(registry, 'updateConfig').resolves();
+      const getConfigStub = sandbox.stub(registry, 'getConfig');
+      
+      getConfigStub.onFirstCall().returns({
+        platform: 'telegram', enabled: true, notification_preferences: { events: ['plan_started'], enabled: true }
+      } as any);
+      
+      getConfigStub.onSecondCall().returns({
+        platform: 'telegram', enabled: true, notification_preferences: { events: ['plan_started', 'epic_passed'], enabled: true }
+      } as any);
+
+      const [resp] = await routeCallback('u1', 'telegram', 'prefs:toggle_event:epic_passed');
+      expect(updateStub.calledOnce).to.be.true;
+      expect(resp.text).to.include('Subscriptions');
     });
   });
 
@@ -485,6 +562,18 @@ describe('commands', () => {
       const responses = await handleStatefulText('u1', 'telegram', 'Fix something');
       const hasError = responses.some(r => r.text.includes('Failed'));
       expect(hasError).to.be.true;
+    });
+  });
+
+  describe('transcribe commands', () => {
+    it('routeCommand transcribe returns info if no files', async () => {
+      const [resp] = await routeCommand('u1', 'telegram', 'transcribe');
+      expect(resp.text).to.include('No recordings');
+    });
+
+    it('routeCommand transcribe_plan returns error if no transcription', async () => {
+      const [resp] = await routeCommand('u1', 'telegram', 'transcribe_plan');
+      expect(resp.text).to.include('No transcription available');
     });
   });
 });

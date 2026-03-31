@@ -207,6 +207,19 @@ export async function shellCommand(command: string): Promise<any> {
   return postJSON('/api/shell', command);
 }
 
+export async function postComment(entityId: string, userId: string, body: string, parentId?: string): Promise<any> {
+  return postJSON('/api/engagement/comments', {
+    entity_id: entityId,
+    user_id: userId,
+    body,
+    parent_id: parentId,
+  });
+}
+
+export async function getEngagement(entityId: string): Promise<any> {
+  return fetchJSON(`/api/engagement/${entityId}`);
+}
+
 // Default export as a mutable object for testability (sinon stubs)
 const api = {
   getPlans,
@@ -222,6 +235,8 @@ const api = {
   semanticSearch,
   stopDashboard,
   shellCommand,
+  postComment,
+  getEngagement,
 };
 
 export default api;

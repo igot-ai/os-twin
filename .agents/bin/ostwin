@@ -101,7 +101,7 @@ fi
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
 # Dashboard URL
-DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+export DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
 
 # Build curl auth args from OSTWIN_API_KEY (array to preserve quoting)
 CURL_AUTH=()
@@ -213,6 +213,8 @@ Commands:
                     Options: --force
   dashboard         Launch web dashboard
                     Options: --port PORT, --project-dir PATH
+  channel <sub>     Manage communication channels (telegram, discord, slack)
+                    Subcommands: list, connect, disconnect, test, pair
   bot               Manage the unified bot (Telegram + Discord)
                     Subcommands: start, stop, status, logs, deploy
   clone-role <role> Clone a role to project-local for override
@@ -606,6 +608,10 @@ else:
     else
       exec "$AGENTS_DIR/dashboard.sh" "$@"
     fi
+    ;;
+  channel)
+    shift
+    exec "$DEEPAGENTS_PYTHON" "$AGENTS_DIR/bin/channel_cmd.py" "$@"
     ;;
   bot|discord)
     shift

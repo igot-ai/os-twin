@@ -183,4 +183,64 @@ describe('api', () => {
       expect(result.completion_rate!.value).to.equal(60.5);
     });
   });
+
+  describe('createPlan', () => {
+    it('sends POST to /api/plans/create', async () => {
+      mockFetch({ plan_id: 'p1' });
+      await api.createPlan({ title: 'T', content: 'C' });
+      expect(fetchStub.firstCall.args[0]).to.include('/api/plans/create');
+    });
+  });
+
+  describe('savePlan', () => {
+    it('sends POST to /api/plans/p1/save', async () => {
+      mockFetch({ status: 'ok' });
+      await api.savePlan('p1', 'content');
+      expect(fetchStub.firstCall.args[0]).to.include('/api/plans/p1/save');
+    });
+  });
+
+  describe('shellCommand', () => {
+    it('returns success on 200', async () => {
+      mockFetch({ status: 'ok' });
+      const result = await api.shellCommand('ls');
+      expect(result.status).to.equal('ok');
+    });
+
+    it('returns error on failure', async () => {
+      mockFetch({}, 500);
+      const result = await api.shellCommand('ls');
+      expect(result._error).to.exist;
+    });
+  });
+
+  describe('getRoomChannel', () => {
+    it('returns messages array', async () => {
+      mockFetch([{ from: 'me', body: 'hi' }]);
+      const result = await api.getRoomChannel('r1');
+      expect(result).to.have.lengthOf(1);
+    });
+  });
+
+  describe('semanticSearch', () => {
+    it('returns search results', async () => {
+      mockFetch([{ room_id: 'r1', body: 'match' }]);
+      const result = await api.semanticSearch('query');
+      expect(result).to.have.lengthOf(1);
+    });
+  });
+
+  describe('stopDashboard', () => {
+    it('returns success on 200', async () => {
+      mockFetch({ status: 'stopping' });
+      const result = await api.stopDashboard();
+      expect(result.status).to.equal('stopping');
+    });
+
+    it('returns error on failure', async () => {
+      mockFetch({}, 500);
+      const result = await api.stopDashboard();
+      expect(result._error).to.exist;
+    });
+  });
 });

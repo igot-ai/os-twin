@@ -42,6 +42,14 @@ const commands = [
   new SlashCommandBuilder().setName('startplan').setDescription('Select and launch a plan'),
   new SlashCommandBuilder().setName('cancel').setDescription('Exit current editing session'),
   new SlashCommandBuilder().setName('transcribe').setDescription('Transcribe a voice recording and optionally draft a plan'),
+  // Notification & Feedback
+  new SlashCommandBuilder()
+    .setName('feedback')
+    .setDescription('Provide feedback on plan steps or rooms')
+    .addStringOption(opt => opt.setName('text').setDescription('Your feedback message').setRequired(true)),
+  new SlashCommandBuilder().setName('preferences').setDescription('View and update your notification settings'),
+  new SlashCommandBuilder().setName('subscriptions').setDescription('Manage event subscriptions'),
+  new SlashCommandBuilder().setName('progress').setDescription('Show real-time progress for active plans'),
   // System commands
   new SlashCommandBuilder().setName('new').setDescription('Wipe old War-Room data to start fresh'),
   new SlashCommandBuilder().setName('restart').setDescription('Reboot the Command Center background process'),

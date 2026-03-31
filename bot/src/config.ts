@@ -24,6 +24,9 @@ export interface AppConfig {
   DISCORD_TOKEN: string;
   DISCORD_CLIENT_ID: string;
   GUILD_ID: string;
+  SLACK_BOT_TOKEN: string;
+  SLACK_APP_TOKEN: string;
+  SLACK_SIGNING_SECRET: string;
   GOOGLE_API_KEY: string;
   GEMINI_MODEL: string;
 }
@@ -35,6 +38,9 @@ const config: AppConfig = {
   DISCORD_TOKEN: process.env.DISCORD_TOKEN || '',
   DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID || '',
   GUILD_ID: process.env.GUILD_ID || '',
+  SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN || '',
+  SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN || '',
+  SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET || '',
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || '',
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
 };

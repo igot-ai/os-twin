@@ -41,6 +41,28 @@ if [[ -z "${AGENT_OS_ROOT:-}" ]]; then
     fi
 fi
 
+# Handle --global and --root flags (must be handled before build_json)
+NEW_ARGS=()
+i=1
+while [[ $i -le $# ]]; do
+    arg="${!i}"
+    if [[ "$arg" == "--global" ]]; then
+        export AGENT_OS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    elif [[ "$arg" == "--root" ]]; then
+        i=$((i+1))
+        if [[ $i -le $# ]]; then
+            export AGENT_OS_ROOT="$(cd "${!i}" && pwd)"
+        else
+            echo "[ERROR] --root requires a directory path" >&2
+            exit 1
+        fi
+    else
+        NEW_ARGS+=("$arg")
+    fi
+    i=$((i+1))
+done
+set -- "${NEW_ARGS[@]+"${NEW_ARGS[@]}"}"
+
 CMD="${1:-help}"
 shift || true
 
@@ -156,6 +178,8 @@ Commands:
   publish <kind> <summary> [options]   Publish a memory entry
     Kinds: code, artifact, decision, interface, convention, warning
     Options:
+      --global               Publish to global project ledger (overrides local)
+      --root PATH            Specify a custom project root directory
       --tags tag1,tag2       Tags for discovery
       --room room-id         War-room ID (auto-detected from $AGENT_OS_ROOM_DIR)
       --ref EPIC-001         Epic/task reference
@@ -164,6 +188,8 @@ Commands:
       --supersedes mem-id    ID of entry this replaces
 
   query [options]                      Query memory with filters
+      --global               Query the global project ledger
+      --root PATH            Specify a custom project root directory
       --tags tag1,tag2       Filter by tags (OR match)
       --kind artifact        Filter by kind
       --room room-id         Filter by room
@@ -173,15 +199,21 @@ Commands:
       --last N               Last N entries only
 
   search <text> [options]              Full-text search
+      --global               Search global project ledger
+      --root PATH            Specify a custom project root directory
       --kind artifact        Filter by kind
       --exclude-room room-id Exclude a room
       --max N                Max results (default 10)
 
   context <room-id> [options]          Get cross-room context for a room
+      --global               Pull context from global ledger
+      --root PATH            Specify a custom project root directory
       --keywords auth,db     Filter by keywords
       --max-entries N        Max entries (default 15)
 
   list [options]                       List all memory entries
+      --global               List from the global project ledger
+      --root PATH            Specify a custom project root directory
       --kind artifact        Filter by kind
 
 Environment (auto-detected by agents):

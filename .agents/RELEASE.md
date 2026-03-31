@@ -1,11 +1,11 @@
-# Release: v0.1.0-20260330
+# Release: v0.1.0-20260331
 
-**Date**: 2026-03-29 18:09:39 UTC
+**Date**: 2026-03-31 03:26:37 UTC
 **Status**: Approved
 
 ## Summary
 
-4 task(s) completed and reviewed by QA.
+6 task(s) completed and reviewed by QA.
 
 ## Tasks Completed
 
@@ -25,11 +25,11 @@ Install: https://github.com/BurntSushi/ripgrep#installation
 To suppress, add to ~/.deepagents/config.toml:
 [warnings]
 suppress = ["ripgrep"]
-The implementation of **EPIC-001 — MCP Home Registry with Vault Credentials** has been thoroughly reviewed and tested. The engineer has successfully addressed all the architectural flaws and AC failures identified in the previous review cycle.
-### Key Improvements & Verifications:
-1.  **Global Registry**: The registry is now truly global. `extensions.json` and `mcp-config.json` are stored in `~/.ostwin/mcp/`, ensuring a single source of truth across all projects.
-2.  **Vault Integration**: The `MacOSKeychainVault` correctly uses the `security` CLI to manage credentials in the system keychain with the specified namespace (`ostwin-mcp/{server}/{key}`).
-3.  **Config Resolution**: The `ConfigResolver` (implemented as requested, though named differently than the DoD's `VaultResolver`) correctly handles `${vault:...}` placeholders and, crucially, now raises a clear `ValueError` when a reference cannot be resolved.
+VERDICT: PASS
+**Review Verdict: PASS**
+EPIC-001 has been successfully implemented and verified against the original objective and acceptance criteria.
+**Key Achievements:**
+- **Connector Architecture**: Successfully defined a standardized `Connector` interface and configuration schema in `bot/src/connectors/base.ts`, enabling a unified lifecycle for all bot adapters.
 
 ### EPIC-002 — EPIC-002
 
@@ -40,35 +40,56 @@ Install: https://github.com/BurntSushi/ripgrep#installation
 To suppress, add to ~/.deepagents/config.toml:
 [warnings]
 suppress = ["ripgrep"]
-The implementation of **EPIC-002 — CLI MCP Test & Project Config Compilation** has been fully reviewed. The engineer has successfully addressed all requirements, including the critical fix for the missing credential error message that caused the previous review cycle to fail.
-### Key Implementation Strengths:
-1.  **Connectivity Testing**: `mcp_test.py` correctly implements both HTTP and stdio connectivity checks, including full JSON-RPC `initialize` handshakes and tool discovery.
-2.  **Configuration Compilation**: `ConfigResolver.compile_config` (in `config_resolver.py`) accurately handles the merging of home and builtin configs while substituting `${vault:...}` references with `${ENV_VAR}` placeholders.
-3.  **Credential Management**: `.env.mcp` generation and its automatic exclusion via `.gitignore` are correctly handled in both `mcp-extension.sh` and `init.sh`.
+VERDICT: PASS
+### Reasoning
+The Engineer has successfully addressed all major issues identified in the previous review cycle, restoring project stability and completing the Slack implementation.
+1.  **Massive Regressions Fixed**: Project-wide test stability has been restored. The Engineer centralized the `mdConvert` and `chunk` utilities in `bot/src/connectors/utils.ts` and updated both `DiscordConnector` and `TelegramConnector` to use them. Backward compatibility was maintained by restoring deprecated factory functions (`createDiscordBot`, `createTelegramBot`) that now correctly return the underlying instances required by the legacy test suite.
+2.  **Message Chunking Implemented**: `SlackConnector` now correctly implements message chunking. Large bot responses exceeding Slack's 3000-character limit for `mrkdwn` blocks are automatically split into multiple blocks, ensuring reliable delivery of long messages like plan drafts.
 
 ### EPIC-003 — EPIC-003
 
 - **Room**: room-003
+- **Status**: passed
+- **QA Verdict**: No QA verdict recorded
+
+### EPIC-004 — EPIC-004
+
+- **Room**: room-004
 - **Status**: passed
 - **QA Verdict**: Warning: ripgrep is not installed; the grep tool will use a slower fallback.
 Install: https://github.com/BurntSushi/ripgrep#installation
 To suppress, add to ~/.deepagents/config.toml:
 [warnings]
 suppress = ["ripgrep"]
-The EPIC-003 implementation of the Dashboard MCP Management UI has been successfully updated to address all previous QA concerns. 
-**Summary of Improvements:**
-- **AddServerDialog**: Fully implemented with new fields for environment variables and HTTP headers, including the required "Store in Vault" toggle.
-- **Vault Integration**: Backend `add_mcp_server` now correctly handles sensitive values by storing them in the macOS Keychain/Vault and using `${vault:...}` references in the configuration file.
-- **Real Connectivity Testing**: Replaced the simulated check with a full protocol handshake using the `mcp` SDK (`stdio_client`/`sse_client` and `ClientSession`). The `/test` endpoint now verifies that the server can actually initialize and communicate.
+The review of EPIC-004 — CLI Channel Management is complete. 
+The implementation effectively adds the `ostwin channel` subcommand group, successfully delegating all logic to the dashboard's REST API. The code follows existing project patterns, using `httpx` for API communication and `argparse` for CLI structure. Secure input is handled via `getpass`, and the output formatting aligns with the provided specifications.
+### Review Summary
+- **Functionality**: All subcommands (`list`, `connect`, `disconnect`, `test`, `pair`) are correctly implemented and integrated into the `ostwin` entry point.
+- **Backend Integration**: The new endpoints in `dashboard/routes/channels.py` provide the necessary setup instructions, connection management, and pairing code logic.
+
+### EPIC-005 — EPIC-005
+
+- **Room**: room-005
+- **Status**: passed
+- **QA Verdict**: Warning: ripgrep is not installed; the grep tool will use a slower fallback.
+Install: https://github.com/BurntSushi/ripgrep#installation
+To suppress, add to ~/.deepagents/config.toml:
+[warnings]
+suppress = ["ripgrep"]
+The implementation of **EPIC-005 — Notification Routing Engine** has been thoroughly reviewed and verified. All sub-tasks from `TASKS.md` are completed, and the system meets all technical and quality requirements.
+### **Verification Summary**
+1.  **Notification Router (`bot/src/notifications.ts`)**:
+    *   Successfully connects to the dashboard WebSocket (`ws://localhost:9000/ws`).
+    *   Implements robust mapping from dashboard events (`room_created`, `room_updated`, `room_removed`) to typed notification events: `plan_started`, `epic_passed`, `epic_failed`, `epic_retry`, `plan_completed`, `error`, and `feedback_needed`.
 
 
 ## Sign-offs
 
 | Role     | Status  | Timestamp |
 |----------|---------|-----------|
-| Engineer | Approved | 2026-03-29T18:09:39Z |
-| Qa | Approved | 2026-03-29T18:09:39Z |
-| Manager | Approved | 2026-03-29T18:09:39Z |
+| Engineer | Approved | 2026-03-31T03:26:37Z |
+| Qa | Approved | 2026-03-31T03:26:37Z |
+| Manager | Approved | 2026-03-31T03:26:37Z |
 
 ---
 
