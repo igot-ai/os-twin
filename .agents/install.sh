@@ -795,7 +795,6 @@ install_files() {
     warn "Dashboard source not found — dashboard/ not updated"
     info "Pass the repo root: ./install.sh --source-dir /path/to/agent-os"
   fi
-
   # ── Contributed roles: copy from repo's contributes/roles/ ────────────────
   local contributes_roles=""
   for candidate in \
@@ -806,7 +805,6 @@ install_files() {
       break
     fi
   done
-
   if [[ -n "$contributes_roles" ]]; then
     step "Loading contributed roles..."
     mkdir -p "$INSTALL_DIR/roles"
@@ -823,7 +821,6 @@ install_files() {
     done
     ok "$loaded contributed role(s) loaded"
   fi
-
   # Make scripts executable
   find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
   chmod +x "$INSTALL_DIR/bin/ostwin" 2>/dev/null || true

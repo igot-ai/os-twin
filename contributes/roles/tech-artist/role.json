@@ -1,0 +1,26 @@
+{
+  "name": "tech-artist",
+  "description": "Technical Artist \u2014 bridges art and engineering with shaders, VFX, animation polish, and art pipeline optimization for Unity mobile",
+  "capabilities": [
+    "shader-development",
+    "vfx-creation",
+    "animation-polish",
+    "art-pipeline",
+    "texture-optimization",
+    "performance-profiling"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "shader-compiles-mobile",
+    "vfx-within-drawcall-budget",
+    "texture-memory-within-budget",
+    "60fps-maintained"
+  ],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 600,
+  "skill_refs": [
+    "unity-dev-principles"
+  ],
+  "instance_type": "worker"
+}

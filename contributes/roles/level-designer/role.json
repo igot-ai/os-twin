@@ -1,0 +1,24 @@
+{
+  "name": "level-designer",
+  "description": "Level Designer \u2014 designs level layouts, difficulty curves, progression tuning, and encounter pacing for Unity mobile games",
+  "capabilities": [
+    "level-layout",
+    "difficulty-tuning",
+    "progression-design",
+    "encounter-pacing",
+    "tutorial-flow",
+    "reward-scheduling"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "difficulty-curve-smooth",
+    "tutorial-teaches-all-mechanics",
+    "session-length-appropriate",
+    "reward-pacing-validated"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600,
+  "skill_refs": [],
+  "instance_type": "worker"
+}

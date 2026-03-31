@@ -1,0 +1,34 @@
+{
+  "name": "game-qa",
+  "description": "Unity game QA specialist \u2014 playtest validation, code review, performance testing, and regression prevention",
+  "capabilities": [
+    "code-review",
+    "playtest-planning",
+    "performance-testing",
+    "automation-testing",
+    "regression-prevention",
+    "unity-code-review"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "tests-pass",
+    "60fps-verified",
+    "no-gc-spikes",
+    "acceptance-criteria-met",
+    "code-review-clean"
+  ],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 600,
+  "skill_refs": [
+    "unity-code-review",
+    "playtest-plan",
+    "test-design",
+    "test-automate",
+    "automation-testing",
+    "performance-testing",
+    "unity-dev-principles",
+    "unit-code-review"
+  ],
+  "instance_type": "evaluator"
+}

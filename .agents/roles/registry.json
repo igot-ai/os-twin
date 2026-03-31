@@ -149,6 +149,310 @@
         "risk-decision-recorded"
       ],
       "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "game-engineer",
+      "description": "Unity C# code generator — produces SceneBuilder and AnimCreator scripts, implements dev stories, and validates with tests",
+      "definition": "contributes/roles/game-engineer/role.json",
+      "prompt": "contributes/roles/game-engineer/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "code-generation",
+        "unity-ui-development",
+        "scene-building",
+        "animation-creation",
+        "code-review",
+        "dev-story",
+        "quick-prototype",
+        "tdd"
+      ],
+      "quality_gates": [
+        "compiles-in-unity",
+        "60fps-non-negotiable",
+        "story-acs-satisfied"
+      ],
+      "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "game-qa",
+      "description": "Unity game QA specialist — playtest validation, code review, performance testing, and regression prevention",
+      "definition": "contributes/roles/game-qa/role.json",
+      "prompt": "contributes/roles/game-qa/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "review"
+      ],
+      "capabilities": [
+        "code-review",
+        "playtest-planning",
+        "performance-testing",
+        "automation-testing",
+        "regression-prevention",
+        "unity-code-review"
+      ],
+      "quality_gates": [
+        "tests-pass",
+        "60fps-verified",
+        "no-gc-spikes",
+        "acceptance-criteria-met",
+        "code-review-clean"
+      ],
+      "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "game-architect",
+      "description": "Unity game architect — designs system architecture, generates project-context.md, reviews technical decisions, and writes ADRs",
+      "definition": "contributes/roles/game-architect/role.json",
+      "prompt": "contributes/roles/game-architect/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "design",
+        "review",
+        "epic"
+      ],
+      "capabilities": [
+        "architecture-design",
+        "project-context-generation",
+        "adr-writing",
+        "design-review",
+        "unity-architecture"
+      ],
+      "quality_gates": [
+        "no-dependency-cycles",
+        "60fps-constraints-covered",
+        "project-context-exists"
+      ],
+      "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "game-designer",
+      "description": "Upstream design pipeline — game brief, GDD, UX design, epics, stories, and brainstorming for Unity mobile games",
+      "definition": "contributes/roles/game-designer/role.json",
+      "prompt": "contributes/roles/game-designer/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "design",
+        "epic"
+      ],
+      "capabilities": [
+        "game-brief",
+        "gdd-creation",
+        "create-ux-design",
+        "epics-planning",
+        "create-story",
+        "quick-spec",
+        "brainstorm-game"
+      ],
+      "quality_gates": [
+        "brief-has-core-loop",
+        "gdd-validates-pillars",
+        "stories-have-acceptance-criteria"
+      ],
+      "default_model": "gemini-3-flash-preview"
+    },
+    {
+      "name": "game-producer",
+      "description": "Game Producer — orchestrates sprint planning, milestone tracking, team coordination, and war-room management for game projects",
+      "definition": "contributes/roles/game-producer/role.json",
+      "prompt": "contributes/roles/game-producer/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "orchestration",
+        "epic"
+      ],
+      "capabilities": [
+        "sprint-planning",
+        "milestone-tracking",
+        "team-coordination",
+        "risk-management",
+        "war-room-orchestration",
+        "stakeholder-reporting"
+      ],
+      "quality_gates": [
+        "sprint-scope-defined",
+        "milestones-trackable",
+        "risks-documented"
+      ],
+      "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "game-devops",
+      "description": "Game DevOps Engineer — manages CI/CD pipelines, Unity Cloud Build, automated testing, and distribution for Unity mobile games",
+      "definition": "contributes/roles/game-devops/role.json",
+      "prompt": "contributes/roles/game-devops/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "ci-cd-pipelines",
+        "unity-cloud-build",
+        "automated-testing",
+        "build-distribution",
+        "version-management",
+        "platform-deployment"
+      ],
+      "quality_gates": [
+        "pipeline-green",
+        "build-reproducible",
+        "distribution-verified"
+      ],
+      "default_model": "gemini-3-flash-preview"
+    },
+    {
+      "name": "game-ui-analyst",
+      "description": "UI Screen Analyst — detects UI elements from screenshots and extracts animation behaviour from video recordings, producing structured JSON specs (_detection.json, _anim.json) that drive Unity C# code generation by game-engineer",
+      "definition": "contributes/roles/game-ui-analyst/role.json",
+      "prompt": "contributes/roles/game-ui-analyst/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "ui-detection",
+        "motion-extraction",
+        "animation-analysis",
+        "screenshot-analysis",
+        "video-analysis",
+        "ui-screen-analysis",
+        "detect-ui",
+        "detect-anim"
+      ],
+      "quality_gates": [
+        "object-coverage-90pct",
+        "id-consistency",
+        "temporal-consistency"
+      ],
+      "default_model": "openai:seed-2-0-pro-260328"
+    },
+    {
+      "name": "level-designer",
+      "description": "Level Designer — designs level layouts, difficulty curves, progression tuning, and encounter pacing for Unity mobile games",
+      "definition": "contributes/roles/level-designer/role.json",
+      "prompt": "contributes/roles/level-designer/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "design",
+        "task"
+      ],
+      "capabilities": [
+        "level-layout",
+        "difficulty-tuning",
+        "progression-design",
+        "encounter-pacing",
+        "tutorial-flow",
+        "reward-scheduling"
+      ],
+      "quality_gates": [
+        "difficulty-curve-smooth",
+        "tutorial-teaches-all-mechanics",
+        "reward-pacing-validated"
+      ],
+      "default_model": "gemini-3-flash-preview"
+    },
+    {
+      "name": "narrative-designer",
+      "description": "Narrative Designer — crafts dialogue, lore, story arcs, and localization-ready narrative content for Unity mobile games",
+      "definition": "contributes/roles/narrative-designer/role.json",
+      "prompt": "contributes/roles/narrative-designer/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "design",
+        "task"
+      ],
+      "capabilities": [
+        "dialogue-writing",
+        "lore-creation",
+        "story-arc-design",
+        "localization-planning",
+        "character-voice",
+        "narrative-integration"
+      ],
+      "quality_gates": [
+        "narrative-supports-core-loop",
+        "dialogue-localization-ready",
+        "character-voices-consistent"
+      ],
+      "default_model": "gemini-3-flash-preview"
+    },
+    {
+      "name": "sound-designer",
+      "description": "Sound Designer — creates SFX, implements audio middleware, and integrates music for Unity mobile games",
+      "definition": "contributes/roles/sound-designer/role.json",
+      "prompt": "contributes/roles/sound-designer/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task"
+      ],
+      "capabilities": [
+        "sfx-design",
+        "music-integration",
+        "audio-middleware",
+        "spatial-audio",
+        "audio-mixing",
+        "compression-optimization"
+      ],
+      "quality_gates": [
+        "audio-memory-within-budget",
+        "no-clipping",
+        "compression-appropriate"
+      ],
+      "default_model": "gemini-3-flash-preview"
+    },
+    {
+      "name": "tech-artist",
+      "description": "Technical Artist — bridges art and engineering with shaders, VFX, animation polish, and art pipeline optimization for Unity mobile",
+      "definition": "contributes/roles/tech-artist/role.json",
+      "prompt": "contributes/roles/tech-artist/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task"
+      ],
+      "capabilities": [
+        "shader-development",
+        "vfx-creation",
+        "animation-polish",
+        "art-pipeline",
+        "texture-optimization",
+        "performance-profiling"
+      ],
+      "quality_gates": [
+        "shader-compiles-mobile",
+        "vfx-within-drawcall-budget",
+        "60fps-maintained"
+      ],
+      "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "ux-researcher",
+      "description": "UX Researcher — conducts playtesting, user research, analytics interpretation, and usability audits for Unity mobile games",
+      "definition": "contributes/roles/ux-researcher/role.json",
+      "prompt": "contributes/roles/ux-researcher/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "review",
+        "task"
+      ],
+      "capabilities": [
+        "playtest-facilitation",
+        "user-research",
+        "analytics-interpretation",
+        "usability-audit",
+        "a-b-testing",
+        "heuristic-evaluation"
+      ],
+      "quality_gates": [
+        "playtest-plan-documented",
+        "findings-actionable",
+        "recommendations-prioritized"
+      ],
+      "default_model": "gemini-3-flash-preview"
     }
   ],
   "assignment_rules": {
@@ -180,6 +484,12 @@
       "css": "frontend",
       "ui": "frontend",
       "ux": "frontend",
+      "ui-screen": "ui-detection",
+      "screenshot": "ui-detection",
+      "ui-analysis": "ui-detection",
+      "animation-video": "animation-analysis",
+      "motion-capture": "motion-extraction",
+      "video-analysis": "animation-analysis",
       "devops": "infrastructure",
       "ci-cd": "infrastructure",
       "ci/cd": "infrastructure",
@@ -211,7 +521,11 @@
         "description": "Fetch LangGraph documentation for accurate, up-to-date guidance",
         "path": "skills/global/lang/SKILL.md",
         "skills": "engineer, python, code-generation",
-        "tags": ["engineer", "python", "code-generation"],
+        "tags": [
+          "engineer",
+          "python",
+          "code-generation"
+        ],
         "trust_level": "core"
       },
       {
@@ -219,7 +533,11 @@
         "description": "Scaffold a new agent role — generates role.json, ROLE.md, and registers in registry.json",
         "path": "skills/roles/architect/create-role/SKILL.md",
         "skills": "architect, manager, scaffolding",
-        "tags": ["architect", "manager", "scaffolding"],
+        "tags": [
+          "architect",
+          "manager",
+          "scaffolding"
+        ],
         "trust_level": "core"
       },
       {
@@ -227,7 +545,11 @@
         "description": "Generate architecture docs for an epic — ADRs, component diagrams, data flows, tech-stack rationale",
         "path": "skills/global/create-architecture/SKILL.md",
         "skills": "architect, documentation, design",
-        "tags": ["architect", "documentation", "design"],
+        "tags": [
+          "architect",
+          "documentation",
+          "design"
+        ],
         "trust_level": "core"
       },
       {
@@ -235,7 +557,11 @@
         "description": "Define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, escalation rules",
         "path": "skills/global/create-lifecycle/SKILL.md",
         "skills": "architect, manager, process",
-        "tags": ["architect", "manager", "process"],
+        "tags": [
+          "architect",
+          "manager",
+          "process"
+        ],
         "trust_level": "core"
       },
       {
@@ -243,7 +569,12 @@
         "description": "Define investigation boundaries using the DEPT framework before commissioning analytical work",
         "path": "skills/roles/audit/scope-investigation/SKILL.md",
         "skills": "audit, risk-officer, scoping",
-        "tags": ["audit", "risk-officer", "scoping", "investigation"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "scoping",
+          "investigation"
+        ],
         "trust_level": "core"
       },
       {
@@ -251,7 +582,12 @@
         "description": "Select analytical lenses (Distribution, Deviation, Relationship, Temporality, Compounding) and formulate precise questions",
         "path": "skills/roles/audit/analytical-lenses/SKILL.md",
         "skills": "audit, risk-officer, analytics",
-        "tags": ["audit", "risk-officer", "analytics", "questioning"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "analytics",
+          "questioning"
+        ],
         "trust_level": "core"
       },
       {
@@ -259,7 +595,12 @@
         "description": "Maintain and query a reusable library of proven risk questions organized by Risk Theme × Data Domain × Analytical Lens",
         "path": "skills/roles/audit/question-library/SKILL.md",
         "skills": "audit, risk-officer, playbook",
-        "tags": ["audit", "risk-officer", "question-library", "continuous-audit"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "question-library",
+          "continuous-audit"
+        ],
         "trust_level": "core"
       },
       {
@@ -267,7 +608,12 @@
         "description": "Compose formal structured data requests using the DATA template and send as task messages to data analysts",
         "path": "skills/roles/audit/structure-data-request/SKILL.md",
         "skills": "audit, risk-officer, data-request",
-        "tags": ["audit", "risk-officer", "data-request", "war-room"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "data-request",
+          "war-room"
+        ],
         "trust_level": "core"
       },
       {
@@ -275,7 +621,12 @@
         "description": "Pressure-test data analyst output using the Five Validation Questions before acting on findings",
         "path": "skills/roles/audit/validate-output/SKILL.md",
         "skills": "audit, risk-officer, validation",
-        "tags": ["audit", "risk-officer", "validation", "quality-gate"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "validation",
+          "quality-gate"
+        ],
         "trust_level": "core"
       },
       {
@@ -283,10 +634,14 @@
         "description": "Convert validated findings into decision categories (Accept, Mitigate, Investigate, Escalate) with Risk Decision Records",
         "path": "skills/roles/audit/risk-decision/SKILL.md",
         "skills": "audit, risk-officer, decision-making",
-        "tags": ["audit", "risk-officer", "risk-management", "governance"],
+        "tags": [
+          "audit",
+          "risk-officer",
+          "risk-management",
+          "governance"
+        ],
         "trust_level": "core"
       }
     ]
   }
 }
-
