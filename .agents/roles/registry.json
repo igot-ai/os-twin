@@ -162,9 +162,10 @@
       ],
       "capabilities": [
         "code-generation",
-        "unity-editor-scripting",
+        "unity-ui-development",
         "scene-building",
         "animation-creation",
+        "code-review",
         "dev-story",
         "quick-prototype",
         "tdd"

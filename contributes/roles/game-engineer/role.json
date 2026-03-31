@@ -3,9 +3,10 @@
   "description": "Unity C# code generator \u2014 produces SceneBuilder and AnimCreator scripts, implements dev stories, and validates with tests",
   "capabilities": [
     "code-generation",
-    "unity-editor-scripting",
+    "unity-ui-development",
     "scene-building",
     "animation-creation",
+    "code-review",
     "dev-story",
     "quick-prototype",
     "tdd"
@@ -31,14 +32,14 @@
     "add-feature",
     "unity-templates",
     "code-refactor",
-    "serena-code-editor",
+    "unit-code-review",
     "ui-enhancement",
     "implement-epic",
     "write-tests",
     "fix-from-qa",
-    "unity-coding",
+    "unity-dev-principles",
     "unity-ugui",
-    "unity-editor"
+    "develop-unity-ui"
   ],
   "instance_type": "worker"
 }

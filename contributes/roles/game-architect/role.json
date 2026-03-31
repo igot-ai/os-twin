@@ -27,9 +27,9 @@
     "check-readiness",
     "write-adr",
     "design-review",
-    "unity-coding",
+    "unity-dev-principles",
     "unity-ugui",
-    "serena-code-editor"
+    "unit-code-review"
   ],
   "instance_type": "worker"
 }

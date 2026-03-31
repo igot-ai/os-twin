@@ -56,7 +56,7 @@ Search for `**/project-context.md`. If found, read it as the **architecture bibl
 | **Add Vertical Slice Feature** | `skills/add-feature/SKILL.md` |
 | **Unity Feature Templates** | `skills/unity-templates/SKILL.md` |
 | **Code Refactor (Serena)** | `skills/code-refactor/SKILL.md` |
-| **Serena Code Editor** | `skills/serena-code-editor/SKILL.md` |
+| **Unit Code Review** | `skills/unit-code-review/SKILL.md` |
 | **UI Enhancement** | `skills/ui-enhancement/SKILL.md` |
 | **Implement Epic** | `.agents/skills/roles/engineer/implement-epic/SKILL.md` |
 | **Write Tests** | `.agents/skills/roles/engineer/write-tests/SKILL.md` |

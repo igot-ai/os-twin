@@ -27,8 +27,8 @@
     "test-automate",
     "automation-testing",
     "performance-testing",
-    "unity-coding",
-    "serena-code-editor"
+    "unity-dev-principles",
+    "unit-code-review"
   ],
   "instance_type": "evaluator"
 }

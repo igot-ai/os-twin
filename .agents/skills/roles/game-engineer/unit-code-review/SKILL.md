@@ -1,5 +1,5 @@
 ---
-name: serena-code-editor
+name: unit-code-review
 description: "Use Serena MCP tools to analyze, refactor, and fix C# code with Unity patterns in mind. Trigger on: 'refactor this code', 'fix this bug', 'what's wrong with this', 'improve this class', 'analyze this code', 'suggest improvements', 'find bugs', 'optimize this code', 'apply SOLID principles', or when the user asks for code analysis and you want to leverage Serena's semantic tools for deeper code understanding. Also invoke proactively when the user mentions code editing, refactoring, bug fixing, or performance issues, or when you identify opportunities for code improvement using Serena's symbol analysis capabilities. Always initialize Serena's semantic index at the start of a session, prioritize Serena symbol tools over generic shell searches, manage large C# files by targeting 300–500 line chunks, and persist key architectural decisions with /memory add."
 ---
 
@@ -38,7 +38,7 @@ Always prefer Serena's semantic tools over generic shell commands (`grep`, `find
 Only fall back to shell tools when Serena cannot answer the question (e.g., searching YAML/JSON config files, script files, or when the index is unavailable).
 
 > [!IMPORTANT]
-> **Unity Assets**: For modifying `.unity` (Scenes) or `.prefab` (Prefabs), do NOT use Serena's text-based tools. Use the [Unity Editor Orchestrator](../unity-editor/SKILL.md) skill instead. Serena tools are for `.cs` (C#) files only.
+> **Unity Assets**: For modifying `.unity` (Scenes) or `.prefab` (Prefabs), do NOT use Serena's text-based tools. Use the [Unity Editor Orchestrator](../develop-unity-ui/SKILL.md) skill instead. Serena tools are for `.cs` (C#) files only.
 
 ### Available Serena tools
 

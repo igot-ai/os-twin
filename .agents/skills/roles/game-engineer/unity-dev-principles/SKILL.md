@@ -1,6 +1,6 @@
 ---
-name: unity-coding
-description: Professional Unity C# coding assistant. Masters UniTask, UniRx, VContainer, and Pure C# game logic. Use for all coding tasks, refactoring, bug fixing, and architecture design. Enforces project-specific rules like "mandatory code review".
+name: unity-dev-principles
+description: Professional Unity C# coding practices. Masters UniTask, UniRx, VContainer, and Pure C# game logic. Use for all coding tasks, refactoring, bug fixing, and architecture design. Enforces project-specific rules like "mandatory code review".
 ---
 
 # Unity Coding - Snake Escape Project
@@ -15,7 +15,7 @@ Professional Unity C# standards for high-performance, reactive, and modular mobi
 4. **Logic**: [Pure C#](references/architecture.md) (Separation from MonoBehaviour).
 5. **Memory**: [Collection Pooling](references/collections-pooling.md) (UnityEngine.Pool).
 6. **Testing**: [Unity Test Runner](references/testing.md) (NUnit + CLI).
-7. **Editor**: [Unity Editor Orchestrator](../unity-editor/SKILL.md) (Scene/Prefab manipulation).
+7. **Editor**: [Unity Editor Orchestrator](../develop-unity-ui/SKILL.md) (Scene/Prefab manipulation).
 
 ## Mandatory Project Rules
 
@@ -87,5 +87,5 @@ public class MyView : MonoBehaviour
 Always ensure:
 - [ ] Comments are English only.
 - [ ] `unity-code-review` is triggered for C# changes.
-- [ ] `serena-code-editor` project is activated via `activate_project`.
-- [ ] **Unity Editor**: All scene, prefab, and component modifications MUST use the `unity-editor` skill tools. NEVER modify `.unity` or `.prefab` files as text or via shell scripts.
+- [ ] `unit-code-review` project is activated via `activate_project`.
+- [ ] **Unity Editor**: All scene, prefab, and component modifications MUST use the `develop-unity-ui` skill tools. NEVER modify `.unity` or `.prefab` files as text or via shell scripts.

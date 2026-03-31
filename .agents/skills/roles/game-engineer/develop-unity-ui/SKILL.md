@@ -1,9 +1,9 @@
 ---
-name: unity-editor
-description: Master orchestrator for all Unity Editor operations. Use this skill to manage assets, scenes, GameObjects, components, and animations. It guides you to use the 64 specialized sub-skills found in `.agent/skills/unity-editor/`. Always trigger this skill when the user asks to "create a prefab", "modify the scene hierarchy", "setup animations", "add components", or "capture screenshots".
+name: develop-unity-ui
+description: Interact with Unity to develop UI and assets. Use this skill to manage assets, scenes, GameObjects, components, and animations. It guides you to use the 64 specialized sub-skills found in `.agent/skills/unity-editor/`. Always trigger this skill when the user asks to "create a prefab", "modify the scene hierarchy", "setup animations", "add components", or "capture screenshots".
 ---
 
-# Unity Editor Orchestrator
+# Developing UI Orchestrator
 
 This skill provides the logical framework for performing complex Unity Editor tasks by orchestrating 64 specialized sub-skills.
 

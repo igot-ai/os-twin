@@ -20,7 +20,7 @@
   "model": "gemini-3.1-pro-preview",
   "timeout": 600,
   "skill_refs": [
-    "unity-coding"
+    "unity-dev-principles"
   ],
   "instance_type": "worker"
 }
