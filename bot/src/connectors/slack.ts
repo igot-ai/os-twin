@@ -14,13 +14,26 @@ export class SlackConnector implements Connector {
   private pairingCode: string = '';
 
   public async start(config: ConnectorConfig): Promise<void> {
-    const token = config.credentials.token;
-    const appToken = config.credentials.appToken;
-    const signingSecret = config.credentials.signingSecret;
+    const rawCreds = config.credentials as any;
+    
+    // Support both camelCase (from index.ts seed) and snake_case (keys that might be typed in UI)
+    let token = rawCreds.bot_token || rawCreds.token;
+    let appToken = rawCreds.app_token || rawCreds.appToken;
+    const signingSecret = rawCreds.signing_secret || rawCreds.signingSecret;
+
+    // Correct common copy-paste issue where appToken is in token field
+    if (token?.startsWith('xapp-') && !appToken) {
+      appToken = token;
+      token = rawCreds.bot_token || undefined;
+    }
+    // Also correct if token contains xapp and bot_token is available
+    if (token?.startsWith('xapp-') && rawCreds.bot_token?.startsWith('xoxb-')) {
+      token = rawCreds.bot_token;
+    }
 
     if (!token || !appToken) {
       this.status = 'error';
-      throw new Error('Slack token or appToken is missing in credentials');
+      throw new Error('Slack token (bot token) or appToken is missing in credentials');
     }
 
     this.status = 'connecting';
@@ -203,9 +216,22 @@ export class SlackConnector implements Connector {
   }
 
   public validateConfig(config: ConnectorConfig): ValidationResult {
+    const rawCreds = config.credentials as any;
+    let token = rawCreds.bot_token || rawCreds.token;
+    let appToken = rawCreds.app_token || rawCreds.appToken;
+    
+    // Correct common copy-paste issue where appToken is in token field
+    if (token?.startsWith('xapp-') && !appToken) {
+      appToken = token;
+      token = rawCreds.bot_token || undefined;
+    }
+    if (token?.startsWith('xapp-') && rawCreds.bot_token?.startsWith('xoxb-')) {
+      token = rawCreds.bot_token;
+    }
+
     const errors: string[] = [];
-    if (!config.credentials.token) errors.push('Missing Bot Token');
-    if (!config.credentials.appToken) errors.push('Missing App-Level Token');
+    if (!token) errors.push('Missing Bot Token');
+    if (!appToken) errors.push('Missing App-Level Token');
     return { valid: errors.length === 0, errors };
   }
 

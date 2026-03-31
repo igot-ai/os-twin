@@ -52,7 +52,7 @@ export class ConnectorRegistry {
   }
 
   public async startAll(): Promise<void> {
-    for (const [platform, connector] of this.connectors) {
+    const promises = Array.from(this.connectors.entries()).map(async ([platform, connector]) => {
       const config = this.configs.get(platform);
       if (config && config.enabled) {
         try {
@@ -64,7 +64,9 @@ export class ConnectorRegistry {
       } else {
         console.log(`[REGISTRY] ${platform} connector is disabled or missing config.`);
       }
-    }
+    });
+
+    await Promise.allSettled(promises);
   }
 
   public async stopAll(): Promise<void> {
