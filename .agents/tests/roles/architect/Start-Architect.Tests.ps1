@@ -31,21 +31,23 @@ $TestDrive
         "architect-review" | Out-File (Join-Path $script:roomDir "status") -NoNewline
         New-Item -ItemType File -Path (Join-Path $script:roomDir "channel.jsonl") -Force | Out-Null
 
-        # Create a config with echo mock
+        # Create a config with mock that ignores the prompt and prints MOCK_OUT
+        $script:mockAgentPath = Join-Path $TestDrive "mock-arch.sh"
+        "echo `"`$MOCK_OUT`"" | Out-File $script:mockAgentPath -Encoding ascii
         $script:configFile = Join-Path $TestDrive "config-arch.json"
         @{
             engineer = @{
-                cli              = "echo"
+                cli              = "bash ""$script:mockAgentPath"""
                 default_model    = "test-model"
                 timeout_seconds  = 10
             }
             qa = @{
-                cli             = "echo"
+                cli             = "bash ""$script:mockAgentPath"""
                 default_model   = "test-model"
                 timeout_seconds = 10
             }
             architect = @{
-                cli             = "echo"
+                cli             = "bash ""$script:mockAgentPath"""
                 default_model   = "test-model"
                 timeout_seconds = 10
             }
@@ -55,7 +57,7 @@ $TestDrive
             }
         } | ConvertTo-Json -Depth 3 | Out-File $script:configFile -Encoding utf8
         $env:AGENT_OS_CONFIG = $script:configFile
-        $env:ARCHITECT_CMD = "echo"
+        $env:ARCHITECT_CMD = "bash ""$script:mockAgentPath"""
     }
 
     AfterEach {
@@ -108,6 +110,65 @@ $TestDrive
             $msgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "design-review" -Last 1 -AsObject
             $msgs.Count | Should -Be 1
             $msgs[0].body | Should -Match "design issue"
+        }
+    }
+
+    Context "Tool Noise Stripping" {
+        It "removes MCP and tool call noise from output" {
+            $env:MOCK_OUT = "Loading MCP`n🔧 Calling tool: read_file`nSystem.Management.Automation noise`n`nHere is the architecture:`nVERDICT: PASS"
+            & $script:StartArchitect -RoomDir $script:roomDir -TimeoutSeconds 5
+            
+            $passMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "pass" -Last 1 -AsObject
+            $body = $passMsgs[0].body
+            $body | Should -Not -Match "Loading MCP"
+            $body | Should -Not -Match "🔧 Calling tool"
+            $body | Should -Match "Here is the architecture:"
+        }
+    }
+
+    Context "Verdict Fallback" {
+        It "injects VERDICT: PASS and posts pass signal if no verdict is present" {
+            $env:MOCK_OUT = 'RECOMMENDATION: REDESIGN'
+            & $script:StartArchitect -RoomDir $script:roomDir -TimeoutSeconds 5
+            
+            $passMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "pass" -Last 1 -AsObject
+            $passMsgs.Count | Should -Be 1
+            $passMsgs[0].body | Should -Match "RECOMMENDATION: REDESIGN"
+            $passMsgs[0].body | Should -Match "VERDICT: PASS"
+
+            # Ensure 'done' is not double-posted
+            $doneMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "done" -Last 1 -AsObject
+            if ($doneMsgs) { $doneMsgs.Count | Should -Be 0 }
+        }
+
+        It "does not override explicit VERDICT: REJECT" {
+            $env:MOCK_OUT = "RECOMMENDATION: REDESIGN`n`nVERDICT: REJECT"
+            & $script:StartArchitect -RoomDir $script:roomDir -TimeoutSeconds 5
+            
+            $failMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "fail" -Last 1 -AsObject
+            $failMsgs.Count | Should -Be 1
+            $failMsgs[0].body | Should -Match "VERDICT: REJECT"
+            $failMsgs[0].body | Should -Not -Match "VERDICT: PASS"
+        }
+    }
+
+    Context "Signal Broadcasting" {
+        It "posts a 'pass' signal when output explicitly contains VERDICT: PASS" {
+            $env:MOCK_OUT = "Review completed.`n`nVERDICT: PASS"
+            & $script:StartArchitect -RoomDir $script:roomDir -TimeoutSeconds 5
+            
+            $passMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "pass" -Last 1 -AsObject
+            $passMsgs.Count | Should -Be 1
+            $passMsgs[0].body | Should -Match "VERDICT: PASS"
+        }
+
+        It "posts a 'fail' signal when output explicitly contains VERDICT: REJECT" {
+            $env:MOCK_OUT = "Review rejected.`n`nVERDICT: REJECT"
+            & $script:StartArchitect -RoomDir $script:roomDir -TimeoutSeconds 5
+            
+            $failMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "fail" -Last 1 -AsObject
+            $failMsgs.Count | Should -Be 1
+            $failMsgs[0].body | Should -Match "VERDICT: REJECT"
         }
     }
 }

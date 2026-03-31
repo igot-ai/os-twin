@@ -851,7 +851,7 @@ while (-not $script:shuttingDown) {
                             $doneApproval = $false
                             if ($doneCount -gt 0 -and $approveCount -eq 0) {
                                 $doneBody = Get-LatestBody $roomDir "done"
-                                if ($doneBody -match 'plan-approve|signoff|APPROVED') { $doneApproval = $true }
+                                if ($doneBody -match 'plan-approve|signoff|APPROVED|VERDICT:\s*PASS') { $doneApproval = $true }
                             }
                             if ($approveCount -gt 0 -or $doneApproval) {
                                 # LEAK-5 fix: use one-shot guard (same as terminal handler)
@@ -863,6 +863,15 @@ while (-not $script:shuttingDown) {
                                     "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline
                                 }
                                 continue
+                            }
+                            # Handle architect VERDICT: REJECT
+                            if ($doneCount -gt 0) {
+                                $rejectBody = Get-LatestBody $roomDir "done"
+                                if ($rejectBody -match 'VERDICT:\s*REJECT') {
+                                    Write-Log "WARN" "[$taskRef] Plan REJECTED by architect."
+                                    & $postMessage -RoomDir $roomDir -From "manager" -To "architect" `
+                                                   -Type "plan-reject" -Ref $taskRef -Body $rejectBody
+                                }
                             }
                         }
 

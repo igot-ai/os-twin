@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { MarkdownRenderer } from '@/lib/markdown-renderer';
 import { usePlanContext } from './PlanWorkspace';
 import { roleColorMap, getRoleColor } from '@/lib/role-utils';
+import { useRoles } from '@/hooks/use-roles';
 
 // Map well-known section headings to Material Symbols icons
 const sectionIconMap: Record<string, string> = {
@@ -88,6 +89,8 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [roleSearchQuery, setRoleSearchQuery] = useState('');
+  const { roles: globalRolesList } = useRoles();
   
   const [titleValue, setTitleValue] = useState(epic.title);
   const descriptionSection = epic.sections.find(s => s.heading.toLowerCase() === 'description');
@@ -697,7 +700,10 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                 setShowRoleDropdown(false);
               };
 
-              const availableRoles = KNOWN_ROLES.filter(r => !roles.map(x => x.toLowerCase()).includes(r.toLowerCase()));
+              const dynamicRoleNames = globalRolesList?.map(r => r.name) || [];
+              const mergedAllRoles = Array.from(new Set([...KNOWN_ROLES, ...dynamicRoleNames]));
+              
+              const availableRoles = mergedAllRoles.filter(r => !roles.map(x => x.toLowerCase()).includes(r.toLowerCase()));
 
               return (
                 <div className="flex flex-col gap-1 relative">
@@ -728,7 +734,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                     ))}
                     {/* Add role button */}
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowRoleDropdown(!showRoleDropdown); }}
+                      onClick={(e) => { e.stopPropagation(); setShowRoleDropdown(!showRoleDropdown); setRoleSearchQuery(''); }}
                       className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold text-text-faint border border-dashed border-border hover:border-primary hover:text-primary hover:bg-primary/5 transition-all"
                       title="Add role"
                     >
@@ -736,33 +742,52 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                     </button>
                   </div>
                   {/* Role dropdown */}
-                  {showRoleDropdown && (
+                  {showRoleDropdown && (() => {
+                    const filteredAvailableRoles = availableRoles.filter(r => r.toLowerCase().includes(roleSearchQuery.toLowerCase()));
+                    
+                    return (
                     <>
-                      <div className="fixed inset-0 z-[100]" onClick={() => setShowRoleDropdown(false)} />
-                      <div className="absolute top-full left-0 mt-1 z-[101] bg-surface border border-border rounded-lg shadow-xl py-1 min-w-[180px] max-h-[240px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
-                        {availableRoles.length === 0 ? (
-                          <div className="px-3 py-2 text-xs text-text-faint italic">All roles assigned</div>
-                        ) : (
-                          availableRoles.map(role => (
-                            <button
-                              key={role}
-                              onClick={(e) => { e.stopPropagation(); handleAddRole(role); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors capitalize"
-                            >
-                              <span
-                                className="w-2 h-2 rounded-full flex-shrink-0"
-                                style={{ backgroundColor: getRoleColor(role) }}
-                              />
-                              <span className="material-symbols-outlined text-[14px]" style={{ color: getRoleColor(role) }}>
-                                {getRoleIcon(role)}
-                              </span>
-                              {role}
-                            </button>
-                          ))
-                        )}
+                      <div className="fixed inset-0 z-[100]" onClick={() => { setShowRoleDropdown(false); setRoleSearchQuery(''); }} />
+                      <div className="absolute top-full left-0 mt-1 z-[101] bg-surface border border-border rounded-lg shadow-xl py-1 min-w-[200px] flex flex-col max-h-[320px] animate-in fade-in zoom-in-95 duration-100">
+                        <div className="px-2 pb-1.5 pt-1 border-b border-border/50 sticky top-0 bg-surface z-10 shrink-0">
+                          <div className="relative">
+                            <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-[14px] text-text-faint">search</span>
+                            <input
+                              type="text"
+                              placeholder="Search roles..."
+                              value={roleSearchQuery}
+                              onChange={(e) => setRoleSearchQuery(e.target.value)}
+                              className="w-full bg-background border border-border rounded px-2 py-1.5 pl-7 text-xs text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 placeholder:text-text-faint transition-all"
+                              onClick={(e) => e.stopPropagation()}
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+                        <div className="overflow-y-auto custom-scrollbar overflow-x-hidden py-1">
+                          {filteredAvailableRoles.length === 0 ? (
+                            <div className="px-3 py-3 text-xs text-text-faint italic text-center">No matching roles</div>
+                          ) : (
+                            filteredAvailableRoles.map(role => (
+                              <button
+                                key={role}
+                                onClick={(e) => { e.stopPropagation(); handleAddRole(role); setRoleSearchQuery(''); }}
+                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors capitalize text-left"
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: getRoleColor(role) }}
+                                />
+                                <span className="material-symbols-outlined text-[14px]" style={{ color: getRoleColor(role) }}>
+                                  {getRoleIcon(role)}
+                                </span>
+                                {role}
+                              </button>
+                            ))
+                          )}
+                        </div>
                       </div>
                     </>
-                  )}
+                  )})()}
                 </div>
               );
             })()}

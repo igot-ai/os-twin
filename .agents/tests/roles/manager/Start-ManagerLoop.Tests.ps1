@@ -803,10 +803,24 @@ Classified as implementation bug. Engineer should fix.
             }
             $terminalFired | Should -BeFalse
 
-            # Total invocations = exactly 1
-            Test-Path $flagFile | Should -BeTrue
-        }
+        # Total invocations = exactly 1
+        Test-Path $flagFile | Should -BeTrue
     }
+}
+
+Context "PLAN-REVIEW Verdict Logic" {
+    It "detects VERDICT: REJECT from done body" {
+        $doneBody = "I have reviewed this plan and my decision is:`n`nVERDICT: REJECT"
+        $rejected = ($doneBody -match 'VERDICT:\s*REJECT')
+        $rejected | Should -BeTrue
+    }
+
+    It "detects VERDICT: PASS from done body" {
+        $doneBody = "I have reviewed this plan and my decision is:`n`nVERDICT: PASS"
+        $approved = ($doneBody -match 'VERDICT:\s*PASS|plan-approve|signoff|APPROVED')
+        $approved | Should -BeTrue
+    }
+}
 
     Context "Exploit — LEAK-6: state timeout re-resolves role for restart state" {
         It "review timeout should spawn engineer (not qa) for developing state" {

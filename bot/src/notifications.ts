@@ -18,7 +18,7 @@ export class NotificationRouter {
   private url: string;
   private reconnectTimer: NodeJS.Timeout | null = null;
 
-  constructor(registry: ConnectorRegistry, url: string = 'ws://localhost:9000/ws') {
+  constructor(registry: ConnectorRegistry, url: string = 'ws://localhost:9000/api/ws') {
     this.registry = registry;
     this.url = url;
   }
