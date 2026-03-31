@@ -1,0 +1,803 @@
+{
+    "schema": "5.0.0",
+    "meta": {
+        "source_image": "/tmp/level_complete_popup.png",
+        "source_resolution": {
+            "w": 1080,
+            "h": 1920
+        },
+        "to_canvas": {
+            "scale_x": 1.0,
+            "scale_y": 1.0
+        },
+        "background": {
+            "type": "dim_overlay",
+            "sprite": null,
+            "fit": null,
+            "note": "Semi-transparent overlay over gameplay scene."
+        }
+    },
+    "canvas": {
+        "w": 1080,
+        "h": 1920,
+        "scale_mode": "ScaleWithScreenSize",
+        "match": 0.5,
+        "render_mode": "ScreenSpaceOverlay"
+    },
+    "screens": [
+        {
+            "id": "screen_level_complete",
+            "description": "Shown after clearing a level. Displays stars, score, and navigation buttons.",
+            "type": "level_complete",
+            "variant": null,
+            "source_image": "/tmp/level_complete_popup.png",
+            "background_override": null,
+            "missing_assets": [
+                {
+                    "id": "icon_star_filled",
+                    "description": "Gold filled star icon for level rating.",
+                    "needed_by": [
+                        "star_1",
+                        "star_2",
+                        "star_3"
+                    ],
+                    "size": [
+                        120,
+                        120
+                    ],
+                    "color_hint": "#FFD700",
+                    "priority": "HIGH"
+                }
+            ],
+            "objects": [
+                {
+                    "id": "dim_overlay",
+                    "category": "UI/Panel",
+                    "bounding_box": [
+                        0,
+                        0,
+                        1080,
+                        1920
+                    ],
+                    "normalized_bbox": [
+                        0.0,
+                        0.0,
+                        1.0,
+                        1.0
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "canvas_size": {
+                        "w": 0,
+                        "h": 0
+                    },
+                    "tree_path": "root/dim_overlay"
+                },
+                {
+                    "id": "popup_card",
+                    "category": "UI/Panel",
+                    "bounding_box": [
+                        90,
+                        410,
+                        990,
+                        1510
+                    ],
+                    "normalized_bbox": [
+                        0.083,
+                        0.214,
+                        0.917,
+                        0.786
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "canvas_size": {
+                        "w": 900,
+                        "h": 1100
+                    },
+                    "tree_path": "root/popup_card"
+                },
+                {
+                    "id": "lbl_title",
+                    "category": "UI/Text",
+                    "bounding_box": [
+                        240,
+                        440,
+                        840,
+                        530
+                    ],
+                    "normalized_bbox": [
+                        0.222,
+                        0.229,
+                        0.778,
+                        0.276
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": 410
+                    },
+                    "canvas_size": {
+                        "w": 600,
+                        "h": 90
+                    },
+                    "tree_path": "root/popup_card/lbl_title"
+                },
+                {
+                    "id": "star_1",
+                    "category": "UI/Image",
+                    "bounding_box": [
+                        310,
+                        560,
+                        430,
+                        680
+                    ],
+                    "normalized_bbox": [
+                        0.287,
+                        0.292,
+                        0.398,
+                        0.354
+                    ],
+                    "canvas_position": {
+                        "x": -170,
+                        "y": 260
+                    },
+                    "canvas_size": {
+                        "w": 120,
+                        "h": 120
+                    },
+                    "tree_path": "root/popup_card/stars_row/star_1"
+                },
+                {
+                    "id": "star_2",
+                    "category": "UI/Image",
+                    "bounding_box": [
+                        480,
+                        560,
+                        600,
+                        680
+                    ],
+                    "normalized_bbox": [
+                        0.444,
+                        0.292,
+                        0.556,
+                        0.354
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": 260
+                    },
+                    "canvas_size": {
+                        "w": 120,
+                        "h": 120
+                    },
+                    "tree_path": "root/popup_card/stars_row/star_2"
+                },
+                {
+                    "id": "star_3",
+                    "category": "UI/Image",
+                    "bounding_box": [
+                        650,
+                        560,
+                        770,
+                        680
+                    ],
+                    "normalized_bbox": [
+                        0.602,
+                        0.292,
+                        0.713,
+                        0.354
+                    ],
+                    "canvas_position": {
+                        "x": 170,
+                        "y": 260
+                    },
+                    "canvas_size": {
+                        "w": 120,
+                        "h": 120
+                    },
+                    "tree_path": "root/popup_card/stars_row/star_3"
+                },
+                {
+                    "id": "lbl_score",
+                    "category": "UI/Text",
+                    "bounding_box": [
+                        340,
+                        730,
+                        740,
+                        800
+                    ],
+                    "normalized_bbox": [
+                        0.315,
+                        0.380,
+                        0.685,
+                        0.417
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": 100
+                    },
+                    "canvas_size": {
+                        "w": 400,
+                        "h": 70
+                    },
+                    "tree_path": "root/popup_card/lbl_score"
+                },
+                {
+                    "id": "reward_strip",
+                    "category": "UI/Container",
+                    "bounding_box": [
+                        140,
+                        850,
+                        940,
+                        1050
+                    ],
+                    "normalized_bbox": [
+                        0.130,
+                        0.443,
+                        0.870,
+                        0.547
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": -50
+                    },
+                    "canvas_size": {
+                        "w": 800,
+                        "h": 200
+                    },
+                    "tree_path": "root/popup_card/reward_strip"
+                },
+                {
+                    "id": "btn_next",
+                    "category": "UI/Button",
+                    "bounding_box": [
+                        290,
+                        1150,
+                        790,
+                        1290
+                    ],
+                    "normalized_bbox": [
+                        0.269,
+                        0.599,
+                        0.731,
+                        0.672
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": -250
+                    },
+                    "canvas_size": {
+                        "w": 500,
+                        "h": 140
+                    },
+                    "tree_path": "root/popup_card/btn_next"
+                },
+                {
+                    "id": "btn_home",
+                    "category": "UI/Button",
+                    "bounding_box": [
+                        340,
+                        1330,
+                        740,
+                        1430
+                    ],
+                    "normalized_bbox": [
+                        0.315,
+                        0.693,
+                        0.685,
+                        0.745
+                    ],
+                    "canvas_position": {
+                        "x": 0,
+                        "y": -400
+                    },
+                    "canvas_size": {
+                        "w": 400,
+                        "h": 100
+                    },
+                    "tree_path": "root/popup_card/btn_home"
+                }
+            ],
+            "root": {
+                "id": "root",
+                "note": "Screen root. Add Canvas, CanvasScaler, GraphicRaycaster, CanvasGroup, UIAnimationBehaviour.",
+                "rect": {
+                    "anchor": "stretch",
+                    "pivot": [
+                        0.5,
+                        0.5
+                    ],
+                    "pos": [
+                        0,
+                        0
+                    ],
+                    "size": [
+                        0,
+                        0
+                    ]
+                },
+                "components": [
+                    {
+                        "type": "CanvasGroup",
+                        "unity_type_name": "UnityEngine.CanvasGroup",
+                        "alpha": 1.0,
+                        "interactable": true,
+                        "blocks_raycasts": true
+                    }
+                ],
+                "children": [
+                    {
+                        "id": "dim_overlay",
+                        "note": "Semi-transparent black overlay behind popup.",
+                        "rect": {
+                            "anchor": "stretch",
+                            "pivot": [
+                                0.5,
+                                0.5
+                            ],
+                            "pos": [
+                                0,
+                                0
+                            ],
+                            "size": [
+                                0,
+                                0
+                            ]
+                        },
+                        "components": [
+                            {
+                                "type": "Image",
+                                "unity_type_name": "UnityEngine.UI.Image",
+                                "sprite": null,
+                                "color": "#00000080",
+                                "image_type": "Simple",
+                                "raycast": true,
+                                "preserve_aspect": false
+                            }
+                        ],
+                        "children": []
+                    },
+                    {
+                        "id": "popup_card",
+                        "note": "Main popup container. Middle-center anchored.",
+                        "rect": {
+                            "anchor": "middle_center",
+                            "pivot": [
+                                0.5,
+                                0.5
+                            ],
+                            "pos": [
+                                0,
+                                0
+                            ],
+                            "size": [
+                                900,
+                                1100
+                            ]
+                        },
+                        "components": [
+                            {
+                                "type": "Image",
+                                "unity_type_name": "UnityEngine.UI.Image",
+                                "sprite": "Assets/UI/Popup/bg_popup_card.png",
+                                "color": "#FFFFFF",
+                                "image_type": "Sliced",
+                                "raycast": false,
+                                "preserve_aspect": false
+                            },
+                            {
+                                "type": "CanvasGroup",
+                                "unity_type_name": "UnityEngine.CanvasGroup",
+                                "alpha": 1.0,
+                                "interactable": true,
+                                "blocks_raycasts": true
+                            }
+                        ],
+                        "children": [
+                            {
+                                "id": "lbl_title",
+                                "note": "Level complete title text. Add LocalizeUIText for localization.",
+                                "rect": {
+                                    "anchor": "top_stretch",
+                                    "pivot": [
+                                        0.5,
+                                        1
+                                    ],
+                                    "pos": [
+                                        0,
+                                        -30
+                                    ],
+                                    "size": [
+                                        0,
+                                        90
+                                    ]
+                                },
+                                "components": [
+                                    {
+                                        "type": "TextMeshProUGUI",
+                                        "unity_type_name": "TMPro.TextMeshProUGUI",
+                                        "text": "Level Complete!",
+                                        "font_size": 64,
+                                        "font_style": "Bold",
+                                        "color": "#FFD700",
+                                        "alignment": "Center",
+                                        "overflow": "Overflow",
+                                        "auto_size": false,
+                                        "raycast": false
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "stars_row",
+                                "note": "Horizontal row of 3 star icons.",
+                                "rect": {
+                                    "anchor": "middle_center",
+                                    "pivot": [
+                                        0.5,
+                                        0.5
+                                    ],
+                                    "pos": [
+                                        0,
+                                        260
+                                    ],
+                                    "size": [
+                                        460,
+                                        120
+                                    ]
+                                },
+                                "components": [
+                                    {
+                                        "type": "HorizontalLayoutGroup",
+                                        "unity_type_name": "UnityEngine.UI.HorizontalLayoutGroup",
+                                        "spacing": 50.0,
+                                        "padding": [
+                                            0,
+                                            0,
+                                            0,
+                                            0
+                                        ],
+                                        "child_alignment": "MiddleCenter",
+                                        "control_child_size": [
+                                            false,
+                                            false
+                                        ],
+                                        "force_expand": [
+                                            false,
+                                            false
+                                        ]
+                                    }
+                                ],
+                                "children": [
+                                    {
+                                        "id": "star_1",
+                                        "note": "Star 1. Sprite missing -- see missing_assets.",
+                                        "rect": {
+                                            "anchor": "middle_center",
+                                            "pivot": [
+                                                0.5,
+                                                0.5
+                                            ],
+                                            "pos": [
+                                                0,
+                                                0
+                                            ],
+                                            "size": [
+                                                120,
+                                                120
+                                            ]
+                                        },
+                                        "components": [
+                                            {
+                                                "type": "Image",
+                                                "unity_type_name": "UnityEngine.UI.Image",
+                                                "sprite": null,
+                                                "color": "#FFD700",
+                                                "image_type": "Simple",
+                                                "raycast": false,
+                                                "preserve_aspect": true
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "star_2",
+                                        "note": "Star 2. Sprite missing -- see missing_assets.",
+                                        "rect": {
+                                            "anchor": "middle_center",
+                                            "pivot": [
+                                                0.5,
+                                                0.5
+                                            ],
+                                            "pos": [
+                                                0,
+                                                0
+                                            ],
+                                            "size": [
+                                                120,
+                                                120
+                                            ]
+                                        },
+                                        "components": [
+                                            {
+                                                "type": "Image",
+                                                "unity_type_name": "UnityEngine.UI.Image",
+                                                "sprite": null,
+                                                "color": "#FFD700",
+                                                "image_type": "Simple",
+                                                "raycast": false,
+                                                "preserve_aspect": true
+                                            }
+                                        ],
+                                        "children": []
+                                    },
+                                    {
+                                        "id": "star_3",
+                                        "note": "Star 3. Sprite missing -- see missing_assets.",
+                                        "rect": {
+                                            "anchor": "middle_center",
+                                            "pivot": [
+                                                0.5,
+                                                0.5
+                                            ],
+                                            "pos": [
+                                                0,
+                                                0
+                                            ],
+                                            "size": [
+                                                120,
+                                                120
+                                            ]
+                                        },
+                                        "components": [
+                                            {
+                                                "type": "Image",
+                                                "unity_type_name": "UnityEngine.UI.Image",
+                                                "sprite": null,
+                                                "color": "#FFD700",
+                                                "image_type": "Simple",
+                                                "raycast": false,
+                                                "preserve_aspect": true
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "lbl_score",
+                                "note": "Score display. Add LocalizeUIText for localization.",
+                                "rect": {
+                                    "anchor": "middle_center",
+                                    "pivot": [
+                                        0.5,
+                                        0.5
+                                    ],
+                                    "pos": [
+                                        0,
+                                        100
+                                    ],
+                                    "size": [
+                                        400,
+                                        70
+                                    ]
+                                },
+                                "components": [
+                                    {
+                                        "type": "TextMeshProUGUI",
+                                        "unity_type_name": "TMPro.TextMeshProUGUI",
+                                        "text": "Score: 12,450",
+                                        "font_size": 48,
+                                        "font_style": "Normal",
+                                        "color": "#333333",
+                                        "alignment": "Center",
+                                        "overflow": "Overflow",
+                                        "auto_size": false,
+                                        "raycast": false
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "reward_strip",
+                                "note": "Horizontal row of reward icons. Container with layout group.",
+                                "rect": {
+                                    "anchor": "middle_center",
+                                    "pivot": [
+                                        0.5,
+                                        0.5
+                                    ],
+                                    "pos": [
+                                        0,
+                                        -50
+                                    ],
+                                    "size": [
+                                        800,
+                                        200
+                                    ]
+                                },
+                                "components": [
+                                    {
+                                        "type": "Image",
+                                        "unity_type_name": "UnityEngine.UI.Image",
+                                        "sprite": "Assets/UI/Popup/bg_reward_strip.png",
+                                        "color": "#FFFFFF",
+                                        "image_type": "Sliced",
+                                        "raycast": false,
+                                        "preserve_aspect": false
+                                    },
+                                    {
+                                        "type": "HorizontalLayoutGroup",
+                                        "unity_type_name": "UnityEngine.UI.HorizontalLayoutGroup",
+                                        "spacing": 30.0,
+                                        "padding": [
+                                            20,
+                                            20,
+                                            10,
+                                            10
+                                        ],
+                                        "child_alignment": "MiddleCenter",
+                                        "control_child_size": [
+                                            false,
+                                            false
+                                        ],
+                                        "force_expand": [
+                                            false,
+                                            false
+                                        ]
+                                    }
+                                ],
+                                "children": []
+                            },
+                            {
+                                "id": "btn_next",
+                                "note": "Primary action button. Large, prominent.",
+                                "rect": {
+                                    "anchor": "middle_center",
+                                    "pivot": [
+                                        0.5,
+                                        0.5
+                                    ],
+                                    "pos": [
+                                        0,
+                                        -250
+                                    ],
+                                    "size": [
+                                        500,
+                                        140
+                                    ]
+                                },
+                                "components": [
+                                    {
+                                        "type": "Image",
+                                        "unity_type_name": "UnityEngine.UI.Image",
+                                        "sprite": "Assets/UI/Buttons/btn_green_large.png",
+                                        "color": "#FFFFFF",
+                                        "image_type": "Sliced",
+                                        "raycast": true,
+                                        "preserve_aspect": false
+                                    },
+                                    {
+                                        "type": "Button",
+                                        "unity_type_name": "UnityEngine.UI.Button",
+                                        "on_click": "navigate_next_level"
+                                    }
+                                ],
+                                "children": [
+                                    {
+                                        "id": "lbl_btn_next",
+                                        "note": "Button label. Add LocalizeUIText.",
+                                        "rect": {
+                                            "anchor": "stretch",
+                                            "pivot": [
+                                                0.5,
+                                                0.5
+                                            ],
+                                            "pos": [
+                                                0,
+                                                0
+                                            ],
+                                            "size": [
+                                                0,
+                                                0
+                                            ]
+                                        },
+                                        "components": [
+                                            {
+                                                "type": "TextMeshProUGUI",
+                                                "unity_type_name": "TMPro.TextMeshProUGUI",
+                                                "text": "Next Level",
+                                                "font_size": 52,
+                                                "font_style": "Bold",
+                                                "color": "#FFFFFF",
+                                                "alignment": "Center",
+                                                "overflow": "Overflow",
+                                                "auto_size": false,
+                                                "raycast": false
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            },
+                            {
+                                "id": "btn_home",
+                                "note": "Secondary action button. Smaller, less prominent.",
+                                "rect": {
+                                    "anchor": "middle_center",
+                                    "pivot": [
+                                        0.5,
+                                        0.5
+                                    ],
+                                    "pos": [
+                                        0,
+                                        -400
+                                    ],
+                                    "size": [
+                                        400,
+                                        100
+                                    ]
+                                },
+                                "components": [
+                                    {
+                                        "type": "Image",
+                                        "unity_type_name": "UnityEngine.UI.Image",
+                                        "sprite": "Assets/UI/Buttons/btn_outline.png",
+                                        "color": "#666666",
+                                        "image_type": "Sliced",
+                                        "raycast": true,
+                                        "preserve_aspect": false
+                                    },
+                                    {
+                                        "type": "Button",
+                                        "unity_type_name": "UnityEngine.UI.Button",
+                                        "on_click": "navigate_home"
+                                    }
+                                ],
+                                "children": [
+                                    {
+                                        "id": "lbl_btn_home",
+                                        "note": "Button label. Add LocalizeUIText.",
+                                        "rect": {
+                                            "anchor": "stretch",
+                                            "pivot": [
+                                                0.5,
+                                                0.5
+                                            ],
+                                            "pos": [
+                                                0,
+                                                0
+                                            ],
+                                            "size": [
+                                                0,
+                                                0
+                                            ]
+                                        },
+                                        "components": [
+                                            {
+                                                "type": "TextMeshProUGUI",
+                                                "unity_type_name": "TMPro.TextMeshProUGUI",
+                                                "text": "Home",
+                                                "font_size": 44,
+                                                "font_style": "Normal",
+                                                "color": "#FFFFFF",
+                                                "alignment": "Center",
+                                                "overflow": "Overflow",
+                                                "auto_size": false,
+                                                "raycast": false
+                                            }
+                                        ],
+                                        "children": []
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}

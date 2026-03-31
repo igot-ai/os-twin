@@ -1,318 +1,321 @@
 ---
 name: detect-ui
-description: Analyse a UI reference screenshot and generate a _detection.json (schema 4.0.0). Output is a nested, canvas-native tree that the add-ui workflow reads directly to build Unity GameObjects. Covers all background cases — reference-only screenshots, real background assets, gameplay-passthrough scenes, and per-variant background overrides.
+description: "Analyse a UI reference screenshot and generate a _detection.json (schema 5.0.0). Output includes both a nested canvas-native tree for building GameObjects AND a flat objects[] array for animation-analyzer. Covers all component types (Image, Button, ScrollRect, Toggle, Slider, InputField, Mask, LayoutGroups, etc.), background classification, hierarchy detection, and sprite resolution. Triggers on 'analyse UI', 'detect UI', 'UI detection', 'generate detection JSON', 'screenshot to UI', 'parse UI screenshot', 'identify UI elements', 'UI structure from image'. Use this skill whenever the user has a screenshot of a UI screen and wants to extract structured detection data from it -- even if they just say 'what elements are in this screenshot' or 'break down this UI'."
 argument-hint: <detection_image> [output_json_path] [real_bg_asset_path]
-allowed-tools: Read, Write, Glob, Grep
+tags: []
+trust_level: experimental
+---
+**Quick Start:** View screenshot -> classify background -> measure resolution + compute canvas scale -> detect every visible UI element (back-to-front) -> build node tree -> generate flat `objects[]` array -> validate -> emit schema 5.0.0 JSON -> hand off to builder / animation-analyzer.
+
 ---
 
-Analyse the UI screenshot and produce a complete `*_detection.json` (schema **4.0.0**).
+## Inputs
 
 Parse `$ARGUMENTS` as:
-- `$0` — detection image path (required)
-- `$1` — if ends with `.json` → output path; if ends with `.png/.jpg` → real background asset path
-- `$2` — output path (only when `$1` was used as background path)
+- `$0` -- detection image path (required)
+- `$1` -- if ends with `.json` -> output path; if ends with `.png/.jpg` -> real background asset path
+- `$2` -- output path (only when `$1` was used as background path)
 
 Default output path: replace `$0` extension with `_detection.json`.
 
 ---
 
-## Step 1 — Classify the background
+## Step 1 -- Classify the Background
 
 Determine `meta.background` before any measurement.
 
 ```
-Did the user supply $2 (explicit background asset)?
-  YES → type = "full_screen_sprite", sprite = $2
-  NO  → Does $0 show gameplay behind the popup?
-          Real camera/board scene → type = "gameplay_scene_passthrough"
-          Just a solid colour     → type = "none"
-        Does $0 look like a standalone background image (check Glob "Assets/UI/Background/*.png")?
-          YES → type = "full_screen_sprite", sprite = $0
-          NO  → type = "none"
+IF user supplied $2 (explicit background asset)
+  -> type = "full_screen_sprite", sprite = $2
+
+ELSE IF $0 shows gameplay behind the popup
+  IF there is a semi-transparent dark overlay between gameplay and popup
+    -> type = "dim_overlay"
+  ELSE (gameplay directly visible, no overlay)
+    -> type = "gameplay_scene_passthrough"
+
+ELSE IF $0 shows a RenderTexture / ScreenSpaceCamera setup (3D content behind UI)
+  -> type = "render_texture"
+
+ELSE IF $0 looks like a standalone background image (check Glob "Assets/UI/Background/*.png")
+  -> type = "full_screen_sprite", sprite = best match from Glob
+
+ELSE (just a solid colour or transparent)
+  -> type = "none"
 ```
 
 | `type` | Builder action |
 |---|---|
-| `"full_screen_sprite"` | `Background` GO → stretch → `Image(sprite)` + `AspectRatioFitter(EnvelopeParent)` |
-| `"gameplay_scene_passthrough"` | Comment only — nothing created behind the popup |
-| `"render_texture"` | Comment only — `canvas.renderMode = ScreenSpaceCamera` note |
+| `"full_screen_sprite"` | `Background` GO -> stretch -> `Image(sprite)` + `AspectRatioFitter(EnvelopeParent)` |
+| `"dim_overlay"` | `DimOverlay` GO -> stretch -> `Image(#00000080)`, `raycast: true` |
+| `"gameplay_scene_passthrough"` | Comment only -- nothing created behind the popup |
+| `"render_texture"` | Comment only -- `canvas.renderMode = ScreenSpaceCamera` note |
 | `"none"` | Nothing |
 
 ---
 
-## Step 2 — Read the image
+## Step 2 -- Read the Image and Determine Resolution
 
-View `$0`. Note every visible layer back → front.
+View `$0`. Record:
+- **Source resolution**: actual pixel dimensions of the image (e.g., 750 x 1334)
+- **Every visible layer** from back to front -- this becomes the detection order
 
----
-
-## Step 3 — Detect canvas settings
-
-Identify the CanvasScaler reference resolution (default **1080 × 1920** if unknown).
+If the image appears to be a Retina screenshot (@2x / @3x), divide pixel dimensions by the scale factor to get logical resolution before computing canvas conversion.
 
 ---
 
-## Step 4 — Detect all UI objects, back → front
+## Step 3 -- Compute Canvas Conversion
 
-For each visible UI object (skip the scene background — that's in `meta.background`):
+**Reference canvas**: 1080 x 1920 (project default, `ScaleWithScreenSize`, Match 0.5).
 
-a. Measure position and size **directly in canvas units** (reference resolution space).  
-b. Pick the correct named anchor preset (see table below) or use a raw 4-float array.  
-c. Find sprite with `Glob "Assets/UI/**/*.png"`. Add to `missing_assets` if absent.  
-d. List all Unity components as typed objects.  
-e. Write a `note` (one builder-hint sentence only).
+First, check for Retina scaling using the decision tree in `references/measurement-guide.md`. If the source is @2x or @3x, divide pixel dimensions by the scale factor to get logical resolution.
 
-### Anchor Preset Table
+Compute `meta.to_canvas`:
+```
+scale_x = canvas_w / logical_w    (e.g., 1080 / 390 = 2.769 for @3x iPhone 14 Pro)
+scale_y = canvas_h / logical_h    (e.g., 1920 / 844 = 2.275)
+```
 
-| Preset | anchorMin | anchorMax | Typical use |
-|---|---|---|---|
-| `"stretch"` | [0,0] | [1,1] | Full-parent fill, overlays |
-| `"top_stretch"` | [0,1] | [1,1] | Top bar (pivot y=1) |
-| `"bottom_stretch"` | [0,0] | [1,0] | Bottom bar (pivot y=0) |
-| `"middle_center"` | [0.5,0.5] | [0.5,0.5] | Centered element |
-| `"middle_left"` | [0,0.5] | [0,0.5] | Left-anchored |
-| `"middle_right"` | [1,0.5] | [1,0.5] | Right-anchored |
-| `"top_left"` | [0,1] | [0,1] | Top-left corner |
-| `"top_right"` | [1,1] | [1,1] | Top-right corner |
-| `"bottom_left"` | [0,0] | [0,0] | Bottom-left corner |
-| `"bottom_right"` | [1,0] | [1,0] | Bottom-right corner |
-| `"bottom_center"` | [0.5,0] | [0.5,0] | Bottom-center |
+**All measurements from this point are in canvas units, not source pixels.**
 
-> For non-preset anchors use raw array: `"anchor": [minX, minY, maxX, maxY]`
+To convert a measurement from source pixels to canvas units:
+```
+canvas_value = source_pixels * scale_factor
+```
 
----
+Apply rounding rules from `references/measurement-guide.md`: integers for pos/size, even numbers for font_size.
 
-## Step 5 — Fill `missing_assets[]`
+### Mandatory Sanity Check (after Step 5)
 
-For every sprite not found on disk, add one entry.
+After detecting all elements, run the 4 sanity checks from `references/measurement-guide.md`:
+1. Popup width ratio (80-92% of canvas width)
+2. LayoutGroup children sum consistency
+3. Font size plausibility (not raw pixels, not double-scaled)
+4. Sibling overlap check
 
 ---
 
-## Step 6 — Validate
+## Step 4 -- Detect Canvas Settings
 
-Run the checklist at the bottom.
-
----
-
-## Step 7 — Write the JSON and print summary
+Identify the CanvasScaler reference resolution (default **1080 x 1920** if unknown). Fill the `canvas` block.
 
 ---
 
-## Output JSON Structure (schema 4.0.0)
+## Step 5 -- Detect All UI Objects, Back to Front
+
+For each visible UI object (skip the scene background -- that's in `meta.background`):
+
+1. **Measure** position and size in canvas units (using the scale factors from Step 3).
+2. **Pick anchor**: Use an Anchor Preset name or raw `[minX, minY, maxX, maxY]` array (see `references/schema.md` for the preset table).
+3. **Find sprite**: `Glob "Assets/UI/**/*.png"`. Add to `missing_assets` if absent. Do NOT invent paths.
+4. **List components**: Use typed objects from `references/schema.md`. Include `unity_type_name` on each.
+5. **Write a `note`**: one builder-hint sentence. Include "Add LocalizeUIText." on any text node.
+
+### Hierarchy Detection
+
+Apply hierarchy rules when deciding parent-child relationships:
+- Fully contained element on top of another -> make it a child (HR1)
+- Axis-aligned siblings with equal spacing -> wrap in LayoutGroup container (HR2)
+- Grid pattern -> GridLayoutGroup (HR3)
+- Interactive component always on same node as background Image (HR4)
+- Max 6 levels deep (HR5)
+- Partial containment (badges) -> child of attached element (HR7)
+- Floating elements (tooltips, FABs) -> siblings of main content (HR8)
+- Repeated clipped items -> ScrollRect pattern (HR9)
+- Z-order conflicts -> higher opacity/brighter = on top (HR10)
+
+For complete hierarchy rules and interactive component patterns (Button, Toggle, ScrollView, Slider, InputField), read `references/common-patterns.md`.
+
+### Component Type Selection
+
+For ambiguous elements (e.g., button vs clickable image, toggle vs button group, progress bar vs slider), consult the decision tree in `references/component-decision-tree.md`.
+
+### Completeness Check
+
+After detecting all elements, count visible elements in the screenshot vs nodes in the tree. If the mismatch exceeds 2, re-scan for commonly missed elements (thin dividers, dots, badges, shadows, scroll indicators). See the completeness check section in `references/component-decision-tree.md`.
+
+---
+
+## Step 6 -- Fill `missing_assets[]`
+
+For every sprite referenced in a component but not found via Glob, add one entry:
 
 ```jsonc
 {
-  "schema": "4.0.0",
-
-  "meta": {
-    "source_image": "<$0>",
-    "source_resolution": { "w": 1080, "h": 1920 },  // actual $0 pixel dimensions
-    "background": {
-      "type": "full_screen_sprite",  // "full_screen_sprite"|"gameplay_scene_passthrough"|"render_texture"|"none"
-      "sprite": "Assets/UI/Background/bg.png",  // non-null only when type="full_screen_sprite"
-      "fit":    "preserve_aspect",               // "preserve_aspect"|"stretch"|null
-      "note":   "One-line builder note."
-    }
-  },
-
-  "canvas": {
-    "w": 1080,
-    "h": 1920,
-    "scale_mode":  "ScaleWithScreenSize",
-    "match":       0.5,
-    "render_mode": "ScreenSpaceOverlay"
-  },
-
-  "screens": [
-    {
-      "id":          "screen_snake_case_id",
-      "description": "One sentence: what this screen is and when it appears.",
-      "type":        "gameplay|popup|hud|menu|level_complete|shop|settings|...",
-      "variant":     null,
-      "source_image": "<same as meta.source_image>",
-      "background_override": null,  // same shape as meta.background; non-null for per-variant BG only
-      "missing_assets": [],         // see Missing Assets section
-      "root": { }                   // single root Node — the Canvas GameObject
-    }
-  ]
+  "id": "asset_snake_case_id",
+  "description": "Brief description of what the asset looks like.",
+  "needed_by": ["node_id_1", "node_id_2"],   // which nodes need this
+  "size": [90, 90],                            // canvas units (NOT source pixels)
+  "color_hint": "#e63946",
+  "priority": "HIGH"                           // "HIGH"|"MEDIUM"|"LOW"
 }
 ```
 
 ---
 
-## Node (recursive — every GameObject)
+## Step 7 -- Generate Flat `objects[]` Array
+
+Traverse the node tree and produce a flat list for `screens[].objects[]`. This is consumed by `unity-animation-analyzer` for track-to-object matching.
+
+For each meaningful node (skip pure container nodes with no components):
 
 ```jsonc
 {
-  "id":   "snake_case_id",   // → GameObject.name
-  "note": "One builder-hint sentence.",
-
-  "rect": {
-    "anchor": "middle_center",  // named preset string OR [minX,minY,maxX,maxY] floats
-    "pivot":  [0.5, 0.5],       // [x, y]
-    "pos":    [0.0, 0.0],       // anchoredPosition [x, y] in canvas units
-    "size":   [200.0, 200.0]    // sizeDelta [w, h] in canvas units
-                                // For stretch anchors: pos=[0,0] size=[0,0] means full-fill.
-  },
-
-  "components": [ /* see Component Types */ ],
-
-  "children": [ /* Nodes, index 0 = back (lowest z-order) */ ]
+  "id": "<node.id>",
+  "category": "<derived from primary component>",
+  "bounding_box": [x1, y1, x2, y2],            // source pixel coordinates
+  "normalized_bbox": [x1_n, y1_n, x2_n, y2_n], // 0-1 normalized
+  "canvas_position": { "x": <pos_x>, "y": <pos_y> },
+  "canvas_size": { "w": <size_w>, "h": <size_h> },
+  "tree_path": "root/parent/node_id"
 }
 ```
+
+Category derivation and bounding box computation formulas are in `references/schema.md` (Flat objects[] section).
 
 ---
 
-## Component Types
+## Step 8 -- Validate
 
-### Image
-```jsonc
-{
-  "type": "Image",
-  "sprite":          "Assets/UI/Gameplay/btn.png",  // null for solid-color generated images
-  "color":           "#FFFFFF",    // omit if white
-  "image_type":      "Simple",     // "Simple"|"Sliced"|"Filled"|"Tiled"
-  "raycast":         false,        // true only for interactive roots (Buttons)
-  "preserve_aspect": false,        // true for non-resizable icons when no nine_slice
-  "fill_method":     null,         // "Horizontal"|"Vertical"|"Radial360"|... (Filled only)
-  "fill_amount":     null          // float 0–1 (Filled only)
-}
-```
+Run the validation checklist from `references/schema.md`. Key checks:
 
-### TextMeshProUGUI
-```jsonc
-{
-  "type":       "TextMeshProUGUI",
-  "text":       "Label text",
-  "font_size":  56,            // canvas units (already in canvas space, not source px)
-  "font_style": "Bold",        // "Normal"|"Bold"|"Italic"|"Bold|Italic"
-  "color":      "#FFFFFF",
-  "alignment":  "Center",      // TMP TextAlignmentOptions name
-  "overflow":   "Overflow",    // TMP TextOverflowModes; default "Overflow"
-  "auto_size":  false
-}
-```
-
-### Button
-```jsonc
-{
-  "type":     "Button",
-  "on_click": "intent_string"   // e.g. "navigate_main_menu", "open_shop", "booster_shuffle"
-}
-```
-
-### CanvasGroup
-```jsonc
-{
-  "type":           "CanvasGroup",
-  "alpha":          1.0,
-  "interactable":   true,
-  "blocks_raycasts": true
-}
-```
-
-### AspectRatioFitter
-```jsonc
-{
-  "type":  "AspectRatioFitter",
-  "mode":  "EnvelopeParent",   // AspectRatioFitter.AspectMode enum name
-  "ratio": 1.0                 // sprite.width / sprite.height (native texture dims)
-}
-```
-
-### HorizontalLayoutGroup / VerticalLayoutGroup
-```jsonc
-{
-  "type":              "HorizontalLayoutGroup",
-  "spacing":           20.0,
-  "padding":           [0, 0, 0, 0],   // [left, right, top, bottom]
-  "child_alignment":   "MiddleCenter",
-  "control_child_size": [true, true],  // [width, height]
-  "force_expand":      [false, false]  // [width, height]
-}
-```
-
-### GridLayoutGroup
-```jsonc
-{
-  "type":             "GridLayoutGroup",
-  "cell_size":        [100.0, 100.0],
-  "spacing":          [8.0, 8.0],
-  "start_corner":     "UpperLeft",
-  "start_axis":       "Horizontal",
-  "child_alignment":  "UpperLeft",
-  "constraint":       "FixedColumnCount",
-  "constraint_count": 4
-}
-```
+- [ ] `"schema": "5.0.0"` at root
+- [ ] `to_canvas` factors match `canvas / source_resolution`
+- [ ] No duplicate `id` values in the tree
+- [ ] Button + Image on same node, `raycast: true` only on interactive roots
+- [ ] LayoutGroup children use `anchor: "middle_center"`
+- [ ] `Image.preserve_aspect` and `AspectRatioFitter` NOT both on same node
+- [ ] Every sprite path exists on disk OR has a `missing_assets` entry
+- [ ] Every `missing_assets[].needed_by` ID exists in the tree
+- [ ] `objects[]` populated with correct bounding boxes and categories
+- [ ] All `pos`, `size`, `font_size` values are in canvas units
 
 ---
 
-## `missing_assets[]` (inside `screens[i]`)
+## Step 9 -- Write the JSON and Print Summary
 
-```jsonc
-"missing_assets": [
-  {
-    "id":          "badge_bonus_heart",
-    "description": "Small red heart badge for +N values.",
-    "needed_by":   ["refill_bonus_badge"],
-    "size":        [90, 90],
-    "color_hint":  "#e63946",
-    "priority":    "HIGH"
-  }
-]
+Write the JSON with `"schema": "5.0.0"`.
+
+Output summary format:
 ```
-
----
-
-## Background — `background_override` (variant use-case only)
-
-Use **only** when a specific screen variant needs a different background than `meta.background`. Same shape as `meta.background`.
-
-```jsonc
-"background_override": {
-  "type":   "full_screen_sprite",
-  "sprite": "Assets/UI/Background/bg_coin_variant.png",
-  "fit":    "preserve_aspect",
-  "note":   "Coin variant uses gold-tinted background."
-}
-```
-
----
-
-## Validation Checklist
-
-- [ ] `meta.background.type` is one of the four enum values
-- [ ] `meta.background.sprite` is non-null **only** when `type = "full_screen_sprite"`
-- [ ] `meta.background.fit` is `"preserve_aspect"` or `"stretch"` when `type = "full_screen_sprite"`, else null
-- [ ] Root node has no explicit `Canvas` component field — builder adds Canvas + CanvasScaler from `canvas` block
-- [ ] Every `rect.anchor` is a valid named preset string or a 4-element float array
-- [ ] Every `Image` component with `image_type = "Sliced"` is for a resizable container or button
-- [ ] Every `Button` component appears on the SAME node as its `Image` (not on a child icon)
-- [ ] `raycast: true` set ONLY on interactive roots (Button parents), false everywhere else
-- [ ] Every non-null `sprite` path exists on disk OR has a `missing_assets` entry
-- [ ] `children` order is back → front (index 0 = furthest back)
-- [ ] All `pos` and `size` values are in canvas units, not source pixels
-- [ ] `font_size` in `TextMeshProUGUI` is in canvas units
-
----
-
-## Output Summary
-
-```
-✅ Saved: <output_path>
+Saved: <output_path>
 
 Background type  : <meta.background.type>
 Background sprite: <meta.background.sprite or "none">
 Screen id        : <screens[0].id>
-Total nodes      : <N>   (root + all descendants)
+Screen type      : <screens[0].type>
+Total tree nodes : <N>  (root + all descendants)
+Flat objects     : <N>
 Missing assets   : <N>
 ```
 
-Compact node table:
+Then print a compact node table:
 
 | id | anchor | pos | size | components |
 |----|--------|-----|------|------------|
-| UI_Level11 | stretch | (0,0) | (0,0) | CanvasGroup |
-| Background | stretch | (0,0) | (0,0) | Image, AspectRatioFitter |
-| … | … | … | … | … |
+| root | stretch | (0,0) | (0,0) | CanvasGroup |
+| dim_overlay | stretch | (0,0) | (0,0) | Image |
+| ... | ... | ... | ... | ... |
+
+---
+
+## Failure Modes
+
+| Symptom | Action |
+|---|---|
+| Blurry / compressed screenshot | Estimate element bounds from dominant shapes. Add `"note": "Bounds approximate -- low-quality source."` on affected nodes. |
+| Sprite Glob returns 0 results | Add ALL detected sprites to `missing_assets`. Do NOT invent paths. |
+| Overlapping semi-transparent popups (two UI layers) | Emit two separate screen entries in `screens[]`. |
+| Non-standard aspect ratio (tablet, foldable) | Record actual `source_resolution`. Adjust `to_canvas` scale factors accordingly. |
+| Canvas resolution unknown | Default to 1080x1920. Add `"note": "Canvas resolution defaulted."` in root. |
+| Retina @2x/@3x screenshot | Divide source image dimensions by scale factor before computing `to_canvas`. |
+| Elements cut off at edges | Include partial elements with estimated full size. Add `"note": "Partially visible -- size estimated."`. |
+
+---
+
+## Output JSON Structure (schema 5.0.0)
+
+The root structure is documented in `references/schema.md`. Key sections:
+- `meta` -- source image info, `to_canvas` conversion factors, background classification
+- `canvas` -- CanvasScaler settings (1080x1920 default)
+- `screens[]` -- one entry per detected screen, containing:
+  - `root` -- nested node tree (recursive, for builder)
+  - `objects[]` -- flat array (for animation-analyzer)
+  - `missing_assets[]` -- sprites not found on disk
+
+For the complete field reference, enum tables, and validation checklist, read `references/schema.md`.
+For a complete valid sample output, read `references/example-output.json`.
+
+### Schema changes in v5.0.0 (vs 4.0.0)
+
+- Added flat `screens[].objects[]` array for animation-analyzer compatibility
+- Added `meta.to_canvas` conversion factors
+- Added `dim_overlay` background type
+- Added 12 new component types: ScrollRect, Mask, RectMask2D, ContentSizeFitter, LayoutElement, Toggle, Slider, TMP_InputField, TMP_Dropdown, Shadow, Outline, RawImage
+- Added `unity_type_name` field on all component schemas
+- Defined closed `screens[].type` enum
+- Clarified `missing_assets[].size` units as canvas units
+- Added `raycast` field to `TextMeshProUGUI`
+
+---
+
+## Handoff
+
+### To unity-ui-builder (recommended next step)
+
+After generating the detection JSON, ask the user if they want to build it as a Unity prefab. If yes, invoke `unity-ui-builder` with the detection JSON path as input.
+
+The `root` tree is consumed directly to create GameObjects:
+1. Walk tree depth-first
+2. `gameobject-create` for each node (name = `id`)
+3. `gameobject-component-add` with `unity_type_name` from each component
+4. `gameobject-component-modify` to set properties
+5. `gameobject-set-parent` to establish hierarchy
+
+See `unity-ui-builder` skill for the complete build workflow.
+
+### To unity-animation-analyzer
+
+The `objects[]` flat array provides everything the animation-analyzer needs:
+- `id` -- semantic object identifier
+- `category` -- maps to `source_category` in animation clips JSON
+- `bounding_box` -- used for IoU matching with CV tracks
+- `normalized_bbox` -- used for proximity matching
+- `canvas_position` -- used for animation keyframe derivation
+
+The `to_canvas` factors enable pixel-to-canvas coordinate conversion.
+
+---
+
+## References
+
+| File | Content | When to read |
+|---|---|---|
+| `references/schema.md` | Full JSON schema v5.0.0, all component types, enum tables, validation checklist | When building output JSON |
+| `references/example-output.json` | Complete valid sample output (level-complete popup) | First time using this skill, or as a template |
+| `references/common-patterns.md` | Hierarchy rules, interactive patterns (Button, Toggle, ScrollView, Slider, InputField), contrastive Good/Bad examples, safe area guidance | When detecting complex UI elements |
+
+---
+
+## Related Skills
+
+| Need | Skill                                                            |
+|---|------------------------------------------------------------------|
+| Build Unity GameObjects from this JSON | `develop-unity-ui` (gameobject-create, gameobject-component-add) |
+| uGUI hierarchy conventions, mandatory components | `unity-ui`                                                       |
+| Animate detected elements | `unity-ui-animation` (PrimeTween, Animator)                      |
+| Extract animation data from video | `detec-anim` (consumes `objects[]`)                              |
+| Mobile performance optimization | `unity-ui-perf` (raycast, canvas splitting)                      |
+| Visual effects (grayscale, blur, dissolve) | `unity-ui-effect` (UIEffect component)                           |
+| Localization for text elements | `unity-ui-localization` (LocalizeUIText)                         |
+
+---
+
+## Project Conventions
+
+- **Canvas**: 1080x1920, ScaleWithScreenSize, Match 0.5, ScreenSpaceOverlay
+- **Namespaces**: All game code under `Game.*`
+- **Mandatory components**: `LocalizeUIText` on every TMP text, `UIAnimationBehaviour` on animated screen roots, `UIParticle` on ParticleSystems in Canvas
+- **Performance**: Disable `raycast` on non-interactive elements, prefer `RectMask2D` over `Mask` for scroll clipping
+- **No UI Toolkit**: uGUI Prefabs only
+

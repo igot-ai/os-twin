@@ -1,0 +1,276 @@
+{
+    "skill_name": "detect-ui",
+    "evals": [
+        {
+            "id": 1,
+            "prompt": "I have a screenshot of our heart refill popup at /tmp/refill_popup.png. It's a standard popup with a dark overlay behind it, a card in the middle with a title, three heart icons, a 'Watch Ad' button, and a 'No Thanks' text button at the bottom. Can you analyse it and generate the detection JSON?",
+            "expected_output": "A valid schema 5.0.0 JSON file with: meta.background.type = 'dim_overlay'; meta.to_canvas computed from source vs canvas resolution; a nested tree with dim_overlay, popup_card, title text, 3 heart images (in HorizontalLayoutGroup), Watch Ad button (Image + Button on same node with raycast:true, label child with raycast:false), No Thanks text button; a flat objects[] array with all elements and correct bounding_box/category; missing_assets for any sprites not found via Glob; LocalizeUIText notes on all text nodes.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "schema_version",
+                    "text": "Output JSON has schema field set to '5.0.0'",
+                    "type": "contains",
+                    "target": "output_json",
+                    "value": "\"schema\": \"5.0.0\""
+                },
+                {
+                    "id": "background_dim_overlay",
+                    "text": "meta.background.type is 'dim_overlay'",
+                    "type": "contains",
+                    "target": "output_json",
+                    "value": "\"type\": \"dim_overlay\""
+                },
+                {
+                    "id": "to_canvas_present",
+                    "text": "meta.to_canvas has scale_x and scale_y fields",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "flat_objects_populated",
+                    "text": "screens[0].objects[] contains entries with bounding_box and category fields",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "button_pattern_correct",
+                    "text": "Button component is on the same node as Image (not on a child), and that Image has raycast:true",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "text_raycast_false",
+                    "text": "All TextMeshProUGUI components have raycast:false",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "unity_type_names_present",
+                    "text": "Every component object includes a unity_type_name field",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "canvas_units_not_pixels",
+                    "text": "All pos, size, and font_size values are in canvas units (1080x1920 space), not raw source pixels",
+                    "type": "manual",
+                    "target": "output_json"
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "prompt": "Here's a screenshot of our shop screen at /tmp/shop_screen.png. It has a top bar with a back button and currency display, then a scrollable list of items (each item has an icon, name, price, and buy button), plus filter tabs at the top (All, Skins, Boosters). Can you generate the detection JSON? The source image is 1170x2532 (iPhone 14 Pro @3x).",
+            "expected_output": "A valid schema 5.0.0 JSON with: correct Retina handling (source divided by 3 = 390x844 logical, to_canvas computed from that); screens[0].type = 'shop'; ScrollRect with viewport (RectMask2D) and content (VerticalLayoutGroup + ContentSizeFitter) child nodes; Toggle components for filter tabs with toggle_group referencing the parent; Button on each item's buy button; HorizontalLayoutGroup or explicit positioning for tab row; deep but not exceeding 6-level hierarchy.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "retina_handled",
+                    "text": "source_resolution reflects logical pixels (not raw 1170x2532) OR to_canvas factors account for @3x",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "screen_type_shop",
+                    "text": "screens[0].type is 'shop'",
+                    "type": "contains",
+                    "target": "output_json",
+                    "value": "\"type\": \"shop\""
+                },
+                {
+                    "id": "scrollrect_present",
+                    "text": "At least one node has ScrollRect component with viewport_id and content_id",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "toggle_for_tabs",
+                    "text": "Filter tabs use Toggle component (not Button), with toggle_group referencing parent",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "content_size_fitter",
+                    "text": "ScrollRect content node has ContentSizeFitter component",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "hierarchy_depth_ok",
+                    "text": "No node path exceeds 6 levels from root",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "layout_children_anchors",
+                    "text": "Children inside LayoutGroup nodes use anchor 'middle_center'",
+                    "type": "manual",
+                    "target": "output_json"
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "prompt": "I have this low-quality screenshot at /tmp/settings_blurry.png -- it's a settings screen but it's been compressed heavily and some edges are blurry. The resolution is weird too, 800x1200. There's a volume slider, a sound toggle, language dropdown, and some buttons. None of the sprites exist in our project yet. Can you still generate a detection JSON?",
+            "expected_output": "A valid schema 5.0.0 JSON that degrades gracefully: all sprites listed in missing_assets (not invented paths); meta.to_canvas computed for 800x1200; affected nodes have notes about approximate bounds; Slider component for volume; Toggle for sound; TMP_Dropdown for language; screens[0].type = 'settings'; no errors or skipped elements.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "no_invented_paths",
+                    "text": "No sprite field contains a path that doesn't exist on disk -- all missing sprites are in missing_assets[]",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "to_canvas_for_800x1200",
+                    "text": "meta.to_canvas factors are computed for 800x1200 source (scale_x=1.35, scale_y=1.6)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "slider_component",
+                    "text": "Volume control uses Slider component (not a progress bar Image)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "toggle_component",
+                    "text": "Sound on/off uses Toggle component (not Button)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "dropdown_component",
+                    "text": "Language selector uses TMP_Dropdown component",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "graceful_degradation",
+                    "text": "No elements are skipped due to blurriness -- all have nodes with approximate bounds noted",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "missing_assets_populated",
+                    "text": "missing_assets[] has entries for all detected sprites with size in canvas units and needed_by IDs",
+                    "type": "manual",
+                    "target": "output_json"
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "prompt": "Here's a screenshot of our daily reward popup at /tmp/daily_reward.png. The source is 1284x2778 (iPhone 14 Pro Max @3x). It has a dark overlay behind a card. The card has a title, a 7-day reward grid (3 columns, each cell has an icon and day number), a progress bar showing days claimed, a 'Claim' button with a coin icon and amount, and a small 'x' close button in the top-right corner of the card. There's also a notification badge with '3' on the close button. Detect all elements.",
+            "expected_output": "Valid schema 5.0.0 JSON with: correct @3x Retina handling (logical 428x926, scale factors ~2.523 and ~2.073); dim_overlay background; popup_card at 80-92% canvas width; GridLayoutGroup (constraint: FixedColumnCount, 3 columns) for the reward grid; Image with image_type: Filled for progress bar (not Slider); Button with Image on same node for Claim; close button as child of popup_card (not floating sibling); notification badge as child of close button node; completeness check passes; all font_size values between 24-80 canvas units.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "retina_3x_correct",
+                    "text": "to_canvas factors are computed from logical resolution (428x926), not raw 1284x2778. scale_x ~2.52, scale_y ~2.07",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "popup_width_ratio",
+                    "text": "Popup card width is between 864 and 994 canvas units (80-92% of 1080)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "grid_layout_group",
+                    "text": "Reward grid uses GridLayoutGroup with constraint: FixedColumnCount and constraint_count: 3",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "progress_bar_filled_image",
+                    "text": "Progress bar uses Image with image_type: Filled (not Slider component), since it is not user-adjustable",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "close_button_child_of_card",
+                    "text": "Close button is a child of popup_card, not a floating sibling (it moves with the popup)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "badge_child_of_close",
+                    "text": "Notification badge is a child of the close button node (partial containment rule HR7)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "font_sizes_plausible",
+                    "text": "All font_size values are in canvas units (24-80 range), not raw source pixels",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "currency_display_pattern",
+                    "text": "Claim button amount uses Image (coin icon) + TextMeshProUGUI in HorizontalLayoutGroup or as children",
+                    "type": "manual",
+                    "target": "output_json"
+                }
+            ]
+        },
+        {
+            "id": 5,
+            "prompt": "Analyse this game HUD screenshot at /tmp/game_hud.png. Resolution is 1080x1920 (no Retina). It shows: a top bar with a back button (left), level number text (center), and a settings gear button (right); below that a coin counter (coin icon + number) and a heart counter (heart icon + number + countdown timer text); the main gameplay area in the center; at the bottom a boost bar with 3 boost buttons (each has an icon and a count badge), and a floating hint button (lightbulb icon, circular) hovering in the bottom-right corner above the boost bar.",
+            "expected_output": "Valid schema 5.0.0 JSON with: type 'gameplay' or 'hud'; no Retina correction needed (scale 1.0); top_stretch anchor for top bar; bottom_stretch for boost bar; HorizontalLayoutGroup for boost buttons; floating hint button as sibling of main content (HR8), not child of boost bar; badge counts as children of their respective boost buttons (HR7); currency displays using Image + TextMeshProUGUI pattern; countdown timer as TextMeshProUGUI with dynamic text note; all non-interactive elements have raycast:false.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "screen_type_gameplay",
+                    "text": "screens[0].type is 'gameplay' or 'hud'",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "no_retina_correction",
+                    "text": "to_canvas scale factors are 1.0 (no Retina correction for 1080x1920)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "floating_hint_sibling",
+                    "text": "Floating hint button is a sibling of boost bar or main content, not a child of boost bar (HR8 floating element)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "boost_badges_as_children",
+                    "text": "Count badges on boost buttons are children of their respective button nodes (HR7 partial containment)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "currency_display_correct",
+                    "text": "Coin and heart counters use Image + TextMeshProUGUI pattern (component-decision-tree currency display)",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "countdown_dynamic_text",
+                    "text": "Countdown timer is TextMeshProUGUI with note about dynamic text update",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "non_interactive_raycast_false",
+                    "text": "All non-interactive elements (icons, text labels, decorative images) have raycast: false",
+                    "type": "manual",
+                    "target": "output_json"
+                },
+                {
+                    "id": "layout_group_boost_bar",
+                    "text": "Boost buttons are wrapped in HorizontalLayoutGroup container",
+                    "type": "manual",
+                    "target": "output_json"
+                }
+            ]
+        }
+    ]
+}
