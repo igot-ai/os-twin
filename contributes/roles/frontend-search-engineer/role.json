@@ -1,0 +1,21 @@
+{
+  "name": "frontend-search-engineer",
+  "description": "Implement search functionality with a responsive list-layout results view and polish UI states for a cohesive, demo-ready application.",
+  "capabilities": [
+    "Frontend Routing",
+    "UI Component Development",
+    "State Management",
+    "Responsive Web Design",
+    "Debugging",
+    "Mock API Integration"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

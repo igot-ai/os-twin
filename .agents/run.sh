@@ -39,6 +39,37 @@ if [[ ! -f "$PLAN_FILE" ]]; then
   exit 1
 fi
 
+# Register plan in ~/.ostwin/plans/ so the dashboard can discover it
+GLOBAL_PLANS_DIR="$HOME/.ostwin/plans"
+mkdir -p "$GLOBAL_PLANS_DIR"
+
+PLAN_BASENAME=$(basename "$PLAN_FILE")
+# Derive a clean plan_id: strip .plan.md or .md extension
+PLAN_ID="${PLAN_BASENAME%.plan.md}"
+if [[ "$PLAN_ID" == "$PLAN_BASENAME" ]]; then
+  PLAN_ID="${PLAN_BASENAME%.md}"
+fi
+
+REGISTERED_PLAN="$GLOBAL_PLANS_DIR/$PLAN_ID.md"
+REGISTERED_META="$GLOBAL_PLANS_DIR/$PLAN_ID.meta.json"
+
+# Copy plan file if not already registered (or source is newer)
+if [[ ! -f "$REGISTERED_PLAN" ]] || [[ "$PLAN_FILE" -nt "$REGISTERED_PLAN" ]]; then
+  cp "$PLAN_FILE" "$REGISTERED_PLAN"
+fi
+
+# Write meta.json with working_dir so dashboard can find war-rooms
+WARROOMS_DIR="$PROJECT_DIR/.war-rooms"
+cat > "$REGISTERED_META" <<METAEOF
+{
+  "working_dir": "$PROJECT_DIR",
+  "warrooms_dir": "$WARROOMS_DIR",
+  "launched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "status": "active",
+  "source_plan_file": "$PLAN_FILE"
+}
+METAEOF
+
 # Execute Start-Plan.ps1
 AGENTS_DIR=$(dirname "$0")
 pwsh -NoProfile -File "$AGENTS_DIR/plan/Start-Plan.ps1" -PlanFile "$PLAN_FILE" -ProjectDir "$PROJECT_DIR" "${@:2}"

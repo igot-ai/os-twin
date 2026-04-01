@@ -1,14 +1,15 @@
 # ── Runtime / Process ─────────────────────────────────────────────────────────
 .env
 *pid
-.agents/plans/**
-.agents/.zvec/**
 *.war-rooms/**
-.agents/logs/**
 .war-rooms/**
-.agents/mcp/mcp-config.json
-.agents/memory/index.json
-.agents/memory/ledger.jsonl
+
+# ── Agents (entire framework — installed to ~/.ostwin, not committed) ────────
+.agents/
+
+# ── Build output ──────────────────────────────────────────────────────────────
+dist/
+
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 
@@ -19,25 +20,33 @@ __pycache__/
 # ── Local data & secrets ──────────────────────────────────────────────────────
 .ostwin/mcp/mcp-config.json
 .claude/
-.agents/plans/
 /plans/
 .data/
 .data/**
 dashboard/.war-rooms
+
+# ── Generated docs ────────────────────────────────────────────────────────────
+**/TODO.md
+**/release_note.md
+
 # ── Dummy project ──────────────────────────────────────────────────────────────
 cypress/screenshots
 quant_proj/
 os-twin-twin/**
 dashboard/nextjs/
-.agents/stats_history.json
 
-# ── Discord Bot ────────────────────────────────────────────────────────────────
-discord-bot/.pnpm-store/
-discord-bot/node_modules/
-discord-bot/coverage/
-discord-bot/logs/
-discord-bot/recordings/
-discord-bot/.env
+# ── Logs ──────────────────────────────────────────────────────────────────────
+.agents/logs/
+*.log
+
+# ── Bot (Telegram + Discord) ──────────────────────────────────────────────────
+bot/logs/
+bot/recordings/
+bot/dist/
+bot/.env
+bot/.authorized-chats.json
+dashboard/notify_config.json
+dashboard/telegram_config.json
 
 # ── Dashboard FE ───────────────────────────────────────────────────────────────
 dashboard/fe/pnpm-lock.yaml
@@ -51,3 +60,5 @@ bk/
 
 # Ostwin MCP secrets
 .agents/mcp/.env.mcp
+
+projects/
