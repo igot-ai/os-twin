@@ -228,22 +228,59 @@ function Stop-RoomProcesses {
         }
         Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
     }
+    Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
+        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Write-RoomStatus {
     param([string]$RoomDir, [string]$NewStatus)
+    # Read old status before overwriting (needed for PID cleanup below)
+    $oldStatus = if (Test-Path (Join-Path $RoomDir "status")) {
+        (Get-Content (Join-Path $RoomDir "status") -Raw).Trim()
+    } else { "unknown" }
+
     if (Get-Command Set-WarRoomStatus -ErrorAction SilentlyContinue) {
         Set-WarRoomStatus -RoomDir $RoomDir -NewStatus $NewStatus
     }
     else {
-        $oldStatus = if (Test-Path (Join-Path $RoomDir "status")) {
-            (Get-Content (Join-Path $RoomDir "status") -Raw).Trim()
-        } else { "unknown" }
         $NewStatus | Out-File -FilePath (Join-Path $RoomDir "status") -Encoding utf8 -NoNewline
         $epoch = [int][double]::Parse((Get-Date -UFormat %s))
         $epoch.ToString() | Out-File -FilePath (Join-Path $RoomDir "state_changed_at") -Encoding utf8 -NoNewline
         $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         "$ts STATUS $oldStatus -> $NewStatus" | Out-File -Append -FilePath (Join-Path $RoomDir "audit.log") -Encoding utf8
+    }
+
+    # --- Clean up PID tracking files on transition ---
+    # Manager owns lifecycle: clear old PIDs and locks when state changes.
+    # Only delete files for the PREVIOUS state's role to avoid nuking PIDs
+    # belonging to a concurrently-spawned next-state role.
+    $pidDir = Join-Path $RoomDir "pids"
+    if (Test-Path $pidDir) {
+        $terminalStates = @('passed', 'failed-final', 'blocked')
+        if ($NewStatus -in $terminalStates) {
+            # Terminal state — safe to nuke everything
+            Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        } else {
+            # Non-terminal transition — identify old role from lifecycle.json and remove only its files.
+            $oldRole = $null
+            $lcFile = Join-Path $RoomDir "lifecycle.json"
+            if (Test-Path $lcFile) {
+                try {
+                    $lc = Get-Content $lcFile -Raw | ConvertFrom-Json
+                    if ($lc.states -and $lc.states.$oldStatus -and $lc.states.$oldStatus.role) {
+                        $oldRole = ($lc.states.$oldStatus.role -replace ':.*$', '')
+                    }
+                } catch { }
+            }
+            if ($oldRole) {
+                Remove-Item (Join-Path $pidDir "$oldRole.pid") -Force -ErrorAction SilentlyContinue
+                Remove-Item (Join-Path $pidDir "$oldRole.spawned_at") -Force -ErrorAction SilentlyContinue
+            }
+            # If we can't determine the old role, do NOT blanket-delete —
+            # that risks nuking a just-spawned new role's PID file.
+        }
     }
 }
 
@@ -965,7 +1002,7 @@ while (-not $script:shuttingDown) {
                                 $statePidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
                                 $pidAlive = Test-PidAlive $statePidFile
                                 $spawnLocked = Test-SpawnLock -RoomDir $roomDir -Role $stateBaseRole
-                                Write-Log "DEBUG" "[$taskRef] No signal matched. role='$stateBaseRole' pidAlive=$pidAlive spawnLocked=$spawnLocked status='$status'"
+                                Write-Log "INFO" "[$taskRef] No signal matched. role='$stateBaseRole' pidAlive=$pidAlive spawnLocked=$spawnLocked status='$status'"
                                 if (-not $pidAlive -and -not $spawnLocked) {
                                     # Guard: check if a signal is pending but hasn't been processed yet.
                                     $pendingSignalCheck = Find-LatestSignal $roomDir $expectedSignals

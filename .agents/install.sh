@@ -831,6 +831,38 @@ install_files() {
   ok "Files installed"
 }
 
+# ─── Build hash ─────────────────────────────────────────────────────────────
+
+compute_build_hash() {
+  step "Computing build hash..."
+
+  # Prefer shasum (macOS), fall back to sha256sum (Linux)
+  local sha_cmd="shasum -a 256"
+  if ! command -v shasum &>/dev/null; then
+    sha_cmd="sha256sum"
+  fi
+
+  local hash
+  hash=$(
+    find "$INSTALL_DIR" \
+      -type f \
+      ! -path "$INSTALL_DIR/.venv/*" \
+      ! -path "$INSTALL_DIR/logs/*" \
+      ! -path "$INSTALL_DIR/node_modules/*" \
+      ! -path "*/__pycache__/*" \
+      ! -name "*.pid" \
+      ! -name ".env" \
+      ! -name ".build-hash" \
+      -print0 \
+      | sort -z \
+      | xargs -0 $sha_cmd \
+      | $sha_cmd \
+      | cut -c1-8
+  )
+  echo "$hash" > "$INSTALL_DIR/.build-hash"
+  ok "Build hash: $hash"
+}
+
 # ─── Patch MCP config ────────────────────────────────────────────────────────
 
 patch_mcp_config() {
@@ -1111,6 +1143,7 @@ install_files
 header "5. Setting up Python environment"
 setup_venv
 patch_mcp_config
+compute_build_hash
 
 # ─── 5b. Environment variables (.env) ────────────────────────────────────────
 

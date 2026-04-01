@@ -283,9 +283,10 @@ else {
     }
 }
 
-# --- Clean up PID file ---
-$archPidFile = Join-Path $RoomDir "pids" "architect.pid"
-Remove-Item $archPidFile -Force -ErrorAction SilentlyContinue
+# --- PID file is NOT removed here (manager-owned lifecycle) ---
+# The manager cleans up PID files when it processes the signal and transitions
+# the room state. Removing PID here causes a race: manager polls, finds no PID,
+# and re-spawns before processing the channel signal.
 
 # --- Update per-role config status ---
 if (Test-Path $archRoleConfigFile) {

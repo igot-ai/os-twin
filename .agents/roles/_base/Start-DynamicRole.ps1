@@ -115,9 +115,7 @@ function Cleanup-And-Exit {
         Write-Log "ERROR" "[$baseRole] Error: $ErrorMsg"
         & $postMessage -RoomDir $RoomDir -From $baseRole -To "manager" -Type "error" -Ref $taskRef -Body $ErrorMsg
     }
-    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-    $lockFile = Join-Path $pidDir "$baseRole.spawned_at"
-    Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+    # PID file is NOT removed here — manager-owned lifecycle
     exit $ExitCode
 }
 
@@ -473,9 +471,9 @@ if ($roleConfigs) {
     $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $roleConfigs[0].FullName -Encoding utf8
 }
 
-# --- Clean up PID and spawn lock files ---
-Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-$lockFile = Join-Path $pidDir "$baseRole.spawned_at"
-Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+# --- PID file is NOT removed here (manager-owned lifecycle) ---
+# The manager cleans up PID files when it processes the signal and transitions
+# the room state. Removing PID here causes a race: manager polls, finds no PID,
+# and re-spawns before processing the channel signal.
 
 exit $result.ExitCode

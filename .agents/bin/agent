@@ -57,5 +57,13 @@ _load_env_file() {
 _load_env_file "$HOME/.ostwin/.env"
 _load_env_file "$AGENTS_DIR/.env"
 
+# --- Self-register PID for orchestration tracking ---
+# Write our PID (which exec will inherit) so the manager can track us.
+# AGENT_OS_PID_FILE is set by Invoke-Agent.ps1 when launching via the
+# orchestration system. When run standalone, this is a no-op.
+if [[ -n "${AGENT_OS_PID_FILE:-}" ]]; then
+  echo "$$" > "$AGENT_OS_PID_FILE"
+fi
+
 # --- Execute cli.py with all arguments ---
 exec "$PYTHON" "$AGENTS_DIR/bin/cli.py" "$@"

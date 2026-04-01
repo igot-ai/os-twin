@@ -45,17 +45,16 @@ Describe "Invoke-Agent" {
             Test-Path (Join-Path $script:roomDir "pids") | Should -BeTrue
         }
 
-        It "keeps PID file alive after execution (caller must clean up)" {
-            # Design contract: Invoke-Agent intentionally does NOT remove the PID file.
-            # The caller (Start-Engineer/Start-QA) removes it after posting the channel
-            # message, to prevent race conditions with the manager's deadlock detection.
-            # The result object carries the PidFile path for the caller to act on.
+        It "reports PidFile path in result (agent self-registers PID)" {
+            # Design contract (v2): Invoke-Agent does NOT write the PID file itself.
+            # It sets AGENT_OS_PID_FILE env var in the wrapper, and bin/agent writes $$
+            # before exec. The PID file may or may not exist depending on the mock used.
+            # The result object always carries the expected PidFile path for the caller.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
 
             $pidFile = Join-Path $script:roomDir "pids" "engineer.pid"
-            Test-Path $pidFile | Should -BeTrue
             $result.PidFile | Should -Be $pidFile
         }
 
