@@ -151,22 +151,10 @@ If it lacks critical details, provide architectural guidance on what must be imp
 IMPORTANT: Your response MUST conclude with exactly one of these lines:
   VERDICT: PASS
   VERDICT: REJECT
-"@
-}
-elseif ($qaFeedback -ne "No QA feedback found.") {
-    $extraContext = @"
-## Context: QA Failure Triage for $taskRef
-
-You are being called in because QA has failed the engineer's implementation,
-and the manager has classified this as a potential design or scope issue.
 
 ## Engineer's Submission
 
 $engineerReport
-
-## QA's Failure Report
-
-$qaFeedback
 
 ## Manager's Request
 
