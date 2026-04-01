@@ -32,8 +32,6 @@ __pycache__/
 
 # ── Local data & secrets ──────────────────────────────────────────────────────
 .ostwin/mcp/mcp-config.json
-.ostwin/mcp/config.json
-dashboard/.agents
 .claude/
 /plans/
 .data/
@@ -65,8 +63,8 @@ dashboard/notify_config.json
 dashboard/telegram_config.json
 
 # ── Dashboard FE ───────────────────────────────────────────────────────────────
-# dashboard/fe/pnpm-lock.yaml
-pnpm-lock.yaml
+dashboard/fe/pnpm-lock.yaml
+
 # ── OS / IDE ───────────────────────────────────────────────────────────────────
 .DS_Store
 .idea/
