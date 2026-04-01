@@ -1,6 +1,7 @@
 # ── Runtime / Process ─────────────────────────────────────────────────────────
 .env
 *pid
+.build-hash
 *.war-rooms/**
 .war-rooms/**
 

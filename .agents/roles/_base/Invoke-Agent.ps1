@@ -66,6 +66,9 @@ $Quiet = $true
 # --- Resolve paths ---
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
 
+# Resolve OSTWIN_HOME: env var → ~/.ostwin
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+
 # Ensure RoomDir is absolute for bash wrapper consistency (EPIC-002)
 # Using GetUnresolvedProviderPathFromPSPath to handle non-existent paths (unlikely but safe)
 $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RoomDir)
@@ -89,6 +92,10 @@ if (Test-Path $roomConfigFile) {
         }
     } catch { }
 }
+
+# Safe defaults (overridden inside config block below)
+$NoMcp = $false
+$ProjectDir = ""
 
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -141,9 +148,10 @@ if (Test-Path $configPath) {
         $WorkingDir = $instanceConfig.working_dir
     }
 
-    # no_mcp: instance → role → default true (disables MCP tools to avoid ClosedResourceError on remote exec)
-    # Default to true for all roles — MCP via LangGraph is unstable. Agents use shell tools instead.
-    $NoMcp = $true
+    # no_mcp: instance → role → default false
+    # MCP is enabled by default — pass --mcp-config from the project dir.
+    # Set no_mcp: true in config.json for a role to disable MCP (e.g. unstable remote exec).
+    $NoMcp = $false
     if ($instanceConfig -and $instanceConfig.PSObject.Properties['no_mcp']) {
         $NoMcp = [bool]$instanceConfig.no_mcp
     }
@@ -277,16 +285,26 @@ if ($NoMcp) {
 else {
     $resolvedMcpConfig = $McpConfig
     if (-not $resolvedMcpConfig) {
-        # Priority 1: project-local MCP config (via ProjectDir resolved from RoomDir)
+        # Priority 1: project-local MCP config ($ProjectDir/.agents/mcp/mcp-config.json)
         if ($ProjectDir) {
             $projectMcpConfig = Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json"
             if (Test-Path $projectMcpConfig) {
                 $resolvedMcpConfig = $projectMcpConfig
             }
         }
-        # Priority 2: global agents dir
+        # Priority 2: agents dir (same repo, e.g. installed copy)
         if (-not $resolvedMcpConfig) {
-            $resolvedMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+            $agentsDirMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+            if (Test-Path $agentsDirMcpConfig) {
+                $resolvedMcpConfig = $agentsDirMcpConfig
+            }
+        }
+        # Priority 3: OSTWIN_HOME global config (~/.ostwin/mcp/mcp-config.json)
+        if (-not $resolvedMcpConfig) {
+            $ostwinMcpConfig = Join-Path $OstwinHome "mcp" "mcp-config.json"
+            if (Test-Path $ostwinMcpConfig) {
+                $resolvedMcpConfig = $ostwinMcpConfig
+            }
         }
     }
     if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
@@ -330,6 +348,8 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
 
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
         $safePidFile = $pidFile -replace "'", "'\''"
+        $safeOstwinHome = $OstwinHome.Replace('\', '/').Replace("'", "'\''")
+        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''")} else { "" }
         $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
@@ -337,6 +357,8 @@ export AGENT_OS_ROLE='$safeRole'
 export AGENT_OS_PARENT_PID='$PID'
 export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 export AGENT_OS_PID_FILE='$safePidFile'
+export OSTWIN_HOME='$safeOstwinHome'
+export AGENT_OS_PROJECT_DIR='$safeProjectDir'
 $cwdLine
 # Write PID before exec — `$`$ survives exec, so this is the real agent PID.
 # bin/agent also writes this (harmless overwrite); this fallback ensures

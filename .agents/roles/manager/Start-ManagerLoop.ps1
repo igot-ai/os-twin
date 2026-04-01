@@ -134,7 +134,7 @@ function Resolve-RoomSkills {
         $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
         if ($response -and $response.Count -gt 0) {
             # Limit to top 5 results
-            $topSkills = @($response | Select-Object -First 5)
+            $topSkills = @($response | Select-Object -First 10)
             $skillNames = @($topSkills | ForEach-Object { $_.name })
 
             # Write skill_refs to room config.json
