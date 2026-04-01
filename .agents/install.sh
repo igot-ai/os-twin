@@ -738,6 +738,9 @@ install_files() {
   step "Installing OS Twin to $INSTALL_DIR..."
   mkdir -p "$INSTALL_DIR"
 
+  # Ensure clean slate for core roles (remove old core roles before syncing)
+  rm -rf "$INSTALL_DIR/roles"
+
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
   # NOTE: mcp/ is excluded to preserve user's installed extensions and config
   rsync -a \

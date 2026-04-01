@@ -54,7 +54,6 @@ class OSTwinStore:
         if " " in str(zvec_real_dir):
             import tempfile
             import hashlib
-            import os
             
             # Create a stable symlink in /tmp based on the project path hash
             path_hash = hashlib.md5(str(zvec_real_dir).encode()).hexdigest()[:8]

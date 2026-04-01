@@ -250,11 +250,13 @@ function Write-RoomStatus {
 # === V2 LIFECYCLE HELPERS ===
 function Find-LatestSignal {
     param([string]$RoomDir, [string[]]$ExpectedSignals)
+    $roomId = Split-Path $RoomDir -Leaf
     $changedAt = 0
     $changedFile = Join-Path $RoomDir "state_changed_at"
     if (Test-Path $changedFile) {
         $changedAt = [int](Get-Content $changedFile -Raw).Trim()
     }
+    Write-Log "DEBUG" "[Find-LatestSignal][$roomId] state_changed_at=$changedAt, checking signals: $($ExpectedSignals -join ', ')"
     foreach ($sigType in $ExpectedSignals) {
         try {
             $msgs = & $readMessages -RoomDir $RoomDir -FilterType $sigType -Last 1 -AsObject
@@ -263,7 +265,6 @@ function Find-LatestSignal {
                 $msgTs = 0
                 if ($latest.ts) {
                     if ($latest.ts -is [datetime]) {
-                        # ConvertFrom-Json auto-converts ISO timestamps to DateTime
                         $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
                     } elseif ("$($latest.ts)" -match '^\d+$') {
                         $msgTs = [int]"$($latest.ts)"
@@ -271,10 +272,19 @@ function Find-LatestSignal {
                         try { $msgTs = [int][double]::Parse((Get-Date "$($latest.ts)" -UFormat %s)) } catch { }
                     }
                 }
-                if ($msgTs -ge $changedAt) { return $sigType }
+                $bodyPreview = if ($latest.body.Length -gt 120) { $latest.body.Substring(0, 120) + '...' } else { $latest.body }
+                $accepted = ($msgTs -ge ($changedAt - 2))
+                Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' from='$($latest.from)' msgTs=$msgTs changedAt=$changedAt accepted=$accepted body=[$bodyPreview]"
+                # Grace window of 2s to handle clock skew between Start-Job launch and message posting
+                if ($accepted) { return $sigType }
+            } else {
+                Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' — no messages found"
             }
-        } catch { }
+        } catch {
+            Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' — error: $($_.Exception.Message)"
+        }
     }
+    Write-Log "DEBUG" "[Find-LatestSignal][$roomId] no matching signal found"
     return $null
 }
 
@@ -844,18 +854,57 @@ while (-not $script:shuttingDown) {
                             continue
                         }
 
-                        # PLAN-REVIEW shortcut
+                        # PLAN-REVIEW shortcut — check all signal types the architect may post
                         if ($taskRef -eq 'PLAN-REVIEW') {
+                            $passCount    = Get-MsgCount $roomDir "pass"
                             $approveCount = Get-MsgCount $roomDir "plan-approve"
-                            $doneCount = Get-MsgCount $roomDir "done"
-                            $doneApproval = $false
-                            if ($doneCount -gt 0 -and $approveCount -eq 0) {
-                                $doneBody = Get-LatestBody $roomDir "done"
-                                if ($doneBody -match 'plan-approve|signoff|APPROVED') { $doneApproval = $true }
+                            $doneCount    = Get-MsgCount $roomDir "done"
+                            $failCount    = Get-MsgCount $roomDir "fail"
+                            $errorCount   = Get-MsgCount $roomDir "error"
+
+                            Write-Log "DEBUG" "[$taskRef] PLAN-REVIEW shortcut: pass=$passCount approve=$approveCount done=$doneCount fail=$failCount error=$errorCount"
+
+                            # Log latest message bodies for debugging
+                            if ($passCount -gt 0) {
+                                $passBody = Get-LatestBody $roomDir "pass"
+                                $passPreview = if ($passBody.Length -gt 200) { $passBody.Substring(0, 200) + '...' } else { $passBody }
+                                Write-Log "DEBUG" "[$taskRef] Latest pass body: $passPreview"
                             }
-                            if ($approveCount -gt 0 -or $doneApproval) {
-                                # LEAK-5 fix: use one-shot guard (same as terminal handler)
-                                $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')" 
+                            if ($failCount -gt 0) {
+                                $failBody = Get-LatestBody $roomDir "fail"
+                                $failPreview = if ($failBody.Length -gt 200) { $failBody.Substring(0, 200) + '...' } else { $failBody }
+                                Write-Log "DEBUG" "[$taskRef] Latest fail body: $failPreview"
+                            }
+                            if ($doneCount -gt 0) {
+                                $doneBody = Get-LatestBody $roomDir "done"
+                                $donePreview = if ($doneBody.Length -gt 200) { $doneBody.Substring(0, 200) + '...' } else { $doneBody }
+                                Write-Log "DEBUG" "[$taskRef] Latest done body: $donePreview"
+                            }
+                            if ($errorCount -gt 0) {
+                                $errBody = Get-LatestBody $roomDir "error"
+                                $errPreview = if ($errBody.Length -gt 200) { $errBody.Substring(0, 200) + '...' } else { $errBody }
+                                Write-Log "DEBUG" "[$taskRef] Latest error body: $errPreview"
+                            }
+
+                            # Check for approval: pass signal, plan-approve signal, or done with approval keyword
+                            $approved = $false
+                            if ($passCount -gt 0 -or $approveCount -gt 0) {
+                                $approved = $true
+                                Write-Log "DEBUG" "[$taskRef] Approved via pass/plan-approve signal"
+                            } elseif ($doneCount -gt 0) {
+                                $doneBody = Get-LatestBody $roomDir "done"
+                                if ($doneBody -match 'plan-approve|signoff|APPROVED|VERDICT:\s*PASS') {
+                                    $approved = $true
+                                    Write-Log "DEBUG" "[$taskRef] Approved via done body keyword match"
+                                } else {
+                                    Write-Log "DEBUG" "[$taskRef] done body did NOT match approval keywords"
+                                }
+                            } else {
+                                Write-Log "DEBUG" "[$taskRef] No pass/approve/done signals — shortcut cannot decide"
+                            }
+
+                            if ($approved) {
+                                $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')"
                                 Write-Log "INFO" "[$taskRef] Plan APPROVED. Transitioning to passed."
                                 Write-RoomStatus $roomDir 'passed'
                                 if (-not (Test-Path $planApprovedFlag)) {
@@ -863,6 +912,21 @@ while (-not $script:shuttingDown) {
                                     "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline
                                 }
                                 continue
+                            }
+
+                            # Handle architect VERDICT: REJECT via fail signal or done body
+                            if ($failCount -gt 0) {
+                                $rejectBody = Get-LatestBody $roomDir "fail"
+                                Write-Log "WARN" "[$taskRef] Plan REJECTED by architect."
+                                & $postMessage -RoomDir $roomDir -From "manager" -To "architect" `
+                                               -Type "plan-reject" -Ref $taskRef -Body $rejectBody
+                            } elseif ($doneCount -gt 0) {
+                                $rejectBody = Get-LatestBody $roomDir "done"
+                                if ($rejectBody -match 'VERDICT:\s*REJECT') {
+                                    Write-Log "WARN" "[$taskRef] Plan REJECTED by architect."
+                                    & $postMessage -RoomDir $roomDir -From "manager" -To "architect" `
+                                                   -Type "plan-reject" -Ref $taskRef -Body $rejectBody
+                                }
                             }
                         }
 
@@ -899,14 +963,16 @@ while (-not $script:shuttingDown) {
                             if ($stateRole -and $v2StateDef.type -notin @('triage', 'decision')) {
                                 $stateBaseRole = $stateRole -replace ':.*$', ''
                                 $statePidFile = Join-Path $roomDir "pids" "$stateBaseRole.pid"
-                                if (-not (Test-PidAlive $statePidFile) -and -not (Test-SpawnLock -RoomDir $roomDir -Role $stateBaseRole)) {
+                                $pidAlive = Test-PidAlive $statePidFile
+                                $spawnLocked = Test-SpawnLock -RoomDir $roomDir -Role $stateBaseRole
+                                Write-Log "DEBUG" "[$taskRef] No signal matched. role='$stateBaseRole' pidAlive=$pidAlive spawnLocked=$spawnLocked status='$status'"
+                                if (-not $pidAlive -and -not $spawnLocked) {
                                     # Guard: check if a signal is pending but hasn't been processed yet.
-                                    # This happens when the worker posted done/error and cleaned up its PID
-                                    # before the manager could process the signal transition.
                                     $pendingSignalCheck = Find-LatestSignal $roomDir $expectedSignals
                                     if ($pendingSignalCheck) {
                                         Write-Log "DEBUG" "[$taskRef] Signal '$pendingSignalCheck' pending in '$status' — skipping re-spawn."
                                     } else {
+                                        Write-Log "DEBUG" "[$taskRef] No pending signal, no PID, no lock — will re-spawn '$stateRole'."
                                         if (Test-Path $resolveRoleScript) {
                                             $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
                                             Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."

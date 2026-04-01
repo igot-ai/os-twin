@@ -113,6 +113,7 @@ export function useEpicRoles(planId: string, ref: string) {
     roles: any[];
     plan_config: Record<string, any>;
     room_overrides: Record<string, any>;
+    candidate_roles: string[];
   }>(planId && ref ? `/plans/${planId}/epics/${ref}/roles` : null);
 
   const updateRoleConfig = async (roleName: string, updates: any) => {
@@ -120,13 +121,20 @@ export function useEpicRoles(planId: string, ref: string) {
     mutate();
   };
 
+  const updateEpicAssignment = async (candidateRoles: string[]) => {
+    await apiPut(`/plans/${planId}/epics/${ref}/roles/assignment`, { candidate_roles: candidateRoles });
+    mutate();
+  };
+
   return {
     roles: data?.roles || [],
     planConfig: data?.plan_config || {},
     roomOverrides: data?.room_overrides || {},
+    candidateRoles: data?.candidate_roles || [],
     isLoading,
     isError: error,
     updateRoleConfig,
+    updateEpicAssignment,
     refresh: mutate,
   };
 }

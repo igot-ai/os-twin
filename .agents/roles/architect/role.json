@@ -13,8 +13,12 @@
     "scalability-check",
     "security-review"
   ],
-  "skill_refs": ["create-architecture", "create-lifecycle", "create-role"],
+  "skill_refs": [
+    "create-architecture",
+    "create-lifecycle"
+  ],
   "cli": "agent",
   "model": "gemini-3-flash-preview",
-  "timeout": 900
+  "timeout": 900,
+  "instance_type": "evaluator"
 }

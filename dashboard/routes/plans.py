@@ -1654,10 +1654,12 @@ async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_c
     plan_config = get_plan_roles_config(plan_id)
     room_config_file = room_dir / "config.json"
     room_overrides = {}
+    candidate_roles = []
     if room_config_file.exists():
         try:
             rc = json.loads(room_config_file.read_text())
             room_overrides = rc.get("roles", {})
+            candidate_roles = rc.get("assignment", {}).get("candidate_roles", [])
         except json.JSONDecodeError: pass
         
     merged_config = plan_config.copy()
@@ -1671,8 +1673,39 @@ async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_c
     return {
         "roles": roles,
         "plan_config": plan_config,
-        "room_overrides": room_overrides
+        "room_overrides": room_overrides,
+        "candidate_roles": candidate_roles
     }
+
+from pydantic import BaseModel
+class UpdateEpicAssignmentRequest(BaseModel):
+    candidate_roles: List[str]
+
+@router.put("/api/plans/{plan_id}/epics/{task_ref}/roles/assignment")
+async def update_epic_role_assignment(
+    plan_id: str, 
+    task_ref: str, 
+    request: UpdateEpicAssignmentRequest, 
+    user: dict = Depends(get_current_user)
+):
+    """Update role assignment (candidate_roles) for a specific Epic."""
+    room_dir = _resolve_room_dir(plan_id, task_ref)
+    if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
+    
+    room_config_file = room_dir / "config.json"
+    if not room_config_file.exists():
+         raise HTTPException(status_code=404, detail="config.json missing")
+         
+    try:
+        rc = json.loads(room_config_file.read_text())
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Invalid config.json")
+        
+    if "assignment" not in rc: rc["assignment"] = {}
+    rc["assignment"]["candidate_roles"] = request.candidate_roles
+
+    room_config_file.write_text(json.dumps(rc, indent=2) + "\n")
+    return {"status": "updated", "task_ref": task_ref, "candidate_roles": rc["assignment"]["candidate_roles"]}
 
 @router.put("/api/plans/{plan_id}/epics/{task_ref}/roles/{role_name}/config")
 async def update_epic_role_config(
