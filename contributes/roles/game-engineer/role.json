@@ -1,0 +1,45 @@
+{
+  "name": "game-engineer",
+  "description": "Unity C# code generator \u2014 produces SceneBuilder and AnimCreator scripts, implements dev stories, and validates with tests",
+  "capabilities": [
+    "code-generation",
+    "unity-ui-development",
+    "scene-building",
+    "animation-creation",
+    "code-review",
+    "dev-story",
+    "quick-prototype",
+    "tdd"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "compiles-in-unity",
+    "all-objects-created",
+    "correct-positioning",
+    "helpers-verbatim",
+    "clip-duration-matches",
+    "60fps-non-negotiable",
+    "story-acs-satisfied"
+  ],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 600,
+  "skill_refs": [
+    "build-ui",
+    "build-anim",
+    "add-ui",
+    "add-anim",
+    "add-feature",
+    "unity-templates",
+    "code-refactor",
+    "unit-code-review",
+    "ui-enhancement",
+    "implement-epic",
+    "write-tests",
+    "fix-from-qa",
+    "unity-dev-principles",
+    "unity-ugui",
+    "develop-unity-ui"
+  ],
+  "instance_type": "worker"
+}

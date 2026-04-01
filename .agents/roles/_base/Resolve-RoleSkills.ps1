@@ -3,18 +3,21 @@
     Resolves a set of skills for a specific role following a hierarchical resolution strategy.
 
 .DESCRIPTION
-    Tiers of resolution (highest priority/latest wins for deduplication):
-    1. Global skills: from skills/global/
-    2. Role-specific skills: from skills/roles/<role_name>/
-    3. Explicitly referenced skills: from skill_refs in role.json (relative to skills/)
-    4. Backend skills: fetched from dashboard API when not found locally
+    Always loads role.json from HOME ~/.ostwin/roles/{RoleName}/role.json (authoritative source).
+    Searches both 'capabilities' and 'skill_refs' fields from the role definition.
+
+    Resolution strategy (for each ref):
+    1. Registry lookup: from ~/.ostwin/roles/registry.json
+    2. Local skills fallback: from skills/<ref>/SKILL.md
+    3. Backend skills: fetched from dashboard API when not found locally
 
     Deduplication is performed based on skill directory name (identifier).
 
 .PARAMETER RoleName
     Name of the role (e.g., engineer, architect).
 .PARAMETER RolePath
-    Absolute path to the role directory containing role.json.
+    Legacy parameter — no longer used for role.json loading.
+    Role.json is always loaded from ~/.ostwin/roles/{RoleName}/.
 .PARAMETER SkillsBaseDir
     Optional. Override for the base skills directory (defaults to ../../skills).
 .PARAMETER DashboardUrl
@@ -61,46 +64,34 @@ if (-not $ApiKey) {
 
 $resolvedSkills = @{} # Using hashtable for deduplication by Name
 
-# --- 1. Global Skills ---
-$globalDir = Join-Path $SkillsBaseDir "global"
-if (Test-Path $globalDir) {
-    Get-ChildItem $globalDir -Directory | ForEach-Object {
-        $skillMd = Join-Path $_.FullName "SKILL.md"
-        if (Test-Path $skillMd) {
-            $resolvedSkills[$_.Name] = [PSCustomObject]@{
-                Name = $_.Name
-                Path = $skillMd
-                Tier = "Global"
-            }
-        }
-    }
-}
+# --- Load role.json from HOME ~/.ostwin/roles/{RoleName}/ (authoritative source) ---
+$ostwinHome = Join-Path $env:HOME ".ostwin"
+$homeRolePath = Join-Path $ostwinHome "roles" $RoleName
+$jsonFile = Join-Path $homeRolePath "role.json"
 
-# --- 2. Role-Specific Skills ---
-$roleDir = Join-Path $SkillsBaseDir "roles" $RoleName
-if (Test-Path $roleDir) {
-    Get-ChildItem $roleDir -Directory | ForEach-Object {
-        $skillMd = Join-Path $_.FullName "SKILL.md"
-        if (Test-Path $skillMd) {
-            $resolvedSkills[$_.Name] = [PSCustomObject]@{
-                Name = $_.Name
-                Path = $skillMd
-                Tier = "Role"
-            }
-        }
-    }
-}
+Write-Verbose "Loading role.json from HOME: $jsonFile"
 
-# --- 3. Explicit skill_refs from role.json ---
-$jsonFile = Join-Path $RolePath "role.json"
 if (Test-Path $jsonFile) {
     try {
         $roleData = Get-Content $jsonFile -Raw | ConvertFrom-Json
+
+        # Collect refs from both capabilities and skill_refs
+        $allRefs = @()
         if ($roleData.skill_refs) {
-            $registryFile = Join-Path (Split-Path $RolePath) "registry.json"
+            $allRefs += @($roleData.skill_refs)
+        }
+        if ($roleData.capabilities) {
+            $allRefs += @($roleData.capabilities)
+        }
+        # Deduplicate
+        $allRefs = $allRefs | Select-Object -Unique
+
+        if ($allRefs.Count -gt 0) {
+            # Registry always from HOME ~/.ostwin/roles/registry.json
+            $registryFile = Join-Path $ostwinHome "roles" "registry.json"
             $registry = if (Test-Path $registryFile) { Get-Content $registryFile -Raw | ConvertFrom-Json } else { $null }
 
-            foreach ($ref in $roleData.skill_refs) {
+            foreach ($ref in $allRefs) {
                 # Look for ref in registry first
                 $skillFromRegistry = if ($registry) { $registry.skills.available | Where-Object { $_.name -eq $ref } } else { $null }
                 $registryPath = $null
@@ -117,12 +108,8 @@ if (Test-Path $jsonFile) {
                     }
                 }
 
-                # Check if already resolved via role-specific (Tier: Role) or Global
+                # Check if already resolved
                 if ($resolvedSkills.ContainsKey($ref)) {
-                    if ($resolvedSkills[$ref].Tier -eq "Role" -or $resolvedSkills[$ref].Tier -eq "Global") {
-                        # Upgrade tier to Explicit for direct visibility
-                        $resolvedSkills[$ref].Tier = "Explicit"
-                    }
                     continue
                 }
 

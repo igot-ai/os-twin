@@ -53,6 +53,10 @@ if (-not (Test-Path $roomConfigFile)) {
 $roomConfig = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
 
 # --- Process Tracking (PID) ---
+# NOTE: Writing $PID (PowerShell's PID) here is CORRECT because this script
+# runs inline — it does not exec into another process. This differs from
+# Invoke-Agent.ps1, which delegates PID writing to bin/agent via the
+# AGENT_OS_PID_FILE env var (since exec replaces the process image).
 $pidDir = Join-Path $RoomDir "pids"
 if (-not (Test-Path $pidDir)) { New-Item -ItemType Directory -Path $pidDir -Force | Out-Null }
 $assignedRole = if ($roomConfig.assignment -and $roomConfig.assignment.assigned_role) {
@@ -93,7 +97,7 @@ if (-not (Test-Path $AgentSpecFile) -or $latestFix) {
     Write-Log "INFO" "Synthesizing dynamic ephemeral agent for $TaskRef..."
     
     $SynthesisPrompt = @"
-You are an expert Engineering Manager and System Architect.
+You are an expert.
 Your task is to analyze the following work objective and synthesize an ephemeral AI agent perfectly suited to complete it.
 
 Objective Title: $TaskTitle
@@ -104,11 +108,12 @@ Respond ONLY with a JSON object matching this schema. NO markdown backticks, NO 
 {
   "role_id": "short-descriptive-role-name",
   "purpose": "A clear, specific sentence describing the agent's exact purpose.",
+  "instance_type": "The role type - MUST be exactly 'worker' or 'evaluator'. Use 'evaluator' ONLY if the objective requires reviewing, auditing, validating, or approving other work. Otherwise use 'worker'.",
   "required_capabilities": ["list", "of", "capabilities"],
   "required_skills": ["list", "of", "skill-folder-names"]
 }
 
-Available Skills in .agents/skills/:
+Available Skills in skills/:
 $(Get-ChildItem -Path (Join-Path $agentsDir "skills") -Directory | Select-Object -ExpandProperty Name | Join-String -Separator ', ')
 "@
     
@@ -127,8 +132,9 @@ $(Get-ChildItem -Path (Join-Path $agentsDir "skills") -Directory | Select-Object
     
     try {
         $AgentSpec = $RawOutput | ConvertFrom-Json
+        if (-not $AgentSpec.instance_type) { $AgentSpec | Add-Member -MemberType NoteProperty -Name "instance_type" -Value "worker" }
         $AgentSpec | ConvertTo-Json -Depth 5 | Out-File -FilePath $AgentSpecFile -Encoding utf8
-        Write-Log "INFO" "Synthesized Role: $($AgentSpec.role_id) equipped with: $($AgentSpec.required_skills -join ', ')"
+        Write-Log "INFO" "Synthesized Role: $($AgentSpec.role_id) [type: $($AgentSpec.instance_type)] equipped with: $($AgentSpec.required_skills -join ', ')"
     } catch {
         Cleanup-And-Exit 1 "Failed to parse synthesized agent JSON: $RawOutput"
     }
@@ -172,6 +178,7 @@ When the objective is complete, output a brief, concise summary of exactly what 
         RoleName      = $AgentSpec.role_id
         AgentsDir     = $agentsDir
         Description   = $AgentSpec.purpose
+        InstanceType  = $AgentSpec.instance_type
         PromptContent = $rolePromptContent
     }
     if ($AgentSpec.required_capabilities) {

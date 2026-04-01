@@ -136,19 +136,25 @@ foreach ($promptFile in @("ROLE.md", "SKILL.md")) {
 
 # --- Assemble final prompt using Build-SystemPrompt.ps1 ---
 $buildPrompt = Join-Path $agentsDir "roles" "_base" "Build-SystemPrompt.ps1"
-$extraContext = @"
-## Context: QA Failure Triage for $taskRef
+if ($taskRef -eq 'PLAN-REVIEW') {
+    $extraContext = @"
+## Context: Plan Review Assignment
 
-You are being called in because QA has failed the engineer's implementation,
-and the manager has classified this as a potential design or scope issue.
+You have been called to review the project plan and task breakdowns.
+
+## Instructions
+
+Analyze the provided plan details.
+If the plan is well-specified, well-scoped, and ready for engineering implementation, approve it.
+If it lacks critical details, provide architectural guidance on what must be improved.
+
+IMPORTANT: Your response MUST conclude with exactly one of these lines:
+  VERDICT: PASS
+  VERDICT: REJECT
 
 ## Engineer's Submission
 
 $engineerReport
-
-## QA's Failure Report
-
-$qaFeedback
 
 ## Manager's Request
 
@@ -156,21 +162,29 @@ $managerRequest
 
 ## Instructions
 
-Analyze the failure and determine whether this is:
-1. An **implementation bug** that the engineer can fix with specific guidance
-2. An **architectural/design flaw** that requires a fundamentally different approach
-3. A **scope/requirements gap** where the brief or acceptance criteria need updating
+Analyze the QA failure, the engineer's submission, and the manager's request.
+Provide detailed technical guidance and architectural advice on how the engineering team should proceed to resolve the issue.
 
-Your response MUST include exactly one of these lines:
-  RECOMMENDATION: FIX
-  RECOMMENDATION: REDESIGN
-  RECOMMENDATION: REPLAN
-
-Follow with detailed guidance:
-- For FIX: specific code-level guidance for the engineer
-- For REDESIGN: the new architectural approach to follow
-- For REPLAN: what needs to change in the brief, DoD, or acceptance criteria
+IMPORTANT: Your response MUST conclude with exactly one of these lines:
+  VERDICT: PASS
+  VERDICT: REJECT
 "@
+}
+else {
+    $extraContext = @"
+## Context: Architectural Review for $taskRef
+
+You have been called to provide architectural oversight.
+
+## Instructions
+
+Provide detailed technical guidance and architectural advice for the current state.
+
+IMPORTANT: Your response MUST conclude with exactly one of these lines:
+  VERDICT: PASS
+  VERDICT: REJECT
+"@
+}
 
 $prompt = & $buildPrompt -RoleName "architect" -RolePath $scriptDir `
                          -RoomDir $RoomDir -TaskRef $taskRef `
@@ -188,26 +202,54 @@ else {
 $result = & $invokeAgent -RoomDir $RoomDir -RoleName "architect" `
                          -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
 
-# --- Parse recommendation from output ---
-$output = $result.Output
-$recommendation = ""
+$rawOutput = $result.Output
 
-# Strategy 1: line starts with RECOMMENDATION:
-if ($output -match '(?m)^RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-    $recommendation = $Matches[1].ToUpper()
+# --- Strip tool-calling noise from agent output ---
+$cleanLines = ($rawOutput -split "`n") | Where-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.Length -lt 4) { return $false }
+    -not ($line -match '^🔧' -or
+          $line -match '[Cc]alling tool:' -or
+          $line -match '^\w{0,5}\s*tool:' -or
+          $line -match '^Loading MCP' -or
+          $line -match '^Running task non-interactively' -or
+          $line -match '^Agent active' -or
+          $line -match '^Usage Stats' -or
+          $line -match '^\s*Reqs\s+InputTok' -or
+          $line -match '^\s*gemini-' -or
+          $line -match '^✓ Task completed' -or
+          $line -match '^System\.Management\.Automation')
+}
+$output = ($cleanLines -join "`n").Trim()
+if (-not $output) {
+    $output = $rawOutput
 }
 
-# Strategy 2: RECOMMENDATION: anywhere in a line
-if (-not $recommendation -and $output -match 'RECOMMENDATION:\s*(FIX|REDESIGN|REPLAN)') {
-    $recommendation = $Matches[1].ToUpper()
+$verdict = ""
+
+# Strategy 1: Line starts with VERDICT:
+if ($output -match '(?m)^VERDICT:\s*(PASS|REJECT)') {
+    $verdict = $Matches[1].ToUpper()
 }
 
-# Strategy 3: default to FIX if no recommendation found
-if (-not $recommendation) {
-    $recommendation = "FIX"
-    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-        Write-OstwinLog -Level WARN -Message "Could not parse recommendation for $taskRef. Defaulting to FIX."
+# Strategy 2: VERDICT: anywhere in a line
+if (-not $verdict -and $output -match 'VERDICT:\s*(PASS|REJECT)') {
+    $verdict = $Matches[1].ToUpper()
+}
+
+# Strategy 3: standalone PASS/REJECT in first 20 lines
+if (-not $verdict) {
+    $first20 = ($output -split "`n" | Select-Object -First 20) -join "`n"
+    if ($first20 -match '\b(PASS|REJECT)\b') {
+        $verdict = $Matches[1].ToUpper()
     }
+}
+
+# --- Default VERDICT injection for Evaluator consistency ---
+# If architect gave feedback but forgot the keyword, assume PASS for oversight roles
+if (-not $verdict) {
+    $verdict = "PASS"
+    $output += "`n`nVERDICT: PASS"
 }
 
 # --- Post result to channel ---
@@ -218,17 +260,33 @@ if ($result.TimedOut) {
         Write-OstwinLog -Level ERROR -Message "Timed out on $taskRef after ${TimeoutSeconds}s."
     }
 }
+elseif ($verdict -eq "PASS") {
+    & $postMessage -RoomDir $RoomDir -From "architect" -To "manager" `
+                   -Type "pass" -Ref $taskRef -Body $output
+    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
+        Write-OstwinLog -Level INFO -Message "PASSED $taskRef."
+    }
+}
+elseif ($verdict -eq "REJECT") {
+    & $postMessage -RoomDir $RoomDir -From "architect" -To "manager" `
+                   -Type "fail" -Ref $taskRef -Body $output
+    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
+        Write-OstwinLog -Level INFO -Message "REJECTED $taskRef."
+    }
+}
 else {
     & $postMessage -RoomDir $RoomDir -From "architect" -To "manager" `
-                   -Type "done" -Ref $taskRef -Body $output
+                   -Type "error" -Ref $taskRef `
+                   -Body "Could not parse Architect verdict. Full output: $output"
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-        Write-OstwinLog -Level INFO -Message "Architect review complete for $taskRef. Recommendation: $recommendation"
+        Write-OstwinLog -Level WARN -Message "Could not parse verdict for $taskRef — posting as error."
     }
 }
 
-# --- Clean up PID file ---
-$archPidFile = Join-Path $RoomDir "pids" "architect.pid"
-Remove-Item $archPidFile -Force -ErrorAction SilentlyContinue
+# --- PID file is NOT removed here (manager-owned lifecycle) ---
+# The manager cleans up PID files when it processes the signal and transitions
+# the room state. Removing PID here causes a race: manager polls, finds no PID,
+# and re-spawns before processing the channel signal.
 
 # --- Update per-role config status ---
 if (Test-Path $archRoleConfigFile) {

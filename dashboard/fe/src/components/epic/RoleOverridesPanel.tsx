@@ -12,12 +12,14 @@ interface RoleOverridesPanelProps {
 }
 
 export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
-  const { roles, roomOverrides, updateRoleConfig, isLoading } = useEpicRoles(epic.plan_id, epic.epic_ref);
+  const { roles, roomOverrides, candidateRoles, updateRoleConfig, updateEpicAssignment, isLoading } = useEpicRoles(epic.plan_id, epic.epic_ref);
   const { skills: allSkills } = useSkills();
   const [editingRole, setEditingRole] = useState<any | null>(null);
   const [previewRole, setPreviewRole] = useState<any | null>(null);
   const [previewContent, setPreviewContent] = useState<string>('');
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isAssignmentModalOpen, setIsAssignmentModalOpen] = useState(false);
+  const [roleSearch, setRoleSearch] = useState('');
 
   const handleEditRole = (role: any) => {
     const overrides = roomOverrides[role.name] || {};
@@ -63,13 +65,26 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
       {/* Panel Header */}
       <div className="p-4 border-b border-border bg-surface-hover/30 shrink-0 flex items-center justify-between">
         <h2 className="text-xs font-bold text-text-muted uppercase tracking-widest flex items-center gap-2">
-          <span className="material-symbols-outlined text-sm" aria-hidden="true">settings_input_component</span> Role Overrides
+          <span className="material-symbols-outlined text-sm" aria-hidden="true">settings_input_component</span> Epic Roles
         </h2>
+        <button
+          onClick={() => setIsAssignmentModalOpen(true)}
+          className="flex items-center justify-center w-6 h-6 rounded bg-surface hover:bg-surface-hover border border-border text-text-muted hover:text-primary transition-colors hover:border-primary/50"
+          title="Assign Roles"
+        >
+          <span className="material-symbols-outlined text-[15px]">add</span>
+        </button>
       </div>
 
       {/* Role Overrides Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        {roles.map((role) => {
+        {roles.filter(r => candidateRoles.includes(r.name)).length === 0 && (
+          <div className="text-center p-4 text-xs text-text-faint border border-dashed border-border rounded-lg bg-surface/50">
+            No roles assigned to this epic yet.<br/>
+            Click the "+" button to assign roles.
+          </div>
+        )}
+        {roles.filter(r => candidateRoles.includes(r.name)).map((role) => {
           const isOverridden = !!roomOverrides[role.name];
           return (
             <div 
@@ -226,6 +241,62 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
             )}
             <div className="flex justify-end pt-4">
               <Button variant="primary" onClick={() => setPreviewRole(null)}>Close</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {/* Assign Roles Modal */}
+      {isAssignmentModalOpen && (
+        <Modal
+          isOpen={isAssignmentModalOpen}
+          onClose={() => setIsAssignmentModalOpen(false)}
+          title={`Assign Roles: ${epic.epic_ref}`}
+        >
+          <div className="space-y-4 p-4">
+            <div>
+              <label className="block text-[11px] font-bold text-text-muted uppercase mb-2">Candidate Roles ({roles?.length || 0} total)</label>
+              
+              <div className="mb-3 relative">
+                <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-text-faint">search</span>
+                <input
+                  type="text"
+                  placeholder="Search roles by name or description..."
+                  value={roleSearch}
+                  onChange={(e) => setRoleSearch(e.target.value)}
+                  className="w-full bg-surface border border-border rounded-md pl-8 pr-3 py-1.5 text-xs text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 placeholder:text-text-faint"
+                />
+              </div>
+
+              <div className="max-h-60 overflow-y-auto border border-border rounded p-2 space-y-1 bg-surface-hover/10 custom-scrollbar">
+                {roles?.filter(r => 
+                   r.name.toLowerCase().includes(roleSearch.toLowerCase()) || 
+                   (r.description && r.description.toLowerCase().includes(roleSearch.toLowerCase()))
+                ).map(role => {
+                  const isChecked = candidateRoles.includes(role.name);
+                  return (
+                    <label key={role.name} className="flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover rounded cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        className="accent-primary"
+                        checked={isChecked}
+                        onChange={async (e) => {
+                          const newCandidates = e.target.checked 
+                            ? [...candidateRoles, role.name]
+                            : candidateRoles.filter(r => r !== role.name);
+                          await updateEpicAssignment(newCandidates);
+                        }}
+                      />
+                      <div className="flex flex-col overflow-hidden">
+                        <span className="text-xs font-medium text-text-main group-hover:text-primary transition-colors truncate">{role.name}</span>
+                        <span className="text-[10px] text-text-faint truncate">{role.description || `Assign the ${role.name} role.`}</span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <Button variant="primary" onClick={() => setIsAssignmentModalOpen(false)}>Done</Button>
             </div>
           </div>
         </Modal>

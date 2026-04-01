@@ -48,8 +48,8 @@ if [[ -z "$AGENTS_DIR" ]]; then
   fi
   AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
 fi
-PYTHON="${AGENTS_DIR}/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
+PYTHON="$HOME/.ostwin/.venv/bin/python"
+[[ -x "$PYTHON" ]] || PYTHON="${AGENTS_DIR}/.venv/bin/python"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
 # --- Load .env files (available to ALL subcommands) ---
@@ -100,8 +100,17 @@ fi
 # Version from config
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
+# Build hash (written by install.sh)
+BUILD_HASH=""
+for _hash_file in "$OSTWIN_HOME/.build-hash" "$AGENTS_DIR/.build-hash"; do
+  if [[ -f "$_hash_file" ]]; then
+    BUILD_HASH=$(<"$_hash_file")
+    break
+  fi
+done
+
 # Dashboard URL
-DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+export DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
 
 # Build curl auth args from OSTWIN_API_KEY (array to preserve quoting)
 CURL_AUTH=()
@@ -188,7 +197,7 @@ print(plan.get('working_dir', plan.get('meta', {}).get('working_dir', '')))
 
 show_help() {
   cat << HELP
-ostwin v${VERSION} — Multi-Agent War-Room Orchestrator
+ostwin v${VERSION}${BUILD_HASH:+ ($BUILD_HASH)} — Multi-Agent War-Room Orchestrator
 
 Usage:
   ostwin <command> [options]
@@ -213,8 +222,9 @@ Commands:
                     Options: --force
   dashboard         Launch web dashboard
                     Options: --port PORT, --project-dir PATH
-  discord           Manage the Discord bot
-                    Subcommands: start, stop, status, logs
+  channel <sub>     Manage communication channels (telegram, discord, slack)
+                    Subcommands: start, stop, status, logs, deploy,
+                                 list, connect, disconnect, test, pair
   clone-role <role> Clone a role to project-local for override
                     Options: --project-dir PATH
   config            View or update configuration
@@ -607,90 +617,9 @@ else:
       exec "$AGENTS_DIR/dashboard.sh" "$@"
     fi
     ;;
-  discord)
+  channel)
     shift
-    DISCORD_SUB="${1:-start}"
-    DISCORD_PID_FILE="$HOME/.ostwin/discord-bot.pid"
-    DISCORD_LOG="$HOME/.ostwin/logs/discord-bot.log"
-
-    # Locate discord-bot dir: prefer alongside the project, then alongside agents dir
-    DISCORD_BOT_DIR=""
-    for _candidate in \
-      "$(cd "$AGENTS_DIR/.." 2>/dev/null && pwd)/discord-bot" \
-      "$(pwd)/discord-bot"; do
-      if [[ -d "$_candidate" ]] && [[ -f "$_candidate/package.json" ]]; then
-        DISCORD_BOT_DIR="$_candidate"
-        break
-      fi
-    done
-
-    case "$DISCORD_SUB" in
-      start)
-        if [[ -z "$DISCORD_BOT_DIR" ]]; then
-          echo "✗ discord-bot/ not found (expected discord-bot/package.json)" >&2
-          exit 1
-        fi
-        # Pick package manager
-        _PM=""
-        for _t in pnpm npm yarn bun; do command -v "$_t" &>/dev/null && _PM="$_t" && break; done
-        if [[ -z "$_PM" ]]; then
-          echo "✗ No Node.js package manager found" >&2; exit 1
-        fi
-        # Kill existing
-        if [[ -f "$DISCORD_PID_FILE" ]]; then
-          _OLD=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
-          if [[ -n "$_OLD" ]] && kill -0 "$_OLD" 2>/dev/null; then
-            echo "→ Stopping existing Discord bot (PID $_OLD)..."
-            kill "$_OLD" 2>/dev/null || true; sleep 1
-          fi
-        fi
-        # Source env files
-        [[ -f "$HOME/.ostwin/.env" ]] && { set -a; source "$HOME/.ostwin/.env"; set +a; }
-        [[ -f "$DISCORD_BOT_DIR/.env" ]] && { set -a; source "$DISCORD_BOT_DIR/.env"; set +a; }
-        mkdir -p "$HOME/.ostwin/logs"
-        echo "→ Starting Discord bot ($DISCORD_BOT_DIR)..."
-        (cd "$DISCORD_BOT_DIR" && nohup "$_PM" start > "$DISCORD_LOG" 2>&1 &
-         echo $! > "$DISCORD_PID_FILE"; echo $!)
-        echo "✓ Discord bot started — log: $DISCORD_LOG"
-        echo "  Stop with: ostwin discord stop"
-        ;;
-      stop)
-        if [[ -f "$DISCORD_PID_FILE" ]]; then
-          _PID=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
-          if [[ -n "$_PID" ]] && kill -0 "$_PID" 2>/dev/null; then
-            kill "$_PID" && echo "✓ Discord bot stopped (PID $_PID)"
-            rm -f "$DISCORD_PID_FILE"
-          else
-            echo "Discord bot is not running (stale PID file removed)"
-            rm -f "$DISCORD_PID_FILE"
-          fi
-        else
-          echo "Discord bot is not running"
-        fi
-        ;;
-      status)
-        if [[ -f "$DISCORD_PID_FILE" ]]; then
-          _PID=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
-          if [[ -n "$_PID" ]] && kill -0 "$_PID" 2>/dev/null; then
-            echo "✓ Discord bot is running (PID $_PID)"
-          else
-            echo "✗ Discord bot is NOT running (stale PID)"
-          fi
-        else
-          echo "✗ Discord bot is not running"
-        fi
-        ;;
-      logs)
-        if [[ -f "$DISCORD_LOG" ]]; then
-          tail -f "$DISCORD_LOG"
-        else
-          echo "No log file found at $DISCORD_LOG" >&2; exit 1
-        fi
-        ;;
-      *)
-        echo "Usage: ostwin discord [start|stop|status|logs]" >&2; exit 1
-        ;;
-    esac
+    exec "$PYTHON" "$AGENTS_DIR/bin/channel_cmd.py" "$@"
     ;;
   clone-role)
     shift
@@ -908,7 +837,11 @@ PYEOF
     fi
     ;;
   version|-v|--version)
-    echo "ostwin v${VERSION}"
+    if [[ -n "$BUILD_HASH" ]]; then
+      echo "ostwin v${VERSION} (${BUILD_HASH})"
+    else
+      echo "ostwin v${VERSION}"
+    fi
     ;;
   -h|--help|help)
     show_help

@@ -8,7 +8,7 @@
 #   ./install.sh               # Interactive mode — prompts before each step
 #   ./install.sh --yes         # Non-interactive — auto-approve all installs
 #   ./install.sh --dir /path   # Install to custom location (default: ~/.ostwin)
-#   ./install.sh --discord       # Also start the Discord bot (requires discord-bot/ in repo)
+#   ./install.sh --channel        # Also install & start the channel connectors (Telegram + Discord + Slack)
 #   ./install.sh --dashboard-only  # Install dashboard API + frontend only
 #   ./install.sh --help        # Show this help
 #
@@ -35,7 +35,7 @@ SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 AUTO_YES=false
 SKIP_OPTIONAL=false
 DASHBOARD_ONLY=false
-START_DISCORD=false
+START_CHANNEL=true
 DASHBOARD_PORT=9000
 MIN_PYTHON_VERSION="3.10"
 MIN_PWSH_VERSION="7"
@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
     --port)          DASHBOARD_PORT="$2"; shift 2 ;;
     --skip-optional) SKIP_OPTIONAL=true; shift ;;
     --dashboard-only) DASHBOARD_ONLY=true; AUTO_YES=true; shift ;;
-    --discord)       START_DISCORD=true; shift ;;
+    --channel)       START_CHANNEL=true; shift ;;
     --help|-h)
       head -22 "$0" | tail -20
       exit 0
@@ -738,6 +738,9 @@ install_files() {
   step "Installing OS Twin to $INSTALL_DIR..."
   mkdir -p "$INSTALL_DIR"
 
+  # Ensure clean slate for core roles (remove old core roles before syncing)
+  rm -rf "$INSTALL_DIR/roles"
+
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
   # NOTE: mcp/ is excluded to preserve user's installed extensions and config
   rsync -a \
@@ -795,7 +798,6 @@ install_files() {
     warn "Dashboard source not found — dashboard/ not updated"
     info "Pass the repo root: ./install.sh --source-dir /path/to/agent-os"
   fi
-
   # ── Contributed roles: copy from repo's contributes/roles/ ────────────────
   local contributes_roles=""
   for candidate in \
@@ -806,7 +808,6 @@ install_files() {
       break
     fi
   done
-
   if [[ -n "$contributes_roles" ]]; then
     step "Loading contributed roles..."
     mkdir -p "$INSTALL_DIR/roles"
@@ -823,12 +824,43 @@ install_files() {
     done
     ok "$loaded contributed role(s) loaded"
   fi
-
   # Make scripts executable
   find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
   chmod +x "$INSTALL_DIR/bin/ostwin" 2>/dev/null || true
 
   ok "Files installed"
+}
+
+# ─── Build hash ─────────────────────────────────────────────────────────────
+
+compute_build_hash() {
+  step "Computing build hash..."
+
+  # Prefer shasum (macOS), fall back to sha256sum (Linux)
+  local sha_cmd="shasum -a 256"
+  if ! command -v shasum &>/dev/null; then
+    sha_cmd="sha256sum"
+  fi
+
+  local hash
+  hash=$(
+    find "$INSTALL_DIR" \
+      -type f \
+      ! -path "$INSTALL_DIR/.venv/*" \
+      ! -path "$INSTALL_DIR/logs/*" \
+      ! -path "$INSTALL_DIR/node_modules/*" \
+      ! -path "*/__pycache__/*" \
+      ! -name "*.pid" \
+      ! -name ".env" \
+      ! -name ".build-hash" \
+      -print0 \
+      | sort -z \
+      | xargs -0 $sha_cmd \
+      | $sha_cmd \
+      | cut -c1-8
+  )
+  echo "$hash" > "$INSTALL_DIR/.build-hash"
+  ok "Build hash: $hash"
 }
 
 # ─── Patch MCP config ────────────────────────────────────────────────────────
@@ -1111,6 +1143,7 @@ install_files
 header "5. Setting up Python environment"
 setup_venv
 patch_mcp_config
+compute_build_hash
 
 # ─── 5b. Environment variables (.env) ────────────────────────────────────────
 
@@ -1271,82 +1304,81 @@ else
   info "Re-run: ./install.sh --source-dir /path/to/agent-os"
 fi
 
-# ─── 9c. Start Discord bot (optional, --discord flag) ──────────────────────────
+# ─── 9c. Install channel dependencies ────────────────────────────────────
 
-if $START_DISCORD; then
-  header "9c. Starting Discord bot"
+header "9c. Installing channel dependencies (Telegram + Discord + Slack)"
 
-  # Locate the discord-bot directory
-  DISCORD_BOT_DIR=""
-  for candidate in \
-    "${SOURCE_DIR}/discord-bot" \
-    "${SCRIPT_DIR}/../discord-bot"; do
-    if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
-      DISCORD_BOT_DIR="$(cd "$candidate" && pwd)"
-      break
-    fi
-  done
+# Locate the channel connector directory
+CHAN_DIR=""
+for candidate in \
+  "${SOURCE_DIR}/bot" \
+  "${SCRIPT_DIR}/../bot"; do
+  if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
+    CHAN_DIR="$(cd "$candidate" && pwd)"
+    break
+  fi
+done
 
-  if [[ -z "$DISCORD_BOT_DIR" ]]; then
-    warn "discord-bot/ not found — skipping"
-    info "Expected at discord-bot/package.json relative to the repo root"
-  else
-    # Pick package manager
-    DISCORD_PM=""
-    for tool in pnpm npm yarn bun; do
-      if command -v "$tool" &>/dev/null; then
-        DISCORD_PM="$tool"
-        break
-      fi
-    done
+if [[ -z "$CHAN_DIR" ]]; then
+  warn "channel connector dir (bot/) not found — skipping"
+  info "Expected at bot/package.json relative to the repo root"
+elif ! check_node; then
+  warn "Node.js not found — cannot install channel connectors"
+  info "Install Node.js and re-run"
+else
+  step "Installing channel dependencies (npm)..."
+  (cd "$CHAN_DIR" && npm install --legacy-peer-deps) \
+    && ok "Channel dependencies installed" || warn "Channel dependency install failed"
 
-    if [[ -z "$DISCORD_PM" ]]; then
-      warn "No Node.js package manager found — cannot start Discord bot"
-      info "Install Node.js + pnpm and re-run with --discord"
-    else
-      # Install dependencies if needed
-      if [[ ! -d "$DISCORD_BOT_DIR/node_modules" ]]; then
-        step "Installing Discord bot dependencies ($DISCORD_PM)..."
-        (cd "$DISCORD_BOT_DIR" && "$DISCORD_PM" install) \
-          && ok "Dependencies installed" || warn "Dependency install failed"
-      fi
+  # Install tsx if not present (needed for TypeScript runtime)
+  if [[ ! -f "$CHAN_DIR/node_modules/.bin/tsx" ]]; then
+    step "Installing tsx (TypeScript runtime)..."
+    (cd "$CHAN_DIR" && npm install --legacy-peer-deps) \
+      && ok "tsx available" || warn "tsx install failed"
+  fi
 
-      # Source .env so DISCORD_TOKEN, GOOGLE_API_KEY, OSTWIN_API_KEY are available
-      ENV_FILE="$INSTALL_DIR/.env"
-      DISCORD_ENV="$DISCORD_BOT_DIR/.env"
-      if [[ -f "$ENV_FILE" ]]; then
-        set -a
-        # shellcheck source=/dev/null
-        source "$ENV_FILE"
-        set +a
-      fi
+  ok "Channel connector dir: $CHAN_DIR"
+  info "Start with: ostwin channel start"
+fi
 
-      # Kill any previously running instance
-      DISCORD_PID_FILE="$INSTALL_DIR/discord-bot.pid"
-      if [[ -f "$DISCORD_PID_FILE" ]]; then
-        OLD_PID=$(cat "$DISCORD_PID_FILE" 2>/dev/null || true)
-        if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
-          step "Stopping previous Discord bot (PID $OLD_PID)..."
-          kill "$OLD_PID" 2>/dev/null || true
-          sleep 1
-        fi
-      fi
+# ─── 9d. Start channel connectors (optional, --channel flag) ─────────────────
 
-      mkdir -p "$INSTALL_DIR/logs"
-      step "Starting Discord bot from $DISCORD_BOT_DIR..."
-      (
-        cd "$DISCORD_BOT_DIR"
-        # Pass ostwin env vars if a .env exists in the bot dir
-        if [[ -f "$DISCORD_ENV" ]]; then
-          set -a; source "$DISCORD_ENV"; set +a
-        fi
-        nohup "$DISCORD_PM" start \
-          > "$INSTALL_DIR/logs/discord-bot.log" 2>&1 &
-        echo $! > "$DISCORD_PID_FILE"
-        echo "$!"
-      ) | { read -r BOT_PID; ok "Discord bot started (PID $BOT_PID) — log: $INSTALL_DIR/logs/discord-bot.log"; }
+if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
+  header "9d. Starting channel connectors"
+
+  ENV_FILE="$INSTALL_DIR/.env"
+  PROJECT_ROOT_ENV="$(cd "$CHAN_DIR/.." && pwd)/.env"
+  [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
+  [[ -f "$PROJECT_ROOT_ENV" ]] && { set -a; source "$PROJECT_ROOT_ENV"; set +a; }
+
+  CHAN_PID_FILE="$INSTALL_DIR/channel.pid"
+  if [[ -f "$CHAN_PID_FILE" ]]; then
+    OLD_PID=$(cat "$CHAN_PID_FILE" 2>/dev/null || true)
+    if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+      step "Stopping previous channel process (PID $OLD_PID)..."
+      kill "$OLD_PID" 2>/dev/null || true; sleep 1
     fi
   fi
+
+  if [[ -n "${DISCORD_TOKEN:-}" ]] && [[ -n "${DISCORD_CLIENT_ID:-}" ]]; then
+    step "Registering Discord slash commands..."
+    (cd "$CHAN_DIR" && npx tsx src/deploy-commands.ts 2>/dev/null) \
+      && ok "Discord commands registered" || warn "Discord command registration failed (non-critical)"
+  fi
+
+  mkdir -p "$INSTALL_DIR/logs"
+  step "Starting channels from $CHAN_DIR..."
+  (
+    cd "$CHAN_DIR"
+    [[ -f "$PROJECT_ROOT_ENV" ]] && { set -a; source "$PROJECT_ROOT_ENV"; set +a; }
+    nohup npm start > "$INSTALL_DIR/logs/channel.log" 2>&1 &
+    echo $! > "$CHAN_PID_FILE"
+    echo "$!"
+  ) | { read -r CHAN_PID; ok "Channels started (PID $CHAN_PID) — log: $INSTALL_DIR/logs/channel.log"; }
+
+  [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && ok "Telegram: enabled" || info "Telegram: disabled (set TELEGRAM_BOT_TOKEN)"
+  [[ -n "${DISCORD_TOKEN:-}" ]] && ok "Discord: enabled" || info "Discord: disabled (set DISCORD_TOKEN)"
+  [[ -n "${SLACK_BOT_TOKEN:-}" ]] && ok "Slack: enabled" || info "Slack: disabled (set SLACK_BOT_TOKEN)"
 fi
 
 # ─── Done! ────────────────────────────────────────────────────────────────────
@@ -1368,11 +1400,11 @@ echo ""
 echo -e "  ${BOLD}Dashboard:${NC}"
 echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
-if $START_DISCORD; then
+if $START_CHANNEL; then
 echo -e ""
-echo -e "  ${BOLD}Discord Bot:${NC}"
-echo -e "    ${DIM}Running in background — log: $INSTALL_DIR/logs/discord-bot.log${NC}"
-echo -e "    ${DIM}Stop with: kill \$(cat $INSTALL_DIR/discord-bot.pid)${NC}"
+echo -e "  ${BOLD}Channels (Telegram + Discord + Slack):${NC}"
+echo -e "    ${DIM}Running in background — log: $INSTALL_DIR/logs/channel.log${NC}"
+echo -e "    ${DIM}Stop with: ostwin channel stop${NC}"
 fi
 echo ""
 

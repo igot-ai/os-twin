@@ -1,0 +1,25 @@
+{
+  "name": "game-ui-analyst",
+  "description": "UI Screen Analyst \u2014 detects UI elements from screenshots and extracts animation behaviour from video recordings, producing structured JSON specs (_detection.json, _anim.json) that drive Unity C# code generation by game-engineer",
+  "capabilities": [
+    "ui-detection",
+    "motion-extraction",
+    "animation-analysis",
+    "detect-ui",
+    "detect-anim"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "object-coverage-90pct",
+    "id-consistency",
+    "temporal-consistency"
+  ],
+  "cli": "agent",
+  "model": "openai:seed-2-0-pro-260328",
+  "timeout": 900,
+  "skill_refs": [
+    "detect-ui",
+    "detect-anim"
+  ],
+  "instance_type": "worker"
+}

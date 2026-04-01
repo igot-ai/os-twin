@@ -803,10 +803,24 @@ Classified as implementation bug. Engineer should fix.
             }
             $terminalFired | Should -BeFalse
 
-            # Total invocations = exactly 1
-            Test-Path $flagFile | Should -BeTrue
-        }
+        # Total invocations = exactly 1
+        Test-Path $flagFile | Should -BeTrue
     }
+}
+
+Context "PLAN-REVIEW Verdict Logic" {
+    It "detects VERDICT: REJECT from done body" {
+        $doneBody = "I have reviewed this plan and my decision is:`n`nVERDICT: REJECT"
+        $rejected = ($doneBody -match 'VERDICT:\s*REJECT')
+        $rejected | Should -BeTrue
+    }
+
+    It "detects VERDICT: PASS from done body" {
+        $doneBody = "I have reviewed this plan and my decision is:`n`nVERDICT: PASS"
+        $approved = ($doneBody -match 'VERDICT:\s*PASS|plan-approve|signoff|APPROVED')
+        $approved | Should -BeTrue
+    }
+}
 
     Context "Exploit — LEAK-6: state timeout re-resolves role for restart state" {
         It "review timeout should spawn engineer (not qa) for developing state" {
@@ -966,6 +980,403 @@ Classified as implementation bug. Engineer should fix.
             $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
             $elapsed = $nowEpoch - $expiredEpoch
             $elapsed | Should -BeGreaterOrEqual 30
+        }
+    }
+
+    Context "PLAN-REVIEW shortcut detects pass signal (architect aligned with QA)" {
+        It "shortcut detects 'pass' message from architect and approves" {
+            & $script:NewWarRoom -RoomId "room-400" -TaskRef "PLAN-REVIEW" `
+                                 -TaskDescription "Arch pass test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-400"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # Architect posts a 'pass' signal (our new behavior — no 'done')
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "pass" -Ref "PLAN-REVIEW" -Body "Plan looks good.`n`nVERDICT: PASS"
+
+            # Simulate the PLAN-REVIEW shortcut logic from the manager
+            $passCount    = (& $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -AsObject).Count
+            $approveCount = (& $script:ReadMessages -RoomDir $roomDir -FilterType "plan-approve" -AsObject).Count
+            $doneCount    = (& $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject).Count
+
+            $approved = $false
+            if ($passCount -gt 0 -or $approveCount -gt 0) {
+                $approved = $true
+            } elseif ($doneCount -gt 0) {
+                $doneBody = (& $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject)[-1].body
+                if ($doneBody -match 'plan-approve|signoff|APPROVED|VERDICT:\s*PASS') { $approved = $true }
+            }
+
+            $passCount | Should -Be 1
+            $doneCount | Should -Be 0
+            $approved  | Should -BeTrue
+        }
+
+        It "shortcut still works with legacy 'done' + APPROVED keyword" {
+            & $script:NewWarRoom -RoomId "room-401" -TaskRef "PLAN-REVIEW" `
+                                 -TaskDescription "Legacy done test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-401"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # Legacy architect posts 'done' with APPROVED keyword
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "done" -Ref "PLAN-REVIEW" -Body "I APPROVED this plan."
+
+            $passCount = (& $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -AsObject).Count
+            $doneCount = (& $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject).Count
+
+            $approved = $false
+            if ($passCount -gt 0) {
+                $approved = $true
+            } elseif ($doneCount -gt 0) {
+                $doneBody = (& $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject)[-1].body
+                if ($doneBody -match 'plan-approve|signoff|APPROVED|VERDICT:\s*PASS') { $approved = $true }
+            }
+
+            $passCount | Should -Be 0
+            $doneCount | Should -Be 1
+            $approved  | Should -BeTrue
+        }
+
+        It "shortcut detects 'fail' message from architect as rejection" {
+            & $script:NewWarRoom -RoomId "room-402" -TaskRef "PLAN-REVIEW" `
+                                 -TaskDescription "Arch reject test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-402"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # Architect posts 'fail' signal (rejection)
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "fail" -Ref "PLAN-REVIEW" -Body "Plan needs work.`n`nVERDICT: REJECT"
+
+            $failCount = (& $script:ReadMessages -RoomDir $roomDir -FilterType "fail" -AsObject).Count
+            $passCount = (& $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -AsObject).Count
+            $doneCount = (& $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject).Count
+
+            # Approved should be false
+            $approved = ($passCount -gt 0)
+            $approved | Should -BeFalse
+            $failCount | Should -Be 1
+        }
+
+        It "no signals means shortcut does not approve" {
+            & $script:NewWarRoom -RoomId "room-403" -TaskRef "PLAN-REVIEW" `
+                                 -TaskDescription "No signal test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-403"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # No messages at all
+            $passCount    = (& $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -AsObject).Count
+            $approveCount = (& $script:ReadMessages -RoomDir $roomDir -FilterType "plan-approve" -AsObject).Count
+            $doneCount    = (& $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject).Count
+
+            $approved = $false
+            if ($passCount -gt 0 -or $approveCount -gt 0) { $approved = $true }
+            $approved | Should -BeFalse
+        }
+    }
+
+    Context "Find-LatestSignal timestamp grace window" {
+        It "accepts signal with same-second timestamp as state_changed_at" {
+            & $script:NewWarRoom -RoomId "room-410" -TaskRef "TASK-410" `
+                                 -TaskDescription "Grace window test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-410"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # Post a pass signal immediately
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "pass" -Ref "TASK-410" -Body "VERDICT: PASS"
+
+            # Read back the signal and compare with state_changed_at
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
+            $msgs.Count | Should -Be 1
+            $latest = $msgs[0]
+            $msgTs = 0
+            if ($latest.ts -is [datetime]) {
+                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+            }
+            $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+
+            # With 2s grace window, signal should be accepted even if same second
+            ($msgTs -ge ($changedAt - 2)) | Should -BeTrue
+        }
+
+        It "accepts signal posted 1s before state_changed_at (within grace)" {
+            & $script:NewWarRoom -RoomId "room-411" -TaskRef "TASK-411" `
+                                 -TaskDescription "1s grace test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-411"
+
+            # Post pass message first
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "pass" -Ref "TASK-411" -Body "VERDICT: PASS"
+
+            # Simulate: state_changed_at written 1s after the message
+            Start-Sleep -Milliseconds 100
+            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 1
+            $futureEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Read message ts
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
+            $latest = $msgs[0]
+            $msgTs = 0
+            if ($latest.ts -is [datetime]) {
+                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+            }
+            $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+
+            # Without grace: would fail ($msgTs < $changedAt)
+            # With 2s grace: should pass ($msgTs >= $changedAt - 2)
+            ($msgTs -ge ($changedAt - 2)) | Should -BeTrue
+        }
+
+        It "rejects signal older than grace window" {
+            & $script:NewWarRoom -RoomId "room-412" -TaskRef "TASK-412" `
+                                 -TaskDescription "Old signal reject" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-412"
+
+            # Post pass signal first
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "pass" -Ref "TASK-412" -Body "VERDICT: PASS"
+
+            # Set state_changed_at to far future (well beyond grace)
+            $farFuture = [int][double]::Parse((Get-Date -UFormat %s)) + 60
+            $farFuture.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
+            $latest = $msgs[0]
+            $msgTs = 0
+            if ($latest.ts -is [datetime]) {
+                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+            }
+            $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+
+            # Signal is 60s old relative to state — outside 2s grace window
+            ($msgTs -ge ($changedAt - 2)) | Should -BeFalse
+        }
+    }
+
+    Context "Full architect lifecycle: review → passed" {
+        It "architect pass signal transitions room to passed via Find-LatestSignal" {
+            & $script:NewWarRoom -RoomId "room-420" -TaskRef "TASK-420" `
+                                 -TaskDescription "Full pass lifecycle" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-420"
+
+            # Write architect-style lifecycle
+            @{
+                version = 2; initial_state = "review"; max_retries = 3
+                states = @{
+                    review = @{
+                        role = "architect"; type = "review"
+                        signals = @{
+                            pass = @{ target = "passed" }
+                            done = @{ target = "passed" }
+                            fail = @{ target = "failed"; actions = @("increment_retries") }
+                        }
+                    }
+                    passed = @{ type = "terminal" }
+                    failed = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # Set state_changed_at to past to ensure signal is "new"
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Architect posts 'pass' signal
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "pass" -Ref "TASK-420" -Body "Architecture approved.`n`nVERDICT: PASS"
+
+            # Simulate Find-LatestSignal
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+            $matchedSignal = $null
+
+            foreach ($sigType in $expectedSignals) {
+                $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
+                if ($msgs -and $msgs.Count -gt 0) {
+                    $latest = $msgs[-1]
+                    $msgTs = 0
+                    if ($latest.ts -is [datetime]) {
+                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                    }
+                    $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+                    if ($msgTs -ge ($changedAt - 2)) {
+                        $matchedSignal = $sigType
+                        break
+                    }
+                }
+            }
+
+            $matchedSignal | Should -Be "pass"
+
+            # Apply transition
+            $targetState = $lc.states.review.signals.$matchedSignal.target
+            $targetState | Should -Be "passed"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus $targetState
+            $finalStatus = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $finalStatus | Should -Be "passed"
+        }
+    }
+
+    Context "Full architect lifecycle: review → failed" {
+        It "architect fail signal transitions room to failed" {
+            & $script:NewWarRoom -RoomId "room-430" -TaskRef "TASK-430" `
+                                 -TaskDescription "Full fail lifecycle" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-430"
+
+            @{
+                version = 2; initial_state = "review"; max_retries = 3
+                states = @{
+                    review = @{
+                        role = "architect"; type = "review"
+                        signals = @{
+                            pass = @{ target = "passed" }
+                            fail = @{ target = "failed"; actions = @("increment_retries") }
+                        }
+                    }
+                    passed = @{ type = "terminal" }
+                    failed = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Architect posts 'fail' signal
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "fail" -Ref "TASK-430" -Body "Architecture rejected.`n`nVERDICT: REJECT"
+
+            # Simulate Find-LatestSignal
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+            $matchedSignal = $null
+
+            foreach ($sigType in $expectedSignals) {
+                $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
+                if ($msgs -and $msgs.Count -gt 0) {
+                    $latest = $msgs[-1]
+                    $msgTs = 0
+                    if ($latest.ts -is [datetime]) {
+                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                    }
+                    $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+                    if ($msgTs -ge ($changedAt - 2)) {
+                        $matchedSignal = $sigType
+                        break
+                    }
+                }
+            }
+
+            $matchedSignal | Should -Be "fail"
+            $targetState = $lc.states.review.signals.$matchedSignal.target
+            $targetState | Should -Be "failed"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus $targetState
+            $finalStatus = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $finalStatus | Should -Be "failed"
+        }
+    }
+
+    Context "Re-spawn guard: signal exists + dead process = no re-spawn" {
+        It "pass signal in channel prevents re-spawn even when PID is dead" {
+            & $script:NewWarRoom -RoomId "room-440" -TaskRef "TASK-440" `
+                                 -TaskDescription "Pass signal guard" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-440"
+
+            @{
+                version = 2; initial_state = "review"; max_retries = 3
+                states = @{
+                    review = @{
+                        role = "architect"; type = "review"
+                        signals = @{
+                            pass = @{ target = "passed" }
+                            fail = @{ target = "failed" }
+                        }
+                    }
+                    passed = @{ type = "terminal" }
+                    failed = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Architect posted pass signal AND cleaned up its PID
+            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+                                  -Type "pass" -Ref "TASK-440" -Body "VERDICT: PASS"
+
+            $pidFile = Join-Path $roomDir "pids" "architect.pid"
+            Test-Path $pidFile | Should -BeFalse
+
+            # Simulate the pending signal guard (lines 915-917 in manager)
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+
+            $pendingSignal = $null
+            foreach ($sigType in $expectedSignals) {
+                $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
+                if ($msgs -and $msgs.Count -gt 0) {
+                    $latest = $msgs[-1]
+                    $msgTs = 0
+                    if ($latest.ts -is [datetime]) {
+                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                    }
+                    $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+                    if ($msgTs -ge ($changedAt - 2)) {
+                        $pendingSignal = $sigType
+                        break
+                    }
+                }
+            }
+
+            # Guard SHOULD detect pending pass signal → skip re-spawn
+            $pendingSignal | Should -Be "pass"
+        }
+    }
+
+    Context "Re-spawn allowed: no signal + dead process = re-spawn" {
+        It "no signals in channel allows re-spawn when PID is dead" {
+            & $script:NewWarRoom -RoomId "room-450" -TaskRef "TASK-450" `
+                                 -TaskDescription "No signal re-spawn" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-450"
+
+            @{
+                version = 2; initial_state = "review"; max_retries = 3
+                states = @{
+                    review = @{
+                        role = "architect"; type = "review"
+                        signals = @{
+                            pass = @{ target = "passed" }
+                            fail = @{ target = "failed" }
+                        }
+                    }
+                    passed = @{ type = "terminal" }
+                    failed = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # No PID, no messages — vacant room
+            $pidFile = Join-Path $roomDir "pids" "architect.pid"
+            Test-Path $pidFile | Should -BeFalse
+
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+
+            $pendingSignal = $null
+            foreach ($sigType in $expectedSignals) {
+                $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
+                if ($msgs -and $msgs.Count -gt 0) {
+                    $pendingSignal = $sigType
+                    break
+                }
+            }
+
+            # No pending signal → re-spawn SHOULD proceed
+            $pendingSignal | Should -BeNullOrEmpty
         }
     }
 }

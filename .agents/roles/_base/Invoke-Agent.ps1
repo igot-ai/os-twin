@@ -66,6 +66,9 @@ $Quiet = $true
 # --- Resolve paths ---
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
 
+# Resolve OSTWIN_HOME: env var → ~/.ostwin
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+
 # Ensure RoomDir is absolute for bash wrapper consistency (EPIC-002)
 # Using GetUnresolvedProviderPathFromPSPath to handle non-existent paths (unlikely but safe)
 $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RoomDir)
@@ -89,6 +92,10 @@ if (Test-Path $roomConfigFile) {
         }
     } catch { }
 }
+
+# Safe defaults (overridden inside config block below)
+$NoMcp = $false
+$ProjectDir = ""
 
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -141,9 +148,10 @@ if (Test-Path $configPath) {
         $WorkingDir = $instanceConfig.working_dir
     }
 
-    # no_mcp: instance → role → default true (disables MCP tools to avoid ClosedResourceError on remote exec)
-    # Default to true for all roles — MCP via LangGraph is unstable. Agents use shell tools instead.
-    $NoMcp = $true
+    # no_mcp: instance → role → default false
+    # MCP is enabled by default — pass --mcp-config from the project dir.
+    # Set no_mcp: true in config.json for a role to disable MCP (e.g. unstable remote exec).
+    $NoMcp = $false
     if ($instanceConfig -and $instanceConfig.PSObject.Properties['no_mcp']) {
         $NoMcp = [bool]$instanceConfig.no_mcp
     }
@@ -199,11 +207,10 @@ New-Item -ItemType Directory -Path $pidsDir -Force | Out-Null
 # --- Skill Isolation (EPIC-002) ---
 $isolatedSkillsDir = Join-Path $absRoomDir "skills"
 
-# Clear isolated skills for each invocation to ensure no stale skills remain
-if (Test-Path $isolatedSkillsDir) {
-    Remove-Item -Path $isolatedSkillsDir -Recurse -Force -ErrorAction SilentlyContinue
+# Ensure isolated skills dir exists without wiping existing API-matched skills
+if (-not (Test-Path $isolatedSkillsDir)) {
+    New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
 }
-New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
 
 $rolePath = Join-Path $agentsDir "roles" $RoleName
 $resolveSkillsScript = Join-Path $PSScriptRoot "Resolve-RoleSkills.ps1"
@@ -225,7 +232,7 @@ if (Test-Path $resolveSkillsScript) {
                 New-Item -ItemType Directory -Path $destPath -Force | Out-Null
                 
                 # Copy contents specifically to avoid nested directory issues
-                Copy-Item -Path (Join-Path $skillSrcDir "*") -Destination $destPath -Recurse -Force
+                Copy-Item -Path (Join-Path $skillSrcDir "*") -Destination $destPath -Recurse -Force -ErrorAction SilentlyContinue
             }
             else {
                 Write-Warning "Skill source path not found for '$($skill.Name)': $($skill.Path)"
@@ -237,14 +244,12 @@ if (Test-Path $resolveSkillsScript) {
     }
 }
 
-# Room-level skills are already in $absRoomDir/skills (populated by Resolve-RoomSkills).
-# No copy needed — $isolatedSkillsDir points there directly.
 
 $outputFile = Join-Path $artifactsDir "$RoleName-output.txt"
 $pidFile = Join-Path $pidsDir "$RoleName.pid"
 
-# --- Write PID before execution so manager can track ---
-$PID | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
+# --- PID is written by bin/agent via AGENT_OS_PID_FILE env var ---
+# No premature PID write here. The agent process self-registers after startup.
 
 
 
@@ -280,16 +285,26 @@ if ($NoMcp) {
 else {
     $resolvedMcpConfig = $McpConfig
     if (-not $resolvedMcpConfig) {
-        # Priority 1: project-local MCP config (via ProjectDir resolved from RoomDir)
+        # Priority 1: project-local MCP config ($ProjectDir/.agents/mcp/mcp-config.json)
         if ($ProjectDir) {
             $projectMcpConfig = Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json"
             if (Test-Path $projectMcpConfig) {
                 $resolvedMcpConfig = $projectMcpConfig
             }
         }
-        # Priority 2: global agents dir
+        # Priority 2: agents dir (same repo, e.g. installed copy)
         if (-not $resolvedMcpConfig) {
-            $resolvedMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+            $agentsDirMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
+            if (Test-Path $agentsDirMcpConfig) {
+                $resolvedMcpConfig = $agentsDirMcpConfig
+            }
+        }
+        # Priority 3: OSTWIN_HOME global config (~/.ostwin/mcp/mcp-config.json)
+        if (-not $resolvedMcpConfig) {
+            $ostwinMcpConfig = Join-Path $OstwinHome "mcp" "mcp-config.json"
+            if (Test-Path $ostwinMcpConfig) {
+                $resolvedMcpConfig = $ostwinMcpConfig
+            }
         }
     }
     if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
@@ -332,36 +347,108 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         $safeRole = $RoleName -replace "'", "'\''"
 
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
+        $safePidFile = $pidFile -replace "'", "'\''"
+        $safeOstwinHome = $OstwinHome.Replace('\', '/').Replace("'", "'\''")
+        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''")} else { "" }
         $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
 export AGENT_OS_ROLE='$safeRole'
 export AGENT_OS_PARENT_PID='$PID'
 export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
+export AGENT_OS_PID_FILE='$safePidFile'
+export OSTWIN_HOME='$safeOstwinHome'
+export AGENT_OS_PROJECT_DIR='$safeProjectDir'
 $cwdLine
-exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine > '$safeOutput' 2>&1
+# Write PID before exec — `$`$ survives exec, so this is the real agent PID.
+# bin/agent also writes this (harmless overwrite); this fallback ensures
+# non-bin/agent commands (deepagents, custom CLIs) still get tracked.
+echo "`$$" > '$safePidFile'
+# Log diagnostic info before exec
+echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> '$safeOutput'
+exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine >> '$safeOutput' 2>&1
+# If exec fails, this line runs:
+echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
 "@
         $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
         chmod +x $wrapperScript 2>$null
 
-        $proc = Start-Process -FilePath "bash" `
-            -ArgumentList $wrapperScript `
-            -NoNewWindow -PassThru `
-            -RedirectStandardInput $stdinNull
+        # --- Launch bash via System.Diagnostics.Process ---
+        # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
+        # (no console to attach to in headless runspace). Direct Process API works.
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = "bash"
+        $psi.Arguments = "`"$wrapperScript`""
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
+        $psi.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $proc.StandardInput.Close()  # equivalent to /dev/null stdin
 
-        # Overwrite PID file with the actual bash child PID (not PS $PID)
-        # so manager's Test-PidAlive can detect when the agent process dies.
-        $proc.Id | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline
+        Write-Warning "[Invoke-Agent] bash launched as PID $($proc.Id), HasExited=$($proc.HasExited), wrapper=$wrapperScript"
 
-        $finished = $proc | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
+        # --- Wait for agent to self-register its PID (max 15s) ---
+        # The wrapper writes $$ to the PID file before exec, and bin/agent
+        # also writes it. We poll until we see a valid, alive PID.
+        $pidConfirmTimeout = 15
+        $pidConfirmStart = [int][double]::Parse((Get-Date -UFormat %s))
+        $confirmedPid = $null
+        while (([int][double]::Parse((Get-Date -UFormat %s)) - $pidConfirmStart) -lt $pidConfirmTimeout) {
+            if ($proc.HasExited) {
+                # Process already done — do one final PID file read before giving up.
+                # The wrapper writes PID before exec, so the file may exist even if
+                # the process exited quickly (fast completion or exec failure).
+                if (Test-Path $pidFile) {
+                    $pidContent = (Get-Content $pidFile -Raw -ErrorAction SilentlyContinue)
+                    if ($pidContent -and ($pidContent.Trim() -match '^\d+$')) {
+                        $confirmedPid = [int]$pidContent.Trim()
+                    }
+                }
+                break
+            }
+            if (Test-Path $pidFile) {
+                $pidContent = (Get-Content $pidFile -Raw -ErrorAction SilentlyContinue)
+                if ($pidContent -and ($pidContent.Trim() -match '^\d+$')) {
+                    $candidatePid = [int]$pidContent.Trim()
+                    # Verify it's actually alive and not our own PowerShell PID
+                    if ($candidatePid -ne $PID) {
+                        try {
+                            $p = Get-Process -Id $candidatePid -ErrorAction Stop
+                            if ($p) { $confirmedPid = $candidatePid; break }
+                        } catch { }
+                    }
+                }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+
+        if (-not $confirmedPid -and -not $proc.HasExited) {
+            Write-Warning "[Invoke-Agent] PID confirmation timed out after ${pidConfirmTimeout}s for '$RoleName'. Falling back to proc.Id ($($proc.Id)). Agent may not be tracked correctly."
+        }
+        Write-Warning "[Invoke-Agent] PID confirmation result: confirmedPid=$confirmedPid procId=$($proc.Id) procHasExited=$($proc.HasExited)"
+
+        $finished = $proc.WaitForExit($TimeoutSeconds * 1000)
         if (-not $proc.HasExited) {
-            # Timeout
-            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            # Timeout — kill the confirmed agent PID if available, else fall back to proc.Id
+            $killPid = if ($confirmedPid) { $confirmedPid } else { $proc.Id }
+            Stop-Process -Id $killPid -Force -ErrorAction SilentlyContinue
+            # Also kill proc.Id in case they differ (belt-and-suspenders)
+            if ($confirmedPid -and $confirmedPid -ne $proc.Id) {
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
             $exitCode = 124
             "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
         }
         else {
             $exitCode = $proc.ExitCode
+        }
+
+        # --- Diagnostic: log output on failure ---
+        if ($exitCode -ne 0 -and (Test-Path $outputFile)) {
+            $firstLines = Get-Content $outputFile -TotalCount 5 -ErrorAction SilentlyContinue
+            if ($firstLines) {
+                Write-Warning "[Invoke-Agent] Agent exited with code $exitCode. First output lines: $($firstLines -join ' | ')"
+            }
         }
     }
     catch {

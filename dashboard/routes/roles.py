@@ -8,14 +8,14 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from dashboard.models import Role, CreateRoleRequest
-from dashboard.api_utils import AGENTS_DIR, PLANS_DIR
+from dashboard.api_utils import AGENTS_DIR, PLANS_DIR, GLOBAL_ROLES_DIR
 from dashboard.auth import get_current_user
 import dashboard.global_state as global_state
 
 router = APIRouter(tags=["roles"])
 logger = logging.getLogger(__name__)
 
-ROLES_CONFIG_FILE = AGENTS_DIR / "roles" / "config.json"
+ROLES_CONFIG_FILE = GLOBAL_ROLES_DIR / "config.json"
 ENGINE_CONFIG_FILE = AGENTS_DIR / "config.json"
 
 PROVIDER_MAP = {
@@ -34,7 +34,10 @@ def _detect_provider(model_id: str) -> str:
 
 def _read_role_json(role_name: str) -> dict:
     """Read individual role.json from disk (the engine's per-role definition)."""
-    role_file = AGENTS_DIR / "roles" / role_name / "role.json"
+    role_file = GLOBAL_ROLES_DIR / role_name / "role.json"
+    if not role_file.exists():
+        role_file = AGENTS_DIR / "roles" / role_name / "role.json"
+        
     if role_file.exists():
         try:
             return json.loads(role_file.read_text())
@@ -54,21 +57,39 @@ def _read_engine_config() -> dict:
 
 
 def load_roles() -> List[Role]:
-    if not ROLES_CONFIG_FILE.exists():
-        registry_file = AGENTS_DIR / "roles" / "registry.json"
+    roles_list = []
+    loaded_names = set()
+    
+    # 1. Load from config.json cache if exists
+    if ROLES_CONFIG_FILE.exists():
+        with open(ROLES_CONFIG_FILE, "r") as f:
+            try:
+                data = json.load(f)
+                roles_list = [Role(**r) for r in data]
+                loaded_names = {r.name for r in roles_list}
+            except: pass
+
+    # 2. If config.json doesn't exist or is empty, bootstrap from registry.json
+    if not roles_list:
+        registry_file = GLOBAL_ROLES_DIR / "registry.json"
+        if not registry_file.exists():
+            registry_file = AGENTS_DIR / "roles" / "registry.json"
+            
         if registry_file.exists():
             registry = json.loads(registry_file.read_text())
             engine_config = _read_engine_config()
-            default_roles = []
             for r in registry.get("roles", []):
                 name = r["name"]
+                if name in loaded_names: continue
                 role_json = _read_role_json(name)
                 engine_role = engine_config.get(name, {})
                 model = engine_role.get("default_model") or role_json.get("model") or r.get("default_model", "gemini-3-flash-preview")
                 timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
                 skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
                 description = role_json.get("description", r.get("description", ""))
-                role_md_file = AGENTS_DIR / "roles" / name / "ROLE.md"
+                role_md_file = GLOBAL_ROLES_DIR / name / "ROLE.md"
+                if not role_md_file.exists():
+                    role_md_file = AGENTS_DIR / "roles" / name / "ROLE.md"
                 instructions = ""
                 if role_md_file.exists():
                     try:
@@ -92,14 +113,57 @@ def load_roles() -> List[Role]:
                     created_at=now,
                     updated_at=now
                 )
-                default_roles.append(role)
-            save_roles(default_roles)
-            return default_roles
-        return []
+                roles_list.append(role)
+                loaded_names.add(name)
 
-    with open(ROLES_CONFIG_FILE, "r") as f:
-        data = json.load(f)
-        return [Role(**r) for r in data]
+    # 3. Dynamically discover any other role directories
+    added_new = False
+    
+    # Helper to scan a directory for valid role folders
+    def _scan_dir_for_roles(base_dir: Path):
+        nonlocal added_new
+        if not base_dir.exists(): return
+        engine_config = _read_engine_config()
+        for child in base_dir.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                name = child.name
+                if name not in loaded_names:
+                    role_file = child / "role.json"
+                    md_file = child / "ROLE.md"
+                    if role_file.exists() or md_file.exists():
+                        role_json = _read_role_json(name)
+                        engine_role = engine_config.get(name, {})
+                        model = engine_role.get("default_model") or role_json.get("model") or "gemini-3-flash-preview"
+                        timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", 300)
+                        skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
+                        description = role_json.get("description", "")
+                        
+                        instructions = ""
+                        # prefer global md file
+                        actual_md = GLOBAL_ROLES_DIR / name / "ROLE.md"
+                        if not actual_md.exists(): actual_md = md_file
+                        if actual_md.exists():
+                            try: instructions = actual_md.read_text()
+                            except OSError: pass
+                            
+                        now = datetime.now(timezone.utc).isoformat()
+                        role = Role(
+                            id=str(uuid.uuid4()), name=name, description=description, instructions=instructions,
+                            provider=_detect_provider(model).lower(), version=model, temperature=0.7,
+                            budget_tokens_max=500000, max_retries=3, timeout_seconds=timeout, skill_refs=skill_refs,
+                            system_prompt_override=None, created_at=now, updated_at=now
+                        )
+                        roles_list.append(role)
+                        loaded_names.add(name)
+                        added_new = True
+
+    _scan_dir_for_roles(GLOBAL_ROLES_DIR)
+    _scan_dir_for_roles(AGENTS_DIR / "roles")
+
+    if added_new or not ROLES_CONFIG_FILE.exists():
+        save_roles(roles_list)
+        
+    return roles_list
 
 
 def save_roles(roles: List[Role]):
@@ -124,7 +188,7 @@ def _sync_role_to_engine(role: Role):
         logger.warning("Failed to update engine config.json: %s", e)
 
     # Update individual role.json
-    role_dir = AGENTS_DIR / "roles" / role.name
+    role_dir = GLOBAL_ROLES_DIR / role.name
     role_dir.mkdir(parents=True, exist_ok=True)
     role_file = role_dir / "role.json"
     role_json = _read_role_json(role.name)
@@ -173,7 +237,9 @@ def sync_roles_from_disk() -> dict:
         if disk_description and disk_description != role.description:
             role.description = disk_description
             changed = True
-        role_md_file = AGENTS_DIR / "roles" / role.name / "ROLE.md"
+        role_md_file = GLOBAL_ROLES_DIR / role.name / "ROLE.md"
+        if not role_md_file.exists():
+            role_md_file = AGENTS_DIR / "roles" / role.name / "ROLE.md"
         if role_md_file.exists():
             try:
                 disk_instructions = role_md_file.read_text()

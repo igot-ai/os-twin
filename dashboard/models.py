@@ -66,6 +66,7 @@ class RefineRequest(BaseModel):
     plan_id: str = ""
     model: str = ""
     chat_history: list = Field(default_factory=list)
+    working_dir: str = ""  # Target project directory for this plan
 
 
 class UpdatePlanRoleConfigRequest(BaseModel):

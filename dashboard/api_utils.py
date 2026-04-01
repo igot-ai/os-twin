@@ -49,6 +49,9 @@ if os.environ.get("OSTWIN_PROJECT_DIR"):
 # Global plans storage — clean with: rm -rf ~/.ostwin/plans
 PLANS_DIR = Path.home() / ".ostwin" / "plans"
 
+# Global roles storage
+GLOBAL_ROLES_DIR = Path.home() / ".ostwin" / "roles"
+
 # Frontend static-export detection (dashboard/fe/out)
 FE_OUT_DIR = DEMO_DIR / "fe" / "out"
 USE_FE = FE_OUT_DIR.exists() and (FE_OUT_DIR / "index.html").exists()
@@ -424,7 +427,7 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
 def get_active_epics_using_skill(skill_name: str) -> int:
     """Count active EPICs (war-rooms) that use the given skill."""
     # 1. Load all roles to see which ones use this skill
-    roles_config_file = AGENTS_DIR / "roles" / "config.json"
+    roles_config_file = GLOBAL_ROLES_DIR / "config.json"
     roles_using_skill = set()
     if roles_config_file.exists():
         try:
@@ -700,24 +703,22 @@ def get_plan_roles_config(plan_id: str) -> dict:
     return {}
 
 def build_roles_list(config: dict, include_skills: bool = False) -> list:
-    """Build roles list from registry + config.
+    """Build roles list from global loaded configuration + local overrides.
     Optionally includes resolved skills for each role.
     """
     from dashboard.constants import ROLE_DEFAULTS
-    registry_file = AGENTS_DIR / "roles" / "registry.json"
-    registry_roles = []
-    if registry_file.exists():
-        registry = json.loads(registry_file.read_text())
-        registry_roles = registry.get("roles", [])
-
+    from dashboard.routes.roles import load_roles
+    
+    loaded_roles = load_roles()
+    
     roles = []
-    for role in registry_roles:
-        name = role["name"]
+    for role_obj in loaded_roles:
+        name = role_obj.name
         role_config = config.get(name, {})
         defaults = ROLE_DEFAULTS.get(name, {})
         
         dm_def = defaults.get("default_model", "gemini-3-flash-preview")
-        dm = role_config.get("default_model", role.get("default_model", dm_def))
+        dm = role_config.get("default_model", role_obj.version or dm_def)
         
         ts_def = defaults.get("timeout_seconds", 600)
         ts = role_config.get("timeout_seconds", ts_def)
@@ -725,7 +726,9 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
         # Skill refs: plan config → global dashboard role → on-disk role.json
         plan_skill_refs = role_config.get("skill_refs")
         if not plan_skill_refs:
-            role_json_file = AGENTS_DIR / "roles" / name / "role.json"
+            role_json_file = GLOBAL_ROLES_DIR / name / "role.json"
+            if not role_json_file.exists():
+                role_json_file = AGENTS_DIR / "roles" / name / "role.json"
             if role_json_file.exists():
                 try:
                     rj = json.loads(role_json_file.read_text())
@@ -736,17 +739,17 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
 
         role_data = {
             "name": name,
-            "description": role.get("description", ""),
+            "description": role_obj.description or "",
             "default_model": dm,
             "timeout_seconds": ts,
             "temperature": role_config.get("temperature", defaults.get("temperature", 0.7)),
             "skill_refs": plan_skill_refs,
             "disabled_skills": role_config.get("disabled_skills", []),
-            "runner": role.get("runner"),
-            "capabilities": role.get("capabilities", []),
-            "supported_task_types": role.get("supported_task_types", []),
-            "default_assignment": role.get("default_assignment", False),
-            "instance_support": role.get("instance_support", False),
+            "runner": "base", # Fallback since dynamic roles don't typically have custom runners
+            "capabilities": [],
+            "supported_task_types": [],
+            "default_assignment": False,
+            "instance_support": False,
         }
         
         if include_skills:

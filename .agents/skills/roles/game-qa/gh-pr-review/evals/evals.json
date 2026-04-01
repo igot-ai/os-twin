@@ -1,0 +1,23 @@
+{
+  "skill_name": "gh-pr-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review PR #6",
+      "expected_output": "Agent fetches PR diff, filters C# files in Assets/Game/ scope, applies unity-code-review dimensions, creates a consolidated markdown report with severity tags, and submits APPROVE or REQUEST_CHANGES decision attaching the report.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Can you check PR #3, focus on mobile performance.",
+      "expected_output": "Agent reads mobile-performance.md reference, fetches PR diff, identifies mobile-relevant patterns (GC in hot paths, targetFrameRate, etc.), creates a consolidated report highlighting [MOBILE-*] issues, and submits review decision attaching the report.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Review and approve pr #7 if it looks good",
+      "expected_output": "Agent fetches PR, reviews all C# files against all 5 dimensions, creates a consolidated report, and submits APPROVE only if criteria met (0 Critical, 0 Warning). If issues found, submits REQUEST_CHANGES instead despite user saying 'approve', attaching the report.",
+      "files": []
+    }
+  ]
+}

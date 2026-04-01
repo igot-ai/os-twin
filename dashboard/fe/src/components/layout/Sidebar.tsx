@@ -12,6 +12,7 @@ const navItems = [
   { href: '/roles', icon: 'person', label: 'Roles' },
   { href: '/skills', icon: 'extension', label: 'Skills' },
   { href: '/mcp', icon: 'terminal', label: 'MCP' },
+  { href: '/channels', icon: 'hub', label: 'Channels' },
   { href: '/settings', icon: 'settings', label: 'Settings' },
 ];
 

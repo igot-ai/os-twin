@@ -6,7 +6,7 @@
       "name": "start",
       "type": "script",
       "entrypoint": "__main__.py",
-      "invoke": "python -m dashboard {args}",
+      "invoke": "~/.ostwin/.venv/bin/python -m dashboard {args}",
       "description": "Start the reporter"
     }
   ]

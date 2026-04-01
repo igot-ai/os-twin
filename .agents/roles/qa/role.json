@@ -15,6 +15,6 @@
   "skill_refs": [],
   "cli": "agent",
   "model": "gemini-3-flash-preview",
-  "timeout": 300
+  "timeout": 300,
+  "instance_type": "evaluator"
 }
-
