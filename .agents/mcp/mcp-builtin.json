@@ -49,8 +49,8 @@
       ]
     },
     "ai-game-developer": {
-      "disabled": false,
-      "serverUrl": "http://localhost:51657"
+      "type": "http",
+      "url": "http://localhost:51657"
     }
   }
 }
