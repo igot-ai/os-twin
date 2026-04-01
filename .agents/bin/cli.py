@@ -61,40 +61,94 @@ _original_stream_agent = _ni._stream_agent
 
 
 async def _resilient_stream_agent(agent, stream_input, config, state, console, file_op_tracker):
-    """Wrap _stream_agent with retry on transient ClosedResourceError."""
+    """Wrap _stream_agent with retry on transient errors and tool failures.
+
+    Handles two categories of recoverable errors:
+    1. Transient connection errors (ClosedResourceError, ReadError, WriteError)
+       — retried with exponential backoff up to max_retries.
+    2. Tool execution errors (ToolException from MCP/langchain tools)
+       — resumed immediately so the agent can see the failure and adapt.
+    """
     import asyncio as _aio
+    import logging as _log
+
+    _logger = _log.getLogger("agent_os.resilient_stream")
 
     max_retries = 3
+    max_tool_failures = 10  # circuit-breaker for runaway tool errors
     _original_input = stream_input  # preserve for fresh-run retries
+    tool_failure_count = 0
 
-    for attempt in range(max_retries):
+    connection_attempt = 0
+
+    while connection_attempt < max_retries:
         try:
             await _original_stream_agent(
                 agent, stream_input, config, state, console, file_op_tracker,
             )
             return  # success
         except Exception as exc:
+            exc_type = type(exc).__name__
+            exc_module = type(exc).__module__ or ""
             err_str = str(exc)
+
+            # --- Category 1: transient connection errors ---
             is_transient = (
                 "ClosedResourceError" in err_str
                 or "ReadError" in err_str
                 or "WriteError" in err_str
             )
-            if is_transient and attempt < max_retries - 1:
-                wait = 2 ** (attempt + 1)
+            if is_transient and connection_attempt < max_retries - 1:
+                connection_attempt += 1
+                wait = 2 ** connection_attempt
                 console.print(
-                    f"[yellow]\u26a0 Remote connection lost ({type(exc).__name__}), "
-                    f"retrying in {wait}s ({attempt + 1}/{max_retries})\u2026[/yellow]"
+                    f"[yellow]\u26a0 Remote connection lost ({exc_type}), "
+                    f"retrying in {wait}s ({connection_attempt}/{max_retries})\u2026[/yellow]"
                 )
                 await _aio.sleep(wait)
-                # Server-side ClosedResourceError means internal crash — resume
-                # may not work.  Try resume first, fall back to fresh input.
                 try:
                     from langgraph.types import Command as _Cmd
                     stream_input = _Cmd(resume={})
                 except Exception:
                     stream_input = _original_input
                 continue
+
+            # --- Category 2: tool execution errors (ToolException, etc.) ---
+            is_tool_error = (
+                "ToolException" in exc_type
+                or "ToolException" in err_str
+                or "langchain" in exc_module
+                or "Tool execution failed" in err_str
+            )
+            if is_tool_error:
+                tool_failure_count += 1
+                _logger.warning(
+                    "Tool execution error (%d/%d): %s: %s",
+                    tool_failure_count, max_tool_failures, exc_type, err_str,
+                )
+                if tool_failure_count >= max_tool_failures:
+                    console.print(
+                        f"[red]✗ Too many tool failures ({tool_failure_count}), "
+                        f"aborting.[/red]"
+                    )
+                    raise
+                # Show the error but keep going — the agent will see it
+                # via the checkpoint and can choose a different approach.
+                console.print(
+                    f"[yellow]⚠ Tool error ({exc_type}): {err_str[:200]}[/yellow]"
+                )
+                console.print(
+                    "[dim]  ↳ Resuming agent so it can adapt…[/dim]"
+                )
+                try:
+                    from langgraph.types import Command as _Cmd
+                    stream_input = _Cmd(resume={})
+                except Exception:
+                    stream_input = _original_input
+                # Don't increment connection_attempt — tool errors are
+                # independent of connection health
+                continue
+
             raise
 
 
