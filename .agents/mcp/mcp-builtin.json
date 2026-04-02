@@ -26,6 +26,17 @@
       "env": {
         "AGENT_OS_ROOT": "${PROJECT_DIR}"
       }
+    },
+    "ai-game-developer": {
+      "type": "http",
+      "url": "http://localhost:51657"
+    },
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
     }
   }
 }
