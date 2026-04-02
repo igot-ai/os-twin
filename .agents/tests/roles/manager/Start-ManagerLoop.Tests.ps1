@@ -686,6 +686,7 @@ Classified as implementation bug. Engineer should fix.
             & $script:NewWarRoom -RoomId "room-220" -TaskRef "TASK-220" `
                                  -TaskDescription "Re-spawn guard" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-220"
+            Write-V2Lifecycle -RoomDir $roomDir
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Set state_changed_at to past (so done signal is "newer")
@@ -700,19 +701,27 @@ Classified as implementation bug. Engineer should fix.
             $pidFile = Join-Path $roomDir "pids" "engineer.pid"
             Test-Path $pidFile | Should -BeFalse
 
-            # Simulate the guard: check for pending signal before re-spawn
-            $expectedSignals = @("done", "error")
+            # Lifecycle-driven pending signal guard
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $stateDef = $lc.states.developing
+            $expectedSignals = @($stateDef.signals.PSObject.Properties.Name)
+            $expectedRole = ($stateDef.role -replace ':.*$', '')
+
             $pendingSignal = $null
             foreach ($sigType in $expectedSignals) {
                 $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
                 if ($msgs -and $msgs.Count -gt 0) {
                     $latest = $msgs[-1]
+                    # Sender validation
+                    $senderBase = ($latest.from -replace ':.*$', '')
+                    if ($senderBase -ne $expectedRole) { continue }
+                    # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
                         $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
-                    if ($msgTs -ge $changedAt) {
+                    if ($msgTs -gt $changedAt) {
                         $pendingSignal = $sigType
                         break
                     }
@@ -727,10 +736,14 @@ Classified as implementation bug. Engineer should fix.
             & $script:NewWarRoom -RoomId "room-221" -TaskRef "TASK-221" `
                                  -TaskDescription "Normal re-spawn" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-221"
+            Write-V2Lifecycle -RoomDir $roomDir
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # No messages at all — channel is empty
-            $expectedSignals = @("done", "error")
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $stateDef = $lc.states.developing
+            $expectedSignals = @($stateDef.signals.PSObject.Properties.Name)
+
             $pendingSignal = $null
             foreach ($sigType in $expectedSignals) {
                 $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
@@ -878,21 +891,27 @@ Context "PLAN-REVIEW Verdict Logic" {
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                                   -Type "done" -Ref "TASK-320" -Body "Work complete"
 
-            # Simulate deadlock recovery signal check
+            # Lifecycle-driven deadlock signal check
             $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
-            $dlStateDef = $lc.states.developing
-            $dlExpectedSignals = @($dlStateDef.signals.PSObject.Properties.Name)
+            $stateDef = $lc.states.developing
+            $expectedRole = ($stateDef.role -replace ':.*$', '')
 
             # The pending done signal should be detected
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
             $msgs.Count | Should -Be 1
             $latest = $msgs[0]
+
+            # Sender validation: sender matches lifecycle role
+            $senderBase = ($latest.from -replace ':.*$', '')
+            $senderBase | Should -Be $expectedRole
+
+            # Strict timing: signal is after state_changed_at
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
                 $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
-            ($msgTs -ge $changedAt) | Should -BeTrue
+            ($msgTs -gt $changedAt) | Should -BeTrue
             # Deadlock recovery should NOT reset this room
         }
 
@@ -1075,20 +1094,22 @@ Context "PLAN-REVIEW Verdict Logic" {
         }
     }
 
-    Context "Find-LatestSignal timestamp grace window" {
-        It "accepts signal with same-second timestamp as state_changed_at" {
+    Context "Find-LatestSignal — strict timing (no grace window)" {
+        It "accepts signal posted AFTER state_changed_at" {
             & $script:NewWarRoom -RoomId "room-410" -TaskRef "TASK-410" `
-                                 -TaskDescription "Grace window test" -WarRoomsDir $script:warRoomsDir
+                                 -TaskDescription "Strict timing test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-410"
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
-            # Post a pass signal immediately
-            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+            # Set state_changed_at to 10s in the past
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Post signal now (will be > pastEpoch)
+            & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "pass" -Ref "TASK-410" -Body "VERDICT: PASS"
 
-            # Read back the signal and compare with state_changed_at
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
-            $msgs.Count | Should -Be 1
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
@@ -1096,25 +1117,23 @@ Context "PLAN-REVIEW Verdict Logic" {
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
 
-            # With 2s grace window, signal should be accepted even if same second
-            ($msgTs -ge ($changedAt - 2)) | Should -BeTrue
+            # Strict: msgTs > changedAt
+            ($msgTs -gt $changedAt) | Should -BeTrue
         }
 
-        It "accepts signal posted 1s before state_changed_at (within grace)" {
+        It "rejects signal posted BEFORE state_changed_at (stale signal)" {
             & $script:NewWarRoom -RoomId "room-411" -TaskRef "TASK-411" `
-                                 -TaskDescription "1s grace test" -WarRoomsDir $script:warRoomsDir
+                                 -TaskDescription "Stale signal rejection" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-411"
 
-            # Post pass message first
-            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+            # Post signal first
+            & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "pass" -Ref "TASK-411" -Body "VERDICT: PASS"
 
-            # Simulate: state_changed_at written 1s after the message
-            Start-Sleep -Milliseconds 100
-            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 1
+            # Set state_changed_at to future (simulates state reset after the message)
+            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 60
             $futureEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
-            # Read message ts
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
             $latest = $msgs[0]
             $msgTs = 0
@@ -1123,34 +1142,242 @@ Context "PLAN-REVIEW Verdict Logic" {
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
 
-            # Without grace: would fail ($msgTs < $changedAt)
-            # With 2s grace: should pass ($msgTs >= $changedAt - 2)
-            ($msgTs -ge ($changedAt - 2)) | Should -BeTrue
+            # Strict: msgTs must be > changedAt — stale signal is NOT accepted
+            ($msgTs -gt $changedAt) | Should -BeFalse
         }
 
-        It "rejects signal older than grace window" {
+        It "rejects same-second signal (not strictly after)" {
             & $script:NewWarRoom -RoomId "room-412" -TaskRef "TASK-412" `
-                                 -TaskDescription "Old signal reject" -WarRoomsDir $script:warRoomsDir
+                                 -TaskDescription "Same-second rejection" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-412"
 
-            # Post pass signal first
-            & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
+            # Post signal now
+            & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "pass" -Ref "TASK-412" -Body "VERDICT: PASS"
 
-            # Set state_changed_at to far future (well beyond grace)
-            $farFuture = [int][double]::Parse((Get-Date -UFormat %s)) + 60
-            $farFuture.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
-
+            # Read the message ts and set state_changed_at to the SAME epoch
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
                 $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
             }
+            # Set state_changed_at = msgTs (same second)
+            $msgTs.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
 
-            # Signal is 60s old relative to state — outside 2s grace window
-            ($msgTs -ge ($changedAt - 2)) | Should -BeFalse
+            # Strict: msgTs > changedAt requires strictly after — same-second is NOT accepted
+            # This is the key difference from the old grace window behavior
+            ($msgTs -gt $changedAt) | Should -BeFalse
+        }
+    }
+
+    Context "Find-LatestSignal — sender validation (signal bleed prevention)" {
+        It "accepts signal from the lifecycle state's assigned role" {
+            & $script:NewWarRoom -RoomId "room-500" -TaskRef "TASK-500" `
+                                 -TaskDescription "Sender accept test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-500"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+
+            # State 'developing' has role='engineer' — post done from 'engineer'
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                  -Type "done" -Ref "TASK-500" -Body "All done"
+
+            # Simulate lifecycle-driven validation
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $stateDef = $lc.states.developing
+            $expectedRole = ($stateDef.role -replace ':.*$', '')
+
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $senderBase = ($msgs[0].from -replace ':.*$', '')
+
+            # Sender matches role — should be accepted
+            $senderBase | Should -Be $expectedRole
+        }
+
+        It "rejects signal from a DIFFERENT role than the lifecycle state expects" {
+            & $script:NewWarRoom -RoomId "room-501" -TaskRef "TASK-501" `
+                                 -TaskDescription "Sender reject test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-501"
+
+            # Multi-stage lifecycle: developing→game-designer→review→passed
+            @{
+                version = 2; initial_state = "developing"; max_retries = 3
+                states = @{
+                    developing     = @{ role = "game-engineer";  type = "work"; signals = @{ done = @{ target = "game-designer" }; error = @{ target = "failed" } } }
+                    'game-designer' = @{ role = "game-designer"; type = "work"; signals = @{ done = @{ target = "review" }; error = @{ target = "failed" } } }
+                    review         = @{ role = "game-qa";        type = "review"; signals = @{ pass = @{ target = "passed" }; fail = @{ target = "developing" } } }
+                    passed         = @{ type = "terminal" }
+                    failed         = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "game-designer"
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Post 'done' from 'game-engineer' (WRONG sender for game-designer state)
+            & $script:PostMessage -RoomDir $roomDir -From "game-engineer" -To "manager" `
+                                  -Type "done" -Ref "TASK-501" -Body "Engineer done but I'm not designer"
+
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $stateDef = $lc.states.'game-designer'
+            $expectedRole = ($stateDef.role -replace ':.*$', '')
+
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $senderBase = ($msgs[0].from -replace ':.*$', '')
+
+            # Sender does NOT match lifecycle role — must be REJECTED
+            $senderBase | Should -Not -Be $expectedRole
+            $senderBase | Should -Be "game-engineer"     # confirms who sent it
+            $expectedRole | Should -Be "game-designer"    # confirms who we expected
+        }
+    }
+
+    Context "Signal bleed prevention — room-003 cascade scenario" {
+        It "game-engineer done does NOT cascade through game-designer and review" {
+            & $script:NewWarRoom -RoomId "room-510" -TaskRef "EPIC-510" `
+                                 -TaskDescription "Signal bleed test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-510"
+
+            # Room-003 lifecycle: developing → game-designer → review → passed
+            @{
+                version = 2; initial_state = "developing"; max_retries = 3
+                states = @{
+                    developing      = @{ role = "game-engineer";  type = "work";   signals = @{ done = @{ target = "game-designer" }; error = @{ target = "failed" } } }
+                    'game-designer' = @{ role = "game-designer"; type = "work";   signals = @{ done = @{ target = "review" }; error = @{ target = "failed" } } }
+                    review          = @{ role = "game-qa";        type = "review"; signals = @{ pass = @{ target = "passed" }; done = @{ target = "passed" }; fail = @{ target = "developing" } } }
+                    passed          = @{ type = "terminal" }
+                    failed          = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            # Start in developing state
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # game-engineer posts 'done'
+            & $script:PostMessage -RoomDir $roomDir -From "game-engineer" -To "manager" `
+                                  -Type "done" -Ref "EPIC-510" -Body "All tasks completed"
+
+            # --- Step 1: developing state should detect it (correct sender) ---
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $devDef = $lc.states.developing
+            $devRole = ($devDef.role -replace ':.*$', '')
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $senderBase = ($msgs[0].from -replace ':.*$', '')
+
+            # developing.role = game-engineer, sender = game-engineer → MATCH
+            $senderBase | Should -Be $devRole
+
+            # --- Step 2: transition to game-designer ---
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "game-designer"
+
+            # --- Step 3: game-designer state must REJECT the same signal ---
+            $designerDef = $lc.states.'game-designer'
+            $designerRole = ($designerDef.role -replace ':.*$', '')
+
+            # The SAME done message is still the latest — but sender is game-engineer
+            $msgs2 = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $sender2 = ($msgs2[0].from -replace ':.*$', '')
+
+            # game-designer.role = game-designer, sender = game-engineer → NO MATCH
+            $sender2 | Should -Not -Be $designerRole
+            $sender2 | Should -Be "game-engineer"
+            $designerRole | Should -Be "game-designer"
+
+            # If the manager used the old logic (no sender check), it would
+            # transition game-designer → review → passed in seconds.
+            # With sender validation, room stays in game-designer waiting for
+            # actual game-designer agent to post its own done signal.
+            $currentStatus = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $currentStatus | Should -Be "game-designer"
+        }
+
+        It "game-designer own done signal IS accepted after sender validation" {
+            & $script:NewWarRoom -RoomId "room-511" -TaskRef "EPIC-511" `
+                                 -TaskDescription "Correct sender test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-511"
+
+            @{
+                version = 2; initial_state = "developing"; max_retries = 3
+                states = @{
+                    developing      = @{ role = "game-engineer";  type = "work";   signals = @{ done = @{ target = "game-designer" } } }
+                    'game-designer' = @{ role = "game-designer"; type = "work";   signals = @{ done = @{ target = "review" } } }
+                    review          = @{ role = "game-qa";        type = "review"; signals = @{ pass = @{ target = "passed" } } }
+                    passed          = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "game-designer"
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # game-designer posts done (CORRECT sender)
+            & $script:PostMessage -RoomDir $roomDir -From "game-designer" -To "manager" `
+                                  -Type "done" -Ref "EPIC-511" -Body "Design work complete"
+
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $designerDef = $lc.states.'game-designer'
+            $designerRole = ($designerDef.role -replace ':.*$', '')
+
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $senderBase = ($msgs[0].from -replace ':.*$', '')
+
+            # Sender matches lifecycle role → accepted
+            $senderBase | Should -Be $designerRole
+
+            # Timing also passes (message posted after state_changed_at)
+            $msgTs = 0
+            if ($msgs[0].ts -is [datetime]) {
+                $msgTs = [int][double]::Parse((Get-Date $msgs[0].ts -UFormat %s))
+            }
+            $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
+            ($msgTs -gt $changedAt) | Should -BeTrue
+        }
+
+        It "stale game-engineer done cannot cascade through 3 states" {
+            & $script:NewWarRoom -RoomId "room-512" -TaskRef "EPIC-512" `
+                                 -TaskDescription "Triple cascade block" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-512"
+
+            @{
+                version = 2; initial_state = "developing"; max_retries = 3
+                states = @{
+                    developing      = @{ role = "game-engineer";  type = "work";   signals = @{ done = @{ target = "game-designer" } } }
+                    'game-designer' = @{ role = "game-designer"; type = "work";   signals = @{ done = @{ target = "review" } } }
+                    review          = @{ role = "game-qa";        type = "review"; signals = @{ done = @{ target = "passed" } } }
+                    passed          = @{ type = "terminal" }
+                }
+            } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # game-engineer posts done — only this one signal exists
+            & $script:PostMessage -RoomDir $roomDir -From "game-engineer" -To "manager" `
+                                  -Type "done" -Ref "EPIC-512" -Body "Engineer complete"
+
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+
+            # Check each state: developing accepts, game-designer rejects, review rejects
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -Last 1 -AsObject
+            $sender = ($msgs[0].from -replace ':.*$', '')
+
+            # State 1: developing (role=game-engineer) — ACCEPTS
+            ($sender -eq ($lc.states.developing.role -replace ':.*$', '')) | Should -BeTrue
+
+            # State 2: game-designer (role=game-designer) — REJECTS (sender=game-engineer)
+            ($sender -eq ($lc.states.'game-designer'.role -replace ':.*$', '')) | Should -BeFalse
+
+            # State 3: review (role=game-qa) — REJECTS (sender=game-engineer)
+            ($sender -eq ($lc.states.review.role -replace ':.*$', '')) | Should -BeFalse
         }
     }
 
@@ -1187,21 +1414,27 @@ Context "PLAN-REVIEW Verdict Logic" {
             & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
                                   -Type "pass" -Ref "TASK-420" -Body "Architecture approved.`n`nVERDICT: PASS"
 
-            # Simulate Find-LatestSignal
+            # Simulate lifecycle-driven Find-LatestSignal
             $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
-            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+            $stateDef = $lc.states.review
+            $expectedSignals = @($stateDef.signals.PSObject.Properties.Name)
+            $expectedRole = ($stateDef.role -replace ':.*$', '')
             $matchedSignal = $null
 
             foreach ($sigType in $expectedSignals) {
                 $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
                 if ($msgs -and $msgs.Count -gt 0) {
                     $latest = $msgs[-1]
+                    # Sender validation
+                    $senderBase = ($latest.from -replace ':.*$', '')
+                    if ($senderBase -ne $expectedRole) { continue }
+                    # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
                         $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
-                    if ($msgTs -ge ($changedAt - 2)) {
+                    if ($msgTs -gt $changedAt) {
                         $matchedSignal = $sigType
                         break
                     }
@@ -1248,21 +1481,27 @@ Context "PLAN-REVIEW Verdict Logic" {
             & $script:PostMessage -RoomDir $roomDir -From "architect" -To "manager" `
                                   -Type "fail" -Ref "TASK-430" -Body "Architecture rejected.`n`nVERDICT: REJECT"
 
-            # Simulate Find-LatestSignal
+            # Simulate lifecycle-driven Find-LatestSignal
             $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
-            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+            $stateDef = $lc.states.review
+            $expectedSignals = @($stateDef.signals.PSObject.Properties.Name)
+            $expectedRole = ($stateDef.role -replace ':.*$', '')
             $matchedSignal = $null
 
             foreach ($sigType in $expectedSignals) {
                 $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
                 if ($msgs -and $msgs.Count -gt 0) {
                     $latest = $msgs[-1]
+                    # Sender validation
+                    $senderBase = ($latest.from -replace ':.*$', '')
+                    if ($senderBase -ne $expectedRole) { continue }
+                    # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
                         $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
-                    if ($msgTs -ge ($changedAt - 2)) {
+                    if ($msgTs -gt $changedAt) {
                         $matchedSignal = $sigType
                         break
                     }
@@ -1310,21 +1549,27 @@ Context "PLAN-REVIEW Verdict Logic" {
             $pidFile = Join-Path $roomDir "pids" "architect.pid"
             Test-Path $pidFile | Should -BeFalse
 
-            # Simulate the pending signal guard (lines 915-917 in manager)
+            # Simulate the lifecycle-driven pending signal guard
             $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
-            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+            $stateDef = $lc.states.review
+            $expectedSignals = @($stateDef.signals.PSObject.Properties.Name)
+            $expectedRole = ($stateDef.role -replace ':.*$', '')
 
             $pendingSignal = $null
             foreach ($sigType in $expectedSignals) {
                 $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType $sigType -Last 1 -AsObject
                 if ($msgs -and $msgs.Count -gt 0) {
                     $latest = $msgs[-1]
+                    # Sender validation
+                    $senderBase = ($latest.from -replace ':.*$', '')
+                    if ($senderBase -ne $expectedRole) { continue }
+                    # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
                         $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
-                    if ($msgTs -ge ($changedAt - 2)) {
+                    if ($msgTs -gt $changedAt) {
                         $pendingSignal = $sigType
                         break
                     }
@@ -1363,8 +1608,10 @@ Context "PLAN-REVIEW Verdict Logic" {
             $pidFile = Join-Path $roomDir "pids" "architect.pid"
             Test-Path $pidFile | Should -BeFalse
 
+            # Lifecycle-driven: derive signals from lifecycle
             $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
-            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+            $stateDef = $lc.states.review
+            $expectedSignals = @($stateDef.signals.PSObject.Properties.Name)
 
             $pendingSignal = $null
             foreach ($sigType in $expectedSignals) {

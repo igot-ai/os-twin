@@ -286,19 +286,49 @@ function Write-RoomStatus {
 
 # === V2 LIFECYCLE HELPERS ===
 function Find-LatestSignal {
-    param([string]$RoomDir, [string[]]$ExpectedSignals)
+    <#
+    .SYNOPSIS
+        Lifecycle-driven signal detection for a room's current state.
+    .DESCRIPTION
+        Reads lifecycle.states.$StateName to derive:
+          1. Which signal types to look for  (from .signals property names)
+          2. Which role is expected to send   (from .role property)
+        A signal is accepted ONLY when:
+          - The message type matches a defined signal
+          - The sender matches the state's role (prevents bleed across states)
+          - The message timestamp is strictly AFTER the state started
+    #>
+    param(
+        [string]$RoomDir,
+        [Parameter(Mandatory)]$Lifecycle,
+        [Parameter(Mandatory)][string]$StateName
+    )
     $roomId = Split-Path $RoomDir -Leaf
+
+    # --- Derive expected signals + role from lifecycle ---
+    $stateDef = $Lifecycle.states.$StateName
+    if (-not $stateDef -or -not $stateDef.signals) {
+        Write-Log "DEBUG" "[Find-LatestSignal][$roomId] state='$StateName' has no signals defined in lifecycle"
+        return $null
+    }
+    $expectedSignals = @($stateDef.signals.PSObject.Properties.Name)
+    $expectedRole = if ($stateDef.role) { ($stateDef.role -replace ':.*$', '') } else { '' }
+
+    # --- Load state_changed_at epoch ---
     $changedAt = 0
     $changedFile = Join-Path $RoomDir "state_changed_at"
     if (Test-Path $changedFile) {
         $changedAt = [int](Get-Content $changedFile -Raw).Trim()
     }
-    Write-Log "DEBUG" "[Find-LatestSignal][$roomId] state_changed_at=$changedAt, checking signals: $($ExpectedSignals -join ', ')"
-    foreach ($sigType in $ExpectedSignals) {
+    Write-Log "DEBUG" "[Find-LatestSignal][$roomId] state='$StateName' role='$expectedRole' state_changed_at=$changedAt signals=($($expectedSignals -join ', '))"
+
+    foreach ($sigType in $expectedSignals) {
         try {
             $msgs = & $readMessages -RoomDir $RoomDir -FilterType $sigType -Last 1 -AsObject
             if ($msgs -and $msgs.Count -gt 0) {
                 $latest = $msgs[-1]
+
+                # --- Parse timestamp ---
                 $msgTs = 0
                 if ($latest.ts) {
                     if ($latest.ts -is [datetime]) {
@@ -310,9 +340,23 @@ function Find-LatestSignal {
                     }
                 }
                 $bodyPreview = if ($latest.body.Length -gt 120) { $latest.body.Substring(0, 120) + '...' } else { $latest.body }
-                $accepted = ($msgTs -ge ($changedAt - 2))
+
+                # --- SENDER VALIDATION ---
+                # Only accept signals from the role that owns this lifecycle state.
+                # This prevents a 'done' from game-engineer bleeding into game-designer state.
+                if ($expectedRole -and $latest.from) {
+                    $senderBase = ($latest.from -replace ':.*$', '')
+                    if ($senderBase -ne $expectedRole) {
+                        Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' REJECTED: from='$($latest.from)' != lifecycle role='$expectedRole'"
+                        continue
+                    }
+                }
+
+                # --- STRICT TIMING ---
+                # Signal must arrive AFTER the state started (strictly >).
+                # If there's polling delay, next iteration catches it — no data loss.
+                $accepted = ($msgTs -gt $changedAt)
                 Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' from='$($latest.from)' msgTs=$msgTs changedAt=$changedAt accepted=$accepted body=[$bodyPreview]"
-                # Grace window of 2s to handle clock skew between Start-Job launch and message posting
                 if ($accepted) { return $sigType }
             } else {
                 Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' — no messages found"
@@ -967,9 +1011,8 @@ while (-not $script:shuttingDown) {
                             }
                         }
 
-                        # Signal detection
-                        $expectedSignals = @($v2StateDef.signals.PSObject.Properties.Name)
-                        $matchedSignal = Find-LatestSignal $roomDir $expectedSignals
+                        # Signal detection — lifecycle-driven (derives signals + sender from lifecycle.json)
+                        $matchedSignal = Find-LatestSignal -RoomDir $roomDir -Lifecycle $lifecycle -StateName $status
 
                         if ($matchedSignal) {
                             $transitionDef = $v2StateDef.signals.$matchedSignal
@@ -1005,7 +1048,7 @@ while (-not $script:shuttingDown) {
                                 Write-Log "INFO" "[$taskRef] No signal matched. role='$stateBaseRole' pidAlive=$pidAlive spawnLocked=$spawnLocked status='$status'"
                                 if (-not $pidAlive -and -not $spawnLocked) {
                                     # Guard: check if a signal is pending but hasn't been processed yet.
-                                    $pendingSignalCheck = Find-LatestSignal $roomDir $expectedSignals
+                                    $pendingSignalCheck = Find-LatestSignal -RoomDir $roomDir -Lifecycle $lifecycle -StateName $status
                                     if ($pendingSignalCheck) {
                                         Write-Log "DEBUG" "[$taskRef] Signal '$pendingSignalCheck' pending in '$status' — skipping re-spawn."
                                     } else {
@@ -1078,13 +1121,9 @@ while (-not $script:shuttingDown) {
                     $restartState = if ($dlLifecycle.initial_state) { $dlLifecycle.initial_state } else { 'developing' }
 
                     # LEAK-7 fix: check for pending signals before deadlock reset
-                    $dlExpectedSignals = @()
-                    if ($dlStateDef.signals) {
-                        $dlExpectedSignals = @($dlStateDef.signals.PSObject.Properties.Name)
-                    }
                     $dlPendingSignal = $null
-                    if ($dlExpectedSignals.Count -gt 0) {
-                        $dlPendingSignal = Find-LatestSignal $rd $dlExpectedSignals
+                    if ($dlLifecycle) {
+                        $dlPendingSignal = Find-LatestSignal -RoomDir $rd -Lifecycle $dlLifecycle -StateName $ls
                     }
                     if ($dlPendingSignal) {
                         Write-Log "INFO" "[$lt] Deadlock recovery: signal '$dlPendingSignal' pending — skipping reset."
