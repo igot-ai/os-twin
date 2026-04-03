@@ -52,7 +52,7 @@ Cypress.Commands.add('advanceRoom', (room, taskRef) => {
     from_: 'engineer', to: 'manager', type: 'done', ref: taskRef,
     body: `[test] ${taskRef} complete`,
   });
-  cy.setRoomStatus(room, 'qa-review');
+  cy.setRoomStatus(room, 'review');
   cy.wait(600);
   cy.agentPost(room, {
     from_: 'qa', to: 'manager', type: 'pass', ref: taskRef,

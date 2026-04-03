@@ -43,14 +43,14 @@ Expanding EPIC-001 — First task...
 [92mDescribing Manager State Machine — Routing Decisions[0m
 [96m Context pending → engineering (team allocation)[0m
 [32m   [+] pending room with active count below max should be picked up[0m[90m 35ms (33ms|2ms)[0m
-[96m Context engineering → qa-review (done message triggers QA recruitment)[0m
+[96m Context engineering → review (done message triggers QA recruitment)[0m
 [32m   [+] done message count ≥ expected triggers QA transition[0m[90m 40ms (38ms|1ms)[0m
 [32m   [+] done count less than expected does NOT trigger QA[0m[90m 22ms (22ms|1ms)[0m
-[96m Context qa-review → passed (QA PASS verdict)[0m
+[96m Context review → passed (QA PASS verdict)[0m
 [32m   [+] pass message triggers passed status[0m[90m 63ms (59ms|4ms)[0m
-[96m Context qa-review → fixing (QA FAIL with retries)[0m
+[96m Context review → fixing (QA FAIL with retries)[0m
 [32m   [+] fail message + retries < max triggers fix cycle[0m[90m 41ms (38ms|3ms)[0m
-[96m Context qa-review → failed-final (retries exhausted)[0m
+[96m Context review → failed-final (retries exhausted)[0m
 [32m   [+] fail message + retries ≥ max triggers failed-final[0m[90m 27ms (26ms|1ms)[0m
 [0m
 [92mDescribing Full Room Lifecycle[0m
