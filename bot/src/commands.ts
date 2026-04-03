@@ -317,7 +317,8 @@ function cmdPromptLaunch(planId: string): BotResponse {
 async function cmdLaunchPlan(planId: string): Promise<BotResponse[]> {
   const data = await api.getPlan(planId);
   if (data?._error) return [text(`❌ Plan \`${planId}\` not found.`)];
-  const result = await api.launchPlan(planId, data.content);
+  const planContent = data.plan?.content || data.content || '';
+  const result = await api.launchPlan(planId, planContent);
   if (result?._error) return [text(`❌ Failed to launch plan: ${result._error}`)];
   return [text(`🚀 *Plan Launched!* \`${planId}\`\n\nUse /dashboard or /status to monitor progress.`)];
 }

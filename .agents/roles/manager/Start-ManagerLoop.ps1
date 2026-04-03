@@ -305,6 +305,20 @@ while (-not $script:shuttingDown) {
                     $nextState = if ($lifecycle -and $lifecycle.initial_state) { $lifecycle.initial_state } else { "developing" }
                     Write-Log "INFO" "[$taskRef] Dependencies met. Transitioning to $nextState in $roomId..."
                     Write-RoomStatus $roomDir $nextState
+                    # Sync config.json assigned_role with the initial state's role
+                    $initDef = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$nextState) { $lifecycle.states.$nextState } else { $null }
+                    if ($initDef -and $initDef.role) {
+                        $initBaseRole = $initDef.role -replace ':.*$', ''
+                        $rcFile = Join-Path $roomDir "config.json"
+                        if (Test-Path $rcFile) {
+                            $rc = Get-Content $rcFile -Raw | ConvertFrom-Json
+                            if ($rc.assignment) {
+                                $rc.assignment.assigned_role = $initBaseRole
+                                if ($rc.PSObject.Properties['jit_role_id']) { $rc.PSObject.Properties.Remove('jit_role_id') }
+                                $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $rcFile -Encoding utf8
+                            }
+                        }
+                    }
                     Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
                 }
             }
@@ -502,6 +516,21 @@ while (-not $script:shuttingDown) {
                             # Reset crash-respawn counter on successful transition
                             $crashFile = Join-Path $roomDir "crash_respawns"
                             Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
+
+                            # Sync config.json assigned_role with the target state's role
+                            $trDef = $lifecycle.states.$targetState
+                            if ($trDef -and $trDef.role) {
+                                $trBaseRole = $trDef.role -replace ':.*$', ''
+                                $rcFile = Join-Path $roomDir "config.json"
+                                if (Test-Path $rcFile) {
+                                    $rc = Get-Content $rcFile -Raw | ConvertFrom-Json
+                                    if ($rc.assignment) {
+                                        $rc.assignment.assigned_role = $trBaseRole
+                                        if ($rc.PSObject.Properties['jit_role_id']) { $rc.PSObject.Properties.Remove('jit_role_id') }
+                                        $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $rcFile -Encoding utf8
+                                    }
+                                }
+                            }
 
                             # Spawn target state's role agent
                             $targetDef = $lifecycle.states.$targetState
