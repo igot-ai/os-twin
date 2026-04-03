@@ -1,6 +1,11 @@
-﻿---
-name: assets-find
-description: Search the asset database using the search filter string. Allows you to search for Assets. The string argument can provide names, labels or types (classnames).
+---
+name: Find Assets
+description: Find Unity assets by name, type, or label using project-wide search.
+version: 1.0.0
+category: Unity Utilities
+applicable_roles: [game-engineer, engineer, architect]
+tags: [engineer, implementation, unity, assets, search]
+author: Agent OS Core
 ---
 
 # Assets / Find

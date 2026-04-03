@@ -17,13 +17,13 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
 
-from dashboard.api_utils import AGENTS_DIR, PROJECT_ROOT
+from dashboard.api_utils import SYSTEM_MCP_DIR, PROJECT_ROOT
 from dashboard.auth import get_current_user
 
-# Try to import vault and config_resolver from .agents/mcp
+# Try to import vault and config_resolver from the system MCP dir
 import sys
 import os
-MCP_MODULE_PATH = str(AGENTS_DIR / "mcp")
+MCP_MODULE_PATH = str(SYSTEM_MCP_DIR)
 if MCP_MODULE_PATH not in sys.path:
     sys.path.append(MCP_MODULE_PATH)
 
@@ -37,7 +37,7 @@ except ImportError:
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
-MCP_DIR = AGENTS_DIR / "mcp"
+MCP_DIR = SYSTEM_MCP_DIR
 EXTENSIONS_FILE = MCP_DIR / "extensions.json"
 CATALOG_FILE = MCP_DIR / "mcp-catalog.json"
 BUILTIN_CONFIG_FILE = MCP_DIR / "mcp-builtin.json"

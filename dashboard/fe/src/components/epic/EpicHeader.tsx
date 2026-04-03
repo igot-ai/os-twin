@@ -15,7 +15,7 @@ interface EpicHeaderProps {
 const lifecycleStates = [
   'pending',
   'engineering',
-  'qa-review',
+  'review',
   'fixing',
   'manager-triage',
   'passed',
@@ -27,8 +27,8 @@ export default function EpicHeader({ plan, epic }: EpicHeaderProps) {
   const { updateState } = useEpic(epic.plan_id, epic.epic_ref);
 
   const currentStateIndex = lifecycleStates.indexOf(epic.lifecycle_state || 'pending');
-  const targetState = currentStateIndex < lifecycleStates.length - 1 
-    ? lifecycleStates[currentStateIndex + 1] 
+  const targetState = currentStateIndex < lifecycleStates.length - 1
+    ? lifecycleStates[currentStateIndex + 1]
     : (epic.lifecycle_state || 'pending');
 
   const handleAdvanceState = async () => {
@@ -47,7 +47,7 @@ export default function EpicHeader({ plan, epic }: EpicHeaderProps) {
         <div className="flex flex-col">
           {/* Breadcrumb Navigation */}
           <nav className="flex items-center gap-1 text-[11px] mb-0.5" aria-label="Breadcrumb">
-            <Link 
+            <Link
               href={`/plans/${epic.plan_id}`}
               className="text-text-muted hover:text-primary transition-colors"
             >
@@ -60,8 +60,8 @@ export default function EpicHeader({ plan, epic }: EpicHeaderProps) {
           {/* Epic Title and Status Badge */}
           <h1 className="text-lg font-bold text-text-main flex items-center gap-2">
             {epic.epic_ref} — {epic.title}
-            <Badge 
-              variant={getBadgeVariant(epic.lifecycle_state || 'pending')} 
+            <Badge
+              variant={getBadgeVariant(epic.lifecycle_state || 'pending')}
               aria-label={`Status: ${epic.lifecycle_state || 'pending'}`}
               className="gap-1.5"
             >
@@ -74,7 +74,7 @@ export default function EpicHeader({ plan, epic }: EpicHeaderProps) {
 
       {/* Action Buttons */}
       <div className="flex items-center gap-2">
-        <button 
+        <button
           onClick={() => setIsDialogOpen(true)}
           disabled={epic.lifecycle_state === 'signoff'}
           className={`px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded hover:bg-primary-hover transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -82,14 +82,14 @@ export default function EpicHeader({ plan, epic }: EpicHeaderProps) {
         >
           <span className="material-symbols-outlined text-sm" aria-hidden="true">play_arrow</span> Advance State
         </button>
-        <button 
+        <button
           onClick={() => console.log('Retry click')}
           className="px-3 py-1.5 bg-surface border border-border text-text-main text-xs font-semibold rounded hover:bg-surface-hover transition-colors flex items-center gap-1.5"
           aria-label="Retry current operation"
         >
           <span className="material-symbols-outlined text-sm" aria-hidden="true">refresh</span> Retry
         </button>
-        <button 
+        <button
           onClick={() => console.log('Escalate click')}
           className="px-3 py-1.5 bg-surface border border-border text-text-main text-xs font-semibold rounded hover:bg-surface-hover transition-colors flex items-center gap-1.5"
           aria-label="Escalate epic for review"
@@ -97,7 +97,7 @@ export default function EpicHeader({ plan, epic }: EpicHeaderProps) {
           <span className="material-symbols-outlined text-sm" aria-hidden="true">priority_high</span> Escalate
         </button>
         <div className="h-6 w-px bg-border mx-1" aria-hidden="true"></div>
-        <button 
+        <button
           onClick={() => console.log('Edit click')}
           className="p-1.5 text-text-muted hover:text-text-main hover:bg-surface-hover rounded transition-colors"
           aria-label="Edit epic details"
@@ -122,7 +122,7 @@ function getBadgeVariant(status: string): "primary" | "secondary" | "outline" | 
   switch (status) {
     case 'engineering':
       return 'primary';
-    case 'qa-review':
+    case 'review':
       return 'secondary';
     case 'passed':
     case 'signoff':
@@ -138,7 +138,7 @@ function getBadgeVariant(status: string): "primary" | "secondary" | "outline" | 
 function getDotClass(status: string) {
   switch (status) {
     case 'engineering':
-    case 'qa-review':
+    case 'review':
     case 'pending':
       return 'bg-current animate-pulse';
     default:

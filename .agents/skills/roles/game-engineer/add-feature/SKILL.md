@@ -1,9 +1,13 @@
 ---
-name: add-feature
-description: Implement a new Unity feature end-to-end
-tags: [engineer, implementation, feature]
+name: Implement Vertical Slice
+description: Implement a new Unity feature end-to-end following Vertical Slice Architecture.
+version: 1.0.0
+category: Implementation
+applicable_roles: [game-engineer, engineer]
+tags: [engineer, implementation, unity, feature, architecture]
 trust_level: core
 source: project
+author: Agent OS Core
 ---
 
 # Workflow: Add Vertical Slice Feature

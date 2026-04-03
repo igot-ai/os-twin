@@ -1,6 +1,11 @@
-﻿---
-name: animation-get-data
-description: Get data about a Unity AnimationClip asset file. Returns information such as name, length, frame rate, wrap mode, animation curves, and events.
+---
+name: Get Animation Data
+description: Get details about a Unity AnimationClip, such as name, length, and events.
+version: 1.0.0
+category: Unity Logic
+applicable_roles: [game-engineer, engineer]
+tags: [engineer, implementation, unity, animation, discovery]
+author: Agent OS Core
 ---
 
 # Animation / Get Data

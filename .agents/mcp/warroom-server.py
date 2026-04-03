@@ -30,33 +30,70 @@ from mcp.server.fastmcp import FastMCP
 
 StatusType = Literal[
     "pending",
+    "developing",
     "engineering",
-    "qa-review",
+    "review",
     "fixing",
+    "optimize",
+    "triage",
 ]
 
+# Terminal states that agents must NOT set directly (manager-only).
+TERMINAL_STATES = {"passed", "failed-final", "blocked"}
+
 mcp = FastMCP("agent-os-warroom", log_level="CRITICAL")
+
+
+def _get_lifecycle_states(room_dir: str) -> set[str] | None:
+    """Read lifecycle.json and return the set of defined state names, or None."""
+    lc_path = os.path.join(room_dir, "lifecycle.json")
+    if not os.path.exists(lc_path):
+        return None
+    try:
+        with open(lc_path) as f:
+            lc = json.load(f)
+        return set(lc.get("states", {}).keys())
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 @mcp.tool()
 def update_status(
     room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
-    status: Annotated[StatusType, Field(description="New status: pending | engineering | qa-review | fixing (terminal states like passed/failed-final are manager-only)")],
+    status: Annotated[str, Field(description="New status matching a non-terminal state from the room's lifecycle.json (e.g. developing, review, review, engineering, fixing, optimize). Terminal states (passed, failed-final) are manager-only.")],
 ) -> str:
     """Update the war-room status file.
 
-    Writes {status} to {room_dir}/status.
+    Validates status against the room's lifecycle.json if present.
     Terminal states (passed, failed-final) are reserved for the manager —
     agents must NOT set them directly.
-    Raises ValueError for an unrecognised or forbidden status string.
     Returns a confirmation string "status:{status}".
     """
-    valid = get_args(StatusType)
-    if status not in valid:
+    # Block terminal states — always manager-only
+    if status in TERMINAL_STATES:
         raise ValueError(
-            f"Invalid status {status!r}. Must be one of: {list(valid)}. "
-            f"Terminal states (passed, failed-final) are manager-only."
+            f"Cannot set terminal status {status!r}. "
+            f"Terminal states {TERMINAL_STATES} are manager-only."
         )
+
+    # Validate against lifecycle.json if it exists (single source of truth)
+    lc_states = _get_lifecycle_states(room_dir)
+    if lc_states is not None:
+        non_terminal = {s for s in lc_states if s not in TERMINAL_STATES}
+        if status not in non_terminal and status != "pending":
+            raise ValueError(
+                f"Invalid status {status!r}. "
+                f"Valid non-terminal states from lifecycle.json: {sorted(non_terminal)}. "
+                f"Terminal states {sorted(TERMINAL_STATES)} are manager-only."
+            )
+    else:
+        # Fallback: use static list when no lifecycle.json exists
+        valid = get_args(StatusType)
+        if status not in valid:
+            raise ValueError(
+                f"Invalid status {status!r}. Must be one of: {list(valid)}. "
+                f"Terminal states (passed, failed-final) are manager-only."
+            )
 
     os.makedirs(room_dir, exist_ok=True)
     status_file = os.path.join(room_dir, "status")

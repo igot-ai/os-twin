@@ -762,7 +762,7 @@ while ($shouldNegotiate) {
     }
 
     # Post for review
-    $reviewMsgId = & $postMessage -RoomDir $room000Dir -From "manager" -To "architect" -Type "plan-review" -Ref "PLAN-REVIEW" -Body $planContent
+    $reviewMsgId = & $postMessage -RoomDir $room000Dir -From "manager" -To "architect" -Type "review" -Ref "PLAN-REVIEW" -Body $planContent
     Write-Host "Plan posted to room-000 for review. Waiting for approval (timeout: ${planReviewTimeout}s)..." -ForegroundColor Cyan
 
     # Wait for plan-approve, plan-reject, or plan-update

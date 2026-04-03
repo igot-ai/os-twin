@@ -117,7 +117,7 @@ catch { }
 # --- Read manager's design-review request ---
 $managerRequest = ""
 try {
-    $designMsgs = & $readMessages -RoomDir $RoomDir -FilterType "design-review" -Last 1 -AsObject
+    $designMsgs = & $readMessages -RoomDir $RoomDir -FilterType "review" -Last 1 -AsObject
     if ($designMsgs -and $designMsgs.Count -gt 0) {
         $managerRequest = $designMsgs[-1].body
     }

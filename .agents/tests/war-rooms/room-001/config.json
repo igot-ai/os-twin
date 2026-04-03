@@ -1,0 +1,47 @@
+{
+  "room_id": "room-001",
+  "task_ref": "EPIC-001",
+  "plan_id": "b11b31c4b9e0",
+  "depends_on": [
+    "PLAN-REVIEW"
+  ],
+  "created_at": "2026-04-02T04:48:47Z",
+  "working_dir": "/Users/paulaan/Downloads/snakie/snakie_project",
+  "assignment": {
+    "title": "Objective: Build the foundational puzzle mechanics: the dot-grid board, snake entities, tap-to-move input, correct/wrong move resolution, health system, win/lose conditions, camera controls, and level data loading. Everything in Epics 2–14 depends on this being complete.",
+    "description": "Objective: Build the foundational puzzle mechanics: the dot-grid board, snake entities, tap-to-move input, correct/wrong move resolution, health system, win/lose conditions, camera controls, and level data loading. Everything in Epics 2–14 depends on this being complete.\n\nCore Gameplay Engine\n\n**Phase:** 1-4\n**Priority:** P0 — Foundation\n**Estimated Effort:** ~2 weeks\n\nRoles: game-engineer, game-qa\nObjective: Build the foundational puzzle mechanics: the dot-grid board, snake entities, tap-to-move input, correct/wrong move resolution, health system, win/lose conditions, camera controls, and level data loading. Everything in Epics 2–14 depends on this being complete.\n\n### Description\n\nThis epic delivers the absolute core loop of Snake Escape. A player can load a level file, see the board and snakes rendered, tap snakes to slide them off the board, lose health on blocked moves, and reach a win/loss state.\n\n### Definition of Done\n\n- [ ] A player can load any level file, see the board and snakes rendered, tap snakes to move them, lose health on wrong moves, and reach a win or fail state.\n- [ ] Camera zoom works on larger boards.\n- [ ] All systems are testable with at least one hand-crafted level file.\n\n### Tasks",
+    "assigned_role": "game-engineer",
+    "candidate_roles": [
+      "game-engineer",
+      "game-qa"
+    ],
+    "type": "epic"
+  },
+  "goals": {
+    "definition_of_done": [],
+    "acceptance_criteria": [],
+    "quality_requirements": {
+      "test_coverage_min": 80,
+      "lint_clean": true,
+      "security_scan_pass": true
+    }
+  },
+  "constraints": {
+    "max_retries": 3,
+    "timeout_seconds": 900,
+    "budget_tokens_max": 500000
+  },
+  "status": {
+    "current": "pending",
+    "retries": 0,
+    "started_at": null,
+    "last_state_change": "2026-04-02T04:48:47Z"
+  },
+  "skill_refs": [
+    "implement-epic",
+    "create-epics",
+    "create-architecture",
+    "review-epic",
+    "create-ux-design"
+  ]
+}

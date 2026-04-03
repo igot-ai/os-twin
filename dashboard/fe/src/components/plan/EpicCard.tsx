@@ -20,7 +20,6 @@ export const stateColors: Record<string, string> = {
   'failed-final': '#ef4444',
   // Legacy aliases for backward compat
   engineering: '#3b82f6',
-  'qa-review': '#8b5cf6',
   fixing: '#f59e0b',
   'manager-triage': '#ef4444',
   signoff: '#10b981',
@@ -68,14 +67,14 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
     opacity: isDragging ? 0.3 : undefined,
     zIndex: isDragging ? 100 : undefined,
   } : undefined;
-  
+
   const isSelected = selectedEpicRef === epic.epic_ref;
-  
+
   // Determine state color, prioritizing the current room status if available
   const activeState = warRoomStatus || epic.lifecycle_state || 'pending';
-  const stateColor = stateColors[activeState] || 
-                     (activeState.startsWith('wave-') ? stateColors[activeState] : stateColors.pending) || 
-                     stateColors.pending;
+  const stateColor = stateColors[activeState] ||
+    (activeState.startsWith('wave-') ? stateColors[activeState] : stateColors.pending) ||
+    stateColors.pending;
 
   const roleColor = getRoleColor(epic.role || '');
   const wrStatus = warRoomStatus ? warRoomStatusIcons[warRoomStatus] : null;
@@ -93,9 +92,8 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
     <div
       ref={setNodeRef}
       onClick={handleClick}
-      className={`group relative p-3 rounded-lg border bg-surface transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5 ${
-        isSelected ? 'border-primary ring-1 ring-primary/20 shadow-md' : 'border-border hover:border-text-faint'
-      }`}
+      className={`group relative p-3 rounded-lg border bg-surface transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5 ${isSelected ? 'border-primary ring-1 ring-primary/20 shadow-md' : 'border-border hover:border-text-faint'
+        }`}
       style={{ ...style, borderLeftWidth: '3px', borderLeftColor: stateColor }}
       role="button"
       aria-pressed={isSelected}
@@ -109,9 +107,9 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
       }}
     >
       {/* Drag Handle */}
-      <div 
-        {...attributes} 
-        {...listeners} 
+      <div
+        {...attributes}
+        {...listeners}
         className="absolute -left-1 top-1/2 -translate-y-1/2 w-4 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing transition-opacity z-20"
         aria-label="Drag to reorder epic"
         role="button"
@@ -137,8 +135,8 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
           </span>
           {/* War Room Status indicator */}
           {wrStatus && (
-            <span 
-              className="material-symbols-outlined text-[12px]" 
+            <span
+              className="material-symbols-outlined text-[12px]"
               style={{ color: wrStatus.color }}
               title={`Room: ${wrStatus.label}`}
             >
@@ -146,7 +144,7 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
             </span>
           )}
         </div>
-        <div 
+        <div
           className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase"
           style={{ background: `${stateColor}15`, color: stateColor }}
         >
@@ -167,7 +165,7 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
           <span>{Math.round(progressPercent)}%</span>
         </div>
         <div className="h-1 w-full bg-border/50 rounded-full overflow-hidden">
-          <div 
+          <div
             className={`h-full transition-all duration-500 ${progressPercent === 100 ? 'bg-success' : 'bg-primary'}`}
             style={{ width: `${progressPercent}%` }}
           />
@@ -177,7 +175,7 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
       {/* Footer: Role, Room & Tasks */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 min-w-0">
-          <div 
+          <div
             className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white shadow-inner shrink-0"
             style={{ background: roleColor }}
             title={epic.role || 'Unassigned'}
@@ -186,7 +184,7 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
           </div>
           <span className="text-[10px] font-medium text-text-muted truncate">{epic.role || 'Unassigned'}</span>
         </div>
-        
+
         <div className="flex items-center gap-2 ml-2 shrink-0">
           {/* Room ID */}
           {epic.room_id && (

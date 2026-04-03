@@ -45,6 +45,12 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
               <span className="material-symbols-outlined text-xs">history</span>
               Updated: {skill.updated_at || 'N/A'}
             </div>
+            {skill.active_epics_count !== undefined && (
+               <div className="flex items-center gap-1">
+                 <span className="material-symbols-outlined text-xs text-blue-500">task_alt</span>
+                 In {skill.active_epics_count} active Epics
+               </div>
+            )}
             <div className="flex items-center gap-1">
               <span className="material-symbols-outlined text-xs">analytics</span>
               Used {skill.usage_count} times
@@ -82,6 +88,18 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
               DRAFT
             </span>
           )}
+          {skill.trust_level === 'verified' && (
+            <span className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-200">
+              <span className="material-symbols-outlined text-[14px]">verified</span>
+              Verified
+            </span>
+          )}
+           {skill.trust_level === 'core' && (
+            <span className="flex items-center gap-1 text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-200">
+              <span className="material-symbols-outlined text-[14px]">shield</span>
+              Core
+            </span>
+          )}
         </div>
 
         {/* Description */}
@@ -94,23 +112,54 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
           </p>
         </section>
 
-        {/* Roles */}
-        <section>
-          <h4 className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--color-text-faint)' }}>
-            Applicable Roles
-          </h4>
-          <div className="flex flex-wrap gap-2">
-            {skill.applicable_roles.map((role) => (
-              <span 
-                key={role}
-                className="px-2.5 py-1 rounded-full text-xs font-medium border border-border bg-surface"
-                style={{ color: 'var(--color-text-muted)' }}
-              >
-                {role}
-              </span>
-            ))}
-          </div>
-        </section>
+        {/* Roles & Tags */}
+        <div className="grid grid-cols-2 gap-4">
+          <section>
+            <h4 className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--color-text-faint)' }}>
+              Applicable Roles
+            </h4>
+            <div className="flex flex-wrap gap-2">
+              {skill.applicable_roles.map((role) => (
+                <span 
+                  key={role}
+                  className="px-2.5 py-1 rounded-full text-[10px] font-medium border border-border bg-surface"
+                  style={{ color: 'var(--color-text-muted)' }}
+                >
+                  {role}
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h4 className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--color-text-faint)' }}>
+              Tags
+            </h4>
+            <div className="flex flex-wrap gap-1.5">
+              {skill.tags?.map((tag) => (
+                <span 
+                  key={tag}
+                  className="px-2 py-0.5 rounded-sm text-[10px] font-medium bg-slate-50 text-slate-500 border border-slate-200"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* Action Source */}
+        {skill.author && (
+           <section>
+             <h4 className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--color-text-faint)' }}>
+               Author
+             </h4>
+             <div className="flex items-center gap-2 text-sm text-text-muted">
+               <span className="material-symbols-outlined text-base">person</span>
+               {skill.author}
+             </div>
+           </section>
+        )}
 
         {/* Instruction Template */}
         {skill.instruction_template && (
@@ -124,27 +173,37 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
           </section>
         )}
 
-        {/* Version History Placeholder */}
+        {/* Version History / Changelog */}
         <section>
           <h4 className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--color-text-faint)' }}>
-            Version History
+            Changelog
           </h4>
-          <div className="border border-border rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between p-3 bg-surface border-b border-border">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-text-main">v{skill.version}</span>
-                <span className="text-[10px] text-text-faint">Current Version</span>
-              </div>
-              <span className="text-[10px] text-text-muted">{skill.updated_at || 'Recently'}</span>
-            </div>
-            {skill.forked_from && (
-              <div className="flex items-center justify-between p-3 bg-surface/50">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-text-muted">v1.0 (Initial)</span>
-                  <span className="text-[10px] text-text-faint px-1.5 py-0.5 rounded bg-slate-100">FORKED</span>
+          <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+            {skill.changelog && skill.changelog.length > 0 ? (
+              skill.changelog.map((log, i) => (
+                <div key={i} className="p-3 bg-surface hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-text-main">v{log.version}</span>
+                      {i === 0 && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-100 text-blue-600 font-bold uppercase tracking-tight">Latest</span>}
+                    </div>
+                    <span className="text-[10px] text-text-muted">
+                      {new Date(log.date * 1000).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-text-muted leading-relaxed">
+                    {log.changes}
+                  </p>
                 </div>
-                <span className="text-[10px] text-text-muted">Jan 2026</span>
-              </div>
+              ))
+            ) : (
+                <div className="p-3 bg-surface flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-text-main">v{skill.version}</span>
+                    <span className="text-[10px] text-text-faint">Initial Version</span>
+                  </div>
+                  <span className="text-[10px] text-text-muted">{skill.updated_at || 'Recently'}</span>
+                </div>
             )}
           </div>
         </section>

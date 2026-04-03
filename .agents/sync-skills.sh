@@ -90,6 +90,35 @@ if [[ -n "$OSTWIN_API_KEY" ]]; then
   CURL_AUTH=(-H "X-API-Key: ${OSTWIN_API_KEY}")
 fi
 
+# ─── Utility ──────────────────────────────────────────────────────────────────
+
+extract_skill_meta() {
+  local skill_md="$1"
+  awk '
+    BEGIN { name=""; desc=""; tags="[]"; in_yaml=0; }
+    /^---$/ { 
+      if (in_yaml == 0) { in_yaml=1; next; } else { exit; } 
+    }
+    {
+      if (in_yaml == 1) {
+        if ($0 ~ /^name:[ \t]*/) { sub(/^name:[ \t]*/, ""); name=$0; }
+        else if ($0 ~ /^description:[ \t]*/) { sub(/^description:[ \t]*/, ""); desc=$0; }
+        else if ($0 ~ /^tags:[ \t]*/) { sub(/^tags:[ \t]*/, ""); tags=$0; }
+      }
+    }
+    END {
+      gsub(/^["\047]|["\047]$/, "", name);
+      gsub(/^["\047]|["\047]$/, "", desc);
+      if (tags == "") tags="[]";
+      
+      gsub(/'\''/, "'\''\\'\'''\''", name);
+      gsub(/'\''/, "'\''\\'\'''\''", desc);
+      gsub(/'\''/, "'\''\\'\'''\''", tags);
+      printf "skill_name_meta='\''%s'\''; skill_desc_meta='\''%s'\''; skill_tags_meta='\''%s'\'';\n", name, desc, tags;
+    }
+  ' "$skill_md" | tr -d '\r'
+}
+
 # ─── Part 2: Install skills from a project directory ─────────────────────────
 
 install_from_dir() {
@@ -106,27 +135,32 @@ install_from_dir() {
     local skill_name
     skill_name="$(basename "$skill_dir")"
 
+    eval "$(extract_skill_meta "$skill_md")"
+    if [[ -n "$skill_name_meta" ]]; then
+       skill_name="$skill_name_meta"
+    fi
+
     # Determine role and category from path structure
-    # Expected: */roles/{role}/{skill_name}/SKILL.md
-    # or:       */global/{skill_name}/SKILL.md
+    # Expected: */roles/{role}/{skill_name_dir}/SKILL.md
+    # or:       */global/{skill_name_dir}/SKILL.md
     local rel_from_source
     rel_from_source="${skill_dir#"$source_dir"/}"
 
     local dest_dir=""
     if [[ "$rel_from_source" =~ roles/([^/]+)/([^/]+)$ ]]; then
       local role="${BASH_REMATCH[1]}"
-      local name="${BASH_REMATCH[2]}"
-      dest_dir="$dest_base/roles/$role/$name"
+      dest_dir="$dest_base/roles/$role/$skill_name"
     elif [[ "$rel_from_source" =~ global/([^/]+)$ ]]; then
-      local name="${BASH_REMATCH[1]}"
-      dest_dir="$dest_base/global/$name"
+      dest_dir="$dest_base/global/$skill_name"
     else
-      # Fallback: try to infer role from YAML frontmatter tags
+      # Fallback: infer role from YAML frontmatter tags
       local first_tag=""
-      first_tag=$(grep -A5 '^tags:' "$skill_md" 2>/dev/null | head -2 | grep -oE '\- [a-zA-Z0-9_-]+' | head -1 | sed 's/^- //' || true)
-      if [[ -z "$first_tag" ]]; then
-        first_tag=$(grep '^tags:' "$skill_md" 2>/dev/null | head -1 | grep -oE '\[[^]]*\]' | tr -d '[]' | cut -d',' -f1 | tr -d ' ' || true)
+      if [[ "$skill_tags_meta" == \[*\] ]]; then
+        first_tag=$(echo "$skill_tags_meta" | tr -d '[]' | cut -d',' -f1 | awk '{$1=$1};1')
+      elif [[ -n "$skill_tags_meta" && "$skill_tags_meta" != "[]" ]]; then
+        first_tag=$(echo "$skill_tags_meta" | cut -d',' -f1 | awk '{$1=$1};1')
       fi
+
       if [[ -n "$first_tag" ]]; then
         dest_dir="$dest_base/roles/$first_tag/$skill_name"
       else
@@ -177,10 +211,21 @@ sync_home_skills() {
     skill_dir="$(dirname "$skill_md")"
     local skill_name
     skill_name="$(basename "$skill_dir")"
+
+    local skill_name_meta="" skill_desc_meta="" skill_tags_meta=""
+    eval "$(extract_skill_meta "$skill_md")"
+    if [[ -n "$skill_name_meta" ]]; then
+       skill_name="$skill_name_meta"
+    fi
+    
     ((total++))
 
+    local safe_name="${skill_name_meta//\"/\\\"}"
+    local safe_desc="${skill_desc_meta//\"/\\\"}"
+    local safe_tags="${skill_tags_meta//\"/\\\"}"
+
     # Install via API
-    local json_payload="{\"path\": \"$skill_dir\"}"
+    local json_payload="{\"path\": \"$skill_dir\", \"name\": \"$safe_name\", \"description\": \"$safe_desc\", \"tags\": \"$safe_tags\"}"
     local result=""
     result=$(curl -sf -X POST "${CURL_AUTH[@]}" \
       -H "Content-Type: application/json" \

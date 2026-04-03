@@ -1023,6 +1023,9 @@ while (-not $script:shuttingDown) {
                             Write-Log "INFO" "[$taskRef] V2 signal '$matchedSignal' in '$status' -> '$targetState'."
                             Invoke-SignalActions -RoomDir $roomDir -Actions $actions -TaskRef $taskRef -BaseRole $baseRole
                             Write-RoomStatus $roomDir $targetState
+                            # Reset crash-respawn counter on successful transition
+                            $crashFile = Join-Path $roomDir "crash_respawns"
+                            Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
 
                             # Spawn target state's role agent
                             $targetDef = $lifecycle.states.$targetState
@@ -1052,13 +1055,28 @@ while (-not $script:shuttingDown) {
                                     if ($pendingSignalCheck) {
                                         Write-Log "DEBUG" "[$taskRef] Signal '$pendingSignalCheck' pending in '$status' — skipping re-spawn."
                                     } else {
-                                        Write-Log "DEBUG" "[$taskRef] No pending signal, no PID, no lock — will re-spawn '$stateRole'."
-                                        if (Test-Path $resolveRoleScript) {
-                                            $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                            Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
-                                            Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                        # --- Crash-respawn guard ---
+                                        # If the agent keeps dying without posting any signal,
+                                        # cap consecutive crash-respawns to prevent infinite loops.
+                                        $crashFile = Join-Path $roomDir "crash_respawns"
+                                        $crashCount = if (Test-Path $crashFile) { [int](Get-Content $crashFile -Raw).Trim() } else { 0 }
+                                        $crashCount++
+                                        $maxCrashRespawns = 3
+                                        if ($crashCount -gt $maxCrashRespawns) {
+                                            Write-Log "ERROR" "[$taskRef] Agent '$stateRole' crashed $crashCount times in '$status' without producing a signal. Marking as failed."
+                                            Write-RoomStatus $roomDir "failed"
+                                            # Reset the crash counter for the next lifecycle attempt
+                                            Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
                                         } else {
-                                            Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
+                                            $crashCount.ToString() | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+                                            Write-Log "DEBUG" "[$taskRef] No pending signal, no PID, no lock — will re-spawn '$stateRole' (crash $crashCount/$maxCrashRespawns)."
+                                            if (Test-Path $resolveRoleScript) {
+                                                $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                                Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
+                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                            } else {
+                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
+                                            }
                                         }
                                     }
                                 }
@@ -1101,23 +1119,26 @@ while (-not $script:shuttingDown) {
                 }
                 ($dlCount + 1).ToString() | Out-File -FilePath $dlFile -Encoding utf8 -NoNewline
 
-                # Resolve the room's assigned role (not the stale $baseRole from the main loop)
-                $dlRoomConfig = Join-Path $rd "config.json"
-                $dlRole = "engineer"
-                if (Test-Path $dlRoomConfig) {
-                    $dlRc = Get-Content $dlRoomConfig -Raw | ConvertFrom-Json
-                    if ($dlRc.assignment -and $dlRc.assignment.assigned_role) {
-                        $dlRole = $dlRc.assignment.assigned_role -replace ':.*$', ''
-                    }
-                }
-
-                # V2 lifecycle: use lifecycle.json to determine recovery
+                # Risk 6 fix: Resolve role from lifecycle state, not config.json.
+                # Multi-role lifecycles (e.g. reporting.role=reporter) need the state's role.
                 $dlLifecycleFile = Join-Path $rd "lifecycle.json"
                 $dlLifecycle = if (Test-Path $dlLifecycleFile) { Get-Content $dlLifecycleFile -Raw | ConvertFrom-Json } else { $null }
                 $dlStateDef = if ($dlLifecycle -and $dlLifecycle.states -and $dlLifecycle.states.$ls) { $dlLifecycle.states.$ls } else { $null }
 
+                $dlRole = "engineer"
+                if ($dlStateDef -and $dlStateDef.role) {
+                    $dlRole = ($dlStateDef.role -replace ':.*$', '')
+                } else {
+                    $dlRoomConfig = Join-Path $rd "config.json"
+                    if (Test-Path $dlRoomConfig) {
+                        $dlRc = Get-Content $dlRoomConfig -Raw | ConvertFrom-Json
+                        if ($dlRc.assignment -and $dlRc.assignment.assigned_role) {
+                            $dlRole = $dlRc.assignment.assigned_role -replace ':.*$', ''
+                        }
+                    }
+                }
+
                 if ($dlStateDef -and $dlStateDef.type -in @('work', 'review', 'triage')) {
-                    $dlMaxRetries = if ($dlLifecycle.max_retries) { $dlLifecycle.max_retries } else { $maxRetries }
                     $restartState = if ($dlLifecycle.initial_state) { $dlLifecycle.initial_state } else { 'developing' }
 
                     # LEAK-7 fix: check for pending signals before deadlock reset
@@ -1130,15 +1151,28 @@ while (-not $script:shuttingDown) {
                         return  # Let normal signal detection handle it next iteration
                     }
 
-                    if ($lr -lt $dlMaxRetries) {
-                        Write-Log "WARN" "[$lt] Deadlock recovery: restarting $dlRole via transition to $restartState."
-                        ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $rd -From "manager" -To $dlRole -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting $dlRole."
-                        Write-RoomStatus $rd $restartState
-                    } else {
-                        Write-Log "ERROR" "[$lt] Deadlock recovery: max retries exceeded."
-                        Write-RoomStatus $rd "failed-final"
-                        Set-BlockedDescendants $lt
+                    # Risk 2 fix: Clean stale PIDs before transition (prevents double retry increment)
+                    Stop-RoomProcesses $rd
+
+                    # Risk 3+4 fix: DO NOT increment retries here.
+                    # Retries should only be incremented by lifecycle signal actions (e.g. increment_retries on QA fail).
+                    # Incrementing retries during deadlock recovery corrupts the done-count gate (Risk 3)
+                    # and compounds into QA cascade deadlocks (Risk 4).
+                    # Exhaustion is handled by the deadlock_recoveries cap (line 1113), not by lifecycle retries.
+
+                    # Risk 6 fix: Resolve restart state's role from lifecycle for correct runner
+                    $restartStateDef = if ($dlLifecycle.states.$restartState) { $dlLifecycle.states.$restartState } else { $null }
+                    $dlRestartRole = if ($restartStateDef -and $restartStateDef.role) { ($restartStateDef.role -replace ':.*$', '') } else { $dlRole }
+
+                    Write-Log "WARN" "[$lt] Deadlock recovery ($($dlCount+1)/3): restarting $dlRestartRole via $restartState."
+                    & $postMessage -RoomDir $rd -From "manager" -To $dlRestartRole -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting $dlRestartRole."
+                    Write-RoomStatus $rd $restartState
+
+                    # Risk 2 fix: Spawn worker immediately (don't rely on next iteration's respawn branch)
+                    $dlResolveRole = Join-Path $agentsDir "roles" "_base" "Resolve-Role.ps1"
+                    if (Test-Path $dlResolveRole) {
+                        $dlResolved = & $dlResolveRole -RoleName ($restartStateDef.role) -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                        Start-WorkerJob -RoomDir $rd -Role $dlRestartRole -Script $dlResolved.Runner -TaskRef $lt -SkipLockCheck
                     }
                 } else {
                     Write-Log "WARN" "[$lt] Deadlock recovery: state '$ls' not recoverable. Skipping."

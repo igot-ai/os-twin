@@ -1,6 +1,6 @@
 ---
 name: triage-failure
-description: Use this skill to classify QA failures using the error taxonomy — route to fixing, architect-review, or plan-revision with documented context.
+description: "Use this skill to classify QA failures using the error taxonomy -- route to fixing, architect-review, or plan-revision with documented context."
 tags: [manager, triage, routing, failure-handling]
 trust_level: core
 ---
@@ -29,10 +29,10 @@ This skill guides the manager through classifying and routing QA failures. Every
 ### 1. Read the QA Feedback
 
 Gather all context:
-- **QA verdict message** — the `fail` or `escalate` message body
-- **`qa-report.md`** — detailed findings and evidence
-- **Previous triage contexts** — check for repeated failure patterns
-- **Retry count** — how many times has this war-room cycled?
+- **QA verdict message** -- the `fail` or `escalate` message body
+- **`qa-report.md`** -- detailed findings and evidence
+- **Previous triage contexts** -- check for repeated failure patterns
+- **Retry count** -- how many times has this war-room cycled?
 
 ### 2. Classify the Failure
 
@@ -40,27 +40,27 @@ Apply the classification taxonomy in order:
 
 | Priority | Category | Trigger Keywords | Next State |
 |----------|----------|-----------------|-----------|
-| 1 | `subcommand-bug` | exception, trace, bug in subcommand | → `subcommand-redesign` |
-| 2 | `subcommand-missing` | command-not-found, missing-manifest | → `subcommand-redesign` |
-| 3 | `environment-error` | module-not-found, file-missing, permission-denied | → `subcommand-redesign` |
-| 4 | `design-issue` | architecture, design, scope, interface | → `architect-review` |
-| 5 | `plan-gap` | specification, acceptance criteria, requirements | → `plan-revision` |
-| 6 | `implementation-bug` | Default (no other match) | → `fixing` |
+| 1 | `subcommand-bug` | exception, trace, bug in subcommand |  `subcommand-redesign` |
+| 2 | `subcommand-missing` | command-not-found, missing-manifest |  `subcommand-redesign` |
+| 3 | `environment-error` | module-not-found, file-missing, permission-denied |  `subcommand-redesign` |
+| 4 | `design-issue` | architecture, design, scope, interface |  `architect-review` |
+| 5 | `plan-gap` | specification, acceptance criteria, requirements |  `plan-revision` |
+| 6 | `implementation-bug` | Default (no other match) |  `fixing` |
 
-**Repeated-failure heuristic:** If `retries ≥ 2` AND consecutive fail messages share ≥60% word overlap → upgrade to `design-issue`.
+**Repeated-failure heuristic:** If `retries  2` AND consecutive fail messages share 60% word overlap  upgrade to `design-issue`.
 
 ### 3. Check Retry Budget
 
 | Retry Count | Action |
 |-------------|--------|
-| 0–2 | Route normally per classification |
-| 3 | Final attempt — route to `architect-review` regardless |
-| >3 | Mark `failed-final` — escalate to human |
+| 0-2 | Route normally per classification |
+| 3 | Final attempt -- route to `architect-review` regardless |
+| >3 | Mark `failed-final` -- escalate to human |
 
 ### 4. Write triage-context.md
 
 ```markdown
-# Triage Context — EPIC/TASK-XXX
+# Triage Context -- EPIC/TASK-XXX
 
 > Manager: manager
 > Date: <YYYY-MM-DD>
@@ -97,7 +97,7 @@ Post the appropriate channel message:
 |---------------|-------------|-----------|
 | `implementation-bug` | `fix` | engineer |
 | `design-issue` | `design-review` | architect |
-| `plan-gap` | `design-review` → then `plan-update` | architect → engineer |
+| `plan-gap` | `design-review`  then `plan-update` | architect  engineer |
 | `subcommand-bug/missing` | `fix` (with redesign flag) | engineer |
 | Max retries exceeded | `escalate` | human/manager |
 
