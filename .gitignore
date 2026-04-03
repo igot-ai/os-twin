@@ -8,7 +8,6 @@
 .agents/plans/**
 .agents/.zvec/**
 .agents/logs/**
-.agents/mcp/mcp-config.json
 .agents/memory/index.json
 .agents/memory/ledger.jsonl
 .agents/plans/
