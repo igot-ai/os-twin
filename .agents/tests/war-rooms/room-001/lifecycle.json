@@ -1,0 +1,108 @@
+{
+  "version": 2,
+  "initial_state": "developing",
+  "max_retries": 3,
+  "states": {
+    "developing": {
+      "role": "game-engineer",
+      "type": "work",
+      "signals": {
+        "done": {
+          "target": "review"
+        },
+        "error": {
+          "target": "failed",
+          "actions": [
+            "increment_retries"
+          ]
+        }
+      }
+    },
+    "optimize": {
+      "role": "game-engineer",
+      "type": "work",
+      "signals": {
+        "done": {
+          "target": "review"
+        },
+        "error": {
+          "target": "failed",
+          "actions": [
+            "increment_retries"
+          ]
+        }
+      }
+    },
+    "review": {
+      "role": "game-qa",
+      "type": "review",
+      "signals": {
+        "pass": {
+          "target": "passed"
+        },
+        "done": {
+          "target": "passed"
+        },
+        "fail": {
+          "target": "optimize",
+          "actions": [
+            "increment_retries",
+            "post_fix"
+          ]
+        },
+        "escalate": {
+          "target": "triage"
+        },
+        "error": {
+          "target": "failed",
+          "actions": [
+            "increment_retries"
+          ]
+        }
+      }
+    },
+    "triage": {
+      "role": "manager",
+      "type": "triage",
+      "signals": {
+        "fix": {
+          "target": "optimize",
+          "actions": [
+            "increment_retries"
+          ]
+        },
+        "redesign": {
+          "target": "developing",
+          "actions": [
+            "increment_retries",
+            "revise_brief"
+          ]
+        },
+        "reject": {
+          "target": "failed-final"
+        }
+      }
+    },
+    "failed": {
+      "role": "manager",
+      "type": "decision",
+      "auto_transition": true,
+      "signals": {
+        "retry": {
+          "target": "developing",
+          "guard": "retries < max_retries"
+        },
+        "exhaust": {
+          "target": "failed-final",
+          "guard": "retries >= max_retries"
+        }
+      }
+    },
+    "passed": {
+      "type": "terminal"
+    },
+    "failed-final": {
+      "type": "terminal"
+    }
+  }
+}

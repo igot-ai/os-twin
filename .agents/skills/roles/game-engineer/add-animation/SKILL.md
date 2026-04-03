@@ -1,9 +1,13 @@
 ---
-name: add-animation
+name: Add UI Animation
 description: Create UI animations from a reference video using detect-anim → build-anim pipeline.
-tags: [engineer, implementation, unity animation]
+version: 1.0.0
+category: Implementation
+applicable_roles: [game-engineer, engineer]
+tags: [engineer, implementation, unity, animation, ui]
 trust_level: core
 source: project
+author: Agent OS Core
 ---
 
 ## Preconditions

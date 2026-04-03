@@ -29,7 +29,7 @@ export default function AnalyticsPanel({ isOpen, onClose }: AnalyticsPanelProps)
         breakdown.pending++;
       } else if (status === 'engineering' || status === 'fixing') {
         breakdown.in_progress++;
-      } else if (status === 'qa-review' || status === 'manager-triage') {
+      } else if (status === 'review' || status === 'manager-triage') {
         breakdown.review++;
       } else if (status === 'passed' || status === 'signoff') {
         breakdown.done++;
@@ -53,13 +53,13 @@ export default function AnalyticsPanel({ isOpen, onClose }: AnalyticsPanelProps)
   return (
     <>
       {/* Backdrop */}
-      <div 
+      <div
         className="fixed inset-0 bg-background/50 backdrop-blur-sm z-10 animate-fade-in"
         onClick={onClose}
       />
 
       {/* Panel */}
-      <div 
+      <div
         className="fixed bottom-[56px] left-0 right-0 bg-surface border-t border-border shadow-2xl z-20 overflow-hidden animate-slide-up origin-bottom"
         style={{ maxHeight: '480px' }}
       >
@@ -70,7 +70,7 @@ export default function AnalyticsPanel({ isOpen, onClose }: AnalyticsPanelProps)
               <span className="material-symbols-outlined text-primary">analytics</span>
               Plan Analytics
             </h3>
-            <button 
+            <button
               onClick={onClose}
               className="text-text-muted hover:text-text-main transition-colors"
             >

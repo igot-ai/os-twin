@@ -1,8 +1,13 @@
 ---
-name: write-tests
-description: Use this skill to write unit and integration tests — covers framework conventions, coverage thresholds, and quality gate compliance.
-tags: [engineer, testing, quality-assurance]
+name: Write Technical Tests
+description: Write unit and integration tests across multiple frameworks (pytest, jest, pester) with coverage targets.
+version: 1.0.0
+category: Quality Assurance
+applicable_roles: [engineer, game-engineer, qa]
+tags: [engineer, implementation, testing, qa, coverage]
 trust_level: core
+source: project
+author: Agent OS Core
 ---
 
 # write-tests

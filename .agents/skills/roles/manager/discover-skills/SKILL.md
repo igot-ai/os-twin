@@ -1,6 +1,6 @@
 ---
 name: discover-skills
-description: Use this skill to search and install skills for war-rooms — scan epic requirements, query the skills API, and populate skill_refs in config.
+description: "Use this skill to search and install skills for war-rooms -- scan epic requirements, query the skills API, and populate skill_refs in config."
 tags: [manager, skills, discovery, installation]
 trust_level: core
 ---
@@ -22,7 +22,7 @@ This skill guides the manager through discovering and installing skills that age
 
 | Artifact | Format | Location |
 |----------|--------|----------|
-| Updated config | JSON | `<war-room>/config.json` → `skill_refs` |
+| Updated config | JSON | `<war-room>/config.json`  `skill_refs` |
 | Installed skills | Directory | `skills/roles/<role>/<skill>/` or `skills/global/<skill>/` |
 
 ## Instructions
@@ -30,11 +30,11 @@ This skill guides the manager through discovering and installing skills that age
 ### 1. Extract Skill Requirements
 
 Read the epic's `brief.md` and identify:
-- **Technologies mentioned** — languages, frameworks, libraries
-- **Domains referenced** — security, data, infrastructure, frontend
-- **Task types** — generation, review, testing, deployment
+- **Technologies mentioned** -- languages, frameworks, libraries
+- **Domains referenced** -- security, data, infrastructure, frontend
+- **Task types** -- generation, review, testing, deployment
 
-Also check the assigned role's `role.json` → `capabilities` to understand baseline skills.
+Also check the assigned role's `role.json`  `capabilities` to understand baseline skills.
 
 ### 2. Search Available Skills
 
@@ -60,8 +60,8 @@ GET /api/skills/search?q=<keyword>&role=<role>
 
 | Requirement | Matching Skill | Status |
 |-------------|---------------|--------|
-| <tech/domain> | <skill name> | ✅ Found / ❌ Missing |
-| <tech/domain> | <skill name> | ✅ Found / ❌ Missing |
+| <tech/domain> | <skill name> |  Found /  Missing |
+| <tech/domain> | <skill name> |  Found /  Missing |
 
 ### 4. Install Missing Skills
 
@@ -107,7 +107,7 @@ Update the war-room's `config.json` with matched skills:
 Add a note to the war-room's setup log:
 
 ```markdown
-## Skill Discovery — <room-id>
+## Skill Discovery -- <room-id>
 
 | Skill | Source | Matched Requirement |
 |-------|--------|-------------------|

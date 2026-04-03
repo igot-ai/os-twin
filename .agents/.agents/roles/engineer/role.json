@@ -1,0 +1,14 @@
+{
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "model": "gemini-3-flash-preview",
+  "description": "Deadlock recovery must clean stale PIDs and spawn the correct worker immediately.",
+  "prompt_file": "ROLE.md",
+  "timeout": 600,
+  "cli": "agent",
+  "quality_gates": [],
+  "name": "engineer",
+  "capabilities": []
+}

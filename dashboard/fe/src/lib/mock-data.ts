@@ -409,7 +409,7 @@ export const mockMessages: ChannelMessage[] = [
     type: 'qa-result',
     ref: 'EPIC-002',
     body: '**QA Review Complete**\n\n✅ Ad variants meet minimum quantity (3/3)\n✅ Brand tone alignment verified\n⏳ Social media sizing — pending verification\n\nOverall: Partial pass. One remaining item.',
-    lifecycle_state: 'qa-review',
+    lifecycle_state: 'review',
   },
   {
     id: 'msg-005',
@@ -469,7 +469,7 @@ export const mockMessages: ChannelMessage[] = [
     type: 'qa-result',
     ref: 'EPIC-002',
     body: 'Final QA Review: All items passed. Recommending for signoff.',
-    lifecycle_state: 'qa-review',
+    lifecycle_state: 'review',
   },
   {
     id: 'msg-011',
@@ -499,9 +499,9 @@ export const mockLifecycle: Lifecycle = {
       name: 'Engineering',
       type: 'agent',
       role: 'engineer',
-      transitions: { done: 'qa-review', fail: 'fixing' },
+      transitions: { done: 'review', fail: 'fixing' },
     },
-    'qa-review': {
+    'review': {
       name: 'QA Review',
       type: 'agent',
       role: 'qa',
@@ -511,7 +511,7 @@ export const mockLifecycle: Lifecycle = {
       name: 'Fixing',
       type: 'agent',
       role: 'engineer',
-      transitions: { done: 'qa-review', fail: 'manager-triage' },
+      transitions: { done: 'review', fail: 'manager-triage' },
     },
     'manager-triage': {
       name: 'Manager Triage',

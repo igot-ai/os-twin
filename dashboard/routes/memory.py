@@ -7,17 +7,14 @@ import sys
 import os
 import importlib.util
 
-from dashboard.api_utils import AGENTS_DIR
+from dashboard.api_utils import SYSTEM_MCP_DIR
 from dashboard.auth import get_current_user
 
 # Import memory-core.py (same source of truth as MCP server and CLI)
-_core_path = os.path.join(str(AGENTS_DIR), "mcp", "memory-core.py")
+_core_path = os.path.join(str(SYSTEM_MCP_DIR), "memory-core.py")
 if not os.path.exists(_core_path):
-    # Fallback: look relative to this file
-    _core_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        ".agents", "mcp", "memory-core.py",
-    )
+    raise RuntimeError(f"Could not find memory-core.py at {_core_path}")
+
 _spec = importlib.util.spec_from_file_location("memory_core", _core_path)
 _core = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_core)

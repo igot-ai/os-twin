@@ -18,14 +18,17 @@ if _dashboard_parent.name == ".agents":
     # Installed via ostwin init: .agents/dashboard/api_utils.py
     AGENTS_DIR = _dashboard_parent
     PROJECT_ROOT = AGENTS_DIR.parent
+    SYSTEM_MCP_DIR = AGENTS_DIR / "mcp"
 elif (_dashboard_parent / ".agents").exists():
     # Source repo layout: dashboard/api_utils.py alongside .agents/
     PROJECT_ROOT = _dashboard_parent
     AGENTS_DIR = PROJECT_ROOT / ".agents"
+    SYSTEM_MCP_DIR = AGENTS_DIR / "mcp"
 else:
     # Global installation: ~/.ostwin/dashboard/api_utils.py
     PROJECT_ROOT = _dashboard_parent
     AGENTS_DIR = _dashboard_parent
+    SYSTEM_MCP_DIR = _dashboard_parent / "mcp"
 
 # Default war-rooms location
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
@@ -288,7 +291,7 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
     if not skill_file.exists():
         return None
     
-    content = skill_file.read_text(encoding="utf-8")
+    content = skill_file.read_text(encoding="utf-8").lstrip("\ufeff")
     name = path.name
     description = ""
     tags = []

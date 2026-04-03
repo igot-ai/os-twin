@@ -1,6 +1,11 @@
-﻿---
-name: animation-create
-description: Create Unity's Animation asset files (AnimationClip). Creates folders recursively if they do not exist. Each path should start with 'Assets/' and end with '.anim'.
+---
+name: Create Animation Clip
+description: Create Unity's Animation asset files (AnimationClip). Creates folders recursively if they do not exist.
+version: 1.0.0
+category: Unity Logic
+applicable_roles: [game-engineer, engineer]
+tags: [engineer, implementation, unity, animation]
+author: Agent OS Core
 ---
 
 # Animation / Create

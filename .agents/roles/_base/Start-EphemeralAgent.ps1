@@ -69,7 +69,7 @@ function Cleanup-And-Exit {
     param([int]$ExitCode, [string]$ErrorMsg = "")
     if ($ErrorMsg) {
         Write-Log "ERROR" "Agent Error: $ErrorMsg"
-        & $postMessage -RoomDir $RoomDir -From "engineer" -To "manager" -Type "error" -Ref $TaskRef -Body $ErrorMsg
+        & $postMessage -RoomDir $RoomDir -From $assignedRole -To "manager" -Type "error" -Ref $TaskRef -Body $ErrorMsg
     }
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     $lockFile = Join-Path $pidDir "$assignedRole.spawned_at"

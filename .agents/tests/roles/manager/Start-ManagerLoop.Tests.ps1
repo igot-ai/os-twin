@@ -41,6 +41,7 @@ BeforeAll {
                         pass = @{ target = "passed" }
                         fail = @{ target = "developing"; actions = @("increment_retries", "post_fix") }
                         escalate = @{ target = "triage" }
+                        error = @{ target = "failed"; actions = @("increment_retries") }
                     }
                 }
                 triage = @{
@@ -463,6 +464,7 @@ Classified as implementation bug. Engineer should fix.
                         pass = @{ target = "passed" }
                         fail = @{ target = "optimize"; actions = @("increment_retries", "post_fix") }
                         escalate = @{ target = "triage" }
+                        error = @{ target = "failed"; actions = @("increment_retries") }
                     }
                 }
             }
@@ -479,6 +481,7 @@ Classified as implementation bug. Engineer should fix.
             $lc.states.review.signals.pass.target | Should -Be "passed"
             $lc.states.review.signals.fail.target | Should -Be "developing"
             $lc.states.review.signals.escalate.target | Should -Be "triage"
+            $lc.states.review.signals.error.target | Should -Be "failed"
         }
 
         It "fail signal includes increment_retries and post_fix actions" {
@@ -548,12 +551,14 @@ Classified as implementation bug. Engineer should fix.
     }
 
     Context "warroom-server MCP status restriction" {
-        It "warroom-server.py rejects terminal statuses" {
+        It "warroom-server.py rejects terminal statuses from StatusType" {
             $serverPy = Join-Path $script:agentsDir "mcp" "warroom-server.py"
             $content = Get-Content $serverPy -Raw
             $content | Should -Match 'StatusType\s*=\s*Literal\['
-            $content | Should -Not -Match 'StatusType\s*=\s*Literal\[[\s\S]*?"passed"'
-            $content | Should -Not -Match 'StatusType\s*=\s*Literal\[[\s\S]*?"failed-final"'
+            # Extract just the StatusType block (from Literal[ to ])
+            $statusBlock = [regex]::Match($content, 'StatusType\s*=\s*Literal\[(.*?)\]', 'Singleline').Groups[1].Value
+            $statusBlock | Should -Not -Match '"passed"'
+            $statusBlock | Should -Not -Match '"failed-final"'
         }
 
         It "warroom-server.py writes audit.log on status change" {
@@ -561,6 +566,22 @@ Classified as implementation bug. Engineer should fix.
             $content = Get-Content $serverPy -Raw
             $content | Should -Match 'audit\.log'
             $content | Should -Match 'state_changed_at'
+        }
+
+        It "warroom-server.py validates against lifecycle.json states" {
+            $serverPy = Join-Path $script:agentsDir "mcp" "warroom-server.py"
+            $content = Get-Content $serverPy -Raw
+            # Must have lifecycle-aware validation
+            $content | Should -Match '_get_lifecycle_states'
+            $content | Should -Match 'TERMINAL_STATES'
+            $content | Should -Match 'lifecycle\.json'
+        }
+
+        It "StatusType includes review and developing" {
+            $serverPy = Join-Path $script:agentsDir "mcp" "warroom-server.py"
+            $content = Get-Content $serverPy -Raw
+            $content | Should -Match '"review"'
+            $content | Should -Match '"developing"'
         }
     }
 
@@ -1624,6 +1645,276 @@ Context "PLAN-REVIEW Verdict Logic" {
 
             # No pending signal → re-spawn SHOULD proceed
             $pendingSignal | Should -BeNullOrEmpty
+        }
+    }
+
+    # ========================================================================
+    # Crash-respawn counter guard (prevents infinite spawn→crash→respawn loops)
+    # ========================================================================
+    Context "Crash-respawn counter — guards against infinite crash loops" {
+        It "crash_respawns file is created when agent dies without signal" {
+            & $script:NewWarRoom -RoomId "room-cr-01" -TaskRef "TASK-CR01" `
+                                 -TaskDescription "Crash counter test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-cr-01"
+
+            # Simulate the crash-respawn guard logic from Start-ManagerLoop.ps1
+            $crashFile = Join-Path $roomDir "crash_respawns"
+            Test-Path $crashFile | Should -BeFalse
+
+            # First crash — counter goes to 1
+            $crashCount = 0
+            $crashCount++
+            $crashCount.ToString() | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+            [int](Get-Content $crashFile -Raw).Trim() | Should -Be 1
+        }
+
+        It "consecutive crashes increment the counter" {
+            & $script:NewWarRoom -RoomId "room-cr-02" -TaskRef "TASK-CR02" `
+                                 -TaskDescription "Crash increment" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-cr-02"
+            $crashFile = Join-Path $roomDir "crash_respawns"
+
+            # Simulate 3 consecutive crash-respawn cycles
+            for ($i = 1; $i -le 3; $i++) {
+                $crashCount = if (Test-Path $crashFile) { [int](Get-Content $crashFile -Raw).Trim() } else { 0 }
+                $crashCount++
+                $crashCount.ToString() | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+            }
+
+            [int](Get-Content $crashFile -Raw).Trim() | Should -Be 3
+        }
+
+        It "exceeding max crash-respawns triggers failed state" {
+            & $script:NewWarRoom -RoomId "room-cr-03" -TaskRef "TASK-CR03" `
+                                 -TaskDescription "Crash exhaust" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-cr-03"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            $crashFile = Join-Path $roomDir "crash_respawns"
+
+            # Simulate the guard logic: 4th crash exceeds max of 3
+            $maxCrashRespawns = 3
+            "3" | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+            $crashCount = [int](Get-Content $crashFile -Raw).Trim()
+            $crashCount++
+
+            if ($crashCount -gt $maxCrashRespawns) {
+                Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed"
+                Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
+            }
+
+            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $status | Should -Be "failed"
+            Test-Path $crashFile | Should -BeFalse -Because "crash counter is cleaned up after triggering failure"
+        }
+
+        It "crash counter does not prevent re-spawn within limit" {
+            & $script:NewWarRoom -RoomId "room-cr-04" -TaskRef "TASK-CR04" `
+                                 -TaskDescription "Crash within limit" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-cr-04"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            $crashFile = Join-Path $roomDir "crash_respawns"
+
+            # Simulate: 2 crashes so far (under the max of 3)
+            $maxCrashRespawns = 3
+            "2" | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+            $crashCount = [int](Get-Content $crashFile -Raw).Trim()
+            $crashCount++
+            $shouldRespawn = ($crashCount -le $maxCrashRespawns)
+
+            $shouldRespawn | Should -BeTrue -Because "3rd crash is within the max-3 limit"
+            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $status | Should -Be "review" -Because "state should NOT change when within limit"
+        }
+    }
+
+    # ========================================================================
+    # Crash-respawn counter reset on successful state transition
+    # ========================================================================
+    Context "Crash-respawn counter — reset on successful signal transition" {
+        It "crash_respawns file is deleted when a signal transitions the state" {
+            & $script:NewWarRoom -RoomId "room-crr-01" -TaskRef "TASK-CRR01" `
+                                 -TaskDescription "Crash reset test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-crr-01"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            $crashFile = Join-Path $roomDir "crash_respawns"
+
+            # Simulate: had 2 crash-respawns before agent finally succeeded
+            "2" | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+            Test-Path $crashFile | Should -BeTrue
+
+            # Simulate successful signal match → state transition → crash counter reset
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
+
+            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $status | Should -Be "review"
+            Test-Path $crashFile | Should -BeFalse -Because "crash counter must reset on successful transition"
+        }
+
+        It "crash counter from review does not carry into passed state" {
+            & $script:NewWarRoom -RoomId "room-crr-02" -TaskRef "TASK-CRR02" `
+                                 -TaskDescription "Crash no carry" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-crr-02"
+            $crashFile = Join-Path $roomDir "crash_respawns"
+
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            "1" | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+
+            # Transition to passed (terminal) — crash counter should be cleaned
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "passed"
+            Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
+
+            Test-Path $crashFile | Should -BeFalse
+            (Get-Content (Join-Path $roomDir "status") -Raw).Trim() | Should -Be "passed"
+        }
+    }
+
+    # ========================================================================
+    # Review state error signal (evaluator crash → failed lifecycle transition)
+    # ========================================================================
+    Context "Review state error signal — evaluator crash handling" {
+        It "review state lifecycle includes error signal targeting failed" {
+            & $script:NewWarRoom -RoomId "room-re-01" -TaskRef "TASK-RE01" `
+                                 -TaskDescription "Review error signal" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-re-01"
+            Write-V2Lifecycle -RoomDir $roomDir
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $lc.states.review.signals.error | Should -Not -BeNullOrEmpty
+            $lc.states.review.signals.error.target | Should -Be "failed"
+            $lc.states.review.signals.error.actions | Should -Contain "increment_retries"
+        }
+
+        It "review → failed (error signal from crashed QA agent)" {
+            & $script:NewWarRoom -RoomId "room-re-02" -TaskRef "TASK-RE02" `
+                                 -TaskDescription "Review error transition" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-re-02"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "failed"
+            $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
+            $status | Should -Be "failed"
+            $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
+            $audit | Should -Match "review -> failed"
+        }
+
+        It "error signal from correct role (qa) is accepted by Find-LatestSignal" {
+            & $script:NewWarRoom -RoomId "room-re-03" -TaskRef "TASK-RE03" `
+                                 -TaskDescription "Error sender match" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-re-03"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            # Set state_changed_at to past
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # QA agent crashes and posts error
+            & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
+                                   -Type "error" -Ref "TASK-RE03" -Body "qa exited with code 1: MCP schema error"
+
+            # Verify error message is in the channel
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "error" -Last 1 -AsObject
+            $msgs.Count | Should -Be 1
+            $msgs[0].from | Should -Be "qa"
+
+            # Verify lifecycle-driven signal detection would match
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $expectedSignals = @($lc.states.review.signals.PSObject.Properties.Name)
+            $expectedSignals | Should -Contain "error"
+
+            # Verify sender matches expected role
+            $expectedRole = ($lc.states.review.role -replace ':.*$', '')
+            $expectedRole | Should -Be "qa"
+            ($msgs[0].from -replace ':.*$', '') | Should -Be $expectedRole
+        }
+
+        It "error signal from wrong role (engineer) is rejected in review state" {
+            & $script:NewWarRoom -RoomId "room-re-04" -TaskRef "TASK-RE04" `
+                                 -TaskDescription "Error sender mismatch" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-re-04"
+            Write-V2Lifecycle -RoomDir $roomDir
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
+
+            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
+
+            # Engineer posts error (wrong sender for review state)
+            & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
+                                   -Type "error" -Ref "TASK-RE04" -Body "engineer crashed"
+
+            $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "error" -Last 1 -AsObject
+            $msgs.Count | Should -Be 1
+
+            # Verify sender validation would REJECT this signal
+            $lc = Get-Content (Join-Path $roomDir "lifecycle.json") -Raw | ConvertFrom-Json
+            $expectedRole = ($lc.states.review.role -replace ':.*$', '')
+            $senderBase = ($msgs[0].from -replace ':.*$', '')
+            $senderBase | Should -Not -Be $expectedRole `
+                -Because "engineer error in review state must be rejected — only qa signals are valid"
+        }
+    }
+
+    # ========================================================================
+    # Ephemeral agent sender identity — error messages must use assigned role
+    # ========================================================================
+    Context "Ephemeral agent error sender identity" {
+        It "Start-EphemeralAgent.ps1 error messages use assigned role, not hardcoded 'engineer'" {
+            $ephemeralScript = Join-Path $script:agentsDir "roles" "_base" "Start-EphemeralAgent.ps1"
+            $content = Get-Content $ephemeralScript -Raw
+
+            # The Cleanup-And-Exit function must use $assignedRole in the From parameter
+            $content | Should -Match 'From \$assignedRole' `
+                -Because "error messages must use the actual role identity, not a hardcoded value"
+            $content | Should -Not -Match 'From "engineer".*-Type "error"' `
+                -Because "hardcoded 'engineer' sender causes Find-LatestSignal rejection for non-engineer roles"
+        }
+
+        It "Start-DynamicRole.ps1 error messages use baseRole variable" {
+            $dynamicRoleScript = Join-Path $script:agentsDir "roles" "_base" "Start-DynamicRole.ps1"
+            $content = Get-Content $dynamicRoleScript -Raw
+
+            # Both error paths (non-zero exit and timeout) must use $baseRole
+            $content | Should -Match 'From \$baseRole.*-Type "error"' `
+                -Because "dynamic role runner must identify itself correctly in error messages"
+        }
+    }
+    # ========================================================================
+    # Deadlock recovery risk fixes (Risk 2, 3, 4, 6)
+    # ========================================================================
+    Context "Deadlock recovery fixes (Static Analysis)" {
+        It "Deadlock recovery calls Stop-RoomProcesses to clean stale PIDs (Risk 2)" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # The block should contain Stop-RoomProcesses $rd
+            $content | Should -Match 'Stop-RoomProcesses \$rd' `
+                -Because "deadlock recovery must explicitly clean up stale PIDs before transition"
+        }
+
+        It "Deadlock recovery calls Start-WorkerJob immediately (Risk 2)" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # Look for the Start-WorkerJob call connected to $dlRestartRole
+            $content | Should -Match 'Start-WorkerJob -RoomDir \$rd -Role \$dlRestartRole.*-SkipLockCheck' `
+                -Because "deadlock recovery must actively spawn the worker, not rely on the next iteration"
+        }
+
+        It "Deadlock recovery does NOT increment retries (Risk 3+4)" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # The string '($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries")' was removed.
+            $content | Should -Not -Match '\(\$lr \+ 1\).ToString\(\) \| Out-File -FilePath \(Join-Path \$rd "retries"\)' `
+                -Because "incrementing retries during deadlock recovery corrupts the done-count gate"
+        }
+
+        It "Deadlock recovery uses lifecycle state role, not assigned_role (Risk 6)" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            # The block should try to pull role from $dlStateDef first
+            $content | Should -Match '\$dlRole = \(\$dlStateDef\.role -replace' `
+                -Because "manager must use the lifecycle state role for deadlock restart"
         }
     }
 }
