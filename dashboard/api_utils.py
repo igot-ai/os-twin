@@ -559,7 +559,7 @@ def build_skills_list(
     query: Optional[str] = None, 
     role: Optional[str] = None, 
     tags: List[str] = [],
-    limit: int = 50,
+    limit: int = 1000,
     include_drafts: bool = False
 ) -> List[Skill]:
     """Helper to build and filter skills list from zvec and disk."""
@@ -574,7 +574,7 @@ def build_skills_list(
                 results = store.search_skills(query, limit=limit)
                 skills = [Skill(**res) for res in results]
             else:
-                results = store.get_all_skills(limit=100)
+                results = store.get_all_skills(limit=1000)
                 skills = [Skill(**res) for res in results]
         except Exception as e:
             logging.getLogger("api_utils").error("Skill store fetch failed: %s", e)
