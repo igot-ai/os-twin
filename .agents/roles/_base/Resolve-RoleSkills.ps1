@@ -64,6 +64,21 @@ if (-not $ApiKey) {
 
 $resolvedSkills = @{} # Using hashtable for deduplication by Name
 
+# Platform gate: returns $true if the skill's SKILL.md declares a platform list that
+# includes the current OS, or if no platform field is present (cross-platform).
+function Test-SkillPlatform {
+    param([string]$SkillMdPath)
+    if (-not (Test-Path $SkillMdPath)) { return $true }
+    $content = Get-Content $SkillMdPath -Raw -ErrorAction SilentlyContinue
+    if (-not $content) { return $true }
+    if ($content -match '(?m)^platform:\s*\[([^\]]+)\]') {
+        $platforms = $Matches[1] -split ',' | ForEach-Object { $_.Trim().Trim('"').Trim("'") }
+        $currentOS = if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }
+        return ($platforms -contains $currentOS)
+    }
+    return $true   # No platform field = cross-platform
+}
+
 # --- Load role.json from HOME ~/.ostwin/roles/{RoleName}/ (authoritative source) ---
 $ostwinHome = Join-Path $env:HOME ".ostwin"
 $homeRolePath = Join-Path $ostwinHome "roles" $RoleName
@@ -99,6 +114,10 @@ if (Test-Path $jsonFile) {
                 if ($skillFromRegistry) {
                     $registryPath = Join-Path (Split-Path $registryFile -Parent) ".." $skillFromRegistry.path
                     if (Test-Path $registryPath) {
+                        if (-not (Test-SkillPlatform -SkillMdPath $registryPath)) {
+                            Write-Verbose "Skipping platform-incompatible skill '$ref' (registry)"
+                            continue
+                        }
                         $resolvedSkills[$ref] = [PSCustomObject]@{
                             Name = $ref
                             Path = $registryPath
@@ -117,6 +136,10 @@ if (Test-Path $jsonFile) {
                 $fallbackPath = Join-Path $SkillsBaseDir $ref "SKILL.md"
 
                 if (Test-Path $fallbackPath) {
+                    if (-not (Test-SkillPlatform -SkillMdPath $fallbackPath)) {
+                        Write-Verbose "Skipping platform-incompatible skill '$ref' (fallback)"
+                        continue
+                    }
                     $resolvedSkills[$ref] = [PSCustomObject]@{
                         Name = $ref
                         Path = $fallbackPath
@@ -142,7 +165,7 @@ if (Test-Path $jsonFile) {
                                 }
                             }
 
-                            if ($matchedSkill -and $matchedSkill.relative_path -and $matchedSkill.content) {
+                            if ($matchedSkill -and $matchedSkill.relative_path -and $matchedSkill.content -and (Test-SkillPlatform -SkillMdPath (Join-Path $SkillsBaseDir ($matchedSkill.relative_path -replace '^skills/', '') "SKILL.md"))) {
                                 # Determine local destination using relative_path
                                 # relative_path is like "skills/roles/engineer/write-tests"
                                 $relPath = $matchedSkill.relative_path
