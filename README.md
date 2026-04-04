@@ -21,11 +21,28 @@ An operating system for AI agents where an **Engineer Manager** orchestrates par
 
 ## Quick Start
 
+### With install (adds `ostwin` to PATH, installs all deps)
+
 ```bash
-cp .agents/plans/PLAN.template.md .agents/plans/my-feature.md   # 1. Create a plan
-.agents/run.sh .agents/plans/my-feature.md                       # 2. Launch
-.agents/war-rooms/status.sh                                      # 3. Monitor
+.agents/install.sh
+ostwin run plans/my-feature.md
 ```
+
+### Without install (run directly from source)
+
+```bash
+.agents/bin/ostwin run plans/my-feature.md
+```
+
+**Requires:** `pwsh`, `python3`, `deepagents-cli` installed manually.
+Put API keys in `.agents/.env` (project-local) instead of `~/.ostwin/.env`.
+
+Runtime writes (nothing touches `~/.ostwin/`):
+- `.war-rooms/` — room state, artifacts, channels (gitignored)
+- `.agents/manager.pid` — manager process PID (gitignored via `*pid`)
+- `.agents/logs/` — `ostwin.log`, `ostwin.jsonl` (gitignored)
+- `.agents/skills/` — fetched SKILL.md, only if dashboard API is connected
+- Input `plan.md` may be modified in-place on approval/expansion
 
 ## Dev Mode
 
@@ -77,7 +94,7 @@ npx @modelcontextprotocol/inspector \
 
 ## How It Works
 
-All entry points (CLI, dashboard, Telegram) execute `.agents/run.sh` → reads `working_dir` from plan → registers to `~/.ostwin/plans/` → spawns war-rooms → starts manager loop.
+`ostwin run` dispatches to `Start-Plan.ps1` (via `ps_dispatch`) → parses plan → spawns war-rooms → starts manager loop. No files written outside the project. The legacy `run.sh` fallback (no pwsh) also registers plans to `~/.ostwin/plans/` for dashboard discovery.
 
 Dashboard connects via **file polling** (1s interval): agents write `channel.jsonl`/`status` → backend detects changes → broadcasts via WebSocket/SSE → frontend receives via SWR.
 
