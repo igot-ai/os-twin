@@ -1,0 +1,26 @@
+{
+    "skill_name": "unity-coding",
+    "evals": [
+        {
+            "id": 0,
+            "name": "reactive-service-unitask",
+            "prompt": "Create a new service `PlayerProgressionService` that tracks level progress. It should use `ReactiveProperty<int>` for the current level and have an async `CompleteLevel()` method using UniTask that saves data to `CacheManager` and increments the level.",
+            "expected_output": "A C# class using UniRx for the level property, UniTask for the async method, and following Pure C# logic patterns without MonoBehaviour.",
+            "files": []
+        },
+        {
+            "id": 1,
+            "name": "refactor-monobehaviour-logic",
+            "prompt": "Refactor this `SimpleTimer` MonoBehaviour to separate its logic into a Pure C# class injected via VContainer. The original MonoBehaviour should only handle updating a text field based on the logic's reactive property.\n\n```csharp\npublic class SimpleTimer : MonoBehaviour\n{\n    public Text timerText;\n    private float mTime;\n    void Update() {\n        mTime += Time.deltaTime;\n        timerText.text = mTime.ToString();\n    }\n}\n```",
+            "expected_output": "A Pure C# `TimerLogic` class and a refactored `SimpleTimer` MonoBehaviour using `[Inject]` and `Subscribe`.",
+            "files": []
+        },
+        {
+            "id": 2,
+            "name": "unit-test-gameplay",
+            "prompt": "Write an EditMode unit test for a `ScoreCalculator` class that ensures `CalculateScore(int snakeCount)` returns `snakeCount * 100`. Follow the AAA pattern.",
+            "expected_output": "An NUnit test class in an EditMode folder using the AAA pattern and Assertions.",
+            "files": []
+        }
+    ]
+}

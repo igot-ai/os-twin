@@ -119,7 +119,7 @@ if ($config.manager -and $config.manager.unified_plan_negotiation -eq $true) {
 }
 
 # --- Resolve timeout ---
-$planReviewTimeout = 300
+# $planReviewTimeout = ... (deprecated in favor of channel timeouts)
 if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) {
     $planReviewTimeout = [int]$env:PLAN_REVIEW_TIMEOUT_SECONDS
 } elseif ($config.manager.plan_review_timeout_seconds) {
@@ -205,7 +205,36 @@ $lifecyclePattern = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*
 
 # --- Plan Expansion Logic (Requirement 6) ---
 $planContent = Get-Content $PlanFile -Raw
-$hasUnderspecified = Test-Underspecified -Content $planContent
+$isUnderspecified = Test-Underspecified -Content $planContent
+
+if ($isUnderspecified) {
+    Write-Host "Detected underspecified epics" -ForegroundColor Cyan
+}
+
+$expandPlanScript = Join-Path $agentsDir "plan" "Expand-Plan.ps1"
+$shouldExpand = $Expand -or ($isUnderspecified -and $config.manager.auto_expand_plan -eq $true)
+if ($shouldExpand -and (Test-Path $expandPlanScript)) {
+    Write-OstwinLog "Detected underspecified epics or forced expansion. Running Expand-Plan..."
+    $expandOutFile = $PlanFile -replace '\.md$', '.refined.md'
+    if ($DryRun) {
+        Write-Host "  [DRY RUN] Would expand epics (e.g. EPIC-001) in $PlanFile → $expandOutFile" -ForegroundColor Yellow
+    } else {
+        & $expandPlanScript -PlanFile $PlanFile -OutFile $expandOutFile
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Plan expanded successfully: $expandOutFile" -ForegroundColor Green
+            
+            # Log for manager review (Requirement for tests)
+            if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
+                $diff = "Expansion diff placeholder" 
+                if (Get-Command git -ErrorAction SilentlyContinue) { $diff = git diff --no-index $PlanFile $expandOutFile }
+                Write-OstwinLog -Message "Plan expansion diff:`n$diff`n" -Level "info" -Caller "manager"
+            }
+
+            $PlanFile = $expandOutFile
+            $planContent = Get-Content $PlanFile -Raw
+        }
+    }
+}
 
 # --- Parse plan: extract ALL epics and tasks (Requirement 1) ---
 # Parse global working_dir from PLAN.md
@@ -233,7 +262,17 @@ foreach ($em in $epicMatches) {
     # Find the epic section content
     $epicStart = $em.Index
     $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-    $epicEnd = if ($nextEpicMatch) { $nextEpicMatch.Index } else { $planContent.Length }
+    
+    # EPIC-END should be the next EPIC header or the next level 2 header (e.g. ## Tasks)
+    $nextSectionMatch = [regex]::Matches($planContent, '(?m)^##\s+') | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
+    
+    $epicEnd = $planContent.Length
+    if ($nextEpicMatch) {
+        $epicEnd = $nextEpicMatch.Index
+    } elseif ($nextSectionMatch) {
+        $epicEnd = $nextSectionMatch.Index
+    }
+    
     $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
 
     # Extract Roles (comma-separated or multiple lines, stripping comments and placeholders)
@@ -340,7 +379,12 @@ foreach ($tm in $taskMatches) {
     foreach ($em in $epicMatches) {
         $epicStart = $em.Index
         $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-        $epicEnd = if ($nextEpicMatch) { $nextEpicMatch.Index } else { $planContent.Length }
+        
+        $nextSec = [regex]::Matches($planContent, '(?m)^##\s+') | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
+        $epicEnd = $planContent.Length
+        if ($nextEpicMatch) { $epicEnd = $nextEpicMatch.Index }
+        elseif ($nextSec) { $epicEnd = $nextSec.Index }
+
         if ($tm.Index -ge $epicStart -and $tm.Index -lt $epicEnd) {
             $isInsideEpic = $true
             break
@@ -442,26 +486,57 @@ Write-Host ""
 Write-Host "  Plan: $PlanFile"
 Write-Host "  Plan ID: $planId"
 Write-Host "  Project: $ProjectDir"
+
 if ($Resume) {
     Write-Host "  Mode: RESUME (using existing war-rooms)" -ForegroundColor Yellow
+    
+    # --- RESET MECHANISM: Clear failed-final/blocked rooms ---
+    $targetWarRoomsDir = Join-Path $ProjectDir ".war-rooms"
+    if (Test-Path $targetWarRoomsDir) {
+        $rooms = Get-ChildItem -Path $targetWarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue
+        foreach ($rd in $rooms) {
+            $statusFile = Join-Path $rd.FullName "status"
+            if (Test-Path $statusFile) {
+                $status = (Get-Content $statusFile -Raw).Trim()
+                if ($status -eq "failed-final" -or $status -eq "blocked") {
+                    Write-Host "  → Resetting $($rd.Name) to pending (was: $status)" -ForegroundColor Yellow
+                    "pending" | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
+                    
+                    # Reset retry counters
+                    $retriesFile = Join-Path $rd.FullName "retries"
+                    if (Test-Path $retriesFile) { "0" | Out-File -FilePath $retriesFile -Encoding utf8 -NoNewline }
+                    $qaRetriesFile = Join-Path $rd.FullName "qa_retries"
+                    if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force -ErrorAction SilentlyContinue }
+
+                    # Clear old PID files
+                    $pidDir = Join-Path $rd.FullName "pids"
+                    if (Test-Path $pidDir) { Get-ChildItem $pidDir -Filter "*.pid" | Remove-Item -Force -ErrorAction SilentlyContinue }
+                }
+            }
+        }
+    }
+    
+    # Rebuild progress.json and PROGRESS.md to reflect the resets
+    $updateProgressScript = Join-Path $agentsDir "plan" "Update-Progress.ps1"
+    if (Test-Path $updateProgressScript) {
+        & $updateProgressScript -WarRoomsDir $warRoomsDir
+    }
 } else {
     Write-Host "  War-rooms to create: $($parsed.Count + 1)" # +1 for room-000
 }
 Write-Host ""
 Write-Host "  room-000 → PLAN-REVIEW — Unified Plan Negotiation (Roles: architect)" -ForegroundColor White
 
-$hasDeps = $false
-foreach ($entry in $parsed) {
-    $dodCount = if ($entry.DoD) { $entry.DoD.Count } else { 0 }
-    $acCount = if ($entry.AC) { $entry.AC.Count } else { 0 }
-    $rolesStr = if ($entry.Roles) { ($entry.Roles -join ', ') } else { 'engineer' }
-    $depStr = ""
-    if ($entry.DependsOn -and $entry.DependsOn.Count -gt 0) {
-        $depStr = " [depends_on: $($entry.DependsOn -join ', ')]"
-        $hasDeps = $true
+    foreach ($entry in $parsed) {
+        $dodCount = if ($entry.DoD) { $entry.DoD.Count } else { 0 }
+        $acCount = if ($entry.AC) { $entry.AC.Count } else { 0 }
+        $rolesStr = if ($entry.Roles) { ($entry.Roles -join ', ') } else { 'engineer' }
+        $depStr = ""
+        if ($entry.DependsOn -and $entry.DependsOn.Count -gt 0) {
+            $depStr = " [depends_on: $($entry.DependsOn -join ', ')]"
+        }
+        Write-Host "  $($entry.RoomId) → $($entry.TaskRef) — $($entry.Description) (Roles: $rolesStr, DoD: $dodCount, AC: $acCount)$depStr" -ForegroundColor White
     }
-    Write-Host "  $($entry.RoomId) → $($entry.TaskRef) — $($entry.Description) (Roles: $rolesStr, DoD: $dodCount, AC: $acCount)$depStr" -ForegroundColor White
-}
 Write-Host ""
 
 if ($DryRun) {
@@ -581,7 +656,12 @@ function New-PlanWarRooms {
         foreach ($em in $epicMatches) {
             $epicStart = $em.Index
             $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-            $epicEnd = if ($nextEpicMatch) { $nextEpicMatch.Index } else { $planContent.Length }
+            
+            $nextSec = [regex]::Matches($planContent, '(?m)^##\s+') | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
+            $epicEnd = $planContent.Length
+            if ($nextEpicMatch) { $epicEnd = $nextEpicMatch.Index }
+            elseif ($nextSec) { $epicEnd = $nextSec.Index }
+
             if ($tm.Index -ge $epicStart -and $tm.Index -lt $epicEnd) {
                 $isInsideEpic = $true
                 break
@@ -590,6 +670,7 @@ function New-PlanWarRooms {
 
         if (-not $isInsideEpic) {
             $taskRef = $tm.Groups[1].Value
+            # Avoid duplicates if already parsed as an epic
             if (-not ($parsed | Where-Object { $_.TaskRef -eq $taskRef })) {
                 $parsed.Add([PSCustomObject]@{
                     RoomId      = "room-$('{0:D3}' -f $roomIndex)"
@@ -603,21 +684,6 @@ function New-PlanWarRooms {
                 })
                 $roomIndex++
             }
-        }
-
-        # Reset failed-final rooms to pending so they can be retried
-        if ($status -eq 'failed-final') {
-            Write-Host "    → Resetting failed-final to pending (retries cleared)" -ForegroundColor Yellow
-            if (Get-Command Set-WarRoomStatus -ErrorAction SilentlyContinue) {
-                Set-WarRoomStatus -RoomDir $rd.FullName -NewStatus "pending"
-            } else {
-                "pending" | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
-            }
-            # Reset retry counters
-            $retriesFile = Join-Path $rd.FullName "retries"
-            if (Test-Path $retriesFile) { "0" | Out-File -FilePath $retriesFile -Encoding utf8 -NoNewline }
-            $qaRetriesFile = Join-Path $rd.FullName "qa_retries"
-            if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
         }
     }
     # Auto-inject PLAN-REVIEW dependency
@@ -753,7 +819,6 @@ if ($Unified -and -not ($Review -or $Expand) -and -not $Resume) {
 
 # --- Unified Negotiation Loop (Legacy / Blocking) ---
 $shouldNegotiate = -not $Resume -and -not $Unified
-$autoExpanded = $false
 
 while ($shouldNegotiate) {
     # Decide if we need review
