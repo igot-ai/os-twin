@@ -1019,6 +1019,10 @@ if $DASHBOARD_ONLY; then
       step "Installing pnpm..."
       npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
     fi
+    if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+      step "Installing clawhub CLI..."
+      npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
+    fi
   else
     fail "Node.js required for dashboard"
     exit 1
@@ -1098,6 +1102,10 @@ if check_node; then
     step "Installing pnpm..."
     npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
   fi
+  if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+    step "Installing clawhub CLI..."
+    npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
+  fi
 else
   warn "Node.js not found"
   if ask "Install Node.js? (required for Dashboard UI)"; then
@@ -1108,6 +1116,10 @@ else
       if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
         step "Installing pnpm..."
         npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+      fi
+      if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+        step "Installing clawhub CLI..."
+        npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
       fi
     else
       warn "Node.js installation failed"
