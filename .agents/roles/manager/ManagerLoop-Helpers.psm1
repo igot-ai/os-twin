@@ -387,10 +387,20 @@ function Start-WorkerJob {
     }
     Write-SpawnLock -RoomDir $RoomDir -Role $Role
     $effectiveRoleName = if ($RoleName) { $RoleName } else { $Role }
+    # Detect whether the target script accepts -RoleName before passing it.
+    # Scripts with [CmdletBinding()] will throw a terminating error on unknown
+    # parameters, silently killing the Start-Job runspace with zero output.
+    $acceptsRoleName = $false
+    try {
+        $scriptCmd = Get-Command $Script -ErrorAction SilentlyContinue
+        if ($scriptCmd -and $scriptCmd.Parameters.ContainsKey('RoleName')) {
+            $acceptsRoleName = $true
+        }
+    } catch { }
     Start-Job -ScriptBlock {
-        param($s, $r, $rn)
-        if ($rn) { & $s -RoomDir $r -RoleName $rn } else { & $s -RoomDir $r }
-    } -ArgumentList $Script, $RoomDir, $effectiveRoleName | Out-Null
+        param($s, $r, $rn, $passRn)
+        if ($passRn -and $rn) { & $s -RoomDir $r -RoleName $rn } else { & $s -RoomDir $r }
+    } -ArgumentList $Script, $RoomDir, $effectiveRoleName, $acceptsRoleName | Out-Null
     return $true
 }
 

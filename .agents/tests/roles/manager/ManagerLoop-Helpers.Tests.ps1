@@ -735,6 +735,45 @@ Describe "Start-WorkerJob" {
         $result = Start-WorkerJob -RoomDir $script:rd -Role "engineer" -Script $script:workerScript -TaskRef "T1" -RoleName "game-engineer" -SkipLockCheck
         $result | Should -BeTrue
     }
+
+    It "does NOT crash when spawning a script that has [CmdletBinding()] but no -RoleName param (regression: silent ParameterBindingException)" {
+        # Regression test for the architect silent crash bug:
+        # Start-WorkerJob must NOT pass -RoleName to scripts that don't declare it.
+        # A script with [CmdletBinding()] rejects unknown parameters with a terminating
+        # error inside the Start-Job runspace — silently killing the agent with zero output.
+        $noRoleNameScript = Join-Path $TestDrive "no-rolename-$(Get-Random).ps1"
+        @'
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)]
+    [string]$RoomDir
+    # Deliberately NO -RoleName — simulates Start-Architect.ps1 before the fix
+)
+# If we get here, the script started correctly — write a sentinel file
+"started" | Out-File -FilePath (Join-Path $RoomDir "sentinel.txt") -Encoding utf8 -NoNewline
+'@ | Out-File $noRoleNameScript -Encoding utf8
+
+        try {
+            $result = Start-WorkerJob -RoomDir $script:rd -Role "architect" -Script $noRoleNameScript -TaskRef "PLAN-REVIEW" -SkipLockCheck
+            $result | Should -BeTrue
+
+            # Give the job a moment to run
+            Start-Sleep -Seconds 2
+            Get-Job | Wait-Job -Timeout 5 | Out-Null
+
+            # The job must have completed without error
+            $job = Get-Job | Where-Object { $_.State -in @('Completed','Failed') } | Select-Object -Last 1
+            $job | Should -Not -BeNull
+            $job.State | Should -Be "Completed" -Because "a [CmdletBinding()] script without -RoleName must not throw ParameterBindingException"
+
+            # The sentinel file proves the script body actually ran (not just silently died)
+            Test-Path (Join-Path $script:rd "sentinel.txt") | Should -BeTrue -Because "the script body must execute, not be killed by parameter binding"
+        }
+        finally {
+            Remove-Item $noRoleNameScript -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $script:rd "sentinel.txt") -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # ===========================================================================
