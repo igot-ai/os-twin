@@ -151,6 +151,33 @@
       "default_model": "gemini-3.1-pro-preview"
     },
     {
+      "name": "macos-automation-engineer",
+      "description": "macOS automation engineer — controls apps, windows, mouse/keyboard input, screenshots, and system settings via osascript",
+      "definition": "roles/macos-automation-engineer/role.json",
+      "prompt": "roles/macos-automation-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "app-control",
+        "window-management",
+        "input-capture",
+        "screen-capture",
+        "system-prefs",
+        "file-finder",
+        "developer-workflows",
+        "axbridge"
+      ],
+      "quality_gates": [],
+      "default_model": "gemini-3-flash-preview",
+      "platform": [
+        "macos"
+      ]
+    },
+    {
       "name": "game-engineer",
       "description": "Unity C# code generator — produces SceneBuilder and AnimCreator scripts, implements dev stories, and validates with tests",
       "definition": "contributes/roles/game-engineer/role.json",
