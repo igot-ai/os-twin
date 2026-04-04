@@ -27,6 +27,15 @@ if [[ -z "$PROJECT_DIR" ]]; then
   fi
 fi
 
+# Ensure PROJECT_DIR exists
+if [[ ! -d "$PROJECT_DIR" ]]; then
+  read -p "Directory '$PROJECT_DIR' does not exist. Create it? [Y/n] " answer
+  case "${answer:-y}" in
+    [Yy]*|"") mkdir -p "$PROJECT_DIR" && echo "Created $PROJECT_DIR" ;;
+    *) echo "Aborted."; exit 1 ;;
+  esac
+fi
+
 # Check for pwsh
 if ! command -v pwsh &> /dev/null; then
   echo "Error: 'pwsh' (PowerShell) is not installed or not in PATH."

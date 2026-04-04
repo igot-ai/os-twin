@@ -1,0 +1,18 @@
+{
+  "name": "video-platform-architect",
+  "description": "Design the high-level system architecture and database schemas for the video platform.",
+  "capabilities": [
+    "architecture",
+    "database"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

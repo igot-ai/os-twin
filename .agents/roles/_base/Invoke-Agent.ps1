@@ -292,11 +292,17 @@ else {
                 $resolvedMcpConfig = $projectMcpConfig
             }
         }
-        # Priority 2: agents dir (same repo, e.g. installed copy)
+        # Priority 2: agents dir (same repo / dev mode)
         if (-not $resolvedMcpConfig) {
             $agentsDirMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
             if (Test-Path $agentsDirMcpConfig) {
                 $resolvedMcpConfig = $agentsDirMcpConfig
+            } else {
+                # Dev mode: mcp-config.json may not exist, fall back to mcp-builtin.json
+                $agentsDirMcpBuiltin = Join-Path $agentsDir "mcp" "mcp-builtin.json"
+                if (Test-Path $agentsDirMcpBuiltin) {
+                    $resolvedMcpConfig = $agentsDirMcpBuiltin
+                }
             }
         }
         # Priority 3: OSTWIN_HOME global config (~/.ostwin/mcp/mcp-config.json)
@@ -364,11 +370,12 @@ $cwdLine
 # bin/agent also writes this (harmless overwrite); this fallback ensures
 # non-bin/agent commands (deepagents, custom CLIs) still get tracked.
 echo "`$$" > '$safePidFile'
-# Log diagnostic info before exec
-echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> '$safeOutput'
-exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine >> '$safeOutput' 2>&1
+# Log diagnostic info to separate file (not agent output)
+WRAPPER_LOG='$safeOutput.wrapper.log'
+echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> "`$WRAPPER_LOG"
+exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine >> '$safeOutput' 2>>"`$WRAPPER_LOG"
 # If exec fails, this line runs:
-echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
+echo "[wrapper] EXEC FAILED: exit=`$?" >> "`$WRAPPER_LOG"
 "@
         $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
         chmod +x $wrapperScript 2>$null

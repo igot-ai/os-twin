@@ -91,7 +91,6 @@
         "orchestration"
       ],
       "capabilities": [
-        "task-routing",
         "retry-management",
         "release-coordination",
         "deadlock-detection",

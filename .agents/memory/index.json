@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-03-29T17:24:48Z",
-  "count": 9,
+  "updated_at": "2026-04-02T18:25:33Z",
+  "count": 12,
   "entries": [
     {
       "id": "mem-cod-1774690708043958000-81954",
@@ -121,18 +121,60 @@
       "detail": "import json\nimport re\nimport os\nimport sys\nfrom typing import Any, Dict, List, Tuple\nfrom pathlib import Path\n\n# Try to import vault from the same directory\ntry:\n    from .vault import get_vault\nexcept ImportError:\n    # Fallback for standalone execution\n    sys.path.append(os.path.dirname(os.path.abspath(__file__)))\n    from vault import get_vault\n\n# Regex to match ${vault:server/key}\nVAULT_REF_PATTERN = re.compile(r\"\\$\\{vault:([^/]+)/([^}]+)\\}\")\n\nclass ConfigResolver:\n    def __init__(self):\n        self.vault = get_vault()\n\n    def resolve_config(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:\n        \"\"\"Recursively resolves vault references in a config dictionary.\"\"\"\n        return self._resolve_recursive(config_dict)\n\n    def _resolve_recursive(self, obj: Any) -> Any:\n        if isinstance(obj, dict):\n            return {k: self._resolve_recursive(v) for k, v in obj.items()}\n        elif isinstance(obj, list):\n            return [self._resolve_recursive(v) for v in obj]\n        elif isinstance(obj, str):\n            match = VAULT_REF_PATTERN.search(obj)\n            if match:\n                server, key = match.groups()\n                secret = self.vault.get(server, key)\n                if secret is None:\n                    raise ValueError(f\"Vault reference not found: ${{vault:{server}/{key}}}\")\n                # Replace the entire reference with the secret\n                # Note: this only supports one reference per string for now\n                return obj.replace(match.group(0), secret)\n        return obj\n\n    def has_unresolved_refs(self, config_dict: Dict[str, Any]) -> List[str]:\n        \"\"\"Returns a list of missing vault references as 'server/key' strings.\"\"\"\n        unresolved = []\n        refs = self.extract_vault_refs(config_dict)\n        for server, key in refs:\n            if self.vault.get(server, key) is None:\n                unresolved.append(f\"{server}/{key}\")\n        return unresolved\n\n    def extract_vault_refs(self, config_dict: Dict[str, Any]) -> List[Tuple[str, str]]:\n        \"\"\"Extracts all vault references found in the config dictionary.\"\"\"\n        refs = []\n        self._extract_recursive(config_dict, refs)\n        return sorted(list(set(refs)))\n\n    def _extract_recursive(self, obj: Any, refs: List[Tuple[str, str]]):\n        if isinstance(obj, dict):\n            for v in obj.values():\n                self._extract_recursive(v, refs)\n        elif isinstance(obj, list):\n            for v in obj:\n                self._extract_recursive(v, refs)\n        elif isinstance(obj, str):\n            for match in VAULT_REF_PATTERN.finditer(obj):\n                refs.append(match.groups())\n\n    def compile_config(self, home_config: Dict[str, Any], builtin_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:\n        \"\"\"\n        Compiles home config + builtin config into project config.\n        Replaces ${vault:server/key} with ${ENV_VAR} and returns the env var mapping.\n        \"\"\"\n        # Merge configs\n        compiled_config = {\"mcpServers\": {}}\n        compiled_config[\"mcpServers\"].update(builtin_config.get(\"mcpServers\", {}))\n        compiled_config[\"mcpServers\"].update(home_config.get(\"mcpServers\", {}))\n        \n        env_vars = {}\n        \n        def _compile_recursive(obj, server_name):\n            if isinstance(obj, dict):\n                return {k: _compile_recursive(v, server_name) for k, v in obj.items()}\n            elif isinstance(obj, list):\n                return [_compile_recursive(v, server_name) for v in obj]\n            elif isinstance(obj, str):\n                match = VAULT_REF_PATTERN.search(obj)\n                if match:\n                    server, key = match.groups()\n                    secret = self.vault.get(server, key)\n                    if secret is None:\n                        # If we can't find it in vault, we'll leave it as is for now\n                        # or raise an error? The spec says to resolve it.\n                        pass\n                    \n                    # ENV var naming convention: MCP_{SERVER}_{KEY} (uppercased, sanitized)\n                    env_name = f\"MCP_{server.upper()}_{key.upper()}\".replace(\"-\", \"_\").replace(\".\", \"_\")\n                    env_vars[env_name] = secret or \"\"\n                    return obj.replace(match.group(0), f\"${{{env_name}}}\")\n            return obj\n\n        for name, server_cfg in compiled_config[\"mcpServers\"].items():\n            compiled_config[\"mcpServers\"][name] = _compile_recursive(server_cfg, name)\n            \n        return compiled_config, env_vars\n\nif __name__ == \"__main__\":\n    # Test script\n    resolver = ConfigResolver()\n    test_config = {\n        \"mcpServers\": {\n            \"test\": {\n                \"env\": {\n                    \"API_KEY\": \"${vault:test/API_KEY}\",\n                    \"OTHER\": \"plain\"\n                }\n            }\n        }\n    }\n    print(\"Extracting refs:\", resolver.extract_vault_refs(test_config))\n    print(\"Has unresolved:\", resolver.has_unresolved_refs(test_config))\n    \n    # Try setting a value and resolving\n    resolver.vault.set(\"test\", \"API_KEY\", \"secret-value\")\n    print(\"Resolved config:\", resolver.resolve_config(test_config))\n    resolver.vault.delete(\"test\", \"API_KEY\")"
     },
     {
-      "id": "mem-dec-1774805088550696000-90459",
-      "ts": "2026-03-29T17:24:48Z",
-      "kind": "decision",
+      "id": "mem-cod-1775154332938576043-575799",
+      "ts": "2026-04-02T18:25:32Z",
+      "kind": "code",
       "room_id": "room-002",
       "author_role": "engineer",
       "ref": "EPIC-002",
       "tags": [
-        "mcp",
-        "architecture"
+        "models",
+        "user"
       ],
-      "summary": "Two-tier MCP config with compilation",
-      "detail": "Compiled home config into project config resolving vault refs to env vars. Secret values stored in .env.mcp (gitignored)."
+      "summary": "src/models/user.entity.ts \u2014 User entity",
+      "detail": "import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from \"typeorm\";\nimport { Video } from \"./video.entity\";\n\n@Entity(\"users\")\nexport class User {\n  @PrimaryGeneratedColumn(\"uuid\")\n  id: string;\n\n  @Column({ unique: true })\n  username: string;\n\n  @Column({ unique: true })\n  email: string;\n\n  @Column()\n  password_hash: string;\n\n  @OneToMany(() => Video, video => video.user)\n  videos: Video[];\n}"
+    },
+    {
+      "id": "mem-cod-1775154332962988141-575800",
+      "ts": "2026-04-02T18:25:32Z",
+      "kind": "code",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "models",
+        "video"
+      ],
+      "summary": "src/models/video.entity.ts \u2014 Video entity",
+      "detail": "import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from \"typeorm\";\nimport { User } from \"./user.entity\";\n\nexport enum VideoStatus {\n  PENDING = \"pending\",\n  PROCESSING = \"processing\",\n  COMPLETED = \"completed\",\n  FAILED = \"failed\",\n}\n\n@Entity(\"videos\")\nexport class Video {\n  @PrimaryGeneratedColumn(\"uuid\")\n  id: string;\n\n  @Column()\n  user_id: string;\n\n  @ManyToOne(() => User, user => user.videos, { onDelete: \"CASCADE\" })\n  @JoinColumn({ name: \"user_id\" })\n  user: User;\n\n  @Column()\n  title: string;\n\n  @Column({ type: \"enum\", enum: VideoStatus, default: VideoStatus.PENDING })\n  status: VideoStatus;\n}"
+    },
+    {
+      "id": "mem-int-1775154332986907440-575801",
+      "ts": "2026-04-02T18:25:32Z",
+      "kind": "interface",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "api",
+        "auth"
+      ],
+      "summary": "Auth Endpoints (Register, Login)",
+      "detail": "POST /api/v1/auth/register\nPayload: { username, email, password }\n\nPOST /api/v1/auth/login\nPayload: { username, password }\nResponse 200: { accessToken: string }"
+    },
+    {
+      "id": "mem-int-1775154333010720439-575802",
+      "ts": "2026-04-02T18:25:33Z",
+      "kind": "interface",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "api",
+        "video"
+      ],
+      "summary": "Video Endpoints (Upload URL, Publish)",
+      "detail": "POST /api/v1/videos/upload-url\nPayload: { fileName, fileSize, contentType }\nResponse 200: { uploadUrl, videoId, expiresAt }\n\nPOST /api/v1/videos/:videoId/publish\nPayload: { title, description }\nResponse 201: { id, status: \"processing\" }"
     }
   ]
 }

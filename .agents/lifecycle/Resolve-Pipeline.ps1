@@ -96,6 +96,7 @@ function Build-LifecycleV2 {
                 type    = 'work'
                 signals = [ordered]@{
                     done  = [ordered]@{ target = $nextTarget }
+                    pass  = [ordered]@{ target = $nextTarget }
                     error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
                 }
             }
@@ -106,6 +107,7 @@ function Build-LifecycleV2 {
                 type    = 'work'
                 signals = [ordered]@{
                     done  = [ordered]@{ target = $nextTarget }
+                    pass  = [ordered]@{ target = $nextTarget }
                     error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
                 }
             }

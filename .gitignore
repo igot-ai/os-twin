@@ -5,8 +5,12 @@
 *.war-rooms/**
 .war-rooms/**
 
-# ── Agents (entire framework — installed to ~/.ostwin, not committed) ────────
-.agents/
+# ── Agents (runtime data, not source) ────────────────────────────────────────
+.agents/.venv/
+.agents/.venv.bak/
+.agents/memory/
+.agents/plans/
+.agents/stats_history.json
 
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
@@ -64,3 +68,7 @@ bk/
 .agents/mcp/.env.mcp
 
 projects/
+ideas/
+patches/
+
+A-mem-sys/
