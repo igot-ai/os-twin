@@ -90,6 +90,13 @@ if $BACKGROUND; then
   echo "$DASH_PID" > "$PID_FILE"
   echo "  PID: $DASH_PID"
   echo "  Logs: $DASHBOARD_LOG_DIR/debug.log (debug) | stdout.log (raw)"
+  # Check for ngrok tunnel after dashboard starts
+  sleep 3
+  TUNNEL_URL=$(curl -sf "http://localhost:${PORT}/api/tunnel/status" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+  if [[ -n "$TUNNEL_URL" ]]; then
+    echo "  Tunnel: $TUNNEL_URL"
+  fi
 else
   echo "[DASHBOARD] Starting web dashboard on http://localhost:${PORT}"
   echo "  Project: $PROJECT_DIR"

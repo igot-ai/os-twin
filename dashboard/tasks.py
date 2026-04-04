@@ -222,3 +222,22 @@ async def startup_all():
     except Exception as e:
         logger.error(f"zvec init failed: {e}")
         global_state.store = None
+
+    # Auto-start ngrok tunnel if NGROK_AUTHTOKEN is set
+    auth_token = os.environ.get("NGROK_AUTHTOKEN")
+    if auth_token:
+        try:
+            from dashboard.tunnel import start_tunnel
+            port = int(os.environ.get("DASHBOARD_PORT", "9000"))
+            domain = os.environ.get("NGROK_DOMAIN")
+            url = await start_tunnel(port, auth_token, domain)
+            global_state.tunnel_url = url
+            logger.info("ngrok tunnel active: %s", url)
+            # Notify Telegram chats
+            try:
+                from dashboard.notify import send_message
+                await send_message(f"📡 Dashboard is live at: {url}")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error("ngrok tunnel failed: %s", e)

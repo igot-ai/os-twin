@@ -545,7 +545,11 @@ print(json.dumps(payload))
           exit 1
         fi
 
-        EDITOR_URL="${DASHBOARD_URL}${PLAN_URL}"
+        # Prefer tunnel URL for shareable links
+        SHARE_URL="$DASHBOARD_URL"
+        _tunnel=$(curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/tunnel/status" 2>/dev/null \
+          | "$PYTHON" -c "import sys,json; u=json.load(sys.stdin).get('url',''); print(u) if u else exit(1)" 2>/dev/null) && SHARE_URL="$_tunnel"
+        EDITOR_URL="${SHARE_URL}${PLAN_URL}"
         echo "✓ Plan created: ${PLAN_ID}"
         echo "  Title:  ${PLAN_TITLE}"
         echo "  Dir:    ${PROJECT_DIR}"
