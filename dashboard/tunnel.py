@@ -5,6 +5,7 @@ Auto-starts an ngrok tunnel when NGROK_AUTHTOKEN is set,
 exposing the dashboard on a public URL for remote monitoring.
 """
 
+import atexit
 import logging
 from datetime import datetime, timezone
 
@@ -17,6 +18,18 @@ _started_at: str | None = None
 _error: str | None = None
 
 
+def _atexit_cleanup():
+    """Safety net: ensure ngrok agent process is killed when Python exits."""
+    try:
+        from pyngrok import ngrok
+        ngrok.kill()
+    except Exception:
+        pass
+
+
+atexit.register(_atexit_cleanup)
+
+
 async def start_tunnel(port: int, auth_token: str, domain: str | None = None) -> str:
     """Start an ngrok tunnel to the given port. Returns the public URL."""
     global _tunnel, _tunnel_url, _started_at, _error
@@ -26,6 +39,13 @@ async def start_tunnel(port: int, auth_token: str, domain: str | None = None) ->
 
         # Configure auth token
         conf.get_default().auth_token = auth_token
+
+        # Kill any ngrok process managed by pyngrok from a previous run.
+        # This clears stale agent sessions that would cause ERR_NGROK_108.
+        try:
+            ngrok.kill()
+        except Exception:
+            pass
 
         # Build connect kwargs
         kwargs = {"addr": port, "bind_tls": True}

@@ -17,6 +17,7 @@ import { listRecordings, transcribeAudio } from './audio-transcript';
 export interface Button {
   label: string;
   callbackData: string;
+  url?: string; // When set, renders as a URL button instead of a callback button
 }
 
 export interface BotResponse {
@@ -80,7 +81,10 @@ function cmdSubmenuSystem(): BotResponse {
 // ── Monitoring commands ───────────────────────────────────────────
 
 async function cmdDashboard(): Promise<BotResponse> {
-  const { rooms, summary } = await api.getRooms();
+  const [{ rooms, summary }, baseUrl] = await Promise.all([
+    api.getRooms(),
+    api.getBaseUrl(),
+  ]);
   const total = summary.total || 0;
   const active = (summary.pending || 0) + (summary.engineering || 0) + (summary.qa_review || 0) + (summary.fixing || 0);
   const passed = summary.passed || 0;
@@ -96,7 +100,8 @@ async function cmdDashboard(): Promise<BotResponse> {
   const pctFail = total ? (failed / total * 100).toFixed(1) : '0.0';
   const pctAct = total ? (active / total * 100).toFixed(1) : '0.0';
 
-  return text(`🎛 *OS TWIN COMMAND CENTER* 🎛
+  return {
+    text: `🎛 *OS TWIN COMMAND CENTER* 🎛
 _System Status:_ 🟢 *ONLINE*
 
 📊 *WAR-ROOMS OVERVIEW*
@@ -110,7 +115,11 @@ _System Status:_ 🟢 *ONLINE*
 📈 *EXECUTION PROGRESS*
 ✅ \`Passed:\` \`${makeBar(passed, total)}\` \`${pctPass.padStart(5)}%\`
 ❌ \`Failed:\` \`${makeBar(failed, total)}\` \`${pctFail.padStart(5)}%\`
-��‍♂️ \`Active:\` \`${makeBar(active, total)}\` \`${pctAct.padStart(5)}%\``);
+��‍♂️ \`Active:\` \`${makeBar(active, total)}\` \`${pctAct.padStart(5)}%\``,
+    buttons: baseUrl.startsWith('https')
+      ? [[{ label: '🔗 Open Dashboard', callbackData: '_', url: baseUrl }]]
+      : undefined,
+  };
 }
 
 async function cmdStatus(): Promise<BotResponse> {
@@ -175,17 +184,25 @@ async function cmdErrors(): Promise<BotResponse> {
 // ── Plan commands ─────────────────────────────────────────────────
 
 async function cmdPlans(): Promise<BotResponse> {
-  const { plans, error } = await api.getPlans();
+  const [{ plans, error }, baseUrl] = await Promise.all([
+    api.getPlans(),
+    api.getBaseUrl(),
+  ]);
   if (error) return text(`⚠️ ${error}`);
   if (!plans.length) return text('ℹ️ No plans found.');
 
+  const isPublic = baseUrl.startsWith('https');
   const lines = ['📂 *Project Plans:*'];
+  const buttons: Button[][] = [];
   for (const p of plans) {
     let title = p.title || 'Untitled';
     if (title.length > 40) title = title.slice(0, 37) + '...';
-    lines.push(`• *${title}* (${p.status || 'unknown'})\n  └ \`ID: ${p.plan_id}\``);
+    lines.push(`• *${title}* (${p.status || 'unknown'})`);
+    if (isPublic) {
+      buttons.push([{ label: `📄 ${title}`, callbackData: '_', url: `${baseUrl}/plans/${p.plan_id}` }]);
+    }
   }
-  return text(lines.join('\n'));
+  return buttons.length ? { text: lines.join('\n'), buttons } : text(lines.join('\n'));
 }
 
 async function cmdSkills(): Promise<BotResponse> {
