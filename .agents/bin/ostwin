@@ -100,6 +100,15 @@ fi
 # Version from config
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
+# Build hash (written by install.sh)
+BUILD_HASH=""
+for _hash_file in "$OSTWIN_HOME/.build-hash" "$AGENTS_DIR/.build-hash"; do
+  if [[ -f "$_hash_file" ]]; then
+    BUILD_HASH=$(<"$_hash_file")
+    break
+  fi
+done
+
 # Dashboard URL
 export DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
 
@@ -188,7 +197,7 @@ print(plan.get('working_dir', plan.get('meta', {}).get('working_dir', '')))
 
 show_help() {
   cat << HELP
-ostwin v${VERSION} — Multi-Agent War-Room Orchestrator
+ostwin v${VERSION}${BUILD_HASH:+ ($BUILD_HASH)} — Multi-Agent War-Room Orchestrator
 
 Usage:
   ostwin <command> [options]
@@ -220,13 +229,18 @@ Commands:
                     Options: --project-dir PATH
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
+  mac <script> <cmd>  macOS desktop automation (shorthand for role dispatch)
+                     Scripts: app, window, click, type, capture, system,
+                              finder, axbridge, devtools
+                     Run 'ostwin mac <script> help' for per-script usage
   role <name> [sub]  Run a role's subcommand
                        Options: ostwin role (list roles)
                                 ostwin role <name> (show subcommands)
                                 ostwin role <name> <sub> [args...]
   health            Check system health
   skills <sub>      Manage skills installation and sync
-                    Subcommands: sync, install [--from DIR], list
+                    Subcommands: sync, install [<slug>|--from DIR], list,
+                                 search <query>, update [--all|<slug>], remove <slug>
   mcp               Manage MCP extensions
                     Subcommands: install, list, catalog, remove, sync
   reload-env        Reload ~/.ostwin/.env into mcp-config.json env blocks
@@ -381,6 +395,27 @@ case "${1:-}" in
             echo "Aborting run. Please create the missing roles manually."
             exit 1
         fi
+      fi
+    fi
+
+    # --- Ensure working_dir exists and is initialized ---
+    # If RESOLVED_WORKING_DIR is empty, parse it from the plan file
+    if [[ -z "$RESOLVED_WORKING_DIR" && -f "$RESOLVED_PLAN_FILE" ]]; then
+      RESOLVED_WORKING_DIR=$(grep -E "^\s*working_dir:\s*" "$RESOLVED_PLAN_FILE" | head -n 1 | awk -F': ' '{print $2}' | xargs)
+    fi
+    # Also check > Project: line if still empty
+    if [[ -z "$RESOLVED_WORKING_DIR" && -f "$RESOLVED_PLAN_FILE" ]]; then
+      RESOLVED_WORKING_DIR=$(grep -E "^>\s*Project:\s*" "$RESOLVED_PLAN_FILE" | head -n 1 | sed 's/^>\s*Project:\s*//' | xargs)
+    fi
+
+    if [[ -n "$RESOLVED_WORKING_DIR" && "$RESOLVED_WORKING_DIR" != "." ]]; then
+      if [[ ! -d "$RESOLVED_WORKING_DIR" ]]; then
+        echo "📁 Creating project directory: $RESOLVED_WORKING_DIR"
+        mkdir -p "$RESOLVED_WORKING_DIR"
+      fi
+      if [[ ! -d "$RESOLVED_WORKING_DIR/.agents" ]]; then
+        echo "🔧 Initializing project with ostwin init..."
+        ( cd "$RESOLVED_WORKING_DIR" && "$0" init . )
       fi
     fi
 
@@ -662,13 +697,31 @@ else:
         # Determine source dir: --from DIR or current directory
         FROM_DIR=""
         EXTRA_ARGS=()
+        CLAWHUB_SLUG=""
         while [[ $# -gt 0 ]]; do
           case "$1" in
             --from) FROM_DIR="$2"; shift 2 ;;
             *)      EXTRA_ARGS+=("$1"); shift ;;
           esac
         done
-        # Default: scan cwd for .agents/skills/
+        # If no --from and first extra arg doesn't look like a path, treat as ClawHub slug
+        if [[ -z "$FROM_DIR" && ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+          first_arg="${EXTRA_ARGS[0]}"
+          if [[ "$first_arg" != /* && "$first_arg" != .* && ! -d "$first_arg" ]]; then
+            # Looks like a ClawHub slug (e.g., "steipete/web-search" or "web-search")
+            CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+            if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+              CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+            fi
+            if [[ -f "$CLAWHUB_SCRIPT" ]]; then
+              OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" install "${EXTRA_ARGS[@]}"
+            else
+              echo "✗ clawhub-install.sh not found" >&2
+              exit 1
+            fi
+          fi
+        fi
+        # Local install: scan cwd for .agents/skills/
         if [[ -z "$FROM_DIR" ]]; then
           for candidate in \
             "$(pwd)/.agents/skills" \
@@ -681,11 +734,35 @@ else:
           done
         fi
         if [[ -z "$FROM_DIR" || ! -d "$FROM_DIR" ]]; then
-          echo "✗ No skills found. Specify --from DIR or run from a project root." >&2
+          echo "✗ No skills found. Specify --from DIR, a ClawHub slug, or run from a project root." >&2
           exit 1
         fi
         echo "Installing skills from: $FROM_DIR"
         OSTWIN_HOME="$HOME/.ostwin" bash "$SYNC_SCRIPT" --install-from "$FROM_DIR" "${EXTRA_ARGS[@]}"
+        ;;
+      search)
+        shift
+        CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+        if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+          CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+        fi
+        OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" search "$@"
+        ;;
+      update)
+        shift
+        CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+        if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+          CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+        fi
+        OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" update "$@"
+        ;;
+      remove)
+        shift
+        CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+        if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+          CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+        fi
+        OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" remove "$@"
         ;;
       list)
         shift
@@ -709,7 +786,10 @@ else:
       *)
         echo "Unknown skills subcommand: $SUB" >&2
         echo "  Usage: ostwin skills sync" >&2
-        echo "         ostwin skills install [--from DIR]" >&2
+        echo "         ostwin skills install [<slug>|--from DIR]" >&2
+        echo "         ostwin skills search <query>" >&2
+        echo "         ostwin skills update [--all|<slug>]" >&2
+        echo "         ostwin skills remove <slug>" >&2
         echo "         ostwin skills list" >&2
         exit 1
         ;;
@@ -803,6 +883,124 @@ PYEOF
     done
     echo "Done."
     ;;
+  role)
+    shift
+    ROLE_NAME="${1:-}"
+    if [[ -z "$ROLE_NAME" ]]; then
+      # List all roles that have subcommands.json
+      echo "Available roles with subcommands:"
+      echo ""
+      for manifest in "$AGENTS_DIR"/roles/*/subcommands.json; do
+        [[ -f "$manifest" ]] || continue
+        rname=$(basename "$(dirname "$manifest")")
+        desc=$($PYTHON -c "
+import json, sys
+data = json.load(open('$manifest'))
+cmds = data.get('subcommands', [])
+names = [c['name'] for c in cmds] if isinstance(cmds, list) else list(cmds.keys())
+print(f'{len(names)} sub-commands: {", ".join(names)}')
+" 2>/dev/null || echo "")
+        printf "  %-30s %s\n" "$rname" "$desc"
+      done
+      # Also check ~/.ostwin/roles
+      for manifest in "$HOME"/.ostwin/roles/*/subcommands.json; do
+        [[ -f "$manifest" ]] || continue
+        rname=$(basename "$(dirname "$manifest")")
+        desc=$($PYTHON -c "
+import json, sys
+data = json.load(open('$manifest'))
+cmds = data.get('subcommands', [])
+names = [c['name'] for c in cmds] if isinstance(cmds, list) else list(cmds.keys())
+print(f'{len(names)} sub-commands: {", ".join(names)}')
+" 2>/dev/null || echo "")
+        printf "  %-30s %s (global)\n" "$rname" "$desc"
+      done
+      exit 0
+    fi
+    shift
+    SUB_NAME="${1:-}"
+    # Find the subcommands.json for this role
+    ROLE_MANIFEST=""
+    for candidate in \
+      "$AGENTS_DIR/roles/$ROLE_NAME/subcommands.json" \
+      "$HOME/.ostwin/roles/$ROLE_NAME/subcommands.json"; do
+      if [[ -f "$candidate" ]]; then
+        ROLE_MANIFEST="$candidate"
+        break
+      fi
+    done
+    if [[ -z "$ROLE_MANIFEST" ]]; then
+      echo "✗ Role '$ROLE_NAME' not found or has no subcommands.json" >&2
+      echo "  Searched: $AGENTS_DIR/roles/$ROLE_NAME/" >&2
+      echo "            $HOME/.ostwin/roles/$ROLE_NAME/" >&2
+      exit 1
+    fi
+    ROLE_DIR="$(dirname "$ROLE_MANIFEST")"
+    if [[ -z "$SUB_NAME" ]]; then
+      # List subcommands for this role
+      echo "Subcommands for role '$ROLE_NAME':"
+      echo ""
+      $PYTHON - "$ROLE_MANIFEST" <<'PYEOF'
+import json, sys
+manifest_path = sys.argv[1]
+data = json.load(open(manifest_path))
+cmds = data.get('subcommands', [])
+if isinstance(cmds, list):
+    for c in cmds:
+        name = c['name']
+        desc = c.get('description', '')
+        print(f'  {name:20s} {desc}')
+else:
+    for name, info in cmds.items():
+        desc = info.get('description', '')
+        print(f'  {name:20s} {desc}')
+PYEOF
+      exit 0
+    fi
+    shift
+    # Dispatch the subcommand — write a temp dispatch script via heredoc
+    # to avoid all quoting hazards with role/sub/path variables.
+    _DISPATCH_OUT=$($PYTHON - "$ROLE_MANIFEST" "$ROLE_DIR" "$SUB_NAME" <<'PYEOF'
+import json, sys, os
+manifest_path, role_dir, target = sys.argv[1], sys.argv[2], sys.argv[3]
+data = json.load(open(manifest_path))
+module_root = data.get('module_root', '.')
+cmds = data.get('subcommands', [])
+if isinstance(cmds, list):
+    matches = [c for c in cmds if c['name'] == target]
+    if not matches:
+        print('__NOT_FOUND__', file=sys.stderr)
+        sys.exit(1)
+    cmd = matches[0]
+else:
+    if target not in cmds:
+        print('__NOT_FOUND__', file=sys.stderr)
+        sys.exit(1)
+    cmd = cmds[target]
+    cmd['name'] = target
+resolved_root = os.path.normpath(os.path.join(role_dir, module_root))
+print(resolved_root)
+print(cmd['invoke'])
+PYEOF
+) || { echo "✗ Subcommand '$SUB_NAME' not found in role '$ROLE_NAME'" >&2; exit 1; }
+    RESOLVED_ROOT=$(printf '%s' "$_DISPATCH_OUT" | head -1)
+    INVOKE_TEMPLATE=$(printf '%s' "$_DISPATCH_OUT" | tail -1)
+    if [[ ! -d "$RESOLVED_ROOT" ]]; then
+      echo "✗ Module root not found: $RESOLVED_ROOT" >&2
+      exit 1
+    fi
+    # Build invocation: replace literal "{args}" in template with actual arguments.
+    # We eval inside the resolved root; remaining "$@" holds any trailing args.
+    cd "$RESOLVED_ROOT"
+    _ARGS="$*"
+    _CMD="${INVOKE_TEMPLATE/\{args\}/$_ARGS}"
+    eval "$_CMD"
+    ;;
+  mac)
+    shift
+    # Shorthand for: ostwin role macos-automation-engineer <sub> [args]
+    exec "$0" role macos-automation-engineer "$@"
+    ;;
   config)  
     shift
     exec "$AGENTS_DIR/config.sh" "$@"
@@ -828,7 +1026,11 @@ PYEOF
     fi
     ;;
   version|-v|--version)
-    echo "ostwin v${VERSION}"
+    if [[ -n "$BUILD_HASH" ]]; then
+      echo "ostwin v${VERSION} (${BUILD_HASH})"
+    else
+      echo "ostwin v${VERSION}"
+    fi
     ;;
   -h|--help|help)
     show_help

@@ -99,7 +99,7 @@
         "skill-install"
       ],
       "quality_gates": [],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "gemini-3.1-pro-preview"
     },
     {
       "name": "reporter",
@@ -148,7 +148,34 @@
         "validation-complete",
         "risk-decision-recorded"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "gemini-3.1-pro-preview"
+    },
+    {
+      "name": "macos-automation-engineer",
+      "description": "macOS automation engineer — controls apps, windows, mouse/keyboard input, screenshots, and system settings via osascript",
+      "definition": "roles/macos-automation-engineer/role.json",
+      "prompt": "roles/macos-automation-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "app-control",
+        "window-management",
+        "input-capture",
+        "screen-capture",
+        "system-prefs",
+        "file-finder",
+        "developer-workflows",
+        "axbridge"
+      ],
+      "quality_gates": [],
+      "default_model": "gemini-3-flash-preview",
+      "platform": [
+        "macos"
+      ]
     },
     {
       "name": "game-engineer",
@@ -175,7 +202,7 @@
         "60fps-non-negotiable",
         "story-acs-satisfied"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "gemini-3.1-pro-preview"
     },
     {
       "name": "game-qa",
@@ -201,7 +228,7 @@
         "acceptance-criteria-met",
         "code-review-clean"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "gemini-3.1-pro-preview"
     },
     {
       "name": "game-architect",
@@ -226,7 +253,7 @@
         "60fps-constraints-covered",
         "project-context-exists"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "gemini-3.1-pro-preview"
     },
     {
       "name": "game-designer",
@@ -277,7 +304,7 @@
         "milestones-trackable",
         "risks-documented"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "gemini-3.1-pro-preview"
     },
     {
       "name": "game-devops",
@@ -329,7 +356,7 @@
         "id-consistency",
         "temporal-consistency"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "openai:seed-2-0-pro-260328"
     },
     {
       "name": "level-designer",
@@ -427,7 +454,7 @@
         "vfx-within-drawcall-budget",
         "60fps-maintained"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "gemini-3.1-pro-preview"
     },
     {
       "name": "ux-researcher",

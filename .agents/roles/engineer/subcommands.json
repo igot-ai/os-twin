@@ -1,7 +1,0 @@
-{
-  "subcommands": {
-    "test-cmd": {
-      "entrypoint": "test-cmd.py"
-    }
-  }
-}

@@ -45,6 +45,51 @@ export function useSkillValidation() {
   return { validateSkill };
 }
 
+export interface ClawhubSkill {
+  name: string;
+  slug: string;
+  description: string;
+  author?: string;
+  tags?: string[];
+  category?: string;
+  downloads?: number;
+  installs?: number;
+  version?: string;
+  score?: number;
+}
+
+export interface ClawhubInstalledSkill {
+  slug: string;
+  version?: string;
+  installedAt?: number;
+}
+
+export function useClawhubInstalled() {
+  const { data, mutate } = useSWR<ClawhubInstalledSkill[]>('/skills/clawhub-installed');
+  const installedSlugs = new Set((data || []).map((s) => s.slug));
+  return { installed: data || [], installedSlugs, refresh: mutate };
+}
+
+export function useClawhubSearch(query: string) {
+  const url = query ? `/skills/clawhub-search?q=${encodeURIComponent(query)}` : null;
+  const { data, error, isLoading } = useSWR<ClawhubSkill[]>(url);
+
+  const installSkill = async (skillName: string) => {
+    return await apiPost<{ status: string; skill: string; output: string }>(
+      '/skills/clawhub-install',
+      { skill_name: skillName },
+      { headers: { 'X-Confirm-Install': 'true' } },
+    );
+  };
+
+  return {
+    results: data,
+    isLoading,
+    isError: error,
+    installSkill,
+  };
+}
+
 export function useSkill(id: string) {
   const { data, error, mutate, isLoading } = useSWR<Skill>(id ? `/skills/${id}` : null);
 

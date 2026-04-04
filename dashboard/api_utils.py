@@ -39,6 +39,7 @@ if (DEMO_DIR / ".war-rooms").exists():
     if any((DEMO_DIR / ".war-rooms").glob("room-*")):
         WARROOMS_DIR = DEMO_DIR / ".war-rooms"
 SKILLS_DIRS = [
+    Path("~/.ostwin/skills/global").expanduser(),
     AGENTS_DIR / "skills",
     PROJECT_ROOT / ".agents" / "skills",
     PROJECT_ROOT / ".deepagents" / "skills",
@@ -76,6 +77,7 @@ USE_NEXTJS = USE_FE
 
 # === Helper Functions ===
 
+
 def read_room(
     room_dir: Path,
     include_metadata: bool = False,
@@ -107,14 +109,14 @@ def read_room(
     room_id = room_dir.name
     status_file = room_dir / "status"
     status = status_file.read_text().strip() if status_file.exists() else "unknown"
-    
+
     tr_file = room_dir / "task-ref"
     task_ref = tr_file.read_text().strip() if tr_file.exists() else None
-    
+
     retries_file = room_dir / "retries"
     retries_str = retries_file.read_text().strip() if retries_file.exists() else "0"
     retries = int(retries_str) if retries_str.isdigit() else 0
-    
+
     brief_file = room_dir / "brief.md"
     task_md = brief_file.read_text() if brief_file.exists() else None
 
@@ -241,6 +243,7 @@ def read_room(
 
     return result
 
+
 def read_channel(
     room_dir: Path,
     from_role: Optional[str] = None,
@@ -287,6 +290,7 @@ def read_channel(
 
     return messages
 
+
 async def process_notification(event_type: str, data: dict):
     """Asynchronously process notifications."""
     await asyncio.sleep(0.1)
@@ -297,19 +301,20 @@ async def process_notification(event_type: str, data: dict):
     with open(notifications_file, "a") as f:
         f.write(log_entry + "\n")
 
+
 def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str, Any]]:
     """Parse a skill markdown file (default SKILL.md) for metadata and content using YAML frontmatter."""
     skill_file = path / filename
     if not skill_file.exists():
         return None
-    
+
     content = skill_file.read_text(encoding="utf-8").lstrip("\ufeff")
     name = path.name
     description = ""
     tags = []
     body = content
     trust_level = "experimental"  # Model default fallback
-    
+
     # Check for YAML frontmatter
     meta_dict = {}
     if content.startswith("---"):
@@ -379,8 +384,11 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
         "author": meta_dict.get("author"),
         "forked_from": meta_dict.get("forked_from"),
         "is_draft": meta_dict.get("is_draft", False),
-        "updated_at": datetime.fromtimestamp(skill_file.stat().st_mtime, tz=timezone.utc).isoformat()
+        "updated_at": datetime.fromtimestamp(
+            skill_file.stat().st_mtime, tz=timezone.utc
+        ).isoformat(),
     }
+
 
 def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Path:
     """Save skill data to SKILL.md with YAML frontmatter, archiving previous version if it exists."""
@@ -391,10 +399,10 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
             path = SKILLS_DIRS[0] / skill_name
         else:
             path = PROJECT_ROOT / ".deepagents" / "skills" / skill_name
-    
+
     path.mkdir(parents=True, exist_ok=True)
     skill_file = path / "SKILL.md"
-    
+
     # Redesign: Directory-based Historical Snapshots
     if skill_file.exists():
         try:
@@ -408,10 +416,13 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
                 # Only copy if it doesn't already exist to avoid overwriting snapshots
                 if not snapshot_file.exists():
                     import shutil
+
                     shutil.copy2(skill_file, snapshot_file)
         except Exception as e:
             logger = logging.getLogger("api_utils")
-            logger.warning(f"Failed to archive previous version of skill {path.name}: {e}")
+            logger.warning(
+                f"Failed to archive previous version of skill {path.name}: {e}"
+            )
 
     meta = {
         "name": skill_data["name"],
@@ -429,15 +440,16 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
         "forked_from": skill_data.get("forked_from"),
         "is_draft": skill_data.get("is_draft", False),
     }
-    
+
     # Remove None values
     meta = {k: v for k, v in meta.items() if v is not None}
-    
+
     frontmatter = yaml.dump(meta, sort_keys=False)
     content = f"---\n{frontmatter}---\n\n{skill_data.get('content', '')}"
-    
+
     skill_file.write_text(content, encoding="utf-8")
     return path
+
 
 def get_active_epics_using_skill(skill_name: str) -> int:
     """Count active EPICs (war-rooms) that use the given skill."""
@@ -459,13 +471,15 @@ def get_active_epics_using_skill(skill_name: str) -> int:
         for room_dir in WARROOMS_DIR.glob("room-*"):
             if not room_dir.is_dir():
                 continue
-            
+
             # Check status
             status_file = room_dir / "status"
-            status = status_file.read_text().strip() if status_file.exists() else "unknown"
+            status = (
+                status_file.read_text().strip() if status_file.exists() else "unknown"
+            )
             if status in ["passed", "failed", "signoff", "failed-final"]:
                 continue
-                
+
             # Check if any role in this room uses the skill
             config_file = room_dir / "config.json"
             if config_file.exists():
@@ -477,7 +491,7 @@ def get_active_epics_using_skill(skill_name: str) -> int:
                         continue
                 except Exception:
                     pass
-            
+
             # Also check role instance files if candidates list is missing/empty
             for f in room_dir.glob("*_*.json"):
                 if f.name == "config.json":
@@ -489,8 +503,9 @@ def get_active_epics_using_skill(skill_name: str) -> int:
                         break
                 except Exception:
                     continue
-                    
+
     return active_count
+
 
 def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]:
     """Synchronize vector store with SKILL.md files on disk, handling additions, updates, and removals."""
@@ -528,7 +543,7 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
         content_ascii = content_bytes.decode("ascii")
         if existing and existing["content"] == content_ascii:
             continue
-        
+
         if store.index_skill(
             name=data["name"],
             description=data["description"],
@@ -564,18 +579,20 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
         "synced_count": synced_count,
         "added": added,
         "updated": updated,
-        "removed": removed
+        "removed": removed,
     }
 
+
 def build_skills_list(
-    query: Optional[str] = None, 
-    role: Optional[str] = None, 
+    query: Optional[str] = None,
+    role: Optional[str] = None,
     tags: List[str] = [],
-    limit: int = 50,
-    include_drafts: bool = False
+    limit: int = 1000,
+    include_drafts: bool = False,
 ) -> List[Skill]:
     """Helper to build and filter skills list from zvec and disk."""
     from dashboard import global_state
+
     store = getattr(global_state, "store", None)
     skills = []
 
@@ -586,14 +603,14 @@ def build_skills_list(
                 results = store.search_skills(query, limit=limit)
                 skills = [Skill(**res) for res in results]
             else:
-                results = store.get_all_skills(limit=100)
+                results = store.get_all_skills(limit=1000)
                 skills = [Skill(**res) for res in results]
         except Exception as e:
             logging.getLogger("api_utils").error("Skill store fetch failed: %s", e)
 
     # 2. Fallback/Enrich from disk
     skills_map = {s.name: s for s in skills}
-    
+
     # Pre-calculate usage counts from all plans
     usage_counts = {}
     plans_dir = PLANS_DIR
@@ -604,7 +621,8 @@ def build_skills_list(
                 attached = config.get("attached_skills", [])
                 for s_name in attached:
                     usage_counts[s_name] = usage_counts.get(s_name, 0) + 1
-            except Exception: pass
+            except Exception:
+                pass
 
     for sdir in SKILLS_DIRS:
         if not sdir.exists():
@@ -625,7 +643,8 @@ def build_skills_list(
                                     # Don't overwrite if disk version is empty but zvec has them
                                     continue
                                 setattr(existing, k, v)
-                            except Exception: pass
+                            except Exception:
+                                pass
                     else:
                         skills_map[name] = Skill(**skill_data)
         except Exception:
@@ -638,34 +657,39 @@ def build_skills_list(
         # Draft filter
         if getattr(s, "is_draft", False) and not include_drafts:
             continue
-            
+
         # Role match
         if role:
             role_l = role.lower()
             # 1. Direct applicable_roles match (preferred)
-            if s.applicable_roles and any(role_l == r.lower() for r in s.applicable_roles):
+            if s.applicable_roles and any(
+                role_l == r.lower() for r in s.applicable_roles
+            ):
                 pass
             # 2. Try exact tag match, word-boundary match in description or content
             elif any(role_l == t.lower() for t in s.tags):
                 pass
             elif bool(re.search(rf"\b{re.escape(role_l)}\b", s.description.lower())):
                 pass
-            elif s.content and bool(re.search(rf"\b{re.escape(role_l)}\b", s.content.lower())):
+            elif s.content and bool(
+                re.search(rf"\b{re.escape(role_l)}\b", s.content.lower())
+            ):
                 pass
             else:
                 continue
-            
+
         if tags and not any(t.lower() in [st.lower() for st in s.tags] for t in tags):
             continue
-            
+
         filtered.append(s)
-    
+
     # Sort results if not already ranked by search
     if not query:
         filtered.sort(key=lambda x: x.name)
-    
+
     # Apply limit
     return filtered[:limit]
+
 
 # Router helpers
 def resolve_plan_warrooms_dir(plan_id: str) -> Path:
@@ -745,7 +769,6 @@ def resolve_runtime_plan_warrooms_dir(plan_id: str) -> Optional[Path]:
             return WARROOMS_DIR
 
     return None
-
 def get_plan_roles_config(plan_id: str) -> dict:
     """Load the per-plan role config file, or fall back to global config."""
     plan_roles_file = PLANS_DIR / f"{plan_id}.roles.json"
@@ -759,24 +782,25 @@ def get_plan_roles_config(plan_id: str) -> dict:
         return json.loads(config_file.read_text())
     return {}
 
+
 def build_roles_list(config: dict, include_skills: bool = False) -> list:
     """Build roles list from global loaded configuration + local overrides.
     Optionally includes resolved skills for each role.
     """
     from dashboard.constants import ROLE_DEFAULTS
     from dashboard.routes.roles import load_roles
-    
+
     loaded_roles = load_roles()
-    
+
     roles = []
     for role_obj in loaded_roles:
         name = role_obj.name
         role_config = config.get(name, {})
         defaults = ROLE_DEFAULTS.get(name, {})
-        
+
         dm_def = defaults.get("default_model", "gemini-3-flash-preview")
         dm = role_config.get("default_model", role_obj.version or dm_def)
-        
+
         ts_def = defaults.get("timeout_seconds", 600)
         ts = role_config.get("timeout_seconds", ts_def)
 
@@ -799,37 +823,50 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
             "description": role_obj.description or "",
             "default_model": dm,
             "timeout_seconds": ts,
-            "temperature": role_config.get("temperature", defaults.get("temperature", 0.7)),
+            "temperature": role_config.get(
+                "temperature", defaults.get("temperature", 0.7)
+            ),
             "skill_refs": plan_skill_refs,
             "disabled_skills": role_config.get("disabled_skills", []),
-            "runner": "base", # Fallback since dynamic roles don't typically have custom runners
+            "runner": "base",  # Fallback since dynamic roles don't typically have custom runners
             "capabilities": [],
             "supported_task_types": [],
             "default_assignment": False,
             "instance_support": False,
         }
-        
+
         if include_skills:
             # Simple resolution: skills matching the role name as a tag or in desc/content
             role_data["resolved_skills"] = build_skills_list(role=name)
-            
+
         roles.append(role_data)
     return roles
+
 
 # Engagement Stubs (to be moved to dedicated store later)
 def load_engagement(entity_id: str) -> dict:
     """Stub: Load reactions and comments for an entity."""
-    return {"entity_id": entity_id, "reactions": {}, "comments": [], "stats": {"reactions": 0, "comments": 0}}
+    return {
+        "entity_id": entity_id,
+        "reactions": {},
+        "comments": [],
+        "stats": {"reactions": 0, "comments": 0},
+    }
+
 
 def toggle_reaction(entity_id: str, user_id: str, reaction_type: str) -> dict:
     """Stub: Toggle a reaction."""
     return {"status": "ok", "reactions": {reaction_type: [user_id]}}
 
-def add_comment(entity_id: str, user_id: str, body: str, parent_id: Optional[str] = None):
+
+def add_comment(
+    entity_id: str, user_id: str, body: str, parent_id: Optional[str] = None
+):
     """Stub: Add a comment."""
     from dashboard.models import CommentRequest  # Avoid circular
+
     ts = datetime.now(timezone.utc).isoformat()
     comment = {"id": "stub-1", "user_id": user_id, "body": body, "ts": ts}
-    
+
     res = {"entity_id": entity_id, "stats": {"comments": 1}}
-    return res, type('obj', (object,), {"model_dump": lambda: comment})()
+    return res, type("obj", (object,), {"model_dump": lambda: comment})()

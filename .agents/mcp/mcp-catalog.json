@@ -9,18 +9,10 @@
       "build_type": "npx",
       "config": {
         "command": "npx",
-        "args": ["-y", "chrome-devtools-mcp@latest"],
-        "env": {}
-      }
-    },
-    "nanobanana": {
-      "repo": "https://github.com/gemini-cli-extensions/nanobanana.git",
-      "branch": "main",
-      "description": "Nanobanana MCP extension for Gemini CLI",
-      "build_type": "node",
-      "config": {
-        "command": "node",
-        "args": ["${extensionPath}/mcp-server/dist/index.js"],
+        "args": [
+          "-y",
+          "chrome-devtools-mcp@latest"
+        ],
         "env": {}
       }
     }

@@ -208,7 +208,7 @@ After launch, the plan view transforms from an editor into a live dashboard. No 
 │  ┌─ EPIC-001 ─────────┐    ┌─ EPIC-002 ─────────┐      │
 │  │ Character System    │───→│ Combat Mechanics    │      │
 │  │ ██████████░░ 80%    │    │ ████░░░░░░░░ 30%   │      │
-│  │ 🟢 engineering      │    │ 🔵 qa-review        │      │
+│  │ 🟢 engineering      │    │ 🔵 review        │      │
 │  │ 👤 Engineer-01      │    │ 👤 Engineer-02      │      │
 │  │ Room: room-042      │    │ Room: room-043      │      │
 │  │ ⏱ 23 min active     │    │ ⏱ 12 min active     │      │
@@ -228,7 +228,7 @@ After launch, the plan view transforms from an editor into a live dashboard. No 
 
 **Live updates via WebSocket:**
 - Progress bars fill as tasks complete within war rooms
-- Status changes animate (engineering → qa-review → passed)
+- Status changes animate (engineering → review → passed)
 - Blocked EPICs auto-unlock when dependencies complete
 - Cost accumulates in real-time
 

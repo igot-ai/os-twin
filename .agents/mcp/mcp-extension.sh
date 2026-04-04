@@ -30,8 +30,8 @@ else
 fi
 
 # Catalog + builtins always come from global install
-CATALOG_FILE="$HOME/.ostwin/mcp/mcp-catalog.json"
-BUILTIN_FILE="$HOME/.ostwin/mcp/mcp-builtin.json"
+CATALOG_FILE="$HOME/.ostwin/.agents/mcp/mcp-catalog.json"
+BUILTIN_FILE="$HOME/.ostwin/.agents/mcp/mcp-builtin.json"
 
 # Dev mode fallbacks
 [[ ! -f "$CATALOG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-catalog.json" ]] && CATALOG_FILE="$SCRIPT_DIR/mcp-catalog.json"
@@ -41,7 +41,7 @@ BUILTIN_FILE="$HOME/.ostwin/mcp/mcp-builtin.json"
 MCP_DIR=""
 EXTENSIONS_DIR=""
 EXTENSIONS_FILE=""
-CONFIG_FILE="$HOME/.ostwin/mcp/mcp-config.json"
+CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
 PROJECT_DIR=""
 
 # Python: prefer venv, fallback to system

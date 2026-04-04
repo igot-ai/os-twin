@@ -5,6 +5,7 @@ import { Skill, SkillCategory } from '@/types';
 import { useSkills } from '@/hooks/use-skills';
 import { SkillCard } from './SkillCard';
 import { SkillDetailModal } from './SkillDetailModal';
+import { ClawhubMarketplace } from './ClawhubMarketplace';
 
 const categoryColors: Record<SkillCategory, string> = {
   implementation: '#3b82f6',
@@ -16,15 +17,17 @@ const categoryColors: Record<SkillCategory, string> = {
   triage: '#ef4444',
 };
 
-const PAGE_SIZE = 16;
+const PAGE_SIZE = 50;
 
 type SortOption = 'name' | 'most-used' | 'recently-updated' | 'category';
+type ActiveTab = 'local' | 'clawhub';
 
 interface SkillLibraryProps {
   onEdit?: (skill: Skill) => void;
 }
 
 export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
+  const [activeTab, setActiveTab] = useState<ActiveTab>('local');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<SkillCategory[]>([]);
@@ -113,13 +116,44 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
     return pages;
   };
 
-  if (isError) return <div className="p-8 text-red-500">Failed to load skills</div>;
+  if (isError && activeTab === 'local') return <div className="p-8 text-red-500">Failed to load skills</div>;
 
   return (
     <div className="space-y-6">
+      {/* Tabs */}
+      <div className="flex items-center gap-1 border-b" style={{ borderColor: 'var(--color-border)' }}>
+        <button
+          onClick={() => setActiveTab('local')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+            activeTab === 'local' ? 'border-blue-500 text-blue-600' : 'border-transparent hover:text-slate-600'
+          }`}
+          style={{ color: activeTab === 'local' ? undefined : 'var(--color-text-muted)' }}
+        >
+          <span className="material-symbols-outlined text-sm">folder</span>
+          Local Skills
+        </button>
+        <button
+          onClick={() => setActiveTab('clawhub')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+            activeTab === 'clawhub' ? 'border-indigo-500 text-indigo-600' : 'border-transparent hover:text-slate-600'
+          }`}
+          style={{ color: activeTab === 'clawhub' ? undefined : 'var(--color-text-muted)' }}
+        >
+          <span className="material-symbols-outlined text-sm">store</span>
+          ClawhHub Marketplace
+        </button>
+      </div>
+
+      {/* ClawhHub tab */}
+      {activeTab === 'clawhub' && (
+        <ClawhubMarketplace onInstalled={() => syncWithDisk()} />
+      )}
+
+      {/* Local skills tab */}
+      {activeTab === 'local' && <>
       {/* Search + Filters */}
       <div className="flex flex-col md:flex-row md:items-center gap-4">
-        <div 
+        <div
           className="flex items-center gap-2 px-3 py-2 rounded-lg flex-1 max-w-sm"
           style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
         >
@@ -257,6 +291,8 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
           </span>
         </div>
       )}
+
+      </>}
 
       {/* Modal */}
       <SkillDetailModal

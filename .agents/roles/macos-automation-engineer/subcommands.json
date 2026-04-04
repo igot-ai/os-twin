@@ -1,0 +1,70 @@
+{
+  "role": "macos-automation-engineer",
+  "language": "bash",
+  "module_root": "../../scripts/macos",
+  "subcommands": [
+    {
+      "name": "app",
+      "type": "script",
+      "entrypoint": "app.sh",
+      "invoke": "bash app.sh {args}",
+      "description": "App lifecycle: launch, kill, frontmost, list, is-running"
+    },
+    {
+      "name": "window",
+      "type": "script",
+      "entrypoint": "window.sh",
+      "invoke": "bash window.sh {args}",
+      "description": "Window geometry: move, resize, set-bounds, minimize, restore, fullscreen, get-bounds"
+    },
+    {
+      "name": "click",
+      "type": "script",
+      "entrypoint": "click.sh",
+      "invoke": "bash click.sh {args}",
+      "description": "Mouse input: click, double-click, right-click, move"
+    },
+    {
+      "name": "type",
+      "type": "script",
+      "entrypoint": "type.sh",
+      "invoke": "bash type.sh {args}",
+      "description": "Keyboard input: text, key, combo, hold"
+    },
+    {
+      "name": "capture",
+      "type": "script",
+      "entrypoint": "capture.sh",
+      "invoke": "bash capture.sh {args}",
+      "description": "Screenshots: full, region, window, clipboard"
+    },
+    {
+      "name": "system",
+      "type": "script",
+      "entrypoint": "system.sh",
+      "invoke": "bash system.sh {args}",
+      "description": "System settings: volume, mute, wifi, dark-mode, clipboard, notifications, defaults"
+    },
+    {
+      "name": "finder",
+      "type": "script",
+      "entrypoint": "finder.sh",
+      "invoke": "bash finder.sh {args}",
+      "description": "File operations: search, search-name, search-kind, preview, reveal, xattr, copy, trash"
+    },
+    {
+      "name": "axbridge",
+      "type": "script",
+      "entrypoint": "axbridge.sh",
+      "invoke": "bash axbridge.sh {args}",
+      "description": "Accessibility bridge: ui-tree, read-text, find-button, click-button, menu-click, window-list"
+    },
+    {
+      "name": "devtools",
+      "type": "script",
+      "entrypoint": "devtools.sh",
+      "invoke": "bash devtools.sh {args}",
+      "description": "Developer tools: xcode-build, xcode-test, simctl, codesign, brew, keychain"
+    }
+  ]
+}

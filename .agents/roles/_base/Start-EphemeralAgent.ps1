@@ -53,6 +53,18 @@ if (-not (Test-Path $roomConfigFile)) {
 $roomConfig = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
 
 # --- Process Tracking (PID) ---
+# NOTE: Writing $PID (PowerShell's PID) here is CORRECT because this script
+# runs inline — it does not exec into another process. This differs from
+# Invoke-Agent.ps1, which delegates PID writing to bin/agent via the
+# AGENT_OS_PID_FILE env var (since exec replaces the process image).
+#
+# DESIGN NOTE: Start-EphemeralAgent reads config.json's assigned_role for PID
+# tracking because it acts as the JIT SYNTHESIS COORDINATOR — it runs as the
+# manager during Phase 1 (spec generation), then delegates to Start-DynamicRole.ps1
+# for Phase 2 (actual role execution). Start-DynamicRole.ps1 receives the correct
+# lifecycle-resolved role via -RoleName (passed by the manager loop), overriding
+# the stale config.json assigned_role.  This is NOT the same bug as the main
+# role-resolution fix in Start-DynamicRole.ps1.
 $pidDir = Join-Path $RoomDir "pids"
 if (-not (Test-Path $pidDir)) { New-Item -ItemType Directory -Path $pidDir -Force | Out-Null }
 $assignedRole = if ($roomConfig.assignment -and $roomConfig.assignment.assigned_role) {
@@ -65,7 +77,7 @@ function Cleanup-And-Exit {
     param([int]$ExitCode, [string]$ErrorMsg = "")
     if ($ErrorMsg) {
         Write-Log "ERROR" "Agent Error: $ErrorMsg"
-        & $postMessage -RoomDir $RoomDir -From "engineer" -To "manager" -Type "error" -Ref $TaskRef -Body $ErrorMsg
+        & $postMessage -RoomDir $RoomDir -From $assignedRole -To "manager" -Type "error" -Ref $TaskRef -Body $ErrorMsg
     }
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     $lockFile = Join-Path $pidDir "$assignedRole.spawned_at"
@@ -187,8 +199,11 @@ When the objective is complete, output a brief, concise summary of exactly what 
     & $newDynamicRole @scaffoldArgs
 }
 
-# --- Update room config to use the synthesized role ---
-$roomConfig.assignment.assigned_role = $AgentSpec.role_id
+# --- Store synthesized role in config WITHOUT overwriting assigned_role ---
+# The lifecycle.json expects the original assigned_role (e.g. "researcher").
+# Overwriting it with the JIT name (e.g. "research-scriptwriter") causes
+# sender validation in Find-LatestSignal to reject signals → infinite loop.
+$roomConfig | Add-Member -NotePropertyName "jit_role_id" -NotePropertyValue $AgentSpec.role_id -Force
 $roomConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8
 
 # --- PHASE 2: Delegate to Start-DynamicRole.ps1 ---
@@ -196,5 +211,6 @@ Write-Log "INFO" "Delegating to Start-DynamicRole.ps1 for '$($AgentSpec.role_id)
 
 $dynamicRunner = Join-Path $agentsDir "roles" "_base" "Start-DynamicRole.ps1"
 Remove-Item $pidFile -Force -ErrorAction SilentlyContinue  # Let the dynamic runner manage its own PID
-& $dynamicRunner -RoomDir $RoomDir -RoleName $AgentSpec.role_id -TimeoutSeconds $TimeoutSeconds
+# Use the lifecycle's assigned_role so PID/signal "from" matches lifecycle.json
+& $dynamicRunner -RoomDir $RoomDir -RoleName $assignedRole -TimeoutSeconds $TimeoutSeconds
 exit $LASTEXITCODE

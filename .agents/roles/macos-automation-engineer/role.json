@@ -1,0 +1,25 @@
+{
+  "name": "macos-automation-engineer",
+  "description": "Automate macOS GUI applications, windows, mouse and keyboard input, screenshots, and system settings.",
+  "capabilities": [
+    "app-control",
+    "window-management",
+    "input-capture",
+    "screen-capture",
+    "system-prefs",
+    "file-finder",
+    "developer-workflows",
+    "axbridge"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600,
+  "instance_type": "worker",
+  "platform": ["macos"]
+}

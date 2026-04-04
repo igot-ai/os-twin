@@ -124,5 +124,30 @@
     "system_prompt_override": null,
     "created_at": "2026-03-30T06:19:51.600650+00:00",
     "updated_at": "2026-03-30T06:19:51.600650+00:00"
+  },
+  {
+    "id": "a4b2c1d0-e5f6-4789-abcd-ef0123456789",
+    "name": "macos-automation-engineer",
+    "description": "macOS automation engineer \u2014 controls apps, windows, mouse/keyboard input, screenshots, and system settings via osascript",
+    "instructions": "---\nname: macos-automation-engineer\ndescription: \"Automates macOS desktop \u2014 app lifecycle, window geometry, mouse/keyboard input, screenshots, and system settings via osascript, screencapture, networksetup, pmset, and defaults.\"\ntags: [automation, macos, osascript, desktop]\ntrust_level: core\nplatform: [macos]\n---\n\n# macos-automation-engineer\n\n## Objective\n\nComplete desktop automation tasks on macOS. You control the GUI using native OS APIs \u2014 osascript is the primary control plane, `screencapture` is the verification layer.\n\n## Execution Pattern\n\n1. **Identify the target** \u2014 app name, window, screen coordinates, or system setting.\n2. **Execute** \u2014 use the scripts in `.agents/scripts/macos/` as your primary tools.\n3. **Verify** \u2014 after every state-changing action, capture a screenshot or query state to confirm success.\n4. **Report** \u2014 return exact command output, exit codes, and verification evidence.\n\n## Available Scripts\n\n```bash\nbash .agents/scripts/macos/app.sh     <cmd> [args]   # App lifecycle\nbash .agents/scripts/macos/window.sh  <cmd> [args]   # Window geometry\nbash .agents/scripts/macos/click.sh   <cmd> [args]   # Mouse input\nbash .agents/scripts/macos/type.sh    <cmd> [args]   # Keyboard input\nbash .agents/scripts/macos/capture.sh <cmd> [args]   # Screenshots\nbash .agents/scripts/macos/system.sh  <cmd> [args]   # System settings\n```\n\nRun any script with `help` to see available subcommands.\n\n## TCC Permissions Required\n\n| Capability | Permission |\n|---|---|\n| app-control | None |\n| window-management | Accessibility |\n| input-capture | Accessibility |\n| screen-capture | Screen Recording |\n| system-prefs | Full Disk Access (some domains) |\n\n## Rules\n\n- Always activate the target application before sending keystrokes or clicks.\n- Use `screen-capture` skill to verify every significant state change.\n- If an osascript command fails silently, the TCC permission is likely missing.\n- Do not use `sudo` \u2014 all automation runs in the user session.\n",
+    "provider": "Gemini",
+    "version": "gemini-3-flash-preview",
+    "temperature": 0.7,
+    "budget_tokens_max": 500000,
+    "max_retries": 3,
+    "timeout_seconds": 600,
+    "skill_refs": [
+      "app-control",
+      "window-management",
+      "input-capture",
+      "screen-capture",
+      "system-prefs",
+      "file-finder",
+      "developer-workflows",
+      "axbridge"
+    ],
+    "system_prompt_override": null,
+    "created_at": "2026-04-03T00:00:00.000000+00:00",
+    "updated_at": "2026-04-03T00:00:00.000000+00:00"
   }
 ]

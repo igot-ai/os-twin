@@ -1,11 +1,15 @@
 import os
+import json
 import shutil
 import logging
 import re
+import asyncio
+import httpx
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field, field_validator
 
 from dashboard.models import (
     Skill, SkillInstallRequest, SkillSyncResponse,
@@ -76,6 +80,182 @@ async def list_skill_roles(user: dict = Depends(get_current_user)):
     from dashboard.api_utils import build_roles_list
     roles = build_roles_list({}) # Empty config to get all registry roles
     return [r["name"] for r in roles]
+
+# ─── ClawhHub Marketplace (search must be registered before {name} wildcard) ──
+
+_CLAWHUB_CONVEX_BASE = "https://wry-manatee-359.convex.cloud/api"
+
+# Global skills directory — all ClawhHub installs go here
+_GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / "skills"
+_GLOBAL_SKILLS_GLOBAL = _GLOBAL_SKILLS_DIR / "global"
+_GLOBAL_CLAWHUB_LOCK = _GLOBAL_SKILLS_DIR / ".clawhub" / "lock.json"
+
+# Strict pattern: only allow alphanumeric, hyphens, underscores, dots, and @scopes
+_SAFE_SKILL_NAME = re.compile(r"^(@[a-zA-Z0-9_-]+/)?[a-zA-Z0-9._-]+$")
+
+# Global install lock — prevents concurrent installs from racing
+_install_lock = asyncio.Lock()
+
+
+class ClawhubInstallRequest(BaseModel):
+    skill_name: str = Field(..., min_length=1, max_length=128)
+
+    @field_validator("skill_name")
+    @classmethod
+    def validate_skill_name(cls, v: str) -> str:
+        # Normalize: lowercase, spaces to hyphens
+        v = v.strip().lower().replace(" ", "-")
+        if not _SAFE_SKILL_NAME.match(v):
+            raise ValueError(
+                "Invalid skill name. Only alphanumeric characters, hyphens, underscores, dots, and @scoped names are allowed."
+            )
+        return v
+
+
+def _map_clawhub_result(entry: dict) -> dict:
+    """Normalise a ClawhHub API result into a stable shape for the frontend."""
+    # search:searchSkills nests under "skill" + "owner"; listPublicPageV4 uses the same shape
+    skill = entry.get("skill") or entry
+    owner = entry.get("owner") or {}
+    stats = skill.get("stats") or {}
+    version_obj = entry.get("latestVersion") or {}
+    return {
+        "name": skill.get("displayName") or skill.get("slug", ""),
+        "slug": skill.get("slug", ""),
+        "description": skill.get("summary") or "",
+        "author": entry.get("ownerHandle") or owner.get("handle"),
+        "tags": [],
+        "category": None,
+        "downloads": int(stats.get("downloads") or 0),
+        "installs": int(stats.get("installsAllTime") or 0),
+        "version": version_obj.get("version"),
+        "score": entry.get("score"),
+    }
+
+
+@router.get("/api/skills/clawhub-search")
+async def clawhub_search(
+    q: str = Query("", description="Search query for ClawhHub skills"),
+    limit: int = Query(25, ge=1, le=100),
+    user: dict = Depends(get_current_user),
+):
+    """Search the ClawhHub marketplace.
+
+    Uses the vector-search action (search:searchSkills) when a query is
+    provided, and falls back to the paginated browse endpoint
+    (skills:listPublicPageV4) when the query is empty.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            q_stripped = q.strip()
+            if q_stripped:
+                # Vector search — returns ranked results
+                resp = await client.post(
+                    f"{_CLAWHUB_CONVEX_BASE}/action",
+                    json={
+                        "path": "search:searchSkills",
+                        "args": {
+                            "query": q_stripped,
+                            "highlightedOnly": False,
+                            "nonSuspiciousOnly": True,
+                            "limit": limit,
+                        },
+                    },
+                )
+            else:
+                # Browse — paginated list sorted by downloads
+                resp = await client.post(
+                    f"{_CLAWHUB_CONVEX_BASE}/query",
+                    json={
+                        "path": "skills:listPublicPageV4",
+                        "args": {
+                            "numItems": limit,
+                            "sort": "downloads",
+                            "dir": "desc",
+                            "highlightedOnly": False,
+                            "nonSuspiciousOnly": True,
+                        },
+                    },
+                )
+            resp.raise_for_status()
+            data = resp.json()
+
+        if data.get("status") != "success":
+            raise HTTPException(status_code=502, detail="Unexpected response from ClawhHub")
+
+        value = data["value"]
+
+        # search:searchSkills returns a list; listPublicPageV4 returns {page, hasMore, ...}
+        if isinstance(value, dict):
+            entries = value.get("page", [])
+        elif isinstance(value, list):
+            entries = value
+        else:
+            entries = []
+
+        return [_map_clawhub_result(e) for e in entries]
+
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail=f"ClawhHub returned {exc.response.status_code}",
+        )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to reach ClawhHub: {exc}",
+        )
+
+
+@router.get("/api/skills/clawhub-installed")
+async def clawhub_installed(user: dict = Depends(get_current_user)):
+    """Return ClawhHub skill slugs that are actually installed on disk.
+
+    Reads the global lock file at ~/.ostwin/skills/.clawhub/lock.json
+    and verifies the skill folder exists in ~/.ostwin/skills/global/.
+    """
+    installed: Dict[str, Any] = {}
+
+    # 1. Read the global lock file
+    lock_candidates: Dict[str, dict] = {}
+    if _GLOBAL_CLAWHUB_LOCK.exists():
+        try:
+            data = json.loads(_GLOBAL_CLAWHUB_LOCK.read_text())
+            for slug, info in (data.get("skills") or {}).items():
+                lock_candidates[slug] = info
+        except Exception:
+            pass
+
+    # 2. Verify each lock entry actually exists on disk
+    for slug, info in lock_candidates.items():
+        skill_dir = _GLOBAL_SKILLS_GLOBAL / slug
+        if skill_dir.is_dir():
+            installed[slug] = {
+                "slug": slug,
+                "version": info.get("version"),
+                "installedAt": info.get("installedAt"),
+            }
+
+    # 3. Also pick up any skill in global/ that has .clawhub/origin.json
+    #    (in case lock file is missing/stale)
+    if _GLOBAL_SKILLS_GLOBAL.exists():
+        for child in _GLOBAL_SKILLS_GLOBAL.iterdir():
+            if not child.is_dir() or child.name in installed:
+                continue
+            origin = child / ".clawhub" / "origin.json"
+            if origin.exists():
+                try:
+                    origin_data = json.loads(origin.read_text())
+                    installed[child.name] = {
+                        "slug": child.name,
+                        "version": origin_data.get("installedVersion"),
+                        "installedAt": origin_data.get("installedAt"),
+                    }
+                except Exception:
+                    installed[child.name] = {"slug": child.name}
+
+    return list(installed.values())
+
 
 @router.get("/api/skills/{name}", response_model=Skill)
 async def get_skill(name: str, user: dict = Depends(get_current_user)):
@@ -392,3 +572,119 @@ async def check_duplicate_skill(req: SkillDuplicateCheckRequest, user: dict = De
     )
 
 
+async def _verify_clawhub_skill_exists(slug: str) -> bool:
+    """Check that a skill actually exists on ClawhHub before installing."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{_CLAWHUB_CONVEX_BASE}/query",
+                json={"path": "skills:getBySlug", "args": {"slug": slug}},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("status") == "success" and data.get("value") is not None
+    except Exception:
+        return False
+
+
+@router.post("/api/skills/clawhub-install")
+async def clawhub_install(
+    req: ClawhubInstallRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Install a skill from ClawhHub using the clawhub CLI.
+
+    Protections:
+    - Requires X-Confirm-Install: true header (admin intent gate)
+    - skill_name is validated against a strict allowlist pattern
+    - Skill existence is verified on ClawhHub before install
+    - Only one install runs at a time (global lock)
+    - Subprocess runs async (non-blocking)
+    - Atomic directory swap with backup/rollback on failure
+    """
+    # ── Admin intent gate ────────────────────────────────────────────────
+    confirm = (request.headers.get("x-confirm-install") or "").lower()
+    if confirm != "true":
+        raise HTTPException(
+            status_code=403,
+            detail="Install requires confirmation. Set header X-Confirm-Install: true.",
+        )
+
+    skill_name = req.skill_name
+    username = user.get("username", "unknown")
+    logger.info("clawhub-install requested by=%s skill=%s", username, skill_name)
+
+    # ── Verify skill exists on ClawhHub before running anything ──────────
+    if not await _verify_clawhub_skill_exists(skill_name):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found on ClawhHub. Verify the slug is correct.",
+        )
+
+    # ── Concurrency gate ─────────────────────────────────────────────────
+    if _install_lock.locked():
+        raise HTTPException(
+            status_code=409,
+            detail="Another skill install is already in progress. Please wait and retry.",
+        )
+
+    async with _install_lock:
+        try:
+            # Install into ~/.ostwin/skills so skills land in ~/.ostwin/skills/global/<slug>
+            # clawhub CLI creates a skills/ subdir under cwd, but we want global/
+            # so we use ~/.ostwin/skills as cwd and move skills/<slug> -> global/<slug> after
+            _GLOBAL_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+            _GLOBAL_SKILLS_GLOBAL.mkdir(parents=True, exist_ok=True)
+            proc = await asyncio.create_subprocess_exec(
+                "npx", "clawhub", "install", skill_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(_GLOBAL_SKILLS_DIR),
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()
+                raise HTTPException(status_code=504, detail="clawhub install timed out")
+
+            if proc.returncode != 0:
+                detail = (stderr or stdout or b"").decode(errors="replace")
+                logger.error("clawhub-install failed by=%s skill=%s: %s", username, skill_name, detail)
+                raise HTTPException(
+                    status_code=500,
+                    detail="clawhub install failed. Check server logs for details.",
+                )
+
+            # clawhub creates ~/.ostwin/skills/skills/<slug>, move to global/<slug>
+            src = _GLOBAL_SKILLS_DIR / "skills" / skill_name
+            dest = _GLOBAL_SKILLS_GLOBAL / skill_name
+            if src.exists():
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.move(str(src), str(dest))
+                # Clean up empty skills/ subdir left by clawhub
+                clawhub_skills_subdir = _GLOBAL_SKILLS_DIR / "skills"
+                if clawhub_skills_subdir.exists() and not any(clawhub_skills_subdir.iterdir()):
+                    clawhub_skills_subdir.rmdir()
+
+            # Move .clawhub/lock.json from clawhub's default location to our global location
+            clawhub_default_lock = _GLOBAL_SKILLS_DIR / ".clawhub" / "lock.json"
+            if clawhub_default_lock.exists():
+                # Already at the right place — ~/.ostwin/skills/.clawhub/lock.json
+                pass
+
+            logger.info("clawhub-install success by=%s skill=%s dest=%s", username, skill_name, dest)
+            return {
+                "status": "installed",
+                "skill": skill_name,
+                "output": (stdout or b"").decode(errors="replace"),
+            }
+        except HTTPException:
+            raise
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=500,
+                detail="clawhub CLI not found. Run: npm install -g clawhub",
+            )

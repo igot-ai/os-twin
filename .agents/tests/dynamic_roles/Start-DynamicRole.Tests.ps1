@@ -103,4 +103,45 @@ Describe "Start-DynamicRole.ps1" {
         $postOutput = Get-Content (Join-Path $script:roomDir 'mock_channel.out') -Raw
         $postOutput | Should -Match "Looks perfect."
     }
+
+    It "uses explicit -RoleName over config.json assigned_role [regression: game-engineer vs game-qa]" {
+        # Scenario: config.json says assigned_role=game-engineer (set at room creation)
+        # But manager passes -RoleName game-qa for the 'review' lifecycle state.
+        # The explicit -RoleName MUST win.
+        @{
+            task_ref   = "EPIC-REGR"
+            assignment = @{ assigned_role = "game-engineer" }  # Stale config role
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $script:roomDir 'config.json') -Encoding utf8
+
+        "VERDICT: PASS`nQA complete." | Out-File (Join-Path $TestDrive 'mock_agent_response.txt') -Encoding utf8
+
+        & $script:StartDynamicRole -RoomDir $script:roomDir `
+                                   -RoleName "game-qa" `
+                                   -AgentsDir $script:agentsDir `
+                                   -TimeoutSeconds 10 `
+                                   @script:overrides
+
+        # The channel output is written by the PostMessage mock — in the mock it writes $Body.
+        # But the From field check is done via the mock in LifecycleRoleTransition.Tests.ps1.
+        # Here we verify the evaluator verdict path was chosen for game-qa.
+        $postOutput = Get-Content (Join-Path $script:roomDir 'mock_channel.out') -Raw
+        $postOutput | Should -Match "QA complete."
+    }
+
+    It "falls back to config.json assigned_role when -RoleName is not passed" {
+        @{
+            task_ref   = "EPIC-FALLBACK"
+            assignment = @{ assigned_role = "game-ui-analyst" }
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $script:roomDir 'config.json') -Encoding utf8
+
+        "Analysis done." | Out-File (Join-Path $TestDrive 'mock_agent_response.txt') -Encoding utf8
+
+        & $script:StartDynamicRole -RoomDir $script:roomDir `
+                                   -AgentsDir $script:agentsDir `
+                                   -TimeoutSeconds 10 `
+                                   @script:overrides
+
+        $postOutput = Get-Content (Join-Path $script:roomDir 'mock_channel.out') -Raw
+        $postOutput | Should -Match "Analysis done."
+    }
 }

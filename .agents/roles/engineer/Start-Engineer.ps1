@@ -22,7 +22,10 @@ param(
     [Parameter(Mandatory)]
     [string]$RoomDir,
 
-    [int]$TimeoutSeconds = 0
+    [int]$TimeoutSeconds = 0,
+
+    # Accepted but unused — passed by Start-WorkerJob for generic role dispatch
+    [string]$RoleName = ''
 )
 
 # --- Resolve paths ---
@@ -305,9 +308,10 @@ if ($engineerConfigs) {
     $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $engineerConfigs[0].FullName -Encoding utf8
 }
 
-# --- Clean up PID file (after channel message is posted) ---
-$engPidFile = Join-Path $RoomDir "pids" "engineer.pid"
-Remove-Item $engPidFile -Force -ErrorAction SilentlyContinue
+# --- PID file is NOT removed here (manager-owned lifecycle) ---
+# The manager cleans up PID files when it processes the signal and transitions
+# the room state. Removing PID here causes a race: manager polls, finds no PID,
+# and re-spawns before processing the channel signal.
 
 exit $result.ExitCode
 

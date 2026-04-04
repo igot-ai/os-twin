@@ -82,7 +82,7 @@ Each epic/task gets its own isolated directory under `.war-rooms/`:
 ├── room-000/          # Plan review room
 │   ├── config.json    # Room configuration (role, deps, plan_id)
 │   ├── brief.md       # Task description
-│   ├── status         # Current state (pending, engineering, qa-review, etc.)
+│   ├── status         # Current state (pending, engineering, review, etc.)
 │   ├── channel.jsonl  # Message log
 │   ├── lifecycle.json # State machine for this room
 │   ├── skills/        # Resolved skills for this task
@@ -120,7 +120,7 @@ The manager is a continuous polling loop that orchestrates all rooms:
          │
          ▼
     ┌──────────┐    fail    ┌──────────┐
-    │qa-review │──────────►│ fixing   │──► (back to qa-review)
+    │review │──────────►│ fixing   │──► (back to review)
     │          │           │          │
     └────┬─────┘           └──────────┘
          │ pass                 │ retries exhausted
@@ -147,7 +147,7 @@ Each war-room can have a custom lifecycle pipeline. There are three modes:
 |------|---------|---------|
 | **Explicit** | `Pipeline: engineer -> security-review -> qa` in plan | Custom review chain |
 | **Capability-derived** | `Capabilities: security, database` in plan | Auto-inserts specialist review stages |
-| **Default** | No directive | `engineering → qa-review → reporting` |
+| **Default** | No directive | `engineering → review → reporting` |
 
 ### Communication Protocol
 
