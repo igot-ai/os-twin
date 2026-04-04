@@ -239,7 +239,8 @@ Commands:
                                 ostwin role <name> <sub> [args...]
   health            Check system health
   skills <sub>      Manage skills installation and sync
-                    Subcommands: sync, install [--from DIR], list
+                    Subcommands: sync, install [<slug>|--from DIR], list,
+                                 search <query>, update [--all|<slug>], remove <slug>
   mcp               Manage MCP extensions
                     Subcommands: install, list, catalog, remove, sync
   reload-env        Reload ~/.ostwin/.env into mcp-config.json env blocks
@@ -397,6 +398,27 @@ case "${1:-}" in
       fi
     fi
 
+    # --- Ensure working_dir exists and is initialized ---
+    # If RESOLVED_WORKING_DIR is empty, parse it from the plan file
+    if [[ -z "$RESOLVED_WORKING_DIR" && -f "$RESOLVED_PLAN_FILE" ]]; then
+      RESOLVED_WORKING_DIR=$(grep -E "^\s*working_dir:\s*" "$RESOLVED_PLAN_FILE" | head -n 1 | awk -F': ' '{print $2}' | xargs)
+    fi
+    # Also check > Project: line if still empty
+    if [[ -z "$RESOLVED_WORKING_DIR" && -f "$RESOLVED_PLAN_FILE" ]]; then
+      RESOLVED_WORKING_DIR=$(grep -E "^>\s*Project:\s*" "$RESOLVED_PLAN_FILE" | head -n 1 | sed 's/^>\s*Project:\s*//' | xargs)
+    fi
+
+    if [[ -n "$RESOLVED_WORKING_DIR" && "$RESOLVED_WORKING_DIR" != "." ]]; then
+      if [[ ! -d "$RESOLVED_WORKING_DIR" ]]; then
+        echo "📁 Creating project directory: $RESOLVED_WORKING_DIR"
+        mkdir -p "$RESOLVED_WORKING_DIR"
+      fi
+      if [[ ! -d "$RESOLVED_WORKING_DIR/.agents" ]]; then
+        echo "🔧 Initializing project with ostwin init..."
+        ( cd "$RESOLVED_WORKING_DIR" && "$0" init . )
+      fi
+    fi
+
     # Note: code indexing is handled by Start-Plan.ps1 pre-flight
 
     ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "${RUN_ARGS[@]}"
@@ -523,7 +545,11 @@ print(json.dumps(payload))
           exit 1
         fi
 
-        EDITOR_URL="${DASHBOARD_URL}${PLAN_URL}"
+        # Prefer tunnel URL for shareable links
+        SHARE_URL="$DASHBOARD_URL"
+        _tunnel=$(curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/tunnel/status" 2>/dev/null \
+          | "$PYTHON" -c "import sys,json; u=json.load(sys.stdin).get('url',''); print(u) if u else exit(1)" 2>/dev/null) && SHARE_URL="$_tunnel"
+        EDITOR_URL="${SHARE_URL}${PLAN_URL}"
         echo "✓ Plan created: ${PLAN_ID}"
         echo "  Title:  ${PLAN_TITLE}"
         echo "  Dir:    ${PROJECT_DIR}"
@@ -675,13 +701,31 @@ else:
         # Determine source dir: --from DIR or current directory
         FROM_DIR=""
         EXTRA_ARGS=()
+        CLAWHUB_SLUG=""
         while [[ $# -gt 0 ]]; do
           case "$1" in
             --from) FROM_DIR="$2"; shift 2 ;;
             *)      EXTRA_ARGS+=("$1"); shift ;;
           esac
         done
-        # Default: scan cwd for .agents/skills/
+        # If no --from and first extra arg doesn't look like a path, treat as ClawHub slug
+        if [[ -z "$FROM_DIR" && ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+          first_arg="${EXTRA_ARGS[0]}"
+          if [[ "$first_arg" != /* && "$first_arg" != .* && ! -d "$first_arg" ]]; then
+            # Looks like a ClawHub slug (e.g., "steipete/web-search" or "web-search")
+            CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+            if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+              CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+            fi
+            if [[ -f "$CLAWHUB_SCRIPT" ]]; then
+              OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" install "${EXTRA_ARGS[@]}"
+            else
+              echo "✗ clawhub-install.sh not found" >&2
+              exit 1
+            fi
+          fi
+        fi
+        # Local install: scan cwd for .agents/skills/
         if [[ -z "$FROM_DIR" ]]; then
           for candidate in \
             "$(pwd)/.agents/skills" \
@@ -694,11 +738,35 @@ else:
           done
         fi
         if [[ -z "$FROM_DIR" || ! -d "$FROM_DIR" ]]; then
-          echo "✗ No skills found. Specify --from DIR or run from a project root." >&2
+          echo "✗ No skills found. Specify --from DIR, a ClawHub slug, or run from a project root." >&2
           exit 1
         fi
         echo "Installing skills from: $FROM_DIR"
         OSTWIN_HOME="$HOME/.ostwin" bash "$SYNC_SCRIPT" --install-from "$FROM_DIR" "${EXTRA_ARGS[@]}"
+        ;;
+      search)
+        shift
+        CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+        if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+          CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+        fi
+        OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" search "$@"
+        ;;
+      update)
+        shift
+        CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+        if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+          CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+        fi
+        OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" update "$@"
+        ;;
+      remove)
+        shift
+        CLAWHUB_SCRIPT="$AGENTS_DIR/clawhub-install.sh"
+        if [[ ! -f "$CLAWHUB_SCRIPT" ]]; then
+          CLAWHUB_SCRIPT="$HOME/.ostwin/clawhub-install.sh"
+        fi
+        OSTWIN_HOME="$HOME/.ostwin" exec bash "$CLAWHUB_SCRIPT" remove "$@"
         ;;
       list)
         shift
@@ -722,7 +790,10 @@ else:
       *)
         echo "Unknown skills subcommand: $SUB" >&2
         echo "  Usage: ostwin skills sync" >&2
-        echo "         ostwin skills install [--from DIR]" >&2
+        echo "         ostwin skills install [<slug>|--from DIR]" >&2
+        echo "         ostwin skills search <query>" >&2
+        echo "         ostwin skills update [--all|<slug>]" >&2
+        echo "         ostwin skills remove <slug>" >&2
         echo "         ostwin skills list" >&2
         exit 1
         ;;

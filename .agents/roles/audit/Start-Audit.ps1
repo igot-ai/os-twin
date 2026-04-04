@@ -25,7 +25,10 @@ param(
     [Parameter(Mandatory)]
     [string]$RoomDir,
 
-    [int]$TimeoutSeconds = 0
+    [int]$TimeoutSeconds = 0,
+
+    # Accepted but unused — passed by Start-WorkerJob for generic role dispatch
+    [string]$RoleName = ''
 )
 
 # --- Resolve paths ---

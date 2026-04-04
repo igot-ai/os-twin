@@ -1,7 +1,12 @@
+import https from 'https';
 import { Telegraf, Markup, Context } from 'telegraf';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
 import { routeCommand, routeCallback, handleStatefulText, BotResponse } from '../commands';
 import { getSession } from '../sessions';
+
+// Force IPv4 — IPv6 to Telegram's servers is unreachable on many networks,
+// and Node 20's Happy Eyeballs fallback can stall instead of recovering.
+const ipv4Agent = new https.Agent({ keepAlive: true, keepAliveMsecs: 10000, family: 4 });
 
 export class TelegramConnector implements Connector {
   public readonly platform: Platform = 'telegram';
@@ -21,7 +26,7 @@ export class TelegramConnector implements Connector {
     this.pairingCode = config.pairing_code || Math.random().toString(16).slice(2, 10);
     this.authorizedChats = new Set(config.authorized_users || []);
 
-    this.bot = new Telegraf(token);
+    this.bot = new Telegraf(token, { telegram: { agent: ipv4Agent } });
 
     // ── Authorization middleware ──────────────────────────────────
     this.bot.use(async (ctx, next) => {
@@ -119,7 +124,10 @@ export class TelegramConnector implements Connector {
       { command: 'help', description: '❓ Detailed user guide' },
     ]).catch(err => console.warn('[TELEGRAM] Failed to register commands:', err.message));
 
-    await this.bot.launch({ dropPendingUpdates: true });
+    // bot.launch() never resolves — it runs the polling loop forever.
+    // Fire-and-forget so the connector start() can complete.
+    this.bot.launch({ dropPendingUpdates: true })
+      .catch(err => console.error('[TELEGRAM] Polling error:', err.message));
     this.status = 'connected';
     console.log(`[TELEGRAM] Connector started. (pairing code: ${this.pairingCode})`);
   }
@@ -175,12 +183,18 @@ export class TelegramConnector implements Connector {
     };
   }
 
+  private static buildKeyboard(buttons: BotResponse['buttons']) {
+    return buttons!.map(row =>
+      row.map(btn =>
+        btn.url ? Markup.button.url(btn.label, btn.url) : Markup.button.callback(btn.label, btn.callbackData)
+      )
+    );
+  }
+
   private async sendResponses(ctx: Context, responses: BotResponse[]): Promise<void> {
     for (const resp of responses) {
       if (resp.buttons && resp.buttons.length) {
-        const keyboard = resp.buttons.map(row =>
-          row.map(btn => Markup.button.callback(btn.label, btn.callbackData))
-        );
+        const keyboard = TelegramConnector.buildKeyboard(resp.buttons);
         await ctx.reply(resp.text, {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard(keyboard),
@@ -195,9 +209,7 @@ export class TelegramConnector implements Connector {
     if (!this.bot) return;
     for (const resp of responses) {
       if (resp.buttons && resp.buttons.length) {
-        const keyboard = resp.buttons.map(row =>
-          row.map(btn => Markup.button.callback(btn.label, btn.callbackData))
-        );
+        const keyboard = TelegramConnector.buildKeyboard(resp.buttons);
         await this.bot.telegram.sendMessage(chatId, resp.text, {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard(keyboard),

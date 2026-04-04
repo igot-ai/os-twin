@@ -639,9 +639,20 @@ _System Status:_ 🟢 *ONLINE*
 ❌ `Failed:` `{bar_fail}` `{pct_fail:>5.1f}%`
 🏃‍♂️ `Active:` `{bar_act}` `{pct_act:>5.1f}%`
 
-🔗 [Open Web Dashboard](http://localhost:9000)
+🔗 [Open Web Dashboard]({_get_dashboard_url()})
 """
     return art
+
+
+def _get_dashboard_url() -> str:
+    """Return the best dashboard URL — tunnel if available, else local."""
+    try:
+        import dashboard.global_state as gs
+        if gs.tunnel_url:
+            return gs.tunnel_url
+    except Exception:
+        pass
+    return os.environ.get("DASHBOARD_URL", "http://localhost:9000")
 
 def _cmd_status() -> str:
     if not WARROOMS_DIR.exists():

@@ -571,6 +571,10 @@ setup_env() {
 # API key for CLI ↔ Dashboard communication. Auto-generated on first install.
 OSTWIN_API_KEY=${generated_api_key}
 
+# ── ngrok Tunnel (auto-starts when NGROK_AUTHTOKEN is set) ─────────────────
+# NGROK_AUTHTOKEN=
+# NGROK_DOMAIN=              # Optional: custom/static domain (paid ngrok plans)
+
 # ── Agent OS settings ───────────────────────────────────────────────────────
 # OSTWIN_LOG_LEVEL=INFO
 ENVEOF
@@ -580,7 +584,7 @@ ENVEOF
 
   # Migrate any existing exported key from the current shell environment
   local migrated=false
-  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY NGROK_AUTHTOKEN; do
     if [[ -n "${!key:-}" ]]; then
       # Uncomment and fill the matching line
       if [[ "$OS" == "macos" ]]; then
@@ -632,6 +636,21 @@ ENVEOF
       done
     else
       info "Non-interactive mode (-y). Edit $env_file later to add your API keys."
+    fi
+  fi
+
+  # Prompt for ngrok tunnel token (optional)
+  if ! $AUTO_YES && [[ -z "${NGROK_AUTHTOKEN:-}" ]]; then
+    echo ""
+    echo -en "    ${CYAN}→${NC} Enter NGROK_AUTHTOKEN for dashboard port-forwarding (or press Enter to skip): "
+    read -r ngrok_token
+    if [[ -n "$ngrok_token" ]]; then
+      if [[ "$OS" == "macos" ]]; then
+        sed -i '' "s|^# NGROK_AUTHTOKEN=.*|NGROK_AUTHTOKEN=${ngrok_token}|" "$env_file"
+      else
+        sed -i "s|^# NGROK_AUTHTOKEN=.*|NGROK_AUTHTOKEN=${ngrok_token}|" "$env_file"
+      fi
+      ok "Saved NGROK_AUTHTOKEN — tunnel will auto-start with dashboard"
     fi
   fi
 }
@@ -1019,6 +1038,10 @@ if $DASHBOARD_ONLY; then
       step "Installing pnpm..."
       npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
     fi
+    if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+      step "Installing clawhub CLI..."
+      npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
+    fi
   else
     fail "Node.js required for dashboard"
     exit 1
@@ -1098,6 +1121,10 @@ if check_node; then
     step "Installing pnpm..."
     npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
   fi
+  if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+    step "Installing clawhub CLI..."
+    npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
+  fi
 else
   warn "Node.js not found"
   if ask "Install Node.js? (required for Dashboard UI)"; then
@@ -1108,6 +1135,10 @@ else
       if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
         step "Installing pnpm..."
         npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+      fi
+      if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+        step "Installing clawhub CLI..."
+        npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
       fi
     else
       warn "Node.js installation failed"
@@ -1297,6 +1328,22 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
 
   if $DASH_OK; then
     ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
+    # Check for ngrok tunnel URL
+    TUNNEL_URL=""
+    PYTHON_FOR_TUNNEL="$VENV_DIR/bin/python"
+    [[ -x "$PYTHON_FOR_TUNNEL" ]] || PYTHON_FOR_TUNNEL="python3"
+    if [[ -n "$OSTWIN_API_KEY" ]]; then
+      TUNNEL_URL=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
+        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+    else
+      TUNNEL_URL=$(curl -sf \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
+        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+    fi
+    if [[ -n "$TUNNEL_URL" ]]; then
+      ok "Tunnel active: $TUNNEL_URL"
+    fi
   else
     warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"
     info "Start manually: bash $DASHBOARD_SCRIPT"
@@ -1411,7 +1458,12 @@ echo -e "    ${CYAN}4.${NC} Set your API key:          ${DIM}export GOOGLE_API_K
 echo -e "    ${CYAN}5.${NC} Run your first plan:       ${DIM}ostwin run plans/my-plan.md${NC}"
 echo ""
 echo -e "  ${BOLD}Dashboard:${NC}"
-echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
+if [[ -n "${TUNNEL_URL:-}" ]]; then
+  echo -e "    ${DIM}Local:  http://localhost:${DASHBOARD_PORT}${NC}"
+  echo -e "    ${DIM}Public: ${TUNNEL_URL}${NC}"
+else
+  echo -e "    ${DIM}Dashboard running at http://localhost:${DASHBOARD_PORT}${NC}"
+fi
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
 if $START_CHANNEL; then
 echo -e ""

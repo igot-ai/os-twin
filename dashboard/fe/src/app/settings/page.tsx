@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiGet } from '@/lib/api-client';
+import { apiGet, apiPost } from '@/lib/api-client';
 import { getApiBaseUrl, getWebSocketUrl } from '@/lib/runtime-config';
 import { useUIStore } from '@/lib/stores/uiStore';
 
@@ -11,6 +11,13 @@ interface ApiKeysStatus {
   Claude: boolean;
   GPT: boolean;
   Gemini: boolean;
+}
+
+interface TunnelStatus {
+  active: boolean;
+  url: string | null;
+  started_at: string | null;
+  error: string | null;
 }
 
 const API_KEY_DISPLAY: Record<string, { label: string; prefix: string }> = {
@@ -29,6 +36,10 @@ export default function SettingsPage() {
   const [themeMode, setThemeMode] = useState<ThemeMode>('light');
   const [apiKeys, setApiKeys] = useState<ApiKeysStatus | null>(null);
   const [apiKeysLoading, setApiKeysLoading] = useState(true);
+  const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
+  const [tunnelLoading, setTunnelLoading] = useState(true);
+  const [tunnelAction, setTunnelAction] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const checkConnection = useCallback(async () => {
     setConnectionStatus('checking');
@@ -57,6 +68,46 @@ export default function SettingsPage() {
     };
     fetchApiKeys();
   }, []);
+
+  const fetchTunnel = useCallback(async () => {
+    try {
+      const data = await apiGet<TunnelStatus>('/tunnel/status');
+      setTunnel(data);
+    } catch {
+      setTunnel(null);
+    } finally {
+      setTunnelLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTunnel();
+  }, [fetchTunnel]);
+
+  const handleTunnelRestart = async () => {
+    setTunnelAction(true);
+    try {
+      await apiPost('/tunnel/restart');
+      await fetchTunnel();
+    } catch { /* handled by status re-fetch */ }
+    setTunnelAction(false);
+  };
+
+  const handleTunnelShare = async () => {
+    setTunnelAction(true);
+    try {
+      await apiPost('/tunnel/share');
+    } catch { /* ignore */ }
+    setTunnelAction(false);
+  };
+
+  const copyTunnelUrl = () => {
+    if (tunnel?.url) {
+      navigator.clipboard.writeText(tunnel.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('theme-mode') as ThemeMode | null;
@@ -152,6 +203,81 @@ export default function SettingsPage() {
             Configured via <code className="font-mono">NEXT_PUBLIC_API_BASE_URL</code> environment variable.
           </p>
         </div>
+      </section>
+
+      {/* Tunnel */}
+      <section className="rounded-xl border p-5 mb-4" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+        <h2 className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--color-text-main)' }}>
+          <span className="material-symbols-outlined text-base">language</span>
+          Public Tunnel
+        </h2>
+        {tunnelLoading ? (
+          <div className="text-xs py-4 text-center" style={{ color: 'var(--color-text-faint)' }}>Loading tunnel status...</div>
+        ) : tunnel === null ? (
+          <div className="text-xs py-4 text-center" style={{ color: 'var(--color-text-faint)' }}>Tunnel not available</div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--color-background)' }}>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ background: tunnel.active ? 'var(--color-success)' : 'var(--color-text-faint)' }} />
+                <span className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>
+                  {tunnel.active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+              {tunnel.started_at && (
+                <span className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
+                  Since {new Date(tunnel.started_at).toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+            {tunnel.active && tunnel.url && (
+              <div>
+                <label className="text-[11px] font-semibold uppercase tracking-wider mb-1 block" style={{ color: 'var(--color-text-faint)' }}>Public URL</label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 px-3 py-2 rounded-md text-xs font-mono" style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}>
+                    {tunnel.url}
+                  </div>
+                  <button
+                    onClick={copyTunnelUrl}
+                    className="px-2 py-2 rounded-md text-xs font-semibold"
+                    style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}
+                    title="Copy URL"
+                  >
+                    <span className="material-symbols-outlined text-sm">{copied ? 'check' : 'content_copy'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+            {tunnel.error && (
+              <div className="text-xs p-2 rounded" style={{ background: 'rgba(239, 68, 68, 0.08)', color: 'var(--color-danger)' }}>
+                {tunnel.error}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={handleTunnelRestart}
+                disabled={tunnelAction}
+                className="px-3 py-1.5 rounded-md text-xs font-semibold"
+                style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)', opacity: tunnelAction ? 0.5 : 1 }}
+              >
+                {tunnelAction ? 'Working...' : 'Restart Tunnel'}
+              </button>
+              {tunnel.active && (
+                <button
+                  onClick={handleTunnelShare}
+                  disabled={tunnelAction}
+                  className="px-3 py-1.5 rounded-md text-xs font-semibold"
+                  style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)', opacity: tunnelAction ? 0.5 : 1 }}
+                >
+                  Share via Telegram
+                </button>
+              )}
+            </div>
+            <p className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
+              Configured via <code className="font-mono">NGROK_AUTHTOKEN</code> in <code className="font-mono">~/.ostwin/.env</code>. Tunnel auto-starts with the dashboard.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Theme */}

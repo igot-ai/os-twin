@@ -4,6 +4,11 @@
  * Refactored to use ConnectorRegistry for a plugin-driven lifecycle.
  */
 
+// Node 20+ "Happy Eyeballs" tries IPv6 first; if IPv6 is unreachable
+// the fallback to IPv4 can stall.  Force IPv4-first for reliability.
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
+
 // config.ts loads .env from the project root — import it first
 import './config';
 import config from './config';
