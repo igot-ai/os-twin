@@ -30,6 +30,10 @@ def main():
         "search": core.search,
         "get_context": core.get_context,
         "list": core.list_memories,
+        "distill": core.distill,
+        "knowledge_add": core.knowledge_add,
+        "knowledge_list": core.knowledge_list,
+        "knowledge_search": core.knowledge_search,
     }
 
     fn = dispatch.get(cmd)

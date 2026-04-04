@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Use this skill to perform a security-focused code review — check for secrets, injection vectors, auth issues, and dependency vulnerabilities.
+description: "Use this skill to perform a security-focused code review — check for secrets, injection vectors, auth issues, and dependency vulnerabilities."
 tags: [qa, security, review, compliance]
 trust_level: core
 ---

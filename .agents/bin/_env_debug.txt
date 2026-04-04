@@ -1,0 +1,37 @@
+GOOGLE_API_KEY in env: True
+GOOGLE_CLOUD_PROJECT in env: None
+GOOGLE_CLOUD_LOCATION in env: None
+Running task non-interactively...
+CLI: v0.0.34 | Agent: agent (default) | Model: gemini-2.5-flash | 
+Thread: 019d4c91-ed6e-7681-ab38-da8bb9a4caa9
+Starting LangGraph server...
+
+SERVER ENV - GOOGLE_API_KEY: True, len=53
+SERVER ENV - GOOGLE_CLOUD_PROJECT: None
+SERVER ENV - GOOGLE_CLOUD_LOCATION: None
+✓ Server ready
+Unexpected error during non-interactive execution
+Traceback (most recent call last):
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/non_interactive.py", line 853, in run_non_interactive
+    await _run_agent_loop(
+    ...<8 lines>...
+    )
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/non_interactive.py", line 582, in _run_agent_loop
+    await _stream_agent(agent, stream_input, config, state, console, file_op_tracker)
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/non_interactive.py", line 528, in _stream_agent
+    async for chunk in agent.astream(
+    ...<6 lines>...
+        _process_stream_chunk(chunk, state, console, file_op_tracker)
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/remote_client.py", line 134, in astream
+    async for ns, mode, data in graph.astream(
+    ...<36 lines>...
+        yield (ns, mode, data)
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/langgraph/pregel/remote.py", line 967, in astream
+    raise RemoteException(chunk.data)
+langgraph.pregel.remote.RemoteException: {'error': 'ChatGoogleGenerativeAIError', 'message': 'An internal error occurred'}
+
+Unexpected error (RemoteException): {'error': 
+'ChatGoogleGenerativeAIError', 'message': 'An internal error 
+occurred'}
+
+Exit code: 1

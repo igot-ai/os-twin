@@ -1,8 +1,6 @@
 ---
 name: unit-code-review
-description: "Use Serena MCP tools to analyze, refactor, and fix C# code with Unity patterns in mind. Trigger on: 'refactor this code', 'fix this bug', 'what's wrong with this', 'improve this class', 'analyze this code', 'suggest improvements', 'find bugs', 'optimize this code', 'apply SOLID principles', or when the user asks for code analysis and you want to leverage Serena's semantic tools for deeper code understanding. Also invoke proactively when the user mentions code editing, refactoring, bug fixing, or performance issues, or when you identify opportunities for code improvement using Serena's symbol analysis capabilities. Always initialize Serena's semantic index at the start of a session, prioritize Serena symbol tools over generic shell searches, manage large C# files by targeting 300-500 line chunks, and persist key architectural decisions with /memory add."
-tags: []
-trust_level: experimental
+description: "Use Serena MCP tools to analyze, refactor, and fix C# code with Unity patterns in mind. Trigger on: 'refactor this code', 'fix this bug', 'what's wrong with this', 'improve this class', 'analyze this code', 'suggest improvements', 'find bugs', 'optimize this code', 'apply SOLID principles', or when the user asks for code analysis and you want to leverage Serena's semantic tools for deeper code understanding. Also invoke proactively when the user mentions code editing, refactoring, bug fixing, or performance issues, or when you identify opportunities for code improvement using Serena's symbol analysis capabilities. Always initialize Serena's semantic index at the start of a session, prioritize Serena symbol tools over generic shell searches, manage large C# files by targeting 300–500 line chunks, and persist key architectural decisions with /memory add."
 ---
 
 # Serena Code Editor
@@ -46,7 +44,7 @@ Only fall back to shell tools when Serena cannot answer the question (e.g., sear
 
 - **`activate_project`** - Initialize semantic indexing on a `.sln` or `.csproj` (run once per session)
 - **`read_file`** - Read a file or a specific line range to understand code structure
-- **`get_symbols_overview`** - High-level map of all symbols in a file -- always run this first
+- **`get_symbols_overview`** - High-level map of all symbols in a file — always run this first
 - **`find_symbol`** - Find specific classes, methods, or symbols by name or pattern
 - **`find_referencing_symbols`** - Find every usage of a symbol across the codebase
 - **`search_for_pattern`** - Regex search scoped to source files (not vendor/generated)
@@ -78,7 +76,7 @@ Run `activate_project` on the `.sln` or `.csproj` before anything else. Skip if 
 
 ### Step 2: Understand with Serena
 1. Use `get_symbols_overview` to get a high-level symbol map of the file
-2. Use `read_file` with a targeted line range to examine the relevant sections -- see **Context Window Management** below
+2. Use `read_file` with a targeted line range to examine the relevant sections — see **Context Window Management** below
 3. Identify the class/method being modified and its context
 
 ### Step 3: Analyze with semantic understanding
@@ -96,23 +94,23 @@ Don't generate file-based reports. Instead:
 5. Keep explanations concise but thorough
 
 ### Step 5: Persist key decisions with /memory
-After agreeing on a design or refactoring approach with the user, write it to memory so it survives context resets -- see **Persisting Architectural Decisions** below.
+After agreeing on a design or refactoring approach with the user, write it to memory so it survives context resets — see **Persisting Architectural Decisions** below.
 
 ### Step 6: Ask for confirmation
 Before making actual edits, ask: "Should I make these changes?" or provide options if there are trade-offs.
 
 ## Context Window Management
 
-Large C# files (>500 lines) are common in Unity projects. Loading an entire file into context is wasteful and can push out important reasoning. Keep your active reading window between **300-500 lines** at a time.
+Large C# files (>500 lines) are common in Unity projects. Loading an entire file into context is wasteful and can push out important reasoning. Keep your active reading window between **300–500 lines** at a time.
 
 ### Chunking strategy
 
-1. **Start with the symbol map**, not the raw file. Run `get_symbols_overview` first -- it tells you the line ranges of every class and method without loading the full file.
-2. **Target the chunk that matters.** Use `read_file` with explicit `start_line` / `end_line` parameters scoped to the relevant class or method (aim for  500 lines per read).
+1. **Start with the symbol map**, not the raw file. Run `get_symbols_overview` first — it tells you the line ranges of every class and method without loading the full file.
+2. **Target the chunk that matters.** Use `read_file` with explicit `start_line` / `end_line` parameters scoped to the relevant class or method (aim for ≤ 500 lines per read).
 3. **Read horizontally, not vertically.** If you need to understand a dependency, use `find_symbol` to jump to that class rather than scrolling through the original file.
-4. **When you must read a long method**, split it into two `read_file` calls with overlapping context (e.g., lines 1-300, then 280-500) rather than one 600-line read.
+4. **When you must read a long method**, split it into two `read_file` calls with overlapping context (e.g., lines 1–300, then 280–500) rather than one 600-line read.
 
-### Example -- reading GameplayController.cs (800 lines)
+### Example — reading GameplayController.cs (800 lines)
 
 ```
 # Good
@@ -132,7 +130,7 @@ Use `/memory add` to store decisions that should survive context resets and info
 
 - A refactoring approach has been agreed upon (e.g., "we use VContainer for all DI, never `new` MonoBehaviours directly")
 - A naming convention or structural rule is confirmed (e.g., "partial classes split as `ClassName.cs` + `ClassName.Debug.cs`")
-- A known bug or quirk is documented (e.g., "UniRx `.TakeUntilDestroy(this)` causes issues on scene reload -- use `.AddTo(this)` instead")
+- A known bug or quirk is documented (e.g., "UniRx `.TakeUntilDestroy(this)` causes issues on scene reload — use `.AddTo(this)` instead")
 - A design constraint is established (e.g., "ScriptableObjects are the single source of truth for game config")
 
 ### Format for /memory entries
@@ -140,7 +138,7 @@ Use `/memory add` to store decisions that should survive context resets and info
 Keep entries short, scoped, and actionable. Prefer a short label + one-sentence rationale:
 
 ```
-/memory add "[DI] Always use VContainer constructor injection. Never call new on any MonoBehaviour or service class -- instantiate via the container instead."
+/memory add "[DI] Always use VContainer constructor injection. Never call new on any MonoBehaviour or service class — instantiate via the container instead."
 /memory add "[Async] Fire-and-forget UniTask calls must end with .Forget() to suppress CS4014 warnings and avoid silent exceptions."
 /memory add "[Partial] GameplayController is split into GameplayController.cs (logic) and GameplayController.Debug.cs (debug helpers). Check both before suggesting new methods."
 ```
@@ -149,7 +147,7 @@ Keep entries short, scoped, and actionable. Prefer a short label + one-sentence 
 
 - Temporary debugging notes that won't matter next session
 - Facts already obvious from the codebase (e.g., "this project uses Unity")
-- Long code snippets -- those belong in files, not memory
+- Long code snippets — those belong in files, not memory
 
 ## Common patterns to look for
 

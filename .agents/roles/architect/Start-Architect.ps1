@@ -117,7 +117,7 @@ catch { }
 # --- Read manager's design-review request ---
 $managerRequest = ""
 try {
-    $designMsgs = & $readMessages -RoomDir $RoomDir -FilterType "review" -Last 1 -AsObject
+    $designMsgs = & $readMessages -RoomDir $RoomDir -FilterType "design-review" -Last 1 -AsObject
     if ($designMsgs -and $designMsgs.Count -gt 0) {
         $managerRequest = $designMsgs[-1].body
     }
@@ -283,10 +283,9 @@ else {
     }
 }
 
-# --- PID file is NOT removed here (manager-owned lifecycle) ---
-# The manager cleans up PID files when it processes the signal and transitions
-# the room state. Removing PID here causes a race: manager polls, finds no PID,
-# and re-spawns before processing the channel signal.
+# --- Clean up PID file ---
+$archPidFile = Join-Path $RoomDir "pids" "architect.pid"
+Remove-Item $archPidFile -Force -ErrorAction SilentlyContinue
 
 # --- Update per-role config status ---
 if (Test-Path $archRoleConfigFile) {

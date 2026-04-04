@@ -61,7 +61,7 @@ while [[ $i -le $# ]]; do
     fi
     i=$((i+1))
 done
-set -- "${NEW_ARGS[@]+"${NEW_ARGS[@]}"}"
+set -- ${NEW_ARGS[@]+"${NEW_ARGS[@]}"}
 
 CMD="${1:-help}"
 shift || true
@@ -135,7 +135,7 @@ case "$CMD" in
         if [[ -n "${AGENT_OS_ROLE:-}" ]] && [[ "$HAS_ROLE" == false ]]; then
             EXTRA_ARGS+=(--role "$AGENT_OS_ROLE")
         fi
-        JSON=$(build_json "$KIND" "$SUMMARY" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" "$@")
+        JSON=$(build_json "$KIND" "$SUMMARY" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} "$@")
         exec "$PYTHON" "$MEMORY_CLI" publish "$JSON"
         ;;
     query)
@@ -169,6 +169,63 @@ print(json.dumps(d))
     list)
         JSON=$(build_json "$@")
         exec "$PYTHON" "$MEMORY_CLI" list "$JSON"
+        ;;
+    distill)
+        # Handle optional positional room_id
+        if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+            ROOM_ID="${1}"; shift
+            JSON=$(build_json "$@")
+            JSON=$("$PYTHON" -c "
+import json, sys
+d = json.loads(sys.argv[1])
+d['room_id'] = sys.argv[2]
+if 'kind' in d: del d['kind']
+print(json.dumps(d))
+" "$JSON" "$ROOM_ID")
+        else
+            JSON=$(build_json "$@")
+        fi
+        exec "$PYTHON" "$MEMORY_CLI" distill "$JSON"
+        ;;
+    knowledge)
+        SUB="${1:-}"; shift || true
+        case "$SUB" in
+            add)
+                CONTENT="${1:-}"; shift || true
+                SOURCE="${1:-}"; shift || true
+                JSON=$(build_json "$@")
+                JSON=$("$PYTHON" -c "
+import json, sys
+d = json.loads(sys.argv[1])
+d['content'] = sys.argv[2]
+d['source'] = sys.argv[3]
+if 'kind' in d: del d['kind']
+if 'tags' not in d: d['tags'] = []
+print(json.dumps(d))
+" "$JSON" "$CONTENT" "$SOURCE")
+                exec "$PYTHON" "$MEMORY_CLI" knowledge_add "$JSON"
+                ;;
+            search)
+                TEXT="${1:-}"; shift || true
+                JSON=$(build_json "$TEXT" "$@")
+                JSON=$("$PYTHON" -c "
+import json, sys
+d = json.loads(sys.argv[1])
+if 'kind' in d and 'query' not in d:
+    d['query'] = d.pop('kind')
+print(json.dumps(d))
+" "$JSON")
+                exec "$PYTHON" "$MEMORY_CLI" knowledge_search "$JSON"
+                ;;
+            list)
+                JSON=$(build_json "$@")
+                exec "$PYTHON" "$MEMORY_CLI" knowledge_list "$JSON"
+                ;;
+            *)
+                echo "Unknown knowledge command: $SUB. Valid: add, search, list" >&2
+                exit 1
+                ;;
+        esac
         ;;
     help|--help|-h)
         cat <<'EOF'
@@ -215,6 +272,19 @@ Commands:
       --global               List from the global project ledger
       --root PATH            Specify a custom project root directory
       --kind artifact        Filter by kind
+
+  distill [room-id] [options]          Distill session memory into long memory
+      --global               Distill from the global project ledger
+      --root PATH            Specify a custom project root directory
+
+  knowledge add <content> <source> [options]  Add a knowledge item
+      --tags tag1,tag2       Tags for discovery
+      
+  knowledge search <query> [options]          Search knowledge items
+      --max N                Max results (default 10)
+      
+  knowledge list [options]                    List knowledge items
+      --max N                Max results (default 100)
 
 Environment (auto-detected by agents):
   AGENT_OS_ROOM_DIR   Auto-sets --room

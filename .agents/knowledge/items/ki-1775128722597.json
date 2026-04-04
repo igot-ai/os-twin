@@ -1,0 +1,10 @@
+{
+  "id": "ki-1775128722597",
+  "content": "Use Postgres for prod",
+  "source": "best-practice",
+  "tags": [
+    "prod",
+    "db"
+  ],
+  "created_at": "2026-04-02T11:18:42Z"
+}

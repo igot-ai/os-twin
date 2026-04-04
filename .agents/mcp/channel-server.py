@@ -36,7 +36,12 @@ from mcp.server.fastmcp import FastMCP
 # ── Validation constants ─────────────────────────────────────────────────────
 
 VALID_ROLES = {"manager", "engineer", "qa", "architect", "devops", "tech-writer", "security", "product-owner"}
-
+VALID_TYPES = {
+    "task", "done", "review", "pass", "fail", "fix", "error", "signoff", "release",
+    "plan-review", "plan-approve", "plan-reject", "escalate",
+    "design-review", "design-guidance", "plan-update",
+    "redesign-done", "subcommand-redesigned",
+}
 MAX_BODY_BYTES = 65536
 
 # ── Module-level state ────────────────────────────────────────────────────────
@@ -63,6 +68,9 @@ def post_message(
     file lock (fcntl.LOCK_EX) so concurrent writers cannot corrupt the log.
     Returns a confirmation string with the generated message ID.
     """
+    if msg_type not in VALID_TYPES:
+        return f"error:invalid msg_type '{msg_type}'. Must be one of: {', '.join(sorted(VALID_TYPES))}"
+
     # Enforce body size limit
     if len(body) > MAX_BODY_BYTES:
         body = body[:MAX_BODY_BYTES] + f"\n[TRUNCATED: original {len(body)} bytes, max {MAX_BODY_BYTES}]"

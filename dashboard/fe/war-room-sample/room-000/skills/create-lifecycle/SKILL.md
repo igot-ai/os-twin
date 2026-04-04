@@ -14,7 +14,7 @@ This skill helps you define and scaffold the **lifecycle** of an epic inside an 
 ## War-Room State Machine Reference
 
 ```
-pending → engineering → review ─┬─► passed
+pending → engineering → qa-review ─┬─► passed
               ▲                     │
               │               ┌─────┘ (on fail/escalate)
               │               ▼
@@ -154,10 +154,10 @@ Create `<war-room>/lifecycle/quality-gates.md`:
 | Gate | Phase Transition | Criteria |
 |------|-----------------|----------|
 | **Brief Approved** | pending → engineering | Brief has clear scope, acceptance criteria, and role assignment |
-| **Code Complete** | engineering → review | All TASKS.md items checked, tests pass, done message posted |
-| **QA Passed** | review → passed | All acceptance criteria verified, no blocking issues |
-| **Triage Complete** | review → fixing/architect | Failure classified, context documented, next action clear |
-| **Fix Verified** | fixing → review | Fix addresses all QA feedback points, no new regressions |
+| **Code Complete** | engineering → qa-review | All TASKS.md items checked, tests pass, done message posted |
+| **QA Passed** | qa-review → passed | All acceptance criteria verified, no blocking issues |
+| **Triage Complete** | qa-review → fixing/architect | Failure classified, context documented, next action clear |
+| **Fix Verified** | fixing → qa-review | Fix addresses all QA feedback points, no new regressions |
 | **Design Approved** | architect-review → fixing | Design guidance provided with actionable implementation steps |
 | **Release Ready** | passed → released | All epics passed, RELEASE.md drafted, signoffs collected |
 

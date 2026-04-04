@@ -1,13 +1,9 @@
 ---
-name: Game Architecture Design
-description: Design comprehensive Unity game systems architecture including modules, data flow, and performance budgets.
-version: 1.0.0
-category: Design
-applicable_roles: [game-architect, architect]
-tags: [architect, design, architecture, unity, performance]
+name: game-architecture
+description: Design Unity game systems architecture
+tags: [architect, design, architecture]
 trust_level: core
 source: project
-author: Agent OS Core
 ---
 
 # Workflow: Game Architecture

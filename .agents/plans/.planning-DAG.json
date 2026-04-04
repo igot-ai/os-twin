@@ -1,0 +1,146 @@
+{
+  "generated_at": "2026-04-02T06:26:58Z",
+  "source": "ostwin-dashboard-v2.md",
+  "stage": "planning",
+  "total_nodes": 9,
+  "nodes": [
+    {
+      "task_ref": "EPIC-001",
+      "title": "Research & UI/UX Design",
+      "role": "ui-designer",
+      "candidate_roles": [
+        "ui-designer",
+        "researcher"
+      ],
+      "depends_on": [],
+      "rationale": "Requires analyzing reference interfaces and producing a design spec for all following UI epics. Naturally performed by UI/UX design and research roles."
+    },
+    {
+      "task_ref": "EPIC-002",
+      "title": "Sidebar Redesign with Project History & Conversation History",
+      "role": "frontend-engineer",
+      "candidate_roles": [
+        "frontend-engineer"
+      ],
+      "depends_on": [
+        "EPIC-001"
+      ],
+      "rationale": "Builds the core layout and navigation sidebar. Requires the design specs from EPIC-001 to implement the tabs and history groupings."
+    },
+    {
+      "task_ref": "EPIC-003",
+      "title": "Home Screen Redesign (Prompt-Centric Hub)",
+      "role": "frontend-engineer",
+      "candidate_roles": [
+        "frontend-engineer",
+        "backend-engineer"
+      ],
+      "depends_on": [
+        "EPIC-001",
+        "EPIC-002"
+      ],
+      "rationale": "Implements the central workspace hub and command prompt. Needs the core layout from the sidebar epic and base design tokens/wireframes."
+    },
+    {
+      "task_ref": "EPIC-004",
+      "title": "Enhance Existing Settings, MCP, and Channels Pages",
+      "role": "frontend-engineer",
+      "candidate_roles": [
+        "frontend-engineer",
+        "backend-engineer"
+      ],
+      "depends_on": [
+        "EPIC-001"
+      ],
+      "rationale": "Adds health indicators to existing pages. Can be done in parallel with other UI work once the initial UI/UX specs are finalized."
+    },
+    {
+      "task_ref": "EPIC-005",
+      "title": "Project (Plan) Management Lifecycle",
+      "role": "backend-engineer",
+      "candidate_roles": [
+        "backend-engineer",
+        "frontend-engineer"
+      ],
+      "depends_on": [
+        "EPIC-002",
+        "EPIC-003"
+      ],
+      "rationale": "Builds the core plan CRUD APIs and integrates them with the sidebar and home screens for real-time progress visualization."
+    },
+    {
+      "task_ref": "EPIC-006",
+      "title": "Real-Time Communication & Agent Interaction",
+      "role": "backend-engineer",
+      "candidate_roles": [
+        "backend-engineer",
+        "frontend-engineer"
+      ],
+      "depends_on": [
+        "EPIC-003",
+        "EPIC-004",
+        "EPIC-005"
+      ],
+      "rationale": "Connects the command prompt to WebSocket streams and agents. Requires the home screen and plan executor structure to be fundamentally in place."
+    },
+    {
+      "task_ref": "EPIC-007",
+      "title": "Theme System & Visual Polish",
+      "role": "frontend-engineer",
+      "candidate_roles": [
+        "frontend-engineer",
+        "ui-designer"
+      ],
+      "depends_on": [
+        "EPIC-002",
+        "EPIC-003",
+        "EPIC-004",
+        "EPIC-005"
+      ],
+      "rationale": "Applies animations, micro-interactions, and glassmorphism across the app. Requires the majority of the UI components to exist first."
+    },
+    {
+      "task_ref": "EPIC-008",
+      "title": "Integration Testing & Documentation",
+      "role": "test-engineer",
+      "candidate_roles": [
+        "test-engineer",
+        "technical-writer",
+        "qa"
+      ],
+      "depends_on": [
+        "EPIC-003",
+        "EPIC-004",
+        "EPIC-005",
+        "EPIC-006",
+        "EPIC-007"
+      ],
+      "rationale": "Validates the complete end-to-end user flows, API integrations, and visual states. Requires all major features to be completed."
+    },
+    {
+      "task_ref": "EPIC-009",
+      "title": "Long Memory (Persistent Knowledge Layer)",
+      "role": "backend-engineer",
+      "candidate_roles": [
+        "backend-engineer"
+      ],
+      "depends_on": [
+        "EPIC-002",
+        "EPIC-003",
+        "EPIC-006"
+      ],
+      "rationale": "Builds backend memory extraction and embedding for completed plans. Requires real-time events and plan lifecycles to be finalized, though it doesn't block the UI layer."
+    }
+  ],
+  "topological_order": [
+    "EPIC-001",
+    "EPIC-004",
+    "EPIC-002",
+    "EPIC-003",
+    "EPIC-005",
+    "EPIC-006",
+    "EPIC-007",
+    "EPIC-009",
+    "EPIC-008"
+  ]
+}

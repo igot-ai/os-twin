@@ -47,7 +47,7 @@ from dashboard.api_utils import (
     FE_OUT_DIR,
 )
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, command
 from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
@@ -124,6 +124,7 @@ app.include_router(skills.router)
 app.include_router(roles.router)
 app.include_router(memory.router)
 app.include_router(channels.router)
+app.include_router(command.router)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:
@@ -189,10 +190,15 @@ if USE_FE:
             plans_dir = FE_OUT_DIR / "plans"
             if plans_dir.is_dir():
                 # Check flat .html files first (e.g. plan-001.html)
-                for html_file in plans_dir.glob("*.html"):
+                # Skip non-template pages (new.html is the create form)
+                for html_file in sorted(plans_dir.glob("*.html")):
+                    if html_file.stem in ("new",):
+                        continue
                     return FileResponse(str(html_file))
                 # Fallback: check nested index.html (e.g. plan-001/index.html)
                 for sub in plans_dir.iterdir():
+                    if sub.name == "new":
+                        continue
                     tpl = sub / "index.html"
                     if tpl.is_file():
                         return FileResponse(str(tpl))

@@ -189,6 +189,32 @@ Describe "Get-TruncatedText" {
     }
 }
 
+# ─── Get-CleanAgentText ─────────────────────────────────────────────────────
+
+Describe "Get-CleanAgentText" {
+    It "removes control characters and tool noise while preserving the actual report" {
+        $text = @"
+🔧 Calling tool: read_file
+CLI: v0.0.34
+`0`0Actual heading
+Details stay here.
+✓ Task completed
+"@
+
+        $result = Get-CleanAgentText -Text $text -StripToolNoise
+
+        $result | Should -Be "Actual heading`nDetails stay here."
+    }
+
+    It "keeps regular multiline content when tool stripping is disabled" {
+        $text = "Line 1`0`nLine 2"
+
+        $result = Get-CleanAgentText -Text $text
+
+        $result | Should -Be "Line 1`nLine 2"
+    }
+}
+
 # ─── Get-OstwinAgentsDir ────────────────────────────────────────────────────
 
 Describe "Get-OstwinAgentsDir" {
@@ -200,5 +226,103 @@ Describe "Get-OstwinAgentsDir" {
         finally {
             Remove-Item Env:AGENTS_DIR -ErrorAction SilentlyContinue
         }
+    }
+}
+
+# ─── Get-RecoverableStatusFromAudit ────────────────────────────────────────
+
+Describe "Get-RecoverableStatusFromAudit" {
+    BeforeEach {
+        $script:auditRoomDir = Join-Path $TestDrive "room-audit-$(Get-Random)"
+        New-Item -ItemType Directory -Path $script:auditRoomDir -Force | Out-Null
+    }
+
+    It "returns the last audited target status when it is valid" {
+        @(
+            "2026-01-01T00:00:00Z STATUS pending -> developing",
+            "2026-01-01T00:01:00Z STATUS developing -> review",
+            "2026-01-01T00:02:00Z STATUS review -> passed"
+        ) | Out-File -FilePath (Join-Path $script:auditRoomDir "audit.log") -Encoding utf8
+
+        $result = Get-RecoverableStatusFromAudit -RoomDir $script:auditRoomDir -ValidStatuses @("developing", "review", "passed")
+
+        $result | Should -Be "passed"
+    }
+
+    It "falls back to the last valid source status when the latest target is invalid" {
+        @(
+            "2026-01-01T00:00:00Z STATUS pending -> review",
+            "2026-01-01T00:01:00Z STATUS review -> testing7"
+        ) | Out-File -FilePath (Join-Path $script:auditRoomDir "audit.log") -Encoding utf8
+
+        $result = Get-RecoverableStatusFromAudit -RoomDir $script:auditRoomDir -ValidStatuses @("pending", "review", "passed")
+
+        $result | Should -Be "review"
+    }
+}
+
+# ─── Lifecycle Signal Helpers ───────────────────────────────────────────────
+
+Describe "Lifecycle signal helpers" {
+    It "adds fallback error signal for review states that define fail but not error" {
+        $stateDef = [pscustomobject]@{
+            role    = "qa"
+            type    = "review"
+            signals = [pscustomobject]@{
+                pass = [pscustomobject]@{ target = "passed" }
+                fail = [pscustomobject]@{
+                    target  = "optimize"
+                    actions = @("increment_retries", "post_fix")
+                }
+            }
+        }
+
+        $signals = @(Get-LifecycleSignalNames -StateDef $stateDef)
+
+        $signals | Should -Contain "pass"
+        $signals | Should -Contain "fail"
+        $signals | Should -Contain "error"
+    }
+
+    It "resolves review error fallback to the fail transition when error is not explicitly defined" {
+        $stateDef = [pscustomobject]@{
+            role    = "qa"
+            type    = "review"
+            signals = [pscustomobject]@{
+                pass = [pscustomobject]@{ target = "passed" }
+                fail = [pscustomobject]@{
+                    target  = "optimize-backend-engineer"
+                    actions = @("increment_retries", "post_fix")
+                }
+            }
+        }
+
+        $transition = Resolve-LifecycleSignalTransition -StateDef $stateDef -Signal "error"
+
+        $transition | Should -Not -BeNullOrEmpty
+        $transition.target | Should -Be "optimize-backend-engineer"
+        $transition.actions | Should -Contain "increment_retries"
+        $transition.actions | Should -Contain "post_fix"
+    }
+
+    It "preserves explicit error transitions when lifecycle defines them" {
+        $stateDef = [pscustomobject]@{
+            role    = "qa"
+            type    = "review"
+            signals = [pscustomobject]@{
+                fail = [pscustomobject]@{ target = "optimize" }
+                error = [pscustomobject]@{
+                    target  = "triage"
+                    actions = @("post_fix")
+                }
+            }
+        }
+
+        $signals = @(Get-LifecycleSignalNames -StateDef $stateDef)
+        $transition = Resolve-LifecycleSignalTransition -StateDef $stateDef -Signal "error"
+
+        (@($signals | Where-Object { $_ -eq "error" })).Count | Should -Be 1
+        $transition.target | Should -Be "triage"
+        $transition.actions | Should -Contain "post_fix"
     }
 }

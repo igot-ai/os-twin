@@ -1,0 +1,153 @@
+Running task non-interactively...
+CLI: v0.0.34 | Agent: agent (default) | Model: gemini-2.5-flash | 
+Thread: 019d4c98-99fa-7380-9f65-6e0b4746ee7f
+Starting LangGraph server...
+Unexpected error during non-interactive execution
+Traceback (most recent call last):
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/non_interactive.py", line 819, in run_non_interactive
+    async with server_session(
+               ~~~~~~~~~~~~~~^
+        assistant_id=assistant_id,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+        interactive=False,
+        ^^^^^^^^^^^^^^^^^^
+    ) as (agent, _server_proc):
+    ^
+  File "/root/.local/share/uv/python/cpython-3.13.12-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/server_manager.py", line 326, in server_session
+    agent, server_proc, mcp_session_manager = await start_server_and_get_agent(
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<15 lines>...
+    )
+    ^
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/server_manager.py", line 261, in start_server_and_get_agent
+    await server.start()
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/server.py", line 402, in start
+    await wait_for_server_healthy(
+    ...<4 lines>...
+    )
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/deepagents_cli/server.py", line 197, in wait_for_server_healthy
+    raise RuntimeError(msg)
+RuntimeError: Server process exited with code 3
+tools/deepagents-cli/lib/python3.13/site-packages/langgraph_api/timing/timer.py", line 101, in wrapper
+    return func(*args, **kwargs)
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/langgraph_api/graph.py", line 560, in _graph_from_spec
+    modspec.loader.exec_module(module)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 1019, in exec_module
+  File "<frozen importlib._bootstrap_external>", line 1157, in get_code
+  File "<frozen importlib._bootstrap_external>", line 1087, in source_to_code
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/tmp/deepagents_server_lmu2qts6/server_graph.py", line 19
+    from __future__ import annotations
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+SyntaxError: from __future__ imports must occur at the beginning of the file
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/starlette/routing.py", line 638, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/root/.local/share/uv/python/cpython-3.13.12-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/langgraph_api/timing/timer.py", line 227, in combined_lifespan
+    await stack.enter_async_context(ls(app))
+  File "/root/.local/share/uv/python/cpython-3.13.12-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 668, in enter_async_context
+    result = await _enter(cm)
+             ^^^^^^^^^^^^^^^^
+  File "/root/.local/share/uv/python/cpython-3.13.12-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/langgraph_runtime_inmem/lifespan.py", line 113, in lifespan
+    await graph.collect_graphs_from_env(True)
+  File "/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-packages/langgraph_api/graph.py", line 496, in collect_graphs_from_env
+    raise GraphLoadError(spec, exc) from exc
+langgraph_api.utils.errors.GraphLoadError: Failed to load graph 'agent' from /tmp/deepagents_server_lmu2qts6/server_graph.py: from __future__ imports must occur at the beginning of the file (server_graph.py, line 19)
+[0m [[0m[1m[34muvicorn.error[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.7.89[0m [36mthread_name[0m=[35mMainThread[0m
+[2m2026-04-02T05:09:23.500913Z[0m [[31m[1merror    [0m] [1mApplication startup failed. Exiting.[0m [[0m[1m[34muvicorn.error[0m][0m [36mapi_variant[0m=[35mlocal_dev[0m [36mlanggraph_api_version[0m=[35m0.7.89[0m [36mthread_name[0m=[35mMainThread[0m
+
+[DEBUG] Patched server_graph.py at /tmp/deepagents_server_lmu2qts6/server_graph.py
+
+Unexpected error (RuntimeError): Server process exited with code 3
+tools/deepagents-cli/lib/python3.13/site-packages/langgraph_api/ti
+ming/timer.py", line 101, in wrapper
+    return func(*args, **kwargs)
+  File 
+"/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-pa
+ckages/langgraph_api/graph.py", line 560, in _graph_from_spec
+    modspec.loader.exec_module(module)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 1019, in 
+exec_module
+  File "<frozen importlib._bootstrap_external>", line 1157, in 
+get_code
+  File "<frozen importlib._bootstrap_external>", line 1087, in 
+source_to_code
+  File "<frozen importlib._bootstrap>", line 488, in 
+_call_with_frames_removed
+  File "/tmp/deepagents_server_lmu2qts6/server_graph.py", line 19
+    from __future__ import annotations
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+SyntaxError: from __future__ imports must occur at the beginning 
+of the file
+
+The above exception was the direct cause of the following 
+exception:
+
+Traceback (most recent call last):
+  File 
+"/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-pa
+ckages/starlette/routing.py", line 638, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File 
+"/root/.local/share/uv/python/cpython-3.13.12-linux-x86_64-gnu/lib
+/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File 
+"/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-pa
+ckages/langgraph_api/timing/timer.py", line 227, in 
+combined_lifespan
+    await stack.enter_async_context(ls(app))
+  File 
+"/root/.local/share/uv/python/cpython-3.13.12-linux-x86_64-gnu/lib
+/python3.13/contextlib.py", line 668, in enter_async_context
+    result = await _enter(cm)
+             ^^^^^^^^^^^^^^^^
+  File 
+"/root/.local/share/uv/python/cpython-3.13.12-linux-x86_64-gnu/lib
+/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File 
+"/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-pa
+ckages/langgraph_runtime_inmem/lifespan.py", line 113, in lifespan
+    await graph.collect_graphs_from_env(True)
+  File 
+"/root/.local/share/uv/tools/deepagents-cli/lib/python3.13/site-pa
+ckages/langgraph_api/graph.py", line 496, in 
+collect_graphs_from_env
+    raise GraphLoadError(spec, exc) from exc
+langgraph_api.utils.errors.GraphLoadError: Failed to load graph 
+'agent' from /tmp/deepagents_server_lmu2qts6/server_graph.py: from
+__future__ imports must occur at the beginning of the file 
+(server_graph.py, line 19)
+[0m [[0m[1m[34muvicorn.error[0m][0m 
+[36mapi_variant[0m=[35mlocal_dev[0m 
+[36mlanggraph_api_version[0m=[35m0.7.89[0m 
+[36mthread_name[0m=[35mMainThread[0m
+[2m2026-04-02T05:09:23.500913Z[0m [[31m[1merror    [0m] 
+[1mApplication startup failed. Exiting.[0m 
+[[0m[1m[34muvicorn.error[0m][0m 
+[36mapi_variant[0m=[35mlocal_dev[0m 
+[36mlanggraph_api_version[0m=[35m0.7.89[0m 
+[36mthread_name[0m=[35mMainThread[0m
+
+
+Exit code: 1

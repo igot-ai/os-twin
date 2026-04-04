@@ -1,1 +1,1 @@
-python3 /Users/paulaan/PycharmProjects/agent-os/.agents/mcp/test_vault.py
+python3 '/mnt/e/OS Twin/os-twin/run_pytest_temp.py'

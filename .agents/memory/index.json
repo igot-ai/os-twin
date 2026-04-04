@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-03-29T17:24:48Z",
-  "count": 9,
+  "updated_at": "2026-04-02T11:18:24Z",
+  "count": 15,
   "entries": [
     {
       "id": "mem-cod-1774690708043958000-81954",
@@ -133,6 +133,78 @@
       ],
       "summary": "Two-tier MCP config with compilation",
       "detail": "Compiled home config into project config resolving vault refs to env vars. Secret values stored in .env.mcp (gitignored)."
+    },
+    {
+      "id": "mem-art-1775127256874574719-4823",
+      "ts": "2026-04-02T10:54:16Z",
+      "kind": "artifact",
+      "room_id": "room-001",
+      "author_role": "backend",
+      "ref": "EPIC-001",
+      "tags": [
+        "db"
+      ],
+      "summary": "Created users table"
+    },
+    {
+      "id": "mem-dec-1775127256897082628-4823",
+      "ts": "2026-04-02T10:54:16Z",
+      "kind": "decision",
+      "room_id": "room-001",
+      "author_role": "backend",
+      "ref": "EPIC-001",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Chose JWT"
+    },
+    {
+      "id": "mem-art-1775127256897966324-4796",
+      "ts": "2026-04-02T10:54:16Z",
+      "kind": "artifact",
+      "room_id": "room-001",
+      "author_role": "backend",
+      "ref": "EPIC-001",
+      "tags": [
+        "db"
+      ],
+      "summary": "Created users table"
+    },
+    {
+      "id": "mem-dec-1775127256917852705-4796",
+      "ts": "2026-04-02T10:54:16Z",
+      "kind": "decision",
+      "room_id": "room-001",
+      "author_role": "backend",
+      "ref": "EPIC-001",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Chose JWT"
+    },
+    {
+      "id": "mem-art-1775128701938329308-6859",
+      "ts": "2026-04-02T11:18:21Z",
+      "kind": "artifact",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-009",
+      "tags": [
+        "db"
+      ],
+      "summary": "Database schema"
+    },
+    {
+      "id": "mem-dec-1775128704637216822-6865",
+      "ts": "2026-04-02T11:18:24Z",
+      "kind": "decision",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-009",
+      "tags": [
+        "db"
+      ],
+      "summary": "Use SQLite"
     }
   ]
 }

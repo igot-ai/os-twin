@@ -1,0 +1,1 @@
+Refined plan content

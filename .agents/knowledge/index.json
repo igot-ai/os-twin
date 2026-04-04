@@ -1,0 +1,39 @@
+{
+  "updated_at": "2026-04-02T11:18:42Z",
+  "count": 4,
+  "items": [
+    {
+      "id": "ki-1775127256821",
+      "source": "test_source",
+      "tags": [
+        "tag1"
+      ],
+      "created_at": "2026-04-02T10:54:16Z"
+    },
+    {
+      "id": "ki-1775127256929",
+      "source": "room:room-001",
+      "tags": [
+        "distilled"
+      ],
+      "created_at": "2026-04-02T10:54:16Z"
+    },
+    {
+      "id": "ki-1775128710381",
+      "source": "room:room-001",
+      "tags": [
+        "distilled"
+      ],
+      "created_at": "2026-04-02T11:18:30Z"
+    },
+    {
+      "id": "ki-1775128722597",
+      "source": "best-practice",
+      "tags": [
+        "prod",
+        "db"
+      ],
+      "created_at": "2026-04-02T11:18:42Z"
+    }
+  ]
+}

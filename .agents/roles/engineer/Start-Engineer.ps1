@@ -305,10 +305,9 @@ if ($engineerConfigs) {
     $latestRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $engineerConfigs[0].FullName -Encoding utf8
 }
 
-# --- PID file is NOT removed here (manager-owned lifecycle) ---
-# The manager cleans up PID files when it processes the signal and transitions
-# the room state. Removing PID here causes a race: manager polls, finds no PID,
-# and re-spawns before processing the channel signal.
+# --- Clean up PID file (after channel message is posted) ---
+$engPidFile = Join-Path $RoomDir "pids" "engineer.pid"
+Remove-Item $engPidFile -Force -ErrorAction SilentlyContinue
 
 exit $result.ExitCode
 

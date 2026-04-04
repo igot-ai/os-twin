@@ -1,20 +1,21 @@
 ---
 name: write-document
-description: "Write technical documentation or guides"
+description: Write technical documentation or guides
 tags: [tech-writer, documentation, writing]
 trust_level: core
+source: project
 ---
 
 # Workflow: Write Document
 
-**Goal:** Author any technical document through guided conversation -- from architecture decision records to feature specs, API references, or onboarding guides.
+**Goal:** Author any technical document through guided conversation — from architecture decision records to feature specs, API references, or onboarding guides.
 
 **Input:** User description of document type and content
 **Output:** A well-structured markdown document saved to `.output/docs/`
 
 ---
 
-## Step 1 -- Define the Document
+## Step 1 — Define the Document
 
 Ask (if not already stated):
 1. "What type of document? (ADR / feature spec / API reference / onboarding guide / other)"
@@ -24,7 +25,7 @@ Ask (if not already stated):
 
 ---
 
-## Step 2 -- Choose Structure
+## Step 2 — Choose Structure
 
 **Architecture Decision Record (ADR):**
 ```markdown
@@ -86,7 +87,7 @@ As a {user}, I want {capability}, so that {value}.
 
 **Onboarding Guide:**
 ```markdown
-# {Topic} -- Getting Started
+# {Topic} — Getting Started
 
 ## Prerequisites
 {what you need before starting}
@@ -107,7 +108,7 @@ As a {user}, I want {capability}, so that {value}.
 
 ---
 
-## Step 3 -- Draft and Review
+## Step 3 — Draft and Review
 
 Write the complete document. Always include:
 - Purpose statement at the very top
@@ -121,7 +122,7 @@ Apply any feedback and re-present once.
 
 ---
 
-## Step 4 -- Save
+## Step 4 — Save
 
 1. Create `.output/docs/` if needed.
 2. Save to `.output/docs/{document-kebab-name}.md`.

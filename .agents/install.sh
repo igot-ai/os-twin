@@ -472,7 +472,7 @@ setup_venv() {
   # when a user re-runs install.sh after an update.
 
   # Install MCP requirements
-  local requirements="$INSTALL_DIR/.agents/mcp/requirements.txt"
+  local requirements="$INSTALL_DIR/mcp/requirements.txt"
   if [[ -f "$requirements" ]]; then
     step "Syncing MCP dependencies..."
     if check_uv; then
@@ -498,7 +498,7 @@ setup_venv() {
   fi
 
   # Install Memory/indexing requirements (CocoIndex, pgvector, etc.)
-  local memory_reqs="$INSTALL_DIR/.agents/memory/requirements.txt"
+  local memory_reqs="$INSTALL_DIR/memory/requirements.txt"
   if [[ -f "$memory_reqs" ]]; then
     step "Syncing memory/indexing dependencies..."
     if check_uv; then
@@ -511,7 +511,7 @@ setup_venv() {
   fi
 
   # Install role-specific requirements (e.g. roles/reporter/requirements.txt)
-  local roles_dir="$INSTALL_DIR/.agents/roles"
+  local roles_dir="$INSTALL_DIR/roles"
   if [[ -d "$roles_dir" ]]; then
     for role_reqs in "$roles_dir"/*/requirements.txt; do
       [[ -f "$role_reqs" ]] || continue
@@ -736,40 +736,40 @@ build_dashboard_fe() {
 
 install_files() {
   step "Installing OS Twin to $INSTALL_DIR..."
-  mkdir -p "$INSTALL_DIR/.agents"
+  mkdir -p "$INSTALL_DIR"
 
   # Ensure clean slate for core roles (remove old core roles before syncing)
-  rm -rf "$INSTALL_DIR/.agents/roles"
+  rm -rf "$INSTALL_DIR/roles"
 
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
-  # NOTE: mcp/mcp-config.json is excluded to preserve user's installed extensions and config
+  # NOTE: mcp/ is excluded to preserve user's installed extensions and config
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
-    --exclude='mcp/mcp-config.json' --exclude='mcp/.env.mcp' \
-    "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
+    --exclude='mcp/' \
+    "$SCRIPT_DIR/" "$INSTALL_DIR/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ manually)
       find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
-        -exec cp -r {} "$INSTALL_DIR/.agents/" \; 2>/dev/null || true
+        -exec cp -r {} "$INSTALL_DIR/" \; 2>/dev/null || true
     }
 
   # ── MCP: seed on first install, never overwrite ────────────────────────────
-  if [[ ! -d "$INSTALL_DIR/.agents/mcp" ]]; then
+  if [[ ! -d "$INSTALL_DIR/mcp" ]]; then
     step "Seeding mcp/ directory (first install)..."
-    cp -r "$SCRIPT_DIR/mcp" "$INSTALL_DIR/.agents/mcp"
+    cp -r "$SCRIPT_DIR/mcp" "$INSTALL_DIR/mcp"
     ok "mcp/ seeded"
   else
     # Always update the builtin template so new built-in servers are available
     if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
-      cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
+      cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$INSTALL_DIR/mcp/mcp-builtin.json"
     fi
     # Always update catalog so new packages are available
     if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
-      cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$INSTALL_DIR/.agents/mcp/mcp-catalog.json"
+      cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$INSTALL_DIR/mcp/mcp-catalog.json"
     fi
     # Sync MCP server scripts (channel-server.py, warroom-server.py, etc.)
     for f in "$SCRIPT_DIR"/mcp/*.py "$SCRIPT_DIR"/mcp/*.sh "$SCRIPT_DIR"/mcp/requirements.txt; do
-      [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/.agents/mcp/"
+      [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/mcp/"
     done
     ok "mcp/ preserved (scripts + catalog updated, config untouched)"
   fi
@@ -810,13 +810,13 @@ install_files() {
   done
   if [[ -n "$contributes_roles" ]]; then
     step "Loading contributed roles..."
-    mkdir -p "$INSTALL_DIR/.agents/roles"
+    mkdir -p "$INSTALL_DIR/roles"
     local loaded=0
     for role_dir in "$contributes_roles"/*/; do
       [[ -d "$role_dir" ]] || continue
       local role_name
       role_name="$(basename "$role_dir")"
-      local target_role="$INSTALL_DIR/.agents/roles/$role_name"
+      local target_role="$INSTALL_DIR/roles/$role_name"
       if [[ ! -d "$target_role" ]]; then
         cp -r "$role_dir" "$target_role"
         loaded=$((loaded + 1))
@@ -825,48 +825,16 @@ install_files() {
     ok "$loaded contributed role(s) loaded"
   fi
   # Make scripts executable
-  find "$INSTALL_DIR/.agents" -name "*.sh" -exec chmod +x {} \;
-  chmod +x "$INSTALL_DIR/.agents/bin/ostwin" 2>/dev/null || true
+  find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
+  chmod +x "$INSTALL_DIR/bin/ostwin" 2>/dev/null || true
 
   ok "Files installed"
-}
-
-# ─── Build hash ─────────────────────────────────────────────────────────────
-
-compute_build_hash() {
-  step "Computing build hash..."
-
-  # Prefer shasum (macOS), fall back to sha256sum (Linux)
-  local sha_cmd="shasum -a 256"
-  if ! command -v shasum &>/dev/null; then
-    sha_cmd="sha256sum"
-  fi
-
-  local hash
-  hash=$(
-    find "$INSTALL_DIR" \
-      -type f \
-      ! -path "$INSTALL_DIR/.venv/*" \
-      ! -path "$INSTALL_DIR/logs/*" \
-      ! -path "$INSTALL_DIR/node_modules/*" \
-      ! -path "*/__pycache__/*" \
-      ! -name "*.pid" \
-      ! -name ".env" \
-      ! -name ".build-hash" \
-      -print0 \
-      | sort -z \
-      | xargs -0 $sha_cmd \
-      | $sha_cmd \
-      | cut -c1-8
-  )
-  echo "$hash" > "$INSTALL_DIR/.build-hash"
-  ok "Build hash: $hash"
 }
 
 # ─── Patch MCP config ────────────────────────────────────────────────────────
 
 patch_mcp_config() {
-  local mcp_config="$INSTALL_DIR/.agents/mcp/mcp-config.json"
+  local mcp_config="$INSTALL_DIR/mcp/mcp-config.json"
   local env_file="$INSTALL_DIR/.env"
 
   if [[ ! -f "$mcp_config" ]]; then
@@ -947,10 +915,10 @@ setup_path() {
     *)     shell_rc="$HOME/.profile" ;;
   esac
 
-  local path_line="export PATH=\"$INSTALL_DIR/.agents/bin:\$PATH\""
+  local path_line="export PATH=\"$INSTALL_DIR/bin:\$PATH\""
 
   if [[ "$shell_name" == "fish" ]]; then
-    path_line="set -gx PATH $INSTALL_DIR/.agents/bin \$PATH"
+    path_line="set -gx PATH $INSTALL_DIR/bin \$PATH"
   fi
 
   if grep -qF "ostwin" "$shell_rc" 2>/dev/null; then
@@ -965,7 +933,7 @@ setup_path() {
   fi
 
   # Export for current session
-  export PATH="$INSTALL_DIR/.agents/bin:$PATH"
+  export PATH="$INSTALL_DIR/bin:$PATH"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1143,7 +1111,6 @@ install_files
 header "5. Setting up Python environment"
 setup_venv
 patch_mcp_config
-compute_build_hash
 
 # ─── 5b. Environment variables (.env) ────────────────────────────────────────
 
@@ -1172,7 +1139,7 @@ else
   header "7. PATH (skipped — dashboard-only)"
   info "Skipping PATH setup in dashboard-only mode"
   # Still ensure INSTALL_DIR/bin is in current session
-  export PATH="$INSTALL_DIR/.agents/bin:$PATH"
+  export PATH="$INSTALL_DIR/bin:$PATH"
 fi
 
 # ─── 8. Verification ─────────────────────────────────────────────────────────
@@ -1238,7 +1205,7 @@ fi
 
 header "9. Starting dashboard"
 
-DASHBOARD_SCRIPT="$INSTALL_DIR/.agents/dashboard.sh"
+DASHBOARD_SCRIPT="$INSTALL_DIR/dashboard.sh"
 if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; then
 
   # Stop any existing process on the dashboard port
@@ -1291,10 +1258,10 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
 
   # ─── 9b. Publish skills to backend ───────────────────────────────────────
   header "9b. Publishing skills to backend"
-  SYNC_SCRIPT="$INSTALL_DIR/.agents/sync-skills.sh"
+  SYNC_SCRIPT="$INSTALL_DIR/sync-skills.sh"
   if [[ -x "$SYNC_SCRIPT" ]]; then
     OSTWIN_HOME="$INSTALL_DIR" DASHBOARD_PORT="$DASHBOARD_PORT" \
-      bash "$SYNC_SCRIPT" --install-from "$INSTALL_DIR/.agents"
+      bash "$SYNC_SCRIPT" --install-from "$INSTALL_DIR"
   else
     warn "sync-skills.sh not found — skipping skill sync"
     info "Expected at $SYNC_SCRIPT"
@@ -1351,7 +1318,7 @@ if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
   [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
   [[ -f "$PROJECT_ROOT_ENV" ]] && { set -a; source "$PROJECT_ROOT_ENV"; set +a; }
 
-  CHAN_PID_FILE="$INSTALL_DIR/.agents/channel.pid"
+  CHAN_PID_FILE="$INSTALL_DIR/channel.pid"
   if [[ -f "$CHAN_PID_FILE" ]]; then
     OLD_PID=$(cat "$CHAN_PID_FILE" 2>/dev/null || true)
     if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then

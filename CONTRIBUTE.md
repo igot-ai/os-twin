@@ -216,12 +216,25 @@ Skills are resolved before each agent spawn and copied into the room's `skills/`
 
 ## Dashboard
 
-The web dashboard (`dashboard/`) provides:
+The web dashboard (`dashboard/`) provides the "Command Center" for OS Twin. In **Dashboard v2**, the architecture has been overhauled to focus on a unified chat interface and natural-language plan generation.
 
-- **Plan management** — create, view, and trigger plans via API
-- **Skills browser** — search, filter, and manage agent skills
-- **War-room monitoring** — view room statuses and message channels
-- **Role registry** — browse available roles and their capabilities
+- **Component Architecture (React/Next.js)**: 
+  - `PlanCreationWizard.tsx`: Multi-step natural-language to markdown generator.
+  - `SidebarHistory.tsx`: Unified conversation and plan history navigator.
+  - `CommandPrompt.tsx`: Centralized conversational input component.
+  - `ActivityFeed.tsx` & `AgentResponse.tsx`: Real-time streaming UI for agent actions.
+- **API Endpoint Reference**:
+  - `GET /api/home` — Retrieves dynamic layout metadata (greeting, categories, suggestions).
+  - `POST /api/command` — Submits a prompt to the conversational agent (returns `x-conversation-id`).
+  - `GET /api/conversations` (and CRUD) — Manages chat session history.
+  - `GET /api/plans` (and CRUD) — Unified plan management (create, run, archive, etc.).
+  - `GET /api/health/summary` — Returns live service health (platforms, MCP, keys).
+  - `GET /api/mcp/servers/{name}/health` — Checks stdio process status.
+  - `WebSocket /api/ws` — Real-time event streaming (`agent_stream`, `epic_progress`).
+- **Design Token Reference**:
+  - All styling utilizes CSS variables (`var(--color-*)`) instead of raw hex values to support persistent Light/Dark themes.
+  - UI Text: `var(--font-display)`. Code/IDs: `var(--font-mono)`.
+  - Glassmorphism overlays: `bg-surface/80 backdrop-blur`.
 
 Run with:
 ```bash

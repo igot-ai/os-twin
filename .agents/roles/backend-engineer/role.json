@@ -1,0 +1,21 @@
+{
+  "name": "backend-engineer",
+  "description": "Backend engineer — builds FastAPI routes, Python services, data models, and WebSocket handlers",
+  "capabilities": [
+    "code-generation",
+    "file-editing",
+    "shell-execution",
+    "testing",
+    "refactoring"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "lint-clean",
+    "no-hardcoded-secrets",
+    "unit-tests"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 600
+}

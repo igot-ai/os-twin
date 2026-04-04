@@ -1,18 +1,12 @@
 # ── Runtime / Process ─────────────────────────────────────────────────────────
 .env
 *pid
-.build-hash
 *.war-rooms/**
 .war-rooms/**
 
-.agents/plans/**
-.agents/.zvec/**
-.agents/logs/**
-.agents/mcp/mcp-config.json
-.agents/memory/index.json
-.agents/memory/ledger.jsonl
-.agents/plans/
-.agents/stats_history.json
+# ── Agents (entire framework — installed to ~/.ostwin, not committed) ────────
+.agents/
+
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 

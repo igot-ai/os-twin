@@ -76,12 +76,14 @@ BeforeAll {
         }
 
         if ($status -in @('engineering', 'fixing', 'developing', 'optimize')) {
-            # Simulate Risk 2 fix: Clean stale PIDs before transition
-            Remove-Item -Path (Join-Path $RoomDir "pids\*") -Force -Recurse -ErrorAction SilentlyContinue
-            
-            # Simulate Risk 3+4 fix: deadlock recovery no longer increments retries
-            & $PostMessageScript -RoomDir $RoomDir -From "manager" -To $dlRole -Type "fix" -Ref $taskRef -Body "Deadlock recovery: restarting $dlRole."
-            Set-WarRoomStatus -RoomDir $RoomDir -NewStatus "fixing"
+            if ($retries -lt $MaxRetries) {
+                # BUG: This increments retries, raising 'expected' for doneCount check
+                ($retries + 1).ToString() | Out-File -FilePath (Join-Path $RoomDir "retries") -Encoding utf8 -NoNewline
+                & $PostMessageScript -RoomDir $RoomDir -From "manager" -To $dlRole -Type "fix" -Ref $taskRef -Body "Deadlock recovery: restarting $dlRole."
+                Set-WarRoomStatus -RoomDir $RoomDir -NewStatus "fixing"
+            } else {
+                Set-WarRoomStatus -RoomDir $RoomDir -NewStatus "failed-final"
+            }
         }
     }
 
@@ -129,18 +131,18 @@ Describe "Deadlock Exploitation Tests" {
             Invoke-DeadlockRecovery -RoomDir $roomDir -PostMessageScript $script:PostMessage -MaxRetries 3
 
             $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
-            $retries | Should -Be 0 -Because "Deadlock recovery no longer inflates retries"
+            $retries | Should -Be 1
 
             # New worker posts exactly 1 done message
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                 -Type "done" -Ref "DL-003" -Body "Worker completed task"
 
-            # AFTER: expected = 0 + 1 = 1, and doneCount = 1. SUCCESS.
+            # AFTER: expected = 1 + 1 = 2, but doneCount = 1. STUCK.
             $after = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
             $after.DoneCount | Should -Be 1
-            $after.Expected | Should -Be 1
-            $after.WouldTransition | Should -BeTrue `
-                -Because "FIX: doneCount(1) == expected(1), room unblocked"
+            $after.Expected | Should -Be 2
+            $after.WouldTransition | Should -BeFalse `
+                -Because "BUG: doneCount(1) < expected(2), room stuck forever"
         }
 
         It "compound deadlock: multiple recovery cycles keep raising expected" {
@@ -154,7 +156,7 @@ Describe "Deadlock Exploitation Tests" {
             }
 
             $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
-            $retries | Should -Be 0
+            $retries | Should -Be 3
 
             for ($i = 0; $i -lt 3; $i++) {
                 & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
@@ -163,9 +165,9 @@ Describe "Deadlock Exploitation Tests" {
 
             $check = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
             $check.DoneCount | Should -Be 3
-            $check.Expected | Should -Be 1
-            $check.WouldTransition | Should -BeTrue `
-                -Because "Recoveries no longer raise expected; worker completes cleanly"
+            $check.Expected | Should -Be 4
+            $check.WouldTransition | Should -BeFalse `
+                -Because "Each recovery adds +1 to expected; worker can never catch up"
         }
     }
 
@@ -201,8 +203,8 @@ Describe "Deadlock Exploitation Tests" {
                 -Type "done" -Ref "DL-004" -Body "Fixed"
 
             $check = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
-            $check.Expected | Should -Be $check.DoneCount `
-                -Because "cascade from QA into fixing deadlock is FIXED"
+            $check.Expected | Should -BeGreaterThan $check.DoneCount `
+                -Because "cascade from QA into fixing deadlock is proven"
         }
     }
 
@@ -235,10 +237,9 @@ Describe "Deadlock Exploitation Tests" {
             $rc = Get-Content (Join-Path $roomDir "config.json") -Raw | ConvertFrom-Json
             $rc.assignment.assigned_role | Should -Be "engineer"
 
-            # FIX: In production Start-ManagerLoop.ps1, stateRole is now correctly used instead of assignedRole.
-            # We don't have Invoke-DeadlockRecovery mocking this specific logic yet, but the integration works.
+            # BUG: stateRole != assignedRole, but code uses assignedRole's runner
             $lc.states.reporting.role | Should -Not -Be $rc.assignment.assigned_role `
-                -Because "custom state 'reporting' needs 'reporter' - manager now spawns correctly"
+                -Because "custom state 'reporting' needs 'reporter' but manager spawns 'engineer' runner"
         }
 
         It "Resolve-Pipeline generates multi-role lifecycle with security-auditor-review" {
@@ -254,11 +255,11 @@ Describe "Deadlock Exploitation Tests" {
 
             $lc = Get-Content $lifecycleFile -Raw | ConvertFrom-Json
 
-            # V2: security capability → security-auditor state
-            $lc.states.'security-auditor' | Should -Not -BeNullOrEmpty
-            $lc.states.'security-auditor'.role | Should -Be "security-auditor"
-            $lc.states.'security-auditor'.role | Should -Not -Be "engineer" `
-                -Because "security-auditor state role differs from room assigned_role, triggering wrong-runner bug"
+            # V2: security capability → security-auditor-review state
+            $lc.states.'security-auditor-review' | Should -Not -BeNullOrEmpty
+            $lc.states.'security-auditor-review'.role | Should -Be "security-auditor"
+            $lc.states.'security-auditor-review'.role | Should -Not -Be "engineer" `
+                -Because "security-auditor-review state role differs from room assigned_role, triggering wrong-runner bug"
         }
     }
 
@@ -283,8 +284,9 @@ Describe "Deadlock Exploitation Tests" {
             (Get-Content (Join-Path $roomDir "status") -Raw).Trim() | Should -Be "fixing"
 
             # Precondition for double-increment: stale PID present AND dead
-            Test-Path (Join-Path $pidsDir "engineer.pid") | Should -BeFalse `
-                -Because "deadlock recovery cleans stale PIDs before transition"
+            Test-Path (Join-Path $pidsDir "engineer.pid") | Should -BeTrue
+            Test-PidAlive (Join-Path $pidsDir "engineer.pid") | Should -BeFalse `
+                -Because "stale PID triggers PID-dead branch → double retry increment"
         }
     }
 
@@ -303,8 +305,8 @@ Describe "Deadlock Exploitation Tests" {
             $triage | Should -Not -BeNullOrEmpty
             $triage.type | Should -Be 'triage'
 
-            $triage.signals.fix.target | Should -Be 'optimize' `
-                -Because "triage fix routes back to the worker state"
+            $triage.signals.fix.target | Should -Be 'developing' `
+                -Because "triage fix routes back to developing (Risk 1 fixed)"
             $triage.signals.redesign.target | Should -Be 'developing'
             $triage.signals.reject.target | Should -Be 'failed-final'
         }
@@ -363,6 +365,9 @@ Describe "Deadlock Exploitation Tests" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
 
             for ($round = 0; $round -lt 7; $round++) {
+                $currentRetries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
+                ($currentRetries + 1).ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
+
                 & $script:PostMessage -RoomDir $roomDir -From "manager" -To "engineer" `
                     -Type "fix" -Ref "EPIC-REPRO" -Body "Recovery round $($round + 1)"
                 Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
@@ -371,18 +376,17 @@ Describe "Deadlock Exploitation Tests" {
             "3" | Out-File -FilePath (Join-Path $roomDir "deadlock_recoveries") -Encoding utf8 -NoNewline
 
             (Get-Content (Join-Path $roomDir "status") -Raw).Trim() | Should -Be "fixing"
-            [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim() | Should -Be 0 `
-                -Because "deadlock recoveries no longer inflate lifecycle retries"
+            [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim() | Should -Be 7
             [int](Get-Content (Join-Path $roomDir "deadlock_recoveries") -Raw).Trim() | Should -Be 3
 
             $fixMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "fix" -AsObject
             @($fixMsgs).Count | Should -Be 7
 
             $check = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
-            $check.Expected | Should -Be 1
+            $check.Expected | Should -Be 8
             $check.DoneCount | Should -Be 0
             $check.WouldTransition | Should -BeFalse `
-                -Because "needs 1 done message, has 0 — but is no longer permanently stuck with expected=8"
+                -Because "exact reproduction of room-001: needs 8 done messages, has 0"
         }
     }
 }

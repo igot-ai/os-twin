@@ -1,13 +1,9 @@
 ---
-name: Add UGUI View
-description: Create a new UI screen following Vertical Slice Architecture and MVC/MVP patterns.
-version: 1.1.0
-category: Implementation
-applicable_roles: [game-engineer, engineer, ui-designer]
-tags: [engineer, implementation, ui, unity, ugui]
+name: add-ui
+description: Add UI components to Unity scene
+tags: [engineer, implementation, ui]
 trust_level: core
 source: project
-author: Agent OS Core
 ---
 
 # Workflow: Add UI Screen

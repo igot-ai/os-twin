@@ -1,0 +1,4 @@
+[
+  "mcp/test_knowledge.py::test_distill",
+  "mcp/test_knowledge.py::test_knowledge_add_and_list"
+]

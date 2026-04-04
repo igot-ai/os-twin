@@ -100,15 +100,6 @@ fi
 # Version from config
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
 
-# Build hash (written by install.sh)
-BUILD_HASH=""
-for _hash_file in "$OSTWIN_HOME/.build-hash" "$AGENTS_DIR/.build-hash"; do
-  if [[ -f "$_hash_file" ]]; then
-    BUILD_HASH=$(<"$_hash_file")
-    break
-  fi
-done
-
 # Dashboard URL
 export DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
 
@@ -197,7 +188,7 @@ print(plan.get('working_dir', plan.get('meta', {}).get('working_dir', '')))
 
 show_help() {
   cat << HELP
-ostwin v${VERSION}${BUILD_HASH:+ ($BUILD_HASH)} — Multi-Agent War-Room Orchestrator
+ostwin v${VERSION} — Multi-Agent War-Room Orchestrator
 
 Usage:
   ostwin <command> [options]
@@ -837,11 +828,7 @@ PYEOF
     fi
     ;;
   version|-v|--version)
-    if [[ -n "$BUILD_HASH" ]]; then
-      echo "ostwin v${VERSION} (${BUILD_HASH})"
-    else
-      echo "ostwin v${VERSION}"
-    fi
+    echo "ostwin v${VERSION}"
     ;;
   -h|--help|help)
     show_help

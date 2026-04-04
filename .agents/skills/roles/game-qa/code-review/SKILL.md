@@ -1,8 +1,9 @@
 ---
 name: code-review
-description: "Review Unity C# code for quality and correctness"
+description: Review Unity C# code for quality and correctness
 tags: [qa, review, code-quality]
 trust_level: core
+source: project
 ---
 
 # Workflow: Code Review Gate

@@ -1,0 +1,9 @@
+{
+  "plan_id": "plan-cf0edb",
+  "title": "Re-create YouTube",
+  "working_dir": "/workspace/youtube-clone",
+  "warrooms_dir": "/workspace/youtube-clone/.war-rooms",
+  "status": "launched",
+  "created_at": "2026-03-28T07:36:45.397237+00:00",
+  "launched_at": "2026-03-28T07:37:26.451587+00:00"
+}

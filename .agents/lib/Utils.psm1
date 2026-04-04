@@ -259,6 +259,134 @@ function Get-TruncatedText {
     return "$truncated$notice"
 }
 
+function Get-CleanAgentText {
+    <#
+    .SYNOPSIS
+        Removes control characters and optional tool noise from agent output.
+    .PARAMETER Text
+        The raw agent text to sanitize.
+    .PARAMETER StripToolNoise
+        Removes common CLI/tooling noise lines when set.
+    .OUTPUTS
+        [string] Sanitized text.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Text,
+
+        [switch]$StripToolNoise
+    )
+
+    if ([string]::IsNullOrEmpty($Text)) {
+        return ""
+    }
+
+    $normalized = $Text -replace "`r`n", "`n"
+    $normalized = $normalized -replace "`r", "`n"
+    $normalized = [regex]::Replace($normalized, "[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "")
+
+    $noisePatterns = @(
+        '^\s*🔧',
+        '[Cc]alling tool:',
+        '^\w{0,5}\s*tool:',
+        '^Loading MCP',
+        '^Running task non-interactively',
+        '^Starting LangGraph server',
+        '^CLI:\s',
+        '^Thread:\s',
+        '^\s*Server ready$',
+        '^Agent active',
+        '^Usage Stats',
+        '^\s*Reqs\s+InputTok',
+        '^\s*(gemini|claude|gpt)-',
+        '^✓ Task completed',
+        '^System\.Management\.Automation'
+    )
+
+    $lines = foreach ($line in ($normalized -split "`n")) {
+        if (-not $StripToolNoise) {
+            $line
+            continue
+        }
+
+        $trimmed = $line.Trim()
+        if (-not $trimmed) {
+            $line
+            continue
+        }
+
+        $skip = $false
+        foreach ($pattern in $noisePatterns) {
+            if ($trimmed -match $pattern) {
+                $skip = $true
+                break
+            }
+        }
+
+        if (-not $skip) {
+            $line
+        }
+    }
+
+    $joined = ($lines -join "`n").Trim()
+    if (-not $joined) {
+        return ""
+    }
+
+    return [regex]::Replace($joined, "(`n\s*){3,}", "`n`n")
+}
+
+function Get-RecoverableStatusFromAudit {
+    <#
+    .SYNOPSIS
+        Returns the latest valid audited status for a room.
+    .DESCRIPTION
+        Scans audit.log backwards and returns the most recent status that
+        matches the supplied valid state set. If the latest audit line points to
+        an invalid status, the previous valid target or source state is used.
+    .PARAMETER RoomDir
+        Path to the war-room directory.
+    .PARAMETER ValidStatuses
+        Optional list of acceptable statuses. When omitted, any audited status
+        matching the status naming convention can be returned.
+    .OUTPUTS
+        [string] Recoverable status or $null.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$RoomDir,
+
+        [string[]]$ValidStatuses = @()
+    )
+
+    $auditFile = Join-Path $RoomDir "audit.log"
+    if (-not (Test-Path $auditFile)) {
+        return $null
+    }
+
+    $lines = @(Get-Content $auditFile -ErrorAction SilentlyContinue)
+    for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+        $line = $lines[$i]
+        if ($line -notmatch 'STATUS\s+([a-z][a-z0-9-]*)\s+->\s+([a-z][a-z0-9-]*)') {
+            continue
+        }
+
+        $fromStatus = $Matches[1]
+        $toStatus = $Matches[2]
+        if ($ValidStatuses.Count -eq 0 -or $toStatus -in $ValidStatuses) {
+            return $toStatus
+        }
+        if ($ValidStatuses.Count -eq 0 -or $fromStatus -in $ValidStatuses) {
+            return $fromStatus
+        }
+    }
+
+    return $null
+}
+
 function Get-OstwinAgentsDir {
     <#
     .SYNOPSIS
@@ -308,4 +436,73 @@ function Get-OstwinApiHeaders {
     return @{}
 }
 
-Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Get-TruncatedText, Get-OstwinAgentsDir, Test-Underspecified, Test-SingleEpicUnderspecified, Get-OstwinApiHeaders
+function Get-LifecycleSignalNames {
+    <#
+    .SYNOPSIS
+        Returns the effective signal names for a lifecycle state.
+    .DESCRIPTION
+        Review states historically handled `fail` but not `error`. QA timeouts
+        post `error`, so review states implicitly accept `error` as a fallback
+        when they define `fail` but omit an explicit `error` transition.
+    .PARAMETER StateDef
+        Lifecycle state definition object.
+    .OUTPUTS
+        [string[]] Effective signal names.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$StateDef
+    )
+
+    if (-not $StateDef.signals) { return @() }
+
+    $signals = @($StateDef.signals.PSObject.Properties.Name)
+    $isReviewState = ("$($StateDef.type)" -eq 'review')
+    $hasFail = ($signals -contains 'fail')
+    $hasError = ($signals -contains 'error')
+
+    if ($isReviewState -and $hasFail -and -not $hasError) {
+        $signals += 'error'
+    }
+
+    return $signals
+}
+
+function Resolve-LifecycleSignalTransition {
+    <#
+    .SYNOPSIS
+        Resolves the transition definition for a lifecycle signal.
+    .DESCRIPTION
+        For review states, `error` falls back to the `fail` transition when the
+        lifecycle does not define an explicit `error` branch.
+    .PARAMETER StateDef
+        Lifecycle state definition object.
+    .PARAMETER Signal
+        Signal name to resolve.
+    .OUTPUTS
+        Transition object or $null.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$StateDef,
+
+        [Parameter(Mandatory)]
+        [string]$Signal
+    )
+
+    if (-not $StateDef.signals) { return $null }
+
+    $explicit = $StateDef.signals.$Signal
+    if ($explicit) { return $explicit }
+
+    $isReviewState = ("$($StateDef.type)" -eq 'review')
+    if ($isReviewState -and $Signal -eq 'error' -and $StateDef.signals.fail) {
+        return $StateDef.signals.fail
+    }
+
+    return $null
+}
+
+Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Get-TruncatedText, Get-CleanAgentText, Get-RecoverableStatusFromAudit, Get-OstwinAgentsDir, Test-Underspecified, Test-SingleEpicUnderspecified, Get-OstwinApiHeaders, Get-LifecycleSignalNames, Resolve-LifecycleSignalTransition

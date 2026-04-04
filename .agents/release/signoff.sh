@@ -112,32 +112,6 @@ fi
 # Save signoffs
 echo "$SIGNOFFS" | "$PYTHON" -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))" > "$SIGNOFF_FILE"
 
-# Update RELEASE.md with signoff status
-"$PYTHON" -c "
-import json
-
-signoffs = json.load(open('$SIGNOFF_FILE'))
-rows = []
-for role, info in signoffs.items():
-    rows.append(f'| {role.capitalize()} | {info[\"status\"].capitalize()} | {info[\"timestamp\"]} |')
-signoff_table = '\n'.join(rows)
-
-with open('$RELEASE_FILE', 'r') as f:
-    content = f.read()
-
-# Replace the signoff table
-import re
-pattern = r'\| Manager.*?\| -\s*\|(\n\| Engineer.*?\| -\s*\|)?(\n\| QA.*?\| -\s*\|)?'
-if re.search(pattern, content):
-    content = re.sub(pattern, signoff_table, content)
-
-# Update status
-content = content.replace('**Status**: Draft', '**Status**: Approved')
-
-with open('$RELEASE_FILE', 'w') as f:
-    f.write(content)
-"
-
 # Check if all required roles signed off
 ALL_SIGNED=$("$PYTHON" -c "
 import json
@@ -149,6 +123,41 @@ all_approved = all(
 )
 print('true' if all_approved else 'false')
 ")
+
+# Update RELEASE.md with the current signoff table and the correct overall status.
+"$PYTHON" -c "
+import json
+import re
+
+signoffs = json.load(open('$SIGNOFF_FILE'))
+required = '$REQUIRED_ROLES'.split()
+all_signed = '$ALL_SIGNED' == 'true'
+
+rows = []
+for role in required:
+    display_role = 'QA' if role.lower() == 'qa' else role.capitalize()
+    info = signoffs.get(role)
+    if info and info.get('status') == 'approved':
+        rows.append(f'| {display_role} | Approved | {info.get(\"timestamp\", \"-\")} |')
+    else:
+        rows.append(f'| {display_role} | Pending | - |')
+signoff_table = '\n'.join(rows)
+
+with open('$RELEASE_FILE', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+content = re.sub(
+    r'(?ms)(## Sign-offs\\s*\\n\\n\\| Role\\s*\\|\\s*Status\\s*\\|\\s*Timestamp \\|\\n\\|[-| ]+\\|\\n)(.*?)(\\n\\n---)',
+    lambda m: m.group(1) + signoff_table + m.group(3),
+    content,
+)
+
+desired_status = 'Approved' if all_signed else 'Pending Review'
+content = re.sub(r'^\\*\\*Status\\*\\*: .+$', f'**Status**: {desired_status}', content, flags=re.MULTILINE)
+
+with open('$RELEASE_FILE', 'w', encoding='utf-8') as f:
+    f.write(content)
+"
 
 if [[ "$ALL_SIGNED" == "true" ]]; then
   echo "[SIGNOFF] All roles approved! Release is finalized."

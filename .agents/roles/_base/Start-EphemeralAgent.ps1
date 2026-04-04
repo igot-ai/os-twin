@@ -53,10 +53,6 @@ if (-not (Test-Path $roomConfigFile)) {
 $roomConfig = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
 
 # --- Process Tracking (PID) ---
-# NOTE: Writing $PID (PowerShell's PID) here is CORRECT because this script
-# runs inline — it does not exec into another process. This differs from
-# Invoke-Agent.ps1, which delegates PID writing to bin/agent via the
-# AGENT_OS_PID_FILE env var (since exec replaces the process image).
 $pidDir = Join-Path $RoomDir "pids"
 if (-not (Test-Path $pidDir)) { New-Item -ItemType Directory -Path $pidDir -Force | Out-Null }
 $assignedRole = if ($roomConfig.assignment -and $roomConfig.assignment.assigned_role) {
@@ -69,7 +65,7 @@ function Cleanup-And-Exit {
     param([int]$ExitCode, [string]$ErrorMsg = "")
     if ($ErrorMsg) {
         Write-Log "ERROR" "Agent Error: $ErrorMsg"
-        & $postMessage -RoomDir $RoomDir -From $assignedRole -To "manager" -Type "error" -Ref $TaskRef -Body $ErrorMsg
+        & $postMessage -RoomDir $RoomDir -From "engineer" -To "manager" -Type "error" -Ref $TaskRef -Body $ErrorMsg
     }
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     $lockFile = Join-Path $pidDir "$assignedRole.spawned_at"

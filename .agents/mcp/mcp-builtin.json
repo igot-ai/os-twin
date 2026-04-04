@@ -3,7 +3,7 @@
     "channel": {
       "command": "${AGENT_DIR}/.venv/bin/python",
       "args": [
-        "${AGENT_DIR}/.agents/mcp/channel-server.py"
+        "${AGENT_DIR}/mcp/channel-server.py"
       ],
       "env": {
         "AGENT_OS_ROOT": "."
@@ -12,7 +12,7 @@
     "warroom": {
       "command": "${AGENT_DIR}/.venv/bin/python",
       "args": [
-        "${AGENT_DIR}/.agents/mcp/warroom-server.py"
+        "${AGENT_DIR}/mcp/warroom-server.py"
       ],
       "env": {
         "AGENT_OS_ROOT": "."
@@ -21,11 +21,32 @@
     "memory": {
       "command": "${AGENT_DIR}/.venv/bin/python",
       "args": [
-        "${AGENT_DIR}/.agents/mcp/memory-server.py"
+        "${AGENT_DIR}/mcp/memory-server.py"
       ],
       "env": {
         "AGENT_OS_ROOT": "${PROJECT_DIR}"
       }
+    },
+    "serena": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "ide-assistant"
+      ],
+      "disabledTools": [
+        "switch_modes"
+      ]
+    },
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
     },
     "ai-game-developer": {
       "type": "http",

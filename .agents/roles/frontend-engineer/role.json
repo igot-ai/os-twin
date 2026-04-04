@@ -1,0 +1,21 @@
+{
+  "name": "frontend-engineer",
+  "description": "Frontend engineer — builds React/Next.js components, TypeScript, and CSS using the Ostwin design system",
+  "capabilities": [
+    "code-generation",
+    "file-editing",
+    "shell-execution",
+    "testing",
+    "refactoring"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "lint-clean",
+    "no-hardcoded-colors",
+    "typescript-strict"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "model": "gemini-3.1-pro-preview",
+  "timeout": 600
+}

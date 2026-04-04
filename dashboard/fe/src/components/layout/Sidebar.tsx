@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation';
 import { useUIStore } from '@/lib/stores/uiStore';
 
 const navItems = [
-  { href: '/', icon: 'grid_view', label: 'Dashboard' },
+  { href: '/', icon: 'home', label: 'Home' },
   { href: '/plans', icon: 'folder', label: 'Plans' },
   { href: '/roles', icon: 'person', label: 'Roles' },
   { href: '/skills', icon: 'extension', label: 'Skills' },
@@ -87,7 +87,6 @@ export default function Sidebar({ className = '', ...props }: React.ComponentPro
             <Link
               key={item.href}
               href={item.href}
-              prefetch={false}
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group relative"
               style={{
                 color: active ? 'var(--color-primary)' : 'var(--color-text-muted)',
