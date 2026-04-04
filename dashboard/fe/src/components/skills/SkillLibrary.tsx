@@ -16,7 +16,7 @@ const categoryColors: Record<SkillCategory, string> = {
   triage: '#ef4444',
 };
 
-const PAGE_SIZE = 16;
+const PAGE_SIZE = 50;
 
 type SortOption = 'name' | 'most-used' | 'recently-updated' | 'category';
 

@@ -123,6 +123,7 @@ function Build-LifecycleV2 {
                     done     = [ordered]@{ target = 'passed' }
                     fail     = [ordered]@{ target = $failTarget; actions = @('increment_retries', 'post_fix') }
                     escalate = [ordered]@{ target = 'triage' }
+                    error    = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
                 }
             }
         }

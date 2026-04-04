@@ -28,7 +28,7 @@ describe('API Contract', () => {
     });
 
     it('room status is a known value', () => {
-      const VALID = ['pending', 'engineering', 'qa-review', 'fixing', 'passed', 'failed-final'];
+      const VALID = ['pending', 'engineering', 'review', 'fixing', 'passed', 'failed-final'];
       cy.request('/api/rooms').then(({ body }) => {
         body.rooms.forEach(room => {
           expect(VALID).to.include(room.status);

@@ -8,14 +8,14 @@
 # ── Agents (runtime data, not source) ────────────────────────────────────────
 .agents/.venv/
 .agents/.venv.bak/
+.agents/.zvec/**
 .agents/memory/
 .agents/plans/
+.agents/plans/**
 .agents/stats_history.json
 
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
-
-
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 

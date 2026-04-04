@@ -26,7 +26,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({
 
   return (
     <div
-      className="p-4 rounded-xl border-l-[3px] border transition-all duration-200 fade-in-up cursor-pointer group"
+      className="p-4 rounded-xl border-l-[3px] border transition-all duration-200 fade-in-up cursor-pointer group flex flex-col"
       style={{
         borderLeftColor: catColor,
         borderTopColor: 'var(--color-border)',
@@ -34,6 +34,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({
         borderBottomColor: 'var(--color-border)',
         background: 'var(--color-surface)',
         boxShadow: 'var(--shadow-card)',
+        minHeight: '160px'
       }}
       onClick={() => onClick?.(skill)}
       onMouseEnter={(e) => {
@@ -47,11 +48,22 @@ export const SkillCard: React.FC<SkillCardProps> = ({
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span 
+            className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded text-white"
+            style={{ background: catColor }}
+          >
+            {skill.category}
+          </span>
           <span className="text-sm font-bold" style={{ color: 'var(--color-text-main)' }}>{skill.name}</span>
           <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: '#f1f5f9', color: 'var(--color-text-faint)' }}>
             v{skill.version}
           </span>
+          {skill.is_draft && (
+            <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 border border-amber-200">
+              DRAFT
+            </span>
+          )}
           {skill.trust_level === 'verified' && (
             <span className="material-symbols-outlined text-[14px] text-blue-500" title="Verified Skill">verified</span>
           )}
@@ -63,16 +75,33 @@ export const SkillCard: React.FC<SkillCardProps> = ({
 
       {/* Description */}
       <p 
-        className="text-[11px] leading-relaxed mb-4 line-clamp-2" 
+        className="text-[11px] leading-relaxed mb-3 line-clamp-2" 
         style={{ color: 'var(--color-text-muted)' }}
       >
         {skill.description}
       </p>
 
+      {/* Tags */}
+      {skill.tags && skill.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-4">
+          {skill.tags.slice(0, 3).map(tag => (
+            <span 
+              key={tag} 
+              className="text-[9px] px-1.5 py-0.5 rounded-sm bg-slate-50 border border-slate-100 text-slate-500"
+            >
+              #{tag}
+            </span>
+          ))}
+          {skill.tags.length > 3 && (
+            <span className="text-[9px] text-slate-400">+{skill.tags.length - 3}</span>
+          )}
+        </div>
+      )}
+
       {/* Footer */}
       <div className="flex items-center justify-between mt-auto pt-3 border-t border-dashed" style={{ borderColor: 'var(--color-border)' }}>
         <div className="flex items-center gap-1.5 flex-wrap">
-          {skill.applicable_roles.map((role) => (
+          {skill.applicable_roles.slice(0, 2).map((role) => (
             <span 
               key={role} 
               className="px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-tight"
@@ -81,6 +110,9 @@ export const SkillCard: React.FC<SkillCardProps> = ({
               {role}
             </span>
           ))}
+          {skill.applicable_roles.length > 2 && (
+             <span className="text-[9px] text-slate-400">+{skill.applicable_roles.length - 2}</span>
+          )}
         </div>
         <div className="flex items-center gap-1 text-[10px] font-medium" style={{ color: 'var(--color-text-faint)' }}>
           {skill.score && (

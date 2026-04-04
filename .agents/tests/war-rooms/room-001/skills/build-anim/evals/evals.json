@@ -1,0 +1,137 @@
+{
+    "skill_name": "build-anim",
+    "evals": [
+        {
+            "id": 1,
+            "prompt": "I have the animation detection JSON at /tmp/refill_anim.json (schema 6.1.0) with 3 animated objects: a button tap feedback, a heart fill, and an overlay fade. I also have the reference video at /tmp/refill_popup.mov. Can you build the animation scripts and wire them to the scene?",
+            "expected_output": "PrimeTween-based C# scripts placed at Assets/Game/Scripts/Features/{FeatureName}/Animation/. Scripts use UniTask for async, VContainer Construct() for DI, CompositeDisposable for cleanup. No coroutines. Tween.StopAll in OnDestroy. Scripts compiled with zero errors. Scene wiring attempted via MCP. Play Mode validation run.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "no_coroutines",
+                    "text": "No generated script contains IEnumerator, yield return, StartCoroutine, or StopAllCoroutines",
+                    "type": "not_contains",
+                    "target": "generated_scripts",
+                    "values": [
+                        "IEnumerator",
+                        "yield return",
+                        "StartCoroutine",
+                        "StopAllCoroutines"
+                    ]
+                },
+                {
+                    "id": "primetween_used",
+                    "text": "Generated scripts use PrimeTween API (Tween.*, Sequence.Create, Ease.*)",
+                    "type": "contains_any",
+                    "target": "generated_scripts",
+                    "values": [
+                        "Tween.",
+                        "Sequence.Create",
+                        "Ease."
+                    ]
+                },
+                {
+                    "id": "unitask_used",
+                    "text": "Generated scripts use UniTask for async (async UniTask, ToUniTask)",
+                    "type": "contains_any",
+                    "target": "generated_scripts",
+                    "values": [
+                        "async UniTask",
+                        "ToUniTask"
+                    ]
+                },
+                {
+                    "id": "vcontainer_di",
+                    "text": "Root controller uses VContainer Construct() pattern with [Inject]",
+                    "type": "contains_any",
+                    "target": "generated_scripts",
+                    "values": [
+                        "Construct(",
+                        "[Inject]"
+                    ]
+                },
+                {
+                    "id": "tween_cleanup",
+                    "text": "Every script with tweens has Tween.StopAll in OnDestroy",
+                    "type": "contains",
+                    "target": "generated_scripts",
+                    "value": "Tween.StopAll"
+                },
+                {
+                    "id": "correct_namespace",
+                    "text": "Scripts use Game.Features.*.Animation namespace",
+                    "type": "regex",
+                    "target": "generated_scripts",
+                    "pattern": "namespace Game\\.Features\\.[A-Za-z]+\\.Animation"
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "prompt": "I have this animation JSON at /tmp/popup_anim.json but some of the target paths don't match my scene. For example, the JSON says 'UI_Root/PopupCard/BtnRefill' but in my scene the path is actually 'Canvas/Popups/RefillPopup/ButtonRefill'. Can the builder handle this?",
+            "expected_output": "Agent should use gameobject-find to search for objects by name, discover the correct paths, log the path corrections, and proceed with wiring. The agent should NOT just fail or skip the mismatched objects.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "path_resolution_attempted",
+                    "text": "Agent uses gameobject-find or similar MCP tool to resolve incorrect paths",
+                    "type": "manual",
+                    "target": "transcript"
+                },
+                {
+                    "id": "corrections_logged",
+                    "text": "Agent logs which paths were corrected (old path -> new path)",
+                    "type": "manual",
+                    "target": "transcript"
+                },
+                {
+                    "id": "no_objects_skipped",
+                    "text": "Agent does not skip animated objects just because paths don't match",
+                    "type": "manual",
+                    "target": "transcript"
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "prompt": "The animation JSON at /tmp/complex_anim.json has a 5-step animation_sequence with some parallel groups: step 1 is a button tap (sequential), step 2 is three hearts filling simultaneously (parallel), step 3 is a delay, step 4 is a fly-to-HUD trajectory (sequential), and step 5 is an overlay fade (sequential). Build the orchestration controller.",
+            "expected_output": "The controller should use Sequence.Create() with Chain() for sequential steps and Group() for parallel steps. UniTask.WhenAll for parallel heart fills. CancellationToken propagated through all async methods. The 5-step flow should be clearly represented in the PlaySequenceAsync method.",
+            "files": [],
+            "assertions": [
+                {
+                    "id": "parallel_uses_group_or_whenall",
+                    "text": "Parallel heart fills use either Sequence.Group() or UniTask.WhenAll",
+                    "type": "contains_any",
+                    "target": "generated_scripts",
+                    "values": [
+                        ".Group(",
+                        "UniTask.WhenAll"
+                    ]
+                },
+                {
+                    "id": "sequential_uses_chain_or_await",
+                    "text": "Sequential steps use Chain() or sequential await",
+                    "type": "contains_any",
+                    "target": "generated_scripts",
+                    "values": [
+                        ".Chain(",
+                        "await "
+                    ]
+                },
+                {
+                    "id": "cancellation_propagated",
+                    "text": "CancellationToken is passed to all async methods and tween operations",
+                    "type": "contains",
+                    "target": "generated_scripts",
+                    "value": "CancellationToken"
+                },
+                {
+                    "id": "five_step_flow",
+                    "text": "The orchestration method has 5 distinct steps matching the sequence",
+                    "type": "manual",
+                    "target": "generated_scripts"
+                }
+            ]
+        }
+    ]
+}

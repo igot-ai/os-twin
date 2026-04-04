@@ -1,6 +1,6 @@
 ---
 name: refactor-code
-description: Use this skill to safely restructure code — extract functions, rename, reduce duplication — while keeping all tests green.
+description: "Use this skill to safely restructure code -- extract functions, rename, reduce duplication -- while keeping all tests green."
 tags: [engineer, refactoring, code-quality]
 trust_level: core
 ---
@@ -31,10 +31,10 @@ This skill guides you through safe code refactoring. The key principle: **change
 ### 1. Assess the Scope
 
 Before touching code, identify:
-- **What to refactor** — specific files, functions, or modules
-- **Why** — duplication, complexity, poor naming, tight coupling
-- **Risk** — what could break, what depends on this code
-- **Test coverage** — are there existing tests? If not, write them first
+- **What to refactor** -- specific files, functions, or modules
+- **Why** -- duplication, complexity, poor naming, tight coupling
+- **Risk** -- what could break, what depends on this code
+- **Test coverage** -- are there existing tests? If not, write them first
 
 ### 2. Write Tests First (If Missing)
 
@@ -63,7 +63,7 @@ Common safe refactoring moves:
 
 For each refactoring move:
 1. Make **one** structural change
-2. Run the test suite — must stay green
+2. Run the test suite -- must stay green
 3. Commit mentally (or actually) before the next move
 4. If tests break, revert and try a smaller step
 
@@ -81,21 +81,21 @@ After all changes:
 ### 6. Post the Done Report
 
 ```markdown
-## Refactoring Report — EPIC/TASK-XXX
+## Refactoring Report -- EPIC/TASK-XXX
 
 ### What Was Refactored
 <summary of the structural changes>
 
 ### Refactoring Moves Applied
-1. **Extract Function**: `<old_location>` → `<new_function>()`
-2. **Rename**: `<old_name>` → `<new_name>`
+1. **Extract Function**: `<old_location>`  `<new_function>()`
+2. **Rename**: `<old_name>`  `<new_name>`
 3. **Remove Duplication**: merged `<file_a>` and `<file_b>` logic into `<shared>`
 
 ### Files Modified
-- `path/to/file.py` — <what changed structurally>
+- `path/to/file.py` -- <what changed structurally>
 
 ### Test Results
-- All tests pass: ✅
+- All tests pass: 
 - Behavior changes: None (structure only)
 ```
 
@@ -103,6 +103,6 @@ After all changes:
 
 After refactoring:
 1. Full test suite passes with zero failures
-2. No behavioral changes — outputs are identical for the same inputs
+2. No behavioral changes -- outputs are identical for the same inputs
 3. Code is measurably simpler (fewer lines, lower cyclomatic complexity, better names)
 4. All imports and references are updated

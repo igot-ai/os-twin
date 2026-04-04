@@ -74,7 +74,10 @@ if (-not (Test-Path $roomConfigFile)) {
 $roomConfig = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
 
 # --- Resolve role identity ---
-$assignedRole = if ($roomConfig.assignment -and $roomConfig.assignment.assigned_role) {
+$assignedRole = if ($RoleName) {
+    # Lifecycle-resolved role passed explicitly by manager — takes precedence over stale config.json
+    $RoleName
+} elseif ($roomConfig.assignment -and $roomConfig.assignment.assigned_role) {
     $roomConfig.assignment.assigned_role
 } else { "engineer" }
 
@@ -87,13 +90,6 @@ $roleWorkingDir = if (Test-Path $overrideDir) {
     if ((Test-Path (Join-Path $overrideDir "subcommands.json")) -or (Test-Path (Join-Path $overrideDir "role.json"))) { $overrideDir } 
     else { Join-Path $AgentsDir (Join-Path "roles" $baseRole) }
 } else { Join-Path $AgentsDir (Join-Path "roles" $baseRole) }
-
-# Allow parameter override
-if ($RoleName) { 
-    $baseRole = $RoleName 
-    $overrideDir = Join-Path $RoomDir (Join-Path "overrides" $baseRole)
-    if (Test-Path $overrideDir) { $roleWorkingDir = $overrideDir }
-}
 
 $taskRef = if (Test-Path (Join-Path $RoomDir "task-ref")) {
     (Get-Content (Join-Path $RoomDir "task-ref") -Raw).Trim()

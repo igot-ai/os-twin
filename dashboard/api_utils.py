@@ -18,14 +18,17 @@ if _dashboard_parent.name == ".agents":
     # Installed via ostwin init: .agents/dashboard/api_utils.py
     AGENTS_DIR = _dashboard_parent
     PROJECT_ROOT = AGENTS_DIR.parent
+    SYSTEM_MCP_DIR = AGENTS_DIR / "mcp"
 elif (_dashboard_parent / ".agents").exists():
     # Source repo layout: dashboard/api_utils.py alongside .agents/
     PROJECT_ROOT = _dashboard_parent
     AGENTS_DIR = PROJECT_ROOT / ".agents"
+    SYSTEM_MCP_DIR = AGENTS_DIR / "mcp"
 else:
     # Global installation: ~/.ostwin/dashboard/api_utils.py
     PROJECT_ROOT = _dashboard_parent
     AGENTS_DIR = _dashboard_parent
+    SYSTEM_MCP_DIR = _dashboard_parent / "mcp"
 
 # Default war-rooms location
 WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
@@ -288,7 +291,7 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
     if not skill_file.exists():
         return None
     
-    content = skill_file.read_text(encoding="utf-8")
+    content = skill_file.read_text(encoding="utf-8").lstrip("\ufeff")
     name = path.name
     description = ""
     tags = []
@@ -556,7 +559,7 @@ def build_skills_list(
     query: Optional[str] = None, 
     role: Optional[str] = None, 
     tags: List[str] = [],
-    limit: int = 50,
+    limit: int = 1000,
     include_drafts: bool = False
 ) -> List[Skill]:
     """Helper to build and filter skills list from zvec and disk."""
@@ -571,7 +574,7 @@ def build_skills_list(
                 results = store.search_skills(query, limit=limit)
                 skills = [Skill(**res) for res in results]
             else:
-                results = store.get_all_skills(limit=100)
+                results = store.get_all_skills(limit=1000)
                 skills = [Skill(**res) for res in results]
         except Exception as e:
             logging.getLogger("api_utils").error("Skill store fetch failed: %s", e)

@@ -13,7 +13,7 @@ const stateColorMap: Record<string, string> = {
   pending: '#94a3b8',
   engineering: '#3b82f6',
   'architect-review': '#8b5cf6',
-  'qa-review': '#8b5cf6',
+  'review': '#8b5cf6',
   fixing: '#f59e0b',
   'manager-triage': '#ef4444',
   passed: '#10b981',
@@ -78,12 +78,11 @@ export default function AuditTimeline({ planId, epicRef }: AuditTimelineProps) {
               return (
                 <div key={idx} className={`flex gap-3 relative ${isLatest ? '' : ''}`}>
                   {/* Timeline dot */}
-                  <div 
-                    className={`w-4 h-4 rounded-full border-2 shrink-0 z-10 ${
-                      isLatest ? 'ring-2 ring-offset-1' : ''
-                    }`}
-                    style={{ 
-                      borderColor: toColor, 
+                  <div
+                    className={`w-4 h-4 rounded-full border-2 shrink-0 z-10 ${isLatest ? 'ring-2 ring-offset-1' : ''
+                      }`}
+                    style={{
+                      borderColor: toColor,
                       backgroundColor: isLatest ? toColor : 'var(--color-surface)',
                     }}
                   />
@@ -104,14 +103,14 @@ export default function AuditTimeline({ planId, epicRef }: AuditTimelineProps) {
                     {/* Transition */}
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[9px] font-bold uppercase tracking-wider">{entry.type}</span>
-                      <span 
+                      <span
                         className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{ background: `${fromColor}15`, color: fromColor }}
                       >
                         {entry.from_state}
                       </span>
                       <span className="material-symbols-outlined text-[12px] text-text-faint">arrow_forward</span>
-                      <span 
+                      <span
                         className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{ background: `${toColor}15`, color: toColor }}
                       >

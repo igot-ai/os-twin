@@ -45,8 +45,10 @@ $readMessages = Join-Path $channelDir "Read-Messages.ps1"
 # --- Import modules ---
 $logModule = Join-Path $agentsDir "lib" "Log.psm1"
 $utilsModule = Join-Path $agentsDir "lib" "Utils.psm1"
+$helpersModule = Join-Path $scriptDir "ManagerLoop-Helpers.psm1"
 if (Test-Path $logModule) { Import-Module $logModule -Force }
 if (Test-Path $utilsModule) { Import-Module $utilsModule -Force }
+if (Test-Path $helpersModule) { Import-Module $helpersModule -Force }
 
 # --- Helper functions ---
 
@@ -107,515 +109,26 @@ Write-Host ""
 # for skills matching the epic's requirements and write them to the room config.
 $dashboardBaseUrl = if ($env:OSTWIN_DASHBOARD_URL) { $env:OSTWIN_DASHBOARD_URL } else { "http://localhost:9000" }
 
-function Resolve-RoomSkills {
-    param([string]$RoomDir, [string]$TaskRef, [string]$AssignedRole)
-    $roomConfigFile = Join-Path $RoomDir "config.json"
-    if (-not (Test-Path $roomConfigFile)) { return }
-    $rc = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
-
-    # Skip if skill_refs already populated
-    if ($rc.skill_refs -and $rc.skill_refs.Count -gt 0) { return }
-
-    # Build search query from full brief.md content
-    $query = $TaskRef
-    $briefFile = Join-Path $RoomDir "brief.md"
-    if (Test-Path $briefFile) {
-        $briefContent = (Get-Content $briefFile -Raw -ErrorAction SilentlyContinue)
-        if ($briefContent) {
-            $query = $briefContent
-        }
-    }
-
-    try {
-        $encodedQuery = [System.Uri]::EscapeDataString($query)
-        $encodedRole = [System.Uri]::EscapeDataString($AssignedRole)
-        $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}&limit=5"
-        $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
-        $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
-        if ($response -and $response.Count -gt 0) {
-            # Limit to top 5 results
-            $topSkills = @($response | Select-Object -First 10)
-            $skillNames = @($topSkills | ForEach-Object { $_.name })
-
-            # Write skill_refs to room config.json
-            $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
-            $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
-
-            # Copy skill directories from AGENTS_DIR to room skills dir
-            $roomSkillsDir = Join-Path $RoomDir "skills"
-            if (-not (Test-Path $roomSkillsDir)) {
-                New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
-            }
-
-            foreach ($skill in $topSkills) {
-                $relPath = $skill.relative_path
-                if (-not $relPath) { continue }
-
-                # relative_path is like "skills/roles/engineer/write-tests"
-                $srcDir = Join-Path $agentsDir $relPath
-                if (-not (Test-Path $srcDir)) {
-                    # Also try under the home install dir
-                    $homeSrc = Join-Path (Join-Path $env:HOME ".ostwin") $relPath
-                    if (Test-Path $homeSrc) { $srcDir = $homeSrc }
-                    else { continue }
-                }
-
-                $destDir = Join-Path $roomSkillsDir $skill.name
-                if (Test-Path $destDir) {
-                    Remove-Item -Path $destDir -Recurse -Force -ErrorAction SilentlyContinue
-                }
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-                Copy-Item -Path (Join-Path $srcDir "*") -Destination $destDir -Recurse -Force -ErrorAction SilentlyContinue
-            }
-
-            Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for ${AssignedRole}: $($skillNames -join ', ')"
-        }
-    }
-    catch {
-        Write-Log "WARN" "[$TaskRef] Skill resolution failed (dashboard may be offline): $_"
+# --- Inject runtime context into ManagerLoop-Helpers module ---
+# All helper functions are defined in ManagerLoop-Helpers.psm1 (imported above).
+# Set-ManagerLoopContext binds runtime paths and config so they remain testable.
+if (Get-Command Set-ManagerLoopContext -ErrorAction SilentlyContinue) {
+    Set-ManagerLoopContext -Context @{
+        agentsDir        = $agentsDir
+        WarRoomsDir      = $WarRoomsDir
+        dagFile          = $dagFile
+        hasDag           = $hasDag
+        dagCache         = $script:dagCache
+        dagMtime         = $script:dagMtime
+        config           = $config
+        stateTimeout     = $stateTimeout
+        maxRetries       = $maxRetries
+        postMessage      = $postMessage
+        readMessages     = $readMessages
+        dashboardBaseUrl = $dashboardBaseUrl
     }
 }
 
-# --- Helper functions ---
-function Get-ActiveCount {
-    $count = 0
-    Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue | ForEach-Object {
-        $s = if (Test-Path (Join-Path $_.FullName "status")) {
-            (Get-Content (Join-Path $_.FullName "status") -Raw).Trim()
-        } else { "pending" }
-        if ($s -notin @('pending', 'passed', 'failed-final', 'blocked', '')) { $count++ }
-    }
-    return $count
-}
-
-function Get-MsgCount {
-    param([string]$RoomDir, [string]$MsgType)
-    try {
-        $msgs = & $readMessages -RoomDir $RoomDir -FilterType $MsgType -AsObject
-        if ($msgs) { return $msgs.Count }
-    }
-    catch { }
-    return 0
-}
-
-function Get-LatestBody {
-    param([string]$RoomDir, [string]$MsgType)
-    try {
-        $msgs = & $readMessages -RoomDir $RoomDir -FilterType $MsgType -Last 1 -AsObject
-        if ($msgs -and $msgs.Count -gt 0) { return $msgs[-1].body }
-    }
-    catch { }
-    return ""
-}
-
-function Test-StateTimedOut {
-    param([string]$RoomDir)
-    $changedFile = Join-Path $RoomDir "state_changed_at"
-    if (-not (Test-Path $changedFile)) { return $false }
-    $changedAt = [int](Get-Content $changedFile -Raw).Trim()
-    $now = [int][double]::Parse((Get-Date -UFormat %s))
-    return (($now - $changedAt) -gt $stateTimeout)
-}
-
-function Stop-RoomProcesses {
-    param([string]$RoomDir)
-    $pidDir = Join-Path $RoomDir "pids"
-    if (-not (Test-Path $pidDir)) { return }
-    Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
-        $pidVal = (Get-Content $_.FullName -Raw).Trim()
-        if ($pidVal -match '^\d+$') {
-            try { Stop-Process -Id ([int]$pidVal) -Force -ErrorAction SilentlyContinue } catch { }
-        }
-        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-    }
-    Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
-        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-    }
-}
-
-function Write-RoomStatus {
-    param([string]$RoomDir, [string]$NewStatus)
-    # Read old status before overwriting (needed for PID cleanup below)
-    $oldStatus = if (Test-Path (Join-Path $RoomDir "status")) {
-        (Get-Content (Join-Path $RoomDir "status") -Raw).Trim()
-    } else { "unknown" }
-
-    if (Get-Command Set-WarRoomStatus -ErrorAction SilentlyContinue) {
-        Set-WarRoomStatus -RoomDir $RoomDir -NewStatus $NewStatus
-    }
-    else {
-        $NewStatus | Out-File -FilePath (Join-Path $RoomDir "status") -Encoding utf8 -NoNewline
-        $epoch = [int][double]::Parse((Get-Date -UFormat %s))
-        $epoch.ToString() | Out-File -FilePath (Join-Path $RoomDir "state_changed_at") -Encoding utf8 -NoNewline
-        $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-        "$ts STATUS $oldStatus -> $NewStatus" | Out-File -Append -FilePath (Join-Path $RoomDir "audit.log") -Encoding utf8
-    }
-
-    # --- Clean up PID tracking files on transition ---
-    # Manager owns lifecycle: clear old PIDs and locks when state changes.
-    # Only delete files for the PREVIOUS state's role to avoid nuking PIDs
-    # belonging to a concurrently-spawned next-state role.
-    $pidDir = Join-Path $RoomDir "pids"
-    if (Test-Path $pidDir) {
-        $terminalStates = @('passed', 'failed-final', 'blocked')
-        if ($NewStatus -in $terminalStates) {
-            # Terminal state — safe to nuke everything
-            Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-            Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-        } else {
-            # Non-terminal transition — identify old role from lifecycle.json and remove only its files.
-            $oldRole = $null
-            $lcFile = Join-Path $RoomDir "lifecycle.json"
-            if (Test-Path $lcFile) {
-                try {
-                    $lc = Get-Content $lcFile -Raw | ConvertFrom-Json
-                    if ($lc.states -and $lc.states.$oldStatus -and $lc.states.$oldStatus.role) {
-                        $oldRole = ($lc.states.$oldStatus.role -replace ':.*$', '')
-                    }
-                } catch { }
-            }
-            if ($oldRole) {
-                Remove-Item (Join-Path $pidDir "$oldRole.pid") -Force -ErrorAction SilentlyContinue
-                Remove-Item (Join-Path $pidDir "$oldRole.spawned_at") -Force -ErrorAction SilentlyContinue
-            }
-            # If we can't determine the old role, do NOT blanket-delete —
-            # that risks nuking a just-spawned new role's PID file.
-        }
-    }
-}
-
-# === V2 LIFECYCLE HELPERS ===
-function Find-LatestSignal {
-    param([string]$RoomDir, [string[]]$ExpectedSignals)
-    $roomId = Split-Path $RoomDir -Leaf
-    $changedAt = 0
-    $changedFile = Join-Path $RoomDir "state_changed_at"
-    if (Test-Path $changedFile) {
-        $changedAt = [int](Get-Content $changedFile -Raw).Trim()
-    }
-    Write-Log "DEBUG" "[Find-LatestSignal][$roomId] state_changed_at=$changedAt, checking signals: $($ExpectedSignals -join ', ')"
-    foreach ($sigType in $ExpectedSignals) {
-        try {
-            $msgs = & $readMessages -RoomDir $RoomDir -FilterType $sigType -Last 1 -AsObject
-            if ($msgs -and $msgs.Count -gt 0) {
-                $latest = $msgs[-1]
-                $msgTs = 0
-                if ($latest.ts) {
-                    if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
-                    } elseif ("$($latest.ts)" -match '^\d+$') {
-                        $msgTs = [int]"$($latest.ts)"
-                    } else {
-                        try { $msgTs = [int][double]::Parse((Get-Date "$($latest.ts)" -UFormat %s)) } catch { }
-                    }
-                }
-                $bodyPreview = if ($latest.body.Length -gt 120) { $latest.body.Substring(0, 120) + '...' } else { $latest.body }
-                $accepted = ($msgTs -ge ($changedAt - 2))
-                Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' from='$($latest.from)' msgTs=$msgTs changedAt=$changedAt accepted=$accepted body=[$bodyPreview]"
-                # Grace window of 2s to handle clock skew between Start-Job launch and message posting
-                if ($accepted) { return $sigType }
-            } else {
-                Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' — no messages found"
-            }
-        } catch {
-            Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' — error: $($_.Exception.Message)"
-        }
-    }
-    Write-Log "DEBUG" "[Find-LatestSignal][$roomId] no matching signal found"
-    return $null
-}
-
-function Invoke-SignalActions {
-    param([string]$RoomDir, [string[]]$Actions, [string]$TaskRef, [string]$BaseRole)
-    foreach ($action in $Actions) {
-        switch ($action) {
-            'increment_retries' {
-                $retriesFile = Join-Path $RoomDir "retries"
-                $r = if (Test-Path $retriesFile) { [int](Get-Content $retriesFile -Raw).Trim() } else { 0 }
-                ($r + 1).ToString() | Out-File -FilePath $retriesFile -Encoding utf8 -NoNewline
-            }
-            'post_fix' {
-                $feedback = Get-LatestBody $RoomDir "fail"
-                if (-not $feedback) { $feedback = Get-LatestBody $RoomDir "escalate" }
-                if (-not $feedback) { $feedback = Get-LatestBody $RoomDir "error" }
-                if ($feedback) {
-                    & $postMessage -RoomDir $RoomDir -From "manager" -To $BaseRole -Type "fix" -Ref $TaskRef -Body $feedback
-                }
-            }
-            'revise_brief' {
-                $briefFile = Join-Path $RoomDir "brief.md"
-                $triageFile = Join-Path $RoomDir "artifacts" "triage-context.md"
-                if ((Test-Path $briefFile) -and (Test-Path $triageFile)) {
-                    $originalBrief = Get-Content $briefFile -Raw
-                    $triageContent = Get-Content $triageFile -Raw
-                    $updatedBrief = $originalBrief + "`n`n---`n`n## Plan Revision Notes`n`n$triageContent"
-                    $updatedBrief | Out-File -FilePath $briefFile -Encoding utf8 -Force
-                }
-                $qaRetriesFile = Join-Path $RoomDir "qa_retries"
-                if (Test-Path $qaRetriesFile) { Remove-Item $qaRetriesFile -Force }
-            }
-        }
-    }
-}
-
-function Write-Log {
-    param([string]$Level, [string]$Message)
-    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
-        Write-OstwinLog -Level $Level -Message $Message
-    }
-    else {
-        Write-Host "[MANAGER] $Message"
-    }
-}
-
-function Write-SpawnLock {
-    param([string]$RoomDir, [string]$Role)
-    $pidDir = Join-Path $RoomDir "pids"
-    if (-not (Test-Path $pidDir)) { New-Item -ItemType Directory -Path $pidDir -Force | Out-Null }
-    $lockFile = Join-Path $pidDir "$Role.spawned_at"
-    $epoch = [int][double]::Parse((Get-Date -UFormat %s))
-    $epoch.ToString() | Out-File -FilePath $lockFile -Encoding utf8 -NoNewline
-}
-
-function Test-SpawnLock {
-    param([string]$RoomDir, [string]$Role, [int]$GracePeriodSeconds = 30)
-    $lockFile = Join-Path $RoomDir "pids" "$Role.spawned_at"
-    if (-not (Test-Path $lockFile)) { return $false }
-    try {
-        $spawnedAt = [int](Get-Content $lockFile -Raw).Trim()
-        $now = [int][double]::Parse((Get-Date -UFormat %s))
-        return (($now - $spawnedAt) -lt $GracePeriodSeconds)
-    } catch { return $false }
-}
-
-function Start-WorkerJob {
-    param(
-        [string]$RoomDir,
-        [string]$Role,
-        [string]$Script,
-        [string]$TaskRef = '',
-        [switch]$SkipLockCheck
-    )
-    if (-not $SkipLockCheck) {
-        # Check if a spawn is already in flight
-        if (Test-SpawnLock -RoomDir $RoomDir -Role $Role) {
-            Write-Log "DEBUG" "[$TaskRef] Spawn lock active for '$Role' — skipping duplicate spawn."
-            return $false
-        }
-        # Also check if the process is already alive
-        $existingPid = Join-Path $RoomDir "pids" "$Role.pid"
-        if (Test-PidAlive $existingPid) {
-            Write-Log "DEBUG" "[$TaskRef] Process already alive for '$Role' — skipping duplicate spawn."
-            return $false
-        }
-    }
-    Write-SpawnLock -RoomDir $RoomDir -Role $Role
-    Start-Job -ScriptBlock {
-        param($s, $r)
-        & $s -RoomDir $r
-    } -ArgumentList $Script, $RoomDir | Out-Null
-    return $true
-}
-
-function Get-CachedDag {
-    if (-not (Test-Path $dagFile)) { return $null }
-    $mtime = (Get-Item $dagFile).LastWriteTimeUtc.Ticks
-    if ($script:dagCache -and $script:dagMtime -eq $mtime) {
-        return $script:dagCache
-    }
-    $script:dagCache = Get-Content $dagFile -Raw | ConvertFrom-Json
-    $script:dagMtime = $mtime
-    return $script:dagCache
-}
-
-function Set-BlockedDescendants {
-    param([string]$FailedTaskRef)
-    if (-not $hasDag) { return }
-    $dag = Get-CachedDag
-    if (-not $dag) { return }
-
-    # BFS through dependents
-    $bfsQueue = [System.Collections.Queue]::new()
-    $bfsQueue.Enqueue($FailedTaskRef)
-    $visited = @{}
-
-    while ($bfsQueue.Count -gt 0) {
-        $current = $bfsQueue.Dequeue()
-        if ($visited.ContainsKey($current)) { continue }
-        $visited[$current] = $true
-
-        $node = $dag.nodes.$current
-        if (-not $node) { continue }
-        $dependents = $node.dependents
-        if (-not $dependents) { continue }
-        foreach ($dep in $dependents) {
-            $depNode = $dag.nodes.$dep
-            if (-not $depNode) { continue }
-            $depRoomDir = Join-Path $WarRoomsDir $depNode.room_id
-            if (-not (Test-Path (Join-Path $depRoomDir "status"))) { continue }
-            $depStatus = (Get-Content (Join-Path $depRoomDir "status") -Raw).Trim()
-            if ($depStatus -eq "pending") {
-                Write-Log "WARN" "[$dep] Blocked: upstream $FailedTaskRef failed"
-                Write-RoomStatus $depRoomDir "blocked"
-            }
-            $bfsQueue.Enqueue($dep)
-        }
-    }
-}
-
-function Invoke-ManagerTriage {
-    param([string]$RoomDir, [string]$QaFeedback)
-    # Guard: no feedback means nothing to classify
-    if (-not $QaFeedback -or $QaFeedback.Trim() -eq '') {
-        return 'no-feedback'
-    }
-    # --- Classification: keyword matching ---
-    $designKeywords = 'architecture|design|scope|interface|contract|api-design|redesign|structural'
-    $planKeywords   = 'specification|acceptance criteria|definition of done|brief|missing requirement|requirements|out of scope'
-    if ($QaFeedback -match $designKeywords) {
-        return 'design-issue'
-    }
-    if ($QaFeedback -match $planKeywords) {
-        return 'plan-gap'
-    }
- 
-    # --- Capability-aware routing (NEW) ---
-    $capabilityMatching = $true
-    if ($null -ne $config.manager.capability_matching) { $capabilityMatching = $config.manager.capability_matching }
-    
-    # --- Subcommand-aware routing (EPIC-006) ---
-    $roomConfigFile = Join-Path $RoomDir "config.json"
-    if (Test-Path $roomConfigFile) {
-        $rc = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
-        $assignedRole = if ($rc.assignment -and $rc.assignment.assigned_role) { $rc.assignment.assigned_role } else { "engineer" }
-        $baseRole = $assignedRole -replace ':.*$', ''
-        
-        # Check for overrides first (EPIC-006)
-        $overrideDir = Join-Path $RoomDir (Join-Path "overrides" $baseRole)
-        $roleDir = if (Test-Path $overrideDir) { $overrideDir } else { Join-Path $agentsDir (Join-Path "roles" $baseRole) }
-        $subcommandsFile = Join-Path $roleDir "subcommands.json"
-        
-        if (Test-Path $subcommandsFile) {
-            $subcommands = Get-Content $subcommandsFile -Raw | ConvertFrom-Json
-            # Load subcommand-failure analysis script (similar to Analyze-TaskRequirements)
-            $analyzeSubcommandScript = Join-Path $agentsDir "roles" "_base" "Analyze-SubcommandFailure.ps1"
-            if (Test-Path $analyzeSubcommandScript) {
-                try {
-                    $analysis = & $analyzeSubcommandScript -QaFeedback $QaFeedback -Subcommands $subcommands
-                    if ($analysis.Confidence -ge 0.7 -and $analysis.SubcommandName) {
-                        return "subcommand-failure:$($analysis.SubcommandName)"
-                    }
-                } catch { }
-            } else {
-                # Fallback: simple keyword matching for subcommand entrypoints
-                foreach ($sc in $subcommands.subcommands.PSObject.Properties) {
-                    $scName = $sc.Name
-                    $scEntry = $sc.Value.entrypoint
-                    if ($QaFeedback -match $scName -or ($scEntry -and $QaFeedback -match (Split-Path $scEntry -Leaf))) {
-                        return "subcommand-failure:$scName"
-                    }
-                }
-            }
-        }
-    }
-
-    if ($capabilityMatching) {
-        $analyzeScript = Join-Path $agentsDir "roles" "_base" "Analyze-TaskRequirements.ps1"
-        if (Test-Path $analyzeScript) {
-            try {
-                $analysis = & $analyzeScript -TaskDescription $QaFeedback -AgentsDir $agentsDir
-                if ($analysis.Confidence -ge 0.6 -and $analysis.RequiredCapabilities.Count -gt 0) {
-                    # If the failure is about a specific domain, route to that specialist
-                    $specialistCaps = @('security', 'database', 'infrastructure', 'architecture')
-                    $matched = $analysis.RequiredCapabilities | Where-Object { $_ -in $specialistCaps }
-                    if ($matched -and $matched.Count -gt 0) {
-                        return 'design-issue'  # Route to specialist via architect-review path
-                    }
-                }
-            } catch { }
-        }
-    }
- 
-    # --- Heuristic: repeated failure (same feedback >=60% word overlap) ---
-    $retries = if (Test-Path (Join-Path $RoomDir "retries")) {
-        [int](Get-Content (Join-Path $RoomDir "retries") -Raw).Trim()
-    } else { 0 }
-    if ($retries -ge 2) {
-        try {
-            $failMsgs = & $readMessages -RoomDir $RoomDir -FilterType "fail" -AsObject
-            if ($failMsgs -and $failMsgs.Count -ge 2) {
-                $prev = $failMsgs[-2].body
-                $curr = $failMsgs[-1].body
-                $prevWords = ($prev -split '\W+') | Where-Object { $_.Length -gt 3 } | Sort-Object -Unique
-                $currWords = ($curr -split '\W+') | Where-Object { $_.Length -gt 3 } | Sort-Object -Unique
-                if ($prevWords.Count -gt 0 -and $currWords.Count -gt 0) {
-                    $overlap = ($prevWords | Where-Object { $currWords -contains $_ }).Count
-                    $maxSet = [Math]::Max($prevWords.Count, $currWords.Count)
-                    $similarity = $overlap / $maxSet
-                    if ($similarity -ge 0.6) {
-                        return 'design-issue'
-                    }
-                }
-            }
-        } catch { }
-    }
-    return 'implementation-bug'
-}
-
-function Write-TriageContext {
-    param(
-        [string]$RoomDir,
-        [string]$Classification,
-        [string]$QaFeedback,
-        [string]$ArchitectGuidance,
-        [string]$ManagerNotes
-    )
-    $artifactsDir = Join-Path $RoomDir "artifacts"
-    if (-not (Test-Path $artifactsDir)) {
-        New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-    }
-    $contextFile = Join-Path $artifactsDir "triage-context.md"
-    $actionLine = switch ($Classification) {
-        'implementation-bug' { "Engineer: Fix the specific issues listed in QA's report above." }
-        'design-issue'       { "Engineer: Follow the architect's guidance above to redesign the approach." }
-        'plan-gap'           { "Engineer: The brief has been updated. Re-read brief.md and implement accordingly." }
-        default              { "Engineer: Address the issues identified above." }
-    }
-    $guidanceSection = if ($ArchitectGuidance) { $ArchitectGuidance } else { "_Not consulted — classified as implementation bug._" }
-    $content = @"
-# Manager Triage Context
-
-## Classification: $Classification
-
-## QA Failure Report
-$QaFeedback
-
-## Architect Guidance
-$guidanceSection
-
-## Manager's Direction
-$ManagerNotes
-
-## Action Required
-$actionLine
-"@
-    $content | Out-File -FilePath $contextFile -Encoding utf8 -Force
-}
-
-function Handle-PlanApproval {
-    param([string]$TaskRef)
-    if ($TaskRef -eq 'PLAN-REVIEW') {
-        Write-Log "INFO" "[PLAN-REVIEW] Plan approved. Unblocking dependent rooms..."
-        # Re-build DAG so manager sees updated wave structure
-        $buildDagScript = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
-        if (Test-Path $buildDagScript) {
-            $null = & $buildDagScript -WarRoomsDir $WarRoomsDir
-            # Clear cache to force reload
-            $script:dagCache = $null
-            $script:hasDag = $true
-        }
-    }
-}
 
 # === MAIN LOOP ===
 $iteration = 0
@@ -967,9 +480,8 @@ while (-not $script:shuttingDown) {
                             }
                         }
 
-                        # Signal detection
-                        $expectedSignals = @($v2StateDef.signals.PSObject.Properties.Name)
-                        $matchedSignal = Find-LatestSignal $roomDir $expectedSignals
+                        # Signal detection — lifecycle-driven (derives signals + sender from lifecycle.json)
+                        $matchedSignal = Find-LatestSignal -RoomDir $roomDir -Lifecycle $lifecycle -StateName $status
 
                         if ($matchedSignal) {
                             $transitionDef = $v2StateDef.signals.$matchedSignal
@@ -978,8 +490,18 @@ while (-not $script:shuttingDown) {
                             if ($transitionDef.actions) { $actions = @($transitionDef.actions) }
 
                             Write-Log "INFO" "[$taskRef] V2 signal '$matchedSignal' in '$status' -> '$targetState'."
-                            Invoke-SignalActions -RoomDir $roomDir -Actions $actions -TaskRef $taskRef -BaseRole $baseRole
+                            # Resolve the TARGET state's role so post_fix delivers to the fixer,
+                            # not the current state's reviewer/worker.
+                            $targetDef = $lifecycle.states.$targetState
+                            $targetRoleForActions = if ($targetDef -and $targetDef.role) {
+                                $targetDef.role -replace ':.*$', ''
+                            } else { $baseRole }
+                            Invoke-SignalActions -RoomDir $roomDir -Actions $actions -TaskRef $taskRef -BaseRole $targetRoleForActions
                             Write-RoomStatus $roomDir $targetState
+
+                            # Reset crash-respawn counter on successful transition
+                            $crashFile = Join-Path $roomDir "crash_respawns"
+                            Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
 
                             # Spawn target state's role agent
                             $targetDef = $lifecycle.states.$targetState
@@ -1005,17 +527,32 @@ while (-not $script:shuttingDown) {
                                 Write-Log "INFO" "[$taskRef] No signal matched. role='$stateBaseRole' pidAlive=$pidAlive spawnLocked=$spawnLocked status='$status'"
                                 if (-not $pidAlive -and -not $spawnLocked) {
                                     # Guard: check if a signal is pending but hasn't been processed yet.
-                                    $pendingSignalCheck = Find-LatestSignal $roomDir $expectedSignals
+                                    $pendingSignalCheck = Find-LatestSignal -RoomDir $roomDir -Lifecycle $lifecycle -StateName $status
                                     if ($pendingSignalCheck) {
                                         Write-Log "DEBUG" "[$taskRef] Signal '$pendingSignalCheck' pending in '$status' — skipping re-spawn."
                                     } else {
-                                        Write-Log "DEBUG" "[$taskRef] No pending signal, no PID, no lock — will re-spawn '$stateRole'."
-                                        if (Test-Path $resolveRoleScript) {
-                                            $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                            Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
-                                            Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                        # --- Crash-respawn guard ---
+                                        # If the agent keeps dying without posting any signal,
+                                        # cap consecutive crash-respawns to prevent infinite loops.
+                                        $crashFile = Join-Path $roomDir "crash_respawns"
+                                        $crashCount = if (Test-Path $crashFile) { [int](Get-Content $crashFile -Raw).Trim() } else { 0 }
+                                        $crashCount++
+                                        $maxCrashRespawns = 3
+                                        if ($crashCount -gt $maxCrashRespawns) {
+                                            Write-Log "ERROR" "[$taskRef] Agent '$stateRole' crashed $crashCount times in '$status' without producing a signal. Marking as failed."
+                                            Write-RoomStatus $roomDir "failed"
+                                            # Reset the crash counter for the next lifecycle attempt
+                                            Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
                                         } else {
-                                            Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
+                                            $crashCount.ToString() | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+                                            Write-Log "DEBUG" "[$taskRef] No pending signal, no PID, no lock — will re-spawn '$stateRole' (crash $crashCount/$maxCrashRespawns)."
+                                            if (Test-Path $resolveRoleScript) {
+                                                $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                                Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
+                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                            } else {
+                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
+                                            }
                                         }
                                     }
                                 }
@@ -1058,48 +595,60 @@ while (-not $script:shuttingDown) {
                 }
                 ($dlCount + 1).ToString() | Out-File -FilePath $dlFile -Encoding utf8 -NoNewline
 
-                # Resolve the room's assigned role (not the stale $baseRole from the main loop)
-                $dlRoomConfig = Join-Path $rd "config.json"
-                $dlRole = "engineer"
-                if (Test-Path $dlRoomConfig) {
-                    $dlRc = Get-Content $dlRoomConfig -Raw | ConvertFrom-Json
-                    if ($dlRc.assignment -and $dlRc.assignment.assigned_role) {
-                        $dlRole = $dlRc.assignment.assigned_role -replace ':.*$', ''
-                    }
-                }
-
-                # V2 lifecycle: use lifecycle.json to determine recovery
+                # Risk 6 fix: Resolve role from lifecycle state, not config.json.
+                # Multi-role lifecycles (e.g. reporting.role=reporter) need the state's role.
                 $dlLifecycleFile = Join-Path $rd "lifecycle.json"
                 $dlLifecycle = if (Test-Path $dlLifecycleFile) { Get-Content $dlLifecycleFile -Raw | ConvertFrom-Json } else { $null }
                 $dlStateDef = if ($dlLifecycle -and $dlLifecycle.states -and $dlLifecycle.states.$ls) { $dlLifecycle.states.$ls } else { $null }
 
+                $dlRole = "engineer"
+                if ($dlStateDef -and $dlStateDef.role) {
+                    $dlRole = ($dlStateDef.role -replace ':.*$', '')
+                } else {
+                    $dlRoomConfig = Join-Path $rd "config.json"
+                    if (Test-Path $dlRoomConfig) {
+                        $dlRc = Get-Content $dlRoomConfig -Raw | ConvertFrom-Json
+                        if ($dlRc.assignment -and $dlRc.assignment.assigned_role) {
+                            $dlRole = $dlRc.assignment.assigned_role -replace ':.*$', ''
+                        }
+                    }
+                }
+
                 if ($dlStateDef -and $dlStateDef.type -in @('work', 'review', 'triage')) {
-                    $dlMaxRetries = if ($dlLifecycle.max_retries) { $dlLifecycle.max_retries } else { $maxRetries }
                     $restartState = if ($dlLifecycle.initial_state) { $dlLifecycle.initial_state } else { 'developing' }
 
                     # LEAK-7 fix: check for pending signals before deadlock reset
-                    $dlExpectedSignals = @()
-                    if ($dlStateDef.signals) {
-                        $dlExpectedSignals = @($dlStateDef.signals.PSObject.Properties.Name)
-                    }
                     $dlPendingSignal = $null
-                    if ($dlExpectedSignals.Count -gt 0) {
-                        $dlPendingSignal = Find-LatestSignal $rd $dlExpectedSignals
+                    if ($dlLifecycle) {
+                        $dlPendingSignal = Find-LatestSignal -RoomDir $rd -Lifecycle $dlLifecycle -StateName $ls
                     }
                     if ($dlPendingSignal) {
                         Write-Log "INFO" "[$lt] Deadlock recovery: signal '$dlPendingSignal' pending — skipping reset."
                         return  # Let normal signal detection handle it next iteration
                     }
 
-                    if ($lr -lt $dlMaxRetries) {
-                        Write-Log "WARN" "[$lt] Deadlock recovery: restarting $dlRole via transition to $restartState."
-                        ($lr + 1).ToString() | Out-File -FilePath (Join-Path $rd "retries") -Encoding utf8 -NoNewline
-                        & $postMessage -RoomDir $rd -From "manager" -To $dlRole -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting $dlRole."
-                        Write-RoomStatus $rd $restartState
-                    } else {
-                        Write-Log "ERROR" "[$lt] Deadlock recovery: max retries exceeded."
-                        Write-RoomStatus $rd "failed-final"
-                        Set-BlockedDescendants $lt
+                    # Risk 2 fix: Clean stale PIDs before transition (prevents double retry increment)
+                    Stop-RoomProcesses $rd
+
+                    # Risk 3+4 fix: DO NOT increment retries here.
+                    # Retries should only be incremented by lifecycle signal actions (e.g. increment_retries on QA fail).
+                    # Incrementing retries during deadlock recovery corrupts the done-count gate (Risk 3)
+                    # and compounds into QA cascade deadlocks (Risk 4).
+                    # Exhaustion is handled by the deadlock_recoveries cap (line 1113), not by lifecycle retries.
+
+                    # Risk 6 fix: Resolve restart state's role from lifecycle for correct runner
+                    $restartStateDef = if ($dlLifecycle.states.$restartState) { $dlLifecycle.states.$restartState } else { $null }
+                    $dlRestartRole = if ($restartStateDef -and $restartStateDef.role) { ($restartStateDef.role -replace ':.*$', '') } else { $dlRole }
+
+                    Write-Log "WARN" "[$lt] Deadlock recovery ($($dlCount+1)/3): restarting $dlRestartRole via $restartState."
+                    & $postMessage -RoomDir $rd -From "manager" -To $dlRestartRole -Type "fix" -Ref $lt -Body "Deadlock recovery: restarting $dlRestartRole."
+                    Write-RoomStatus $rd $restartState
+
+                    # Risk 2 fix: Spawn worker immediately (don't rely on next iteration's respawn branch)
+                    $dlResolveRole = Join-Path $agentsDir "roles" "_base" "Resolve-Role.ps1"
+                    if (Test-Path $dlResolveRole) {
+                        $dlResolved = & $dlResolveRole -RoleName ($restartStateDef.role) -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                        Start-WorkerJob -RoomDir $rd -Role $dlRestartRole -Script $dlResolved.Runner -TaskRef $lt -SkipLockCheck
                     }
                 } else {
                     Write-Log "WARN" "[$lt] Deadlock recovery: state '$ls' not recoverable. Skipping."

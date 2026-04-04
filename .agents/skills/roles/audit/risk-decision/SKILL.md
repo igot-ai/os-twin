@@ -1,6 +1,6 @@
 ---
 name: risk-decision
-description: Use this skill to convert validated analytical findings into one of four decision categories (Accept, Mitigate, Investigate, Escalate) and produce a Risk Decision Record.
+description: "Use this skill to convert validated analytical findings into one of four decision categories (Accept, Mitigate, Investigate, Escalate) and produce a Risk Decision Record."
 tags: [audit, risk-officer, decision-making, risk-management, governance]
 trust_level: core
 ---
@@ -9,7 +9,7 @@ trust_level: core
 
 ## Overview
 
-Analysis without action is academic exercise. This skill converts validated findings into one of four decision categories — Accept, Mitigate, Investigate, or Escalate — and produces a formal Risk Decision Record that documents the reasoning, financial exposure, and required actions.
+Analysis without action is academic exercise. This skill converts validated findings into one of four decision categories -- Accept, Mitigate, Investigate, or Escalate -- and produces a formal Risk Decision Record that documents the reasoning, financial exposure, and required actions.
 
 ## When to Use
 
@@ -36,7 +36,7 @@ Analysis without action is academic exercise. This skill converts validated find
 
 Apply each category's criteria to the validated finding:
 
-#### ACCEPT — Risk is within appetite
+#### ACCEPT -- Risk is within appetite
 
 **Criteria:**
 - Risk is understood and quantified
@@ -48,7 +48,7 @@ Apply each category's criteria to the validated finding:
 
 **Example:** Weekend payments represent 20% of transactions but only 8% of dollar volume, with no co-occurring anomaly flags. Accept as normal treasury operations. Re-evaluate if weekend value exceeds 15% of total.
 
-#### MITIGATE — Control improvement can reduce the risk
+#### MITIGATE -- Control improvement can reduce the risk
 
 **Criteria:**
 - Risk exceeds appetite but is controllable
@@ -59,7 +59,7 @@ Apply each category's criteria to the validated finding:
 
 **Example:** Threshold-splitting pattern detected. Mitigation: system-level control blocking >3 payments within 10% of threshold per 30-day window. Owner: IT + Finance. Timeline: 60 days. Success metric: zero clustering in following quarter.
 
-#### INVESTIGATE — Deeper examination needed before deciding
+#### INVESTIGATE -- Deeper examination needed before deciding
 
 **Criteria:**
 - Findings suggest potential fraud, collusion, or material misstatement
@@ -70,7 +70,7 @@ Apply each category's criteria to the validated finding:
 
 **Example:** Cross-dataset entity match reveals same individual approves vendor payments and holds a below-market lease. Engage forensic audit, review conflict-of-interest disclosures, restrict access to CRO/CAE/General Counsel.
 
-#### ESCALATE — Immediate senior authority required
+#### ESCALATE -- Immediate senior authority required
 
 **Criteria:**
 - Material financial exposure requiring executive attention
@@ -89,8 +89,8 @@ For every finding, calculate exposure before writing the narrative:
 | Exposure Type | Calculation |
 |---------------|-------------|
 | Direct loss | Known amount already lost or misappropriated |
-| Projected loss | Current rate × remaining exposure period |
-| Opportunity cost | Revenue gap × remaining contract/lease term |
+| Projected loss | Current rate  remaining exposure period |
+| Opportunity cost | Revenue gap  remaining contract/lease term |
 | Range estimate | Best case to worst case if uncertainty exists |
 
 ### 3. Produce the Risk Decision Record
@@ -141,7 +141,7 @@ Save `risk-decision-record.md`:
   "from_role": "audit",
   "type": "escalate",
   "epic": "<INVESTIGATION-ID>",
-  "body": "## Escalation — <finding reference>\n\n### Finding\n<summary>\n\n### Financial Exposure\n$<amount> — <type>\n\n### Recommended Immediate Action\n<freeze / restrict / notify>\n\n### Escalation Target\n<CFO / Audit Committee / General Counsel>"
+  "body": "## Escalation -- <finding reference>\n\n### Finding\n<summary>\n\n### Financial Exposure\n$<amount> -- <type>\n\n### Recommended Immediate Action\n<freeze / restrict / notify>\n\n### Escalation Target\n<CFO / Audit Committee / General Counsel>"
 }
 ```
 

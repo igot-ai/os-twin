@@ -134,14 +134,14 @@ describe('Full Pipeline Lifecycle', () => {
       cy.get('#channel-feed .feed-task', { timeout: 8000 }).should('have.length.at.least', 1);
     });
 
-    it('posting a "done" message moves room to qa-review', () => {
+    it('posting a "done" message moves room to review', () => {
       cy.setRoomStatus('room-001', 'engineering');
       cy.agentPost('room-001', {
         from_: 'engineer', to: 'manager',
         type: 'done', ref: 'TASK-001',
         body: 'Alpha module complete.',
       });
-      cy.setRoomStatus('room-001', 'qa-review');
+      cy.setRoomStatus('room-001', 'review');
 
       waitForChip('room-001', 'QA REVIEW');
       cy.request('/api/rooms/room-001/channel').then(({ body }) => {
@@ -161,8 +161,8 @@ describe('Full Pipeline Lifecycle', () => {
         headers: { 'Content-Type': 'application/json' },
       });
       cy.waitForRoom('room-001', { timeout: 12000 });
-      // Advance to qa-review
-      cy.setRoomStatus('room-001', 'qa-review');
+      // Advance to review
+      cy.setRoomStatus('room-001', 'review');
       cy.agentPost('room-001', {
         from_: 'engineer', to: 'manager',
         type: 'done', ref: 'TASK-001',
@@ -280,7 +280,7 @@ describe('Full Pipeline Lifecycle', () => {
         type: 'done', ref: 'TASK-001',
         body: 'First attempt.',
       });
-      cy.setRoomStatus('room-001', 'qa-review');
+      cy.setRoomStatus('room-001', 'review');
 
       // QA fails
       cy.agentPost('room-001', {

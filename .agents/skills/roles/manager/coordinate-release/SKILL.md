@@ -1,6 +1,6 @@
 ---
 name: coordinate-release
-description: Use this skill to draft RELEASE.md when all war-rooms pass — collect signoffs from all roles and finalize the release.
+description: "Use this skill to draft RELEASE.md when all war-rooms pass -- collect signoffs from all roles and finalize the release."
 tags: [manager, release, coordination, signoff]
 trust_level: core
 ---
@@ -53,7 +53,7 @@ For each war-room, collect:
 ### 3. Draft RELEASE.md
 
 ```markdown
-# Release Notes — <Plan Title>
+# Release Notes -- <Plan Title>
 
 > Version: <version>
 > Date: <YYYY-MM-DD>
@@ -65,13 +65,13 @@ For each war-room, collect:
 
 ## Changes
 
-### EPIC-001 — <title>
+### EPIC-001 -- <title>
 - **Summary:** <what was delivered>
 - **War-room:** <room-id>
 - **QA verdict:** PASS
 - **Key files:** <list of primary files changed>
 
-### EPIC-002 — <title>
+### EPIC-002 -- <title>
 - **Summary:** <what was delivered>
 - **War-room:** <room-id>
 - **QA verdict:** PASS
@@ -88,10 +88,10 @@ For each war-room, collect:
 
 | Role | Agent | Status | Date |
 |------|-------|--------|------|
-| Engineer | engineer | ⬜ Pending | — |
-| QA | qa | ⬜ Pending | — |
-| Manager | manager | ⬜ Pending | — |
-| Architect | architect | ⬜ Pending (if involved) | — |
+| Engineer | engineer |  Pending | -- |
+| QA | qa |  Pending | -- |
+| Manager | manager |  Pending | -- |
+| Architect | architect |  Pending (if involved) | -- |
 
 ## Known Issues
 

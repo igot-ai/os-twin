@@ -64,7 +64,7 @@ export type EpicStatus =
   // Bucket for dynamic {role}-review states
   | 'in-review'
   // Legacy aliases (backward compat)
-  | 'engineering' | 'qa-review' | 'fixing'
+  | 'engineering' | 'review' | 'fixing'
   | 'manager-triage' | 'signoff';
 
 // ──────────────────────────────────────────────────
@@ -169,6 +169,8 @@ export interface Skill {
   updated_at?: string;
   forked_from?: string;
   score?: number;
+  changelog?: Array<{ version: string; date: number; changes: string }>;
+  active_epics_count?: number;
 }
 
 export type SkillCategory =
@@ -361,12 +363,12 @@ export interface ChangeEvent {
   timestamp: string;
   type: 'plan_version' | 'asset_change';
   source: 'zvec' | 'git' | 'file_watcher';
-  
+
   // For plan_version
   version?: number;
   title?: string;
   change_source?: string;
-  
+
   // For asset_change (git/file)
   change_type?: string;
   file_path?: string;

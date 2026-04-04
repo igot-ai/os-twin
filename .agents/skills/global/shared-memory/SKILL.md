@@ -1,6 +1,6 @@
 ---
 name: shared-memory
-description: Use this skill to publish and query cross-room shared memory — code snippets, file paths, API contracts, and architectural decisions that other agents need to build against.
+description: "Use this skill to publish and query cross-room shared memory -- code snippets, file paths, API contracts, and architectural decisions that other agents need to build against."
 tags: [global, memory, context, coordination, cross-room]
 trust_level: core
 ---
@@ -9,18 +9,18 @@ trust_level: core
 
 ## Overview
 
-Shared memory lets agents in different war-rooms share **code-level context** — file paths, function signatures, API response shapes, model definitions, and import statements. Before you start coding, query memory. After you build something, publish what other rooms need to use it.
+Shared memory lets agents in different war-rooms share **code-level context** -- file paths, function signatures, API response shapes, model definitions, and import statements. Before you start coding, query memory. After you build something, publish what other rooms need to use it.
 
 The `memory` command is available in your shell. Your room and role are auto-detected.
 
 ## What to Publish (and How)
 
-### `code` — Files, imports, and snippets other agents should use
+### `code` -- Files, imports, and snippets other agents should use
 
 This is the **most important kind**. Publish every file, function, or class that another room might need to import or call.
 
 ```bash
-memory publish code "src/models/cat.py — Cat SQLAlchemy model" \
+memory publish code "src/models/cat.py -- Cat SQLAlchemy model" \
   --tags models,cat,database,sqlalchemy --ref EPIC-001 \
   --detail "from sqlalchemy import Column, String, Float, Enum
 from src.database import Base
@@ -37,7 +37,7 @@ class Cat(Base):
 ```
 
 ```bash
-memory publish code "src/lib/auth.ts — verifyToken and signToken functions" \
+memory publish code "src/lib/auth.ts -- verifyToken and signToken functions" \
   --tags auth,jwt,typescript --ref EPIC-001 \
   --detail "import jwt from 'jsonwebtoken';
 
@@ -56,7 +56,7 @@ export function signToken(payload: Omit<AuthPayload, 'iat'>): string {
 ```
 
 ```bash
-memory publish code "src/api/cats.py — Cat CRUD endpoints (FastAPI router)" \
+memory publish code "src/api/cats.py -- Cat CRUD endpoints (FastAPI router)" \
   --tags api,cats,fastapi,router --ref EPIC-002 \
   --detail "from fastapi import APIRouter, Query
 from src.models.cat import Cat
@@ -77,12 +77,12 @@ async def list_cats(
     ..."
 ```
 
-### `interface` — API contracts with exact request/response shapes
+### `interface` -- API contracts with exact request/response shapes
 
 Include the **exact JSON shape** so consumers can build against it without reading your code.
 
 ```bash
-memory publish interface "GET /api/v1/cats — paginated cat listing" \
+memory publish interface "GET /api/v1/cats -- paginated cat listing" \
   --tags api,cats,rest --ref EPIC-002 \
   --detail "Request:  GET /api/v1/cats?breed=persian&minPrice=100&maxPrice=500&page=1&limit=20
 Headers:  Authorization: Bearer <jwt>  (optional, required for admin fields)
@@ -109,25 +109,25 @@ Response 200:
 Response 404: {\"detail\": \"Cat not found\"}"
 ```
 
-### `artifact` — What you created (file list + summary)
+### `artifact` -- What you created (file list + summary)
 
 ```bash
 memory publish artifact "Set up FastAPI backend with cat CRUD" \
   --tags backend,fastapi,setup --ref EPIC-002 \
   --detail "Files created:
-  src/main.py          — FastAPI app entry point, mounts routers
-  src/database.py      — SQLAlchemy engine + get_db dependency
-  src/models/cat.py    — Cat model (see code memory)
-  src/api/cats.py      — CRUD router (see code memory)
-  src/api/auth.py      — JWT middleware
-  alembic/             — Migration scripts
-  tests/test_cats.py   — 12 tests, all passing
+  src/main.py          -- FastAPI app entry point, mounts routers
+  src/database.py      -- SQLAlchemy engine + get_db dependency
+  src/models/cat.py    -- Cat model (see code memory)
+  src/api/cats.py      -- CRUD router (see code memory)
+  src/api/auth.py      -- JWT middleware
+  alembic/             -- Migration scripts
+  tests/test_cats.py   -- 12 tests, all passing
 
 Run: uvicorn src.main:app --reload
 Test: pytest tests/ -v"
 ```
 
-### `decision` — Architectural choice with the WHY
+### `decision` -- Architectural choice with the WHY
 
 ```bash
 memory publish decision "JWT stateless auth over server sessions" \
@@ -139,7 +139,7 @@ Secret: JWT_SECRET env var
 Library: python-jose (backend), jsonwebtoken (frontend)"
 ```
 
-### `convention` — Coding patterns to follow
+### `convention` -- Coding patterns to follow
 
 ```bash
 memory publish convention "Error response format" \
@@ -152,14 +152,14 @@ memory publish convention "Error response format" \
 }
 
 HTTP status codes:
-  400 — validation error
-  401 — missing/invalid auth
-  403 — insufficient permissions
-  404 — resource not found
-  409 — conflict (duplicate)"
+  400 -- validation error
+  401 -- missing/invalid auth
+  403 -- insufficient permissions
+  404 -- resource not found
+  409 -- conflict (duplicate)"
 ```
 
-### `warning` — Things that will break if ignored
+### `warning` -- Things that will break if ignored
 
 ```bash
 memory publish warning "cats.status has a CHECK constraint" \
@@ -177,7 +177,7 @@ Without migration, INSERT/UPDATE will fail with:
 
 ## When to Query
 
-### At the start of your work — ALWAYS do this first
+### At the start of your work -- ALWAYS do this first
 
 ```bash
 memory context <your-room-id> --keywords <terms-from-your-brief>
@@ -210,7 +210,7 @@ memory publish <kind> <summary> [options]
   Kinds: code, artifact, decision, interface, convention, warning
   --tags tag1,tag2       Tags (comma-separated)
   --ref EPIC-001         Epic/task reference
-  --detail "..."         THE CODE — full snippets, file contents, JSON shapes
+  --detail "..."         THE CODE -- full snippets, file contents, JSON shapes
   --supersedes mem-id    Replace an older entry
 
 memory query [options]
@@ -232,9 +232,9 @@ memory list [--kind code]
 
 ## Rules
 
-1. **Always include `--detail` with actual code** — summaries alone don't help agents code
+1. **Always include `--detail` with actual code** -- summaries alone don't help agents code
 2. **Publish `code` entries for every file** other rooms might import
 3. **Include exact function signatures and types** in `--detail`
 4. **Publish `interface` with full request/response JSON** for every API endpoint
 5. **Query `memory context` at the start** of every task
-6. **Use `--supersedes` when you change a file** — don't leave stale code references
+6. **Use `--supersedes` when you change a file** -- don't leave stale code references
