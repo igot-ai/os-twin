@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "project_name": "ostwin",
   "manager": {
-    "default_model": "gemini-3.1-pro-preview",
+    "default_model": "gemini-3-flash-preview",
     "poll_interval_seconds": 5,
     "max_concurrent_rooms": 50,
     "max_engineer_retries": 10,
@@ -21,7 +21,7 @@
     ]
   },
   "architect": {
-    "default_model": "gemini-3.1-pro-preview",
+    "default_model": "gemini-3-flash-preview",
     "cli": "agent",
     "shell_allow_list": "all",
     "auto_approve": true,
@@ -40,7 +40,7 @@
     "instances": {
       "fe": {
         "display_name": "Frontend Engineer",
-        "default_model": "gemini-3.1-pro-preview",
+        "default_model": "gemini-3-flash-preview",
         "timeout_seconds": 2400,
         "working_dir": "dashboard",
         "skills": [
@@ -99,18 +99,18 @@
     "auto_draft": true
   },
   "test-engineer": {
-    "default_model": "claude-3-5-sonnet-20241022",
+    "default_model": "gemini-3-flash-preview",
     "timeout_seconds": 600,
     "skill_refs": [
       "web-research"
     ]
   },
   "unique-role": {
-    "default_model": "gpt-4o",
+    "default_model": "gemini-3-flash-preview",
     "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "gemini-1.5-pro",
+    "default_model": "gemini-3-flash-preview",
     "timeout_seconds": 300
   }
 }

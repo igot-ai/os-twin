@@ -99,7 +99,7 @@
         "skill-install"
       ],
       "quality_gates": [],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "reporter",
@@ -148,7 +148,7 @@
         "validation-complete",
         "risk-decision-recorded"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "game-engineer",
@@ -175,7 +175,7 @@
         "60fps-non-negotiable",
         "story-acs-satisfied"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "game-qa",
@@ -201,7 +201,7 @@
         "acceptance-criteria-met",
         "code-review-clean"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "game-architect",
@@ -226,7 +226,7 @@
         "60fps-constraints-covered",
         "project-context-exists"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "game-designer",
@@ -277,7 +277,7 @@
         "milestones-trackable",
         "risks-documented"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "game-devops",
@@ -329,7 +329,7 @@
         "id-consistency",
         "temporal-consistency"
       ],
-      "default_model": "openai:seed-2-0-pro-260328"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "level-designer",
@@ -427,7 +427,7 @@
         "vfx-within-drawcall-budget",
         "60fps-maintained"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "gemini-3-flash-preview"
     },
     {
       "name": "ux-researcher",

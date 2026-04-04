@@ -49,8 +49,20 @@ if os.environ.get("OSTWIN_PROJECT_DIR"):
     AGENTS_DIR = PROJECT_ROOT / ".agents"
     WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
-# Global plans storage — clean with: rm -rf ~/.ostwin/plans
-PLANS_DIR = Path.home() / ".ostwin" / "plans"
+def resolve_plans_dir(
+    project_root: Optional[Path] = None,
+    agents_dir: Optional[Path] = None,
+) -> Path:
+    """Prefer the current project's .agents/plans, fallback to the global store."""
+    resolved_project_root = project_root or PROJECT_ROOT
+    resolved_agents_dir = agents_dir or (resolved_project_root / ".agents")
+    project_plans_dir = resolved_agents_dir / "plans"
+    if project_plans_dir.exists():
+        return project_plans_dir
+    return Path.home() / ".ostwin" / "plans"
+
+
+PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
 
 # Global roles storage
 GLOBAL_ROLES_DIR = Path.home() / ".ostwin" / "roles"
@@ -691,6 +703,48 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
 
     # Fallback: global war-rooms directory
     return WARROOMS_DIR
+
+
+def resolve_runtime_plan_warrooms_dir(plan_id: str) -> Optional[Path]:
+    """Resolve plan runtime data safely.
+
+    Unlike resolve_plan_warrooms_dir(), this only returns a war-rooms path when
+    there is evidence the runtime data belongs to the requested plan:
+    1. {plan_id}.meta.json explicitly defines warrooms_dir/working_dir
+    2. Global/shared WARROOMS_DIR contains at least one room stamped with plan_id
+    """
+    plan_meta_file = PLANS_DIR / f"{plan_id}.meta.json"
+    if plan_meta_file.exists():
+        try:
+            meta = json.loads(plan_meta_file.read_text())
+            warrooms_dir = meta.get("warrooms_dir")
+            if warrooms_dir:
+                wd = Path(warrooms_dir)
+                if not wd.is_absolute():
+                    wd = PROJECT_ROOT / wd
+                return wd
+
+            working_dir = meta.get("working_dir")
+            if working_dir:
+                wd = Path(working_dir)
+                if not wd.is_absolute():
+                    wd = PROJECT_ROOT / wd
+                return wd / ".war-rooms"
+        except (json.JSONDecodeError, OSError, TypeError):
+            pass
+
+    if not WARROOMS_DIR.exists():
+        return None
+
+    for room_config_file in WARROOMS_DIR.glob("room-*/config.json"):
+        try:
+            room_config = json.loads(room_config_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if room_config.get("plan_id") == plan_id:
+            return WARROOMS_DIR
+
+    return None
 
 def get_plan_roles_config(plan_id: str) -> dict:
     """Load the per-plan role config file, or fall back to global config."""
