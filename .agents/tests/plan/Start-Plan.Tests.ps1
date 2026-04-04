@@ -619,6 +619,12 @@ working_dir: $script:projectDir
             if (-not (Test-Path $room000)) { New-Item -ItemType Directory -Path $room000 -Force | Out-Null }
             "passed" | Out-File (Join-Path $room000 "status") -Encoding utf8 -NoNewline
 
+            $room002 = Join-Path $warRooms "room-002"
+            if (-not (Test-Path $room002)) { New-Item -ItemType Directory -Path $room002 -Force | Out-Null }
+            "fixing" | Out-File (Join-Path $room002 "status") -Encoding utf8 -NoNewline
+            $pidDir002 = New-Item -ItemType Directory -Path (Join-Path $room002 "pids") -Force
+            New-Item -ItemType File -Path (Join-Path $pidDir002 "test.pid") -Force | Out-Null
+
             # Ensure .agents/plan exists for mock Update-Progress
             $agentsPlanDir = Join-Path $absProjectDir ".agents/plan"
             if (-not (Test-Path $agentsPlanDir)) { New-Item -ItemType Directory -Path $agentsPlanDir -Force | Out-Null }
@@ -634,6 +640,20 @@ working_dir: $script:projectDir
             
             $statusFile = Join-Path $absProjectDir ".war-rooms/room-001/status"
             (Get-Content $statusFile -Raw) | Should -Be "pending"
+        }
+
+        It "moves fixing rooms to developing" {
+            $absProjectDir = (Resolve-Path $script:projectDir).Path
+            $output = & $script:StartPlan -PlanFile $script:resumePlan -ProjectDir $absProjectDir -Resume -DryRun:$false -SkipLoop *>&1
+            $outputStr = $output -join "`n"
+            
+            $outputStr | Should -Match "Moving room-002 from fixing to developing"
+            
+            $statusFile = Join-Path $absProjectDir ".war-rooms/room-002/status"
+            (Get-Content $statusFile -Raw) | Should -Be "developing"
+            
+            $pidDir = Join-Path $absProjectDir ".war-rooms/room-002/pids"
+            (Get-ChildItem $pidDir -Filter "*.pid").Count | Should -Be 0
         }
 
         It "clears retry counters on resume" {

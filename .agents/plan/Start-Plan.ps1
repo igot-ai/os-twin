@@ -511,6 +511,13 @@ if ($Resume) {
                     # Clear old PID files
                     $pidDir = Join-Path $rd.FullName "pids"
                     if (Test-Path $pidDir) { Get-ChildItem $pidDir -Filter "*.pid" | Remove-Item -Force -ErrorAction SilentlyContinue }
+                } elseif ($status -eq "fixing") {
+                    Write-Host "  → Moving $($rd.Name) from fixing to developing" -ForegroundColor Yellow
+                    "developing" | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
+                    
+                    # Clear old PID files
+                    $pidDir = Join-Path $rd.FullName "pids"
+                    if (Test-Path $pidDir) { Get-ChildItem $pidDir -Filter "*.pid" | Remove-Item -Force -ErrorAction SilentlyContinue }
                 }
             }
         }
