@@ -1138,6 +1138,19 @@ fi
 header "4. Installing Agent OS"
 install_files
 
+# ─── 4b. macOS host daemon (optional, desktop automation support) ─────────────
+
+if [[ "$OS" == "macos" ]]; then
+  DAEMON_INSTALL="$INSTALL_DIR/.agents/daemons/macos-host/install.sh"
+  if [[ -f "$DAEMON_INSTALL" ]]; then
+    if ask "Install macOS host daemon? (enables desktop automation: windows, clicks, screenshots)"; then
+      bash "$DAEMON_INSTALL"
+    else
+      info "Skipped macOS daemon. Run manually later: bash $DAEMON_INSTALL"
+    fi
+  fi
+fi
+
 # ─── 5. Python environment ───────────────────────────────────────────────────
 
 header "5. Setting up Python environment"

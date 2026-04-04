@@ -229,6 +229,10 @@ Commands:
                     Options: --project-dir PATH
   config            View or update configuration
                     Options: --get KEY, --set KEY VALUE
+  mac <script> <cmd>  macOS desktop automation (shorthand for role dispatch)
+                     Scripts: app, window, click, type, capture, system,
+                              finder, axbridge, devtools
+                     Run 'ostwin mac <script> help' for per-script usage
   role <name> [sub]  Run a role's subcommand
                        Options: ostwin role (list roles)
                                 ostwin role <name> (show subcommands)
@@ -811,6 +815,124 @@ for name in servers:
 PYEOF
     done
     echo "Done."
+    ;;
+  role)
+    shift
+    ROLE_NAME="${1:-}"
+    if [[ -z "$ROLE_NAME" ]]; then
+      # List all roles that have subcommands.json
+      echo "Available roles with subcommands:"
+      echo ""
+      for manifest in "$AGENTS_DIR"/roles/*/subcommands.json; do
+        [[ -f "$manifest" ]] || continue
+        rname=$(basename "$(dirname "$manifest")")
+        desc=$($PYTHON -c "
+import json, sys
+data = json.load(open('$manifest'))
+cmds = data.get('subcommands', [])
+names = [c['name'] for c in cmds] if isinstance(cmds, list) else list(cmds.keys())
+print(f'{len(names)} sub-commands: {", ".join(names)}')
+" 2>/dev/null || echo "")
+        printf "  %-30s %s\n" "$rname" "$desc"
+      done
+      # Also check ~/.ostwin/roles
+      for manifest in "$HOME"/.ostwin/roles/*/subcommands.json; do
+        [[ -f "$manifest" ]] || continue
+        rname=$(basename "$(dirname "$manifest")")
+        desc=$($PYTHON -c "
+import json, sys
+data = json.load(open('$manifest'))
+cmds = data.get('subcommands', [])
+names = [c['name'] for c in cmds] if isinstance(cmds, list) else list(cmds.keys())
+print(f'{len(names)} sub-commands: {", ".join(names)}')
+" 2>/dev/null || echo "")
+        printf "  %-30s %s (global)\n" "$rname" "$desc"
+      done
+      exit 0
+    fi
+    shift
+    SUB_NAME="${1:-}"
+    # Find the subcommands.json for this role
+    ROLE_MANIFEST=""
+    for candidate in \
+      "$AGENTS_DIR/roles/$ROLE_NAME/subcommands.json" \
+      "$HOME/.ostwin/roles/$ROLE_NAME/subcommands.json"; do
+      if [[ -f "$candidate" ]]; then
+        ROLE_MANIFEST="$candidate"
+        break
+      fi
+    done
+    if [[ -z "$ROLE_MANIFEST" ]]; then
+      echo "✗ Role '$ROLE_NAME' not found or has no subcommands.json" >&2
+      echo "  Searched: $AGENTS_DIR/roles/$ROLE_NAME/" >&2
+      echo "            $HOME/.ostwin/roles/$ROLE_NAME/" >&2
+      exit 1
+    fi
+    ROLE_DIR="$(dirname "$ROLE_MANIFEST")"
+    if [[ -z "$SUB_NAME" ]]; then
+      # List subcommands for this role
+      echo "Subcommands for role '$ROLE_NAME':"
+      echo ""
+      $PYTHON - "$ROLE_MANIFEST" <<'PYEOF'
+import json, sys
+manifest_path = sys.argv[1]
+data = json.load(open(manifest_path))
+cmds = data.get('subcommands', [])
+if isinstance(cmds, list):
+    for c in cmds:
+        name = c['name']
+        desc = c.get('description', '')
+        print(f'  {name:20s} {desc}')
+else:
+    for name, info in cmds.items():
+        desc = info.get('description', '')
+        print(f'  {name:20s} {desc}')
+PYEOF
+      exit 0
+    fi
+    shift
+    # Dispatch the subcommand — write a temp dispatch script via heredoc
+    # to avoid all quoting hazards with role/sub/path variables.
+    _DISPATCH_OUT=$($PYTHON - "$ROLE_MANIFEST" "$ROLE_DIR" "$SUB_NAME" <<'PYEOF'
+import json, sys, os
+manifest_path, role_dir, target = sys.argv[1], sys.argv[2], sys.argv[3]
+data = json.load(open(manifest_path))
+module_root = data.get('module_root', '.')
+cmds = data.get('subcommands', [])
+if isinstance(cmds, list):
+    matches = [c for c in cmds if c['name'] == target]
+    if not matches:
+        print('__NOT_FOUND__', file=sys.stderr)
+        sys.exit(1)
+    cmd = matches[0]
+else:
+    if target not in cmds:
+        print('__NOT_FOUND__', file=sys.stderr)
+        sys.exit(1)
+    cmd = cmds[target]
+    cmd['name'] = target
+resolved_root = os.path.normpath(os.path.join(role_dir, module_root))
+print(resolved_root)
+print(cmd['invoke'])
+PYEOF
+) || { echo "✗ Subcommand '$SUB_NAME' not found in role '$ROLE_NAME'" >&2; exit 1; }
+    RESOLVED_ROOT=$(printf '%s' "$_DISPATCH_OUT" | head -1)
+    INVOKE_TEMPLATE=$(printf '%s' "$_DISPATCH_OUT" | tail -1)
+    if [[ ! -d "$RESOLVED_ROOT" ]]; then
+      echo "✗ Module root not found: $RESOLVED_ROOT" >&2
+      exit 1
+    fi
+    # Build invocation: replace literal "{args}" in template with actual arguments.
+    # We eval inside the resolved root; remaining "$@" holds any trailing args.
+    cd "$RESOLVED_ROOT"
+    _ARGS="$*"
+    _CMD="${INVOKE_TEMPLATE/\{args\}/$_ARGS}"
+    eval "$_CMD"
+    ;;
+  mac)
+    shift
+    # Shorthand for: ostwin role macos-automation-engineer <sub> [args]
+    exec "$0" role macos-automation-engineer "$@"
     ;;
   config)  
     shift
