@@ -1,0 +1,14 @@
+{
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "prompt_file": "ROLE.md",
+  "description": "Develop a search engine for videos and a recommendation system for the watch page and home feed.",
+  "timeout": 600,
+  "model": "gemini-3-flash-preview",
+  "capabilities": [],
+  "quality_gates": [],
+  "name": "data-scientist"
+}

@@ -493,6 +493,24 @@
       "prompt": "roles/technical-writer/ROLE.md",
       "default_assignment": false,
       "capabilities": []
+    },
+    {
+      "name": "database-architect",
+      "description": "Design the high-level system architecture and database schemas for the video platform.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/database-architect/role.json",
+      "prompt": "roles/database-architect/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "data-scientist",
+      "description": "Develop a search engine for videos and a recommendation system for the watch page and home feed.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/data-scientist/role.json",
+      "prompt": "roles/data-scientist/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
     }
   ],
   "assignment_rules": {

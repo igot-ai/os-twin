@@ -19,12 +19,13 @@
       }
     },
     "memory": {
-      "command": "${AGENT_DIR}/.venv/bin/python",
+      "command": "${HOME}/os-twin/A-mem-sys/.venv/bin/python",
       "args": [
-        "${AGENT_DIR}/mcp/memory-server.py"
+        "${HOME}/os-twin/A-mem-sys/mcp_server.py"
       ],
       "env": {
-        "AGENT_OS_ROOT": "${PROJECT_DIR}"
+        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
       }
     },
     "chrome-devtools": {

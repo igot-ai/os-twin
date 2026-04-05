@@ -128,7 +128,11 @@ resolve_plan_id() {
   # If it's an existing file, use it directly — backward compat
   if [[ -f "$arg" ]]; then
     RESOLVED_PLAN_FILE="$arg"
-    RESOLVED_WORKING_DIR=""
+    # Parse working_dir from the plan file
+    RESOLVED_WORKING_DIR=$(grep -E "^\s*working_dir:\s*" "$arg" | head -n 1 | awk -F': ' '{print $2}' | xargs)
+    if [[ -z "$RESOLVED_WORKING_DIR" ]]; then
+      RESOLVED_WORKING_DIR=$(grep -E "^>\s*Project:\s*" "$arg" | head -n 1 | sed 's/^>\s*Project:\s*//' | xargs)
+    fi
     return 0
   fi
 
@@ -328,7 +332,7 @@ case "${1:-}" in
     for a in "$@"; do
       if [[ "$PLAN_ARG_RESOLVED" == false && ! "$a" =~ ^-- ]]; then
         if resolve_plan_id "$a"; then
-          RUN_ARGS+=("$RESOLVED_PLAN_FILE")
+          RUN_ARGS+=("--plan-file" "$RESOLVED_PLAN_FILE")
           if [[ -n "$RESOLVED_WORKING_DIR" ]]; then
             RUN_ARGS+=("--working-dir" "$RESOLVED_WORKING_DIR")
           fi
@@ -415,7 +419,7 @@ case "${1:-}" in
       fi
       if [[ ! -d "$RESOLVED_WORKING_DIR/.agents" ]]; then
         echo "🔧 Initializing project with ostwin init..."
-        ( cd "$RESOLVED_WORKING_DIR" && "$0" init . )
+        ( cd "$RESOLVED_WORKING_DIR" && "$AGENTS_DIR/bin/ostwin" init . )
       fi
     fi
 
