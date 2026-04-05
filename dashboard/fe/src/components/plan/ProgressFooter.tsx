@@ -7,7 +7,7 @@ import { useDAG } from '@/hooks/use-epics';
 import AnalyticsPanel from './AnalyticsPanel';
 
 export default function ProgressFooter() {
-  const { plan, planId, isLoading } = usePlanContext();
+  const { plan, planId, isLoading, isContextPanelOpen, setIsContextPanelOpen, setSelectedEpicRef } = usePlanContext();
   const { progress } = useWarRoomProgress(planId);
   const { dag } = useDAG(planId);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -170,6 +170,28 @@ export default function ProgressFooter() {
         )}
 
         <div className="flex-1" />
+
+        {/* Toggle Context Panel */}
+        <button
+          onClick={() => {
+            if (isContextPanelOpen) {
+              setIsContextPanelOpen(false);
+            } else {
+              setSelectedEpicRef(null); // Show Plan Summary, not an epic
+              setIsContextPanelOpen(true);
+            }
+          }}
+          className={`px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2 ${
+            isContextPanelOpen
+              ? 'bg-primary text-white'
+              : 'bg-surface-hover text-text-main hover:bg-surface-active border border-border'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[18px]">
+            {isContextPanelOpen ? 'right_panel_close' : 'right_panel_open'}
+          </span>
+          {isContextPanelOpen ? 'Hide Summary' : 'Plan Summary'}
+        </button>
 
         {/* View Analytics Button */}
         <button

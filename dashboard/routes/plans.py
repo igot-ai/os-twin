@@ -1375,6 +1375,133 @@ async def get_plan_progress(plan_id: str, user: dict = Depends(get_current_user)
     except (json.JSONDecodeError, OSError):
         raise HTTPException(status_code=500, detail="Failed to read progress.json")
 
+
+@router.post("/api/plans/{plan_id}/epics/{epic_ref}/state")
+async def update_epic_state(plan_id: str, epic_ref: str, body: dict, user: dict = Depends(get_current_user)):
+    """Change the status of an EPIC's war-room on disk.
+
+    Writes the new status to ``room-xxx/status`` and recalculates
+    ``progress.json`` by scanning every room in the plan's warrooms dir.
+
+    Accepted body: ``{ "status": "passed" | "developing" | "pending" | ... }``
+    """
+    from dashboard.api_utils import resolve_plan_warrooms_dir
+
+    new_status = body.get("status") or body.get("lifecycle_state")
+    if not new_status:
+        raise HTTPException(status_code=422, detail="Missing 'status' in request body")
+
+    ALLOWED_STATUSES = {"passed", "developing", "pending", "engineering", "blocked", "failed-final", "signoff"}
+    if new_status not in ALLOWED_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Invalid status '{new_status}'. Allowed: {sorted(ALLOWED_STATUSES)}")
+
+    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    if not warrooms_dir.exists():
+        raise HTTPException(status_code=404, detail=f"War-rooms directory not found for plan {plan_id}")
+
+    # Find the room directory that matches this epic_ref via task-ref files
+    target_room_dir = None
+    for room_dir in sorted(warrooms_dir.glob("room-*")):
+        if not room_dir.is_dir():
+            continue
+        tr_file = room_dir / "task-ref"
+        if tr_file.exists() and tr_file.read_text().strip() == epic_ref:
+            target_room_dir = room_dir
+            break
+
+    if not target_room_dir:
+        raise HTTPException(status_code=404, detail=f"No war-room found for epic_ref '{epic_ref}' in plan {plan_id}")
+
+    # Write new status to the room's status file
+    status_file = target_room_dir / "status"
+    status_file.write_text(new_status + "\n")
+
+    # Recalculate progress.json by scanning all rooms
+    _recalculate_progress(warrooms_dir)
+
+    return {
+        "status": "updated",
+        "plan_id": plan_id,
+        "epic_ref": epic_ref,
+        "room_id": target_room_dir.name,
+        "new_status": new_status,
+    }
+
+
+def _recalculate_progress(warrooms_dir: Path):
+    """Rebuild progress.json by scanning all room-* directories.
+
+    Mirrors the logic from ``.agents/plan/Update-Progress.ps1``.
+    """
+    from datetime import datetime, timezone
+    import re as _re
+
+    total = passed = failed = blocked = active = pending = 0
+    rooms = []
+
+    for room_dir in sorted(warrooms_dir.glob("room-*")):
+        if not room_dir.is_dir():
+            continue
+        total += 1
+
+        status_file = room_dir / "status"
+        status = status_file.read_text().strip() if status_file.exists() else "pending"
+
+        tr_file = room_dir / "task-ref"
+        task_ref = tr_file.read_text().strip() if tr_file.exists() else "?"
+
+        if status == "passed":
+            passed += 1
+        elif status == "failed-final":
+            failed += 1
+        elif status == "blocked":
+            blocked += 1
+        elif status == "pending":
+            pending += 1
+        else:
+            active += 1
+
+        rooms.append({"room_id": room_dir.name, "task_ref": task_ref, "status": status})
+
+    pct_complete = round((passed / total) * 100, 1) if total > 0 else 0
+
+    # Critical path progress from DAG.json
+    critical_path_str = ""
+    dag_file = warrooms_dir / "DAG.json"
+    if dag_file.exists():
+        try:
+            dag = json.loads(dag_file.read_text())
+            cp = dag.get("critical_path", [])
+            if cp:
+                cp_passed = 0
+                for cp_ref in cp:
+                    cp_node = dag.get("nodes", {}).get(cp_ref, {})
+                    cp_room_id = cp_node.get("room_id")
+                    if cp_room_id:
+                        cp_status_file = warrooms_dir / cp_room_id / "status"
+                        if cp_status_file.exists() and cp_status_file.read_text().strip() == "passed":
+                            cp_passed += 1
+                critical_path_str = f"{cp_passed}/{len(cp)}"
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    progress_data = {
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "blocked": blocked,
+        "active": active,
+        "pending": pending,
+        "pct_complete": pct_complete,
+        "critical_path": critical_path_str,
+        "rooms": rooms,
+    }
+
+    prog_file = warrooms_dir / "progress.json"
+    prog_file.write_text(json.dumps(progress_data, indent=2) + "\n")
+
+
 @router.get("/api/plans/{plan_id}/dag")
 async def get_plan_dag(plan_id: str, user: dict = Depends(get_current_user)):
     """Return the DAG.json for a plan, read from its warrooms_dir.

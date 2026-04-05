@@ -48,6 +48,7 @@ interface PlanContextType {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  refreshProgress: () => void;
 }
 
 export const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -78,10 +79,10 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const { plan, syncStatus, isLoading: planLoading, isError: planError, reloadFromDisk } = usePlan(planId);
   const { epics: apiEpics, isLoading: epicsLoading, isError: epicsError, updateEpicState } = useEpics(planId);
   const { dag } = useDAG(planId);
-  const { progress, isLoading: isProgressLoading } = useWarRoomProgress(planId);
+  const { progress, isLoading: isProgressLoading, refresh: refreshProgress } = useWarRoomProgress(planId);
   
   const [selectedEpicRef, setSelectedEpicRef] = useState<string | null>(null);
-  const [isContextPanelOpen, setIsContextPanelOpen] = useState(true);
+  const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   // Initialize tab from URL ?tab= param, then manage via React state (SPA — no reloads)
   const [activeTab, setActiveTab] = useState(getInitialTab);
@@ -239,33 +240,61 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
 
   // Synthesize epics from progress + DAG when the /epics API returns empty
   const epics = useMemo(() => {
-    if (apiEpics && apiEpics.length > 0) {
-      // Ensure role is populated from DAG if missing in the API response
-      if (dag?.nodes) {
-        return apiEpics.map(e => ({
-          ...e,
-          role: e.role || dag.nodes[e.epic_ref]?.role || 'unknown'
-        }));
-      }
-      return apiEpics;
-    }
-    if (!progress?.rooms || !dag?.nodes) return apiEpics;
+    const result: Epic[] = [];
+    const seenRefs = new Set<string>();
 
-    return progress.rooms.map((room): Epic => {
-      const dagNode = dag.nodes[room.task_ref];
-      return {
-        epic_ref: room.task_ref,
-        plan_id: planId,
-        title: room.task_ref,
-        lifecycle_state: room.status,
-        status: room.status as EpicStatus,
-        role: dagNode?.role || 'unknown',
-        room_id: room.room_id,
-        depends_on: dagNode ? (Array.isArray(dagNode.depends_on) ? dagNode.depends_on : dagNode.depends_on ? [dagNode.depends_on] : []) : [],
-        dependents: dagNode?.dependents || [],
-        tasks: [],
-      };
-    });
+    // Build a live status map from progress.rooms — this is the source of truth
+    const progressStatusMap = new Map<string, { status: string; room_id: string }>();
+    if (progress?.rooms) {
+      for (const room of progress.rooms) {
+        progressStatusMap.set(room.task_ref, { status: room.status, room_id: room.room_id });
+      }
+    }
+
+    // 1. Add Epics from API, overriding status/lifecycle_state from live progress data
+    if (apiEpics) {
+      for (const e of apiEpics) {
+        // The /epics API may return 'epic_ref' or 'task_ref' depending on code path
+        const ref = e.epic_ref || (e as any).task_ref || '';
+        const liveRoom = progressStatusMap.get(ref);
+        result.push({
+          ...e,
+          epic_ref: ref, // normalize — ensure epic_ref is always set
+          role: e.role || (dag?.nodes ? dag.nodes[ref]?.role : 'unknown') || 'unknown',
+          // Override stale API status with live status from progress.json
+          ...(liveRoom ? {
+            lifecycle_state: liveRoom.status,
+            status: liveRoom.status as EpicStatus,
+            room_id: liveRoom.room_id || e.room_id,
+          } : {}),
+        });
+        seenRefs.add(ref);
+      }
+    }
+
+    // 2. Synthesize missing epics from progress rooms (e.g. PLAN-REVIEW)
+    if (progress?.rooms && dag?.nodes) {
+      for (const room of progress.rooms) {
+        if (!seenRefs.has(room.task_ref)) {
+          const dagNode = dag.nodes[room.task_ref];
+          result.push({
+            epic_ref: room.task_ref,
+            plan_id: planId,
+            title: room.task_ref,
+            lifecycle_state: room.status,
+            status: room.status as EpicStatus,
+            role: dagNode?.role || 'unknown',
+            room_id: room.room_id,
+            depends_on: dagNode ? (Array.isArray(dagNode.depends_on) ? dagNode.depends_on : dagNode.depends_on ? [dagNode.depends_on] : []) : [],
+            dependents: dagNode?.dependents || [],
+            tasks: [],
+          });
+          seenRefs.add(room.task_ref);
+        }
+      }
+    }
+
+    return result.length > 0 ? result : apiEpics;
   }, [apiEpics, progress, dag, planId]);
 
   const contextValue: PlanContextType = {
@@ -299,6 +328,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     redo,
     canUndo: undoStack.past.length > 0,
     canRedo: undoStack.future.length > 0,
+    refreshProgress: () => refreshProgress(),
   };
 
   if (planLoading && !plan) {
@@ -353,10 +383,10 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
           {/* Right Panel: Contextual Panel */}
           <aside
             className={`border-l bg-surface border-border flex flex-col shrink-0 transition-all duration-300 overflow-hidden ${
-              isContextPanelOpen ? 'w-[360px]' : 'w-0 border-l-0'
+              isContextPanelOpen ? 'w-[396px]' : 'w-0 border-l-0'
             }`}
           >
-            <div className="w-[360px] h-full">
+            <div className="w-[396px] h-full">
               <ContextPanel />
             </div>
           </aside>

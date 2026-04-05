@@ -39,6 +39,7 @@ if (DEMO_DIR / ".war-rooms").exists():
     if any((DEMO_DIR / ".war-rooms").glob("room-*")):
         WARROOMS_DIR = DEMO_DIR / ".war-rooms"
 SKILLS_DIRS = [
+    Path("~/.ostwin/.agents/skills").expanduser(),
     Path("~/.ostwin/skills/global").expanduser(),
     Path("~/.ostwin/skills/roles").expanduser(),
     AGENTS_DIR / "skills",
