@@ -208,6 +208,15 @@ async def startup_all():
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         # Initialize store in global state
         global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
+        
+        # Force re-index if requested via CLI flag
+        if os.environ.get("OSTWIN_REINDEX") == "true":
+            logger.info("Forcing full re-index as requested")
+            import shutil
+            if global_state.store.zvec_dir.exists():
+                shutil.rmtree(global_state.store.zvec_dir)
+                global_state.store.zvec_dir.mkdir(parents=True, exist_ok=True)
+        
         global_state.store.ensure_collections()
         global_state.store.sync_from_disk()
         from dashboard.api_utils import SKILLS_DIRS
@@ -222,3 +231,22 @@ async def startup_all():
     except Exception as e:
         logger.error(f"zvec init failed: {e}")
         global_state.store = None
+
+    # Auto-start ngrok tunnel if NGROK_AUTHTOKEN is set
+    auth_token = os.environ.get("NGROK_AUTHTOKEN")
+    if auth_token:
+        try:
+            from dashboard.tunnel import start_tunnel
+            port = int(os.environ.get("DASHBOARD_PORT", "9000"))
+            domain = os.environ.get("NGROK_DOMAIN")
+            url = await start_tunnel(port, auth_token, domain)
+            global_state.tunnel_url = url
+            logger.info("ngrok tunnel active: %s", url)
+            # Notify Telegram chats
+            try:
+                from dashboard.notify import send_message
+                await send_message(f"📡 Dashboard is live at: {url}")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error("ngrok tunnel failed: %s", e)

@@ -79,6 +79,19 @@ function Test-SkillPlatform {
     return $true   # No platform field = cross-platform
 }
 
+# Enabled gate: returns $false if the skill's SKILL.md explicitly declares enabled: false
+function Test-SkillEnabled {
+    param([string]$SkillMdPath)
+    if (-not (Test-Path $SkillMdPath)) { return $true }
+    $content = Get-Content $SkillMdPath -Raw -ErrorAction SilentlyContinue
+    if (-not $content) { return $true }
+    # Match enabled: false or enabled: 0 (case-insensitive)
+    if ($content -match '(?m)^enabled:\s*(false|0)') {
+        return $false
+    }
+    return $true
+}
+
 # --- Load role.json from HOME ~/.ostwin/roles/{RoleName}/ (authoritative source) ---
 $ostwinHome = Join-Path $env:HOME ".ostwin"
 $homeRolePath = Join-Path $ostwinHome "roles" $RoleName
@@ -118,6 +131,10 @@ if (Test-Path $jsonFile) {
                             Write-Verbose "Skipping platform-incompatible skill '$ref' (registry)"
                             continue
                         }
+                        if (-not (Test-SkillEnabled -SkillMdPath $registryPath)) {
+                            Write-Verbose "Skipping disabled skill '$ref' (registry)"
+                            continue
+                        }
                         $resolvedSkills[$ref] = [PSCustomObject]@{
                             Name = $ref
                             Path = $registryPath
@@ -138,6 +155,10 @@ if (Test-Path $jsonFile) {
                 if (Test-Path $fallbackPath) {
                     if (-not (Test-SkillPlatform -SkillMdPath $fallbackPath)) {
                         Write-Verbose "Skipping platform-incompatible skill '$ref' (fallback)"
+                        continue
+                    }
+                    if (-not (Test-SkillEnabled -SkillMdPath $fallbackPath)) {
+                        Write-Verbose "Skipping disabled skill '$ref' (fallback)"
                         continue
                     }
                     $resolvedSkills[$ref] = [PSCustomObject]@{

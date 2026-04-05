@@ -47,7 +47,7 @@ from dashboard.api_utils import (
     FE_OUT_DIR,
 )
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, files
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, files, tunnel
 from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
@@ -125,6 +125,7 @@ app.include_router(roles.router)
 app.include_router(memory.router)
 app.include_router(channels.router)
 app.include_router(files.router)
+app.include_router(tunnel.router)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:
@@ -208,6 +209,12 @@ async def on_startup():
     await startup_all()
 
 
+@app.on_event("shutdown")
+async def on_shutdown():
+    from dashboard.tunnel import stop_tunnel
+    stop_tunnel()
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -217,6 +224,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--project-dir", default=None, help="Project directory to monitor"
     )
+    parser.add_argument("--reindex", action="store_true", help="Force full re-index of vector store")
     args = parser.parse_args()
 
     if args.project_dir:
@@ -224,6 +232,11 @@ if __name__ == "__main__":
         # We need to manually update these for the print statements since they were imported early
         PROJECT_ROOT = Path(args.project_dir)
         WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
+    
+    if args.reindex:
+        os.environ["OSTWIN_REINDEX"] = "true"
+
+    os.environ.setdefault("DASHBOARD_PORT", str(args.port))
 
     print("⬡ OS Twin Command Center (Modular)")
     print(f"  Project:   {args.project_dir or PROJECT_ROOT}")

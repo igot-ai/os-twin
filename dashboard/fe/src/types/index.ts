@@ -169,6 +169,7 @@ export interface Skill {
   updated_at?: string;
   forked_from?: string;
   score?: number;
+  enabled?: boolean;
   changelog?: Array<{ version: string; date: number; changes: string }>;
   active_epics_count?: number;
 }

@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-03-29T17:24:48Z",
-  "count": 9,
+  "updated_at": "2026-04-04T13:49:37Z",
+  "count": 13,
   "entries": [
     {
       "id": "mem-cod-1774690708043958000-81954",
@@ -133,6 +133,64 @@
       ],
       "summary": "Two-tier MCP config with compilation",
       "detail": "Compiled home config into project config resolving vault refs to env vars. Secret values stored in .env.mcp (gitignored)."
+    },
+    {
+      "id": "mem-cod-1775309664879434000-59330",
+      "ts": "2026-04-04T13:34:24Z",
+      "kind": "code",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-001",
+      "tags": [
+        "zvec",
+        "uuidv7",
+        "sorting"
+      ],
+      "summary": "dashboard/zvec_store.py \u2014 Updated with UUIDv7 time_id and time-ordered sorting",
+      "detail": "Added uuid7() helper, updated all 8 schemas to include time_id, and updated query methods to support order_by_time=True. Implemented automatic schema migration."
+    },
+    {
+      "id": "mem-dec-1775309664920147000-59342",
+      "ts": "2026-04-04T13:34:24Z",
+      "kind": "decision",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-001",
+      "tags": [
+        "uuidv7",
+        "sorting"
+      ],
+      "summary": "Chose UUIDv7 for deterministic chronological sorting",
+      "detail": "UUIDv7 embeds a millisecond-precision timestamp in the first 48 bits, allowing for natural time-ordered sorting without a separate column or secondary index."
+    },
+    {
+      "id": "mem-cod-1775310577015943000-63695",
+      "ts": "2026-04-04T13:49:37Z",
+      "kind": "code",
+      "room_id": "room-003",
+      "author_role": "engineer",
+      "ref": "EPIC-003",
+      "tags": [
+        "vector-store",
+        "embeddings",
+        "harrier"
+      ],
+      "summary": "dashboard/zvec_store.py \u2014 Vector store with dynamic Harrier embeddings",
+      "detail": "Migrated to microsoft/harrier-oss-v1-0.6b (1024-dim) with dynamic dimension support and query instruction prefixes."
+    },
+    {
+      "id": "mem-dec-1775310577053141000-63703",
+      "ts": "2026-04-04T13:49:37Z",
+      "kind": "decision",
+      "room_id": "room-003",
+      "author_role": "engineer",
+      "ref": "EPIC-003",
+      "tags": [
+        "embeddings",
+        "architecture"
+      ],
+      "summary": "Chose Harrier-0.6b over 270m",
+      "detail": "Why: Harrier-0.6b provides the 1024-dim embeddings and 69.0 MTEB score mentioned in the plan, whereas 270m is 640-dim."
     }
   ]
 }

@@ -1738,11 +1738,13 @@ def load_mcp_env() -> None:
     curr = Path.cwd().resolve()
     while True:
         mcp_dir = curr / ".agents" / "mcp"
-        config_mcp = mcp_dir / "mcp-config.json"
+        config_mcp = mcp_dir / "config.json"
+        legacy_config_mcp = mcp_dir / "mcp-config.json"
+        active_config = config_mcp if config_mcp.is_file() else legacy_config_mcp
         env_mcp = mcp_dir / ".env.mcp"
         
         # If we have a project-level MCP config but no credentials file, error out
-        if config_mcp.is_file():
+        if active_config.is_file():
             if env_mcp.is_file():
                 # Found it, load it
                 try:
@@ -1767,7 +1769,7 @@ def load_mcp_env() -> None:
                 _log.getLogger("agent_os.mcp").warning(
                     "MCP config found at %s but no .env.mcp — "
                     "run 'ostwin mcp compile' if MCP servers need credentials.",
-                    config_mcp,
+                    active_config,
                 )
                 return
         

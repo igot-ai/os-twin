@@ -104,6 +104,11 @@ async function fetchJSON(path: string, options: RequestInit = {}): Promise<any> 
       console.warn(`[API] ${path} returned ${res.status}`);
       return { _error: `API returned ${res.status}` };
     }
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      console.warn(`[API] ${path} returned non-JSON content-type: ${ct}`);
+      return { _error: `API returned non-JSON response` };
+    }
     return await res.json();
   } catch (err: any) {
     console.warn(`[API] Failed to fetch ${path}: ${err.message}`);
@@ -116,6 +121,20 @@ async function postJSON(path: string, body: unknown): Promise<any> {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+// ── Tunnel / base URL ────────────────────────────────────────────
+
+async function getTunnelStatus(): Promise<{ active: boolean; url: string | null }> {
+  const data = await fetchJSON('/api/tunnel/status');
+  if (data?._error) return { active: false, url: null };
+  return { active: !!data.active, url: data.url || null };
+}
+
+export async function getBaseUrl(): Promise<string> {
+  const { active, url } = await getTunnelStatus();
+  if (active && url) return url.replace(/\/+$/, '');
+  return config.DASHBOARD_URL.replace(/\/+$/, '');
 }
 
 // ── Plans ─────────────────────────────────────────────────────────
@@ -224,6 +243,7 @@ export async function getEngagement(entityId: string): Promise<any> {
 
 // Default export as a mutable object for testability (sinon stubs)
 const api = {
+  getBaseUrl,
   getPlans,
   getPlan,
   refinePlan,

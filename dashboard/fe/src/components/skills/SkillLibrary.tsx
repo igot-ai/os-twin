@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Skill, SkillCategory } from '@/types';
 import { useSkills } from '@/hooks/use-skills';
+import { apiPatch } from '@/lib/api-client';
 import { SkillCard } from './SkillCard';
 import { SkillDetailModal } from './SkillDetailModal';
 import { ClawhubMarketplace } from './ClawhubMarketplace';
@@ -34,12 +35,38 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
   const [sortOption, setSortOption] = useState<SortOption>('name');
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [togglingSkillName, setTogglingSkillName] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
   
-  const { skills, isLoading, isError, syncWithDisk } = useSkills(
+  const { skills, isLoading, isError, syncWithDisk, refresh } = useSkills(
     selectedCategories.length === 1 ? selectedCategories[0] : undefined,
     undefined,
-    debouncedSearch || undefined
+    debouncedSearch || undefined,
+    true // includeDisabled
   );
+
+  const handleToggleSkill = async (skill: Skill) => {
+    setToggleError(null);
+    setTogglingSkillName(skill.name);
+    try {
+      const updatedSkill = await apiPatch<Skill>(`/skills/${encodeURIComponent(skill.name)}/toggle`, {});
+      await refresh(
+        (currentSkills?: Skill[]) =>
+          currentSkills?.map((currentSkill) =>
+            currentSkill.name === updatedSkill.name
+              ? { ...currentSkill, ...updatedSkill }
+              : currentSkill
+          ),
+        { revalidate: true } // revalidate after optimistic update to stay in sync
+      );
+      setSelectedSkill(current => current?.name === updatedSkill.name ? updatedSkill : current);
+    } catch (e) {
+      console.error('Failed to toggle skill:', e);
+      setToggleError(`Failed to ${skill.enabled === false ? 'enable' : 'disable'} ${skill.name}.`);
+    } finally {
+      setTogglingSkillName(null);
+    }
+  };
   
   // Debounce search
   useEffect(() => {
@@ -220,6 +247,11 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
       </div>
 
       {/* Grid */}
+      {toggleError && (
+        <div className="rounded-xl border px-4 py-3 text-sm" style={{ borderColor: '#fecaca', background: '#fef2f2', color: '#b91c1c' }}>
+          {toggleError}
+        </div>
+      )}
       {isLoading ? (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
           {[...Array(6)].map((_, i) => (
@@ -230,9 +262,11 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
           {paginatedSkills.map((skill) => (
             <SkillCard
-              key={skill.id}
+              key={skill.name}
               skill={skill}
               onClick={setSelectedSkill}
+              onToggle={handleToggleSkill}
+              isToggling={togglingSkillName === skill.name}
             />
           ))}
         </div>
@@ -300,6 +334,8 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
         skill={selectedSkill}
         onClose={() => setSelectedSkill(null)}
         onEdit={onEdit}
+        onToggle={handleToggleSkill}
+        isToggling={selectedSkill ? togglingSkillName === selectedSkill.name : false}
       />
     </div>
   );
