@@ -445,6 +445,7 @@ async def refine_plan_stream(
     try:
         async for event in agent.astream_events(
             {"messages": messages},
+            config={"recursion_limit": 100},
             version="v2",
         ):
             kind = event.get("event", "")
@@ -547,6 +548,7 @@ async def brainstorm_stream(
     try:
         async for event in agent.astream_events(
             {"messages": messages},
+            config={"recursion_limit": 100},
             version="v2",
         ):
             kind = event.get("event", "")
