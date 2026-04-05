@@ -448,19 +448,6 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
           {skill.tags.length > 4 && <span className="text-[9px]" style={{ color: 'var(--color-text-faint)' }}>+{skill.tags.length - 4}</span>}
         </div>
       )}
-
-      {/* Install progress inline */}
-      {isInstalling && (
-        <div className="flex items-center gap-2 mb-3 px-2 py-1.5 rounded-md"
-          style={{ background: 'var(--color-primary-muted)', border: '1px solid var(--color-primary-light)' }}
-        >
-          <span className="material-symbols-outlined text-sm animate-spin" style={{ color: 'var(--color-primary)' }}>progress_activity</span>
-          <span className="text-[11px] font-medium" style={{ color: 'var(--color-primary)' }}>
-            Installing <span className="font-mono">{skill.slug || skill.name}</span>...
-          </span>
-        </div>
-      )}
-
       {/* Footer */}
       <div
         className="flex items-center justify-between mt-auto pt-3 border-t border-dashed"
@@ -496,37 +483,65 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
           )}
         </div>
 
-        {/* Button changes based on state */}
-        {isInstalled ? (
-          <span className="flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold"
-            style={{ color: 'var(--color-success-text)', background: 'var(--color-success-light)', border: '1px solid var(--color-success)' }}
+        {/* Install button — expands full-width with progress shimmer while installing */}
+        <div
+          className="relative overflow-hidden rounded-md text-[11px] font-semibold text-white flex items-center gap-1.5 cursor-pointer select-none"
+          style={{
+            // Expand to fill all remaining width when installing; margin-left auto keeps it right-anchored
+            flex: isInstalling ? '1 1 0%' : '0 0 auto',
+            marginLeft: 'auto',
+            maxWidth: '100%',
+            transition: 'flex 0.35s cubic-bezier(0.4,0,0.2,1), background 0.2s',
+            background: isInstalled
+              ? 'var(--color-success-light)'
+              : phase === 'error'
+              ? 'var(--color-danger)'
+              : 'var(--color-primary)',
+            border: isInstalled ? '1px solid var(--color-success)' : 'none',
+            color: isInstalled ? 'var(--color-success-text)' : 'white',
+            padding: '6px 12px',
+            pointerEvents: isInstalling ? 'none' : 'auto',
+          }}
+          onClick={!isInstalled && !isInstalling ? (e) => { e.stopPropagation(); onInstall(); } : undefined}
+          onMouseEnter={(e) => {
+            if (!isInstalling && !isInstalled) e.currentTarget.style.opacity = '0.88';
+          }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+        >
+          {/* Shimmer progress bar overlay shown while installing */}
+          {isInstalling && (
+            <span
+              aria-hidden
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background:
+                  'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 40%, rgba(255,255,255,0.32) 50%, rgba(255,255,255,0.18) 60%, transparent 100%)',
+                backgroundSize: '200% 100%',
+                animation: 'clawhub-shimmer 1.4s linear infinite',
+              }}
+            />
+          )}
+          {/* Icon */}
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: '14px', position: 'relative', flexShrink: 0 }}
           >
-            <span className="material-symbols-outlined text-sm">check_circle</span>
-            Installed
+            {isInstalled ? 'check_circle' : phase === 'error' ? 'refresh' : isInstalling ? 'downloading' : 'download'}
           </span>
-        ) : phase === 'error' ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onInstall(); }}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold text-white transition-colors"
-            style={{ background: 'var(--color-danger)' }}
-          >
-            <span className="material-symbols-outlined text-sm">refresh</span>
-            Retry
-          </button>
-        ) : (
-          <button
-            onClick={(e) => { e.stopPropagation(); onInstall(); }}
-            disabled={isInstalling}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold text-white transition-colors disabled:opacity-50"
-            style={{ background: 'var(--color-primary)' }}
-          >
-            <span className={`material-symbols-outlined text-sm ${isInstalling ? 'animate-spin' : ''}`}>
-              {isInstalling ? 'progress_activity' : 'download'}
-            </span>
-            {isInstalling ? 'Installing...' : 'Install'}
-          </button>
-        )}
+          {/* Label */}
+          <span style={{ position: 'relative', whiteSpace: 'nowrap' }}>
+            {isInstalled ? 'Installed' : phase === 'error' ? 'Retry' : isInstalling ? `Installing ${skill.slug || skill.name}…` : 'Install'}
+          </span>
+        </div>
       </div>
+      {/* Keyframe for shimmer — injected once via a style tag */}
+      <style>{`
+        @keyframes clawhub-shimmer {
+          0%   { background-position: -100% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
     </div>
   );
 };
