@@ -165,6 +165,11 @@ if ($PlanId) {
 # Parse base role name (strip instance suffix like "engineer:fe" → "engineer")
 $baseRole = $AssignedRole -replace ':.*$', ''
 $instanceSuffix = if ($AssignedRole -match ':(.+)$') { $Matches[1] } else { '' }
+$roleJson = $null
+$roleJsonPath = Join-Path $agentsDir "roles" $baseRole "role.json"
+if (Test-Path $roleJsonPath) {
+    $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+}
 
 # Resolve model for this role: plan roles.json → instance → global config → role.json → default
 $roleModel = "gemini-3-flash-preview"
@@ -194,13 +199,17 @@ if ($roleModel -eq "gemini-3-flash-preview" -and $globalConfig) {
         $roleModel = $globalConfig.$baseRole.default_model
     }
 }
+if ($roleSkillRefs.Count -eq 0 -and $globalConfig -and $globalConfig.$baseRole -and $globalConfig.$baseRole.skill_refs) {
+    $roleSkillRefs = @($globalConfig.$baseRole.skill_refs)
+}
 
 # Priority 3: role.json fallback
-if ($roleModel -eq "gemini-3-flash-preview") {
-    $roleJsonPath = Join-Path $agentsDir "roles" $baseRole "role.json"
-    if (Test-Path $roleJsonPath) {
-        $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
-        if ($roleJson.model) { $roleModel = $roleJson.model }
+if ($roleJson) {
+    if ($roleModel -eq "gemini-3-flash-preview" -and $roleJson.model) {
+        $roleModel = $roleJson.model
+    }
+    if ($roleSkillRefs.Count -eq 0 -and $roleJson.skill_refs) {
+        $roleSkillRefs = @($roleJson.skill_refs)
     }
 }
 

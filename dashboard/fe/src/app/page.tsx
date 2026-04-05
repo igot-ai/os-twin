@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useHomeData } from '@/hooks/use-home-data';
 import { usePlans } from '@/hooks/use-plans';
 import PlanCard from '@/components/dashboard/PlanCard';
@@ -10,80 +10,44 @@ import { CommandPrompt } from '@/components/ui/CommandPrompt';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { BrandIcon } from '@/components/ui/BrandIcon';
 import { ActivityFeed } from '@/components/chat/ActivityFeed';
-import { ChatHistory } from '@/components/chat/ChatHistory';
-import { useWebSocket } from '@/hooks/use-websocket';
-import { useConversation } from '@/hooks/use-conversation';
+import type { ImageAttachment } from '@/types';
 
 export default function DashboardHomePage() {
   const router = useRouter();
-  const pathname = usePathname();
   const { data: homeData, isLoading: homeLoading } = useHomeData();
   const { plans, isLoading: plansLoading } = usePlans();
   
   const [prompt, setPrompt] = useState('');
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [isCreatingThread, setIsCreatingThread] = useState(false);
 
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [streamingContent, setStreamingContent] = useState('');
-
-  const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
-  const wsUrl = BASE_URL.replace(/^http/, 'ws') + '/ws';
-  const { lastMessage } = useWebSocket(wsUrl);
-  
-  const { mutate } = useConversation(activeConversationId || '');
-
-  // Reset conversation state when user navigates back to home
-  useEffect(() => {
-    if (pathname === '/') {
-      setActiveConversationId(null);
-      setStreamingContent('');
-    }
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!lastMessage || !activeConversationId) return;
-
-    if (lastMessage.type === 'agent_stream' && lastMessage.conversation_id === activeConversationId) {
-      setStreamingContent(prev => prev + lastMessage.chunk);
-    } else if (lastMessage.type === 'command_response' && lastMessage.conversation_id === activeConversationId) {
-      setStreamingContent('');
-      mutate();
-    }
-  }, [lastMessage, activeConversationId, mutate]);
-
-  const handleSubmitPrompt = async (submittedPrompt: string) => {
+  const handleSubmitPrompt = async (submittedPrompt: string, images?: ImageAttachment[]) => {
     try {
-      setPrompt('');
-      const payload = activeConversationId 
-        ? { message: submittedPrompt, mode: 'auto', conversation_id: activeConversationId }
-        : { message: submittedPrompt, mode: 'auto' };
-
-      const resp = await fetch((process.env.NEXT_PUBLIC_API_BASE_URL || '/api') + '/command', {
+      setIsCreatingThread(true);
+      const body: Record<string, unknown> = { message: submittedPrompt };
+      if (images && images.length > 0) {
+        body.images = images.map(img => ({ url: img.url, name: img.name, type: img.type }));
+      }
+      const resp = await fetch((process.env.NEXT_PUBLIC_API_BASE_URL || '/api') + '/plans/threads', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': 'test-key',
         },
-        body: JSON.stringify(payload)
+        credentials: 'include',
+        body: JSON.stringify(body)
       });
       
-      if (!activeConversationId) {
-        let convId = resp.headers.get('x-conversation-id');
-        if (!convId) {
-          const data = await resp.json();
-          convId = data.conversation_id;
-        }
-        if (convId) {
-          setActiveConversationId(convId);
-          window.history.pushState({}, '', `/c/${convId}`);
-        } else {
-          console.error("No conversation ID returned");
-        }
-      } else {
-        mutate();
+      if (!resp.ok) {
+        throw new Error('Failed to create thread');
       }
+
+      const data = await resp.json();
+      router.push(`/ideas/${data.thread_id}`);
     } catch (err) {
       console.error(err);
+      alert('Failed to create thread. Please try again.');
+    } finally {
+      setIsCreatingThread(false);
     }
   };
 
@@ -96,29 +60,6 @@ export default function DashboardHomePage() {
       setSelectedSuggestionIndex(prev => (prev + 1) % homeData.suggestions.length);
     }
   };
-
-  if (activeConversationId) {
-    return (
-      <div className="flex flex-col h-full relative w-full h-[calc(100vh-theme(spacing.16))]">
-        <div className="h-14 border-b border-[var(--color-border)] flex items-center px-6 shrink-0 bg-[var(--color-surface)]">
-          <h1 className="text-sm font-bold text-[var(--color-text-main)] truncate max-w-xl">
-            Conversation
-          </h1>
-        </div>
-        <ChatHistory conversationId={activeConversationId} streamingMessage={streamingContent || undefined} />
-        <div className="p-6 shrink-0 bg-[var(--color-background)]">
-          <div className="max-w-4xl mx-auto w-full">
-            <CommandPrompt
-              value={prompt}
-              onChange={setPrompt}
-              onSubmit={handleSubmitPrompt}
-              isConversationActive={true}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-[calc(100vh-theme(spacing.16))] flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-700 w-full relative pt-8 px-6 pb-24">
@@ -145,6 +86,7 @@ export default function DashboardHomePage() {
           onChange={setPrompt}
           onSubmit={handleSubmitPrompt}
           isConversationActive={false}
+          isLoading={isCreatingThread}
         />
 
         {/* Example Prompts */}

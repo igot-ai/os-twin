@@ -38,6 +38,7 @@ if command -v deepagents &>/dev/null; then
 fi
 
 # --- Load .env files ---
+# Priority: existing environment → project-root .env → .agents/.env → ~/.ostwin/.env
 _load_env_file() {
   local envfile="$1"
   [[ -f "$envfile" ]] || return 0
@@ -54,8 +55,11 @@ _load_env_file() {
     fi
   done < "$envfile"
 }
-_load_env_file "$HOME/.ostwin/.env"
+
+PROJECT_DIR="${AGENT_OS_PROJECT_DIR:-$(cd "$AGENTS_DIR/.." && pwd)}"
+_load_env_file "$PROJECT_DIR/.env"
 _load_env_file "$AGENTS_DIR/.env"
+_load_env_file "$HOME/.ostwin/.env"
 
 # --- Self-register PID for orchestration tracking ---
 # Write our PID (which exec will inherit) so the manager can track us.

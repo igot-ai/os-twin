@@ -18,6 +18,8 @@ export interface Plan {
   created_at?: string;
   updated_at?: string;
   working_dir?: string;
+  // Idea thread that generated this plan (set at promotion time)
+  thread_id?: string;
   // Backend-only fields
   content?: string;
   filename?: string;
@@ -389,3 +391,31 @@ export interface Model {
   context_window: number;
   cost_per_1m_tokens: number;
 }
+
+// ──────────────────────────────────────────────────
+// Planning Thread & Message (Ideas / Brainstorming)
+// ──────────────────────────────────────────────────
+export interface PlanningThread {
+  id: string;
+  title: string | null;
+  status: 'active' | 'promoted' | 'archived';
+  plan_id: string | null;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ImageAttachment {
+  url: string;
+  name: string;
+  type: string;
+}
+
+export interface PlanningMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  images?: ImageAttachment[];
+}
+

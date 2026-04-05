@@ -53,6 +53,15 @@ dashboard/telegram_config.json
 # ── Dashboard FE ───────────────────────────────────────────────────────────────
 dashboard/fe/pnpm-lock.yaml
 
+# ── Temp / Debug / Generated ──────────────────────────────────────────────────
+.pytest_cache/
+**/.pytest_cache/
+coverage.xml
+*.pid
+.cache/
+venv/
+**/venv/
+
 # ── OS / IDE ───────────────────────────────────────────────────────────────────
 .DS_Store
 .idea/

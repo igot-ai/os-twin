@@ -274,4 +274,198 @@ Describe "Invoke-Agent" {
             # So this might not be 0 unless we mock Resolve-RoleSkills.
         }
     }
+
+    Context "Bash wrapper path compatibility" {
+        It "keeps MCP enabled for architect by emitting --mcp-config instead of --no-mcp" {
+            $slowAgent = Join-Path $TestDrive "slow-mcp-arch-agent-$(Get-Random).sh"
+            @"
+#!/bin/bash
+sleep 1
+echo "done"
+"@ | Out-File $slowAgent -Encoding utf8 -NoNewline
+            $bashSlowAgent = ($slowAgent -replace '\\', '/')
+            if ($bashSlowAgent -match '^([A-Za-z]):/(.+)$') {
+                $bashSlowAgent = "/mnt/$($Matches[1].ToLower())/$($Matches[2])"
+            }
+            & bash -lc "chmod +x '$bashSlowAgent'"
+
+            $job = Start-Job -ScriptBlock {
+                param($invokeAgent, $roomDir, $agentCmd)
+                & $invokeAgent -RoomDir $roomDir -RoleName "architect" `
+                    -Prompt "architect mcp config test" -AgentCmd $agentCmd -TimeoutSeconds 10
+            } -ArgumentList $script:InvokeAgent, $script:roomDir, $bashSlowAgent
+
+            try {
+                $wrapperFile = Join-Path $script:roomDir "artifacts" "run-agent.sh"
+                $deadline = (Get-Date).AddSeconds(5)
+                while (-not (Test-Path $wrapperFile) -and (Get-Date) -lt $deadline) {
+                    Start-Sleep -Milliseconds 50
+                }
+
+                Test-Path $wrapperFile | Should -BeTrue
+
+                $wrapperContent = Get-Content $wrapperFile -Raw
+                $wrapperContent | Should -Match -- "--mcp-config"
+                $wrapperContent | Should -Not -Match -- "--no-mcp"
+            }
+            finally {
+                $job | Wait-Job -Timeout 15 | Out-Null
+                $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "honors explicit --no-mcp in ExtraArgs by suppressing --mcp-config" {
+            $slowAgent = Join-Path $TestDrive "slow-explicit-no-mcp-agent-$(Get-Random).sh"
+            @"
+#!/bin/bash
+sleep 1
+echo "done"
+"@ | Out-File $slowAgent -Encoding utf8 -NoNewline
+            $bashSlowAgent = ($slowAgent -replace '\\', '/')
+            if ($bashSlowAgent -match '^([A-Za-z]):/(.+)$') {
+                $bashSlowAgent = "/mnt/$($Matches[1].ToLower())/$($Matches[2])"
+            }
+            & bash -lc "chmod +x '$bashSlowAgent'"
+
+            $job = Start-Job -ScriptBlock {
+                param($invokeAgent, $roomDir, $agentCmd)
+                & $invokeAgent -RoomDir $roomDir -RoleName "architect" `
+                    -Prompt "architect explicit no mcp test" -AgentCmd $agentCmd `
+                    -ExtraArgs @("--no-mcp") -TimeoutSeconds 10
+            } -ArgumentList $script:InvokeAgent, $script:roomDir, $bashSlowAgent
+
+            try {
+                $wrapperFile = Join-Path $script:roomDir "artifacts" "run-agent.sh"
+                $deadline = (Get-Date).AddSeconds(5)
+                while (-not (Test-Path $wrapperFile) -and (Get-Date) -lt $deadline) {
+                    Start-Sleep -Milliseconds 50
+                }
+
+                Test-Path $wrapperFile | Should -BeTrue
+
+                $wrapperContent = Get-Content $wrapperFile -Raw
+                $wrapperContent | Should -Match -- "--no-mcp"
+                $wrapperContent | Should -Not -Match -- "--mcp-config"
+            }
+            finally {
+                $job | Wait-Job -Timeout 15 | Out-Null
+                $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "materializes a local-only MCP config for built-in war-room servers" {
+            $slowAgent = Join-Path $TestDrive "slow-local-mcp-agent-$(Get-Random).sh"
+            @"
+#!/bin/bash
+sleep 1
+echo "done"
+"@ | Out-File $slowAgent -Encoding utf8 -NoNewline
+            $bashSlowAgent = ($slowAgent -replace '\\', '/')
+            if ($bashSlowAgent -match '^([A-Za-z]):/(.+)$') {
+                $bashSlowAgent = "/mnt/$($Matches[1].ToLower())/$($Matches[2])"
+            }
+            & bash -lc "chmod +x '$bashSlowAgent'"
+
+            $job = Start-Job -ScriptBlock {
+                param($invokeAgent, $roomDir, $agentCmd)
+                & $invokeAgent -RoomDir $roomDir -RoleName "architect" `
+                    -Prompt "architect local mcp config test" -AgentCmd $agentCmd -TimeoutSeconds 10
+            } -ArgumentList $script:InvokeAgent, $script:roomDir, $bashSlowAgent
+
+            try {
+                $resolvedConfigFile = Join-Path $script:roomDir "artifacts" "mcp-config-resolved.json"
+                $deadline = (Get-Date).AddSeconds(5)
+                while (-not (Test-Path $resolvedConfigFile) -and (Get-Date) -lt $deadline) {
+                    Start-Sleep -Milliseconds 50
+                }
+
+                Test-Path $resolvedConfigFile | Should -BeTrue
+
+                $resolvedConfig = Get-Content $resolvedConfigFile -Raw | ConvertFrom-Json
+                $serverNames = @($resolvedConfig.mcpServers.PSObject.Properties.Name)
+                $serverNames | Should -Contain "channel"
+                $serverNames | Should -Contain "warroom"
+                $serverNames | Should -Contain "memory"
+                $serverNames | Should -Not -Contain "stitch"
+                $serverNames | Should -Not -Contain "github"
+
+                foreach ($serverName in $serverNames) {
+                    $server = $resolvedConfig.mcpServers.$serverName
+                    $server.command | Should -Match "^/"
+                    @($server.args)[0] | Should -Match "^/"
+                }
+            }
+            finally {
+                $job | Wait-Job -Timeout 15 | Out-Null
+                $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "executes the generated wrapper successfully from a Windows PowerShell invocation" {
+            $echoAgent = Join-Path $TestDrive "echo-wrapper-agent-$(Get-Random).sh"
+            @"
+#!/bin/bash
+echo "done"
+"@ | Out-File $echoAgent -Encoding utf8 -NoNewline
+            $bashEchoAgent = ($echoAgent -replace '\\', '/')
+            if ($bashEchoAgent -match '^([A-Za-z]):/(.+)$') {
+                $bashEchoAgent = "/mnt/$($Matches[1].ToLower())/$($Matches[2])"
+            }
+            & bash -lc "chmod +x '$bashEchoAgent'"
+
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "wrapper exec test" `
+                -AgentCmd $bashEchoAgent -TimeoutSeconds 10
+
+            $result.ExitCode | Should -Be 0
+            $result.Output | Should -Match "(?m)^done\s*$"
+        }
+
+        It "writes bash-style absolute paths into run-agent.sh for local files" {
+            $slowAgent = Join-Path $TestDrive "slow-wrapper-agent-$(Get-Random).sh"
+            @"
+#!/bin/bash
+sleep 1
+echo "done"
+"@ | Out-File $slowAgent -Encoding utf8 -NoNewline
+            $bashSlowAgent = ($slowAgent -replace '\\', '/')
+            if ($bashSlowAgent -match '^([A-Za-z]):/(.+)$') {
+                $bashSlowAgent = "/mnt/$($Matches[1].ToLower())/$($Matches[2])"
+            }
+            & bash -lc "chmod +x '$bashSlowAgent'"
+
+            $job = Start-Job -ScriptBlock {
+                param($invokeAgent, $roomDir, $agentCmd)
+                & $invokeAgent -RoomDir $roomDir -RoleName "engineer" `
+                    -Prompt "wrapper path test" -AgentCmd $agentCmd -TimeoutSeconds 10
+            } -ArgumentList $script:InvokeAgent, $script:roomDir, $bashSlowAgent
+
+            try {
+                $wrapperFile = Join-Path $script:roomDir "artifacts" "run-agent.sh"
+                $deadline = (Get-Date).AddSeconds(5)
+                while (-not (Test-Path $wrapperFile) -and (Get-Date) -lt $deadline) {
+                    Start-Sleep -Milliseconds 50
+                }
+
+                Test-Path $wrapperFile | Should -BeTrue
+
+                $wrapperContent = Get-Content $wrapperFile -Raw
+                $wrapperContent | Should -Match "export AGENT_OS_ROOM_DIR='/"
+                $wrapperContent | Should -Match "export AGENT_OS_PID_FILE='/"
+                $wrapperContent | Should -Match "export AGENT_OS_SKILLS_DIR='/"
+                $wrapperContent | Should -Match "export OSTWIN_HOME='/"
+                $wrapperContent | Should -Match "cat '/"
+                $wrapperContent | Should -Match ">> '/"
+                $wrapperContent | Should -Match "exec '/"
+
+                $wrapperContent | Should -Not -Match "export AGENT_OS_ROOM_DIR='[A-Za-z]:"
+                $wrapperContent | Should -Not -Match "export AGENT_OS_PID_FILE='[A-Za-z]:"
+                $wrapperContent | Should -Not -Match "exec '[A-Za-z]:"
+            }
+            finally {
+                $job | Wait-Job -Timeout 15 | Out-Null
+                $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }

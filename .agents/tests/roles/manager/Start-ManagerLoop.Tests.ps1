@@ -319,6 +319,14 @@ Describe "Start-ManagerLoop — V2 Lifecycle Unit Tests" {
             $audit = Get-Content (Join-Path $roomDir "audit.log") -Raw
             $audit | Should -Match "pending -> blocked"
         }
+
+        It "manager loop treats blocked as a terminal runtime state" {
+            $managerScript = Join-Path $script:agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
+            $content = Get-Content $managerScript -Raw
+
+            $content.Contains("if (`$status -eq 'blocked')") | Should -BeTrue `
+                -Because "blocked is a synthetic runtime status and must not be treated as an unknown lifecycle state"
+        }
     }
 
     Context "Triage state (v2)" {

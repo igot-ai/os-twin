@@ -150,6 +150,7 @@ You have been called to review the project plan and task breakdowns.
 Analyze the provided plan details.
 If the plan is well-specified, well-scoped, and ready for engineering implementation, approve it.
 If it lacks critical details, provide architectural guidance on what must be improved.
+For PLAN-REVIEW only, ignore the shared-memory publishing requirement in your base role prompt and do not post messages directly to the war-room channel. If you make plan edits, write them to the filesystem and then return your final verdict in plain output.
 
 IMPORTANT: Your response MUST conclude with exactly one of these lines:
   VERDICT: PASS
@@ -202,8 +203,14 @@ else {
 }
 
 # --- Run the agent ---
+$invokeExtraArgs = @()
+if ($taskRef -eq 'PLAN-REVIEW') {
+    $invokeExtraArgs += "--no-mcp"
+}
+
 $result = & $invokeAgent -RoomDir $RoomDir -RoleName "architect" `
-                         -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
+                         -Prompt $prompt -TimeoutSeconds $TimeoutSeconds `
+                         -ExtraArgs $invokeExtraArgs
 
 $rawOutput = $result.Output
 
@@ -249,8 +256,10 @@ if (-not $verdict) {
 }
 
 # --- Default VERDICT injection for Evaluator consistency ---
-# If architect gave feedback but forgot the keyword, assume PASS for oversight roles
-if (-not $verdict) {
+# If architect gave feedback but forgot the keyword, assume PASS only when the
+# agent subprocess actually completed successfully. Non-zero exits are runtime
+# failures and must not be converted into approval signals.
+if (-not $verdict -and $result.ExitCode -eq 0) {
     $verdict = "PASS"
     $output += "`n`nVERDICT: PASS"
 }
@@ -261,6 +270,14 @@ if ($result.TimedOut) {
                    -Type "error" -Ref $taskRef -Body "Architect timed out after ${TimeoutSeconds}s"
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level ERROR -Message "Timed out on $taskRef after ${TimeoutSeconds}s."
+    }
+}
+elseif ($result.ExitCode -ne 0) {
+    & $postMessage -RoomDir $RoomDir -From "architect" -To "manager" `
+                   -Type "error" -Ref $taskRef `
+                   -Body "Architect exited with code $($result.ExitCode): $output"
+    if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
+        Write-OstwinLog -Level ERROR -Message "Failed on $taskRef with exit code $($result.ExitCode)."
     }
 }
 elseif ($verdict -eq "PASS") {

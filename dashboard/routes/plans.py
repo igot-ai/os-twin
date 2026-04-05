@@ -36,7 +36,7 @@ def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
         return
     try:
         meta = json.loads(meta_file.read_text())
-        for key in ("working_dir", "warrooms_dir", "launched_at", "status"):
+        for key in ("working_dir", "warrooms_dir", "launched_at", "status", "thread_id"):
             if key in meta and meta[key]:
                 plan[key] = meta[key]
         plan["meta"] = meta

@@ -326,6 +326,12 @@ while (-not $script:shuttingDown) {
             # === V2 SIGNAL-BASED STATE HANDLER ===
             # All non-pending states are handled via lifecycle.json signals
             default {
+                if ($status -eq 'blocked') {
+                    $allPassed = $false
+                    $failedCount++
+                    continue
+                }
+
                 $v2StateDef = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status) { $lifecycle.states.$status } else { $null }
                 $v2MaxRetries = if ($lifecycle -and $lifecycle.max_retries) { $lifecycle.max_retries } else { $maxRetries }
 

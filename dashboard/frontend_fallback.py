@@ -76,6 +76,34 @@ def _resolve_epic_template(fe_out_dir: Path) -> Optional[Path]:
     return None
 
 
+def _resolve_ideas_template(fe_out_dir: Path) -> Optional[Path]:
+    ideas_dir = fe_out_dir / "ideas"
+    if not ideas_dir.is_dir():
+        return None
+
+    explicit = _first_existing(
+        [
+            ideas_dir / "pt-001.html",
+            ideas_dir / "pt-001" / "index.html",
+        ]
+    )
+    if explicit:
+        return explicit
+
+    html_templates = sorted(
+        path for path in ideas_dir.glob("*.html") if path.stem.startswith("pt-")
+    )
+    if html_templates:
+        return html_templates[0]
+
+    dir_templates = sorted(
+        path / "index.html"
+        for path in ideas_dir.iterdir()
+        if path.is_dir() and path.name.startswith("pt-")
+    )
+    return _first_existing(dir_templates)
+
+
 def resolve_frontend_file(fe_out_dir: Path, path: str) -> Path:
     normalized = path.strip("/")
     if not normalized:
@@ -99,6 +127,11 @@ def resolve_frontend_file(fe_out_dir: Path, path: str) -> Path:
         epic_template = _resolve_epic_template(fe_out_dir)
         if epic_template:
             return epic_template
+
+    if len(parts) == 2 and parts[0] == "ideas":
+        ideas_template = _resolve_ideas_template(fe_out_dir)
+        if ideas_template:
+            return ideas_template
 
     if len(parts) == 2 and parts[0] == "plans":
         plan_template = _resolve_plan_template(fe_out_dir)

@@ -209,6 +209,19 @@ Describe "New-WarRoom" {
             $config = Get-Content (Join-Path $script:warRoomsDir "room-role-03" "config.json") -Raw | ConvertFrom-Json
             $config.assignment.assigned_role | Should -Be "engineer:be"
         }
+
+        It "includes baseline skill_refs from the base role definition when no plan override exists" {
+            & $script:NewWarRoom -RoomId "room-role-04" -TaskRef "TASK-103" `
+                                 -TaskDescription "FE work" -WarRoomsDir $script:warRoomsDir `
+                                 -AssignedRole "engineer:fe"
+
+            $roleFile = Get-ChildItem (Join-Path $script:warRoomsDir "room-role-04") -Filter "engineer_*.json" | Select-Object -First 1
+            $roleConfig = Get-Content $roleFile.FullName -Raw | ConvertFrom-Json
+            $roleConfig.skill_refs | Should -Contain "implement-epic"
+            $roleConfig.skill_refs | Should -Contain "fix-from-qa"
+            $roleConfig.skill_refs | Should -Contain "refactor-code"
+            $roleConfig.skill_refs | Should -Contain "write-tests"
+        }
     }
 
     Context "Contexts directory" {

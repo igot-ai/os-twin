@@ -15,7 +15,8 @@
   ],
   "skill_refs": [
     "create-architecture",
-    "create-lifecycle"
+    "create-lifecycle",
+    "create-role"
   ],
   "cli": "agent",
   "model": "gemini-3-flash-preview",

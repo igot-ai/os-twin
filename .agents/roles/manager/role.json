@@ -12,8 +12,10 @@
   "prompt_file": "ROLE.md",
   "quality_gates": [],
   "skill_refs": [
-    "risk-decision",
-    "war-room-communication"
+    "assign-epic",
+    "coordinate-release",
+    "discover-skills",
+    "triage-failure"
   ],
   "cli": "agent",
   "model": "gemini-3.1-pro-preview",

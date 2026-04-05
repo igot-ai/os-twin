@@ -14,7 +14,12 @@
     "lint-clean",
     "no-hardcoded-secrets"
   ],
-  "skill_refs": [],
+  "skill_refs": [
+    "implement-epic",
+    "fix-from-qa",
+    "refactor-code",
+    "write-tests"
+  ],
   "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 600

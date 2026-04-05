@@ -3,8 +3,10 @@
     Resolves a set of skills for a specific role following a hierarchical resolution strategy.
 
 .DESCRIPTION
-    Always loads role.json from HOME ~/.ostwin/roles/{RoleName}/role.json (authoritative source).
-    Searches both 'capabilities' and 'skill_refs' fields from the role definition.
+    Loads role.json from HOME ~/.ostwin/roles/{RoleName}/role.json when available,
+    and falls back to / merges with the provided RolePath role.json.
+    Resolves global skills, role-specific skills, and explicit skill_refs.
+    Capabilities are treated as soft hints rather than mandatory skill refs.
 
     Resolution strategy (for each ref):
     1. Registry lookup: from ~/.ostwin/roles/registry.json
@@ -16,8 +18,7 @@
 .PARAMETER RoleName
     Name of the role (e.g., engineer, architect).
 .PARAMETER RolePath
-    Legacy parameter — no longer used for role.json loading.
-    Role.json is always loaded from ~/.ostwin/roles/{RoleName}/.
+    Local role directory or role.json path used as fallback / overlay metadata.
 .PARAMETER SkillsBaseDir
     Optional. Override for the base skills directory (defaults to ../../skills).
 .PARAMETER DashboardUrl
@@ -63,6 +64,7 @@ if (-not $ApiKey) {
 }
 
 $resolvedSkills = @{} # Using hashtable for deduplication by Name
+$baseRole = $RoleName -replace ':.*$', ''
 
 # Platform gate: returns $true if the skill's SKILL.md declares a platform list that
 # includes the current OS, or if no platform field is present (cross-platform).
@@ -79,108 +81,135 @@ function Test-SkillPlatform {
     return $true   # No platform field = cross-platform
 }
 
-# --- Load role.json from HOME ~/.ostwin/roles/{RoleName}/ (authoritative source) ---
-$ostwinHome = Join-Path $env:HOME ".ostwin"
-$homeRolePath = Join-Path $ostwinHome "roles" $RoleName
-$jsonFile = Join-Path $homeRolePath "role.json"
+function Add-ResolvedSkill {
+    param(
+        [string]$Name,
+        [string]$Path,
+        [string]$Tier
+    )
 
-Write-Verbose "Loading role.json from HOME: $jsonFile"
+    if (-not $Name -or -not $Path) { return }
+    if (-not (Test-Path $Path)) { return }
+    if (-not (Test-SkillPlatform -SkillMdPath $Path)) { return }
 
-if (Test-Path $jsonFile) {
-    try {
-        $roleData = Get-Content $jsonFile -Raw | ConvertFrom-Json
+    $resolvedSkills[$Name] = [PSCustomObject]@{
+        Name = $Name
+        Path = $Path
+        Tier = $Tier
+    }
+}
 
-        # Collect refs from both capabilities and skill_refs
-        $allRefs = @()
-        if ($roleData.skill_refs) {
-            $allRefs += @($roleData.skill_refs)
+function Get-HomeBase {
+    if ($env:HOME) { return $env:HOME }
+    if ($HOME) { return "$HOME" }
+    if ($env:USERPROFILE) { return $env:USERPROFILE }
+    return $null
+}
+
+function Get-RoleJsonCandidates {
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    $homeBase = Get-HomeBase
+
+    if ($homeBase) {
+        $homeRoleRoot = Join-Path (Join-Path $homeBase ".ostwin") "roles"
+        $homeRoleJson = Join-Path (Join-Path $homeRoleRoot $baseRole) "role.json"
+        if (Test-Path $homeRoleJson) { $candidates.Add($homeRoleJson) }
+    }
+
+    if ($RolePath) {
+        $localRoleJson = if ((Test-Path $RolePath) -and (Get-Item $RolePath).PSIsContainer) {
+            Join-Path $RolePath "role.json"
+        } else {
+            $RolePath
         }
-        if ($roleData.capabilities) {
-            $allRefs += @($roleData.capabilities)
+        if ($localRoleJson -and (Test-Path $localRoleJson) -and -not $candidates.Contains($localRoleJson)) {
+            $candidates.Add($localRoleJson)
         }
-        # Deduplicate
-        $allRefs = $allRefs | Select-Object -Unique
+    }
 
-        if ($allRefs.Count -gt 0) {
-            # Registry always from HOME ~/.ostwin/roles/registry.json
-            $registryFile = Join-Path $ostwinHome "roles" "registry.json"
-            $registry = if (Test-Path $registryFile) { Get-Content $registryFile -Raw | ConvertFrom-Json } else { $null }
+    return $candidates
+}
 
-            foreach ($ref in $allRefs) {
-                # Look for ref in registry first
-                $skillFromRegistry = if ($registry) { $registry.skills.available | Where-Object { $_.name -eq $ref } } else { $null }
-                $registryPath = $null
-                
-                if ($skillFromRegistry) {
-                    $registryPath = Join-Path (Split-Path $registryFile -Parent) ".." $skillFromRegistry.path
-                    if (Test-Path $registryPath) {
-                        if (-not (Test-SkillPlatform -SkillMdPath $registryPath)) {
-                            Write-Verbose "Skipping platform-incompatible skill '$ref' (registry)"
-                            continue
-                        }
-                        $resolvedSkills[$ref] = [PSCustomObject]@{
-                            Name = $ref
-                            Path = $registryPath
-                            Tier = "Explicit"
-                        }
-                        continue
-                    }
+function Get-RegistryCandidates {
+    $registryCandidates = [System.Collections.Generic.List[string]]::new()
+    $homeBase = Get-HomeBase
+
+    if ($homeBase) {
+        $homeRegistry = Join-Path (Join-Path (Join-Path $homeBase ".ostwin") "roles") "registry.json"
+        if (Test-Path $homeRegistry) { $registryCandidates.Add($homeRegistry) }
+    }
+
+    $localRegistry = Join-Path (Join-Path (Split-Path $SkillsBaseDir -Parent) "roles") "registry.json"
+    if ((Test-Path $localRegistry) -and -not $registryCandidates.Contains($localRegistry)) {
+        $registryCandidates.Add($localRegistry)
+    }
+
+    return $registryCandidates
+}
+
+function Resolve-SkillRef {
+    param(
+        [string]$Ref,
+        [bool]$Strict = $true,
+        [bool]$Force = $false
+    )
+
+    if (-not $Ref) { return $false }
+    if ($resolvedSkills.ContainsKey($Ref) -and -not $Force) { return $true }
+
+    $registryPath = $null
+    foreach ($registryFile in (Get-RegistryCandidates)) {
+        try {
+            $registry = Get-Content $registryFile -Raw | ConvertFrom-Json
+            $skillFromRegistry = $registry.skills.available | Where-Object { $_.name -eq $Ref } | Select-Object -First 1
+            if ($skillFromRegistry -and $skillFromRegistry.path) {
+                $candidatePath = Join-Path (Split-Path $registryFile -Parent) ".." $skillFromRegistry.path
+                if (Test-Path $candidatePath) {
+                    Add-ResolvedSkill -Name $Ref -Path $candidatePath -Tier "Explicit"
+                    return $true
+                }
+                $registryPath = $candidatePath
+            }
+        } catch {
+            Write-Verbose "Failed to inspect registry '$registryFile' for '$Ref': $_"
+        }
+    }
+
+    $fallbackPaths = @(
+        (Join-Path $SkillsBaseDir $Ref "SKILL.md"),
+        (Join-Path $SkillsBaseDir "global" $Ref "SKILL.md"),
+        (Join-Path $SkillsBaseDir "roles" $baseRole $Ref "SKILL.md")
+    ) | Select-Object -Unique
+
+    foreach ($fallbackPath in $fallbackPaths) {
+        if (Test-Path $fallbackPath) {
+            Add-ResolvedSkill -Name $Ref -Path $fallbackPath -Tier "Explicit"
+            return $true
+        }
+    }
+
+    if ($ApiKey) {
+        try {
+            $headers = @{ "X-API-Key" = $ApiKey }
+            $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($Ref))&role=$([uri]::EscapeDataString($baseRole))"
+            $response = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop
+
+            $matchedSkill = $null
+            if ($response -is [array] -and $response.Count -gt 0) {
+                $matchedSkill = $response | Where-Object { $_.name -eq $Ref } | Select-Object -First 1
+                if (-not $matchedSkill) { $matchedSkill = $response[0] }
+            }
+
+            if ($matchedSkill -and $matchedSkill.relative_path -and $matchedSkill.content) {
+                $subPath = $matchedSkill.relative_path -replace '^skills/', ''
+                $localSkillDir = Join-Path $SkillsBaseDir $subPath
+                $localSkillMd = Join-Path $localSkillDir "SKILL.md"
+
+                if (-not (Test-Path $localSkillDir)) {
+                    New-Item -ItemType Directory -Path $localSkillDir -Force | Out-Null
                 }
 
-                # Check if already resolved
-                if ($resolvedSkills.ContainsKey($ref)) {
-                    continue
-                }
-
-                # Fallback to skills/<ref>/SKILL.md
-                $fallbackPath = Join-Path $SkillsBaseDir $ref "SKILL.md"
-
-                if (Test-Path $fallbackPath) {
-                    if (-not (Test-SkillPlatform -SkillMdPath $fallbackPath)) {
-                        Write-Verbose "Skipping platform-incompatible skill '$ref' (fallback)"
-                        continue
-                    }
-                    $resolvedSkills[$ref] = [PSCustomObject]@{
-                        Name = $ref
-                        Path = $fallbackPath
-                        Tier = "Explicit"
-                    }
-                }
-                else {
-                    # --- 4. Backend Fallback: search dashboard API ---
-                    $fetched = $false
-                    if ($ApiKey) {
-                        try {
-                            $headers = @{ "X-API-Key" = $ApiKey }
-                            $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($ref))&role=$([uri]::EscapeDataString($RoleName))"
-                            $response = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop
-
-                            # Find matching skill from search results
-                            $matchedSkill = $null
-                            if ($response -is [array] -and $response.Count -gt 0) {
-                                # Prefer exact name match, then first result
-                                $matchedSkill = $response | Where-Object { $_.name -eq $ref } | Select-Object -First 1
-                                if (-not $matchedSkill) {
-                                    $matchedSkill = $response[0]
-                                }
-                            }
-
-                            if ($matchedSkill -and $matchedSkill.relative_path -and $matchedSkill.content -and (Test-SkillPlatform -SkillMdPath (Join-Path $SkillsBaseDir ($matchedSkill.relative_path -replace '^skills/', '') "SKILL.md"))) {
-                                # Determine local destination using relative_path
-                                # relative_path is like "skills/roles/engineer/write-tests"
-                                $relPath = $matchedSkill.relative_path
-                                # Strip leading "skills/" prefix to get path relative to SkillsBaseDir
-                                $subPath = $relPath -replace '^skills/', ''
-                                $localSkillDir = Join-Path $SkillsBaseDir $subPath
-                                $localSkillMd = Join-Path $localSkillDir "SKILL.md"
-
-                                # Create directory and write SKILL.md
-                                if (-not (Test-Path $localSkillDir)) {
-                                    New-Item -ItemType Directory -Path $localSkillDir -Force | Out-Null
-                                }
-
-                                # Reconstruct full SKILL.md with frontmatter
-                                $frontmatter = @"
+                $frontmatter = @"
 ---
 name: $($matchedSkill.name)
 description: "$($matchedSkill.description)"
@@ -188,44 +217,78 @@ tags: [$($matchedSkill.tags -join ', ')]
 trust_level: $($matchedSkill.trust_level)
 ---
 "@
-                                $fullContent = "$frontmatter`n`n$($matchedSkill.content)"
-                                $fullContent | Out-File -FilePath $localSkillMd -Encoding utf8 -Force
+                $fullContent = "$frontmatter`n`n$($matchedSkill.content)"
+                $fullContent | Out-File -FilePath $localSkillMd -Encoding utf8 -Force
 
-                                $resolvedSkills[$ref] = [PSCustomObject]@{
-                                    Name = $matchedSkill.name
-                                    Path = $localSkillMd
-                                    Tier = "Backend"
-                                }
-                                Write-Verbose "Fetched skill '$ref' from backend → $localSkillMd"
-                                $fetched = $true
-                            }
-                        }
-                        catch {
-                            Write-Verbose "Backend skill search failed for '$ref': $_"
-                        }
-                    }
-
-                    if (-not $fetched) {
-                        $errorMsg = "Skill Not Found: Explicitly referenced skill '$ref' not found."
-                        if ($registryPath) {
-                            $errorMsg += " Registry path tried: $registryPath."
-                        }
-                        $errorMsg += " Fallback path tried: $fallbackPath."
-                        if ($ApiKey) {
-                            $errorMsg += " Backend search also failed."
-                        }
-                        throw $errorMsg
-                    }
-                }
+                Add-ResolvedSkill -Name $matchedSkill.name -Path $localSkillMd -Tier "Backend"
+                return $true
             }
+        }
+        catch {
+            Write-Verbose "Backend skill search failed for '$Ref': $_"
+        }
+    }
+
+    if ($Strict) {
+        $errorMsg = "Skill Not Found: Explicitly referenced skill '$Ref' not found."
+        if ($registryPath) {
+            $errorMsg += " Registry path tried: $registryPath."
+        }
+        $errorMsg += " Fallback paths tried: $($fallbackPaths -join ', ')."
+        if ($ApiKey) {
+            $errorMsg += " Backend search also failed."
+        }
+        throw $errorMsg
+    }
+
+    return $false
+}
+
+# Baseline: all global skills are available to every role.
+$globalSkillsDir = Join-Path $SkillsBaseDir "global"
+if (Test-Path $globalSkillsDir) {
+    Get-ChildItem -Path $globalSkillsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $skillMd = Join-Path $_.FullName "SKILL.md"
+        Add-ResolvedSkill -Name $_.Name -Path $skillMd -Tier "Global"
+    }
+}
+
+# Role-local skills are available to matching roles and override globals by name.
+$roleSkillsDir = Join-Path $SkillsBaseDir "roles" $baseRole
+if (Test-Path $roleSkillsDir) {
+    Get-ChildItem -Path $roleSkillsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $skillMd = Join-Path $_.FullName "SKILL.md"
+        Add-ResolvedSkill -Name $_.Name -Path $skillMd -Tier "Role"
+    }
+}
+
+$explicitRefs = @()
+$capabilityRefs = @()
+foreach ($jsonFile in (Get-RoleJsonCandidates)) {
+    Write-Verbose "Loading role.json for skills: $jsonFile"
+    try {
+        $roleData = Get-Content $jsonFile -Raw | ConvertFrom-Json
+        if ($roleData.skill_refs) {
+            $explicitRefs += @($roleData.skill_refs)
+        }
+        if ($roleData.capabilities) {
+            $capabilityRefs += @($roleData.capabilities)
         }
     }
     catch {
-        if ($_.ToString() -match "Skill Not Found") {
-            throw $_
-        }
         Write-Warning "Failed to parse role.json for skills: $_"
     }
+}
+
+$explicitRefs = @($explicitRefs | Where-Object { $_ } | Select-Object -Unique)
+$capabilityRefs = @($capabilityRefs | Where-Object { $_ } | Select-Object -Unique)
+
+foreach ($capabilityRef in $capabilityRefs) {
+    Resolve-SkillRef -Ref $capabilityRef -Strict $false -Force $false | Out-Null
+}
+
+foreach ($explicitRef in $explicitRefs) {
+    Resolve-SkillRef -Ref $explicitRef -Strict $true -Force $true | Out-Null
 }
 
 return $resolvedSkills.Values | Sort-Object Tier, Name

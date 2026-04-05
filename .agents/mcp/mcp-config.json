@@ -35,26 +35,6 @@
         "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
         "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
       }
-    },
-    "stitch": {
-      "httpUrl": "https://stitch.googleapis.com/mcp",
-      "headers": {
-        "X-Goog-Api-Key": "${MCP_STITCH_API_KEY}"
-      },
-      "env": {
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
-      }
-    },
-    "github": {
-      "command": "npx -y @modelcontextprotocol/server-github",
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${MCP_GITHUB_GITHUB_PERSONAL_ACCESS_TOKEN}",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
-      }
     }
   }
 }

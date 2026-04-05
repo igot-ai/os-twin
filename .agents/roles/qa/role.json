@@ -12,7 +12,11 @@
     "verdict-required",
     "evidence-based-review"
   ],
-  "skill_refs": [],
+  "skill_refs": [
+    "review-epic",
+    "review-task",
+    "security-review"
+  ],
   "cli": "agent",
   "model": "gemini-3-flash-preview",
   "timeout": 300,

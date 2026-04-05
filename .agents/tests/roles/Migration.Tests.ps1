@@ -56,6 +56,44 @@ Describe "Role Definition Migration" {
         $roleData.skill_refs | Should -Contain "create-lifecycle"
         $roleData.skill_refs | Should -Contain "create-role"
     }
+
+    It "Core implementation and orchestration roles should declare baseline skill_refs" {
+        $expectedByRole = [ordered]@{
+            "engineer" = @("implement-epic", "fix-from-qa", "refactor-code", "write-tests")
+            "backend-engineer" = @("implement-epic", "fix-from-qa", "refactor-code", "write-tests")
+            "frontend-engineer" = @("implement-epic", "fix-from-qa", "refactor-code", "write-tests")
+            "qa" = @("review-epic", "review-task", "security-review")
+            "reporter" = @("generate-report", "data-visualization")
+            "manager" = @("assign-epic", "coordinate-release", "discover-skills", "triage-failure")
+        }
+
+        foreach ($roleName in $expectedByRole.Keys) {
+            $roleFile = Join-Path $script:rolesDir $roleName "role.json"
+            $roleData = Get-Content $roleFile -Raw | ConvertFrom-Json
+            foreach ($skillName in $expectedByRole[$roleName]) {
+                $roleData.skill_refs | Should -Contain $skillName
+            }
+        }
+    }
+
+    It "Aggregate role catalog should mirror baseline skill_refs for shipped core roles" {
+        $catalogFile = Join-Path $script:rolesDir "config.json"
+        $catalog = Get-Content $catalogFile -Raw | ConvertFrom-Json
+        $expectedByRole = [ordered]@{
+            "engineer" = @("implement-epic", "fix-from-qa", "refactor-code", "write-tests")
+            "qa" = @("review-epic", "review-task", "security-review")
+            "manager" = @("assign-epic", "coordinate-release", "discover-skills", "triage-failure")
+            "reporter" = @("generate-report", "data-visualization")
+        }
+
+        foreach ($roleName in $expectedByRole.Keys) {
+            $catalogRole = $catalog | Where-Object { $_.name -eq $roleName } | Select-Object -First 1
+            $catalogRole | Should -Not -BeNullOrEmpty
+            foreach ($skillName in $expectedByRole[$roleName]) {
+                $catalogRole.skill_refs | Should -Contain $skillName
+            }
+        }
+    }
 }
 
 Describe "SKILL.md Frontmatter Migration" {
@@ -91,5 +129,13 @@ Describe "Manager Configuration" {
     It "config.json should have preflight_skill_check: warn" {
         $config = Get-Content $script:configFile -Raw | ConvertFrom-Json
         $config.manager.preflight_skill_check | Should -Be "warn"
+    }
+
+    It "manager config should declare orchestration skill_refs" {
+        $config = Get-Content $script:configFile -Raw | ConvertFrom-Json
+        $config.manager.skill_refs | Should -Contain "assign-epic"
+        $config.manager.skill_refs | Should -Contain "coordinate-release"
+        $config.manager.skill_refs | Should -Contain "discover-skills"
+        $config.manager.skill_refs | Should -Contain "triage-failure"
     }
 }

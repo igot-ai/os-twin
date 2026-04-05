@@ -48,7 +48,7 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, command
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, command, threads
 from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
@@ -117,6 +117,7 @@ app.add_middleware(
 # (removed importlib logic for ws_router)
 app.include_router(auth.router)
 app.include_router(engagement.router)
+app.include_router(threads.router)
 app.include_router(plans.router)
 app.include_router(rooms.router)
 app.include_router(system.router)

@@ -16,8 +16,10 @@
     "external_roles_dirs": [],
     "timeout_seconds": 2400,
     "skill_refs": [
-      "risk-decision",
-      "war-room-communication"
+      "assign-epic",
+      "coordinate-release",
+      "discover-skills",
+      "triage-failure"
     ]
   },
   "architect": {
@@ -26,8 +28,7 @@
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400,
-    "no_mcp": true
+    "max_prompt_bytes": 102400
   },
   "engineer": {
     "cli": "agent",
@@ -63,6 +64,12 @@
         ]
       }
     }
+  },
+  "backend-engineer": {
+    "no_mcp": true
+  },
+  "frontend-engineer": {
+    "no_mcp": true
   },
   "reporter": {
     "cli": "agent",

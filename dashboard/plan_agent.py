@@ -311,10 +311,25 @@ def create_plan_agent(
 # ── Invoke helpers ─────────────────────────────────────────────────
 
 
+def _make_human_content(text: str, images: list[dict] | None = None) -> str | list:
+    """Build HumanMessage content — plain string or multimodal blocks."""
+    if not images:
+        return text
+    blocks: list[dict] = []
+    if text:
+        blocks.append({"type": "text", "text": text})
+    for img in images:
+        url = img.get("url", "")
+        if url:
+            blocks.append({"type": "image_url", "image_url": {"url": url}})
+    return blocks if blocks else text
+
+
 def build_messages(
     user_message: str,
     plan_content: str = "",
     chat_history: list[dict] | None = None,
+    images: list[dict] | None = None,
 ) -> list:
     """Build the message list for the agent invocation.
 
@@ -322,6 +337,7 @@ def build_messages(
         user_message: The user's latest instruction.
         plan_content: Current editor content to provide as context.
         chat_history: Previous conversation turns [{role, content}, ...].
+        images: Optional images for the latest user message.
 
     Returns:
         List of LangChain message objects.
@@ -342,12 +358,13 @@ def build_messages(
             role = msg.get("role", "user")
             content = msg.get("content", "")
             if role == "user":
-                messages.append(HumanMessage(content=content))
+                hist_images = msg.get("images")
+                messages.append(HumanMessage(content=_make_human_content(content, hist_images)))
             elif role == "assistant":
                 messages.append(AIMessage(content=content))
 
     # Add the latest user message
-    messages.append(HumanMessage(content=user_message))
+    messages.append(HumanMessage(content=_make_human_content(user_message, images)))
 
     return messages
 
@@ -470,3 +487,84 @@ async def summarize_plan(
     if isinstance(content, list):
         content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
     return content.strip()
+
+
+BRAINSTORM_SYSTEM_PROMPT = """\
+You are an expert brainstorming partner and system architect.
+Your goal is to help the user explore ideas, refine their problem space,
+understand their target users, and map out their tech stack and architecture.
+
+You DO NOT need to output structured plans (no EXPLANATION, ACTIONS, or PLAN sections).
+Just have a natural, helpful conversation.
+Ask clarifying questions to dig deeper into the user's intent.
+Provide suggestions, trade-offs, and examples to guide them.
+Be concise but insightful.
+"""
+
+def create_brainstorm_agent(model: str = ""):
+    """Create a deepagent configured for pure brainstorming conversation.
+
+    Args:
+        model: LLM model identifier. Supports formats:
+               - Empty string: auto-detect from env vars
+               - "provider:model"
+               - Plain model name
+
+    Returns:
+        A compiled LangGraph agent without tools.
+    """
+    chat_model = _resolve_model(model)
+    logger.info("Brainstorm agent using model: %s", type(chat_model).__name__)
+
+    agent = create_deep_agent(
+        model=chat_model,
+        tools=[],
+        system_prompt=BRAINSTORM_SYSTEM_PROMPT,
+    )
+
+    return agent
+
+async def brainstorm_stream(
+    user_message: str,
+    chat_history: list[dict] | None = None,
+    model: str = "",
+    images: list[dict] | None = None,
+) -> AsyncIterator[str]:
+    """Stream the brainstorm agent's response token-by-token.
+
+    Args:
+        user_message: User's next instruction/message.
+        chat_history: Previous conversation turns [{role, content}, ...].
+        model: LLM model to use.
+        images: Optional images for the current message.
+
+    Returns:
+        AsyncIterator of string tokens.
+    """
+    agent = create_brainstorm_agent(model=model)
+    messages = build_messages(user_message, plan_content="", chat_history=chat_history, images=images)
+
+    try:
+        async for event in agent.astream_events(
+            {"messages": messages},
+            version="v2",
+        ):
+            kind = event.get("event", "")
+            if kind == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    content = chunk.content
+                    # Gemini returns content as a list of blocks:
+                    #   [{"type": "text", "text": "..."}]
+                    # Other providers return a plain string.
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("text"):
+                                yield block["text"]
+                            elif isinstance(block, str):
+                                yield block
+                    elif isinstance(content, str):
+                        yield content
+    except Exception as e:
+        logger.error("Brainstorm agent streaming error: %s", e)
+        yield f"\n\n[Error: {str(e)}]"

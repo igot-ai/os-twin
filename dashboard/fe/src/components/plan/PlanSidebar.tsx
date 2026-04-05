@@ -13,6 +13,7 @@ export default function PlanSidebar() {
     { id: 'roles', label: 'Roles & Config', icon: 'group' },
     { id: 'dag', label: 'DAG View', icon: 'account_tree' },
     { id: 'history', label: 'History', icon: 'history' },
+    { id: 'architect', label: 'AI Plan', icon: 'smart_toy' },
   ];
 
   if (!plan) return null;

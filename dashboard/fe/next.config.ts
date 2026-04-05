@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+// Force build cache invalidation: v3
+
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:9000';
 
 const isDev = process.env.NODE_ENV === 'development';

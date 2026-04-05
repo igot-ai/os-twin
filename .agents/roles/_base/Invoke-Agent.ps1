@@ -67,11 +67,112 @@ $Quiet = $true
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
 
 # Resolve OSTWIN_HOME: env var → ~/.ostwin
-$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+$homeDir = if ($env:HOME) {
+    $env:HOME
+}
+elseif ($env:USERPROFILE) {
+    $env:USERPROFILE
+}
+else {
+    [System.Environment]::GetFolderPath('UserProfile')
+}
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $homeDir ".ostwin" }
 
 # Ensure RoomDir is absolute for bash wrapper consistency (EPIC-002)
 # Using GetUnresolvedProviderPathFromPSPath to handle non-existent paths (unlikely but safe)
 $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RoomDir)
+
+function Convert-ToBashPath {
+    param([string]$Path)
+
+    if (-not $Path) { return $Path }
+
+    $candidate = $Path.Trim()
+    if ($candidate.Length -ge 2 -and (
+        ($candidate.StartsWith("'") -and $candidate.EndsWith("'")) -or
+        ($candidate.StartsWith('"') -and $candidate.EndsWith('"'))
+    )) {
+        $candidate = $candidate.Substring(1, $candidate.Length - 2)
+    }
+
+    if ($candidate -match '^[A-Za-z]:[\\/]') {
+        $drive = $candidate.Substring(0, 1).ToLower()
+        $rest = $candidate.Substring(2).Replace('\', '/')
+        if ($rest.StartsWith('/')) { $rest = $rest.Substring(1) }
+        return "/mnt/$drive/$rest"
+    }
+
+    return $candidate.Replace('\', '/')
+}
+
+function Convert-ToBashCommand {
+    param([string]$Command)
+
+    if (-not $Command) { return $Command }
+
+    $candidate = $Command.Trim()
+    if ($candidate.Length -ge 2 -and (
+        ($candidate.StartsWith("'") -and $candidate.EndsWith("'")) -or
+        ($candidate.StartsWith('"') -and $candidate.EndsWith('"'))
+    )) {
+        $candidate = $candidate.Substring(1, $candidate.Length - 2)
+    }
+
+    try {
+        if (Test-Path -LiteralPath $candidate) {
+            $candidate = (Resolve-Path -LiteralPath $candidate -ErrorAction Stop).Path
+        }
+    } catch { }
+
+    if ($candidate -match '^[A-Za-z]:[\\/]' -or $candidate -match '^/') {
+        $safe = (Convert-ToBashPath $candidate) -replace "'", "'\''"
+        return "'$safe'"
+    }
+
+    return $Command
+}
+
+function New-LocalMcpConfig {
+    param(
+        [string]$ProjectDir,
+        [string]$AgentsDir,
+        [string]$OstwinHome
+    )
+
+    $mcpAgentsRoot = Join-Path $OstwinHome ".agents"
+    $channelServer = Join-Path $mcpAgentsRoot "mcp" "channel-server.py"
+    if (-not (Test-Path $channelServer)) {
+        $mcpAgentsRoot = $AgentsDir
+        $channelServer = Join-Path $mcpAgentsRoot "mcp" "channel-server.py"
+    }
+
+    $mcpPython = if ($env:OSTWIN_PYTHON) {
+        $env:OSTWIN_PYTHON
+    }
+    else {
+        Join-Path (Join-Path $OstwinHome ".venv") "bin/python"
+    }
+
+    $rootValue = if ($ProjectDir) { Convert-ToBashPath $ProjectDir } else { "." }
+    $serverNames = @("channel", "warroom", "memory")
+    $servers = [ordered]@{}
+    foreach ($serverName in $serverNames) {
+        $serverPath = Join-Path $mcpAgentsRoot "mcp" "$serverName-server.py"
+        if (-not (Test-Path $serverPath)) { continue }
+
+        $servers[$serverName] = [ordered]@{
+            command = (Convert-ToBashPath $mcpPython)
+            args    = @((Convert-ToBashPath $serverPath))
+            env     = [ordered]@{
+                AGENT_OS_ROOT = $rootValue
+            }
+        }
+    }
+
+    return [ordered]@{
+        mcpServers = $servers
+    }
+}
 
 # --- Load config ---
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
@@ -276,6 +377,11 @@ if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
 if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
 if ($Quiet) { $extraCliArgs += "--quiet" }
 
+# Allow callers to explicitly suppress MCP by passing --no-mcp in ExtraArgs.
+if ($ExtraArgs -contains "--no-mcp") {
+    $NoMcp = $true
+}
+
 # --- MCP config: prefer project-local, fall back to global ---
 # If no_mcp is set in role config, skip MCP entirely to avoid ClosedResourceError
 # on remote LangGraph execution. Role scripts handle channel communication instead.
@@ -308,23 +414,31 @@ else {
         }
     }
     if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
-        $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
-        # Expand ${AGENT_DIR} → absolute agentsDir
-        if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
-        }
-        # Expand ${PROJECT_DIR} → absolute project dir
-        if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
-        }
-        # Write resolved config if any placeholders were expanded
-        if ($mcpConfigContent -ne (Get-Content $resolvedMcpConfig -Raw)) {
+        if (-not $McpConfig) {
             $tempMcpConfig = Join-Path $artifactsDir "mcp-config-resolved.json"
-            $mcpConfigContent | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
+            $localMcpConfig = New-LocalMcpConfig -ProjectDir $ProjectDir -AgentsDir $agentsDir -OstwinHome $OstwinHome
+            $localMcpConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
             $resolvedMcpConfig = $tempMcpConfig
         }
+        else {
+            $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
+            # Expand ${AGENT_DIR} → absolute agentsDir
+            if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
+                $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', (Convert-ToBashPath $agentsDir)
+            }
+            # Expand ${PROJECT_DIR} → absolute project dir
+            if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
+                $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', (Convert-ToBashPath $ProjectDir)
+            }
+            # Write resolved config if any placeholders were expanded
+            if ($mcpConfigContent -ne (Get-Content $resolvedMcpConfig -Raw)) {
+                $tempMcpConfig = Join-Path $artifactsDir "mcp-config-resolved.json"
+                $mcpConfigContent | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
+                $resolvedMcpConfig = $tempMcpConfig
+            }
+        }
         $extraCliArgs += "--mcp-config"
-        $extraCliArgs += (Resolve-Path $resolvedMcpConfig).Path
+        $extraCliArgs += (Convert-ToBashPath (Resolve-Path $resolvedMcpConfig).Path)
     }
 }
 
@@ -339,17 +453,18 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
     try {
         # Write wrapper script
         $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
-        $safeOutput = $outputFile -replace "'", "'\''"
-        $safePrompt = $promptFile -replace "'", "'\''"
-        $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
-        $safeRoomDir = $absRoomDir.Replace('\', '/').Replace("'", "'\''")
-        $safeSkillsDir = $isolatedSkillsDir.Replace('\', '/').Replace("'", "'\''")
+        $safeOutput = (Convert-ToBashPath $outputFile) -replace "'", "'\''"
+        $safePrompt = (Convert-ToBashPath $promptFile) -replace "'", "'\''"
+        $safeCwd = if ($WorkingDir) { (Convert-ToBashPath $WorkingDir) -replace "'", "'\''" } else { "" }
+        $safeRoomDir = (Convert-ToBashPath $absRoomDir) -replace "'", "'\''"
+        $safeSkillsDir = (Convert-ToBashPath $isolatedSkillsDir) -replace "'", "'\''"
         $safeRole = $RoleName -replace "'", "'\''"
 
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
-        $safePidFile = $pidFile -replace "'", "'\''"
-        $safeOstwinHome = $OstwinHome.Replace('\', '/').Replace("'", "'\''")
-        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''")} else { "" }
+        $safePidFile = (Convert-ToBashPath $pidFile) -replace "'", "'\''"
+        $safeOstwinHome = (Convert-ToBashPath $OstwinHome) -replace "'", "'\''"
+        $safeProjectDir = if ($ProjectDir) { (Convert-ToBashPath $ProjectDir) -replace "'", "'\''"} else { "" }
+        $safeAgentCmd = Convert-ToBashCommand $AgentCmd
         $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
@@ -365,20 +480,23 @@ $cwdLine
 # non-bin/agent commands (deepagents, custom CLIs) still get tracked.
 echo "`$$" > '$safePidFile'
 # Log diagnostic info before exec
-echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> '$safeOutput'
-exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine >> '$safeOutput' 2>&1
+echo "[wrapper] PID=`$$, CMD=$safeAgentCmd, CWD=`$(pwd)" >> '$safeOutput'
+exec $safeAgentCmd -n "`$(cat '$safePrompt')" $argsLine >> '$safeOutput' 2>&1
 # If exec fails, this line runs:
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
 "@
         $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
-        chmod +x $wrapperScript 2>$null
+        if (Get-Command chmod -ErrorAction SilentlyContinue) {
+            chmod +x $wrapperScript 2>$null
+        }
 
         # --- Launch bash via System.Diagnostics.Process ---
         # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
         # (no console to attach to in headless runspace). Direct Process API works.
         $psi = [System.Diagnostics.ProcessStartInfo]::new()
         $psi.FileName = "bash"
-        $psi.Arguments = "`"$wrapperScript`""
+        $bashWrapperScript = Convert-ToBashPath $wrapperScript
+        $psi.Arguments = "`"$bashWrapperScript`""
         $psi.UseShellExecute = $false
         $psi.RedirectStandardInput = $true
         $psi.CreateNoWindow = $true

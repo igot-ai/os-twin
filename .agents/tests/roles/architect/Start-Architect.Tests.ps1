@@ -150,6 +150,59 @@ $TestDrive
             $failMsgs[0].body | Should -Match "VERDICT: REJECT"
             $failMsgs[0].body | Should -Not -Match "VERDICT: PASS"
         }
+
+        It "posts error instead of PASS when the architect subprocess exits non-zero without a verdict" {
+            $failingAgentPath = Join-Path $TestDrive "mock-arch-fail.sh"
+            @"
+#!/bin/bash
+echo 'runtime failure'
+exit 1
+"@ | Out-File $failingAgentPath -Encoding ascii -NoNewline
+            $env:ARCHITECT_CMD = "bash ""$failingAgentPath"""
+
+            & $script:StartArchitect -RoomDir $script:roomDir -TimeoutSeconds 5
+
+            $errorMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "error" -Last 1 -AsObject
+            $passMsgs = & $script:ReadMessages -RoomDir $script:roomDir -FilterType "pass" -Last 1 -AsObject
+
+            $errorMsgs.Count | Should -Be 1
+            $errorMsgs[0].body | Should -Match "Architect exited with code 1"
+            if ($passMsgs) { $passMsgs.Count | Should -Be 0 }
+        }
+
+        It "disables MCP for PLAN-REVIEW so architect signaling stays in-process" {
+            "PLAN-REVIEW" | Out-File (Join-Path $script:roomDir "task-ref") -NoNewline
+
+            $slowAgentPath = Join-Path $TestDrive "mock-arch-slow.sh"
+            @"
+#!/bin/bash
+sleep 1
+echo 'VERDICT: PASS'
+"@ | Out-File $slowAgentPath -Encoding ascii -NoNewline
+            $env:ARCHITECT_CMD = "bash ""$slowAgentPath"""
+
+            $job = Start-Job -ScriptBlock {
+                param($startArchitect, $roomDir)
+                & $startArchitect -RoomDir $roomDir -TimeoutSeconds 10
+            } -ArgumentList $script:StartArchitect, $script:roomDir
+
+            try {
+                $wrapperFile = Join-Path $script:roomDir "artifacts" "run-agent.sh"
+                $deadline = (Get-Date).AddSeconds(5)
+                while (-not (Test-Path $wrapperFile) -and (Get-Date) -lt $deadline) {
+                    Start-Sleep -Milliseconds 50
+                }
+
+                Test-Path $wrapperFile | Should -BeTrue
+                $wrapperContent = Get-Content $wrapperFile -Raw
+                $wrapperContent | Should -Match -- "--no-mcp"
+                $wrapperContent | Should -Not -Match -- "--mcp-config"
+            }
+            finally {
+                $job | Wait-Job -Timeout 15 | Out-Null
+                $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 
     Context "Signal Broadcasting" {
