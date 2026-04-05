@@ -28,14 +28,97 @@ from dashboard.auth import get_current_user
 router = APIRouter(tags=["skills"])
 logger = logging.getLogger(__name__)
 
+
+def _normalize_skill_name(name: str) -> str:
+    return name.strip().casefold()
+
+
+def _find_skill_on_disk(name: str) -> Optional[Dict[str, Any]]:
+    """Resolve a skill by frontmatter name instead of assuming folder == skill name."""
+    wanted_name = _normalize_skill_name(name)
+    folder_name = name.strip().lower().replace(" ", "-")
+
+    for sdir in SKILLS_DIRS:
+        if not sdir.exists():
+            continue
+
+        # Fast path for conventional folder naming.
+        candidate = sdir / folder_name
+        if candidate.is_dir() and (candidate / "SKILL.md").exists():
+            skill_data = parse_skill_md(candidate)
+            if skill_data and _normalize_skill_name(skill_data.get("name", "")) == wanted_name:
+                return skill_data
+
+        # Fallback for skills whose display name differs from the folder name.
+        for skill_md in sdir.rglob("SKILL.md"):
+            path = skill_md.parent
+            rel_parts = path.relative_to(sdir).parts if path.is_relative_to(sdir) else path.parts
+            if any(p in ("references", ".versions") for p in rel_parts): # skip reference/archive copies
+                continue
+            skill_data = parse_skill_md(path)
+            if skill_data and _normalize_skill_name(skill_data.get("name", "")) == wanted_name:
+                return skill_data
+
+    return None
+
+
+def _index_skill_from_disk(store: Any, skill_data: Dict[str, Any]) -> None:
+    """Refresh the zvec entry from parsed on-disk skill data."""
+    store.index_skill(
+        name=skill_data["name"],
+        description=skill_data["description"],
+        tags=skill_data["tags"],
+        path=skill_data["path"],
+        relative_path=skill_data.get("relative_path", ""),
+        trust_level=skill_data["trust_level"],
+        source=skill_data["source"],
+        content=skill_data["content"],
+        version=skill_data.get("version", "0.1.0"),
+        category=skill_data.get("category"),
+        applicable_roles=skill_data.get("applicable_roles", []),
+        params=skill_data.get("params", []),
+        changelog=skill_data.get("changelog", []),
+        author=skill_data.get("author"),
+        forked_from=skill_data.get("forked_from"),
+        is_draft=skill_data.get("is_draft", False),
+        enabled=skill_data.get("enabled", True),
+    )
+
+
+def _matches_text_query(skill: Skill, query: str) -> bool:
+    """Fallback lexical match for skills that are missing from zvec."""
+    query_l = query.strip().casefold()
+    if not query_l:
+        return True
+
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                skill.name,
+                skill.description,
+                " ".join(skill.tags),
+                " ".join(skill.applicable_roles),
+                skill.content,
+            ],
+        )
+    ).casefold()
+
+    if query_l in haystack:
+        return True
+
+    terms = [term for term in re.split(r"\s+", query_l) if term]
+    return bool(terms) and all(term in haystack for term in terms)
+
 @router.get("/api/skills", response_model=List[Skill])
 async def list_skills(
     role: Optional[str] = None, 
     tags: List[str] = Query([]),
+    include_disabled: bool = Query(False),
     user: dict = Depends(get_current_user)
 ):
     """List all available skills with optional filtering."""
-    skills = build_skills_list(role=role, tags=tags, include_drafts=True)
+    skills = build_skills_list(role=role, tags=tags, include_drafts=True, include_disabled=include_disabled)
     current_username = user.get("username", "unknown")
     filtered = [s for s in skills if not s.is_draft or s.author == current_username]
     if role:
@@ -48,15 +131,47 @@ async def search_skills_endpoint(
     role: Optional[str] = None,
     tags: List[str] = Query([]),
     limit: int = Query(50, ge=1, le=100, description="Max results to return"),
+    include_disabled: bool = Query(False),
     user: dict = Depends(get_current_user)
 ):
     """Semantic search for skills with role-based post-filtering."""
     store = global_state.store
+    ranked_names: List[str] = []
+    skills_by_name: Dict[str, Skill] = {}
+
     if store:
         results = store.search_skills(q, limit=limit)
-        skills = [Skill(**res) for res in results]
-    else:
-        skills = build_skills_list(query=q, role=role, tags=tags, limit=limit, include_drafts=True)
+        for res in results:
+            skill = Skill(**res)
+            skills_by_name[skill.name] = skill
+            ranked_names.append(skill.name)
+
+    # Backfill from disk so skills with invalid zvec doc IDs (for example names with
+    # spaces) still appear in search and carry the current enabled state.
+    disk_skills = build_skills_list(
+        role=role,
+        tags=tags,
+        limit=1000,
+        include_drafts=True,
+        include_disabled=True,
+    )
+    for disk_skill in disk_skills:
+        if not _matches_text_query(disk_skill, q):
+            continue
+        if disk_skill.name in skills_by_name:
+            merged = skills_by_name[disk_skill.name].dict()
+            merged.update(disk_skill.dict())
+            skills_by_name[disk_skill.name] = Skill(**merged)
+        else:
+            skills_by_name[disk_skill.name] = disk_skill
+            ranked_names.append(disk_skill.name)
+
+    skills = []
+    for skill_name in ranked_names:
+        skill = skills_by_name[skill_name]
+        if not include_disabled and not getattr(skill, "enabled", True):
+            continue
+        skills.append(skill)
 
     current_username = user.get("username", "unknown")
     filtered = [s for s in skills if not s.is_draft or s.author == current_username]
@@ -86,9 +201,8 @@ async def list_skill_roles(user: dict = Depends(get_current_user)):
 _CLAWHUB_CONVEX_BASE = "https://wry-manatee-359.convex.cloud/api"
 
 # Global skills directory — all ClawhHub installs go here
-_GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / "skills"
-_GLOBAL_SKILLS_GLOBAL = _GLOBAL_SKILLS_DIR / "global"
-_GLOBAL_CLAWHUB_LOCK = _GLOBAL_SKILLS_DIR / ".clawhub" / "lock.json"
+_GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / ".agents" / "skills"
+_GLOBAL_CLAWHUB_LOCK = _GLOBAL_SKILLS_DIR / ".clawhub-lock.json"
 
 # Strict pattern: only allow alphanumeric, hyphens, underscores, dots, and @scopes
 _SAFE_SKILL_NAME = re.compile(r"^(@[a-zA-Z0-9_-]+/)?[a-zA-Z0-9._-]+$")
@@ -211,8 +325,8 @@ async def clawhub_search(
 async def clawhub_installed(user: dict = Depends(get_current_user)):
     """Return ClawhHub skill slugs that are actually installed on disk.
 
-    Reads the global lock file at ~/.ostwin/skills/.clawhub/lock.json
-    and verifies the skill folder exists in ~/.ostwin/skills/global/.
+    Reads the global lock file at ~/.ostwin/.agents/skills/.clawhub-lock.json
+    and verifies the skill folder exists in ~/.ostwin/.agents/skills/.
     """
     installed: Dict[str, Any] = {}
 
@@ -228,7 +342,7 @@ async def clawhub_installed(user: dict = Depends(get_current_user)):
 
     # 2. Verify each lock entry actually exists on disk
     for slug, info in lock_candidates.items():
-        skill_dir = _GLOBAL_SKILLS_GLOBAL / slug
+        skill_dir = _GLOBAL_SKILLS_DIR / slug
         if skill_dir.is_dir():
             installed[slug] = {
                 "slug": slug,
@@ -236,19 +350,19 @@ async def clawhub_installed(user: dict = Depends(get_current_user)):
                 "installedAt": info.get("installedAt"),
             }
 
-    # 3. Also pick up any skill in global/ that has .clawhub/origin.json
+    # 3. Also pick up any skill in global/ that has origin.json
     #    (in case lock file is missing/stale)
-    if _GLOBAL_SKILLS_GLOBAL.exists():
-        for child in _GLOBAL_SKILLS_GLOBAL.iterdir():
+    if _GLOBAL_SKILLS_DIR.exists():
+        for child in _GLOBAL_SKILLS_DIR.iterdir():
             if not child.is_dir() or child.name in installed:
                 continue
-            origin = child / ".clawhub" / "origin.json"
+            origin = child / "origin.json"
             if origin.exists():
                 try:
                     origin_data = json.loads(origin.read_text())
                     installed[child.name] = {
                         "slug": child.name,
-                        "version": origin_data.get("installedVersion"),
+                        "version": origin_data.get("installedVersion") or origin_data.get("version"),
                         "installedAt": origin_data.get("installedAt"),
                     }
                 except Exception:
@@ -257,26 +371,52 @@ async def clawhub_installed(user: dict = Depends(get_current_user)):
     return list(installed.values())
 
 
+@router.patch("/api/skills/{name}/toggle", response_model=Skill)
+async def toggle_skill(name: str, user: dict = Depends(get_current_user)):
+    """Toggle the enabled/disabled state of a skill."""
+    skill = await get_skill(name, user)
+    new_enabled = not getattr(skill, "enabled", True)
+
+    disk_skill_data = _find_skill_on_disk(skill.name)
+    skill_path = Path(skill.path) if skill.path and (Path(skill.path) / "SKILL.md").exists() else None
+    if not skill_path and disk_skill_data:
+        skill_path = Path(disk_skill_data["path"])
+
+    if not skill_path:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found on disk")
+
+    skill_dict = disk_skill_data or skill.dict()
+    skill_dict["enabled"] = new_enabled
+    save_skill_md(skill_dict, path=skill_path)
+
+    updated_data = parse_skill_md(skill_path)
+    if not updated_data:
+        raise HTTPException(status_code=500, detail=f"Failed to reload updated skill '{name}' from disk")
+
+    store = global_state.store
+    if store:
+        _index_skill_from_disk(store, updated_data)
+
+    updated_skill = Skill(**updated_data)
+    updated_skill.active_epics_count = get_active_epics_using_skill(updated_skill.name)
+    return updated_skill
+
+
 @router.get("/api/skills/{name}", response_model=Skill)
 async def get_skill(name: str, user: dict = Depends(get_current_user)):
     """Fetch details for a specific skill."""
     store = global_state.store
-    skill_data = None
-    
+    store_skill_data = None
+
     if store:
-        skill_data = store.get_skill(name)
-    
-    if not skill_data:
-        # Check on disk
-        # Normalize name for file search
-        folder_name = name.lower().replace(" ", "-")
-        for sdir in SKILLS_DIRS:
-            # Search recursively for the skill folder
-            if (sdir / folder_name).is_dir() and (sdir / folder_name / "SKILL.md").exists():
-                skill_data = parse_skill_md(sdir / folder_name)
-                break
-            if skill_data: break
-                
+        store_skill_data = store.get_skill(name)
+
+    disk_skill_data = _find_skill_on_disk(name)
+    if store_skill_data and disk_skill_data:
+        skill_data = {**store_skill_data, **disk_skill_data}
+    else:
+        skill_data = disk_skill_data or store_skill_data
+
     if not skill_data:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
         
@@ -287,26 +427,19 @@ async def get_skill(name: str, user: dict = Depends(get_current_user)):
 @router.get("/api/skills/{name}/versions/{version}")
 async def get_skill_version(name: str, version: str, user: dict = Depends(get_current_user)):
     """Fetch raw instruction template for a historical version of a skill."""
-    # Handle folder name normalization
-    folder_name = name.lower().replace(" ", "-")
-    
-    for sdir in SKILLS_DIRS:
-        # Search for the skill directory
-        for path in sdir.rglob(folder_name):
-            if path.is_dir() and (path / "SKILL.md").exists():
-                # If requesting current version, just return current
-                current_data = parse_skill_md(path)
-                if current_data and current_data.get("version") == version:
-                    return {"content": current_data.get("content", "")}
+    current_data = _find_skill_on_disk(name)
+    if current_data:
+        path = Path(current_data["path"])
+        if current_data.get("version") == version:
+            return {"content": current_data.get("content", "")}
 
-                # Check .versions folder
-                version_filename = f"v{version}.md"
-                version_file = path / ".versions" / version_filename
-                if version_file.exists():
-                    historical_data = parse_skill_md(path, filename=f".versions/{version_filename}")
-                    if historical_data:
-                        return {"content": historical_data.get("content", "")}
-                    
+        version_filename = f"v{version}.md"
+        version_file = path / ".versions" / version_filename
+        if version_file.exists():
+            historical_data = parse_skill_md(path, filename=f".versions/{version_filename}")
+            if historical_data:
+                return {"content": historical_data.get("content", "")}
+
     raise HTTPException(status_code=404, detail=f"Version {version} of skill '{name}' not found")
 
 @router.post("/api/skills/install")
@@ -475,13 +608,8 @@ async def delete_skill(name: str, force: bool = False, user: dict = Depends(get_
             detail=f"Skill '{name}' is used by {active_count} active epic(s). Use force=true to delete anyway."
         )
 
-    folder_name = name.lower().replace(" ", "-")
-    skill_path = None
-    for sdir in SKILLS_DIRS:
-        candidate = sdir / folder_name
-        if candidate.is_dir() and (candidate / "SKILL.md").exists():
-            skill_path = candidate
-            break
+    disk_skill_data = _find_skill_on_disk(name)
+    skill_path = Path(disk_skill_data["path"]) if disk_skill_data else None
 
     if not skill_path:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found on disk")
@@ -631,16 +759,17 @@ async def clawhub_install(
 
     async with _install_lock:
         try:
-            # Install into ~/.ostwin/skills so skills land in ~/.ostwin/skills/global/<slug>
-            # clawhub CLI creates a skills/ subdir under cwd, but we want global/
-            # so we use ~/.ostwin/skills as cwd and move skills/<slug> -> global/<slug> after
+            # Install into ~/.ostwin/.agents/skills
+            # clawhub CLI creates a skills/ subdir under cwd.
+            # We use ~/.ostwin/.agents as cwd so skills land in ~/.ostwin/.agents/skills/
+            _GLOBAL_SKILLS_DIR.parent.mkdir(parents=True, exist_ok=True)
             _GLOBAL_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
-            _GLOBAL_SKILLS_GLOBAL.mkdir(parents=True, exist_ok=True)
+            
             proc = await asyncio.create_subprocess_exec(
-                "npx", "clawhub", "install", skill_name,
+                "npx", "clawhub", "install", skill_name, "--force",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(_GLOBAL_SKILLS_DIR),
+                cwd=str(_GLOBAL_SKILLS_DIR.parent),
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
@@ -657,24 +786,13 @@ async def clawhub_install(
                     detail="clawhub install failed. Check server logs for details.",
                 )
 
-            # clawhub creates ~/.ostwin/skills/skills/<slug>, move to global/<slug>
-            src = _GLOBAL_SKILLS_DIR / "skills" / skill_name
-            dest = _GLOBAL_SKILLS_GLOBAL / skill_name
-            if src.exists():
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.move(str(src), str(dest))
-                # Clean up empty skills/ subdir left by clawhub
-                clawhub_skills_subdir = _GLOBAL_SKILLS_DIR / "skills"
-                if clawhub_skills_subdir.exists() and not any(clawhub_skills_subdir.iterdir()):
-                    clawhub_skills_subdir.rmdir()
-
-            # Move .clawhub/lock.json from clawhub's default location to our global location
-            clawhub_default_lock = _GLOBAL_SKILLS_DIR / ".clawhub" / "lock.json"
-            if clawhub_default_lock.exists():
-                # Already at the right place — ~/.ostwin/skills/.clawhub/lock.json
-                pass
-
+            # Skill is already in ~/.ostwin/.agents/skills/<skill_name> because CWD was .agents
+            dest = _GLOBAL_SKILLS_DIR / skill_name
+            
+            # Note: clawhub creates .clawhub/lock.json in whichever CWD we use.
+            # We want to use ~/.ostwin/.agents/skills/.clawhub-lock.json to match the CLI script.
+            # So we might need to sync these if they diverge, but for now we'll assume the CLI is authority.
+            
             logger.info("clawhub-install success by=%s skill=%s dest=%s", username, skill_name, dest)
             return {
                 "status": "installed",

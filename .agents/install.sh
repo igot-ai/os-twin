@@ -571,6 +571,10 @@ setup_env() {
 # API key for CLI ↔ Dashboard communication. Auto-generated on first install.
 OSTWIN_API_KEY=${generated_api_key}
 
+# ── ngrok Tunnel (auto-starts when NGROK_AUTHTOKEN is set) ─────────────────
+# NGROK_AUTHTOKEN=
+# NGROK_DOMAIN=              # Optional: custom/static domain (paid ngrok plans)
+
 # ── Agent OS settings ───────────────────────────────────────────────────────
 # OSTWIN_LOG_LEVEL=INFO
 ENVEOF
@@ -580,7 +584,7 @@ ENVEOF
 
   # Migrate any existing exported key from the current shell environment
   local migrated=false
-  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY NGROK_AUTHTOKEN; do
     if [[ -n "${!key:-}" ]]; then
       # Uncomment and fill the matching line
       if [[ "$OS" == "macos" ]]; then
@@ -632,6 +636,21 @@ ENVEOF
       done
     else
       info "Non-interactive mode (-y). Edit $env_file later to add your API keys."
+    fi
+  fi
+
+  # Prompt for ngrok tunnel token (optional)
+  if ! $AUTO_YES && [[ -z "${NGROK_AUTHTOKEN:-}" ]]; then
+    echo ""
+    echo -en "    ${CYAN}→${NC} Enter NGROK_AUTHTOKEN for dashboard port-forwarding (or press Enter to skip): "
+    read -r ngrok_token
+    if [[ -n "$ngrok_token" ]]; then
+      if [[ "$OS" == "macos" ]]; then
+        sed -i '' "s|^# NGROK_AUTHTOKEN=.*|NGROK_AUTHTOKEN=${ngrok_token}|" "$env_file"
+      else
+        sed -i "s|^# NGROK_AUTHTOKEN=.*|NGROK_AUTHTOKEN=${ngrok_token}|" "$env_file"
+      fi
+      ok "Saved NGROK_AUTHTOKEN — tunnel will auto-start with dashboard"
     fi
   fi
 }
@@ -742,11 +761,11 @@ install_files() {
   rm -rf "$INSTALL_DIR/.agents/roles"
 
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
-  # NOTE: mcp/mcp-config.json is excluded to preserve user's installed extensions and config
+  # NOTE: MCP config files are excluded to preserve user's installed extensions and config
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
-    --exclude='mcp/mcp-config.json' --exclude='mcp/.env.mcp' \
+    --exclude='mcp/config.json' --exclude='mcp/mcp-config.json' --exclude='mcp/.env.mcp' \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ manually)
       find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
@@ -866,8 +885,13 @@ compute_build_hash() {
 # ─── Patch MCP config ────────────────────────────────────────────────────────
 
 patch_mcp_config() {
-  local mcp_config="$INSTALL_DIR/.agents/mcp/mcp-config.json"
+  local mcp_config="$INSTALL_DIR/.agents/mcp/config.json"
+  local legacy_mcp_config="$INSTALL_DIR/.agents/mcp/mcp-config.json"
   local env_file="$INSTALL_DIR/.env"
+
+  if [[ ! -f "$mcp_config" && -f "$legacy_mcp_config" ]]; then
+    mcp_config="$legacy_mcp_config"
+  fi
 
   if [[ ! -f "$mcp_config" ]]; then
     return
@@ -908,7 +932,7 @@ with open(env_path) as f:
 if not env_vars:
     sys.exit(0)
 
-# Read and patch mcp-config.json
+# Read and patch MCP config
 with open(mcp_path) as f:
     config = json.load(f)
 
@@ -1309,6 +1333,22 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
 
   if $DASH_OK; then
     ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
+    # Check for ngrok tunnel URL
+    TUNNEL_URL=""
+    PYTHON_FOR_TUNNEL="$VENV_DIR/bin/python"
+    [[ -x "$PYTHON_FOR_TUNNEL" ]] || PYTHON_FOR_TUNNEL="python3"
+    if [[ -n "$OSTWIN_API_KEY" ]]; then
+      TUNNEL_URL=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
+        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+    else
+      TUNNEL_URL=$(curl -sf \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
+        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+    fi
+    if [[ -n "$TUNNEL_URL" ]]; then
+      ok "Tunnel active: $TUNNEL_URL"
+    fi
   else
     warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"
     info "Start manually: bash $DASHBOARD_SCRIPT"
@@ -1350,20 +1390,23 @@ if [[ -z "$CHAN_DIR" ]]; then
 elif ! check_node; then
   warn "Node.js not found — cannot install channel connectors"
   info "Install Node.js and re-run"
+elif ! command -v pnpm &>/dev/null; then
+  warn "pnpm not found — cannot install channel connectors"
+  info "Install pnpm and re-run"
 else
-  step "Installing channel dependencies (npm)..."
-  (cd "$CHAN_DIR" && npm install --legacy-peer-deps) \
+  step "Installing channel dependencies in $CHAN_DIR with pnpm..."
+  (cd "$CHAN_DIR" && pnpm install) \
     && ok "Channel dependencies installed" || warn "Channel dependency install failed"
 
-  # Install tsx if not present (needed for TypeScript runtime)
+  # tsx should come from bot/package.json devDependencies after install.
   if [[ ! -f "$CHAN_DIR/node_modules/.bin/tsx" ]]; then
-    step "Installing tsx (TypeScript runtime)..."
-    (cd "$CHAN_DIR" && npm install --legacy-peer-deps) \
-      && ok "tsx available" || warn "tsx install failed"
+    warn "tsx not found after pnpm install"
+  else
+    ok "tsx available"
   fi
 
   ok "Channel connector dir: $CHAN_DIR"
-  info "Start with: ostwin channel start"
+  info "Start with: (cd \"$CHAN_DIR\" && npm start)"
 fi
 
 # ─── 9d. Start channel connectors (optional, --channel flag) ─────────────────
@@ -1423,7 +1466,12 @@ echo -e "    ${CYAN}4.${NC} Set your API key:          ${DIM}export GOOGLE_API_K
 echo -e "    ${CYAN}5.${NC} Run your first plan:       ${DIM}ostwin run plans/my-plan.md${NC}"
 echo ""
 echo -e "  ${BOLD}Dashboard:${NC}"
-echo -e "    ${DIM}Dashboard running at http://localhost:9000${NC}"
+if [[ -n "${TUNNEL_URL:-}" ]]; then
+  echo -e "    ${DIM}Local:  http://localhost:${DASHBOARD_PORT}${NC}"
+  echo -e "    ${DIM}Public: ${TUNNEL_URL}${NC}"
+else
+  echo -e "    ${DIM}Dashboard running at http://localhost:${DASHBOARD_PORT}${NC}"
+fi
 echo -e "    ${DIM}Stop with: ostwin stop${NC}"
 if $START_CHANNEL; then
 echo -e ""

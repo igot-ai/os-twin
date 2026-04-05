@@ -12,6 +12,32 @@ AGENTS_DIR="$SCRIPT_DIR"
 MANAGER_PID_FILE="$AGENTS_DIR/manager.pid"
 WARROOMS="${WARROOMS_DIR:-$AGENTS_DIR/war-rooms}"
 FORCE=false
+DASHBOARD_PID_FILE="$AGENTS_DIR/dashboard.pid"
+
+# ── Always stop the dashboard on exit (even if no manager is running) ──
+stop_dashboard() {
+  if [[ -f "$DASHBOARD_PID_FILE" ]]; then
+    DASH_PID=$(cat "$DASHBOARD_PID_FILE")
+    if kill -0 "$DASH_PID" 2>/dev/null; then
+      echo "[STOP] Stopping dashboard (PID $DASH_PID)..."
+      kill "$DASH_PID" 2>/dev/null || true
+      # Wait up to 5s for graceful shutdown (tunnel cleanup needs time)
+      for _i in $(seq 1 5); do
+        if ! kill -0 "$DASH_PID" 2>/dev/null; then
+          break
+        fi
+        sleep 1
+      done
+      if kill -0 "$DASH_PID" 2>/dev/null; then
+        echo "[STOP] Dashboard still alive, force-killing..."
+        kill -9 "$DASH_PID" 2>/dev/null || true
+      fi
+      echo "[STOP] Dashboard stopped."
+    fi
+    rm -f "$DASHBOARD_PID_FILE"
+  fi
+}
+trap stop_dashboard EXIT
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -66,18 +92,4 @@ if kill -0 "$PID" 2>/dev/null; then
   fi
 fi
 
-# --- Stop dashboard if running ---
-DASHBOARD_PID_FILE="$AGENTS_DIR/dashboard.pid"
-if [[ -f "$DASHBOARD_PID_FILE" ]]; then
-  DASH_PID=$(cat "$DASHBOARD_PID_FILE")
-  if kill -0 "$DASH_PID" 2>/dev/null; then
-    echo "[STOP] Stopping dashboard (PID $DASH_PID)..."
-    kill "$DASH_PID" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$DASH_PID" 2>/dev/null; then
-      kill -9 "$DASH_PID" 2>/dev/null || true
-    fi
-    echo "[STOP] Dashboard stopped."
-  fi
-  rm -f "$DASHBOARD_PID_FILE"
-fi
+# Dashboard is stopped via the EXIT trap registered at the top of this script.

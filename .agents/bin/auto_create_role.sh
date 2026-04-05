@@ -24,4 +24,9 @@ else
   exit 1
 fi
 
-"$DA_CMD" -a manager -n "$MANAGER_PROMPT" --auto-approve --trust-project-mcp --shell-allow-list all --mcp-config "$AGENTS_DIR/mcp/mcp-config.json"
+MCP_CONFIG="$AGENTS_DIR/mcp/config.json"
+if [[ ! -f "$MCP_CONFIG" && -f "$AGENTS_DIR/mcp/mcp-config.json" ]]; then
+  MCP_CONFIG="$AGENTS_DIR/mcp/mcp-config.json"
+fi
+
+"$DA_CMD" -a manager -n "$MANAGER_PROMPT" --auto-approve --trust-project-mcp --shell-allow-list all --mcp-config "$MCP_CONFIG"

@@ -8,8 +8,9 @@ export default function PlanSidebar() {
   const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, launchPlan, isSaving } = usePlanContext();
 
   const tabs = [
+    { id: 'editor', label: 'Planner', icon: 'edit_document' },
     { id: 'epics', label: 'EPICs', icon: 'view_kanban', count: epics?.length },
-    { id: 'editor', label: 'Editor', icon: 'edit_document' },
+    { id: 'files', label: 'Files', icon: 'folder_open' },
     { id: 'roles', label: 'Roles & Config', icon: 'group' },
     { id: 'dag', label: 'DAG View', icon: 'account_tree' },
     { id: 'history', label: 'History', icon: 'history' },
@@ -43,7 +44,7 @@ export default function PlanSidebar() {
             {plan.goal ?? ''}
           </p>
         </div>
-        
+
         {/* Simple Progress Mini-bar */}
         <div className="space-y-1.5">
           <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider">
@@ -53,7 +54,7 @@ export default function PlanSidebar() {
             </span>
           </div>
           <div className="h-1.5 w-full bg-border/50 rounded-full overflow-hidden">
-            <div 
+            <div
               className={`h-full bg-primary transition-all duration-500 ${isProgressLoading ? 'opacity-50' : ''}`}
               style={{ width: `${progress?.pct_complete ?? plan.pct_complete ?? 0}%` }}
             />
@@ -69,24 +70,21 @@ export default function PlanSidebar() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition-all group ${
-                isActive 
-                  ? 'bg-primary/10 text-primary' 
-                  : 'text-text-muted hover:bg-surface-hover hover:text-text-main'
-              }`}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition-all group ${isActive
+                ? 'bg-primary/10 text-primary'
+                : 'text-text-muted hover:bg-surface-hover hover:text-text-main'
+                }`}
             >
               <div className="flex items-center gap-2.5">
-                <span className={`material-symbols-outlined text-[18px] transition-colors ${
-                  isActive ? 'text-primary' : 'text-text-faint group-hover:text-text-muted'
-                }`}>
+                <span className={`material-symbols-outlined text-[18px] transition-colors ${isActive ? 'text-primary' : 'text-text-faint group-hover:text-text-muted'
+                  }`}>
                   {tab.icon}
                 </span>
                 <span className="text-xs font-semibold">{tab.label}</span>
               </div>
               {tab.count !== undefined && (
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                  isActive ? 'bg-primary/20 text-primary' : 'bg-border text-text-faint'
-                }`}>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-primary/20 text-primary' : 'bg-border text-text-faint'
+                  }`}>
                   {tab.count}
                 </span>
               )}

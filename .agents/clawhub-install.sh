@@ -20,8 +20,8 @@ set -euo pipefail
 OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
 CLAWHUB_URL="${CLAWHUB_URL:-https://clawhub.ai}"
 CLAWHUB_API="${CLAWHUB_URL}/api/v1"
-SKILLS_DIR="$OSTWIN_HOME/skills/global"
-LOCK_FILE="$OSTWIN_HOME/skills/.clawhub-lock.json"
+SKILLS_DIR="$OSTWIN_HOME/.agents/skills"
+LOCK_FILE="$SKILLS_DIR/.clawhub-lock.json"
 
 PYTHON="${PYTHON:-python3}"
 

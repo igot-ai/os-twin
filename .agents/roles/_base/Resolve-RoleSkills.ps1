@@ -81,6 +81,19 @@ function Test-SkillPlatform {
     return $true   # No platform field = cross-platform
 }
 
+
+# Enabled gate: returns $false if the skill's SKILL.md explicitly declares enabled: false
+function Test-SkillEnabled {
+    param([string]$SkillMdPath)
+    if (-not (Test-Path $SkillMdPath)) { return $true }
+    $content = Get-Content $SkillMdPath -Raw -ErrorAction SilentlyContinue
+    if (-not $content) { return $true }
+    if ($content -match '(?m)^enabled:\s*(false|0)') {
+        return $false
+    }
+    return $true
+}
+
 function Add-ResolvedSkill {
     param(
         [string]$Name,

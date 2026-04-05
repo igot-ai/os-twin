@@ -195,7 +195,10 @@
         "code-review",
         "dev-story",
         "quick-prototype",
-        "tdd"
+        "tdd",
+        "puzzle-level-generation",
+        "puzzle-solver-generation",
+        "puzzle-web-prototyping"
       ],
       "quality_gates": [
         "compiles-in-unity",
@@ -219,7 +222,8 @@
         "performance-testing",
         "automation-testing",
         "regression-prevention",
-        "unity-code-review"
+        "unity-code-review",
+        "puzzle-play-testing"
       ],
       "quality_gates": [
         "tests-pass",
@@ -374,7 +378,8 @@
         "progression-design",
         "encounter-pacing",
         "tutorial-flow",
-        "reward-scheduling"
+        "reward-scheduling",
+        "puzzle-difficulty-modeling"
       ],
       "quality_gates": [
         "difficulty-curve-smooth",
@@ -542,7 +547,21 @@
       "risk": "risk-assessment",
       "compliance": "compliance-review",
       "fraud": "risk-assessment",
-      "investigation": "investigation-scoping"
+      "investigation": "investigation-scoping",
+      "puzzle-difficulty": "puzzle-difficulty-modeling",
+      "difficulty-model": "puzzle-difficulty-modeling",
+      "level-gen": "puzzle-level-generation",
+      "level-generator": "puzzle-level-generation",
+      "puzzle-gen": "puzzle-level-generation",
+      "solver": "puzzle-solver-generation",
+      "bot-solver": "puzzle-solver-generation",
+      "puzzle-solver": "puzzle-solver-generation",
+      "puzzle-ui": "puzzle-web-prototyping",
+      "puzzle-web": "puzzle-web-prototyping",
+      "puzzle-prototype": "puzzle-web-prototyping",
+      "play-test": "puzzle-play-testing",
+      "playtest": "puzzle-play-testing",
+      "puzzle-qa": "puzzle-play-testing"
     }
   },
   "skills": {

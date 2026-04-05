@@ -5,7 +5,7 @@
 # Install, list, remove, and sync MCP server extensions.
 # Extensions can be installed by name (from mcp-catalog.json) or by git URL.
 #
-# MCP config is per-project only: $PROJECT/.agents/mcp/mcp-config.json
+# MCP config is per-project only: $PROJECT/.agents/mcp/config.json
 # Catalog + builtins come from global ~/.ostwin/mcp/
 #
 # Usage:
@@ -41,7 +41,8 @@ BUILTIN_FILE="$HOME/.ostwin/.agents/mcp/mcp-builtin.json"
 MCP_DIR=""
 EXTENSIONS_DIR=""
 EXTENSIONS_FILE=""
-CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
+CONFIG_FILE="$HOME/.ostwin/.agents/mcp/config.json"
+LEGACY_CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
 PROJECT_DIR=""
 
 # Python: prefer venv, fallback to system
@@ -83,7 +84,7 @@ apply_project_dir() {
   MCP_DIR="$PROJECT_DIR/.agents/mcp"
   EXTENSIONS_DIR="$MCP_DIR/extensions"
   EXTENSIONS_FILE="$HOME/.ostwin/mcp/extensions.json"
-  # CONFIG_FILE is now global: $HOME/.ostwin/mcp/mcp-config.json
+  # CONFIG_FILE is global: $HOME/.ostwin/.agents/mcp/config.json
 }
 
 ensure_dirs() {
@@ -91,6 +92,22 @@ ensure_dirs() {
   mkdir -p "$(dirname "$EXTENSIONS_FILE")"
   if [[ ! -f "$EXTENSIONS_FILE" ]]; then
     echo '{"extensions":[]}' > "$EXTENSIONS_FILE"
+  fi
+}
+
+ensure_global_config_file() {
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    return
+  fi
+  if [[ -f "$LEGACY_CONFIG_FILE" ]]; then
+    cp "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
+    return
+  fi
+  if [[ -f "$BUILTIN_FILE" ]]; then
+    cp "$BUILTIN_FILE" "$CONFIG_FILE"
+  else
+    echo '{"mcpServers":{}}' > "$CONFIG_FILE"
   fi
 }
 
@@ -283,7 +300,7 @@ import json, os, glob, sys
 ext_path = '$ext_path'
 name = '$name'
 candidates = []
-for f in ['gemini-extension.json', 'mcp-config.json']:
+for f in ['gemini-extension.json', 'config.json', 'mcp-config.json']:
     p = os.path.join(ext_path, f)
     if os.path.isfile(p): candidates.append(p)
 for p in sorted(glob.glob(os.path.join(ext_path, '*.json'))):
@@ -425,7 +442,7 @@ PYEOF
   ok "Registered in extensions.json"
 
   cmd_sync_quiet
-  ok "mcp-config.json updated"
+  ok "config.json updated"
 
   echo ""
   echo -e "  ${GREEN}${BOLD}✅ '$name' installed successfully!${NC}"
@@ -581,7 +598,7 @@ with open('$EXTENSIONS_FILE', 'w') as f:
   [[ -n "$ext_path" ]] && [[ -d "$ext_path" ]] && { rm -rf "$ext_path"; ok "Deleted $ext_path"; }
 
   cmd_sync_quiet
-  ok "mcp-config.json updated"
+  ok "config.json updated"
   echo ""
   echo -e "  ${GREEN}✅ '$name' removed.${NC}"
 }
@@ -589,6 +606,7 @@ with open('$EXTENSIONS_FILE', 'w') as f:
 # ─── SYNC ────────────────────────────────────────────────────────────────────
 
 cmd_sync_quiet() {
+  mkdir -p "$(dirname "$CONFIG_FILE")"
   "$PYTHON" -c "
 import json
 builtin = {}
@@ -624,14 +642,14 @@ PYEOF
 }
 
 cmd_sync() {
-  step "Syncing mcp-config.json (builtin + extensions)..."
+  step "Syncing config.json (builtin + extensions)..."
   cmd_sync_quiet
-  ok "mcp-config.json rebuilt"
+  ok "config.json rebuilt"
   "$PYTHON" -c "
 import json
 with open('$CONFIG_FILE') as f:
     servers = json.load(f).get('mcpServers', {})
-print(f'  {len(servers)} server(s) in mcp-config.json:')
+print(f'  {len(servers)} server(s) in config.json:')
 for name in servers:
     print(f'    • {name} ({servers[name].get(\"command\",\"?\")})')
 "
@@ -657,8 +675,14 @@ cmd_init_project() {
   [[ "$(realpath "$self_script" 2>/dev/null)" != "$(realpath "$dest_script" 2>/dev/null)" ]] && cp "$self_script" "$dest_script"
   chmod +x "$dest_script"
 
-  if [[ ! -f "$project_mcp/mcp-config.json" ]]; then
-    [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_mcp/mcp-config.json" || echo '{"mcpServers":{}}' > "$project_mcp/mcp-config.json"
+  local project_config="$project_mcp/config.json"
+  local legacy_project_config="$project_mcp/mcp-config.json"
+  if [[ ! -f "$project_config" ]]; then
+    if [[ -f "$legacy_project_config" ]]; then
+      cp "$legacy_project_config" "$project_config"
+    else
+      [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcpServers":{}}' > "$project_config"
+    fi
   fi
 
   ok "Project MCP scaffolded at $project_mcp"
@@ -750,6 +774,7 @@ get_vault().delete('$server', '$key')
 # ─── MIGRATE ─────────────────────────────────────────────────────────────────
 
 cmd_migrate() {
+  ensure_global_config_file
   step "Scanning for plaintext secrets in $CONFIG_FILE..."
   "$PYTHON" -c "
 import json, sys, os, re
@@ -809,6 +834,8 @@ cmd_test() {
   if [[ "$server_name" == "--all" ]]; then
     server_name=""
   fi
+
+  ensure_global_config_file
 
   export _SCRIPT_DIR="$SCRIPT_DIR"
   export _CONFIG_FILE="$CONFIG_FILE"
@@ -901,6 +928,7 @@ PYEOF
 
 cmd_compile() {
   local project_dir="${PROJECT_DIR:-$(pwd)}"
+  ensure_global_config_file
   export _SCRIPT_DIR="$SCRIPT_DIR"
   export _CONFIG_FILE="$CONFIG_FILE"
   export _BUILTIN_FILE="$BUILTIN_FILE"
@@ -917,7 +945,7 @@ project_dir = os.environ.get("_PROJECT_DIR")
 
 mcp_dir = os.path.join(project_dir, '.agents', 'mcp')
 env_mcp_file = os.path.join(mcp_dir, '.env.mcp')
-compiled_config_file = os.path.join(mcp_dir, 'mcp-config.json')
+compiled_config_file = os.path.join(mcp_dir, 'config.json')
 manifest_file = os.path.join(mcp_dir, 'mcp-manifest.json')
 
 sys.path.append(script_dir)
@@ -995,7 +1023,7 @@ Usage:
   ostwin mcp list                          Show installed extensions
   ostwin mcp catalog                       Show available packages
   ostwin mcp remove <name>                 Uninstall an extension
-  ostwin mcp sync                         Rebuild mcp-config.json
+  ostwin mcp sync                         Rebuild config.json
   ostwin mcp test [server|--all]          Test MCP server connectivity
   ostwin mcp compile                      Compile home config for project
   ostwin mcp credentials <set|list|delete> Manage credentials in vault
@@ -1035,7 +1063,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Apply project dir → set all project-local paths
-# Note: PROJECT_DIR is now used for local extensions, but CONFIG_FILE is global
+# Note: PROJECT_DIR is used for local extensions, but CONFIG_FILE is global
 if [[ -z "$PROJECT_DIR" ]]; then
   if [[ -d "$(pwd)/.agents/mcp" ]]; then
     PROJECT_DIR="$(pwd)"

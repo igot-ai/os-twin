@@ -21,6 +21,7 @@ __pycache__/
 
 # ── Local data & secrets ──────────────────────────────────────────────────────
 .ostwin/mcp/mcp-config.json
+.ostwin/mcp/config.json
 .claude/
 /plans/
 .data/
@@ -68,6 +69,7 @@ venv/
 dashboard/run_my_tests*.sh
 dashboard/fe/out/
 
+# dashboard/fe/pnpm-lock.yaml
 # ── OS / IDE ───────────────────────────────────────────────────────────────────
 .DS_Store
 .idea/
