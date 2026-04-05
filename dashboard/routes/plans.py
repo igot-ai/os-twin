@@ -43,7 +43,10 @@ def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
         pass
 
 @router.get("/api/plans")
-async def list_plans(user: dict = Depends(get_current_user)):
+async def list_plans(
+    order_by: str = Query("created_desc", description="Sort order: created_desc, created_asc, title, time_id"),
+    user: dict = Depends(get_current_user),
+):
     """List all stored plans (disk is source of truth, zvec enriches)."""
     store = global_state.store
     plans_dir = PLANS_DIR
@@ -91,8 +94,10 @@ async def list_plans(user: dict = Depends(get_current_user)):
             status_match = re.search(r"^>\s*Status:\s*(\w+)", content, re.MULTILINE)
             status = status_match.group(1).lower() if status_match else "stored"
 
+            from dashboard.zvec_store import uuid7
             p = {
                 "plan_id": plan_id,
+                "time_id": uuid7(),
                 "title": title,
                 "content": content,
                 "status": status,
@@ -175,6 +180,15 @@ async def list_plans(user: dict = Depends(get_current_user)):
             p["completed_epics"] = random.randint(0, max(0, p.get("epic_count", 5) - p["active_epics"]))
 
         plans.append(p)
+
+    if order_by == "created_desc":
+        plans.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    elif order_by == "created_asc":
+        plans.sort(key=lambda x: x.get("created_at", ""))
+    elif order_by == "title":
+        plans.sort(key=lambda x: x.get("title", "").lower())
+    elif order_by == "time_id":
+        plans.sort(key=lambda x: x.get("time_id", ""), reverse=True)
 
     return {"plans": plans, "count": len(plans)}
 
@@ -446,8 +460,9 @@ async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
         title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else plan_id
         epic_count = len(re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", content, re.MULTILINE))
+        from dashboard.zvec_store import uuid7
         plan = {
-            "plan_id": plan_id, "title": title, "content": content, "status": "stored",
+            "plan_id": plan_id, "time_id": uuid7(), "title": title, "content": content, "status": "stored",
             "epic_count": epic_count,
             "created_at": datetime.fromtimestamp(plan_file.stat().st_mtime, tz=timezone.utc).isoformat(),
             "filename": plan_file.name,

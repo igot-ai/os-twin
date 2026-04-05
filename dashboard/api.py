@@ -223,6 +223,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--project-dir", default=None, help="Project directory to monitor"
     )
+    parser.add_argument("--reindex", action="store_true", help="Force full re-index of vector store")
     args = parser.parse_args()
 
     if args.project_dir:
@@ -230,6 +231,9 @@ if __name__ == "__main__":
         # We need to manually update these for the print statements since they were imported early
         PROJECT_ROOT = Path(args.project_dir)
         WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
+    
+    if args.reindex:
+        os.environ["OSTWIN_REINDEX"] = "true"
 
     os.environ.setdefault("DASHBOARD_PORT", str(args.port))
 

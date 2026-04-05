@@ -10,6 +10,8 @@ interface SkillDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onEdit?: (skill: Skill) => void;
+  onToggle?: (skill: Skill) => Promise<void>;
+  isToggling?: boolean;
 }
 
 const categoryColors: Record<SkillCategory, string> = {
@@ -27,10 +29,21 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
   isOpen,
   onClose,
   onEdit,
+  onToggle,
+  isToggling = false
 }) => {
   if (!skill) return null;
 
+  const handleToggle = async () => {
+    if (!onToggle) return;
+    await onToggle(skill);
+  };
+
   const catColor = categoryColors[skill.category] || 'var(--color-text-faint)';
+  const toggleLabel = isToggling
+    ? (skill.enabled === false ? 'Enabling Skill...' : 'Disabling Skill...')
+    : (skill.enabled === false ? 'Enable Skill' : 'Disable Skill');
+  const statusText = skill.enabled === false ? 'Disabled' : 'Active';
 
   return (
     <Modal
@@ -73,33 +86,70 @@ export const SkillDetailModal: React.FC<SkillDetailModalProps> = ({
     >
       <div className="space-y-6">
         {/* Header Info */}
-        <div className="flex items-center gap-3">
-          <div 
-            className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider text-white"
-            style={{ background: catColor }}
-          >
-            {skill.category}
+        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div
+                  className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider text-white"
+                  style={{ background: catColor }}
+                >
+                  {skill.category}
+                </div>
+                <span className="text-xs font-mono px-2 py-1 rounded bg-slate-100 text-slate-500">
+                  Version {skill.version}
+                </span>
+                <span
+                  className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                    skill.enabled === false
+                      ? 'border-red-200 bg-red-50 text-red-600'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  }`}
+                >
+                  {statusText}
+                </span>
+                {skill.is_draft && (
+                  <span className="text-xs font-bold px-2 py-1 rounded bg-amber-100 text-amber-600 border border-amber-200">
+                    DRAFT
+                  </span>
+                )}
+                {skill.trust_level === 'verified' && (
+                  <span className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                    <span className="material-symbols-outlined text-[14px]">verified</span>
+                    Verified
+                  </span>
+                )}
+                 {skill.trust_level === 'core' && (
+                  <span className="flex items-center gap-1 text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-200">
+                    <span className="material-symbols-outlined text-[14px]">shield</span>
+                    Core
+                  </span>
+                )}
+              </div>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
+                {skill.enabled === false
+                  ? 'This skill is currently disabled and should be excluded from normal skill selection and execution.'
+                  : 'This skill is currently available for selection and execution.'}
+              </p>
+            </div>
+            {onToggle && (
+              <Button
+                onClick={handleToggle}
+                variant="outline"
+                className={`flex items-center gap-2 md:min-w-[170px] md:justify-center ${
+                  skill.enabled === false
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                }`}
+                disabled={isToggling}
+              >
+                <span className="material-symbols-outlined text-base">
+                  {skill.enabled === false ? 'toggle_on' : 'toggle_off'}
+                </span>
+                {toggleLabel}
+              </Button>
+            )}
           </div>
-          <span className="text-xs font-mono px-2 py-1 rounded bg-slate-100 text-slate-500">
-            Version {skill.version}
-          </span>
-          {skill.is_draft && (
-            <span className="text-xs font-bold px-2 py-1 rounded bg-amber-100 text-amber-600 border border-amber-200">
-              DRAFT
-            </span>
-          )}
-          {skill.trust_level === 'verified' && (
-            <span className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-200">
-              <span className="material-symbols-outlined text-[14px]">verified</span>
-              Verified
-            </span>
-          )}
-           {skill.trust_level === 'core' && (
-            <span className="flex items-center gap-1 text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-200">
-              <span className="material-symbols-outlined text-[14px]">shield</span>
-              Core
-            </span>
-          )}
         </div>
 
         {/* Description */}
