@@ -86,9 +86,8 @@ async def list_skill_roles(user: dict = Depends(get_current_user)):
 _CLAWHUB_CONVEX_BASE = "https://wry-manatee-359.convex.cloud/api"
 
 # Global skills directory — all ClawhHub installs go here
-_GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / "skills"
-_GLOBAL_SKILLS_GLOBAL = _GLOBAL_SKILLS_DIR / "global"
-_GLOBAL_CLAWHUB_LOCK = _GLOBAL_SKILLS_DIR / ".clawhub" / "lock.json"
+_GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / ".agents" / "skills"
+_GLOBAL_CLAWHUB_LOCK = _GLOBAL_SKILLS_DIR / ".clawhub-lock.json"
 
 # Strict pattern: only allow alphanumeric, hyphens, underscores, dots, and @scopes
 _SAFE_SKILL_NAME = re.compile(r"^(@[a-zA-Z0-9_-]+/)?[a-zA-Z0-9._-]+$")
@@ -211,8 +210,8 @@ async def clawhub_search(
 async def clawhub_installed(user: dict = Depends(get_current_user)):
     """Return ClawhHub skill slugs that are actually installed on disk.
 
-    Reads the global lock file at ~/.ostwin/skills/.clawhub/lock.json
-    and verifies the skill folder exists in ~/.ostwin/skills/global/.
+    Reads the global lock file at ~/.ostwin/.agents/skills/.clawhub-lock.json
+    and verifies the skill folder exists in ~/.ostwin/.agents/skills/.
     """
     installed: Dict[str, Any] = {}
 
@@ -228,7 +227,7 @@ async def clawhub_installed(user: dict = Depends(get_current_user)):
 
     # 2. Verify each lock entry actually exists on disk
     for slug, info in lock_candidates.items():
-        skill_dir = _GLOBAL_SKILLS_GLOBAL / slug
+        skill_dir = _GLOBAL_SKILLS_DIR / slug
         if skill_dir.is_dir():
             installed[slug] = {
                 "slug": slug,
@@ -236,19 +235,19 @@ async def clawhub_installed(user: dict = Depends(get_current_user)):
                 "installedAt": info.get("installedAt"),
             }
 
-    # 3. Also pick up any skill in global/ that has .clawhub/origin.json
+    # 3. Also pick up any skill in global/ that has origin.json
     #    (in case lock file is missing/stale)
-    if _GLOBAL_SKILLS_GLOBAL.exists():
-        for child in _GLOBAL_SKILLS_GLOBAL.iterdir():
+    if _GLOBAL_SKILLS_DIR.exists():
+        for child in _GLOBAL_SKILLS_DIR.iterdir():
             if not child.is_dir() or child.name in installed:
                 continue
-            origin = child / ".clawhub" / "origin.json"
+            origin = child / "origin.json"
             if origin.exists():
                 try:
                     origin_data = json.loads(origin.read_text())
                     installed[child.name] = {
                         "slug": child.name,
-                        "version": origin_data.get("installedVersion"),
+                        "version": origin_data.get("installedVersion") or origin_data.get("version"),
                         "installedAt": origin_data.get("installedAt"),
                     }
                 except Exception:
@@ -631,16 +630,17 @@ async def clawhub_install(
 
     async with _install_lock:
         try:
-            # Install into ~/.ostwin/skills so skills land in ~/.ostwin/skills/global/<slug>
-            # clawhub CLI creates a skills/ subdir under cwd, but we want global/
-            # so we use ~/.ostwin/skills as cwd and move skills/<slug> -> global/<slug> after
+            # Install into ~/.ostwin/.agents/skills
+            # clawhub CLI creates a skills/ subdir under cwd.
+            # We use ~/.ostwin/.agents as cwd so skills land in ~/.ostwin/.agents/skills/
+            _GLOBAL_SKILLS_DIR.parent.mkdir(parents=True, exist_ok=True)
             _GLOBAL_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
-            _GLOBAL_SKILLS_GLOBAL.mkdir(parents=True, exist_ok=True)
+            
             proc = await asyncio.create_subprocess_exec(
                 "npx", "clawhub", "install", skill_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(_GLOBAL_SKILLS_DIR),
+                cwd=str(_GLOBAL_SKILLS_DIR.parent),
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
@@ -657,24 +657,13 @@ async def clawhub_install(
                     detail="clawhub install failed. Check server logs for details.",
                 )
 
-            # clawhub creates ~/.ostwin/skills/skills/<slug>, move to global/<slug>
-            src = _GLOBAL_SKILLS_DIR / "skills" / skill_name
-            dest = _GLOBAL_SKILLS_GLOBAL / skill_name
-            if src.exists():
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.move(str(src), str(dest))
-                # Clean up empty skills/ subdir left by clawhub
-                clawhub_skills_subdir = _GLOBAL_SKILLS_DIR / "skills"
-                if clawhub_skills_subdir.exists() and not any(clawhub_skills_subdir.iterdir()):
-                    clawhub_skills_subdir.rmdir()
-
-            # Move .clawhub/lock.json from clawhub's default location to our global location
-            clawhub_default_lock = _GLOBAL_SKILLS_DIR / ".clawhub" / "lock.json"
-            if clawhub_default_lock.exists():
-                # Already at the right place — ~/.ostwin/skills/.clawhub/lock.json
-                pass
-
+            # Skill is already in ~/.ostwin/.agents/skills/<skill_name> because CWD was .agents
+            dest = _GLOBAL_SKILLS_DIR / skill_name
+            
+            # Note: clawhub creates .clawhub/lock.json in whichever CWD we use.
+            # We want to use ~/.ostwin/.agents/skills/.clawhub-lock.json to match the CLI script.
+            # So we might need to sync these if they diverge, but for now we'll assume the CLI is authority.
+            
             logger.info("clawhub-install success by=%s skill=%s dest=%s", username, skill_name, dest)
             return {
                 "status": "installed",

@@ -9,6 +9,7 @@ const RolesConfigTab = lazy(() => import('./RolesConfigTab'));
 const DAGTab = lazy(() => import('./placeholder/DAGTab'));
 const PlanEditorTab = lazy(() => import('./PlanEditorTab'));
 const PlanHistoryTab = lazy(() => import('./PlanHistoryTab'));
+const FileBrowser = lazy(() => import('./FileBrowser'));
 
 export default function WorkspaceTabs() {
   const { activeTab, planId, planContent, setPlanContent } = usePlanContext();
@@ -17,6 +18,8 @@ export default function WorkspaceTabs() {
     switch (activeTab) {
       case 'epics':
         return <KanbanBoard />;
+      case 'files':
+        return <FileBrowser planId={planId} />;
       case 'roles':
         return <RolesConfigTab />;
       case 'dag':

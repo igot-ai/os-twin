@@ -301,6 +301,53 @@ export interface AgentInstance {
 }
 
 // ──────────────────────────────────────────────────
+// Files & Git
+// ──────────────────────────────────────────────────
+
+export interface FileEntry {
+  name: string;
+  type: 'file' | 'directory';
+  size?: number;
+  extension?: string;
+  children_count?: number;
+}
+
+export interface FileTreeNode {
+  name: string;
+  type: 'file' | 'directory';
+  path: string;
+  children?: FileTreeNode[];
+}
+
+export interface FileContentResponse {
+  path: string;
+  content: string | null;
+  encoding: 'utf-8' | 'base64' | null;
+  size: number;
+  mime_type: string;
+  truncated: boolean;
+}
+
+export interface GitFileChange {
+  path: string;
+  status: string; // e.g. "M", "A", "??"
+}
+
+export interface GitCommitSummary {
+  hash: string;
+  author: string;
+  timestamp: number;
+  subject: string;
+}
+
+export interface FileChanges {
+  git_enabled: boolean;
+  status: string[]; // git status --porcelain raw lines
+  recent_commits: GitCommitSummary[];
+  error?: string;
+}
+
+// ──────────────────────────────────────────────────
 // War Room Config (config.json)
 // ──────────────────────────────────────────────────
 export interface WarRoomConfig {
