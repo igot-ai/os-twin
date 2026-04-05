@@ -9,13 +9,13 @@ import { SkillDetailModal } from './SkillDetailModal';
 import { ClawhubMarketplace } from './ClawhubMarketplace';
 
 const categoryColors: Record<SkillCategory, string> = {
-  implementation: '#3b82f6',
-  review: '#8b5cf6',
-  testing: '#10b981',
-  writing: '#f59e0b',
-  analysis: '#06b6d4',
-  compliance: '#ec4899',
-  triage: '#ef4444',
+  implementation: 'var(--color-primary)',
+  review: 'var(--color-purple)',
+  testing: 'var(--color-success)',
+  writing: 'var(--color-amber)',
+  analysis: 'var(--color-cyan)',
+  compliance: 'var(--color-pink)',
+  triage: 'var(--color-danger)',
 };
 
 const PAGE_SIZE = 50;
@@ -143,7 +143,7 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
     return pages;
   };
 
-  if (isError && activeTab === 'local') return <div className="p-8 text-red-500">Failed to load skills</div>;
+  if (isError && activeTab === 'local') return <div className="p-8" style={{ color: 'var(--color-danger)' }}>Failed to load skills</div>;
 
   return (
     <div className="space-y-6">
@@ -151,20 +151,22 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
       <div className="flex items-center gap-1 border-b" style={{ borderColor: 'var(--color-border)' }}>
         <button
           onClick={() => setActiveTab('local')}
-          className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
-            activeTab === 'local' ? 'border-blue-500 text-blue-600' : 'border-transparent hover:text-slate-600'
-          }`}
-          style={{ color: activeTab === 'local' ? undefined : 'var(--color-text-muted)' }}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors`}
+          style={{
+            borderBottomColor: activeTab === 'local' ? 'var(--color-primary)' : 'transparent',
+            color: activeTab === 'local' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+          }}
         >
           <span className="material-symbols-outlined text-sm">folder</span>
           Local Skills
         </button>
         <button
           onClick={() => setActiveTab('clawhub')}
-          className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
-            activeTab === 'clawhub' ? 'border-indigo-500 text-indigo-600' : 'border-transparent hover:text-slate-600'
-          }`}
-          style={{ color: activeTab === 'clawhub' ? undefined : 'var(--color-text-muted)' }}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors`}
+          style={{
+            borderBottomColor: activeTab === 'clawhub' ? 'var(--color-primary)' : 'transparent',
+            color: activeTab === 'clawhub' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+          }}
         >
           <span className="material-symbols-outlined text-sm">store</span>
           ClawhHub Marketplace
@@ -205,12 +207,14 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
                 className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium capitalize transition-all border ${
                   isSelected 
                     ? 'border-transparent text-white' 
-                    : 'border-border text-text-muted hover:bg-slate-50'
+                    : 'text-text-muted'
                 }`}
                 style={{ 
                   background: isSelected ? color : 'transparent',
                   borderColor: isSelected ? 'transparent' : 'var(--color-border)'
                 }}
+                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--color-surface-hover)'; }}
+                onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
               >
                 {!isSelected && <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />}
                 {cat}
@@ -220,7 +224,8 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
           {selectedCategories.length > 0 && (
             <button 
               onClick={() => setSelectedCategories([])}
-              className="px-2 py-1 text-[10px] text-blue-500 hover:underline"
+              className="px-2 py-1 text-[10px] hover:underline"
+              style={{ color: 'var(--color-primary)' }}
             >
               Clear
             </button>
@@ -248,14 +253,16 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
 
       {/* Grid */}
       {toggleError && (
-        <div className="rounded-xl border px-4 py-3 text-sm" style={{ borderColor: '#fecaca', background: '#fef2f2', color: '#b91c1c' }}>
+        <div className="rounded-xl border px-4 py-3 text-sm"
+          style={{ borderColor: 'var(--color-danger-light)', background: 'var(--color-danger-light)', color: 'var(--color-danger-text)' }}
+        >
           {toggleError}
         </div>
       )}
       {isLoading ? (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-32 rounded-xl bg-slate-100 animate-pulse" />
+            <div key={i} className="h-32 rounded-xl animate-pulse" style={{ background: 'var(--color-surface-hover)' }} />
           ))}
         </div>
       ) : paginatedSkills.length > 0 ? (
@@ -285,8 +292,10 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
           <button
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
             disabled={currentPage === 1}
-            className="flex items-center justify-center w-8 h-8 rounded-md text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100"
-            style={{ color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}
+            className="flex items-center justify-center w-8 h-8 rounded-md text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', background: 'transparent' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-surface-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
           >
             <span className="material-symbols-outlined text-sm">chevron_left</span>
           </button>
@@ -299,12 +308,10 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
               <button
                 key={page}
                 onClick={() => setCurrentPage(page)}
-                className={`w-8 h-8 rounded-md text-xs font-medium transition-colors ${
-                  currentPage === page ? 'text-white' : 'hover:bg-slate-100'
-                }`}
+                className={`w-8 h-8 rounded-md text-xs font-medium transition-colors`}
                 style={{
-                  background: currentPage === page ? 'var(--color-accent, #3b82f6)' : 'transparent',
-                  color: currentPage === page ? '#fff' : 'var(--color-text-muted)',
+                  background: currentPage === page ? 'var(--color-primary)' : 'transparent',
+                  color: currentPage === page ? 'var(--color-surface)' : 'var(--color-text-muted)',
                   border: currentPage === page ? 'none' : '1px solid var(--color-border)',
                 }}
               >
@@ -315,8 +322,10 @@ export const SkillLibrary: React.FC<SkillLibraryProps> = ({ onEdit }) => {
           <button
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
             disabled={currentPage === totalPages}
-            className="flex items-center justify-center w-8 h-8 rounded-md text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100"
-            style={{ color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}
+            className="flex items-center justify-center w-8 h-8 rounded-md text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', background: 'transparent' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-surface-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
           >
             <span className="material-symbols-outlined text-sm">chevron_right</span>
           </button>

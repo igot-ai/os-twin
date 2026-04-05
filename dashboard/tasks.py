@@ -204,6 +204,14 @@ async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
     # Telegram polling removed — handled by the Node.js bot (bot/src/telegram.ts)
+    # Planning thread store (independent of zvec)
+    try:
+        from dashboard.planning_thread_store import PlanningThreadStore
+        global_state.planning_store = PlanningThreadStore()
+        logger.info("Planning thread store initialized")
+    except Exception as e:
+        logger.error(f"Planning store init failed: {e}")
+
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         # Initialize store in global state
@@ -218,6 +226,7 @@ async def startup_all():
                 global_state.store.zvec_dir.mkdir(parents=True, exist_ok=True)
         
         global_state.store.ensure_collections()
+
         global_state.store.sync_from_disk()
         from dashboard.api_utils import SKILLS_DIRS
         global_state.store.sync_skills(SKILLS_DIRS)

@@ -16,6 +16,7 @@ from dashboard.models import CreatePlanRequest, SavePlanRequest, RefineRequest, 
 from dashboard.api_utils import (
     AGENTS_DIR, PROJECT_ROOT, WARROOMS_DIR, PLANS_DIR,
     get_plan_roles_config, build_roles_list, resolve_plan_warrooms_dir,
+    resolve_runtime_plan_warrooms_dir,
     process_notification
 )
 import dashboard.global_state as global_state
@@ -35,7 +36,7 @@ def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
         return
     try:
         meta = json.loads(meta_file.read_text())
-        for key in ("working_dir", "warrooms_dir", "launched_at", "status"):
+        for key in ("working_dir", "warrooms_dir", "launched_at", "status", "thread_id"):
             if key in meta and meta[key]:
                 plan[key] = meta[key]
         plan["meta"] = meta
@@ -134,9 +135,10 @@ async def list_plans(
         # Enrich from progress.json if available
         warrooms_dir = p.get("warrooms_dir")
         if not warrooms_dir:
-            from dashboard.api_utils import resolve_plan_warrooms_dir
-            warrooms_dir = str(resolve_plan_warrooms_dir(plan_id))
-            p["warrooms_dir"] = warrooms_dir
+            runtime_warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+            if runtime_warrooms_dir:
+                warrooms_dir = str(runtime_warrooms_dir)
+                p["warrooms_dir"] = warrooms_dir
 
         if warrooms_dir:
             # Role distribution from DAG.json
@@ -440,6 +442,76 @@ async def get_plan_sync_status(plan_id: str, user: dict = Depends(get_current_us
         "zvec_mtime": zvec_mtime
     }
 
+def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optional[str] = None, thread_id: Optional[str] = None) -> dict:
+    """Helper to write plan.md, meta.json, and roles.json to disk and index in zvec store."""
+    raw = f"{title}:{datetime.now(timezone.utc).isoformat()}"
+    plan_id = hashlib.sha256(raw.encode()).hexdigest()[:12]
+    plans_dir = PLANS_DIR
+    plans_dir.mkdir(exist_ok=True)
+    plan_file = plans_dir / f"{plan_id}.md"
+
+    # Auto-create project subfolder under PROJECT_ROOT/projects/ if no dir specified
+    if not working_dir or working_dir == '.':
+        slug = _re_mod.sub(r'[^a-zA-Z0-9]+', '-', title.lower()).strip('-')[:40]
+        if not slug:
+            slug = plan_id
+        project_dir = PROJECT_ROOT / "projects" / slug
+        project_dir.mkdir(parents=True, exist_ok=True)
+        working_dir = str(project_dir)
+
+    if content:
+        plan_file.write_text(content)
+    else:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        plan_file.write_text(f"# Plan: {title}\n\n> Created: {now}\n> Status: draft\n\n## Config\n\nworking_dir: {working_dir}\n\n---\n\n## Goal\n\n{title}\n\n## Epics\n\n### EPIC-001 — {title}\n\n#### Definition of Done\n- [ ] Core functionality implemented\n\n#### Tasks\n- [ ] TASK-001 — Design and plan implementation\n\ndepends_on: []\n")
+
+    meta_file = plans_dir / f"{plan_id}.meta.json"
+    meta = {
+        "plan_id": plan_id, 
+        "title": title, 
+        "working_dir": working_dir, 
+        "warrooms_dir": str(Path(working_dir) / ".war-rooms"), 
+        "created_at": datetime.now(timezone.utc).isoformat(), 
+        "status": "draft"
+    }
+    if thread_id:
+        meta["thread_id"] = thread_id
+    meta_file.write_text(json.dumps(meta, indent=2) + "\n")
+
+    plan_roles_file = plans_dir / f"{plan_id}.roles.json"
+    if not plan_roles_file.exists():
+        global_config_file = AGENTS_DIR / "config.json"
+        seed_config = json.loads(global_config_file.read_text()) if global_config_file.exists() else {}
+        from dashboard.routes.roles import load_roles
+        for role in load_roles():
+            if role.name not in seed_config:
+                seed_config[role.name] = {}
+            rc = seed_config[role.name]
+            rc.setdefault("default_model", role.version)
+            rc.setdefault("timeout_seconds", role.timeout_seconds)
+            if role.skill_refs:
+                rc.setdefault("skill_refs", role.skill_refs)
+        plan_roles_file.write_text(json.dumps(seed_config, indent=2) + "\n")
+
+    store = global_state.store
+    if store:
+        try:
+            store.index_plan(
+                plan_id=plan_id, title=title, content=plan_file.read_text(), 
+                epic_count=1, filename=f"{plan_id}.md", status="draft", 
+                created_at=meta["created_at"], file_mtime=plan_file.stat().st_mtime
+            )
+        except Exception as e:
+            logger.warning("Failed to index new plan %s in zvec: %s", plan_id, e)
+
+    return {
+        "plan_id": plan_id, 
+        "url": f"/plans/{plan_id}", 
+        "title": title, 
+        "working_dir": working_dir, 
+        "filename": f"{plan_id}.md"
+    }
+
 @router.get("/api/plans/{plan_id}")
 async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
     """Get a specific plan with its epics and meta.json details."""
@@ -476,54 +548,11 @@ async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
 @router.post("/api/plans/create")
 async def create_plan(request: CreatePlanRequest):
     """Create a new plan."""
-    raw = f"{request.path}:{datetime.now(timezone.utc).isoformat()}"
-    plan_id = hashlib.sha256(raw.encode()).hexdigest()[:12]
-    plans_dir = PLANS_DIR
-    plans_dir.mkdir(exist_ok=True)
-    plan_file = plans_dir / f"{plan_id}.md"
-    working_dir = request.working_dir or request.path or ''
-
-    # Auto-create project subfolder under PROJECT_ROOT/projects/ if no dir specified
-    if not working_dir or working_dir == '.':
-        slug = _re_mod.sub(r'[^a-zA-Z0-9]+', '-', request.title.lower()).strip('-')[:40]
-        if not slug:
-            slug = plan_id
-        project_dir = PROJECT_ROOT / "projects" / slug
-        project_dir.mkdir(parents=True, exist_ok=True)
-        working_dir = str(project_dir)
-
-    if request.content:
-        plan_file.write_text(request.content)
-    else:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        plan_file.write_text(f"# Plan: {request.title}\n\n> Created: {now}\n> Status: draft\n> Project: {request.path}\n\n## Config\n\nworking_dir: {working_dir}\n\n---\n\n## Goal\n\n{request.title}\n\n## Epics\n\n### EPIC-001 — {request.title}\n\n#### Definition of Done\n- [ ] Core functionality implemented\n\n#### Tasks\n- [ ] TASK-001 — Design and plan implementation\n\ndepends_on: []\n")
-
-    meta_file = plans_dir / f"{plan_id}.meta.json"
-    meta = {"plan_id": plan_id, "title": request.title, "working_dir": working_dir, "warrooms_dir": str(Path(working_dir) / ".war-rooms"), "created_at": datetime.now(timezone.utc).isoformat(), "status": "draft"}
-    meta_file.write_text(json.dumps(meta, indent=2) + "\n")
-
-    plan_roles_file = plans_dir / f"{plan_id}.roles.json"
-    if not plan_roles_file.exists():
-        global_config_file = AGENTS_DIR / "config.json"
-        seed_config = json.loads(global_config_file.read_text()) if global_config_file.exists() else {}
-        from dashboard.routes.roles import load_roles
-        for role in load_roles():
-            if role.name not in seed_config:
-                seed_config[role.name] = {}
-            rc = seed_config[role.name]
-            rc.setdefault("default_model", role.version)
-            rc.setdefault("timeout_seconds", role.timeout_seconds)
-            if role.skill_refs:
-                rc.setdefault("skill_refs", role.skill_refs)
-        plan_roles_file.write_text(json.dumps(seed_config, indent=2) + "\n")
-
-    store = global_state.store
-    if store:
-        try:
-            store.index_plan(plan_id=plan_id, title=request.title, content=plan_file.read_text(), epic_count=1, filename=f"{plan_id}.md", status="draft", created_at=meta["created_at"], file_mtime=plan_file.stat().st_mtime)
-        except Exception as e:
-            logger.warning("Failed to index new plan %s in zvec: %s", plan_id, e)
-    return {"plan_id": plan_id, "url": f"/plans/{plan_id}", "title": request.title, "path": request.path, "working_dir": working_dir, "filename": f"{plan_id}.md"}
+    return create_plan_on_disk(
+        title=request.title,
+        content=request.content,
+        working_dir=request.working_dir or request.path
+    )
 
 @router.post("/api/plans/{plan_id}/save")
 async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends(get_current_user)):
@@ -1272,10 +1301,10 @@ async def search_epics(q: str = Query(..., min_length=1), plan_id: Optional[str]
 async def get_plan_role_assignments(plan_id: str, user: dict = Depends(get_current_user)):
     config = get_plan_roles_config(plan_id)
     roles = build_roles_list(config, include_skills=True)
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
     rooms_with_roles = []
     role_summary: Dict[str, int] = {}
-    if warrooms_dir.exists():
+    if warrooms_dir and warrooms_dir.exists():
         for room_dir in sorted(warrooms_dir.glob("room-*")):
             if not room_dir.is_dir(): continue
             room_config_file = room_dir / "config.json"
@@ -1300,7 +1329,7 @@ async def get_plan_role_assignments(plan_id: str, user: dict = Depends(get_curre
                 rooms_with_roles.append({"room_id": room_dir.name, "task_ref": room_config.get("task_ref", "UNKNOWN"), "roles": role_instances})
     return {
         "plan_id": plan_id, 
-        "warrooms_dir": str(warrooms_dir), 
+        "warrooms_dir": str(warrooms_dir) if warrooms_dir else None, 
         "role_defaults": roles, 
         "rooms": rooms_with_roles, 
         "summary": role_summary, 
@@ -1330,9 +1359,9 @@ async def update_plan_role_config(plan_id: str, role_name: str, request: UpdateP
 async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
     """Get war-rooms for a specific plan, using the plan's working_dir."""
     from dashboard.api_utils import read_room
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
     if not warrooms_dir or not warrooms_dir.exists():
-        return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir), "rooms": [], "count": 0}
+        return {"plan_id": plan_id, "warrooms_dir": str(warrooms_dir) if warrooms_dir else None, "rooms": [], "count": 0}
     rooms = []
     for room_dir in sorted(warrooms_dir.glob("room-*")):
         if not room_dir.is_dir(): continue
@@ -1341,10 +1370,8 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
             try:
                 rc = json.loads(room_config_file.read_text())
                 room_plan_id = rc.get("plan_id", "")
-                # Only skip rooms explicitly belonging to a DIFFERENT plan.
-                # Empty/missing plan_id means the room was created without
-                # stamping the plan — include it since warrooms_dir is
-                # already scoped to this plan's working_dir.
+                # Only include shared-dir rooms that either explicitly match
+                # the plan or are legacy unstamped rooms inside a plan-scoped dir.
                 if room_plan_id and room_plan_id != plan_id:
                     continue
             except json.JSONDecodeError: continue
@@ -1357,8 +1384,12 @@ async def get_plan_rooms(plan_id: str, user: dict = Depends(get_current_user)):
 @router.get("/api/plans/{plan_id}/progress")
 async def get_plan_progress(plan_id: str, user: dict = Depends(get_current_user)):
     """Get the progress.json content for a specific plan."""
-    from dashboard.api_utils import resolve_plan_warrooms_dir
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir:
+        return {
+            "total": 0, "passed": 0, "failed": 0, "blocked": 0, "active": 0, "pending": 0,
+            "pct_complete": 0, "rooms": []
+        }
     prog_file = warrooms_dir / "progress.json"
     if not prog_file.exists():
         return {
@@ -1510,7 +1541,17 @@ async def get_plan_dag(plan_id: str, user: dict = Depends(get_current_user)):
     directed-acyclic-graph of war-room / EPIC dependencies including nodes,
     critical_path, waves, topological_order, and metadata like max_depth.
     """
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir:
+        return {
+            "nodes": [],
+            "edges": [],
+            "critical_path": [],
+            "waves": {},
+            "topological_order": [],
+            "max_depth": 0,
+            "error": "DAG.json not found"
+        }
     dag_file = warrooms_dir / "DAG.json"
     if not dag_file.exists():
         # Avoid 404 for missing resource (prevents it being confused with missing endpoint)
@@ -1539,9 +1580,9 @@ async def get_plan_epic(
     user: dict = Depends(get_current_user)
 ):
     """Get full details for a specific EPIC within a plan."""
-    from dashboard.api_utils import read_room, resolve_plan_warrooms_dir
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
-    if not warrooms_dir.exists():
+    from dashboard.api_utils import read_room
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir or not warrooms_dir.exists():
         raise HTTPException(status_code=404, detail=f"No war-rooms for plan {plan_id}")
 
     for room_dir in warrooms_dir.glob("room-*"):
@@ -1593,7 +1634,9 @@ async def get_plan_epic(
 
 @router.get("/api/plans/{plan_id}/rooms/{room_id}/roles")
 async def get_plan_room_roles(plan_id: str, room_id: str, user: dict = Depends(get_current_user)):
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir:
+        raise HTTPException(status_code=404, detail="Room not found")
     room_dir = warrooms_dir / room_id
     if not room_dir.exists(): raise HTTPException(status_code=404, detail="Room not found")
     role_instances = []
@@ -1611,7 +1654,9 @@ async def get_plan_room_roles(plan_id: str, room_id: str, user: dict = Depends(g
 async def get_plan_room_channel(plan_id: str, room_id: str, user: dict = Depends(get_current_user)):
     """Get channel messages for a plan-scoped war-room."""
     from dashboard.api_utils import read_channel
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir:
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
     room_dir = warrooms_dir / room_id
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
@@ -1621,7 +1666,9 @@ async def get_plan_room_channel(plan_id: str, room_id: str, user: dict = Depends
 async def get_plan_room_state(plan_id: str, room_id: str, user: dict = Depends(get_current_user)):
     """Get full room state with metadata for a plan-scoped war-room."""
     from dashboard.api_utils import read_room
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir:
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
     room_dir = warrooms_dir / room_id
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
@@ -1637,7 +1684,9 @@ async def plan_room_action(
     user: dict = Depends(get_current_user),
 ):
     """Perform an action on a plan-scoped war-room (stop, pause, resume, start)."""
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir:
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
     room_dir = warrooms_dir / room_id
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found in plan {plan_id}")
@@ -1661,9 +1710,8 @@ async def plan_room_action(
 
 def _resolve_room_dir(plan_id: str, task_ref: str) -> Optional[Path]:
     """Internal helper to find the room directory for a given task/epic reference."""
-    from dashboard.api_utils import resolve_plan_warrooms_dir
-    warrooms_dir = resolve_plan_warrooms_dir(plan_id)
-    if not warrooms_dir.exists():
+    warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
+    if not warrooms_dir or not warrooms_dir.exists():
         return None
 
     for room_dir in warrooms_dir.glob("room-*"):
@@ -1897,5 +1945,3 @@ async def preview_epic_role_prompt(
         return {"role": role_name, "prompt": prompt}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate prompt: {e}")
-
-

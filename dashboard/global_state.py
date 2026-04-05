@@ -32,4 +32,5 @@ broadcaster = Broadcaster()
 
 # These will be initialized by api.py on startup
 store = None
+planning_store = None
 tunnel_url: str | None = None

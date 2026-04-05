@@ -145,10 +145,10 @@ data = json.load(sys.stdin)
 plan = data.get('plan', {})
 filename = plan.get('filename', '')
 if filename:
-    # Try project-local AGENTS_DIR/plans/ first, then global ~/.ostwin/plans/
+    # Try project-local AGENTS_DIR/plans/ first, then global ~/.ostwin/.agents/plans/
     candidates = [
         os.path.join('$AGENTS_DIR', 'plans', filename),
-        os.path.join(os.path.expanduser('~'), '.ostwin', 'plans', filename),
+        os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'plans', filename),
     ]
     for c in candidates:
         if os.path.isfile(c):
@@ -175,7 +175,7 @@ print(plan.get('working_dir', plan.get('meta', {}).get('working_dir', '')))
           return 0
         else
           echo "✗ Plan file not found for plan_id '$arg'" >&2
-          echo "  Searched: $AGENTS_DIR/plans/ and ~/.ostwin/plans/" >&2
+          echo "  Searched: $AGENTS_DIR/plans/ and ~/.ostwin/.agents/plans/" >&2
           return 1
         fi
       else
