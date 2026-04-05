@@ -61,6 +61,12 @@ coverage.xml
 .cache/
 venv/
 **/venv/
+**/debug_test*
+.agents/knowledge/embeddings.db
+.agents/vec_test.log
+.agents/conversations/
+dashboard/run_my_tests*.sh
+dashboard/fe/out/
 
 # ── OS / IDE ───────────────────────────────────────────────────────────────────
 .DS_Store

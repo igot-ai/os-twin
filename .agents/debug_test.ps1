@@ -1,1 +1,0 @@
-python3 '/mnt/e/OS Twin/os-twin/run_pytest_temp.py'
