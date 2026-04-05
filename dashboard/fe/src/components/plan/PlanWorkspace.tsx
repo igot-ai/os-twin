@@ -391,25 +391,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
             </div>
           </aside>
 
-          {/* Right Panel: AI Chat */}
-          <aside
-            className={`border-l bg-surface border-border flex flex-col shrink-0 transition-all duration-300 overflow-hidden ${
-              isAIChatOpen ? 'w-[360px]' : 'w-0 border-l-0'
-            }`}
-          >
-            <div className="w-[360px] h-full">
-              <AIChatPanel
-                chatHistory={chatHistory}
-                isRefining={isRefining}
-                streamedResponse={streamedResponse}
-                error={aiError}
-                onSendMessage={(msg) => refine(msg, planContent, planId)}
-                onApplyToEditor={handleApplyAI}
-                onCancel={cancelRefine}
-                onClearHistory={() => { clearHistory(); setIsAIChatOpen(false); }}
-              />
-            </div>
-          </aside>
+          {/* Right Panel: AI Chat (moved to AI Plan tab) */}
         </div>
 
         {/* Progress Footer */}

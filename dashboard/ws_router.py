@@ -28,11 +28,74 @@ class ConnectionManager:
             if conn in self.active_connections:
                 self.active_connections.remove(conn)
 
+    async def broadcast_epic_progress(self, plan_id: str, epic_ref: str, status: str, progress: int):
+        await self.broadcast({
+            "type": "epic_progress",
+            "plan_id": plan_id,
+            "epic_ref": epic_ref,
+            "status": status,
+            "progress": progress
+        })
+
+    async def broadcast_connection_health(self, service: str, status: str, latency: float = 0.0):
+        await self.broadcast({
+            "type": "connection_health",
+            "service": service,
+            "status": status,
+            "latency": latency
+        })
+
     @property
     def client_count(self):
         return len(self.active_connections)
 
 manager = ConnectionManager()
+
+async def handle_client_message(websocket: WebSocket, msg: dict):
+    msg_type = msg.get("type")
+    
+    if msg_type == "ping":
+        await websocket.send_json({"type": "pong", "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        
+    elif msg_type == "command_request":
+        prompt = msg.get("prompt", "")
+        conversation_id = msg.get("conversation_id", "")
+        
+        from dashboard.conversation_store import conversation_store
+        
+        # Ensure conversation exists
+        append_user = True
+        if not conversation_id:
+            conv = conversation_store.create(prompt)
+            conversation_id = conv["id"]
+            append_user = False
+        else:
+            if not conversation_store.get(conversation_id):
+                await websocket.send_json({"type": "error", "detail": "Conversation not found"})
+                return
+
+        from dashboard.command_dispatcher import dispatcher
+        
+        # Start streaming tokens back
+        try:
+            async for chunk in dispatcher.dispatch(prompt, conversation_id, append_user_message=append_user):
+                await websocket.send_json({
+                    "type": "agent_stream",
+                    "conversation_id": conversation_id,
+                    "chunk": chunk
+                })
+            
+            # Send completion event
+            await websocket.send_json({
+                "type": "command_response",
+                "conversation_id": conversation_id,
+                "status": "complete"
+            })
+        except Exception as e:
+            await websocket.send_json({
+                "type": "error",
+                "detail": str(e)
+            })
 
 def create_ws_router() -> APIRouter:
     router = APIRouter()
@@ -41,20 +104,16 @@ def create_ws_router() -> APIRouter:
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
         try:
-            # Send initial state (from api.py logic if needed, but for now just connect)
             await websocket.send_json({
                 "event": "connected",
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             })
 
-            # Keep connection alive and handle client messages
             while True:
                 data = await websocket.receive_text()
-                # Client can send ping/refresh requests
                 try:
                     msg = json.loads(data)
-                    if msg.get("type") == "ping":
-                        await websocket.send_json({"type": "pong", "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+                    await handle_client_message(websocket, msg)
                 except json.JSONDecodeError:
                     pass
 

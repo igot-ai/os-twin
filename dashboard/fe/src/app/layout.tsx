@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+// cache invalidation 1
 import { Plus_Jakarta_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { SWRProvider } from "@/components/swr-provider";

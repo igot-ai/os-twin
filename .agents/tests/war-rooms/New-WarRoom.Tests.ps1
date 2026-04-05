@@ -222,7 +222,7 @@ Describe "New-WarRoom" {
 
     Context "Plan-specific roles.json resolution" {
         BeforeEach {
-            # Create a mock ~/.ostwin/plans directory with plan roles config
+            # Create a mock ~/.ostwin/.agents/plans directory with plan roles config
             $script:plansDir = Join-Path $TestDrive "ostwin-plans-$(Get-Random)"
             New-Item -ItemType Directory -Path $script:plansDir -Force | Out-Null
             $script:testPlanId = "test-plan-$(Get-Random)"
@@ -240,11 +240,11 @@ Describe "New-WarRoom" {
             $planRolesFile = Join-Path $script:plansDir "$($script:testPlanId).roles.json"
             $planRolesConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $planRolesFile -Encoding utf8
 
-            # Point HOME to TestDrive so the script finds ~/.ostwin/plans/
+            # Point HOME to TestDrive so the script finds ~/.ostwin/.agents/plans/
             $script:origHome = $env:HOME
             $script:fakeHome = Join-Path $TestDrive "fakehome-$(Get-Random)"
-            New-Item -ItemType Directory -Path (Join-Path $script:fakeHome ".ostwin" "plans") -Force | Out-Null
-            Copy-Item $planRolesFile (Join-Path $script:fakeHome ".ostwin" "plans")
+            New-Item -ItemType Directory -Path (Join-Path $script:fakeHome ".ostwin" ".agents" "plans") -Force | Out-Null
+            Copy-Item $planRolesFile (Join-Path $script:fakeHome ".ostwin" ".agents" "plans")
             $env:HOME = $script:fakeHome
         }
 

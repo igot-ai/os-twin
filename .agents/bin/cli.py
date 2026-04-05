@@ -108,7 +108,10 @@ async def _resilient_stream_agent(agent, stream_input, config, state, console, f
                 await _aio.sleep(wait)
                 try:
                     from langgraph.types import Command as _Cmd
-                    stream_input = _Cmd(resume={})
+                    stream_input = _Cmd(resume={
+                        "error": f"Previous tool call failed with {exc_type}: {err_str[:500]}. "
+                        "Please try a different approach.",
+                    })
                 except Exception:
                     stream_input = _original_input
                 continue
@@ -142,7 +145,10 @@ async def _resilient_stream_agent(agent, stream_input, config, state, console, f
                 )
                 try:
                     from langgraph.types import Command as _Cmd
-                    stream_input = _Cmd(resume={})
+                    stream_input = _Cmd(resume={
+                        "error": f"Previous tool call failed with {exc_type}: {err_str[:500]}. "
+                        "Please try a different approach.",
+                    })
                 except Exception:
                     stream_input = _original_input
                 # Don't increment connection_attempt — tool errors are
