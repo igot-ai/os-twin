@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/Button';
 interface AgentResponseProps {
   content: string;
   isStreaming?: boolean;
+  onCreatePlan?: () => void;
 }
 
-export function AgentResponse({ content, isStreaming }: AgentResponseProps) {
+export function AgentResponse({ content, isStreaming, onCreatePlan }: AgentResponseProps) {
   return (
     <div className="flex flex-col gap-2 relative group max-w-full">
       <div 
@@ -32,13 +33,15 @@ export function AgentResponse({ content, isStreaming }: AgentResponseProps) {
         </div>
       </div>
       
-      {/* Example inline action buttons if the text suggests doing something */}
-      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity px-1">
-        <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2" onClick={() => {}}>
-          <span className="material-symbols-outlined text-[12px] mr-1">play_arrow</span>
-          Run Now
-        </Button>
-      </div>
+      {/* Inline action: create plan from this response */}
+      {!isStreaming && onCreatePlan && (
+        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity px-1">
+          <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2" onClick={onCreatePlan}>
+            <span className="material-symbols-outlined text-[12px] mr-1">auto_awesome</span>
+            Create Plan from here
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

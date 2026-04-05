@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import useSWR from 'swr';
 import { PlanningThread, PlanningMessage, ImageAttachment } from '@/types';
 import { apiPost } from '@/lib/api-client';
@@ -28,6 +28,10 @@ export function usePlanningThread(id: string) {
     ? [...serverMessages, ...optimisticMessages]
     : serverMessages;
 
+  // Keep a ref so sendMessage always reads the latest server messages
+  const serverMessagesRef = useRef(serverMessages);
+  useEffect(() => { serverMessagesRef.current = serverMessages; }, [serverMessages]);
+
   const cancel = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -53,7 +57,7 @@ export function usePlanningThread(id: string) {
 
     // Optimistic UI update — skip if this message already exists in server data
     // (e.g. auto-triggering reply for the initial message saved at thread creation)
-    const alreadyExists = serverMessages.some(
+    const alreadyExists = serverMessagesRef.current.some(
       (m) => m.role === 'user' && m.content === content
     );
     if (!alreadyExists) {

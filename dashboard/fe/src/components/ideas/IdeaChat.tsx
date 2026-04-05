@@ -184,7 +184,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
               <span
                 className="text-xs px-2 py-0.5 rounded-full"
                 style={{
-                  background: isPromoted ? 'rgba(139, 92, 246, 0.1)' : 'var(--color-success-light)',
+                  background: isPromoted ? 'var(--color-purple-muted)' : 'var(--color-success-light)',
                   color: isPromoted ? 'var(--color-purple)' : 'var(--color-success-text)'
                 }}
               >
@@ -203,19 +203,6 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
           </div>
         </div>
 
-        <Button
-          variant="primary"
-          onClick={handlePromote}
-          disabled={isStreaming || isPromoted || isPromoting || messages.length === 0}
-          className="gap-2"
-        >
-          {isPromoting ? (
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-          ) : (
-            <span className="material-symbols-outlined text-sm">auto_awesome</span>
-          )}
-          Create Plan
-        </Button>
       </header>
 
       {/* Transcript Area */}
@@ -255,7 +242,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                                 src={img.url}
                                 alt={img.name || 'attachment'}
                                 className="w-20 h-20 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                                style={{ border: '1px solid rgba(255,255,255,0.2)' }}
+                                style={{ border: '1px solid var(--color-overlay-border)' }}
                                 onClick={() => window.open(img.url, '_blank')}
                               />
                             ))}
@@ -271,7 +258,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                         )}
                       </div>
                     ) : (
-                      <AgentResponse content={msg.content} />
+                      <AgentResponse content={msg.content} onCreatePlan={!isPromoted ? handlePromote : undefined} />
                     )}
                   </div>
                 </div>
@@ -342,7 +329,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                   <button
                     onClick={() => removeImage(i)}
                     className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ background: 'var(--color-danger, #ef4444)' }}
+                    style={{ background: 'var(--color-danger)' }}
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
                   </button>
@@ -354,7 +341,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
             </div>
           )}
           {imageError && (
-            <div className="text-xs" style={{ color: 'var(--color-danger, #ef4444)' }}>{imageError}</div>
+            <div className="text-xs" style={{ color: 'var(--color-danger)' }}>{imageError}</div>
           )}
 
           <div className="relative">
@@ -398,7 +385,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
               <span className="material-symbols-outlined text-lg">add_photo_alternate</span>
             </button>
 
-            <div className="absolute right-2 bottom-2">
+            <div className="absolute right-2 bottom-2 flex items-center gap-2">
               {isStreaming ? (
                 <Button
                   variant="secondary"
@@ -409,15 +396,32 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                   <span className="material-symbols-outlined text-sm">stop_circle</span>
                 </Button>
               ) : (
-                <Button
-                  variant="primary"
-                  size="icon"
-                  onClick={handleSend}
-                  disabled={(!input.trim() && pendingImages.length === 0) || isPromoted}
-                  className="h-8 w-8"
-                >
-                  <span className="material-symbols-outlined text-sm" style={{ transform: 'rotate(-45deg)', marginLeft: '2px', marginBottom: '2px' }}>send</span>
-                </Button>
+                <>
+                  {messages.length > 0 && !isPromoted && (
+                    <Button
+                      variant="secondary"
+                      onClick={handlePromote}
+                      disabled={isPromoting}
+                      className="h-8 px-3 gap-1.5 text-xs font-medium"
+                    >
+                      {isPromoting ? (
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2" style={{ borderColor: 'var(--color-primary)' }} />
+                      ) : (
+                        <span className="material-symbols-outlined text-sm">auto_awesome</span>
+                      )}
+                      Create Plan
+                    </Button>
+                  )}
+                  <Button
+                    variant="primary"
+                    size="icon"
+                    onClick={handleSend}
+                    disabled={(!input.trim() && pendingImages.length === 0) || isPromoted}
+                    className="h-8 w-8"
+                  >
+                    <span className="material-symbols-outlined text-sm" style={{ transform: 'rotate(-45deg)', marginLeft: '2px', marginBottom: '2px' }}>send</span>
+                  </Button>
+                </>
               )}
             </div>
           </div>

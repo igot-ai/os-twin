@@ -87,11 +87,12 @@ export const ClawhubMarketplace: React.FC<ClawhubMarketplaceProps> = ({ onInstal
           {banners.map((s) => (
             <div
               key={s.slug}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                s.phase === 'success'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'bg-red-50 text-red-700 border border-red-200'
-              }`}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all"
+              style={{
+                background: s.phase === 'success' ? 'var(--color-success-light)' : 'var(--color-danger-light)',
+                color: s.phase === 'success' ? 'var(--color-success-text)' : 'var(--color-danger-text)',
+                border: `1px solid ${s.phase === 'success' ? 'var(--color-success)' : 'var(--color-danger)'}`,
+              }}
             >
               <span className="material-symbols-outlined text-sm">
                 {s.phase === 'success' ? 'check_circle' : 'error'}
@@ -121,14 +122,14 @@ export const ClawhubMarketplace: React.FC<ClawhubMarketplaceProps> = ({ onInstal
       {debouncedSearch && isLoading && (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-36 rounded-xl bg-slate-100 animate-pulse" />
+            <div key={i} className="h-36 rounded-xl animate-pulse" style={{ background: 'var(--color-surface-hover)' }} />
           ))}
         </div>
       )}
 
       {/* Error */}
       {isError && (
-        <div className="p-8 text-center text-red-500 text-sm">
+        <div className="p-8 text-center text-sm" style={{ color: 'var(--color-danger)' }}>
           Failed to search ClawhHub. Make sure the service is reachable.
         </div>
       )}
@@ -202,7 +203,7 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.5)' }}
+      style={{ background: 'var(--color-backdrop)' }}
       onClick={onClose}
     >
       <div
@@ -215,7 +216,7 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
           <div className="flex items-center gap-2 flex-wrap">
             <span
               className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded text-white"
-              style={{ background: '#6366f1' }}
+              style={{ background: 'var(--color-primary)' }}
             >
               clawhub
             </span>
@@ -223,17 +224,25 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
               {skill.name}
             </span>
             {skill.version && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ background: '#f1f5f9', color: 'var(--color-text-faint)' }}>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-faint)' }}
+              >
                 v{skill.version}
               </span>
             )}
             {installed && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                style={{ background: 'var(--color-success-light)', color: 'var(--color-success-text)', border: '1px solid var(--color-success)' }}
+              >
                 INSTALLED
               </span>
             )}
           </div>
-          <button onClick={onClose} className="p-1 rounded-md hover:bg-slate-100 transition-colors">
+          <button onClick={onClose} className="p-1 rounded-md transition-colors"
+            style={{ background: 'transparent' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-surface-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
             <span className="material-symbols-outlined text-lg" style={{ color: 'var(--color-text-muted)' }}>close</span>
           </button>
         </div>
@@ -243,7 +252,9 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
           {/* Slug */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-semibold uppercase" style={{ color: 'var(--color-text-faint)' }}>Slug</span>
-            <code className="text-xs px-2 py-0.5 rounded" style={{ background: '#f1f5f9', color: 'var(--color-text-main)' }}>
+            <code className="text-xs px-2 py-0.5 rounded"
+              style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-main)' }}
+            >
               {skill.slug}
             </code>
           </div>
@@ -290,7 +301,10 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
               <span className="text-[10px] font-semibold uppercase block mb-1" style={{ color: 'var(--color-text-faint)' }}>Tags</span>
               <div className="flex flex-wrap gap-1">
                 {skill.tags.map((tag) => (
-                  <span key={tag} className="text-[10px] px-2 py-0.5 rounded-sm bg-indigo-50 border border-indigo-100 text-indigo-500">
+                  <span key={tag}
+                    className="text-[10px] px-2 py-0.5 rounded-sm"
+                    style={{ background: 'var(--color-primary-muted)', border: '1px solid var(--color-primary-light)', color: 'var(--color-primary)' }}
+                  >
                     #{tag}
                   </span>
                 ))}
@@ -301,16 +315,20 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
           {/* Install command */}
           <div>
             <span className="text-[10px] font-semibold uppercase block mb-1" style={{ color: 'var(--color-text-faint)' }}>Install command</span>
-            <code className="block text-xs px-3 py-2 rounded-md font-mono" style={{ background: '#1e293b', color: '#e2e8f0' }}>
+            <code className="block text-xs px-3 py-2 rounded-md font-mono"
+              style={{ background: 'var(--color-terminal-surface)', color: 'var(--color-terminal-out)' }}
+            >
               npx clawhub install {skill.slug || skill.name}
             </code>
           </div>
 
           {/* Installing progress */}
           {isInstalling && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-indigo-50 border border-indigo-100">
-              <span className="material-symbols-outlined text-sm animate-spin text-indigo-500">progress_activity</span>
-              <span className="text-xs text-indigo-600 font-medium">Installing...</span>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md"
+              style={{ background: 'var(--color-primary-muted)', border: '1px solid var(--color-primary-light)' }}
+            >
+              <span className="material-symbols-outlined text-sm animate-spin" style={{ color: 'var(--color-primary)' }}>progress_activity</span>
+              <span className="text-xs font-medium" style={{ color: 'var(--color-primary)' }}>Installing...</span>
             </div>
           )}
         </div>
@@ -321,13 +339,16 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
             href={`https://clawhub.ai/skills/${skill.slug || skill.name}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-indigo-500 hover:underline flex items-center gap-1"
+            className="text-xs hover:underline flex items-center gap-1"
+            style={{ color: 'var(--color-primary)' }}
           >
             <span className="material-symbols-outlined text-sm">open_in_new</span>
             View on ClawhHub
           </a>
           {installed ? (
-            <span className="flex items-center gap-1 px-4 py-2 rounded-lg text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200">
+            <span className="flex items-center gap-1 px-4 py-2 rounded-lg text-xs font-semibold"
+              style={{ color: 'var(--color-success-text)', background: 'var(--color-success-light)', border: '1px solid var(--color-success)' }}
+            >
               <span className="material-symbols-outlined text-sm">check_circle</span>
               Installed
             </span>
@@ -336,7 +357,7 @@ const ClawhubDetailModal: React.FC<ClawhubDetailModalProps> = ({ skill, isInstal
               onClick={onInstall}
               disabled={isInstalling}
               className="flex items-center gap-1 px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50"
-              style={{ background: '#6366f1' }}
+              style={{ background: 'var(--color-primary)' }}
             >
               <span className={`material-symbols-outlined text-sm ${isInstalling ? 'animate-spin' : ''}`}>
                 {isInstalling ? 'progress_activity' : 'download'}
@@ -369,7 +390,7 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
     <div
       className="p-4 rounded-xl border transition-all duration-200 fade-in-up flex flex-col cursor-pointer"
       style={{
-        borderColor: isInstalled ? '#10b981' : 'var(--color-border)',
+        borderColor: isInstalled ? 'var(--color-success)' : 'var(--color-border)',
         background: 'var(--color-surface)',
         boxShadow: 'var(--shadow-card)',
         minHeight: '150px',
@@ -389,7 +410,7 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
         <div className="flex items-center gap-2 flex-wrap">
           <span
             className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded text-white"
-            style={{ background: '#6366f1' }}
+              style={{ background: 'var(--color-primary)' }}
           >
             clawhub
           </span>
@@ -399,7 +420,7 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
           {skill.version && (
             <span
               className="text-[9px] font-mono px-1.5 py-0.5 rounded"
-              style={{ background: '#f1f5f9', color: 'var(--color-text-faint)' }}
+              style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-faint)' }}
             >
               v{skill.version}
             </span>
@@ -418,20 +439,23 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
           {skill.tags.slice(0, 4).map((tag) => (
             <span
               key={tag}
-              className="text-[9px] px-1.5 py-0.5 rounded-sm bg-indigo-50 border border-indigo-100 text-indigo-500"
+              className="text-[9px] px-1.5 py-0.5 rounded-sm"
+              style={{ background: 'var(--color-primary-muted)', border: '1px solid var(--color-primary-light)', color: 'var(--color-primary)' }}
             >
               #{tag}
             </span>
           ))}
-          {skill.tags.length > 4 && <span className="text-[9px] text-slate-400">+{skill.tags.length - 4}</span>}
+          {skill.tags.length > 4 && <span className="text-[9px]" style={{ color: 'var(--color-text-faint)' }}>+{skill.tags.length - 4}</span>}
         </div>
       )}
 
       {/* Install progress inline */}
       {isInstalling && (
-        <div className="flex items-center gap-2 mb-3 px-2 py-1.5 rounded-md bg-indigo-50 border border-indigo-100">
-          <span className="material-symbols-outlined text-sm animate-spin text-indigo-500">progress_activity</span>
-          <span className="text-[11px] text-indigo-600 font-medium">
+        <div className="flex items-center gap-2 mb-3 px-2 py-1.5 rounded-md"
+          style={{ background: 'var(--color-primary-muted)', border: '1px solid var(--color-primary-light)' }}
+        >
+          <span className="material-symbols-outlined text-sm animate-spin" style={{ color: 'var(--color-primary)' }}>progress_activity</span>
+          <span className="text-[11px] font-medium" style={{ color: 'var(--color-primary)' }}>
             Installing <span className="font-mono">{skill.slug || skill.name}</span>...
           </span>
         </div>
@@ -444,7 +468,11 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
       >
         <div className="flex items-center gap-2 text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
           {skill.score != null && (
-            <span className="px-1 rounded bg-yellow-50 text-yellow-700 border border-yellow-200" title="Relevance">
+            <span
+              className="px-1 rounded text-[10px]"
+              style={{ background: 'var(--color-warning-light)', color: 'var(--color-warning-text)', border: '1px solid var(--color-warning)' }}
+              title="Relevance"
+            >
               {Math.round(skill.score * 10) / 10}
             </span>
           )}
@@ -470,7 +498,9 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
 
         {/* Button changes based on state */}
         {isInstalled ? (
-          <span className="flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200">
+          <span className="flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold"
+            style={{ color: 'var(--color-success-text)', background: 'var(--color-success-light)', border: '1px solid var(--color-success)' }}
+          >
             <span className="material-symbols-outlined text-sm">check_circle</span>
             Installed
           </span>
@@ -478,7 +508,7 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
           <button
             onClick={(e) => { e.stopPropagation(); onInstall(); }}
             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold text-white transition-colors"
-            style={{ background: '#ef4444' }}
+            style={{ background: 'var(--color-danger)' }}
           >
             <span className="material-symbols-outlined text-sm">refresh</span>
             Retry
@@ -488,7 +518,7 @@ const ClawhubSkillCard: React.FC<ClawhubSkillCardProps> = ({ skill, installState
             onClick={(e) => { e.stopPropagation(); onInstall(); }}
             disabled={isInstalling}
             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold text-white transition-colors disabled:opacity-50"
-            style={{ background: '#6366f1' }}
+            style={{ background: 'var(--color-primary)' }}
           >
             <span className={`material-symbols-outlined text-sm ${isInstalling ? 'animate-spin' : ''}`}>
               {isInstalling ? 'progress_activity' : 'download'}

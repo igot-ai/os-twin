@@ -202,7 +202,9 @@ _CLAWHUB_CONVEX_BASE = "https://wry-manatee-359.convex.cloud/api"
 
 # Global skills directory — all ClawhHub installs go here
 _GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / ".agents" / "skills"
-_GLOBAL_CLAWHUB_LOCK = _GLOBAL_SKILLS_DIR / ".clawhub-lock.json"
+# clawhub CLI writes its lock to <workdir>/.clawhub/lock.json
+_CLAWHUB_WORKDIR = Path.home() / ".ostwin" / ".agents"
+_GLOBAL_CLAWHUB_LOCK = _CLAWHUB_WORKDIR / ".clawhub" / "lock.json"
 
 # Strict pattern: only allow alphanumeric, hyphens, underscores, dots, and @scopes
 _SAFE_SKILL_NAME = re.compile(r"^(@[a-zA-Z0-9_-]+/)?[a-zA-Z0-9._-]+$")
@@ -330,11 +332,12 @@ async def clawhub_installed(user: dict = Depends(get_current_user)):
     """
     installed: Dict[str, Any] = {}
 
-    # 1. Read the global lock file
+    # 1. Read the global lock file (clawhub writes to <workdir>/.clawhub/lock.json)
     lock_candidates: Dict[str, dict] = {}
     if _GLOBAL_CLAWHUB_LOCK.exists():
         try:
             data = json.loads(_GLOBAL_CLAWHUB_LOCK.read_text())
+            # clawhub lock schema: { "version": 1, "skills": { slug: { version, installedAt } } }
             for slug, info in (data.get("skills") or {}).items():
                 lock_candidates[slug] = info
         except Exception:
@@ -759,17 +762,19 @@ async def clawhub_install(
 
     async with _install_lock:
         try:
-            # Install into ~/.ostwin/.agents/skills
-            # clawhub CLI creates a skills/ subdir under cwd.
-            # We use ~/.ostwin/.agents as cwd so skills land in ~/.ostwin/.agents/skills/
-            _GLOBAL_SKILLS_DIR.parent.mkdir(parents=True, exist_ok=True)
+            # Ensure target directories exist
+            _CLAWHUB_WORKDIR.mkdir(parents=True, exist_ok=True)
             _GLOBAL_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
-            
+
+            # Use --workdir and --dir so clawhub installs into
+            # ~/.ostwin/.agents/skills/<slug> regardless of its own global defaults.
             proc = await asyncio.create_subprocess_exec(
-                "npx", "clawhub", "install", skill_name, "--force",
+                "npx", "clawhub", "install", skill_name,
+                "--workdir", str(_CLAWHUB_WORKDIR),
+                "--dir", "skills",
+                "--no-input",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(_GLOBAL_SKILLS_DIR.parent),
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
@@ -786,13 +791,9 @@ async def clawhub_install(
                     detail="clawhub install failed. Check server logs for details.",
                 )
 
-            # Skill is already in ~/.ostwin/.agents/skills/<skill_name> because CWD was .agents
+            # Skill is now in ~/.ostwin/.agents/skills/<skill_name>
             dest = _GLOBAL_SKILLS_DIR / skill_name
-            
-            # Note: clawhub creates .clawhub/lock.json in whichever CWD we use.
-            # We want to use ~/.ostwin/.agents/skills/.clawhub-lock.json to match the CLI script.
-            # So we might need to sync these if they diverge, but for now we'll assume the CLI is authority.
-            
+
             logger.info("clawhub-install success by=%s skill=%s dest=%s", username, skill_name, dest)
             return {
                 "status": "installed",

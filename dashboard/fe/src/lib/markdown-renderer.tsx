@@ -13,14 +13,7 @@ interface MarkdownRendererProps {
 export function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
   if (!content) return null;
 
-  // Escape HTML entities to prevent XSS (single quotes are safe — don't escape them)
-  const escapeHtml = (unsafe: string) => {
-    return unsafe
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  };
+  // Note: No HTML entity escaping needed — React auto-escapes text in JSX.
 
   const lines = content.split('\n');
   const elements: React.ReactNode[] = [];
@@ -135,6 +128,20 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
       continue;
     }
 
+    // Blockquotes
+    const quoteMatch = line.match(/^>\s?(.*)$/);
+    if (quoteMatch) {
+      const text = quoteMatch[1];
+      elements.push(
+        <div key={`bq-${i}`} className="my-2 pl-4 py-1" style={{ borderLeft: '3px solid var(--color-primary)', color: 'var(--color-text-muted)' }}>
+          <span className="text-sm italic leading-relaxed">
+            {processInline(text)}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
     // Headers
     const headerMatch = line.match(/^(#{1,6})\s+(.*)$/);
     if (headerMatch) {
@@ -153,7 +160,7 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
       
       elements.push(
         <Tag key={`h-${i}`} className={`${sizeClasses} text-text-main`}>
-          {processInline(escapeHtml(text))}
+          {processInline(text)}
         </Tag>
       );
       continue;
@@ -173,7 +180,7 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
             className="mt-1 h-3.5 w-3.5 rounded border-border text-primary bg-background focus:ring-0 cursor-default" 
           />
           <span className={`text-sm leading-relaxed ${checked ? 'text-text-muted line-through' : 'text-text-main'}`}>
-            {processInline(escapeHtml(text))}
+            {processInline(text)}
           </span>
         </div>
       );
@@ -188,7 +195,23 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
         <div key={`li-${i}`} className="flex items-start gap-2 mb-1.5 ml-1">
           <span className="mt-2 w-1.5 h-1.5 rounded-full bg-border flex-shrink-0" />
           <span className="text-sm text-text-main leading-relaxed">
-            {processInline(escapeHtml(text))}
+            {processInline(text)}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
+    // Numbered lists
+    const numListMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
+    if (numListMatch) {
+      const num = line.match(/^(\s*)(\d+)\./)?.[2] || '1';
+      const text = numListMatch[2];
+      elements.push(
+        <div key={`nli-${i}`} className="flex items-start gap-2 mb-1.5 ml-1">
+          <span className="text-xs font-semibold mt-0.5 text-text-muted flex-shrink-0 min-w-[1rem] text-right">{num}.</span>
+          <span className="text-sm text-text-main leading-relaxed">
+            {processInline(text)}
           </span>
         </div>
       );
@@ -201,7 +224,7 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
     } else {
       elements.push(
         <p key={`p-${i}`} className="text-sm text-text-main leading-relaxed mb-2 last:mb-0">
-          {processInline(escapeHtml(line))}
+          {processInline(line)}
         </p>
       );
     }

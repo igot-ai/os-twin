@@ -45,10 +45,14 @@
   --color-amber: #f59e0b;
   --color-red: #ef4444;
   --color-purple: #8b5cf6;
+  --color-purple-muted: rgba(139, 92, 246, 0.1);
   --color-teal: #14b8a6;
   --color-pink: #ec4899;
   --color-orange: #f97316;
   --color-slate: #64748b;
+  --color-cyan: #06b6d4;
+  --color-overlay-border: rgba(255, 255, 255, 0.2);
+  --color-backdrop: rgba(0, 0, 0, 0.5);
 
   --font-display: var(--font-plus-jakarta-sans), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-ibm-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
