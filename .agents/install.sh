@@ -742,11 +742,11 @@ install_files() {
   rm -rf "$INSTALL_DIR/.agents/roles"
 
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
-  # NOTE: mcp/mcp-config.json is excluded to preserve user's installed extensions and config
+  # NOTE: MCP config files are excluded to preserve user's installed extensions and config
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
-    --exclude='mcp/mcp-config.json' --exclude='mcp/.env.mcp' \
+    --exclude='mcp/config.json' --exclude='mcp/mcp-config.json' --exclude='mcp/.env.mcp' \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ manually)
       find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
@@ -866,8 +866,13 @@ compute_build_hash() {
 # ─── Patch MCP config ────────────────────────────────────────────────────────
 
 patch_mcp_config() {
-  local mcp_config="$INSTALL_DIR/.agents/mcp/mcp-config.json"
+  local mcp_config="$INSTALL_DIR/.agents/mcp/config.json"
+  local legacy_mcp_config="$INSTALL_DIR/.agents/mcp/mcp-config.json"
   local env_file="$INSTALL_DIR/.env"
+
+  if [[ ! -f "$mcp_config" && -f "$legacy_mcp_config" ]]; then
+    mcp_config="$legacy_mcp_config"
+  fi
 
   if [[ ! -f "$mcp_config" ]]; then
     return
@@ -908,7 +913,7 @@ with open(env_path) as f:
 if not env_vars:
     sys.exit(0)
 
-# Read and patch mcp-config.json
+# Read and patch MCP config
 with open(mcp_path) as f:
     config = json.load(f)
 
