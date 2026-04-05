@@ -208,6 +208,15 @@ async def startup_all():
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         # Initialize store in global state
         global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
+        
+        # Force re-index if requested via CLI flag
+        if os.environ.get("OSTWIN_REINDEX") == "true":
+            logger.info("Forcing full re-index as requested")
+            import shutil
+            if global_state.store.zvec_dir.exists():
+                shutil.rmtree(global_state.store.zvec_dir)
+                global_state.store.zvec_dir.mkdir(parents=True, exist_ok=True)
+        
         global_state.store.ensure_collections()
         global_state.store.sync_from_disk()
         from dashboard.api_utils import SKILLS_DIRS

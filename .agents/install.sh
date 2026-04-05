@@ -1350,20 +1350,23 @@ if [[ -z "$CHAN_DIR" ]]; then
 elif ! check_node; then
   warn "Node.js not found — cannot install channel connectors"
   info "Install Node.js and re-run"
+elif ! command -v pnpm &>/dev/null; then
+  warn "pnpm not found — cannot install channel connectors"
+  info "Install pnpm and re-run"
 else
-  step "Installing channel dependencies (npm)..."
-  (cd "$CHAN_DIR" && npm install --legacy-peer-deps) \
+  step "Installing channel dependencies in $CHAN_DIR with pnpm..."
+  (cd "$CHAN_DIR" && pnpm install) \
     && ok "Channel dependencies installed" || warn "Channel dependency install failed"
 
-  # Install tsx if not present (needed for TypeScript runtime)
+  # tsx should come from bot/package.json devDependencies after install.
   if [[ ! -f "$CHAN_DIR/node_modules/.bin/tsx" ]]; then
-    step "Installing tsx (TypeScript runtime)..."
-    (cd "$CHAN_DIR" && npm install --legacy-peer-deps) \
-      && ok "tsx available" || warn "tsx install failed"
+    warn "tsx not found after pnpm install"
+  else
+    ok "tsx available"
   fi
 
   ok "Channel connector dir: $CHAN_DIR"
-  info "Start with: ostwin channel start"
+  info "Start with: (cd \"$CHAN_DIR\" && npm start)"
 fi
 
 # ─── 9d. Start channel connectors (optional, --channel flag) ─────────────────
