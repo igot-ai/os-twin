@@ -7,7 +7,7 @@
  * Platform adapters translate these into native API calls.
  */
 
-import api from './api';
+import api, { PlanAsset } from './api';
 import { registry } from './connectors/registry';
 import { getSession, clearSession, setMode, setPlan, setWorkingDir } from './sessions';
 import { listRecordings, transcribeAudio } from './audio-transcript';
@@ -34,6 +34,12 @@ function text(t: string): BotResponse {
 
 function menu(t: string, buttons: Button[][]): BotResponse {
   return { text: t, buttons };
+}
+
+function formatBytes(bytes = 0): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ── Menu commands ─────────────────────────────────────────────────
@@ -63,6 +69,7 @@ function cmdSubmenuPlans(): BotResponse {
     [{ label: '🎙 Transcribe Recording', callbackData: 'cmd:transcribe' }],
     [{ label: '👁 View Plan', callbackData: 'cmd:viewplan' }],
     [{ label: '✏️ Edit Plan', callbackData: 'cmd:edit' }],
+    [{ label: '🖼 Assets', callbackData: 'cmd:assets' }],
     [{ label: '🚀 Launch Plan', callbackData: 'cmd:startplan' }],
     [{ label: '📂 All Plans', callbackData: 'menu:plans' }],
     [{ label: '⬅️ Back', callbackData: 'menu:main' }],
@@ -244,6 +251,7 @@ export function cmdHelp(): BotResponse {
   /draft <idea> — Create a new plan from a text prompt.
   /transcribe — Transcribe a voice recording with AI.
   /edit — Select a plan to edit and refine with AI.
+  /assets — List assets attached to the active or selected plan.
   /startplan — Select and launch a plan.
   /viewplan — Select and read a plan.
   /cancel — Exit current editing/drafting session.
@@ -306,6 +314,38 @@ async function cmdStartplanMenu(): Promise<BotResponse> {
   const buttons = await _planButtons('menu:launch_prompt');
   if (!buttons) return text('ℹ️ No plans found. Use /draft <idea> to create one.');
   return menu('🚀 *Select a Plan to Launch:*', buttons);
+}
+
+async function cmdAssets(planId: string): Promise<BotResponse> {
+  const { assets, error } = await api.getPlanAssets(planId);
+  if (error) return text(`⚠️ ${error}`);
+  if (!assets.length) return text(`🖼 *Assets for \`${planId}\`*\nNo assets saved for this plan yet.`);
+
+  const lines = [`🖼 *Assets for \`${planId}\`*`];
+  for (const asset of assets.slice(0, 25)) {
+    lines.push(
+      `• \`${asset.original_name}\` (${asset.mime_type}, ${formatBytes(asset.size_bytes)})\n  └ saved as \`${asset.filename}\``
+    );
+  }
+  if (assets.length > 25) {
+    lines.push(`…and ${assets.length - 25} more asset(s).`);
+  }
+  return text(lines.join('\n'));
+}
+
+async function cmdAssetsMenu(userId: string, platform: string): Promise<BotResponse> {
+  const session = getSession(userId, platform);
+  if (
+    session.activePlanId
+    && session.activePlanId !== 'new'
+    && ['editing', 'drafting'].includes(session.mode)
+  ) {
+    return cmdAssets(session.activePlanId);
+  }
+
+  const buttons = await _planButtons('menu:assets');
+  if (!buttons) return text('ℹ️ No plans found.');
+  return menu('🖼 *Select a Plan to View Assets:*', buttons);
 }
 
 // ── Plan actions ──────────────────────────────────────────────────
@@ -404,12 +444,20 @@ export async function handleStatefulText(userId: string, platform: string, userT
 
   try {
     session.chatHistory.push({ role: 'user', content: userText });
+    let assetContext: PlanAsset[] = [];
+    if (planId !== 'new') {
+      const assetResult = await api.getPlanAssets(planId);
+      if (!assetResult.error) {
+        assetContext = assetResult.assets;
+      }
+    }
 
     const result = await api.refinePlan({
       message: userText,
       planId,
       chatHistory: session.chatHistory.slice(0, -1),
       workingDir: session.workingDir || registry.getConfig(platform as any)?.settings?.working_dir,
+      assetContext,
     });
 
     if (result?._error) {
@@ -665,6 +713,7 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'transcribe':  return cmdTranscribe(userId, platform);
     case 'transcribe_plan': return cmdTranscribePlan(userId, platform);
     case 'edit':        return [await cmdEditMenu()];
+    case 'assets':      return [await cmdAssetsMenu(userId, platform)];
     case 'startplan':   return [await cmdStartplanMenu()];
     case 'viewplan':    return [await cmdViewplanMenu()];
     case 'feedback':    return await cmdFeedback(userId, platform, args);
@@ -698,6 +747,10 @@ export async function routeCallback(userId: string, platform: string, callbackDa
   if (callbackData.startsWith('menu:view:')) {
     const planId = callbackData.split(':')[2];
     return [await cmdViewPlan(planId)];
+  }
+  if (callbackData.startsWith('menu:assets:')) {
+    const planId = callbackData.split(':')[2];
+    return [await cmdAssets(planId)];
   }
   if (callbackData.startsWith('menu:edit:')) {
     const planId = callbackData.split(':')[2];

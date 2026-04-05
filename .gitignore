@@ -18,10 +18,11 @@ gold-mining/
 .agents/stats_history.json
 .agents/conversations/
 .agents/RELEASE.md
+.agents/mcp/mcp-config.json
+.agents/mcp/config.json
 
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
-
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 

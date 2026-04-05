@@ -4,12 +4,14 @@ import hashlib
 import asyncio
 import re
 import logging
+from email.parser import BytesParser
+from email.policy import default
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import subprocess
 _re_mod = re
-from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from dashboard.models import CreatePlanRequest, SavePlanRequest, RefineRequest, UpdatePlanRoleConfigRequest, RunRequest
@@ -24,6 +26,188 @@ from dashboard.auth import get_current_user
 
 router = APIRouter(tags=["plans"])
 logger = logging.getLogger(__name__)
+
+
+def _plan_file_path(plan_id: str) -> Path:
+    return PLANS_DIR / f"{plan_id}.md"
+
+
+def _plan_meta_path(plan_id: str) -> Path:
+    return PLANS_DIR / f"{plan_id}.meta.json"
+
+
+def _plan_assets_dir(plan_id: str) -> Path:
+    return PLANS_DIR / "assets" / plan_id
+
+
+def _require_plan_file(plan_id: str) -> Path:
+    plan_file = _plan_file_path(plan_id)
+    if not plan_file.exists():
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+    return plan_file
+
+
+def _extract_plan_title(content: str, default: str) -> str:
+    title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
+    return title_match.group(1).strip() if title_match else default
+
+
+def _read_plan_meta(plan_id: str) -> Dict[str, Any]:
+    meta_file = _plan_meta_path(plan_id)
+    if not meta_file.exists():
+        return {}
+    try:
+        return json.loads(meta_file.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _write_plan_meta(plan_id: str, meta: Dict[str, Any]) -> None:
+    _plan_meta_path(plan_id).write_text(json.dumps(meta, indent=2) + "\n")
+
+
+def _ensure_plan_meta(plan_id: str) -> Dict[str, Any]:
+    meta = _read_plan_meta(plan_id)
+    if meta:
+        meta.setdefault("assets", [])
+        return meta
+
+    plan_file = _require_plan_file(plan_id)
+    content = plan_file.read_text()
+    meta = {
+        "plan_id": plan_id,
+        "title": _extract_plan_title(content, plan_id),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "draft",
+        "assets": [],
+    }
+    _write_plan_meta(plan_id, meta)
+    return meta
+
+
+def _safe_asset_filename(original_name: str) -> str:
+    original = Path(original_name or "attachment.bin").name
+    stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", Path(original).stem).strip("-._") or "asset"
+    suffix = Path(original).suffix[:20]
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    fingerprint = hashlib.sha256(f"{original}:{timestamp}".encode()).hexdigest()[:8]
+    return f"{timestamp}-{stem[:40]}-{fingerprint}{suffix}"
+
+
+def _normalize_plan_assets(plan_id: str, meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+    assets_dir = _plan_assets_dir(plan_id)
+    normalized: List[Dict[str, Any]] = []
+    changed = False
+
+    for raw_asset in meta.get("assets", []):
+        filename = raw_asset.get("filename")
+        if not filename:
+            changed = True
+            continue
+
+        asset_path = assets_dir / filename
+        if not asset_path.exists():
+            changed = True
+            continue
+
+        asset = dict(raw_asset)
+        asset.setdefault("original_name", filename)
+        asset.setdefault("mime_type", "application/octet-stream")
+        asset.setdefault("uploaded_at", raw_asset.get("created_at") or datetime.now(timezone.utc).isoformat())
+        asset.setdefault("size_bytes", asset_path.stat().st_size)
+
+        if asset != raw_asset:
+            changed = True
+        normalized.append(asset)
+
+    if changed:
+        meta["assets"] = normalized
+        _write_plan_meta(plan_id, meta)
+
+    return normalized
+
+
+def _serialize_plan_asset(plan_id: str, asset: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        **asset,
+        "plan_id": plan_id,
+        "path": str(_plan_assets_dir(plan_id) / asset["filename"]),
+    }
+
+
+def _update_plan_assets_section(plan_id: str, all_assets: list, assets_dir: Path) -> None:
+    """Insert or replace an ## Assets section in the plan markdown.
+
+    This gives agents executing the plan a manifest of available files
+    with absolute paths so they can load/copy/reference them directly.
+    """
+    plan_file = PLANS_DIR / f"{plan_id}.md"
+    if not plan_file.exists():
+        return
+
+    content = plan_file.read_text()
+
+    # Build the new section
+    lines = [
+        "## Assets",
+        "",
+        "The following files have been uploaded for this plan.",
+        "Use the absolute `path` to read, copy, or reference each asset in your work.",
+        "",
+    ]
+    for asset in all_assets:
+        abs_path = str(assets_dir / asset["filename"])
+        mime = asset.get("mime_type", "unknown")
+        original = asset.get("original_name", asset["filename"])
+        lines.append(f"- **{original}** (`{mime}`)")
+        lines.append(f"  - path: `{abs_path}`")
+
+    assets_block = "\n".join(lines) + "\n"
+
+    # Replace existing ## Assets … block, or insert before the first ## section
+    assets_pattern = r"## Assets\n(?:.*\n)*?(?=\n## |\Z)"
+    if _re_mod.search(assets_pattern, content):
+        content = _re_mod.sub(assets_pattern, assets_block, content, count=1)
+    else:
+        first_section = _re_mod.search(r"\n## ", content)
+        if first_section:
+            pos = first_section.start()
+            content = content[:pos] + "\n" + assets_block + "\n" + content[pos:]
+        else:
+            content = content.rstrip() + "\n\n" + assets_block
+
+    plan_file.write_text(content)
+
+
+def _parse_multipart_files(content_type: str, body: bytes) -> List[Dict[str, Any]]:
+    if "multipart/form-data" not in content_type.lower():
+        raise HTTPException(status_code=400, detail="Content-Type must be multipart/form-data")
+
+    parser = BytesParser(policy=default)
+    message = parser.parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + body
+    )
+    if not message.is_multipart():
+        raise HTTPException(status_code=400, detail="Invalid multipart payload")
+
+    files: List[Dict[str, Any]] = []
+    for part in message.iter_parts():
+        if part.get_content_disposition() != "form-data":
+            continue
+        if part.get_param("name", header="content-disposition") != "files":
+            continue
+
+        filename = part.get_filename()
+        if not filename:
+            continue
+
+        files.append({
+            "filename": Path(filename).name,
+            "content_type": part.get_content_type() or "application/octet-stream",
+            "data": part.get_payload(decode=True) or b"",
+        })
+
+    return files
 
 def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
     """Merge {plan_id}.meta.json fields into a plan dict (in-place).
@@ -42,6 +226,62 @@ def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
         plan["meta"] = meta
     except (json.JSONDecodeError, OSError):
         pass
+
+
+@router.get("/api/plans/{plan_id}/assets")
+async def list_plan_assets(plan_id: str, user: dict = Depends(get_current_user)):
+    _require_plan_file(plan_id)
+    meta = _ensure_plan_meta(plan_id)
+    assets = [_serialize_plan_asset(plan_id, asset) for asset in _normalize_plan_assets(plan_id, meta)]
+    return {"plan_id": plan_id, "assets": assets, "count": len(assets)}
+
+
+@router.post("/api/plans/{plan_id}/assets")
+async def upload_plan_assets(
+    plan_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    _require_plan_file(plan_id)
+    content_type = request.headers.get("content-type", "")
+    files = _parse_multipart_files(content_type, await request.body())
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one file is required")
+
+    meta = _ensure_plan_meta(plan_id)
+    existing_assets = _normalize_plan_assets(plan_id, meta)
+    assets_dir = _plan_assets_dir(plan_id)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_assets: List[Dict[str, Any]] = []
+    for upload in files:
+        original_name = upload["filename"]
+        stored_name = _safe_asset_filename(original_name)
+        asset_path = assets_dir / stored_name
+
+        with asset_path.open("wb") as handle:
+            handle.write(upload["data"])
+
+        saved_assets.append({
+            "filename": stored_name,
+            "original_name": original_name,
+            "mime_type": upload["content_type"],
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "size_bytes": len(upload["data"]),
+        })
+
+    all_assets = existing_assets + saved_assets
+    meta["assets"] = all_assets
+    _write_plan_meta(plan_id, meta)
+
+    # Update plan markdown with an ## Assets section so agents know what files are available
+    _update_plan_assets_section(plan_id, all_assets, assets_dir)
+
+    return {
+        "plan_id": plan_id,
+        "assets": [_serialize_plan_asset(plan_id, asset) for asset in saved_assets],
+        "count": len(saved_assets),
+    }
 
 @router.get("/api/plans")
 async def list_plans(
@@ -368,6 +608,9 @@ async def get_stats(user: dict = Depends(get_current_user)):
             "trend": get_trend("escalations_pending", 1)
         }
     }
+
+
+
 
 @router.post("/api/plans/{plan_id}/reload")
 async def reload_plan_from_disk(plan_id: str, user: dict = Depends(get_current_user)):
@@ -1271,7 +1514,21 @@ async def refine_plan_endpoint(request: RefineRequest):
             p_file = plans_dir / f"{request.plan_id}.md"
             if p_file.exists():
                 plan_content = p_file.read_text()
-        result = await refine_plan(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None)
+        user_message = request.message
+        if request.asset_context:
+            asset_lines = []
+            for asset in request.asset_context:
+                asset_name = asset.get("original_name") or asset.get("filename") or "attachment"
+                mime_type = asset.get("mime_type") or "application/octet-stream"
+                asset_path = asset.get("path") or asset.get("filename") or "<unknown>"
+                asset_lines.append(f"- {asset_name} ({mime_type}) at {asset_path}")
+            user_message = (
+                f"{request.message}\n\n"
+                "Plan assets available for reference:\n"
+                f"{chr(10).join(asset_lines)}\n"
+                "Use these files as supporting context when refining the plan."
+            )
+        result = await refine_plan(user_message=user_message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None)
         if isinstance(result, dict):
             # Backward compatible: refined_plan is a string. Rich info is also available.
             return {

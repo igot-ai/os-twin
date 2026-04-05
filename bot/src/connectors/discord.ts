@@ -24,6 +24,7 @@ import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { transcribeAndLaunch } from '../audio-transcript';
 import { mdConvert, chunk } from './utils';
+import api, { PlanAsset } from '../api';
 
 // Voice command imports
 import * as pingCommand from '../commands/ping';
@@ -182,32 +183,97 @@ export class DiscordConnector implements Connector {
       fsp.appendFile(logFile, JSON.stringify(entry) + EOL)
         .catch(err => console.warn('[LOG] Failed to persist:', err.message));
 
-      if (this.client?.user && message.mentions.has(this.client.user.id)) {
+      const userId = String(message.author.id);
+      const session = getSession(userId, 'discord');
+      const botUserId = this.client?.user?.id;
+      const isMention = !!(botUserId && message.mentions.has(botUserId));
+      const attachments = message.attachments ? Array.from(message.attachments.values()) : [];
+      const isStateful = ['drafting', 'editing', 'awaiting_idea'].includes(session.mode);
+
+      // ── Handle attachments: save to active plan regardless of @mention ──
+      // For awaiting_idea mode, defer — attachments are saved after the plan is created below.
+      const hasPendingAttachments = attachments.length > 0 && (isStateful || isMention);
+      const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
+        && ['drafting', 'editing'].includes(session.mode);
+
+      if (hasPendingAttachments && canSaveNow) {
+        const assetResponses: BotResponse[] = [];
+        const uploadResult = await this.persistAttachments(session.activePlanId!, attachments);
+        if (uploadResult.saved.length > 0) {
+          assetResponses.push({ text: this.formatSavedAssets(session.activePlanId!, uploadResult.saved) });
+        }
+        if (uploadResult.failures.length > 0) {
+          assetResponses.push({ text: this.formatFailedAssets(uploadResult.failures) });
+        }
+        if (assetResponses.length > 0) {
+          await this.sendToChannel(message.channel as TextChannel, assetResponses);
+        }
+      } else if (hasPendingAttachments && !isStateful && !canSaveNow) {
+        // Not in any editing/drafting mode and no active plan — warn
+        await this.sendToChannel(message.channel as TextChannel, [{
+          text: '⚠️ Attachments can only be saved while editing a specific plan. Use /edit to pick a plan first.',
+        }]);
+      }
+      // If awaiting_idea with attachments, we fall through — they'll be saved after draft below.
+
+      // ── @mention: route to plan refine when editing, otherwise Q&A ──
+      if (isMention) {
         const question = message.content
-          .replace(new RegExp(`<@!?${this.client.user.id}>`, 'g'), '')
+          .replace(new RegExp(`<@!?${this.client!.user!.id}>`, 'g'), '')
           .trim();
 
-        if (!question) return;
+        if (!question && attachments.length === 0) return;
 
-        (message.channel as TextChannel).sendTyping().catch(() => {});
-        console.log(`🤖 [AGENT] ${entry.username} asked: ${question}`);
+        // If user is editing a plan, treat @mention text as a plan instruction
+        if (isStateful && question) {
+          const textResponses = await handleStatefulText(userId, 'discord', question);
+          if (textResponses.length > 0) {
+            await this.sendToChannel(message.channel as TextChannel, textResponses);
+          }
+          return;
+        }
 
-        try {
-          const answer = await askAgent(question);
-          await message.reply(answer);
-        } catch (err: any) {
-          console.error('❌ [AGENT] Bridge error:', err);
-          await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});
+        // Otherwise fall through to generic Q&A
+        if (question) {
+          (message.channel as TextChannel).sendTyping().catch(() => {});
+          console.log(`🤖 [AGENT] ${entry.username} asked: ${question}`);
+
+          try {
+            const answer = await askAgent(question);
+            await message.reply(answer);
+          } catch (err: any) {
+            console.error('❌ [AGENT] Bridge error:', err);
+            await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});
+          }
         }
         return;
       }
 
-      const userId = String(message.author.id);
-      const session = getSession(userId, 'discord');
-      if (['drafting', 'editing', 'awaiting_idea'].includes(session.mode)) {
+      // ── Stateful text: refine/draft plan ──
+      if (isStateful) {
         const msgText = message.content.trim();
+        const responses: BotResponse[] = [];
+
         if (msgText && !msgText.startsWith('/')) {
-          const responses = await handleStatefulText(userId, 'discord', msgText);
+          const textResponses = await handleStatefulText(userId, 'discord', msgText);
+          responses.push(...textResponses);
+        }
+
+        // After draft/refine, the plan may now exist — save deferred attachments
+        if (attachments.length > 0 && !canSaveNow) {
+          const updatedSession = getSession(userId, 'discord');
+          if (updatedSession.activePlanId && updatedSession.activePlanId !== 'new') {
+            const uploadResult = await this.persistAttachments(updatedSession.activePlanId, attachments);
+            if (uploadResult.saved.length > 0) {
+              responses.push({ text: this.formatSavedAssets(updatedSession.activePlanId, uploadResult.saved) });
+            }
+            if (uploadResult.failures.length > 0) {
+              responses.push({ text: this.formatFailedAssets(uploadResult.failures) });
+            }
+          }
+        }
+
+        if (responses.length > 0) {
           await this.sendToChannel(message.channel as TextChannel, responses);
         }
       }
@@ -314,6 +380,72 @@ export class DiscordConnector implements Connector {
     };
   }
 
+  private async persistAttachments(
+    planId: string,
+    attachments: Array<{ url?: string; name?: string; contentType?: string | null }>
+  ): Promise<{ saved: PlanAsset[]; failures: string[] }> {
+    const failures: string[] = [];
+    const downloadable: Array<{ name: string; contentType?: string; data: Uint8Array }> = [];
+
+    for (const attachment of attachments) {
+      const displayName = attachment.name || 'attachment';
+      if (!attachment.url) {
+        failures.push(`${displayName}: missing download URL`);
+        continue;
+      }
+
+      try {
+        const response = await fetch(attachment.url);
+        if (!response.ok) {
+          failures.push(`${displayName}: download failed (${response.status})`);
+          continue;
+        }
+
+        downloadable.push({
+          name: displayName,
+          contentType: attachment.contentType || response.headers.get('content-type') || undefined,
+          data: new Uint8Array(await response.arrayBuffer()),
+        });
+      } catch (error: any) {
+        failures.push(`${displayName}: ${error.message}`);
+      }
+    }
+
+    if (!downloadable.length) {
+      return { saved: [], failures };
+    }
+
+    const uploadResult = await api.uploadPlanAssets(planId, downloadable);
+    if (uploadResult.error) {
+      failures.push(uploadResult.error);
+      return { saved: [], failures };
+    }
+
+    return { saved: uploadResult.assets, failures };
+  }
+
+  private formatSavedAssets(planId: string, assets: PlanAsset[]): string {
+    const lines = [`🖼 *Saved ${assets.length} asset(s) to \`${planId}\`:*`];
+    for (const asset of assets.slice(0, 10)) {
+      lines.push(`• \`${asset.original_name}\` → \`${asset.filename}\``);
+    }
+    if (assets.length > 10) {
+      lines.push(`…and ${assets.length - 10} more asset(s).`);
+    }
+    return lines.join('\n');
+  }
+
+  private formatFailedAssets(failures: string[]): string {
+    const lines = ['⚠️ *Some attachments could not be saved:*'];
+    for (const failure of failures.slice(0, 10)) {
+      lines.push(`• ${failure}`);
+    }
+    if (failures.length > 10) {
+      lines.push(`…and ${failures.length - 10} more issue(s).`);
+    }
+    return lines.join('\n');
+  }
+
   private buildButtons(buttons: Button[][]): ActionRowBuilder<ButtonBuilder>[] {
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
     const dangerPrefixes = ['menu:launch_confirm', 'cmd:restart', 'cmd:new'];
@@ -395,6 +527,7 @@ export class DiscordConnector implements Connector {
         .setDescription('Draft a new Plan with AI')
         .addStringOption(opt => opt.setName('idea').setDescription('Your project idea').setRequired(false)),
       new SlashCommandBuilder().setName('edit').setDescription('Select a plan to edit with AI'),
+      new SlashCommandBuilder().setName('assets').setDescription('List assets saved for the active or selected plan'),
       new SlashCommandBuilder().setName('viewplan').setDescription('View a plan\'s content'),
       new SlashCommandBuilder().setName('startplan').setDescription('Select and launch a plan'),
       new SlashCommandBuilder().setName('cancel').setDescription('Exit current editing session'),

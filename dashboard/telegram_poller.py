@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import dashboard.global_state as global_state
 from dashboard.notify import get_config, authorize_chat
-from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR, PROJECT_ROOT, build_skills_list, read_channel, read_room
+from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR, PLANS_DIR, PROJECT_ROOT, build_skills_list, read_channel, read_room
 from dashboard.telegram_sessions import get_session, clear_session, set_plan, set_mode
 
 # Try to import plan_agent, handle graceful fallback if deepagents not available
@@ -57,7 +57,12 @@ async def handle_message(message: dict, bot_token: str):
     elif text.startswith("/startplan"):
         await _cmd_startplan_menu(bot_token, chat_id)
     elif text.startswith("/viewplan"):
-        await _cmd_viewplan_menu(bot_token, chat_id)
+        parts = text.split(maxsplit=1)
+        if len(parts) > 1:
+            plan_id = parts[1].strip()
+            await _view_plan(bot_token, chat_id, plan_id)
+        else:
+            await _cmd_viewplan_menu(bot_token, chat_id)
     elif text.startswith("/cancel"):
         clear_session(chat_id)
         await send_reply(bot_token, chat_id, "🛑 Action cancelled. Session cleared.")
@@ -89,7 +94,7 @@ async def handle_message(message: dict, bot_token: str):
             "🔸 `/draft <idea>` — Create a new plan from a text prompt.\n"
             "🔸 `/edit` — Select a plan to edit and refine with AI.\n"
             "🔸 `/startplan` — Select and launch a plan.\n"
-            "🔸 `/viewplan` — Select and read a plan.\n"
+            "🔸 `/viewplan [id]` — Select and read a plan.\n"
             "🔸 `/cancel` — Exit current editing/drafting session.\n\n"
             "📊 *Monitoring & Insights*\n"
             "🔸 `/dashboard` — Visual UI with real-time progress bars.\n"
@@ -276,16 +281,16 @@ async def _cmd_submenu_system(bot_token: str, chat_id: int):
         "⚙️ *System*\nSystem operations & resources:", keyboard)
 
 def _get_available_plans() -> list:
-    plans_dir = AGENTS_DIR / "plans"
+    plans_dir = PLANS_DIR
     if not plans_dir.exists():
         return []
     plans = []
     for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
-        if f.stem == "PLAN.template" or f.name.endswith(".refined.md"):
+        if f.stem == "PLAN.template" or f.name.endswith(".refined.md") or ".meta" in f.name:
             continue
         try:
             content = f.read_text()
-            title_match = re.search(r"^# Plan:\s*(.+)", content, re.MULTILINE)
+            title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
             title = title_match.group(1).strip() if title_match else f.stem
             if len(title) > 25:
                 title = title[:22] + "..."
@@ -326,17 +331,20 @@ async def _cmd_viewplan_menu(bot_token: str, chat_id: int):
     await send_inline_keyboard(bot_token, chat_id, "👁 *Select a Plan to View:*", keyboard)
 
 async def _view_plan(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+    plan_file = PLANS_DIR / f"{plan_id}.md"
     if not plan_file.exists():
         await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
         return
     content = plan_file.read_text()
     if len(content) > 3500:
         content = content[:3500] + "\n...[truncated]"
-    await send_reply(bot_token, chat_id, f"📄 *Plan: {plan_id}*\n```markdown\n{content}\n```")
+    
+    # Send title and content separately to ensure formatting doesn't break
+    await send_reply(bot_token, chat_id, f"📄 *Plan:* `{plan_id}`")
+    await send_reply(bot_token, chat_id, f"```markdown\n{content}\n```")
 
 async def _start_editing(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+    plan_file = PLANS_DIR / f"{plan_id}.md"
     if not plan_file.exists():
         await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
         return
@@ -393,7 +401,7 @@ async def _process_draft(bot_token: str, chat_id: int, idea: str):
     await send_reply(bot_token, chat_id, f"⏳ *Drafting Plan...*\nIdea: `{idea}`\nPlease wait while the AI generates the initial plan.")
     
     try:
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         plans_dir.mkdir(parents=True, exist_ok=True)
         
         result = await refine_plan(
@@ -437,13 +445,13 @@ async def _handle_stateful_text(bot_token: str, chat_id: int, text: str, session
         clear_session(chat_id)
         return
         
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+    plan_file = PLANS_DIR / f"{plan_id}.md"
     current_content = plan_file.read_text() if plan_file.exists() else ""
     
     await send_reply(bot_token, chat_id, f"⏳ *Refining `{plan_id}`...*")
     
     try:
-        plans_dir = AGENTS_DIR / "plans"
+        plans_dir = PLANS_DIR
         
         # Add to chat history
         session.chat_history.append({"role": "user", "content": text})
@@ -479,7 +487,7 @@ async def _prompt_launch(bot_token: str, chat_id: int, plan_id: str):
     await send_inline_keyboard(bot_token, chat_id, f"⚠️ *Confirm Launch*\nAre you sure you want to launch `{plan_id}`? This will wipe the current war-rooms.", keyboard)
 
 async def _launch_plan(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = AGENTS_DIR / "plans" / f"{plan_id}.md"
+    plan_file = PLANS_DIR / f"{plan_id}.md"
     if not plan_file.exists():
         await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
         return
@@ -525,7 +533,7 @@ async def _launch_plan(bot_token: str, chat_id: int, plan_id: str):
             await send_reply(bot_token, chat_id, f"⚠️ Failed to wipe old war-rooms: {e}")
 
     # Write .meta.json with status: launched, explicitly matching Web UI structure
-    meta_path = AGENTS_DIR / "plans" / f"{plan_id}.meta.json"
+    meta_path = PLANS_DIR / f"{plan_id}.meta.json"
     existing_meta = {}
     if meta_path.exists():
         try:

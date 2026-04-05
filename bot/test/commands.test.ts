@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
+import fs from 'fs';
 import api from '../src/api';
 import { registry } from '../src/connectors/registry';
 import * as sessions from '../src/sessions';
@@ -12,6 +13,7 @@ describe('commands', () => {
     sandbox = sinon.createSandbox();
     sessions.clearSession('u1', 'telegram');
     sessions.clearSession('u1', 'discord');
+    sandbox.stub(api, 'getPlanAssets').resolves({ assets: [], count: 0 });
   });
 
   afterEach(() => {
@@ -347,6 +349,118 @@ describe('commands', () => {
     });
   });
 
+  describe('routeCommand — assets', () => {
+    it('lists assets for the active editing plan', async () => {
+      sessions.setMode('u1', 'telegram', 'editing');
+      sessions.setPlan('u1', 'telegram', 'p1');
+      (api.getPlanAssets as sinon.SinonStub).resolves({
+        assets: [
+          {
+            filename: 'stored-mockup.png',
+            original_name: 'mockup.png',
+            mime_type: 'image/png',
+            size_bytes: 2048,
+            uploaded_at: '2026-04-05T00:00:00Z',
+          },
+        ],
+      });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.text).to.include('Assets for `p1`');
+      expect(resp.text).to.include('mockup.png');
+      expect(resp.text).to.include('stored-mockup.png');
+    });
+
+    it('shows a plan picker when no active plan is being edited', async () => {
+      sandbox.stub(api, 'getPlans').resolves(MOCK_PLANS);
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.buttons).to.be.an('array');
+      const data = resp.buttons!.flat().map(b => b.callbackData);
+      expect(data[0]).to.match(/^menu:assets:/);
+    });
+
+    it('shows "No assets" when plan has no saved assets', async () => {
+      sessions.setMode('u1', 'telegram', 'editing');
+      sessions.setPlan('u1', 'telegram', 'p1');
+      (api.getPlanAssets as sinon.SinonStub).resolves({ assets: [] });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.text).to.include('No assets saved');
+      expect(resp.text).to.include('p1');
+    });
+
+    it('shows error when API fails', async () => {
+      sessions.setMode('u1', 'telegram', 'editing');
+      sessions.setPlan('u1', 'telegram', 'p1');
+      (api.getPlanAssets as sinon.SinonStub).resolves({ error: 'connection refused', assets: [] });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.text).to.include('connection refused');
+    });
+
+    it('also works during drafting mode with a real plan id', async () => {
+      sessions.setMode('u1', 'telegram', 'drafting');
+      sessions.setPlan('u1', 'telegram', 'p2');
+      (api.getPlanAssets as sinon.SinonStub).resolves({ assets: [] });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.text).to.include('Assets for `p2`');
+    });
+
+    it('falls back to plan picker when plan is "new" (not yet created)', async () => {
+      sessions.setMode('u1', 'telegram', 'drafting');
+      sessions.setPlan('u1', 'telegram', 'new');
+      sandbox.stub(api, 'getPlans').resolves(MOCK_PLANS);
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.buttons).to.be.an('array');
+    });
+
+    it('shows "No plans" when idle and no plans exist', async () => {
+      sandbox.stub(api, 'getPlans').resolves({ plans: [], count: 0 });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.text).to.include('No plans');
+    });
+
+    it('displays file sizes in human-readable format', async () => {
+      sessions.setMode('u1', 'telegram', 'editing');
+      sessions.setPlan('u1', 'telegram', 'p1');
+      (api.getPlanAssets as sinon.SinonStub).resolves({
+        assets: [
+          { filename: 'big.psd', original_name: 'design.psd', mime_type: 'image/vnd.adobe.photoshop', size_bytes: 5242880, uploaded_at: '2026-04-05T00:00:00Z' },
+          { filename: 'tiny.txt', original_name: 'notes.txt', mime_type: 'text/plain', size_bytes: 42, uploaded_at: '2026-04-05T00:00:00Z' },
+        ],
+      });
+
+      const [resp] = await routeCommand('u1', 'telegram', 'assets');
+      expect(resp.text).to.include('5.0 MB');
+      expect(resp.text).to.include('42 B');
+    });
+  });
+
+  describe('routeCallback — assets', () => {
+    it('menu:assets:p1 lists assets for that plan', async () => {
+      (api.getPlanAssets as sinon.SinonStub).resolves({
+        assets: [
+          { filename: 'stored.png', original_name: 'logo.png', mime_type: 'image/png', size_bytes: 1024, uploaded_at: '2026-04-05T00:00:00Z' },
+        ],
+      });
+
+      const [resp] = await routeCallback('u1', 'telegram', 'menu:assets:p1');
+      expect(resp.text).to.include('Assets for `p1`');
+      expect(resp.text).to.include('logo.png');
+    });
+
+    it('assets for correct plan id are fetched — plan isolation', async () => {
+      (api.getPlanAssets as sinon.SinonStub).resolves({ assets: [] });
+
+      await routeCallback('u1', 'telegram', 'menu:assets:p2');
+      expect((api.getPlanAssets as sinon.SinonStub).calledWith('p2')).to.be.true;
+    });
+  });
+
   // ── Session commands ──────────────────────────────────────────
 
   describe('routeCommand — cancel', () => {
@@ -522,6 +636,15 @@ describe('commands', () => {
       sessions.setMode('u1', 'telegram', 'editing');
       sessions.setPlan('u1', 'telegram', 'p1');
 
+      const asset = {
+        filename: 'stored-mockup.png',
+        original_name: 'mockup.png',
+        mime_type: 'image/png',
+        size_bytes: 2048,
+        uploaded_at: '2026-04-05T00:00:00Z',
+        path: '/tmp/mockup.png',
+      };
+      (api.getPlanAssets as sinon.SinonStub).resolves({ assets: [asset] });
       sandbox.stub(api, 'refinePlan').resolves({ plan: '# Updated', explanation: 'Refined' });
       sandbox.stub(api, 'savePlan').resolves({ status: 'saved' });
 
@@ -529,6 +652,7 @@ describe('commands', () => {
       expect(responses[0].text).to.include('Refining');
       const hasUpdated = responses.some(r => r.text.includes('Updated'));
       expect(hasUpdated).to.be.true;
+      expect((api.refinePlan as sinon.SinonStub).firstCall.args[0].assetContext).to.deep.equal([asset]);
     });
 
     it('appends to chat history during editing', async () => {
@@ -563,10 +687,68 @@ describe('commands', () => {
       const hasError = responses.some(r => r.text.includes('Failed'));
       expect(hasError).to.be.true;
     });
+
+    it('fetches assets for the correct plan — plan isolation', async () => {
+      sessions.setMode('u1', 'telegram', 'editing');
+      sessions.setPlan('u1', 'telegram', 'p2');
+
+      sandbox.stub(api, 'refinePlan').resolves({ plan: '# V2' });
+      sandbox.stub(api, 'savePlan').resolves({});
+
+      await handleStatefulText('u1', 'telegram', 'Add a footer');
+      expect((api.getPlanAssets as sinon.SinonStub).calledWith('p2')).to.be.true;
+    });
+
+    it('gracefully continues when getPlanAssets fails', async () => {
+      sessions.setMode('u1', 'telegram', 'editing');
+      sessions.setPlan('u1', 'telegram', 'p1');
+
+      (api.getPlanAssets as sinon.SinonStub).resolves({ error: 'server down', assets: [] });
+      sandbox.stub(api, 'refinePlan').resolves({ plan: '# Updated' });
+      sandbox.stub(api, 'savePlan').resolves({});
+
+      const responses = await handleStatefulText('u1', 'telegram', 'Add header');
+      const hasUpdated = responses.some(r => r.text.includes('Updated'));
+      expect(hasUpdated).to.be.true;
+      // assetContext should be empty, not crash
+      expect((api.refinePlan as sinon.SinonStub).firstCall.args[0].assetContext).to.deep.equal([]);
+    });
+
+    it('does not fetch assets when plan is "new"', async () => {
+      sessions.setMode('u1', 'telegram', 'drafting');
+      sessions.setPlan('u1', 'telegram', 'new');
+
+      sandbox.stub(api, 'refinePlan').resolves({ plan: '# Draft', explanation: 'Created' });
+      sandbox.stub(api, 'createPlan').resolves({ plan_id: 'test-slug' });
+
+      await handleStatefulText('u1', 'telegram', 'Build a blog');
+      // getPlanAssets should NOT have been called with 'new'
+      expect((api.getPlanAssets as sinon.SinonStub).calledWith('new')).to.be.false;
+    });
+
+    it('passes multiple assets as context to refinePlan', async () => {
+      sessions.setMode('u1', 'telegram', 'editing');
+      sessions.setPlan('u1', 'telegram', 'p1');
+
+      const assets = [
+        { filename: 'a.png', original_name: 'wireframe.png', mime_type: 'image/png', size_bytes: 4096, uploaded_at: '2026-04-05T00:00:00Z' },
+        { filename: 'b.pdf', original_name: 'spec.pdf', mime_type: 'application/pdf', size_bytes: 10240, uploaded_at: '2026-04-05T01:00:00Z' },
+      ];
+      (api.getPlanAssets as sinon.SinonStub).resolves({ assets });
+      sandbox.stub(api, 'refinePlan').resolves({ plan: '# V3' });
+      sandbox.stub(api, 'savePlan').resolves({});
+
+      await handleStatefulText('u1', 'telegram', 'Incorporate the wireframe');
+      const passedAssets = (api.refinePlan as sinon.SinonStub).firstCall.args[0].assetContext;
+      expect(passedAssets).to.have.lengthOf(2);
+      expect(passedAssets[0].original_name).to.equal('wireframe.png');
+      expect(passedAssets[1].original_name).to.equal('spec.pdf');
+    });
   });
 
   describe('transcribe commands', () => {
     it('routeCommand transcribe returns info if no files', async () => {
+      sandbox.stub(fs, 'readdirSync').returns([]);
       const [resp] = await routeCommand('u1', 'telegram', 'transcribe');
       expect(resp.text).to.include('No recordings');
     });

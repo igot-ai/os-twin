@@ -794,6 +794,15 @@ async def clawhub_install(
             # Skill is now in ~/.ostwin/.agents/skills/<skill_name>
             dest = _GLOBAL_SKILLS_DIR / skill_name
 
+            # ── Index into zvec so the skill is immediately searchable ────────
+            if dest.exists() and (dest / "SKILL.md").exists():
+                skill_data = parse_skill_md(dest)
+                if skill_data:
+                    store = global_state.store
+                    if store:
+                        _index_skill_from_disk(store, skill_data)
+                        logger.info("clawhub-install indexed skill=%s into zvec", skill_name)
+
             logger.info("clawhub-install success by=%s skill=%s dest=%s", username, skill_name, dest)
             return {
                 "status": "installed",
