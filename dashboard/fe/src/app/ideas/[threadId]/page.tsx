@@ -7,7 +7,7 @@ export const dynamicParams = false;
 // and client-side code reads the real thread ID from the URL.
 export async function generateStaticParams() {
   // Required for static export of dynamic routes in Next.js
-  // Ensure it matches backend expectations (pt-001 or template)
+  // Ensure it matches backend expectations
   return [{ threadId: 'template' }];
 }
 

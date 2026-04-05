@@ -19,7 +19,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
   const pathSegments = pathname?.split('/').filter(Boolean);
 
   // Prefer URL pathname over static params (which may be a template placeholder)
-  const TEMPLATE_IDS = new Set(['template', 'pt-001']);
+  const TEMPLATE_IDS = new Set(['template']);
   const urlThreadId = (pathSegments?.[0] === 'ideas' && pathSegments?.[1]) ? pathSegments[1] : '';
   const paramsThreadId = params?.threadId as string | undefined;
   const threadId = urlThreadId && !TEMPLATE_IDS.has(urlThreadId)

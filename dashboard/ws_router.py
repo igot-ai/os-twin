@@ -56,46 +56,6 @@ async def handle_client_message(websocket: WebSocket, msg: dict):
     
     if msg_type == "ping":
         await websocket.send_json({"type": "pong", "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-        
-    elif msg_type == "command_request":
-        prompt = msg.get("prompt", "")
-        conversation_id = msg.get("conversation_id", "")
-        
-        from dashboard.conversation_store import conversation_store
-        
-        # Ensure conversation exists
-        append_user = True
-        if not conversation_id:
-            conv = conversation_store.create(prompt)
-            conversation_id = conv["id"]
-            append_user = False
-        else:
-            if not conversation_store.get(conversation_id):
-                await websocket.send_json({"type": "error", "detail": "Conversation not found"})
-                return
-
-        from dashboard.command_dispatcher import dispatcher
-        
-        # Start streaming tokens back
-        try:
-            async for chunk in dispatcher.dispatch(prompt, conversation_id, append_user_message=append_user):
-                await websocket.send_json({
-                    "type": "agent_stream",
-                    "conversation_id": conversation_id,
-                    "chunk": chunk
-                })
-            
-            # Send completion event
-            await websocket.send_json({
-                "type": "command_response",
-                "conversation_id": conversation_id,
-                "status": "complete"
-            })
-        except Exception as e:
-            await websocket.send_json({
-                "type": "error",
-                "detail": str(e)
-            })
 
 def create_ws_router() -> APIRouter:
     router = APIRouter()

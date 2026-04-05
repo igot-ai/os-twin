@@ -787,6 +787,8 @@ def resolve_runtime_plan_warrooms_dir(plan_id: str) -> Optional[Path]:
             return WARROOMS_DIR
 
     return None
+
+
 def get_plan_roles_config(plan_id: str) -> dict:
     """Load the per-plan role config file, or fall back to global config."""
     plan_roles_file = PLANS_DIR / f"{plan_id}.roles.json"
