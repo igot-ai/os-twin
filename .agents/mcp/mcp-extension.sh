@@ -810,8 +810,14 @@ cmd_test() {
     server_name=""
   fi
 
+  # Use project-level compiled config if available, otherwise fall back to global
+  local test_config="$CONFIG_FILE"
+  if [[ -n "$PROJECT_DIR" ]] && [[ -f "$PROJECT_DIR/.agents/mcp/mcp-config.json" ]]; then
+    test_config="$PROJECT_DIR/.agents/mcp/mcp-config.json"
+  fi
+
   export _SCRIPT_DIR="$SCRIPT_DIR"
-  export _CONFIG_FILE="$CONFIG_FILE"
+  export _CONFIG_FILE="$test_config"
   export _BUILTIN_FILE="$BUILTIN_FILE"
   export _INSTALL_DIR="$INSTALL_DIR"
   export _PROJECT_DIR="$PROJECT_DIR"
@@ -841,19 +847,18 @@ if not os.path.exists(config_file):
     sys.exit(1)
 
 with open(config_file) as f:
-    config = json.load(f)
+    home_config = json.load(f)
 
-# Also load builtins to test everything
+builtin_config = {}
 if os.path.exists(builtin_file):
     with open(builtin_file) as f:
-        builtins_raw = f.read()
-        builtins_raw = builtins_raw.replace('${AGENT_DIR}', agent_dir)
-        builtins_raw = builtins_raw.replace('${PROJECT_DIR}', project_dir)
-        builtins = json.loads(builtins_raw).get('mcpServers', {})
-        config.setdefault('mcpServers', {}).update(builtins)
+        builtin_config = json.load(f)
 
+# Compile config: merges builtins, resolves all ${VAR}, ${VAR:-default}, vault refs
 resolver = ConfigResolver()
-servers = config.get('mcpServers', {})
+compiled_config, _ = resolver.compile_config(home_config, builtin_config,
+                                              agent_dir=agent_dir, project_dir=project_dir)
+servers = compiled_config.get('mcpServers', {})
 
 if target_server and target_server not in servers:
     print(f'  ✗ Server not found in config: {target_server}')
@@ -863,10 +868,8 @@ test_list = [target_server] if target_server else sorted(servers.keys())
 
 results = []
 for name in test_list:
-    cfg = servers[name]
+    resolved_cfg = servers[name]
     try:
-        # Resolve vault refs for testing
-        resolved_cfg = resolver.resolve_config(cfg)
         
         if 'httpUrl' in resolved_cfg:
             res = test_http_server(resolved_cfg['httpUrl'], resolved_cfg.get('headers'))
@@ -943,8 +946,10 @@ if os.path.exists(builtin_file):
     with open(builtin_file) as f:
         builtin_config = json.load(f)
 
+agent_dir = os.path.join(os.path.expanduser("~"), ".ostwin")
 resolver = ConfigResolver()
-compiled_config, env_vars = resolver.compile_config(home_config, builtin_config)
+compiled_config, env_vars = resolver.compile_config(home_config, builtin_config,
+                                                     agent_dir=agent_dir, project_dir=project_dir)
 
 # Ensure directory exists
 os.makedirs(mcp_dir, exist_ok=True)

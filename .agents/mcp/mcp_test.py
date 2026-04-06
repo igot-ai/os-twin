@@ -106,8 +106,8 @@ def test_stdio_server(command: str, args: list[str], env: Optional[Dict[str, str
         # Read response (with timeout)
         import select
         
-        # Wait up to 5 seconds for stdout
-        ready, _, _ = select.select([process.stdout], [], [], 5)
+        # Wait up to 30 seconds for stdout (some servers like memory need time to load models)
+        ready, _, _ = select.select([process.stdout], [], [], 30)
         
         if not ready:
             # Check if process died
@@ -145,11 +145,19 @@ def test_stdio_server(command: str, args: list[str], env: Optional[Dict[str, str
         result = data.get("result", {})
         server_info = result.get("serverInfo", {})
         
+        # Send initialized notification (required by MCP protocol before any requests)
+        initialized_notification = {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }
+        process.stdin.write(json.dumps(initialized_notification) + "\n")
+        process.stdin.flush()
+
         # Now list tools
         list_tools_request = {
             "jsonrpc": "2.0",
             "id": 2,
-            "method": "listTools",
+            "method": "tools/list",
             "params": {}
         }
         process.stdin.write(json.dumps(list_tools_request) + "\n")

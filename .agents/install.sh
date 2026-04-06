@@ -772,11 +772,11 @@ install_files() {
         -exec cp -r {} "$INSTALL_DIR/.agents/" \; 2>/dev/null || true
     }
 
-  # ── MCP: seed on first install, never overwrite ────────────────────────────
-  if [[ ! -d "$INSTALL_DIR/.agents/mcp" ]]; then
-    step "Seeding mcp/ directory (first install)..."
-    cp -r "$SCRIPT_DIR/mcp" "$INSTALL_DIR/.agents/mcp"
-    ok "mcp/ seeded"
+  # ── MCP: seed config on first install, never overwrite ─────────────────────
+  if [[ ! -f "$INSTALL_DIR/.agents/mcp/mcp-config.json" ]]; then
+    step "Seeding mcp-config.json (first install)..."
+    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$INSTALL_DIR/.agents/mcp/mcp-config.json"
+    ok "mcp-config.json seeded"
   else
     # Always update the builtin template so new built-in servers are available
     if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
@@ -786,11 +786,65 @@ install_files() {
     if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
       cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$INSTALL_DIR/.agents/mcp/mcp-catalog.json"
     fi
+    # Merge new built-in servers into mcp-config.json (never overwrite existing)
+    local mcp_cfg="$INSTALL_DIR/.agents/mcp/mcp-config.json"
+    local mcp_builtin="$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
+    if [[ -f "$mcp_cfg" ]] && [[ -f "$mcp_builtin" ]]; then
+      python3 - "$mcp_cfg" "$mcp_builtin" <<'MERGE_EOF' && ok "Merged new built-in MCP servers" || true
+import json, sys
+
+cfg_path, builtin_path = sys.argv[1], sys.argv[2]
+
+with open(cfg_path) as f:
+    config = json.load(f)
+with open(builtin_path) as f:
+    builtin = json.load(f)
+
+cfg_servers = config.setdefault("mcpServers", {})
+builtin_servers = builtin.get("mcpServers", {})
+
+added = []
+for name, server in builtin_servers.items():
+    if name not in cfg_servers:
+        cfg_servers[name] = server
+        added.append(name)
+
+if added:
+    with open(cfg_path, "w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+    print(f"    Added {len(added)} new server(s): {', '.join(added)}")
+else:
+    print("    All built-in servers already present")
+MERGE_EOF
+    fi
     # Sync MCP server scripts (channel-server.py, warroom-server.py, etc.)
     for f in "$SCRIPT_DIR"/mcp/*.py "$SCRIPT_DIR"/mcp/*.sh "$SCRIPT_DIR"/mcp/requirements.txt; do
       [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/.agents/mcp/"
     done
-    ok "mcp/ preserved (scripts + catalog updated, config untouched)"
+    ok "mcp/ preserved (scripts + catalog updated, new servers merged)"
+  fi
+
+  # ── Symlink ~/.ostwin/mcp -> ~/.ostwin/.agents/mcp ────────────────────────
+  local mcp_link="$INSTALL_DIR/mcp"
+  local mcp_real="$INSTALL_DIR/.agents/mcp"
+  if [[ -L "$mcp_link" ]]; then
+    # Already a symlink — update if target changed
+    if [[ "$(readlink "$mcp_link")" != "$mcp_real" ]]; then
+      ln -sfn "$mcp_real" "$mcp_link"
+    fi
+  elif [[ -d "$mcp_link" ]]; then
+    # Legacy real directory — migrate: merge any user files, then replace with symlink
+    step "Migrating $mcp_link to symlink..."
+    # Copy any files from old dir that don't exist in .agents/mcp (preserve user additions)
+    for f in "$mcp_link"/*; do
+      [[ -f "$f" ]] && [[ ! -f "$mcp_real/$(basename "$f")" ]] && cp "$f" "$mcp_real/"
+    done
+    rm -rf "$mcp_link"
+    ln -s "$mcp_real" "$mcp_link"
+    ok "Migrated $mcp_link -> .agents/mcp (symlink)"
+  else
+    ln -s "$mcp_real" "$mcp_link"
   fi
 
   # ── Dashboard: always override from source repo ───────────────────────────
@@ -931,13 +985,22 @@ if not env_vars:
 with open(mcp_path) as f:
     config = json.load(f)
 
+import re
 servers = config.get('mcpServers', {})
 for name, server in servers.items():
     if 'env' not in server:
         server['env'] = {}
-    # Merge .env vars (don't overwrite existing per-server values)
+    # Find ${VAR} references in this server's config (command, args, env values)
+    server_str = json.dumps(server)
+    server_refs = set(re.findall(r'\$\{(\w+)(?:[:-][^}]*)?\}', server_str))
+    # Only inject vars that this server already references, or resolve existing ${VAR} env values
     for k, v in env_vars.items():
-        if k not in server['env']:
+        if k in server['env']:
+            # Resolve ${VAR} placeholder in existing env value
+            cur = server['env'][k]
+            if isinstance(cur, str) and '${' in cur and v:
+                server['env'][k] = v
+        elif k in server_refs and v:
             server['env'][k] = v
 
 with open(mcp_path, 'w') as f:

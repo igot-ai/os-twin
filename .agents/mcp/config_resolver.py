@@ -67,42 +67,101 @@ class ConfigResolver:
             for match in VAULT_REF_PATTERN.finditer(obj):
                 refs.append(match.groups())
 
-    def compile_config(self, home_config: Dict[str, Any], builtin_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    # Simple ${VAR} — no nested braces allowed in the name
+    _SIMPLE_VAR = re.compile(r'\$\{([A-Za-z_]\w*)\}')
+    # ${VAR:-default} where default has NO nested ${...} (already resolved by prior pass)
+    _DEFAULT_VAR = re.compile(r'\$\{([A-Za-z_]\w*):-([^$}]*)\}')
+
+    def compile_config(self, home_config: Dict[str, Any], builtin_config: Dict[str, Any],
+                        agent_dir: str = None, project_dir: str = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """
         Compiles home config + builtin config into project config.
-        Replaces ${vault:server/key} with ${ENV_VAR} and returns the env var mapping.
+        Resolves all ${VAR}, ${VAR:-default}, and ${vault:server/key} references.
+        Returns the compiled config and env var mapping.
         """
-        # Merge configs
+        # Merge configs (home wins over builtin)
         compiled_config = {"mcpServers": {}}
         compiled_config["mcpServers"].update(builtin_config.get("mcpServers", {}))
         compiled_config["mcpServers"].update(home_config.get("mcpServers", {}))
-        
+
+        # Build known variable values
+        home = os.path.expanduser("~")
+        if agent_dir is None:
+            agent_dir = os.path.join(home, ".ostwin")
+        if project_dir is None:
+            project_dir = os.getcwd()
+
+        known_vars = {
+            "HOME": home,
+            "AGENT_DIR": agent_dir,
+            "PROJECT_DIR": project_dir,
+            "AGENT_OS_PROJECT_DIR": project_dir,
+            "OSTWIN_PYTHON": os.path.join(agent_dir, ".venv", "bin", "python"),
+        }
+        # Also pull from actual environment for any other vars
+        for k, v in os.environ.items():
+            if k not in known_vars:
+                known_vars[k] = v
+
         env_vars = {}
-        
+
+        def _resolve_bash_vars(s: str) -> str:
+            """Resolve ${VAR} and ${VAR:-default} patterns.
+            Strategy: resolve innermost simple ${VAR} first, then ${VAR:-default} on next pass.
+            This correctly handles nesting like ${OSTWIN_PYTHON:-${HOME}/.ostwin/...}."""
+            for _ in range(5):  # max passes
+                prev = s
+                # Pass A: resolve simple ${VAR} (innermost first — no nesting issues)
+                def _replace_simple(m):
+                    var_name = m.group(1)
+                    value = known_vars.get(var_name)
+                    if value is not None:
+                        return value
+                    return m.group(0)
+                s = self._SIMPLE_VAR.sub(_replace_simple, s)
+                # Pass B: resolve ${VAR:-default} (defaults are now literal, no nested ${})
+                def _replace_default(m):
+                    var_name = m.group(1)
+                    default = m.group(2)
+                    value = known_vars.get(var_name)
+                    if value is not None:
+                        return value
+                    return default
+                s = self._DEFAULT_VAR.sub(_replace_default, s)
+                if s == prev:
+                    break
+            return s
+
         def _compile_recursive(obj, server_name):
             if isinstance(obj, dict):
                 return {k: _compile_recursive(v, server_name) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [_compile_recursive(v, server_name) for v in obj]
             elif isinstance(obj, str):
+                # 1. Resolve vault references first
                 match = VAULT_REF_PATTERN.search(obj)
                 if match:
                     server, key = match.groups()
                     secret = self.vault.get(server, key)
-                    if secret is None:
-                        # If we can't find it in vault, we'll leave it as is for now
-                        # or raise an error? The spec says to resolve it.
-                        pass
-                    
-                    # ENV var naming convention: MCP_{SERVER}_{KEY} (uppercased, sanitized)
                     env_name = f"MCP_{server.upper()}_{key.upper()}".replace("-", "_").replace(".", "_")
                     env_vars[env_name] = secret or ""
-                    return obj.replace(match.group(0), f"${{{env_name}}}")
+                    obj = obj.replace(match.group(0), f"${{{env_name}}}")
+
+                # 2. Resolve all ${VAR} and ${VAR:-default} patterns
+                return _resolve_bash_vars(obj)
             return obj
 
         for name, server_cfg in compiled_config["mcpServers"].items():
             compiled_config["mcpServers"][name] = _compile_recursive(server_cfg, name)
-            
+
+        # Clean up: remove env entries that are still unresolved ${VAR} placeholders
+        for name, server_cfg in compiled_config["mcpServers"].items():
+            if "env" in server_cfg:
+                server_cfg["env"] = {
+                    k: v for k, v in server_cfg["env"].items()
+                    if not (isinstance(v, str) and v.startswith("${") and v.endswith("}"))
+                }
+
         return compiled_config, env_vars
 
 if __name__ == "__main__":

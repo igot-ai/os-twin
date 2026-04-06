@@ -11,11 +11,10 @@ trust_level: core
 When assigned an Epic, you own the full planning and implementation cycle:
 
 ### Phase 0 — Context (ALWAYS DO THIS FIRST)
-Before writing any code, check what other rooms have already built:
-```bash
-memory context <your-room-id> --keywords <terms-from-your-brief>
-memory query --kind code
-memory query --kind interface
+Before writing any code, check what other rooms have already built using the `memory` MCP tools:
+```
+search_memory(query="<terms from your brief — e.g. schema, API contract, conventions>")
+memory_tree()
 ```
 This tells you existing schemas, API contracts, and conventions to follow.
 
@@ -44,11 +43,26 @@ This tells you existing schemas, API contracts, and conventions to follow.
 
 ### Phase 3 — Reporting
 1. Ensure all checkboxes in TASKS.md are checked
-2. **Publish to shared memory** — for EVERY file you created that other rooms might use:
-   ```bash
-   memory publish code "src/models/user.py — User model" --tags models,user --ref EPIC-XXX --detail "<paste the key code>"
-   memory publish interface "POST /api/v1/users — create user endpoint" --tags api,users --ref EPIC-XXX --detail "<paste request/response JSON>"
-   memory publish decision "Chose PostgreSQL over MongoDB" --tags database,architecture --ref EPIC-XXX --detail "Why: relational data, ACID transactions needed"
+2. **MANDATORY: Save to memory (MCP)** — you MUST call `save_memory()` for EVERY file you created. Other agents CANNOT read your files — they can ONLY see memory. Do NOT skip this:
+   ```
+   save_memory(
+     content="<paste the key code — full model/class definition with types and relationships>",
+     name="src/models/user.py — User model",
+     path="code/models",
+     tags=["models", "user"]
+   )
+   save_memory(
+     content="POST /api/v1/users — <paste full request/response JSON shapes, status codes>",
+     name="API — create user endpoint",
+     path="code/api",
+     tags=["api", "users"]
+   )
+   save_memory(
+     content="Chose PostgreSQL over MongoDB. Why: relational data, ACID transactions needed. Trade-offs: ...",
+     name="Decision — PostgreSQL over MongoDB",
+     path="decisions",
+     tags=["database", "architecture"]
+   )
    ```
 3. Post a `done` message with:
    - Epic overview: what was delivered end-to-end
@@ -64,9 +78,14 @@ When assigned a Task, implement it directly:
 2. Understand the requirements and acceptance criteria
 3. Implement the solution in the project working directory
 4. Write or update tests as needed
-5. **Publish to shared memory** — publish any code, interface, or decision other rooms need:
-   ```bash
-   memory publish code "path/to/file.py — description" --tags relevant,tags --ref TASK-XXX --detail "<key code>"
+5. **MANDATORY: Save to memory (MCP)** — you MUST call `save_memory()` for any code, interface, or decision other rooms need. Do NOT skip:
+   ```
+   save_memory(
+     content="<paste key code — full function/class with types, not just a one-liner>",
+     name="path/to/file.py — description",
+     path="code/<module>",
+     tags=["relevant", "tags"]
+   )
    ```
 6. Post a `done` message with:
    - Summary of changes made

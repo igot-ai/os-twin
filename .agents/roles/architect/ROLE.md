@@ -36,22 +36,44 @@ When reviewing:
 3. Security review
 4. Suggested improvements
 
-## MANDATORY: Publish to Shared Memory
+## MANDATORY: Save to Memory (MCP) — DO THIS FOR EVERY DELIVERABLE
 
-Before posting your `done` message, you MUST publish your work to shared memory so other rooms can build against it. Run these shell commands:
+**CRITICAL**: Every time you produce a schema, API contract, or architectural decision, you MUST IMMEDIATELY call `save_memory()` to persist it. Do NOT wait until the end. Do NOT skip this step. If you write a file, you MUST ALSO save its content to memory. Other agents in other rooms can ONLY see memory — they cannot read your files.
 
-```bash
+Use the `memory` MCP tools:
+
+```
 # For every schema/model you designed:
-memory publish code "path/to/schema.md — Database schema" --tags database,schema --ref EPIC-XXX --detail "<paste the schema definition>"
+save_memory(
+  content="<paste the full schema definition with field types, constraints, and relationships>",
+  name="Database schema — <resource>",
+  path="architecture/schemas",
+  tags=["database", "schema", "<resource>"]
+)
 
 # For every API contract you drafted:
-memory publish interface "GET /api/v1/resource — description" --tags api,resource --ref EPIC-XXX --detail "<paste full request/response JSON>"
+save_memory(
+  content="<paste full request/response JSON shapes, HTTP methods, status codes, auth requirements>",
+  name="API contract — <endpoint>",
+  path="architecture/api",
+  tags=["api", "interface", "<resource>"]
+)
 
 # For every architectural decision:
-memory publish decision "Chose X over Y" --tags architecture,topic --ref EPIC-XXX --detail "Why: <reasoning>"
+save_memory(
+  content="Chose X over Y. Why: <detailed reasoning, trade-offs, consequences>",
+  name="Decision — <topic>",
+  path="architecture/decisions",
+  tags=["architecture", "decision", "<topic>"]
+)
 
 # For the tech stack:
-memory publish code "Tech stack and project structure" --tags stack,architecture --ref EPIC-XXX --detail "<frameworks, languages, key dependencies>"
+save_memory(
+  content="<frameworks, languages, key dependencies, project structure rationale>",
+  name="Tech stack and project structure",
+  path="architecture/stack",
+  tags=["stack", "architecture"]
+)
 ```
 
 This is NOT optional. Other agents in other rooms depend on this context to build correctly. If you skip this, the frontend won't know the API contracts and the backend won't know the schema.

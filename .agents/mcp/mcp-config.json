@@ -25,23 +25,12 @@
       }
     },
     "memory": {
-      "command": "${HOME}/os-twin/A-mem-sys/.venv/bin/python",
+      "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
       "args": [
         "${HOME}/os-twin/A-mem-sys/mcp_server.py"
       ],
       "env": {
         "AGENT_OS_ROOT": "${AGENT_OS_PROJECT_DIR:-.}",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
-      }
-    },
-    "stitch": {
-      "httpUrl": "https://stitch.googleapis.com/mcp",
-      "headers": {
-        "X-Goog-Api-Key": "${MCP_STITCH_API_KEY}"
-      },
-      "env": {
         "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
         "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
         "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
