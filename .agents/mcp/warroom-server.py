@@ -39,6 +39,24 @@ StatusType = Literal[
 ]
 
 
+def _find_project_root() -> str:
+    """Find project root from env vars, falling back to CWD."""
+    for var in ("AGENT_OS_ROOT", "AGENT_OS_PROJECT_DIR"):
+        val = os.environ.get(var, "")
+        if val and os.path.isabs(val) and os.path.isdir(val):
+            return val
+    return os.getcwd()
+
+AGENT_OS_ROOT: str = _find_project_root()
+
+
+def _resolve_room_dir(room_dir: str) -> str:
+    """Resolve room_dir relative to AGENT_OS_ROOT if not absolute."""
+    if os.path.isabs(room_dir):
+        return room_dir
+    return os.path.join(AGENT_OS_ROOT, room_dir)
+
+
 mcp = FastMCP("agent-os-warroom", log_level="CRITICAL")
 
 
@@ -67,7 +85,7 @@ def update_status(
     agents must NOT set them directly.
     Returns a confirmation string "status:{status}".
     """
-
+    room_dir = _resolve_room_dir(room_dir)
     os.makedirs(room_dir, exist_ok=True)
     status_file = os.path.join(room_dir, "status")
 
@@ -105,6 +123,7 @@ def list_artifacts(
     Returns an empty JSON array ("[]") if the artifacts directory
     does not exist.
     """
+    room_dir = _resolve_room_dir(room_dir)
     artifacts_dir = os.path.join(room_dir, "artifacts")
     if not os.path.exists(artifacts_dir):
         return "[]"
@@ -137,6 +156,7 @@ def report_progress(
     Clamps percent to [0, 100] even if the schema constraint is bypassed.
     Returns the written progress object as a JSON string.
     """
+    room_dir = _resolve_room_dir(room_dir)
     os.makedirs(room_dir, exist_ok=True)
     progress_file = os.path.join(room_dir, "progress.json")
 

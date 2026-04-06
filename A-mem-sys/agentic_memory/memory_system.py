@@ -6,18 +6,42 @@ from .llm_controller import LLMController
 from .retrievers import ChromaRetriever, ZvecRetriever
 import json
 import logging
-from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
 import os
 from abc import ABC, abstractmethod
-from transformers import AutoModel, AutoTokenizer
-from nltk.tokenize import word_tokenize
 import pickle
 from pathlib import Path
-from litellm import completion
 import time
+
+# Lazy imports for heavy ML libraries (torch, transformers, sentence-transformers, litellm)
+# These take 6+ seconds to import and are not all needed for every backend.
+SentenceTransformer = None
+AutoModel = None
+AutoTokenizer = None
+word_tokenize = None
+BM25Okapi = None
+cosine_similarity = None
+completion = None
+
+
+def _ensure_ml_imports():
+    """Import heavy ML libraries on first use."""
+    global SentenceTransformer, AutoModel, AutoTokenizer, word_tokenize, BM25Okapi, cosine_similarity, completion
+    if completion is not None:
+        return  # already imported
+    from sentence_transformers import SentenceTransformer as _ST
+    from transformers import AutoModel as _AM, AutoTokenizer as _AT
+    from nltk.tokenize import word_tokenize as _wt
+    from rank_bm25 import BM25Okapi as _BM
+    from sklearn.metrics.pairwise import cosine_similarity as _cs
+    from litellm import completion as _comp
+    SentenceTransformer = _ST
+    AutoModel = _AM
+    AutoTokenizer = _AT
+    word_tokenize = _wt
+    BM25Okapi = _BM
+    cosine_similarity = _cs
+    completion = _comp
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +257,7 @@ class AgenticMemorySystem:
             max_links: Maximum number of links created per note during evolution.
                 If None, no limit (LLM decides freely).
         """
+        _ensure_ml_imports()
         self.memories = {}
         self.model_name = model_name
         self.persist_dir = persist_dir

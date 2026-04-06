@@ -12,10 +12,56 @@ import threading
 from typing import Any, Optional
 from mcp.server.fastmcp import FastMCP
 
-from agentic_memory.memory_system import AgenticMemorySystem
+# Lazy import: AgenticMemorySystem loads heavy deps (embeddings, vector DB).
+# Deferring to first tool call keeps MCP startup fast (<1s).
+AgenticMemorySystem = None
 
 # --- Configuration via environment variables ---
-PERSIST_DIR = os.getenv("MEMORY_PERSIST_DIR", ".memory")
+# Resolve project root for .memory storage.
+# AGENT_OS_ROOT may be "." which is useless when CWD is /tmp/deepagents_server_xxx/.
+# Fall back to AGENT_OS_PROJECT_DIR, or walk up from CWD to find a dir with .agents/.
+def _find_project_root() -> str:
+    """Find the actual project root directory.
+
+    deepagents-cli runs MCP servers from /tmp/deepagents_server_xxx/ with
+    AGENT_OS_ROOT="." — which is useless. We try multiple strategies to find
+    the real project directory.
+    """
+    # 1. Explicit absolute AGENT_OS_ROOT
+    root = os.getenv("AGENT_OS_ROOT", "")
+    if root and os.path.isabs(root) and os.path.isdir(root):
+        return root
+    # 2. AGENT_OS_PROJECT_DIR (set by Invoke-Agent wrapper)
+    proj = os.getenv("AGENT_OS_PROJECT_DIR", "")
+    if proj and os.path.isabs(proj) and os.path.isdir(proj):
+        return proj
+    # 3. MEMORY_PERSIST_DIR if explicitly set and absolute
+    mem = os.getenv("MEMORY_PERSIST_DIR", "")
+    if mem and os.path.isabs(mem):
+        return os.path.dirname(mem)
+    # 4. Read parent process (deepagents) CWD — it's often the project dir
+    try:
+        ppid = os.getppid()
+        parent_cwd = os.readlink(f"/proc/{ppid}/cwd")
+        if os.path.isdir(os.path.join(parent_cwd, ".agents")):
+            return parent_cwd
+        # Walk up parent chain (deepagents -> langgraph -> wrapper -> shell)
+        for _ in range(5):
+            ppid_stat = open(f"/proc/{ppid}/stat").read()
+            ppid = int(ppid_stat.split(")")[1].split()[1])  # 4th field = ppid
+            if ppid <= 1:
+                break
+            parent_cwd = os.readlink(f"/proc/{ppid}/cwd")
+            if os.path.isdir(os.path.join(parent_cwd, ".agents")):
+                return parent_cwd
+    except (OSError, ValueError, IndexError):
+        pass
+    # 5. Fall back to CWD
+    return os.getcwd()
+
+_project_root = _find_project_root()
+_default_persist = os.path.join(_project_root, ".memory")
+PERSIST_DIR = os.getenv("MEMORY_PERSIST_DIR", _default_persist)
 LOG_DIR = os.getenv("MEMORY_LOG_DIR", PERSIST_DIR)
 
 # --- Logging setup ---
@@ -71,30 +117,55 @@ logger.info("persist_dir=%s  llm=%s/%s  embedding=%s/%s  vector=%s",
             PERSIST_DIR, LLM_BACKEND, LLM_MODEL, EMBEDDING_BACKEND, EMBEDDING_MODEL, VECTOR_BACKEND)
 logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
 
-# --- Lazy-initialized memory system ---
+# --- Background-initialized memory system ---
+# The memory system loads heavy deps (embeddings, vector DB) which takes ~9s.
+# We start loading in a background thread immediately so it's ready by the time
+# the first tool call arrives. The MCP server responds to initialize/tools/list
+# instantly while the background load completes.
 _memory = None
 _memory_lock = threading.Lock()
+_memory_ready = threading.Event()
 
 
-def get_memory() -> AgenticMemorySystem:
-    """Lazy-load the memory system on first tool call."""
-    global _memory
-    if _memory is None:
+def _init_memory():
+    """Initialize the memory system (runs in background thread)."""
+    global _memory, AgenticMemorySystem
+    try:
+        logger.info("Background: importing agentic_memory...")
+        from agentic_memory.memory_system import AgenticMemorySystem as _AMS
+        AgenticMemorySystem = _AMS
+        logger.info("Background: initializing memory system...")
         with _memory_lock:
-            if _memory is None:
-                logger.info("Initializing memory system...")
-                _memory = AgenticMemorySystem(
-                    model_name=EMBEDDING_MODEL,
-                    embedding_backend=EMBEDDING_BACKEND,
-                    vector_backend=VECTOR_BACKEND,
-                    llm_backend=LLM_BACKEND,
-                    llm_model=LLM_MODEL,
-                    persist_dir=PERSIST_DIR,
-                    context_aware_analysis=CONTEXT_AWARE,
-                    context_aware_tree=CONTEXT_AWARE_TREE,
-                    max_links=MAX_LINKS,
-                )
-                logger.info("Memory system initialized: %d memories loaded", len(_memory.memories))
+            _memory = AgenticMemorySystem(
+                model_name=EMBEDDING_MODEL,
+                embedding_backend=EMBEDDING_BACKEND,
+                vector_backend=VECTOR_BACKEND,
+                llm_backend=LLM_BACKEND,
+                llm_model=LLM_MODEL,
+                persist_dir=PERSIST_DIR,
+                context_aware_analysis=CONTEXT_AWARE,
+                context_aware_tree=CONTEXT_AWARE_TREE,
+                max_links=MAX_LINKS,
+            )
+        logger.info("Background: memory system ready (%d memories loaded)", len(_memory.memories))
+    except Exception:
+        logger.exception("Background: failed to initialize memory system")
+    finally:
+        _memory_ready.set()
+
+
+# Start background initialization immediately
+_init_thread = threading.Thread(target=_init_memory, daemon=True, name="memory-init")
+_init_thread.start()
+
+
+def get_memory():
+    """Get the memory system, waiting for background init if needed."""
+    if _memory is None:
+        logger.info("Waiting for memory system initialization...")
+        _memory_ready.wait(timeout=60)
+        if _memory is None:
+            raise RuntimeError("Memory system failed to initialize")
     return _memory
 
 GRAPH_GROUP_COLORS = [
@@ -750,4 +821,19 @@ def find_memory(args: Optional[str] = None) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--transport", default="stdio", choices=["stdio", "sse"],
+                        help="MCP transport: stdio (default) or sse (persistent HTTP daemon)")
+    parser.add_argument("--port", type=int, default=6463, help="Port for SSE transport (default: 6463)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host for SSE transport")
+    args = parser.parse_args()
+
+    if args.transport == "sse":
+        logger.info("Starting SSE transport on %s:%d", args.host, args.port)
+        # Reconfigure the FastMCP instance with the desired host/port
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.run(transport="sse")
+    else:
+        mcp.run(transport="stdio")

@@ -27,7 +27,7 @@
     "auto_approve": true,
     "timeout_seconds": 1200,
     "max_prompt_bytes": 102400,
-    "no_mcp": true
+    "no_mcp": false
   },
   "engineer": {
     "cli": "agent",

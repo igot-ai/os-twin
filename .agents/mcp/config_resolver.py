@@ -162,6 +162,17 @@ class ConfigResolver:
                     if not (isinstance(v, str) and v.startswith("${") and v.endswith("}"))
                 }
 
+        # Resolve relative paths in env values to absolute paths using project_dir
+        # MCP servers may run from a different CWD (e.g. /tmp), so relative paths must be absolute
+        for name, server_cfg in compiled_config["mcpServers"].items():
+            if "env" in server_cfg:
+                for k, v in server_cfg["env"].items():
+                    if isinstance(v, str) and not os.path.isabs(v) and (v == "." or v.startswith("./")):
+                        if v == ".":
+                            server_cfg["env"][k] = project_dir
+                        else:
+                            server_cfg["env"][k] = os.path.join(project_dir, v[2:])  # strip "./"
+
         return compiled_config, env_vars
 
 if __name__ == "__main__":

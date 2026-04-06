@@ -181,6 +181,27 @@ save_memory(
 - **When you encounter unfamiliar code** -- search for explanations or gotchas
 - **When the user references something from a past conversation**
 
+## Shell Fallback (if MCP tools fail)
+
+If `save_memory` MCP tool fails with ClosedResourceError or is unavailable, use the CLI via shell:
+
+```bash
+# Save a memory
+MEMORY_PERSIST_DIR="${AGENT_OS_ROOT:-.}/.memory" \
+  python3 ~/os-twin/A-mem-sys/memory-cli.py save "Your detailed memory content here" \
+  --name "Short name" --path "category/subcategory" --tags "tag1,tag2"
+
+# Search memories
+MEMORY_PERSIST_DIR="${AGENT_OS_ROOT:-.}/.memory" \
+  python3 ~/os-twin/A-mem-sys/memory-cli.py search "your query" --k 5
+
+# Show memory tree
+MEMORY_PERSIST_DIR="${AGENT_OS_ROOT:-.}/.memory" \
+  python3 ~/os-twin/A-mem-sys/memory-cli.py tree
+```
+
+**IMPORTANT**: If the MCP `save_memory` tool fails, you MUST immediately retry via the shell fallback above. Do NOT skip saving to memory.
+
 ## Rules
 
 1. **Write DETAILED memories** -- 3-10 sentences minimum. Include context, reasoning, and gotchas. One-liners are nearly useless when retrieved later.
@@ -189,3 +210,4 @@ save_memory(
 4. **Be specific in search queries** -- "PostgreSQL JSONB indexing" beats "database".
 5. **Include the WHY** -- decisions without reasoning lose value over time.
 6. **Auto-sync is on by default** -- memories are written to disk every 60s. No manual sync needed under normal use.
+7. **If MCP fails, use shell fallback** -- never skip memory just because the MCP tool errored.

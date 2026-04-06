@@ -866,7 +866,7 @@ sys.path.append(script_dir)
 try:
     from vault import get_vault
     from config_resolver import ConfigResolver
-    from mcp_test import test_http_server, test_stdio_server
+    from mcp_test import test_http_server, test_sse_server, test_stdio_server
 except ImportError as e:
     print(f"  ✗ Import error: {e}")
     sys.exit(1)
@@ -900,12 +900,17 @@ for name in test_list:
     resolved_cfg = servers[name]
     try:
         
+        server_type = resolved_cfg.get('type', resolved_cfg.get('transport', ''))
         if 'httpUrl' in resolved_cfg:
             res = test_http_server(resolved_cfg['httpUrl'], resolved_cfg.get('headers'))
+        elif server_type == 'sse' and 'url' in resolved_cfg:
+            res = test_sse_server(resolved_cfg['url'], resolved_cfg.get('headers'))
+        elif server_type == 'http' and 'url' in resolved_cfg:
+            res = test_http_server(resolved_cfg['url'], resolved_cfg.get('headers'))
         elif 'command' in resolved_cfg:
             res = test_stdio_server(resolved_cfg['command'], resolved_cfg.get('args', []), resolved_cfg.get('env'))
         else:
-            res = {"status": "error", "message": "Unknown server type (no httpUrl or command)"}
+            res = {"status": "error", "message": "Unknown server type (no httpUrl, url, or command)"}
             
         results.append((name, res))
     except Exception as e:

@@ -2,8 +2,15 @@ from typing import Dict, Optional, Literal, Any
 import os
 import json
 from abc import ABC, abstractmethod
-from litellm import completion
 import requests
+
+# Lazy import: litellm pulls in heavy ML deps at import time (~3s)
+completion = None
+def _ensure_litellm():
+    global completion
+    if completion is None:
+        from litellm import completion as _c
+        completion = _c
 
 class BaseLLMController(ABC):
     @abstractmethod
@@ -84,6 +91,7 @@ class OllamaController(BaseLLMController):
 
     def get_completion(self, prompt: str, response_format: dict, temperature: float = 1.0) -> str:
         try:
+            _ensure_litellm()
             response = completion(
                 model="ollama_chat/{}".format(self.model),
                 messages=[
@@ -196,6 +204,7 @@ class OpenRouterController(BaseLLMController):
             JSON string containing the LLM response.
         """
         try:
+            _ensure_litellm()
             response = completion(
                 model=self.model,
                 messages=[
@@ -236,6 +245,7 @@ class GeminiController(BaseLLMController):
 
     def get_completion(self, prompt: str, response_format: dict, temperature: float = 1.0) -> str:
         try:
+            _ensure_litellm()
             response = completion(
                 model=self.model,
                 messages=[

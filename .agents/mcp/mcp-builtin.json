@@ -19,13 +19,8 @@
       }
     },
     "memory": {
-      "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
-      "args": [
-        "${HOME}/os-twin/A-mem-sys/mcp_server.py"
-      ],
-      "env": {
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}"
-        }
+      "type": "sse",
+      "url": "http://127.0.0.1:6463/sse"
     }
   }
 }
