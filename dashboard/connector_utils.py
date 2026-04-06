@@ -15,9 +15,7 @@ if CONNECTORS_PATH not in sys.path:
 try:
     from connectors.registry import registry
     from connectors.models import ConnectorConfig
-    from vault import get_vault
-    from config_resolver import ConfigResolver
-    
+
     # Dynamically import all connectors to register them
     import pkgutil
     import connectors
@@ -29,12 +27,20 @@ try:
                     __import__(f"connectors.{name}")
                 except Exception as e:
                     print(f"Error loading connector {name}: {e}")
-    
+
     load_connectors()
-except ImportError:
+except ImportError as e:
+    print(f"[connector_utils] connectors package not available: {e}")
     registry = None
+    ConnectorConfig = None
+
+try:
+    from vault import get_vault
+    from config_resolver import ConfigResolver
+except ImportError:
     get_vault = None
     ConfigResolver = None
+
 
 def get_connector_config_path() -> Path:
     override = os.environ.get("OSTWIN_CONNECTORS_CONFIG")

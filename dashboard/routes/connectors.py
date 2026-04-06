@@ -70,14 +70,15 @@ def _mask_sensitive_config(config: dict) -> dict:
 async def list_registry(user: dict = Depends(get_current_user)):
     """List all available connector types."""
     if not registry:
-        raise HTTPException(status_code=500, detail="Connector registry not available")
-    
+        logger.warning("Connector registry not available — connectors package may not be installed")
+        return []
+
     result = []
     for connector_id, connector_class in registry.list_connectors().items():
         try:
             # Instantiate once to get config
             instance = connector_class()
-            result.append(instance.config.model_dump())
+            result.append(instance.config.model_dump(by_alias=True))
         except Exception as e:
             print(f"Error instantiating connector {connector_id}: {e}")
             continue

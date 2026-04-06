@@ -484,10 +484,19 @@ setup_venv() {
     ok "MCP dependencies up to date"
   fi
 
-  # Install Dashboard requirements
-  local dash_reqs="$INSTALL_DIR/dashboard/requirements.txt"
-  if [[ -f "$dash_reqs" ]]; then
-    step "Syncing dashboard dependencies..."
+  # Install Dashboard requirements — prefer source repo (freshest), fall back to INSTALL_DIR
+  local dash_reqs=""
+  for _dreqs_candidate in \
+    "${SOURCE_DIR}/dashboard/requirements.txt" \
+    "${SCRIPT_DIR}/../dashboard/requirements.txt" \
+    "$INSTALL_DIR/dashboard/requirements.txt"; do
+    if [[ -f "$_dreqs_candidate" ]]; then
+      dash_reqs="$_dreqs_candidate"
+      break
+    fi
+  done
+  if [[ -n "$dash_reqs" ]]; then
+    step "Syncing dashboard dependencies from $dash_reqs..."
     if check_uv; then
       TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
         --python "$VENV_DIR/bin/python" -r "$dash_reqs"
@@ -495,6 +504,8 @@ setup_venv() {
       "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$dash_reqs"
     fi
     ok "Dashboard dependencies up to date"
+  else
+    warn "dashboard/requirements.txt not found — skipping dashboard dep install"
   fi
 
   # Install Memory/indexing requirements (CocoIndex, pgvector, etc.)
@@ -1350,7 +1361,12 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
       ok "Tunnel active: $TUNNEL_URL"
     fi
   else
-    warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"
+    warn "Dashboard did not respond in 60s — printing last 50 lines of log:"
+    echo ""
+    echo -e "  ${BOLD}─── $INSTALL_DIR/logs/dashboard.log (last 50 lines) ───${NC}"
+    tail -n 50 "$INSTALL_DIR/logs/dashboard.log" 2>/dev/null | sed 's/^/    /' || echo "    (log file empty or not found)"
+    echo ""
+    fail "Dashboard failed to start. Review the log above for errors."
     info "Start manually: bash $DASHBOARD_SCRIPT"
   fi
 
