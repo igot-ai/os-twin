@@ -17,7 +17,7 @@
     "compression-appropriate"
   ],
   "cli": "agent",
-  "model": "gemini-3-flash-preview",
+  "model": "google-vertex/gemini-3-flash-preview",
   "timeout": 600,
   "skill_refs": [],
   "instance_type": "worker"
