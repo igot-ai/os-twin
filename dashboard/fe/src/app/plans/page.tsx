@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import StatsRow from '@/components/dashboard/StatsRow';
 import PlanGrid from '@/components/dashboard/PlanGrid';
 import { Button } from '@/components/ui/Button';
 
@@ -14,19 +15,30 @@ export default function PlansPage() {
             Plans
           </h1>
           <p className="text-sm text-text-muted mt-1">
-            Browse and manage all plans
+            Overview of all active plans and agentic operations
           </p>
         </div>
         <Link href="/plans/new">
-          <Button className="flex items-center gap-2">
+          <Button
+            className="flex items-center gap-2"
+          >
             <span className="material-symbols-outlined text-lg">add</span>
             New Plan
           </Button>
         </Link>
       </div>
 
-      {/* Plans */}
-      <PlanGrid />
+      {/* Stats Row */}
+      <StatsRow />
+
+      {/* Plan Section */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-text-main">Active Plans</h2>
+        </div>
+        
+        <PlanGrid />
+      </div>
     </div>
   );
 }

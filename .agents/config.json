@@ -36,7 +36,7 @@
     "auto_approve": true,
     "timeout_seconds": 1200,
     "max_prompt_bytes": 102400,
-    "no_mcp": true,
+    "no_mcp": false,
     "instances": {
       "fe": {
         "display_name": "Frontend Engineer",
@@ -77,7 +77,7 @@
     "default_model": "gemini-3-flash-preview",
     "approval_mode": "auto-approve",
     "timeout_seconds": 600,
-    "no_mcp": true
+    "no_mcp": false
   },
   "memory": {
     "enabled": true,

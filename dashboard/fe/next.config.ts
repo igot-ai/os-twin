@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
-const backendBase = process.env.OSTWIN_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:9000';
-const BACKEND_URL = backendBase.replace(/\/api\/?$/, '');
+// Force build cache invalidation: v3
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:9000';
 
 const isDev = process.env.NODE_ENV === 'development';
 

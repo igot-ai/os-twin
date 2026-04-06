@@ -153,10 +153,10 @@ if (Test-Path $configPath) {
     $globalConfig = Get-Content $configPath -Raw | ConvertFrom-Json
 }
 
-# --- Load plan-specific roles config (~/.ostwin/plans/{plan_id}.roles.json) ---
+# --- Load plan-specific roles config (~/.ostwin/.agents/plans/{plan_id}.roles.json) ---
 $planRolesConfig = $null
 if ($PlanId) {
-    $planRolesFile = Join-Path $env:HOME ".ostwin" "plans" "$PlanId.roles.json"
+    $planRolesFile = Join-Path $env:HOME ".ostwin" ".agents" "plans" "$PlanId.roles.json"
     if (Test-Path $planRolesFile) {
         $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
     }

@@ -22,10 +22,15 @@ from pathlib import Path
 from typing import Any, Optional
 
 import zvec
+from sentence_transformers import SentenceTransformer
+
+from datetime import datetime
+import uuid_utils
 
 logger = logging.getLogger("zvec_store")
 
-EMBEDDING_DIM = 384  # all-MiniLM-L6-v2
+EMBEDDING_DIM = 384  # Default, will be updated dynamically
+OSTWIN_EMBED_MODEL = os.environ.get("OSTWIN_EMBED_MODEL", "microsoft/harrier-oss-v1-0.6b")
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
 PLANS_COLLECTION = "plans_v2"
@@ -34,6 +39,21 @@ SKILLS_COLLECTION = "skills"
 VERSIONS_COLLECTION = "versions"
 CHANGES_COLLECTION = "changes"
 ROLES_COLLECTION = "roles"
+
+
+def uuid7() -> str:
+    """Generate a spec-compliant UUIDv7 string."""
+    return str(uuid_utils.uuid7())
+
+
+def extract_timestamp_from_uuid7(uid: str) -> datetime:
+    """Extract a millisecond-precision datetime from a UUIDv7 string."""
+    try:
+        u = uuid_utils.UUID(uid)
+        # uuid_utils UUIDs have a .timestamp attribute (ms since epoch)
+        return datetime.fromtimestamp(u.timestamp / 1000.0)
+    except Exception:
+        return datetime.fromtimestamp(0)
 
 
 class OSTwinStore:
@@ -107,6 +127,10 @@ class OSTwinStore:
     def ensure_collections(self) -> None:
         """Create or open all collections."""
         zvec.init(log_level=zvec.LogLevel.WARN)
+        # Ensure model is loaded and dynamic EMBEDDING_DIM is set before opening
+        self._get_embed_fn()
+        # Check for migrations first
+        self.migrate_collections()
         self._messages = self._open_or_create_messages()
         self._metadata = self._open_or_create_metadata()
         self._plans = self._open_or_create_plans()
@@ -117,6 +141,71 @@ class OSTwinStore:
         self._roles = self._open_or_create_roles()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
+    def migrate_collections(self) -> dict:
+        """Check all collections and migrate if time_id is missing."""
+        stats = {"migrated": [], "skipped": [], "errors": []}
+        
+        collections = [
+            (MESSAGES_COLLECTION, self._open_or_create_messages),
+            (METADATA_COLLECTION, self._open_or_create_metadata),
+            (PLANS_COLLECTION, self._open_or_create_plans),
+            (EPICS_COLLECTION, self._open_or_create_epics),
+            (SKILLS_COLLECTION, self._open_or_create_skills),
+            (VERSIONS_COLLECTION, self._open_or_create_versions),
+            (CHANGES_COLLECTION, self._open_or_create_changes),
+            (ROLES_COLLECTION, self._open_or_create_roles),
+        ]
+        
+        import shutil
+        
+        for name, opener in collections:
+            path = self.zvec_dir / name
+            if not path.exists():
+                continue
+                
+            try:
+                # Try to open and check schema
+                col = zvec.open(str(path))
+                schema = col.schema
+                has_time_id = any(f.name == "time_id" for f in schema.fields)
+                has_enabled = any(f.name == "enabled" for f in schema.fields)
+                
+                # Check vector dimension mismatch (Harrier migration)
+                dim_mismatch = False
+                vectors = schema.vectors
+                if isinstance(vectors, list) and len(vectors) > 0:
+                    current_dim = vectors[0].dimension
+                    if current_dim != EMBEDDING_DIM:
+                        dim_mismatch = True
+                elif hasattr(vectors, 'dimension'):
+                    if vectors.dimension != EMBEDDING_DIM:
+                        dim_mismatch = True
+                
+                # To be safe, we need the collection to be closed. 
+                # In current zvec, dropping the ref usually works.
+                col = None
+                
+                needs_enabled = (name == SKILLS_COLLECTION and not has_enabled)
+                if not has_time_id or dim_mismatch or needs_enabled:
+                    if dim_mismatch:
+                        logger.info("Migrating collection %s (dimension mismatch %d -> %d)", 
+                                    name, schema.vectors.dimension, EMBEDDING_DIM)
+                    else:
+                        logger.info("Migrating collection %s (missing time_id)", name)
+                    shutil.rmtree(str(path))
+                    stats["migrated"].append(name)
+                else:
+                    stats["skipped"].append(name)
+            except Exception as e:
+                logger.warning("Failed to check/migrate collection %s: %s", name, e)
+                stats["errors"].append(f"{name}: {str(e)}")
+                
+        if stats["migrated"]:
+            logger.info("Collections migrated: %s", ", ".join(stats["migrated"]))
+                    
+        return stats
+
+
     def _open_or_create_messages(self) -> zvec.Collection:
         path = str(self.zvec_dir / MESSAGES_COLLECTION)
         try:
@@ -125,6 +214,8 @@ class OSTwinStore:
             schema = zvec.CollectionSchema(
                 name=MESSAGES_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("room_id", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("from_role", zvec.DataType.STRING,
@@ -157,10 +248,11 @@ class OSTwinStore:
         try:
             return zvec.open(path)
         except Exception:
-            # zvec requires at least one vector field — use a 1-dim placeholder
             schema = zvec.CollectionSchema(
                 name=METADATA_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("task_ref", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("status", zvec.DataType.STRING,
@@ -171,10 +263,14 @@ class OSTwinStore:
                     zvec.FieldSchema("task_description", zvec.DataType.STRING, nullable=True),
                 ],
                 vectors=zvec.VectorSchema(
-                    "_placeholder",
+                    "embedding",
                     zvec.DataType.VECTOR_FP32,
-                    1,
-                    index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
                 ),
             )
             return zvec.create_and_open(path=path, schema=schema)
@@ -187,6 +283,8 @@ class OSTwinStore:
             schema = zvec.CollectionSchema(
                 name=PLANS_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("title", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("content", zvec.DataType.STRING),
@@ -219,6 +317,8 @@ class OSTwinStore:
             schema = zvec.CollectionSchema(
                 name=EPICS_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("epic_ref", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("plan_id", zvec.DataType.STRING,
@@ -253,6 +353,8 @@ class OSTwinStore:
             schema = zvec.CollectionSchema(
                 name=SKILLS_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("name", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("description", zvec.DataType.STRING),
@@ -276,6 +378,7 @@ class OSTwinStore:
                     zvec.FieldSchema("author", zvec.DataType.STRING, nullable=True),
                     zvec.FieldSchema("forked_from", zvec.DataType.STRING, nullable=True),
                     zvec.FieldSchema("is_draft", zvec.DataType.INT32),
+                    zvec.FieldSchema("enabled", zvec.DataType.INT32),
                 ],
                 vectors=zvec.VectorSchema(
                     "embedding",
@@ -298,6 +401,8 @@ class OSTwinStore:
             schema = zvec.CollectionSchema(
                 name=VERSIONS_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("plan_id", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("version", zvec.DataType.INT32,
@@ -309,10 +414,14 @@ class OSTwinStore:
                     zvec.FieldSchema("created_at", zvec.DataType.STRING),
                 ],
                 vectors=zvec.VectorSchema(
-                    "_placeholder",
+                    "embedding",
                     zvec.DataType.VECTOR_FP32,
-                    1,
-                    index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
                 ),
             )
             return zvec.create_and_open(path=path, schema=schema)
@@ -325,6 +434,8 @@ class OSTwinStore:
             schema = zvec.CollectionSchema(
                 name=CHANGES_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("plan_id", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("timestamp", zvec.DataType.STRING,
@@ -337,10 +448,14 @@ class OSTwinStore:
                                      index_param=zvec.InvertIndexParam()),
                 ],
                 vectors=zvec.VectorSchema(
-                    "_placeholder",
+                    "embedding",
                     zvec.DataType.VECTOR_FP32,
-                    1,
-                    index_param=zvec.FlatIndexParam(metric_type=zvec.MetricType.L2),
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
                 ),
             )
             return zvec.create_and_open(path=path, schema=schema)
@@ -353,6 +468,8 @@ class OSTwinStore:
             schema = zvec.CollectionSchema(
                 name=ROLES_COLLECTION,
                 fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("role_id", zvec.DataType.STRING,
                                      index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("name", zvec.DataType.STRING,
@@ -394,7 +511,14 @@ class OSTwinStore:
         if self._embed_fn is not None:
             return self._embed_fn
         try:
-            self._embed_fn = zvec.DefaultLocalDenseEmbedding()
+            model_name = OSTWIN_EMBED_MODEL
+            logger.info("Loading SentenceTransformer model: %s", model_name)
+            self._embed_fn = SentenceTransformer(model_name, model_kwargs={"dtype": "auto"})
+            
+            # Dynamically adapt EMBEDDING_DIM
+            global EMBEDDING_DIM
+            EMBEDDING_DIM = self._embed_fn.get_sentence_embedding_dimension()
+            
             self._embed_available = True
             logger.info("Embedding model loaded (dim=%d)", EMBEDDING_DIM)
             return self._embed_fn
@@ -403,16 +527,23 @@ class OSTwinStore:
             self._embed_available = False
             return None
 
-    def _embed_text(self, text: str) -> list[float] | None:
+    def _embed_text(self, text: str, is_query: bool = False) -> list[float] | None:
         fn = self._get_embed_fn()
         if fn is None:
             return None
         if not text or not isinstance(text, str) or not text.strip():
             return None
+            
+        # Add instruction prefix for queries (Harrier requirement)
+        if is_query:
+            text = f"Instruct: Retrieve semantically similar text\nQuery: {text}"
+            
         # Truncate very long messages for embedding
         truncated = text[:2000] if len(text) > 2000 else text
         try:
-            return fn.embed(truncated)
+            # SentenceTransformer.encode returns numpy array by default
+            embedding = fn.encode(truncated, convert_to_numpy=True)
+            return embedding.tolist()
         except Exception as e:
             logger.debug("Embedding failed for text: %s", e)
             return None
@@ -478,7 +609,7 @@ class OSTwinStore:
         body = str(msg.get("body", ""))
         # Sanitize: zvec C++ layer can't handle some Unicode chars (emoji etc.)
         body_clean = self._sanitize_text(body)
-        embedding = self._embed_text(body)
+        embedding = self._embed_text(body, is_query=False)
 
         # zvec requires the vector field — use zero vector as fallback
         if embedding is None:
@@ -487,6 +618,7 @@ class OSTwinStore:
         doc = zvec.Doc(
             id=str(msg_id),
             fields={
+                "time_id": uuid7(),
                 "room_id": str(room_id),
                 "from_role": str(msg.get("from", "")),
                 "to_role": str(msg.get("to", "")),
@@ -520,17 +652,23 @@ class OSTwinStore:
         if self._metadata is None:
             return False
 
+        task_desc = data.get("task_description", "")
+        embedding = self._embed_text(task_desc, is_query=False)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
         doc = zvec.Doc(
             id=room_id,
             fields={
+                "time_id": uuid7(),
                 "task_ref": data.get("task_ref", "UNKNOWN"),
                 "status": data.get("status", "unknown"),
                 "retries": data.get("retries", 0),
                 "message_count": data.get("message_count", 0),
                 "last_activity": data.get("last_activity", ""),
-                "task_description": data.get("task_description", ""),
+                "task_description": task_desc,
             },
-            vectors={"_placeholder": [0.0]},
+            vectors={"embedding": embedding},
         )
 
         status = self._metadata.upsert(doc)
@@ -546,6 +684,7 @@ class OSTwinStore:
                 return None
             doc = result[room_id]
             return {
+                "time_id": doc.field("time_id"),
                 "room_id": room_id,
                 "task_ref": doc.field("task_ref"),
                 "status": doc.field("status"),
@@ -557,7 +696,7 @@ class OSTwinStore:
         except Exception:
             return None
 
-    def get_all_rooms_metadata(self) -> list[dict]:
+    def get_all_rooms_metadata(self, order_by_time: bool = False) -> list[dict]:
         """Fetch all room metadata. Returns list of dicts."""
         if self._metadata is None:
             return []
@@ -568,6 +707,8 @@ class OSTwinStore:
                 meta = self.get_room_metadata(room_dir.name)
                 if meta:
                     results.append(meta)
+        if order_by_time:
+            results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
         return results
 
     # ── Plan & Epic Indexing ─────────────────────────────────────────────
@@ -581,13 +722,14 @@ class OSTwinStore:
             return False
 
         content_clean = self._sanitize_text(content)
-        embedding = self._embed_text(f"{title} {content_clean[:1000]}")
+        embedding = self._embed_text(f"{title} {content_clean[:1000]}", is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
 
         doc = zvec.Doc(
             id=plan_id,
             fields={
+                "time_id": uuid7(),
                 "title": title,
                 "content": content_clean,
                 "status": status,
@@ -615,13 +757,14 @@ class OSTwinStore:
 
         body_clean = self._sanitize_text(body)
         embed_text = f"{epic_ref} {title} {body_clean[:1000]}"
-        embedding = self._embed_text(embed_text)
+        embedding = self._embed_text(embed_text, is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
 
         doc = zvec.Doc(
             id=f"{plan_id}--{epic_ref}",
             fields={
+                "time_id": uuid7(),
                 "epic_ref": epic_ref,
                 "plan_id": plan_id,
                 "title": title,
@@ -654,6 +797,7 @@ class OSTwinStore:
             doc = zvec.Doc(
                 id=doc_id,
                 fields={
+                    "time_id": uuid7(),
                     "epic_ref": existing.field("epic_ref"),
                     "plan_id": existing.field("plan_id"),
                     "title": existing.field("title"),
@@ -681,6 +825,7 @@ class OSTwinStore:
                 return None
             doc = result[plan_id]
             return {
+                "time_id": doc.field("time_id"),
                 "plan_id": plan_id,
                 "title": doc.field("title"),
                 "content": doc.field("content"),
@@ -693,8 +838,8 @@ class OSTwinStore:
         except Exception:
             return None
 
-    def get_all_plans(self) -> list[dict]:
-        """Fetch all plans. Returns list sorted by created_at desc."""
+    def get_all_plans(self, order_by_time: bool = False) -> list[dict]:
+        """Fetch all plans. Returns list sorted by created_at desc or time_id."""
         if self._plans is None:
             return []
         results = []
@@ -707,6 +852,8 @@ class OSTwinStore:
             plan = self.get_plan(plan_id)
             if plan:
                 results.append(plan)
+        if order_by_time:
+            results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
         return results
 
     def get_epics_for_plan(self, plan_id: str) -> list[dict]:
@@ -720,12 +867,13 @@ class OSTwinStore:
                 vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
                 topk=50,
                 filter=f"plan_id = '{plan_id}'",
-                output_fields=["epic_ref", "plan_id", "title", "body",
+                output_fields=["time_id", "epic_ref", "plan_id", "title", "body",
                                "room_id", "status", "working_dir"],
             )
             for doc in docs:
                 results.append({
                     "id": doc.id,
+                    "time_id": doc.field("time_id"),
                     "epic_ref": doc.field("epic_ref"),
                     "plan_id": doc.field("plan_id"),
                     "title": doc.field("title"),
@@ -755,9 +903,14 @@ class OSTwinStore:
         content_clean = self._sanitize_text(content)
 
         doc_id = f"{plan_id}-v{next_version}"
+        embedding = self._embed_text(f"{title} {content_clean[:1000]}", is_query=False)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
         doc = zvec.Doc(
             id=doc_id,
             fields={
+                "time_id": uuid7(),
                 "plan_id": plan_id,
                 "version": int(next_version),
                 "title": title,
@@ -766,7 +919,7 @@ class OSTwinStore:
                 "change_source": change_source,
                 "created_at": created_at,
             },
-            vectors={"_placeholder": [0.0]},
+            vectors={"embedding": embedding},
         )
         try:
             s = self._versions.upsert(doc)
@@ -783,9 +936,9 @@ class OSTwinStore:
         try:
             # Note: Using manual filtering as zvec filter sometimes behaves unexpectedly in-process
             docs = self._versions.query(
-                vectors=zvec.VectorQuery("_placeholder", vector=[0.0]),
+                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
                 topk=1000,
-                output_fields=["plan_id", "version", "title", "epic_count", "change_source", "created_at"],
+                output_fields=["time_id", "plan_id", "version", "title", "epic_count", "change_source", "created_at"],
             )
             results = []
             for doc in docs:
@@ -793,6 +946,7 @@ class OSTwinStore:
                     if doc.field("plan_id") == plan_id:
                         results.append({
                             "id": doc.id,
+                            "time_id": doc.field("time_id"),
                             "version": doc.field("version"),
                             "title": doc.field("title"),
                             "epic_count": doc.field("epic_count"),
@@ -817,6 +971,7 @@ class OSTwinStore:
             doc = result[doc_id]
             return {
                 "id": doc_id,
+                "time_id": doc.field("time_id"),
                 "plan_id": doc.field("plan_id"),
                 "version": doc.field("version"),
                 "title": doc.field("title"),
@@ -841,9 +996,15 @@ class OSTwinStore:
         # Unique ID for the change event
         event_id = hashlib.sha256(f"{plan_id}:{now}:{file_path}".encode()).hexdigest()[:12]
 
+        # Embedding for change event
+        embedding = self._embed_text(f"{change_type} {file_path} {diff_summary[:500]}", is_query=False)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
         doc = zvec.Doc(
             id=event_id,
             fields={
+                "time_id": uuid7(),
                 "plan_id": plan_id,
                 "timestamp": now,
                 "change_type": change_type,
@@ -851,7 +1012,7 @@ class OSTwinStore:
                 "diff_summary": diff_summary,
                 "source": source,
             },
-            vectors={"_placeholder": [0.0]},
+            vectors={"embedding": embedding},
         )
         try:
             s = self._changes.upsert(doc)
@@ -868,9 +1029,9 @@ class OSTwinStore:
         try:
             # Note: Using manual filtering as zvec filter sometimes behaves unexpectedly in-process
             docs = self._changes.query(
-                vectors=zvec.VectorQuery("_placeholder", vector=[0.0]),
+                vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
                 topk=1000,
-                output_fields=["plan_id", "timestamp", "change_type", "file_path", "diff_summary", "source"],
+                output_fields=["time_id", "plan_id", "timestamp", "change_type", "file_path", "diff_summary", "source"],
             )
             results = []
             for doc in docs:
@@ -878,6 +1039,7 @@ class OSTwinStore:
                     if doc.field("plan_id") == plan_id:
                         results.append({
                             "id": doc.id,
+                            "time_id": doc.field("time_id"),
                             "plan_id": plan_id,
                             "timestamp": doc.field("timestamp"),
                             "change_type": doc.field("change_type"),
@@ -903,6 +1065,7 @@ class OSTwinStore:
             doc = result[change_id]
             return {
                 "id": change_id,
+                "time_id": doc.field("time_id"),
                 "plan_id": doc.field("plan_id"),
                 "timestamp": doc.field("timestamp"),
                 "change_type": doc.field("change_type"),
@@ -913,21 +1076,22 @@ class OSTwinStore:
         except Exception:
             return None
 
-    def search_plans(self, query: str, limit: int = 10) -> list[dict]:
+    def search_plans(self, query: str, limit: int = 10, order_by_time: bool = False) -> list[dict]:
         """Semantic search across plans."""
         if self._plans is None:
             return []
-        embedding = self._embed_text(query)
+        embedding = self._embed_text(query, is_query=True)
         if embedding is None:
             return []
         try:
             docs = self._plans.query(
                 vectors=zvec.VectorQuery("embedding", vector=embedding),
                 topk=limit,
-                output_fields=["title", "status", "epic_count", "created_at", "filename", "file_mtime"],
+                output_fields=["time_id", "title", "status", "epic_count", "created_at", "filename", "file_mtime"],
             )
-            return [{
+            results = [{
                 "plan_id": doc.id,
+                "time_id": doc.field("time_id"),
                 "score": doc.score,
                 "title": doc.field("title"),
                 "status": doc.field("status"),
@@ -936,16 +1100,19 @@ class OSTwinStore:
                 "filename": doc.field("filename"),
                 "file_mtime": doc.field("file_mtime") or 0.0,
             } for doc in docs]
+            if order_by_time:
+                results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
+            return results
         except Exception as e:
             logger.error("Plan search failed: %s", e)
             return []
 
     def search_epics(self, query: str, plan_id: str | None = None,
-                     limit: int = 20) -> list[dict]:
+                     limit: int = 20, order_by_time: bool = False) -> list[dict]:
         """Semantic search across epics."""
         if self._epics is None:
             return []
-        embedding = self._embed_text(query)
+        embedding = self._embed_text(query, is_query=True)
         if embedding is None:
             return []
         filter_str = f"plan_id = '{plan_id}'" if plan_id else None
@@ -954,11 +1121,12 @@ class OSTwinStore:
                 vectors=zvec.VectorQuery("embedding", vector=embedding),
                 topk=limit,
                 filter=filter_str,
-                output_fields=["epic_ref", "plan_id", "title", "body",
+                output_fields=["time_id", "epic_ref", "plan_id", "title", "body",
                                "room_id", "status", "working_dir"],
             )
-            return [{
+            results = [{
                 "id": doc.id,
+                "time_id": doc.field("time_id"),
                 "score": doc.score,
                 "epic_ref": doc.field("epic_ref"),
                 "plan_id": doc.field("plan_id"),
@@ -967,11 +1135,19 @@ class OSTwinStore:
                 "room_id": doc.field("room_id"),
                 "status": doc.field("status"),
             } for doc in docs]
+            if order_by_time:
+                results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
+            return results
         except Exception as e:
             logger.error("Epic search failed: %s", e)
             return []
 
     # ── Skill Indexing & Search ────────────────────────────────────────
+
+    @staticmethod
+    def _skill_doc_id(name: str) -> str:
+        """Sanitize a skill name into a zvec-safe doc ID (alphanumeric + hyphens)."""
+        return re.sub(r"[^a-z0-9-]", "-", name.strip().lower()).strip("-")
 
     def index_skill(self, name: str, description: str, tags: list[str],
                     path: str, relative_path: str = "",
@@ -980,7 +1156,7 @@ class OSTwinStore:
                     category: str | None = None, applicable_roles: list[str] = [],
                     params: list[dict] = [], changelog: list[dict] = [],
                     author: str | None = None, forked_from: str | None = None,
-                    is_draft: bool = False) -> bool:
+                    is_draft: bool = False, enabled: bool = True) -> bool:
         """Index or update a skill. Returns True on success."""
         if self._skills is None:
             return False
@@ -993,13 +1169,14 @@ class OSTwinStore:
         changelog_json = json.dumps(changelog)
 
         embed_text = f"{name} {desc_clean} {tags_str} {content_clean[:1000]}"
-        embedding = self._embed_text(embed_text)
+        embedding = self._embed_text(embed_text, is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
 
         doc = zvec.Doc(
-            id=name,
+            id=self._skill_doc_id(name),
             fields={
+                "time_id": uuid7(),
                 "name": name,
                 "description": desc_clean,
                 "tags": tags_str,
@@ -1016,6 +1193,7 @@ class OSTwinStore:
                 "author": author,
                 "forked_from": forked_from,
                 "is_draft": 1 if is_draft else 0,
+                "enabled": 1 if enabled else 0,
             },
             vectors={"embedding": embedding},
         )
@@ -1043,6 +1221,7 @@ class OSTwinStore:
             changelog = []
 
         return {
+            "time_id": doc.field("time_id"),
             "name": doc.field("name"),
             "description": doc.field("description"),
             "tags": tags,
@@ -1059,6 +1238,7 @@ class OSTwinStore:
             "author": doc.field("author"),
             "forked_from": doc.field("forked_from"),
             "is_draft": bool(doc.field("is_draft")),
+            "enabled": bool(doc.field("enabled")) if doc.field("enabled") is not None else True,
         }
 
     def get_skill(self, name: str) -> dict | None:
@@ -1066,14 +1246,15 @@ class OSTwinStore:
         if self._skills is None:
             return None
         try:
-            result = self._skills.fetch(name)
-            if name not in result:
+            doc_id = self._skill_doc_id(name)
+            result = self._skills.fetch(doc_id)
+            if doc_id not in result:
                 return None
-            return self._map_skill_doc(result[name])
+            return self._map_skill_doc(result[doc_id])
         except Exception:
             return None
 
-    def get_all_skills(self, limit: int = 100) -> list[dict]:
+    def get_all_skills(self, limit: int = 100, order_by_time: bool = False) -> list[dict]:
         """Fetch all indexed skills. Returns list of dicts."""
         if self._skills is None:
             return []
@@ -1082,37 +1263,46 @@ class OSTwinStore:
             docs = self._skills.query(
                 vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
                 topk=limit,
-                output_fields=["name", "description", "tags", "path",
+                output_fields=["time_id", "name", "description", "tags", "path",
                                "relative_path", "trust_level", "source", "content",
                                "version", "category", "applicable_roles", "params",
-                               "changelog", "author", "forked_from", "is_draft"],
+                               "changelog", "author", "forked_from", "is_draft",
+                               "enabled"],
             )
-            return [self._map_skill_doc(doc) for doc in docs]
+            results = [self._map_skill_doc(doc) for doc in docs]
+            if order_by_time:
+                # Sort by time_id descending (newest first)
+                results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
+            return results
         except Exception as e:
             logger.error("get_all_skills failed: %s", e)
             return []
 
-    def search_skills(self, query: str, limit: int = 20) -> list[dict]:
+    def search_skills(self, query: str, limit: int = 20, order_by_time: bool = False) -> list[dict]:
         """Semantic search across indexed skills. Returns ranked results."""
         if self._skills is None:
             return []
-        embedding = self._embed_text(query)
+        embedding = self._embed_text(query, is_query=True)
         if embedding is None:
             return []
         try:
             docs = self._skills.query(
                 vectors=zvec.VectorQuery("embedding", vector=embedding),
                 topk=limit,
-                output_fields=["name", "description", "tags", "path",
+                output_fields=["time_id", "name", "description", "tags", "path",
                                "relative_path", "trust_level", "source", "content",
                                "version", "category", "applicable_roles", "params",
-                               "changelog", "author", "forked_from", "is_draft"],
+                               "changelog", "author", "forked_from", "is_draft",
+                               "enabled"],
             )
             results = []
             for doc in docs:
                 skill = self._map_skill_doc(doc)
                 skill["score"] = float(doc.score)
                 results.append(skill)
+            if order_by_time:
+                # Sort by time_id descending (newest first)
+                results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
             return results
         except Exception as e:
             logger.error("Skill search failed: %s", e)
@@ -1235,13 +1425,14 @@ class OSTwinStore:
         desc_clean = self._sanitize_text(description)
 
         embed_text = f"{name} {provider} {desc_clean} {skill_refs_str}"
-        embedding = self._embed_text(embed_text)
+        embedding = self._embed_text(embed_text, is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
 
         doc = zvec.Doc(
             id=role_id,
             fields={
+                "time_id": uuid7(),
                 "role_id": role_id,
                 "name": name,
                 "description": desc_clean,
@@ -1296,6 +1487,7 @@ class OSTwinStore:
             timeout_seconds = 300
 
         return {
+            "time_id": doc.field("time_id"),
             "id": doc.field("role_id"),
             "name": doc.field("name"),
             "description": doc.field("description"),
@@ -1323,7 +1515,7 @@ class OSTwinStore:
         except Exception:
             return None
 
-    def get_all_roles(self, limit: int = 100) -> list[dict]:
+    def get_all_roles(self, limit: int = 100, order_by_time: bool = False) -> list[dict]:
         """Fetch all indexed roles. Returns list of dicts."""
         if self._roles is None:
             return []
@@ -1331,28 +1523,31 @@ class OSTwinStore:
             docs = self._roles.query(
                 vectors=zvec.VectorQuery("embedding", vector=[0.0] * EMBEDDING_DIM),
                 topk=limit,
-                output_fields=["role_id", "name", "description", "provider",
+                output_fields=["time_id", "role_id", "name", "description", "provider",
                                "version", "temperature", "budget_tokens_max",
                                "max_retries", "timeout_seconds", "skill_refs",
                                "system_prompt_override", "created_at", "updated_at"],
             )
-            return [self._map_role_doc(doc) for doc in docs]
+            results = [self._map_role_doc(doc) for doc in docs]
+            if order_by_time:
+                results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
+            return results
         except Exception as e:
             logger.error("get_all_roles failed: %s", e)
             return []
 
-    def search_roles(self, query: str, limit: int = 20) -> list[dict]:
+    def search_roles(self, query: str, limit: int = 20, order_by_time: bool = False) -> list[dict]:
         """Semantic search across indexed roles. Returns ranked results."""
         if self._roles is None:
             return []
-        embedding = self._embed_text(query)
+        embedding = self._embed_text(query, is_query=True)
         if embedding is None:
             return []
         try:
             docs = self._roles.query(
                 vectors=zvec.VectorQuery("embedding", vector=embedding),
                 topk=limit,
-                output_fields=["role_id", "name", "description", "provider",
+                output_fields=["time_id", "role_id", "name", "description", "provider",
                                "version", "temperature", "budget_tokens_max",
                                "max_retries", "timeout_seconds", "skill_refs",
                                "system_prompt_override", "created_at", "updated_at"],
@@ -1362,6 +1557,8 @@ class OSTwinStore:
                 role = self._map_role_doc(doc)
                 role["score"] = float(doc.score)
                 results.append(role)
+            if order_by_time:
+                results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
             return results
         except Exception as e:
             logger.error("Role search failed: %s", e)
@@ -1485,12 +1682,13 @@ class OSTwinStore:
         room_id: str | None = None,
         msg_type: str | None = None,
         limit: int = 20,
+        order_by_time: bool = False,
     ) -> list[dict]:
         """Semantic search across indexed messages. Returns ranked results."""
         if self._messages is None:
             return []
 
-        embedding = self._embed_text(query)
+        embedding = self._embed_text(query, is_query=True)
         if embedding is None:
             return []
 
@@ -1507,7 +1705,7 @@ class OSTwinStore:
                 vectors=zvec.VectorQuery("embedding", vector=embedding),
                 topk=limit,
                 filter=filter_str,
-                output_fields=["room_id", "from_role", "to_role", "msg_type",
+                output_fields=["time_id", "room_id", "from_role", "to_role", "msg_type",
                                "ref", "ts", "body"],
             )
 
@@ -1515,6 +1713,7 @@ class OSTwinStore:
             for doc in docs:
                 results.append({
                     "id": doc.id,
+                    "time_id": doc.field("time_id"),
                     "score": doc.score,
                     "room_id": doc.field("room_id"),
                     "from": doc.field("from_role"),
@@ -1524,6 +1723,8 @@ class OSTwinStore:
                     "ts": doc.field("ts"),
                     "body": doc.field("body"),
                 })
+            if order_by_time:
+                results.sort(key=lambda x: x.get("time_id", ""), reverse=True)
             return results
         except Exception as e:
             logger.error("Search failed: %s", e)

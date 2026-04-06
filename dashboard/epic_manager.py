@@ -32,13 +32,17 @@ class EpicSkillsManager:
             skill_md = skill_dir / "SKILL.md"
             if skill_md.exists():
                 data = parse_skill_md(skill_dir)
-                return data["content"] if data else ""
+                if data and data.get("enabled", True):
+                    return data["content"]
+                return ""
             
             # Try searching in subdirs (rglob)
             for smd in sdir.rglob("SKILL.md"):
                 if smd.parent.name == skill_name:
                     data = parse_skill_md(smd.parent)
-                    return data["content"] if data else ""
+                    if data and data.get("enabled", True):
+                        return data["content"]
+                    return ""
         return ""
 
     @staticmethod
@@ -65,6 +69,11 @@ class EpicSkillsManager:
 
         skill_refs = set(role_config.get("skill_refs", []))
         skill_refs.update(plan_config.get("attached_skills", []))
+
+        # Filter out globally disabled skills
+        from dashboard.api_utils import build_skills_list
+        all_enabled_skills = {s.name for s in build_skills_list(include_disabled=False)}
+        skill_refs = {s for s in skill_refs if s in all_enabled_skills}
 
         disabled = set(role_config.get("disabled_skills", []))
         skill_refs -= disabled
@@ -101,6 +110,11 @@ class EpicSkillsManager:
         skill_refs.update(plan_config.get("attached_skills", [])) # Global plan skills
         skill_refs.update(plan_role_config.get("skill_refs", [])) # Plan-Role specific
         skill_refs.update(room_overrides.get("skill_refs", []))    # Epic-Role specific
+
+        # Filter out globally disabled skills
+        from dashboard.api_utils import build_skills_list
+        all_enabled_skills = {s.name for s in build_skills_list(include_disabled=False)}
+        skill_refs = {s for s in skill_refs if s in all_enabled_skills}
 
         disabled = set()
         disabled.update(plan_role_config.get("disabled_skills", []))

@@ -26,7 +26,7 @@
 .PARAMETER Quiet
     Always $true — agents always run in quiet mode (-q flag).
 .PARAMETER McpConfig
-    Path to the MCP config JSON. Defaults to <AGENTS_DIR>/mcp/mcp-config.json.
+    Path to the MCP config JSON. Defaults to <AGENTS_DIR>/mcp/config.json.
     Pass empty string to disable MCP tool injection.
 .PARAMETER ExtraArgs
     Additional CLI arguments as string array.
@@ -276,7 +276,7 @@ if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
 if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
 if ($Quiet) { $extraCliArgs += "--quiet" }
 
-# --- MCP config: prefer project-local, fall back to global ---
+# --- MCP config: prefer project-local config.json, fall back to legacy/global ---
 # If no_mcp is set in role config, skip MCP entirely to avoid ClosedResourceError
 # on remote LangGraph execution. Role scripts handle channel communication instead.
 if ($NoMcp) {
@@ -285,31 +285,42 @@ if ($NoMcp) {
 else {
     $resolvedMcpConfig = $McpConfig
     if (-not $resolvedMcpConfig) {
-        # Priority 1: project-local MCP config ($ProjectDir/.agents/mcp/mcp-config.json)
+        # Priority 1: project-local MCP config
         if ($ProjectDir) {
-            $projectMcpConfig = Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json"
-            if (Test-Path $projectMcpConfig) {
-                $resolvedMcpConfig = $projectMcpConfig
+            foreach ($projectMcpConfig in @(
+                (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
+                (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
+            )) {
+                if (Test-Path $projectMcpConfig) {
+                    $resolvedMcpConfig = $projectMcpConfig
+                    break
+                }
             }
         }
         # Priority 2: agents dir (same repo / dev mode)
         if (-not $resolvedMcpConfig) {
-            $agentsDirMcpConfig = Join-Path $agentsDir "mcp" "mcp-config.json"
-            if (Test-Path $agentsDirMcpConfig) {
-                $resolvedMcpConfig = $agentsDirMcpConfig
-            } else {
-                # Dev mode: mcp-config.json may not exist, fall back to mcp-builtin.json
-                $agentsDirMcpBuiltin = Join-Path $agentsDir "mcp" "mcp-builtin.json"
-                if (Test-Path $agentsDirMcpBuiltin) {
-                    $resolvedMcpConfig = $agentsDirMcpBuiltin
+            foreach ($agentsDirMcpConfig in @(
+                (Join-Path $agentsDir "mcp" "config.json"),
+                (Join-Path $agentsDir "mcp" "mcp-config.json")
+            )) {
+                if (Test-Path $agentsDirMcpConfig) {
+                    $resolvedMcpConfig = $agentsDirMcpConfig
+                    break
                 }
             }
         }
-        # Priority 3: OSTWIN_HOME global config (~/.ostwin/mcp/mcp-config.json)
+        # Priority 3: OSTWIN_HOME global config
         if (-not $resolvedMcpConfig) {
-            $ostwinMcpConfig = Join-Path $OstwinHome "mcp" "mcp-config.json"
-            if (Test-Path $ostwinMcpConfig) {
-                $resolvedMcpConfig = $ostwinMcpConfig
+            foreach ($ostwinMcpConfig in @(
+                (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
+                (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
+                (Join-Path $OstwinHome "mcp" "config.json"),
+                (Join-Path $OstwinHome "mcp" "mcp-config.json")
+            )) {
+                if (Test-Path $ostwinMcpConfig) {
+                    $resolvedMcpConfig = $ostwinMcpConfig
+                    break
+                }
             }
         }
     }

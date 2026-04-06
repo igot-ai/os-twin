@@ -118,19 +118,24 @@ for _py_file in vault.py config_resolver.py; do
   fi
 done
 
-if [[ ! -f "$TARGET_AGENTS/mcp/mcp-config.json" ]]; then
-  # Seed from builtin template on first init — compile step below resolves all variables
-  if [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
-    cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-config.json"
+PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/config.json"
+LEGACY_PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/mcp-config.json"
+
+if [[ ! -f "$PROJECT_MCP_CONFIG" ]]; then
+  # Seed from builtin/legacy — compile step below resolves all variables
+  if [[ -f "$LEGACY_PROJECT_MCP_CONFIG" ]]; then
+    cp "$LEGACY_PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG"
+  elif [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
+    cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$PROJECT_MCP_CONFIG"
   else
-    echo '{"mcpServers":{}}' > "$TARGET_AGENTS/mcp/mcp-config.json"
+    echo '{"mcpServers":{}}' > "$PROJECT_MCP_CONFIG"
   fi
   ok "MCP config seeded"
 else
   ok "MCP config exists (will recompile)"
 fi
 
-echo -e "    ${DIM}Config: $TARGET_AGENTS/mcp/mcp-config.json${NC}"
+echo -e "    ${DIM}Config: $PROJECT_MCP_CONFIG${NC}"
 
 # ─── Interactive MCP install ──────────────────────────────────────────────────
 
@@ -214,17 +219,23 @@ fi
 
 # ─── Compile project-level config ─────────────────────────────────────────────
 
-# Ensure home mcp-config.json exists (compile needs it)
-if [[ ! -f "$HOME/.ostwin/mcp/mcp-config.json" ]]; then
-  if [[ -f "$HOME/.ostwin/mcp/mcp-builtin.json" ]]; then
-    cp "$HOME/.ostwin/mcp/mcp-builtin.json" "$HOME/.ostwin/mcp/mcp-config.json"
+# Ensure global config.json exists (compile needs it)
+GLOBAL_MCP_DIR="$HOME/.ostwin/.agents/mcp"
+GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/config.json"
+LEGACY_GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/mcp-config.json"
+mkdir -p "$GLOBAL_MCP_DIR"
+if [[ ! -f "$GLOBAL_MCP_CONFIG" ]]; then
+  if [[ -f "$LEGACY_GLOBAL_MCP_CONFIG" ]]; then
+    cp "$LEGACY_GLOBAL_MCP_CONFIG" "$GLOBAL_MCP_CONFIG"
+  elif [[ -f "$GLOBAL_MCP_DIR/mcp-builtin.json" ]]; then
+    cp "$GLOBAL_MCP_DIR/mcp-builtin.json" "$GLOBAL_MCP_CONFIG"
   else
-    echo '{"mcpServers":{}}' > "$HOME/.ostwin/mcp/mcp-config.json"
+    echo '{"mcpServers":{}}' > "$GLOBAL_MCP_CONFIG"
   fi
 fi
 
 step "Compiling project-level MCP config..."
-bash "$MCP_EXTENSION_SCRIPT" compile --project-dir "$TARGET_DIR"
+bash "$MCP_EXTENSION_SCRIPT" --project-dir "$TARGET_DIR" compile
 
 # ─── Update .gitignore ────────────────────────────────────────────────────────
 
@@ -246,11 +257,11 @@ fi
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 echo ""
-echo -e "  ${GREEN}${BOLD}✓ MCP configured at:${NC} $TARGET_AGENTS/mcp/mcp-config.json"
+echo -e "  ${GREEN}${BOLD}✓ MCP configured at:${NC} $PROJECT_MCP_CONFIG"
 echo ""
 echo -e "  ${BOLD}Manage extensions:${NC}"
 echo "    ostwin mcp catalog              Show available packages"
 echo "    ostwin mcp install <name>       Install an extension"
 echo "    ostwin mcp list                 Show installed extensions"
-echo "    ostwin mcp sync                 Rebuild mcp-config.json"
+echo "    ostwin mcp sync                 Rebuild config.json"
 echo ""

@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 import dashboard.global_state as global_state
-from dashboard.telegram_bot import get_config, authorize_chat
+from dashboard.notify import get_config, authorize_chat
 from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR, PROJECT_ROOT, build_skills_list, read_channel, read_room
 from dashboard.telegram_sessions import get_session, clear_session, set_plan, set_mode
 
