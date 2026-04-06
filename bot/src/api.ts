@@ -25,6 +25,11 @@ export interface PlanAsset {
   uploaded_at: string;
   size_bytes?: number;
   path?: string;
+  bound_epics?: string[];
+  asset_type?: string;
+  tags?: string[];
+  description?: string;
+  binding?: 'plan' | 'epic';
 }
 
 export interface Room {
@@ -220,7 +225,8 @@ export async function getPlanAssets(planId: string): Promise<PlanAssetsResult> {
 
 export async function uploadPlanAssets(
   planId: string,
-  files: Array<{ name: string; contentType?: string; data: ArrayBuffer | Uint8Array }>
+  files: Array<{ name: string; contentType?: string; data: ArrayBuffer | Uint8Array }>,
+  metadata?: { epicRef?: string; assetType?: string; tags?: string[] },
 ): Promise<PlanAssetsResult> {
   const form = new FormData();
   for (const file of files) {
@@ -230,6 +236,11 @@ export async function uploadPlanAssets(
     const blob = new Blob([arrayBuffer], { type: file.contentType || 'application/octet-stream' });
     form.append('files', blob, file.name);
   }
+
+  // FIX-4: Forward epic/type/tags metadata so assets land on the right epic
+  if (metadata?.epicRef) form.append('epic_ref', metadata.epicRef);
+  if (metadata?.assetType) form.append('asset_type', metadata.assetType);
+  if (metadata?.tags?.length) form.append('tags', metadata.tags.join(','));
 
   const data = await fetchJSON(`/api/plans/${planId}/assets`, {
     method: 'POST',
@@ -242,6 +253,39 @@ export async function uploadPlanAssets(
     assets: data.assets || [],
     count: data.count || 0,
   };
+}
+
+// ── EPIC-002/003: Asset management endpoints ────────────────────
+
+export async function bindAsset(
+  planId: string, filename: string, epicRef: string
+): Promise<any> {
+  return postJSON(`/api/plans/${planId}/assets/${encodeURIComponent(filename)}/bind`, { epic_ref: epicRef });
+}
+
+export async function unbindAsset(
+  planId: string, filename: string, epicRef: string
+): Promise<any> {
+  return fetchJSON(`/api/plans/${planId}/assets/${encodeURIComponent(filename)}/bind/${epicRef}`, { method: 'DELETE' });
+}
+
+export async function getEpicAssets(planId: string, epicRef: string): Promise<PlanAssetsResult> {
+  const data = await fetchJSON(`/api/plans/${planId}/epics/${epicRef}/assets`);
+  if (data?._error) return { error: data._error, assets: [] };
+  return { plan_id: data.plan_id, assets: data.assets || [], count: data.count || 0 };
+}
+
+export async function updateAssetMetadata(
+  planId: string, filename: string, updates: { asset_type?: string; tags?: string[]; description?: string }
+): Promise<any> {
+  return fetchJSON(`/api/plans/${planId}/assets/${encodeURIComponent(filename)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function generatePlanFromAssets(planId: string): Promise<any> {
+  return postJSON(`/api/plans/${planId}/generate-from-assets`, {});
 }
 
 export async function launchPlan(planId: string, planContent: string): Promise<any> {
@@ -310,6 +354,11 @@ const api = {
   savePlan,
   getPlanAssets,
   uploadPlanAssets,
+  bindAsset,
+  unbindAsset,
+  getEpicAssets,
+  updateAssetMetadata,
+  generatePlanFromAssets,
   launchPlan,
   getRooms,
   getRoomChannel,

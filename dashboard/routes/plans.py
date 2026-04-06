@@ -4,6 +4,7 @@ import hashlib
 import asyncio
 import re
 import logging
+import zipfile
 from email.parser import BytesParser
 from email.policy import default
 from datetime import datetime, timezone
@@ -70,6 +71,7 @@ def _ensure_plan_meta(plan_id: str) -> Dict[str, Any]:
     meta = _read_plan_meta(plan_id)
     if meta:
         meta.setdefault("assets", [])
+        meta.setdefault("epic_assets", {})
         return meta
 
     plan_file = _require_plan_file(plan_id)
@@ -80,6 +82,7 @@ def _ensure_plan_meta(plan_id: str) -> Dict[str, Any]:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "draft",
         "assets": [],
+        "epic_assets": {},
     }
     _write_plan_meta(plan_id, meta)
     return meta
@@ -94,10 +97,14 @@ def _safe_asset_filename(original_name: str) -> str:
     return f"{timestamp}-{stem[:40]}-{fingerprint}{suffix}"
 
 
-def _normalize_plan_assets(plan_id: str, meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _normalize_plan_assets(
+    plan_id: str, meta: Dict[str, Any]
+) -> List[Dict[str, Any]]:
     assets_dir = _plan_assets_dir(plan_id)
     normalized: List[Dict[str, Any]] = []
     changed = False
+
+    meta.setdefault("epic_assets", {})
 
     for raw_asset in meta.get("assets", []):
         filename = raw_asset.get("filename")
@@ -113,8 +120,17 @@ def _normalize_plan_assets(plan_id: str, meta: Dict[str, Any]) -> List[Dict[str,
         asset = dict(raw_asset)
         asset.setdefault("original_name", filename)
         asset.setdefault("mime_type", "application/octet-stream")
-        asset.setdefault("uploaded_at", raw_asset.get("created_at") or datetime.now(timezone.utc).isoformat())
+        asset.setdefault(
+            "uploaded_at",
+            raw_asset.get("created_at") or datetime.now(timezone.utc).isoformat()
+        )
         asset.setdefault("size_bytes", asset_path.stat().st_size)
+
+        # EPIC-001: Extended metadata
+        asset.setdefault("bound_epics", [])
+        asset.setdefault("asset_type", "unspecified")
+        asset.setdefault("tags", [])
+        asset.setdefault("description", "")
 
         if asset != raw_asset:
             changed = True
@@ -127,7 +143,441 @@ def _normalize_plan_assets(plan_id: str, meta: Dict[str, Any]) -> List[Dict[str,
     return normalized
 
 
-def _serialize_plan_asset(plan_id: str, asset: Dict[str, Any]) -> Dict[str, Any]:
+def _get_valid_epic_refs(plan_id: str) -> set:
+    """Parse the plan markdown and return the set of valid EPIC-NNN refs.
+
+    Matches all supported header formats:
+      ### EPIC-001 — Title
+      ## Epic: EPIC-001 — Title
+      ## Task: EPIC-001 — Title
+    """
+    plan_file = _plan_file_path(plan_id)
+    if not plan_file.exists():
+        return set()
+    content = plan_file.read_text()
+    # Broad pattern: any ##/### heading that contains EPIC-NNN
+    return set(_re_mod.findall(r"^#{2,3}\s+(?:(?:Epic|Task):\s*)?(EPIC-\d+)", content, _re_mod.MULTILINE))
+
+
+def _validate_epic_ref(plan_id: str, epic_ref: str) -> None:
+    """Raise 404 if epic_ref does not exist in the plan."""
+    valid = _get_valid_epic_refs(plan_id)
+    if epic_ref not in valid:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Epic {epic_ref} not found in plan {plan_id}. Valid epics: {sorted(valid)}",
+        )
+
+
+def _replace_existing_assets(
+    plan_id: str, existing: List[Dict[str, Any]], new_assets: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Remove superseded assets from the existing list when re-uploading.
+
+    If a new asset has the same original_name as an existing one, the old record
+    and its stored file are removed. Returns the cleaned existing list.
+    """
+    new_names = {a["original_name"] for a in new_assets if a.get("original_name")}
+    if not new_names:
+        return existing
+
+    assets_dir = _plan_assets_dir(plan_id)
+    cleaned = []
+    meta = _ensure_plan_meta(plan_id)
+    epic_assets = meta.get("epic_assets", {})
+
+    for asset in existing:
+        if asset.get("original_name") in new_names:
+            # Remove old stored file
+            old_path = assets_dir / asset["filename"]
+            if old_path.exists():
+                try:
+                    old_path.unlink()
+                except OSError:
+                    pass
+            # Remove from epic_assets index
+            for epic_ref, flist in list(epic_assets.items()):
+                if asset["filename"] in flist:
+                    flist.remove(asset["filename"])
+                    if not flist:
+                        del epic_assets[epic_ref]
+        else:
+            cleaned.append(asset)
+
+    return cleaned
+
+
+def _inject_assets_to_working_directory(plan_id: str, working_dir: Path) -> None:
+    """Inject plan assets into the working directory for agent access.
+    
+    Creates a .assets/ directory in the working directory and copies/symlinks
+    all assets from the plan's asset directory. This ensures agents have
+    direct access to assets during execution.
+    
+    Args:
+        plan_id: The plan ID
+        working_dir: The working directory path
+    """
+    import shutil
+    
+    # Get plan assets
+    meta = _ensure_plan_meta(plan_id)
+    assets = _normalize_plan_assets(plan_id, meta)
+    
+    if not assets:
+        logger.info(f"No assets to inject for plan {plan_id}")
+        return
+    
+    # Create .assets directory in working directory
+    assets_target_dir = working_dir / ".assets"
+    assets_target_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get source assets directory
+    assets_source_dir = _plan_assets_dir(plan_id)
+    
+    # Copy/symlink assets
+    LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
+    injected_count = 0
+    
+    for asset in assets:
+        stored_name = asset.get("filename")
+        original_name = asset.get("original_name", stored_name)
+        
+        if not stored_name:
+            continue
+        
+        source_file = assets_source_dir / stored_name
+        if not source_file.exists():
+            logger.warning(f"Asset file not found: {source_file}")
+            continue
+        
+        # Use original name for better readability
+        target_file = assets_target_dir / original_name
+        
+        # Check file size for symlink vs copy decision
+        file_size = source_file.stat().st_size
+        
+        try:
+            if file_size > LARGE_FILE_THRESHOLD:
+                # Symlink large files to save disk space
+                if target_file.exists() or target_file.is_symlink():
+                    target_file.unlink()
+                target_file.symlink_to(source_file.resolve())
+                logger.info(f"Symlinked large asset ({file_size} bytes): {original_name}")
+            else:
+                # Copy small files
+                if target_file.exists():
+                    target_file.unlink()
+                shutil.copy2(source_file, target_file)
+            
+            injected_count += 1
+        except Exception as e:
+            logger.warning(f"Failed to inject asset {original_name}: {e}")
+    
+    # Create asset manifest file
+    manifest_file = assets_target_dir / "ASSETS.md"
+    manifest_lines = [
+        "# Plan Assets\n",
+        f"This directory contains {injected_count} asset(s) for plan `{plan_id}`.\n",
+        "\n## Available Files\n\n",
+    ]
+    
+    for asset in assets:
+        original_name = asset.get("original_name", asset.get("filename", "unknown"))
+        atype = asset.get("asset_type", "unspecified")
+        desc = asset.get("description", "")
+        size = asset.get("size_bytes", 0)
+        
+        line = f"- **{original_name}** ({atype}, {size} bytes)"
+        if desc:
+            line += f" — {desc}"
+        manifest_lines.append(line + "\n")
+    
+    manifest_file.write_text("".join(manifest_lines))
+    
+    logger.info(f"Injected {injected_count} assets into {assets_target_dir} for plan {plan_id}")
+
+
+def _extract_files_from_zip(
+    zip_data: bytes,
+    original_zip_name: str,
+    epic_ref: Optional[str] = None,
+    asset_type: str = "unspecified",
+    tags: List[str] = None,
+) -> List[Dict[str, Any]]:
+    """Extract all files from a ZIP archive and return asset records.
+    
+    Args:
+        zip_data: Raw bytes of the ZIP file
+        original_zip_name: Original filename of the ZIP (for logging)
+        epic_ref: Epic to bind all extracted files to
+        asset_type: Asset type for all extracted files
+        tags: Tags for all extracted files
+    
+    Returns:
+        List of asset dictionaries with filename, original_name, mime_type, data, etc.
+    """
+    import io
+    from mimetypes import guess_type
+    
+    if tags is None:
+        tags = []
+    
+    extracted = []
+    
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zf:
+            for zip_info in zf.infolist():
+                # Skip directories
+                if zip_info.is_dir():
+                    continue
+                
+                # Skip hidden files and macOS metadata
+                filename = zip_info.filename
+                if filename.startswith('.') or filename.startswith('__MACOSX'):
+                    continue
+                
+                # Extract filename from path (handle nested directories)
+                original_name = Path(filename).name
+                if not original_name:
+                    continue
+                
+                try:
+                    file_data = zf.read(zip_info)
+                    
+                    # Skip empty files
+                    if len(file_data) == 0:
+                        continue
+                    
+                    # Guess MIME type
+                    mime_type, _ = guess_type(original_name)
+                    if not mime_type:
+                        mime_type = "application/octet-stream"
+                    
+                    # Guess asset type if unspecified
+                    inferred_type = asset_type
+                    if asset_type == "unspecified":
+                        name_lower = original_name.lower()
+                        if mime_type.startswith("image/"):
+                            inferred_type = "design-mockup"
+                        elif any(ext in name_lower for ext in [".pdf", ".doc", ".docx", ".txt", ".md"]):
+                            inferred_type = "reference-doc"
+                        elif any(ext in name_lower for ext in [".yaml", ".yml", ".json", ".xml"]):
+                            if "api" in name_lower or "spec" in name_lower:
+                                inferred_type = "api-spec"
+                            else:
+                                inferred_type = "config"
+                        elif any(ext in name_lower for ext in [".csv", ".sql", ".db"]):
+                            inferred_type = "test-data"
+                    
+                    extracted.append({
+                        "original_name": original_name,
+                        "data": file_data,
+                        "mime_type": mime_type,
+                        "size_bytes": len(file_data),
+                        "asset_type": inferred_type,
+                        "tags": tags,
+                        "bound_epics": [epic_ref] if epic_ref else [],
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to extract {filename} from {original_zip_name}: {e}")
+                    continue
+        
+        logger.info(f"Extracted {len(extracted)} files from ZIP: {original_zip_name}")
+        
+    except zipfile.BadZipFile as e:
+        logger.error(f"Invalid ZIP file {original_zip_name}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to process ZIP {original_zip_name}: {e}")
+    
+    return extracted
+
+
+def _merge_markdown_asset_edits_into_meta(plan_id: str, markdown_content: str) -> None:
+    """Parse #### Assets sections from markdown and merge binding changes into meta.json.
+
+    If an asset's filename appears under a different epic in the markdown than in meta,
+    update meta to match. This allows user/AI edits to asset sections to be persisted.
+    """
+    parsed = _parse_epic_assets_from_markdown(markdown_content)
+    if not parsed:
+        return
+
+    meta = _ensure_plan_meta(plan_id)
+    _normalize_plan_assets(plan_id, meta)
+    assets_by_filename: Dict[str, Dict[str, Any]] = {
+        a["filename"]: a for a in meta.get("assets", [])
+    }
+    assets_by_original: Dict[str, Dict[str, Any]] = {
+        a.get("original_name", a["filename"]): a for a in meta.get("assets", [])
+    }
+
+    # Build new binding map from markdown
+    md_bindings: Dict[str, set] = {}  # filename -> set of epic_refs from markdown
+    for epic_ref, entries in parsed.items():
+        for entry in entries:
+            # Entry format: "original_name (type, mime) — description"
+            # Extract original_name (first token before " (")
+            original_name = entry.split(" (")[0].strip() if " (" in entry else entry.strip()
+            asset = assets_by_original.get(original_name) or assets_by_filename.get(original_name)
+            if asset:
+                fn = asset["filename"]
+                if fn not in md_bindings:
+                    md_bindings[fn] = set()
+                md_bindings[fn].add(epic_ref)
+
+    if not md_bindings:
+        return
+
+    # Apply binding changes
+    epic_assets = meta.setdefault("epic_assets", {})
+    changed = False
+    for filename, md_epics in md_bindings.items():
+        asset = assets_by_filename.get(filename)
+        if not asset:
+            continue
+        current_epics = set(asset.get("bound_epics", []))
+        # Add new bindings from markdown
+        for epic_ref in md_epics - current_epics:
+            bound = asset.setdefault("bound_epics", [])
+            bound.append(epic_ref)
+            ea = epic_assets.setdefault(epic_ref, [])
+            if filename not in ea:
+                ea.append(filename)
+            changed = True
+
+    if changed:
+        _write_plan_meta(plan_id, meta)
+
+
+def _sync_asset_sections(plan_id: str) -> None:
+    """Regenerate both plan-level and per-epic asset sections in plan markdown."""
+    meta = _ensure_plan_meta(plan_id)
+    assets = _normalize_plan_assets(plan_id, meta)
+    assets_dir = _plan_assets_dir(plan_id)
+    # Plan-level ## Assets shows only unbound assets
+    plan_level = [a for a in assets if not a.get("bound_epics")]
+    _update_plan_assets_section(plan_id, plan_level, assets_dir)
+    # Per-epic #### Assets shows bound assets
+    _update_epic_asset_sections(plan_id, assets, assets_dir)
+
+
+def bind_asset_to_epic(
+    plan_id: str, filename: str, epic_ref: str
+) -> Dict[str, Any]:
+    _validate_epic_ref(plan_id, epic_ref)
+    meta = _ensure_plan_meta(plan_id)
+    epic_assets = meta.setdefault("epic_assets", {})
+    if epic_ref not in epic_assets:
+        epic_assets[epic_ref] = []
+
+    if filename not in epic_assets[epic_ref]:
+        epic_assets[epic_ref].append(filename)
+
+    # Also update asset metadata
+    for asset in meta.get("assets", []):
+        if asset.get("filename") == filename:
+            bound = asset.setdefault("bound_epics", [])
+            if epic_ref not in bound:
+                bound.append(epic_ref)
+            break
+
+    _write_plan_meta(plan_id, meta)
+    _sync_asset_sections(plan_id)
+    return meta
+
+
+def unbind_asset_from_epic(
+    plan_id: str, filename: str, epic_ref: str
+) -> Dict[str, Any]:
+    meta = _ensure_plan_meta(plan_id)
+    epic_assets = meta.get("epic_assets", {})
+    if epic_ref in epic_assets and filename in epic_assets[epic_ref]:
+        epic_assets[epic_ref].remove(filename)
+        if not epic_assets[epic_ref]:
+            del epic_assets[epic_ref]
+
+    # Also update asset metadata
+    for asset in meta.get("assets", []):
+        if asset.get("filename") == filename:
+            bound = asset.get("bound_epics", [])
+            if epic_ref in bound:
+                bound.remove(epic_ref)
+            break
+
+    _write_plan_meta(plan_id, meta)
+    _sync_asset_sections(plan_id)
+    return meta
+
+
+def list_epic_assets(plan_id: str, epic_ref: str, *, validate: bool = True) -> List[Dict[str, Any]]:
+    if validate:
+        _validate_epic_ref(plan_id, epic_ref)
+    meta = _ensure_plan_meta(plan_id)
+    _normalize_plan_assets(plan_id, meta)
+
+    all_assets = meta.get("assets", [])
+    epic_filenames = meta.get("epic_assets", {}).get(epic_ref, [])
+
+    bound = [a for a in all_assets if a["filename"] in epic_filenames]
+    # Assets not bound to ANY epic are plan-level (available to all)
+    plan_level = [a for a in all_assets if not a.get("bound_epics")]
+
+    # Return unique list
+    seen = set()
+    result = []
+    for a in bound + plan_level:
+        if a["filename"] not in seen:
+            result.append(a)
+            seen.add(a["filename"])
+    return result
+
+
+def get_asset_or_404(plan_id: str, filename: str) -> Dict[str, Any]:
+    """Find an asset by filename in the plan's meta, or raise 404."""
+    meta = _ensure_plan_meta(plan_id)
+    _normalize_plan_assets(plan_id, meta)
+    for asset in meta.get("assets", []):
+        if asset.get("filename") == filename:
+            return asset
+    raise HTTPException(status_code=404, detail=f"Asset {filename} not found in plan {plan_id}")
+
+
+def update_asset_metadata(
+    plan_id: str,
+    filename: str,
+    asset_type: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    description: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Update an asset's metadata (type, tags, description). Returns updated asset."""
+    meta = _ensure_plan_meta(plan_id)
+    _normalize_plan_assets(plan_id, meta)
+
+    target = None
+    for asset in meta.get("assets", []):
+        if asset.get("filename") == filename:
+            target = asset
+            break
+
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Asset {filename} not found in plan {plan_id}")
+
+    if asset_type is not None:
+        target["asset_type"] = asset_type
+    if tags is not None:
+        target["tags"] = tags
+    if description is not None:
+        target["description"] = description
+
+    _write_plan_meta(plan_id, meta)
+    return target
+
+
+def _serialize_plan_asset(
+    plan_id: str, asset: Dict[str, Any]
+) -> Dict[str, Any]:
     return {
         **asset,
         "plan_id": plan_id,
@@ -164,10 +614,11 @@ def _update_plan_assets_section(plan_id: str, all_assets: list, assets_dir: Path
 
     assets_block = "\n".join(lines) + "\n"
 
-    # Replace existing ## Assets … block, or insert before the first ## section
-    assets_pattern = r"## Assets\n(?:.*\n)*?(?=\n## |\Z)"
-    if _re_mod.search(assets_pattern, content):
-        content = _re_mod.sub(assets_pattern, assets_block, content, count=1)
+    # Replace existing ## Assets … block, or insert before the first ## section.
+    # Use ^## to avoid matching #### Assets sub-sections.
+    assets_pattern = r"^## Assets\n(?:.*\n)*?(?=\n## |\Z)"
+    if _re_mod.search(assets_pattern, content, _re_mod.MULTILINE):
+        content = _re_mod.sub(assets_pattern, assets_block, content, count=1, flags=_re_mod.MULTILINE)
     else:
         first_section = _re_mod.search(r"\n## ", content)
         if first_section:
@@ -177,6 +628,132 @@ def _update_plan_assets_section(plan_id: str, all_assets: list, assets_dir: Path
             content = content.rstrip() + "\n\n" + assets_block
 
     plan_file.write_text(content)
+
+
+def _update_epic_asset_sections(plan_id: str, all_assets: list, assets_dir: Path) -> None:
+    """Insert or replace #### Assets sub-sections within each epic block in the plan markdown.
+
+    Assets bound to a specific epic are listed under that epic's #### Assets heading.
+    Placed after #### Tasks and before depends_on:.
+    """
+    plan_file = PLANS_DIR / f"{plan_id}.md"
+    if not plan_file.exists():
+        return
+
+    content = plan_file.read_text()
+
+    # Group assets by epic
+    by_epic: Dict[str, List[Dict[str, Any]]] = {}
+    for asset in all_assets:
+        for epic in asset.get("bound_epics", []):
+            if epic not in by_epic:
+                by_epic[epic] = []
+            by_epic[epic].append(asset)
+
+    # Find all epic sections: ### EPIC-NNN
+    epic_pattern = _re_mod.compile(r"(### (EPIC-\d+)[^\n]*\n)")
+    matches = list(epic_pattern.finditer(content))
+
+    if not matches:
+        return
+
+    # Process epics in reverse order to preserve positions
+    for i in range(len(matches) - 1, -1, -1):
+        match = matches[i]
+        epic_ref = match.group(2)
+        epic_start = match.start()
+
+        # Find the end of this epic section (next ### or end of file)
+        if i + 1 < len(matches):
+            epic_end = matches[i + 1].start()
+        else:
+            epic_end = len(content)
+
+        epic_block = content[epic_start:epic_end]
+
+        # Remove existing #### Assets section if present (including leading blank line).
+        # The lookahead stops before the next #### heading, depends_on:, ---, or end of block.
+        # We preserve trailing newlines to avoid collapsing the block.
+        epic_block = _re_mod.sub(
+            r"\n?#### Assets\n(?:(?!####|depends_on:|\n---|\n### ).*\n)*",
+            "\n",
+            epic_block,
+        )
+
+        # Build new #### Assets block if this epic has assets
+        epic_assets = by_epic.get(epic_ref, [])
+        if epic_assets:
+            asset_lines = ["#### Assets\n"]
+            asset_lines.append("The following assets are available for this epic:\n\n")
+            for asset in epic_assets:
+                original = asset.get("original_name", asset["filename"])
+                atype = asset.get("asset_type", "unspecified")
+                mime = asset.get("mime_type", "unknown")
+                desc = asset.get("description", "")
+                abs_path = str(assets_dir / asset["filename"])
+                
+                line = f"- **{original}** ({atype}, {mime})"
+                if desc:
+                    line += f" — {desc}"
+                asset_lines.append(line)
+                asset_lines.append(f"  - Absolute path: `{abs_path}`")
+                asset_lines.append(f"  - Working dir path: `.assets/{original}`")
+            asset_block = "\n".join(asset_lines) + "\n\n"
+
+            # Insert before depends_on: or ---
+            depends_match = _re_mod.search(r"\ndepends_on:", epic_block)
+            separator_match = _re_mod.search(r"\n---", epic_block)
+            insert_pos = None
+            if depends_match:
+                insert_pos = depends_match.start()
+            elif separator_match:
+                insert_pos = separator_match.start()
+
+            if insert_pos is not None:
+                epic_block = epic_block[:insert_pos] + "\n" + asset_block + epic_block[insert_pos:]
+            else:
+                epic_block = epic_block.rstrip() + "\n\n" + asset_block
+
+        content = content[:epic_start] + epic_block + content[epic_end:]
+
+    plan_file.write_text(content)
+
+
+def _parse_epic_assets_from_markdown(content: str) -> Dict[str, List[str]]:
+    """Parse #### Assets sections from plan markdown and return {epic_ref: [asset_entries]}.
+
+    Each entry is the raw text line describing an asset (e.g., "spec.yaml (api-spec, text/yaml)").
+    """
+    result: Dict[str, List[str]] = {}
+
+    # Find all epic sections
+    epic_pattern = _re_mod.compile(r"### (EPIC-\d+)[^\n]*\n")
+    matches = list(epic_pattern.finditer(content))
+
+    for i, match in enumerate(matches):
+        epic_ref = match.group(1)
+        epic_start = match.end()
+
+        if i + 1 < len(matches):
+            epic_end = matches[i + 1].start()
+        else:
+            epic_end = len(content)
+
+        epic_block = content[epic_start:epic_end]
+
+        # Find #### Assets section
+        assets_match = _re_mod.search(r"#### Assets\n((?:.*\n)*?)(?=####|\ndepends_on:|\n---|\n### |\Z)", epic_block)
+        if assets_match:
+            asset_text = assets_match.group(1)
+            entries = []
+            for line in asset_text.strip().split("\n"):
+                line = line.strip()
+                if line.startswith("- "):
+                    entries.append(line[2:])
+            if entries:
+                result[epic_ref] = entries
+
+    return result
 
 
 def _parse_multipart_files(content_type: str, body: bytes) -> List[Dict[str, Any]]:
@@ -191,23 +768,27 @@ def _parse_multipart_files(content_type: str, body: bytes) -> List[Dict[str, Any
         raise HTTPException(status_code=400, detail="Invalid multipart payload")
 
     files: List[Dict[str, Any]] = []
+    fields: Dict[str, str] = {}
     for part in message.iter_parts():
         if part.get_content_disposition() != "form-data":
             continue
-        if part.get_param("name", header="content-disposition") != "files":
-            continue
+        field_name = part.get_param("name", header="content-disposition")
 
-        filename = part.get_filename()
-        if not filename:
-            continue
+        if field_name == "files":
+            filename = part.get_filename()
+            if not filename:
+                continue
+            files.append({
+                "filename": Path(filename).name,
+                "content_type": part.get_content_type() or "application/octet-stream",
+                "data": part.get_payload(decode=True) or b"",
+            })
+        elif field_name in ("epic_ref", "asset_type", "tags"):
+            payload = part.get_payload(decode=True)
+            if payload:
+                fields[field_name] = payload.decode("utf-8", errors="replace")
 
-        files.append({
-            "filename": Path(filename).name,
-            "content_type": part.get_content_type() or "application/octet-stream",
-            "data": part.get_payload(decode=True) or b"",
-        })
-
-    return files
+    return files, fields
 
 def _merge_plan_meta(plan: dict, plans_dir: Path) -> None:
     """Merge {plan_id}.meta.json fields into a plan dict (in-place).
@@ -244,9 +825,18 @@ async def upload_plan_assets(
 ):
     _require_plan_file(plan_id)
     content_type = request.headers.get("content-type", "")
-    files = _parse_multipart_files(content_type, await request.body())
+    files, fields = _parse_multipart_files(content_type, await request.body())
     if not files:
         raise HTTPException(status_code=400, detail="At least one file is required")
+
+    epic_ref = fields.get("epic_ref", "").strip() or None
+    asset_type = fields.get("asset_type", "").strip() or "unspecified"
+    tags_str = fields.get("tags", "").strip()
+    tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+
+    # FIX-1: Validate epic_ref before proceeding
+    if epic_ref:
+        _validate_epic_ref(plan_id, epic_ref)
 
     meta = _ensure_plan_meta(plan_id)
     existing_assets = _normalize_plan_assets(plan_id, meta)
@@ -254,34 +844,339 @@ async def upload_plan_assets(
     assets_dir.mkdir(parents=True, exist_ok=True)
 
     saved_assets: List[Dict[str, Any]] = []
+    extracted_count = 0
+    
     for upload in files:
         original_name = upload["filename"]
-        stored_name = _safe_asset_filename(original_name)
-        asset_path = assets_dir / stored_name
+        upload_data = upload["data"]
+        content_type = upload["content_type"]
+        
+        # Check if file is a ZIP archive
+        is_zip = (
+            content_type in ["application/zip", "application/x-zip-compressed", "application/x-zip"] or
+            original_name.lower().endswith('.zip')
+        )
+        
+        if is_zip:
+            # Extract all files from ZIP
+            extracted_files = _extract_files_from_zip(
+                zip_data=upload_data,
+                original_zip_name=original_name,
+                epic_ref=epic_ref,
+                asset_type=asset_type,
+                tags=tags,
+            )
+            
+            # Save extracted files
+            for extracted in extracted_files:
+                stored_name = _safe_asset_filename(extracted["original_name"])
+                asset_path = assets_dir / stored_name
+                
+                with asset_path.open("wb") as handle:
+                    handle.write(extracted["data"])
+                
+                saved_assets.append({
+                    "filename": stored_name,
+                    "original_name": extracted["original_name"],
+                    "mime_type": extracted["mime_type"],
+                    "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                    "size_bytes": extracted["size_bytes"],
+                    "bound_epics": extracted["bound_epics"],
+                    "asset_type": extracted["asset_type"],
+                    "tags": extracted["tags"],
+                    "description": "",
+                })
+                extracted_count += 1
+        else:
+            # Normal file upload
+            stored_name = _safe_asset_filename(original_name)
+            asset_path = assets_dir / stored_name
 
-        with asset_path.open("wb") as handle:
-            handle.write(upload["data"])
+            with asset_path.open("wb") as handle:
+                handle.write(upload_data)
 
-        saved_assets.append({
-            "filename": stored_name,
-            "original_name": original_name,
-            "mime_type": upload["content_type"],
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            "size_bytes": len(upload["data"]),
-        })
+            saved_assets.append({
+                "filename": stored_name,
+                "original_name": original_name,
+                "mime_type": content_type,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                "size_bytes": len(upload_data),
+                "bound_epics": [epic_ref] if epic_ref else [],
+                "asset_type": asset_type,
+                "tags": tags,
+                "description": "",
+            })
+    
+    if extracted_count > 0:
+        logger.info(f"Extracted {extracted_count} files from ZIP archives for plan {plan_id}")
+
+    # R2-FIX-4: Replace existing assets with same original_name
+    existing_assets = _replace_existing_assets(plan_id, existing_assets, saved_assets)
 
     all_assets = existing_assets + saved_assets
     meta["assets"] = all_assets
+
+    # Update epic_assets index if binding was requested
+    if epic_ref:
+        ea = meta.setdefault("epic_assets", {})
+        if epic_ref not in ea:
+            ea[epic_ref] = []
+        for sa in saved_assets:
+            if sa["filename"] not in ea[epic_ref]:
+                ea[epic_ref].append(sa["filename"])
+
     _write_plan_meta(plan_id, meta)
 
-    # Update plan markdown with an ## Assets section so agents know what files are available
-    _update_plan_assets_section(plan_id, all_assets, assets_dir)
+    # FIX-2: Sync both plan-level and per-epic asset sections in markdown
+    _sync_asset_sections(plan_id)
 
     return {
         "plan_id": plan_id,
         "assets": [_serialize_plan_asset(plan_id, asset) for asset in saved_assets],
         "count": len(saved_assets),
     }
+
+
+# ── EPIC-002: Asset Management API Endpoints ─────────────────────
+
+
+@router.post("/api/plans/{plan_id}/assets/{filename}/bind")
+async def api_bind_asset(plan_id: str, filename: str, request: Request, user: dict = Depends(get_current_user)):
+    """Bind an existing asset to an epic."""
+    _require_plan_file(plan_id)
+    get_asset_or_404(plan_id, filename)
+
+    body = await request.json()
+    epic_ref = body.get("epic_ref")
+    if not epic_ref:
+        raise HTTPException(status_code=400, detail="epic_ref is required")
+
+    bind_asset_to_epic(plan_id, filename, epic_ref)
+    meta = _ensure_plan_meta(plan_id)
+    asset = get_asset_or_404(plan_id, filename)
+    return {"status": "bound", "asset": _serialize_plan_asset(plan_id, asset)}
+
+
+@router.delete("/api/plans/{plan_id}/assets/{filename}/bind/{epic_ref}")
+async def api_unbind_asset(plan_id: str, filename: str, epic_ref: str, user: dict = Depends(get_current_user)):
+    """Unbind an asset from an epic."""
+    _require_plan_file(plan_id)
+    get_asset_or_404(plan_id, filename)
+
+    unbind_asset_from_epic(plan_id, filename, epic_ref)
+    asset = get_asset_or_404(plan_id, filename)
+    return {"status": "unbound", "asset": _serialize_plan_asset(plan_id, asset)}
+
+
+@router.get("/api/plans/{plan_id}/epics/{epic_ref}/assets")
+async def api_list_epic_assets(plan_id: str, epic_ref: str, user: dict = Depends(get_current_user)):
+    """List assets for a specific epic (plan-level + epic-bound)."""
+    _require_plan_file(plan_id)
+    assets = list_epic_assets(plan_id, epic_ref)
+    serialized = []
+    for asset in assets:
+        s = _serialize_plan_asset(plan_id, asset)
+        s["binding"] = "epic" if epic_ref in asset.get("bound_epics", []) else "plan"
+        serialized.append(s)
+    return {"plan_id": plan_id, "epic_ref": epic_ref, "assets": serialized, "count": len(serialized)}
+
+
+@router.patch("/api/plans/{plan_id}/assets/{filename}")
+async def api_update_asset_metadata(plan_id: str, filename: str, request: Request, user: dict = Depends(get_current_user)):
+    """Update asset metadata (type, tags, description)."""
+    _require_plan_file(plan_id)
+    body = await request.json()
+
+    updated = update_asset_metadata(
+        plan_id,
+        filename,
+        asset_type=body.get("asset_type"),
+        tags=body.get("tags"),
+        description=body.get("description"),
+    )
+    return {"status": "updated", "asset": _serialize_plan_asset(plan_id, updated)}
+
+
+@router.get("/api/plans/{plan_id}/assets/{filename}/download")
+async def download_asset(plan_id: str, filename: str, user: dict = Depends(get_current_user)):
+    """Download an asset file."""
+    _require_plan_file(plan_id)
+    asset_path = _plan_assets_dir(plan_id) / filename
+    if not asset_path.exists():
+        raise HTTPException(status_code=404, detail=f"Asset file {filename} not found")
+
+    meta = _ensure_plan_meta(plan_id)
+    _normalize_plan_assets(plan_id, meta)
+    asset = next((a for a in meta.get("assets", []) if a.get("filename") == filename), None)
+    mime = asset.get("mime_type", "application/octet-stream") if asset else "application/octet-stream"
+    original = asset.get("original_name", filename) if asset else filename
+
+    def iter_file():
+        with open(asset_path, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
+
+    return StreamingResponse(
+        iter_file(),
+        media_type=mime,
+        headers={"Content-Disposition": f'inline; filename="{original}"'},
+    )
+
+
+@router.post("/api/plans/{plan_id}/generate-from-assets")
+async def generate_plan_from_assets(
+    plan_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Generate a plan based on uploaded assets using AI.
+    
+    Takes the assets already uploaded to this plan and generates a structured plan
+    using the PLAN.template.md. The generated plan replaces the current plan content.
+    The AI analyzes the actual file contents, not just metadata.
+    """
+    from dashboard.plan_agent import PlanAgent
+    
+    _require_plan_file(plan_id)
+    meta = _ensure_plan_meta(plan_id)
+    assets = _normalize_plan_assets(plan_id, meta)
+    assets_dir = _plan_assets_dir(plan_id)
+    
+    if not assets:
+        raise HTTPException(status_code=400, detail="No assets found in this plan")
+    
+    # Build asset context for AI - including actual file contents
+    asset_sections = []
+    
+    # Read text-based files (limit to reasonable size)
+    MAX_FILE_SIZE = 50000  # 50KB per file
+    TEXT_MIME_PREFIXES = ['text/', 'application/json', 'application/xml', 'application/yaml']
+    TEXT_EXTENSIONS = ['.txt', '.md', '.yaml', '.yml', '.json', '.xml', '.csv', '.log', '.py', '.js', '.ts', '.tsx', '.jsx', '.html', '.css', '.sql', '.sh', '.env', '.cfg', '.ini', '.toml']
+    
+    for asset in assets:
+        name = asset.get("original_name", asset.get("filename", "unknown"))
+        stored_name = asset.get("filename", name)
+        atype = asset.get("asset_type", "unspecified")
+        desc = asset.get("description", "")
+        size = asset.get("size_bytes", 0)
+        mime = asset.get("mime_type", "unknown")
+        epics = asset.get("bound_epics", [])
+        
+        asset_path = assets_dir / stored_name
+        
+        # Build asset section
+        section = f"\n### Asset: {name}\n"
+        section += f"- **Type:** {atype}\n"
+        section += f"- **MIME:** {mime}\n"
+        section += f"- **Size:** {size} bytes\n"
+        if desc:
+            section += f"- **Description:** {desc}\n"
+        if epics:
+            section += f"- **Bound to:** {', '.join(epics)}\n"
+        
+        # Try to read file contents if it's text-based
+        is_text = (
+            any(mime.startswith(prefix) for prefix in TEXT_MIME_PREFIXES) or
+            any(name.lower().endswith(ext) for ext in TEXT_EXTENSIONS)
+        )
+        
+        if asset_path.exists() and size > 0 and size <= MAX_FILE_SIZE and is_text:
+            try:
+                content = asset_path.read_text(encoding='utf-8', errors='ignore')
+                if content.strip():
+                    section += f"\n**Content:**\n```\n{content}\n```\n"
+            except Exception as e:
+                logger.warning(f"Could not read asset {name}: {e}")
+        elif asset_path.exists() and is_text and size > MAX_FILE_SIZE:
+            section += f"\n**Note:** File is too large ({size} bytes) to include fully. First 5000 characters:\n```\n"
+            try:
+                with open(asset_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    section += f.read(5000) + "...\n```\n"
+            except Exception:
+                section += "```\n"
+        elif mime.startswith('image/'):
+            section += f"\n**Note:** This is an image/design mockup. The agent should reference this visual design when building the UI.\n"
+        elif mime.startswith('video/'):
+            section += f"\n**Note:** This is a video file. Consider adding a content creation or media epic.\n"
+        elif mime.startswith('audio/'):
+            section += f"\n**Note:** This is an audio file. Consider adding a content creation or media epic.\n"
+        
+        asset_sections.append(section)
+    
+    asset_context = "\n".join(asset_sections)
+    
+    # Build prompt for AI
+    prompt = f"""Create a detailed, actionable plan based on the following uploaded assets. 
+
+Analyze the actual file contents provided below and create specific, concrete epics and tasks.
+
+{asset_context}
+
+## Instructions:
+
+1. **Read the file contents carefully** - Don't just use the filenames. Extract specific requirements, designs, or specifications from the actual content.
+
+2. **Create specific, actionable epics:**
+   - For API specs (YAML/JSON): Create backend epics with specific endpoints
+   - For design mockups: Create frontend epics matching the visual design
+   - For test data: Create QA/testing epics with specific test scenarios
+   - For reference docs: Create documentation or research epics
+   - For config files: Create infrastructure/setup epics
+
+3. **Be specific:** Instead of generic tasks like "Implement API", use "Implement POST /users endpoint as specified in api-spec.yaml line 45"
+
+4. **Reference the assets:** Each task should reference which asset it relates to (e.g., "Based on design-mockup.png, implement the hero section")
+
+5. **Extract details:** If a YAML spec defines 5 endpoints, create tasks for each endpoint. If a mockup shows 3 components, create tasks for each.
+
+Create a detailed, concrete plan that directly uses the information in these files."""
+
+    # Use PlanAgent to generate the plan
+    try:
+        agent = PlanAgent(plans_dir=PLANS_DIR, agents_dir=AGENTS_DIR)
+        
+        # Stream the generation
+        result_text = ""
+        async for chunk in agent.stream_refinement(
+            plan_id=plan_id,
+            user_message=prompt,
+            working_dir=None,
+        ):
+            if chunk.get("type") == "token":
+                result_text += chunk.get("content", "")
+        
+        # Parse the result
+        from dashboard.plan_agent import parse_structured_response
+        parsed = parse_structured_response(result_text)
+        
+        if not parsed.get("plan"):
+            raise HTTPException(status_code=500, detail="AI failed to generate a valid plan")
+        
+        # Save the generated plan
+        plan_file = PLANS_DIR / f"{plan_id}.md"
+        plan_file.write_text(parsed["plan"])
+        
+        # Update meta
+        title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", parsed["plan"], re.MULTILINE)
+        title = title_match.group(1).strip() if title_match else plan_id
+        meta["title"] = title
+        meta["status"] = "draft"
+        _write_plan_meta(plan_id, meta)
+        
+        # Sync asset sections
+        _sync_asset_sections(plan_id)
+        
+        return {
+            "status": "generated",
+            "plan_id": plan_id,
+            "plan": parsed["plan"],
+            "explanation": parsed.get("explanation", ""),
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to generate plan from assets: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate plan: {str(e)}")
+
 
 @router.get("/api/plans")
 async def list_plans(
@@ -856,6 +1751,14 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
         except Exception as e:
             logger.error(f"Failed to update zvec in save_plan: {e}")
 
+    # R2-FIX-1: Parse asset sections from the saved markdown and merge edits into meta,
+    # then regenerate the sections so meta.json and PLAN.md stay in sync.
+    try:
+        _merge_markdown_asset_edits_into_meta(plan_id, request.content)
+        _sync_asset_sections(plan_id)
+    except Exception:
+        pass  # Best-effort: don't fail save if asset section sync fails
+
     return {"status": "saved", "plan_id": plan_id}
 
 def _resolve_plan_file(plan_id: str) -> Optional[Path]:
@@ -1133,6 +2036,12 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
             logger.info(f"run_plan: ostwin init completed in {wd_path}")
         else:
             logger.warning(f"ostwin binary not found at {ostwin_bin}, skipping init")
+    
+    # Inject assets into working directory
+    try:
+        _inject_assets_to_working_directory(plan_id, wd_path)
+    except Exception as e:
+        logger.warning(f"Failed to inject assets for plan {plan_id}: {e}")
 
     # Spawn OS Twin in background
     subprocess.Popen(

@@ -22,10 +22,211 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+import re as _re_mod
+
+
+# ── EPIC-003: File attachment helpers ─────────────────────────────
+
+
+def _extract_file_info(message: dict) -> dict | None:
+    """Extract file metadata from a Telegram message (document or photo)."""
+    if "document" in message:
+        doc = message["document"]
+        return {
+            "file_id": doc["file_id"],
+            "file_name": doc.get("file_name", "document.bin"),
+            "mime_type": doc.get("mime_type", "application/octet-stream"),
+            "file_size": doc.get("file_size", 0),
+            "caption": (message.get("caption") or "").strip(),
+        }
+    if "photo" in message and message["photo"]:
+        # Telegram sends multiple sizes — pick the largest
+        largest = max(message["photo"], key=lambda p: p.get("width", 0) * p.get("height", 0))
+        return {
+            "file_id": largest["file_id"],
+            "file_name": "photo.jpg",
+            "mime_type": "image/jpeg",
+            "file_size": largest.get("file_size", 0),
+            "caption": (message.get("caption") or "").strip(),
+        }
+    return None
+
+
+def _detect_epic_ref(caption: str | None) -> str | None:
+    """Detect an EPIC-NNN reference in a caption string."""
+    if not caption:
+        return None
+    match = _re_mod.search(r"(EPIC-\d+)", caption, _re_mod.IGNORECASE)
+    return match.group(1).upper() if match else None
+
+
+def _guess_asset_type(filename: str, mime_type: str) -> str:
+    """Guess asset type from filename and MIME type."""
+    name_lower = filename.lower()
+    mime_lower = mime_type.lower()
+
+    # Design mockups
+    if mime_lower.startswith("image/") or any(
+        ext in name_lower for ext in (".fig", ".sketch", ".xd", ".psd", ".ai")
+    ):
+        if any(kw in name_lower for kw in ("mockup", "design", "wireframe", "ui", "ux")):
+            return "design-mockup"
+        if mime_lower.startswith("image/"):
+            return "design-mockup"
+
+    # API specs
+    if any(kw in name_lower for kw in ("api", "spec", "openapi", "swagger", "graphql", "proto")):
+        return "api-spec"
+    if name_lower.endswith((".yaml", ".yml")) and "spec" in name_lower:
+        return "api-spec"
+
+    # Test data
+    if any(kw in name_lower for kw in ("test", "fixture", "sample", "seed")):
+        return "test-data"
+    if name_lower.endswith(".csv"):
+        return "test-data"
+
+    # Config
+    if any(kw in name_lower for kw in ("config", ".env", "setting")):
+        return "config"
+    if name_lower.endswith((".env", ".ini", ".toml", ".cfg")):
+        return "config"
+
+    # Reference docs
+    if name_lower.endswith((".md", ".txt", ".pdf", ".doc", ".docx", ".rtf")):
+        return "reference-doc"
+
+    # Media
+    if mime_lower.startswith(("video/", "audio/")):
+        return "media"
+
+    return "other"
+
+
+async def _download_telegram_file(bot_token: str, file_id: str) -> bytes:
+    """Download a file from Telegram by file_id."""
+    async with httpx.AsyncClient() as client:
+        # Get file path
+        resp = await client.get(f"https://api.telegram.org/bot{bot_token}/getFile", params={"file_id": file_id})
+        data = resp.json()
+        file_path = data.get("result", {}).get("file_path", "")
+        if not file_path:
+            raise ValueError(f"Could not get file path for file_id={file_id}")
+        # Download
+        dl_resp = await client.get(f"https://api.telegram.org/file/bot{bot_token}/{file_path}")
+        dl_resp.raise_for_status()
+        return dl_resp.content
+
+
+async def _handle_file_upload(bot_token: str, chat_id: int, message: dict, session):
+    """Handle a file attachment during a planning session — download and save as asset."""
+    file_info = _extract_file_info(message)
+    if not file_info:
+        return
+
+    plan_id = session.active_plan_id
+    if not plan_id:
+        await send_reply(bot_token, chat_id, "No active plan. Use /draft or /edit first to start a session.")
+        return
+
+    try:
+        file_bytes = await _download_telegram_file(bot_token, file_info["file_id"])
+    except Exception as e:
+        logger.error(f"Failed to download Telegram file: {e}")
+        await send_reply(bot_token, chat_id, f"Failed to download file: {e}")
+        return
+
+    # Save asset to disk
+    from dashboard.routes.plans import (
+        _safe_asset_filename, _ensure_plan_meta, _normalize_plan_assets,
+        _write_plan_meta, _plan_assets_dir, _get_valid_epic_refs,
+        _sync_asset_sections,
+    )
+
+    assets_dir = _plan_assets_dir(plan_id)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    original_name = file_info["file_name"]
+    stored_name = _safe_asset_filename(original_name)
+    (assets_dir / stored_name).write_bytes(file_bytes)
+
+    # Guess metadata
+    epic_ref = _detect_epic_ref(file_info["caption"])
+    asset_type = _guess_asset_type(original_name, file_info["mime_type"])
+
+    # FIX-1: Validate epic_ref against plan — silently drop invalid refs
+    if epic_ref:
+        valid_epics = _get_valid_epic_refs(plan_id)
+        if epic_ref not in valid_epics:
+            logger.warning("Epic %s not found in plan %s, saving as plan-level", epic_ref, plan_id)
+            epic_ref = None
+
+    # Update meta.json
+    meta = _ensure_plan_meta(plan_id)
+    _normalize_plan_assets(plan_id, meta)
+
+    asset_record = {
+        "filename": stored_name,
+        "original_name": original_name,
+        "mime_type": file_info["mime_type"],
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "size_bytes": len(file_bytes),
+        "bound_epics": [epic_ref] if epic_ref else [],
+        "asset_type": asset_type,
+        "tags": [],
+        "description": file_info["caption"] or "",
+    }
+    meta["assets"].append(asset_record)
+
+    if epic_ref:
+        ea = meta.setdefault("epic_assets", {})
+        if epic_ref not in ea:
+            ea[epic_ref] = []
+        if stored_name not in ea[epic_ref]:
+            ea[epic_ref].append(stored_name)
+
+    _write_plan_meta(plan_id, meta)
+    # FIX-2: Sync both plan-level and per-epic sections
+    _sync_asset_sections(plan_id)
+
+    # Confirmation with "Generate Plan" button
+    binding_msg = f" for {epic_ref}" if epic_ref else " (plan-level)"
+    
+    # Check if we should offer plan generation
+    meta = _ensure_plan_meta(plan_id)
+    asset_count = len(meta.get("assets", []))
+    
+    if asset_count >= 1:
+        # Offer to generate plan from assets
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "✨ Generate Plan from Assets",
+                        "callback_data": f"generate_plan:{plan_id}"
+                    }
+                ]
+            ]
+        }
+        await send_reply(
+            bot_token, chat_id,
+            f"Saved `{original_name}` as {asset_type}{binding_msg}.\n\n"
+            f"You now have {asset_count} asset(s). Would you like to generate a plan from them?",
+            keyboard=keyboard
+        )
+    else:
+        await send_reply(
+            bot_token, chat_id,
+            f"Saved `{original_name}` as {asset_type}{binding_msg}."
+        )
+
+
 async def handle_message(message: dict, bot_token: str):
     chat_id = message.get("chat", {}).get("id")
-    text = message.get("text", "").strip()
-    if not chat_id or not text:
+    text = (message.get("text") or message.get("caption") or "").strip()
+    has_file = "document" in message or "photo" in message
+
+    if not chat_id or (not text and not has_file):
         return
 
     config = get_config()
@@ -112,6 +313,11 @@ async def handle_message(message: dict, bot_token: str):
         )
         await send_reply(bot_token, chat_id, help_text)
     else:
+        # EPIC-003: Handle file attachments during planning sessions
+        if has_file and session.mode in ["drafting", "editing"]:
+            await _handle_file_upload(bot_token, chat_id, message, session)
+            return
+
         if text.startswith("/"):
             await send_reply(bot_token, chat_id, "⚠️ Unknown command. Type /help for a list of commands.")
         elif session.mode in ["drafting", "editing", "awaiting_idea"]:
@@ -229,6 +435,9 @@ async def handle_callback_query(update: dict, bot_token: str):
         await _launch_plan(bot_token, chat_id, plan_id)
     elif data == "menu:launch_cancel":
         await send_reply(bot_token, chat_id, "🛑 Launch cancelled.")
+    elif data.startswith("generate_plan:"):
+        plan_id = data.split(":", 1)[1]
+        await _generate_plan_from_assets(bot_token, chat_id, plan_id)
     elif data == "menu:main":
         await _cmd_menu(bot_token, chat_id)
 
@@ -254,8 +463,57 @@ async def _cmd_submenu_monitoring(bot_token: str, chat_id: int):
         [{"text": "⚠️ Errors", "callback_data": "cmd:errors"}],
         [{"text": "⬅️ Back", "callback_data": "menu:main"}],
     ]
-    await send_inline_keyboard(bot_token, chat_id,
-        "📊 *Monitoring*\nReal-time War-Room insights:", keyboard)
+        await send_inline_keyboard(bot_token, chat_id,
+            "📊 *Monitoring*\nReal-time War-Room insights:", keyboard)
+
+async def _generate_plan_from_assets(bot_token: str, chat_id: int, plan_id: str):
+    """Generate a plan from uploaded assets using AI."""
+    import httpx
+    from dashboard.auth import create_jwt_token
+    
+    # Send immediate feedback
+    await send_reply(bot_token, chat_id, 
+        f"✨ *Generating plan from assets...*\n\n"
+        f"📚 Plan ID: `{plan_id}`\n"
+        f"🤖 AI Status: Analyzing uploaded files...\n\n"
+        f"_This may take 10-30 seconds depending on complexity._"
+    )
+    
+    try:
+        # Call the API endpoint
+        async with httpx.AsyncClient() as client:
+            token = create_jwt_token({"user_id": "telegram", "username": "telegram-bot"})
+            resp = await client.post(
+                f"http://localhost:8000/api/plans/{plan_id}/generate-from-assets",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=60.0,
+            )
+            
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("status") == "generated":
+                    explanation = result.get("explanation", "")
+                    message = (
+                        f"✅ *Plan generated successfully!*\n\n"
+                        f"🤖 The AI has analyzed your uploaded files and created a structured plan.\n\n"
+                    )
+                    if explanation:
+                        message += f"📋 **AI Summary:**\n{explanation}\n\n"
+                    message += (
+                        f"📝 **Next steps:**\n"
+                        f"• Review: `/edit {plan_id}`\n"
+                        f"• Launch: `/launch {plan_id}`\n"
+                        f"• View: `/view {plan_id}`"
+                    )
+                    await send_reply(bot_token, chat_id, message)
+                else:
+                    await send_reply(bot_token, chat_id, f"⚠️ Unexpected response: {result}")
+            else:
+                error_detail = resp.json().get("detail", resp.text)
+                await send_reply(bot_token, chat_id, f"❌ Failed to generate plan:\n\n`{error_detail}`")
+    except Exception as e:
+        logger.error(f"Failed to generate plan from assets: {e}")
+        await send_reply(bot_token, chat_id, f"❌ Error generating plan:\n\n`{str(e)}`")
 
 async def _cmd_submenu_plans(bot_token: str, chat_id: int):
     keyboard = [
@@ -424,7 +682,19 @@ async def _process_draft(bot_token: str, chat_id: int, idea: str):
         await send_reply(bot_token, chat_id, "⏳ *Generating Plan Summary...*")
         summary = await summarize_plan(result, plans_dir=plans_dir)
         await send_reply(bot_token, chat_id, f"📝 *Plan Summary:*\n\n{summary}")
-        
+
+        # EPIC-003: Asset collection prompt
+        # Count epics in the drafted plan
+        epic_count = len(_re_mod.findall(r"EPIC-\d+", result))
+        if epic_count > 0:
+            await send_reply(
+                bot_token, chat_id,
+                f"📎 This plan has {epic_count} epic(s). Would you like to attach any files?\n"
+                "You can upload documents, images, or other assets now — they'll be linked to the plan.\n"
+                "💡 Tip: Upload a ZIP file to batch-upload 50+ images at once!\n"
+                "Include the epic reference (e.g. EPIC-001) in the caption to auto-bind."
+            )
+
     except Exception as e:
         logger.error(f"Error drafting plan: {e}")
         clear_session(chat_id)

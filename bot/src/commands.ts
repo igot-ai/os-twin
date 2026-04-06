@@ -321,16 +321,89 @@ async function cmdAssets(planId: string): Promise<BotResponse> {
   if (error) return text(`⚠️ ${error}`);
   if (!assets.length) return text(`🖼 *Assets for \`${planId}\`*\nNo assets saved for this plan yet.`);
 
-  const lines = [`🖼 *Assets for \`${planId}\`*`];
-  for (const asset of assets.slice(0, 25)) {
-    lines.push(
-      `• \`${asset.original_name}\` (${asset.mime_type}, ${formatBytes(asset.size_bytes)})\n  └ saved as \`${asset.filename}\``
-    );
+  // Group assets by epic binding
+  const planLevel: PlanAsset[] = [];
+  const byEpic: Record<string, PlanAsset[]> = {};
+
+  for (const asset of assets) {
+    const epics = asset.bound_epics || [];
+    if (epics.length === 0) {
+      planLevel.push(asset);
+    } else {
+      for (const epic of epics) {
+        if (!byEpic[epic]) byEpic[epic] = [];
+        byEpic[epic].push(asset);
+      }
+    }
   }
-  if (assets.length > 25) {
-    lines.push(`…and ${assets.length - 25} more asset(s).`);
+
+  const lines = [`🖼 *Assets for \`${planId}\`*`];
+
+  // Summary line
+  const epicKeys = Object.keys(byEpic).sort();
+  const parts = [`Plan-level: ${planLevel.length} file(s)`];
+  for (const epic of epicKeys) {
+    parts.push(`${epic}: ${byEpic[epic].length} file(s)`);
+  }
+  lines.push(parts.join(' | '));
+  lines.push('');
+
+  // Plan-level assets
+  if (planLevel.length > 0) {
+    lines.push('*Plan-level assets:*');
+    for (const asset of planLevel.slice(0, 10)) {
+      const typeLabel = asset.asset_type && asset.asset_type !== 'unspecified' ? ` [${asset.asset_type}]` : '';
+      lines.push(`• \`${asset.original_name}\`${typeLabel} (${formatBytes(asset.size_bytes)})`);
+    }
+    if (planLevel.length > 10) lines.push(`  …and ${planLevel.length - 10} more`);
+    lines.push('');
+  }
+
+  // Per-epic assets
+  for (const epic of epicKeys) {
+    const epicAssets = byEpic[epic];
+    lines.push(`*${epic}:*`);
+    for (const asset of epicAssets.slice(0, 10)) {
+      const typeLabel = asset.asset_type && asset.asset_type !== 'unspecified' ? ` [${asset.asset_type}]` : '';
+      lines.push(`• \`${asset.original_name}\`${typeLabel} (${formatBytes(asset.size_bytes)})`);
+    }
+    if (epicAssets.length > 10) lines.push(`  …and ${epicAssets.length - 10} more`);
+    lines.push('');
+  }
+
+  // Add bind buttons for assets
+  const buttons: Button[][] = [];
+  
+  // Add "Generate Plan" button if assets exist
+  if (assets.length > 0) {
+    buttons.push([
+      { label: '✨ Generate Plan from Assets', callbackData: `asset:generate_plan:${planId}` },
+    ]);
+  }
+  
+  for (const asset of assets.slice(0, 5)) {
+    const row: Button[] = [
+      { label: `📎 Bind ${asset.original_name}`, callbackData: `asset:bind_pick:${planId}:${asset.filename}` },
+    ];
+    if ((asset.bound_epics || []).length > 0) {
+      row.push({ label: `🔓 Unbind`, callbackData: `asset:unbind_pick:${planId}:${asset.filename}` });
+    }
+    buttons.push(row);
+  }
+
+  if (buttons.length > 0) {
+    return menu(lines.join('\n'), buttons);
   }
   return text(lines.join('\n'));
+}
+
+const ASSET_TYPE_OPTIONS = ['design-mockup', 'api-spec', 'test-data', 'reference-doc', 'config', 'media', 'other'];
+
+async function cmdAssetTypeSelector(planId: string, filename: string): Promise<BotResponse> {
+  const buttons: Button[][] = ASSET_TYPE_OPTIONS.map(t => [
+    { label: t, callbackData: `asset:set_type:${planId}:${filename}:${t}` },
+  ]);
+  return menu(`What type is this asset?`, buttons);
 }
 
 async function cmdAssetsMenu(userId: string, platform: string): Promise<BotResponse> {
@@ -419,6 +492,18 @@ async function processDraft(userId: string, platform: string, idea: string): Pro
     if (result.explanation) {
       responses.push(text(`📝 *Plan Summary:*\n\n${result.explanation}`));
     }
+
+    // EPIC-003: Asset collection prompt
+    const epicMatches = planText.match(/EPIC-\d+/g) || [];
+    const epicCount = new Set(epicMatches).size;
+    if (epicCount > 0) {
+      responses.push(text(
+        `📎 This plan has ${epicCount} epic(s). Would you like to attach any files?\n` +
+        `Upload documents, images, or other assets now — they'll be linked to the plan.\n` +
+        `💡 **Tip:** Upload a ZIP file to batch-upload 50+ images at once!\n` +
+        `Or continue editing, and add assets later with \`/assets\`.`
+      ));
+    }
   } catch (err: any) {
     clearSession(userId, platform);
     responses.push(text(`❌ Failed to draft plan: ${err.message}`));
@@ -485,6 +570,37 @@ export async function handleStatefulText(userId: string, platform: string, userT
   } catch (err: any) {
     responses.push(text(`❌ Failed to refine plan: ${err.message}`));
   }
+
+  return responses;
+}
+
+// ── EPIC-003: File attachment handling during plan conversations ──
+
+export async function handleFileAttachments(
+  userId: string,
+  platform: string,
+  files: Array<{ name: string; contentType?: string; data: ArrayBuffer | Uint8Array; epicRef?: string; assetType?: string }>,
+): Promise<BotResponse[]> {
+  const session = getSession(userId, platform);
+  const planId = session.activePlanId;
+
+  if (!planId || planId === 'new' || !['editing', 'drafting'].includes(session.mode)) {
+    return [text('No active plan. Use /draft or /edit first, then upload files.')];
+  }
+
+  // FIX-4: Forward epic/type metadata from the first file (all files in a batch share context)
+  const firstFile = files[0];
+  const metadata = {
+    epicRef: firstFile?.epicRef,
+    assetType: firstFile?.assetType,
+  };
+
+  const result = await api.uploadPlanAssets(planId, files, metadata);
+  if (result.error) return [text(`Failed to upload: ${result.error}`)];
+
+  const responses: BotResponse[] = [];
+  const names = result.assets.map(a => `\`${a.original_name}\``).join(', ');
+  responses.push(text(`Saved ${result.count} file(s) to plan \`${planId}\`: ${names}`));
 
   return responses;
 }
@@ -772,6 +888,93 @@ export async function routeCallback(userId: string, platform: string, callbackDa
   if (callbackData.startsWith('prefs:toggle_event:')) {
     const eventId = callbackData.split(':')[2];
     return await handleToggleEvent(userId, platform, eventId);
+  }
+
+  // EPIC-005: Asset management callbacks
+  if (callbackData.startsWith('asset:bind_pick:')) {
+    // asset:bind_pick:<planId>:<filename> — show epic picker
+    const parts = callbackData.split(':');
+    const planId = parts[2];
+    const filename = parts[3];
+    const planData = await api.getPlan(planId);
+    const content = planData?.plan?.content || planData?.content || '';
+    const matches: string[] = (content as string).match(/EPIC-\d+/g) || [];
+    const epicRefs: string[] = [...new Set(matches)].sort();
+    if (!epicRefs.length) return [text('No epics found in this plan.')];
+    const buttons: Button[][] = epicRefs.map((epic: string) => [
+      { label: epic, callbackData: `asset:bind:${planId}:${filename}:${epic}` },
+    ]);
+    return [menu(`Bind \`${filename}\` to which epic?`, buttons)];
+  }
+  if (callbackData.startsWith('asset:bind:')) {
+    const parts = callbackData.split(':');
+    const planId = parts[2];
+    const filename = parts[3];
+    const epicRef = parts[4];
+    const result = await api.bindAsset(planId, filename, epicRef);
+    if (result?._error) return [text(`Failed: ${result._error}`)];
+    return [text(`Bound \`${filename}\` to ${epicRef}.`)];
+  }
+  if (callbackData.startsWith('asset:unbind_pick:')) {
+    const parts = callbackData.split(':');
+    const planId = parts[2];
+    const filename = parts[3];
+    const { assets } = await api.getPlanAssets(planId);
+    const asset = assets.find(a => a.filename === filename);
+    const epics = asset?.bound_epics || [];
+    if (!epics.length) return [text('This asset is not bound to any epic.')];
+    const buttons: Button[][] = epics.map(epic => [
+      { label: `Unbind from ${epic}`, callbackData: `asset:unbind:${planId}:${filename}:${epic}` },
+    ]);
+    return [menu(`Unbind \`${filename}\` from which epic?`, buttons)];
+  }
+  if (callbackData.startsWith('asset:unbind:')) {
+    const parts = callbackData.split(':');
+    const planId = parts[2];
+    const filename = parts[3];
+    const epicRef = parts[4];
+    const result = await api.unbindAsset(planId, filename, epicRef);
+    if (result?._error) return [text(`Failed: ${result._error}`)];
+    return [text(`Unbound \`${filename}\` from ${epicRef}.`)];
+  }
+  if (callbackData.startsWith('asset:set_type:')) {
+    const parts = callbackData.split(':');
+    const planId = parts[2];
+    const filename = parts[3];
+    const assetType = parts[4];
+    const result = await api.updateAssetMetadata(planId, filename, { asset_type: assetType });
+    if (result?._error) return [text(`Failed: ${result._error}`)];
+    return [text(`Set type of \`${filename}\` to ${assetType}.`)];
+  }
+  if (callbackData.startsWith('asset:generate_plan:')) {
+    const parts = callbackData.split(':');
+    const planId = parts[2];
+    
+    // Show immediate feedback - return a message that will be sent
+    // The actual API call happens here, but we give immediate feedback
+    
+    try {
+      const result = await api.generatePlanFromAssets(planId);
+      
+      if (result?._error) {
+        return [text(`❌ *Generation failed*\n\nError: ${result._error}`)];
+      }
+      
+      if (result.status === 'generated') {
+        return [text(
+          `✅ *Plan generated successfully!*\n\n` +
+          `🤖 The AI has analyzed your ${result.explanation ? 'assets' : 'uploaded files'} and created a structured plan.\n\n` +
+          `📝 Next steps:\n` +
+          `• Use \`/edit ${planId}\` to review and refine it\n` +
+          `• Use \`/launch ${planId}\` to start execution\n\n` +
+          `${result.explanation ? `**AI Explanation:** ${result.explanation}` : ''}`
+        )];
+      }
+      
+      return [text(`⚠️ Unexpected response from AI. Please try again.`)];
+    } catch (error: any) {
+      return [text(`❌ *Generation failed*\n\nError: ${error.message || 'Unknown error'}`)];
+    }
   }
 
   return [];
