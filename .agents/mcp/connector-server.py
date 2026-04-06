@@ -17,7 +17,6 @@ import json
 import os
 import sys
 import pathlib
-import pkgutil
 import asyncio
 from pathlib import Path
 from typing import Annotated, Dict, Any, List, Optional
@@ -31,34 +30,16 @@ PROJECT_ROOT = Path(AGENT_OS_ROOT).resolve()
 CHANNELS_CONFIG_PATH = Path.home() / ".ostwin" / "channels.json"
 CONNECTORS_CONFIG_PATH = Path.home() / ".ostwin" / "connectors.json"
 
-# Add connectors package to sys.path
-CONNECTORS_PATH = str(PROJECT_ROOT / "connectors" / "python" / "src")
-if CONNECTORS_PATH not in sys.path:
-    sys.path.append(CONNECTORS_PATH)
-
-# Add project root to sys.path for dashboard imports (policies)
+# Add project root to sys.path for dashboard imports
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 try:
-    from connectors.registry import registry
-    import connectors
+    from dashboard.connectors.registry import registry
+    import dashboard.connectors  # auto-registers all connectors via __init__.py
     from dashboard.policies import PolicyEngine
     from vault import get_vault
     from config_resolver import ConfigResolver
-    
-    def load_connectors():
-        # connectors package path
-        package_path = os.path.dirname(connectors.__file__)
-        for _, name, is_pkg in pkgutil.iter_modules([package_path]):
-            if not is_pkg and name not in ("base", "models", "registry", "utils", "client"):
-                try:
-                    __import__(f"connectors.{name}")
-                except Exception as e:
-                    # Silence loading errors for individual connectors if some are broken
-                    pass
-    
-    load_connectors()
     policy_engine = PolicyEngine()
     config_resolver = ConfigResolver()
 except ImportError:
@@ -300,20 +281,6 @@ def get_connector_status(
         }, indent=2)
         
     return json.dumps({"error": f"Platform or instance '{platform}' not found"}, indent=2)
-
-@mcp.tool()
-def delete_connector_instance(
-    instance_id: Annotated[str, Field(description="The ID of the instance to delete")]
-) -> str:
-    """Delete a connector instance configuration."""
-    instances = read_connectors_config()
-    new_instances = [inst for inst in instances if inst.get("id") != instance_id]
-    
-    if len(new_instances) == len(instances):
-        return f"error: Instance '{instance_id}' not found"
-        
-    save_connectors_config(new_instances)
-    return f"deleted:{instance_id}"
 
 @mcp.tool()
 def get_setup_instructions(

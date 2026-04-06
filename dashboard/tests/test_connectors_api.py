@@ -44,8 +44,8 @@ def mock_connector_data(tmp_path):
 
 @pytest.fixture
 def mock_registry():
-    from connectors.models import ConnectorConfig, ApiKeyAuthConfig, ConnectorConfigField
-    from connectors.base import BaseConnector
+    from dashboard.connectors.models import ConnectorConfig, ApiKeyAuthConfig, ConnectorConfigField
+    from dashboard.connectors.base import BaseConnector
     
     class MockConnector(BaseConnector):
         @property
@@ -63,14 +63,14 @@ def mock_registry():
             )
 
         async def list_documents(self, config, cursor=None):
-            from connectors.models import ExternalDocumentList, ExternalDocument
+            from dashboard.connectors.models import ExternalDocumentList, ExternalDocument
             return ExternalDocumentList(
                 documents=[ExternalDocument(externalId="1", title="Doc 1", content="Content", mimeType="text/plain", contentHash="abc")],
                 hasMore=False
             )
 
         async def get_document(self, external_id, config):
-            from connectors.models import ExternalDocument
+            from dashboard.connectors.models import ExternalDocument
             return ExternalDocument(externalId=external_id, title=f"Doc {external_id}", content="Full content", mimeType="text/plain", contentHash="abc")
 
         async def validate_config(self, config):
@@ -86,7 +86,7 @@ def mock_registry():
 @patch("dashboard.routes.connectors.registry")
 def test_list_registry(mock_reg_internal, mock_registry):
     # We patch the 'registry' instance imported by connectors.py
-    # But connectors.py does 'from connectors.registry import registry'
+    # Patch the registry imported by connectors route (from dashboard.connectors.registry)
     # So we need to patch it where it's used.
     with patch("dashboard.routes.connectors.registry", mock_registry):
         response = client.get("/api/connectors/registry")
