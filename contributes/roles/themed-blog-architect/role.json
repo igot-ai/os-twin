@@ -1,0 +1,20 @@
+{
+  "name": "themed-blog-architect",
+  "description": "Analyze coffee and tea assets and design a themed site architecture and interactivity model.",
+  "capabilities": [
+    "asset-analysis",
+    "architecture-design",
+    "ui-ux-planning",
+    "data-modeling"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skill_refs": [
+    "research",
+    "create-architecture"
+  ],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}
