@@ -7,13 +7,12 @@
 # Usage (stdio mode — launched by an MCP client):
 #   bash .agents/daemons/macos-host/mcp-server.sh
 #
-# MCP client config (~/.ostwin/mcp/mcp-config.json):
+# MCP client config (OpenCode format — config.json):
 #   {
-#     "mcpServers": {
+#     "mcp": {
 #       "macos-host": {
-#         "command": "bash",
-#         "args": [".agents/daemons/macos-host/mcp-server.sh"],
-#         "type": "stdio"
+#         "type": "local",
+#         "command": ["bash", ".agents/daemons/macos-host/mcp-server.sh"]
 #       }
 #     }
 #   }

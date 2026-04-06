@@ -39,17 +39,19 @@ class TestVault(unittest.TestCase):
         resolver.vault = v  # Inject test vault
         
         config = {
-            "mcpServers": {
+            "mcp": {
                 "stitch": {
+                    "type": "remote",
+                    "url": "https://stitch.googleapis.com/mcp",
                     "headers": {
                         "X-Goog-Api-Key": "${vault:stitch/X-Goog-Api-Key}"
                     }
                 }
             }
         }
-        
+
         resolved = resolver.resolve_config(config)
-        self.assertEqual(resolved["mcpServers"]["stitch"]["headers"]["X-Goog-Api-Key"], "secret-key")
+        self.assertEqual(resolved["mcp"]["stitch"]["headers"]["X-Goog-Api-Key"], "secret-key")
         
         # Test extraction
         refs = resolver.extract_vault_refs(config)

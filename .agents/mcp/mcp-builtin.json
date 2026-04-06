@@ -1,66 +1,48 @@
 {
-  "mcpServers": {
+  "mcp": {
     "channel": {
-      "command": "${AGENT_DIR}/.venv/bin/python",
-      "args": [
-        "${AGENT_DIR}/mcp/channel-server.py"
-      ],
-      "env": {
+      "type": "local",
+      "command": ["{env:AGENT_DIR}/.venv/bin/python", "{env:AGENT_DIR}/mcp/channel-server.py"],
+      "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "warroom": {
-      "command": "${AGENT_DIR}/.venv/bin/python",
-      "args": [
-        "${AGENT_DIR}/mcp/warroom-server.py"
-      ],
-      "env": {
+      "type": "local",
+      "command": ["{env:AGENT_DIR}/.venv/bin/python", "{env:AGENT_DIR}/mcp/warroom-server.py"],
+      "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "memory": {
-      "command": "${AGENT_DIR}/.venv/bin/python",
-      "args": [
-        "${AGENT_DIR}/mcp/memory-server.py"
-      ],
-      "env": {
-        "AGENT_OS_ROOT": "${PROJECT_DIR}"
+      "type": "local",
+      "command": ["{env:AGENT_DIR}/.venv/bin/python", "{env:AGENT_DIR}/mcp/memory-server.py"],
+      "environment": {
+        "AGENT_OS_ROOT": "{env:PROJECT_DIR}"
       }
     },
     "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest"],
-      "env": {}
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+      "environment": {}
     },
     "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"],
-      "env": {}
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@latest"],
+      "environment": {}
     },
     "serena": {
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/oraios/serena",
-        "serena",
-        "start-mcp-server",
-        "--context",
-        "ide-assistant"
-      ],
-      "disabledTools": [
-        "switch_modes"
-      ]
+      "type": "local",
+      "command": ["uvx", "--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context", "ide-assistant"]
     },
     "context7": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@upstash/context7-mcp"
-      ]
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"]
     },
     "ai-game-developer": {
-      "disabled": false,
-      "serverUrl": "http://localhost:51657"
+      "type": "remote",
+      "url": "http://localhost:51657",
+      "enabled": true
     }
   }
 }

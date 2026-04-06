@@ -54,13 +54,42 @@ class InstallRequest(BaseModel):
 
 class McpServerConfig(BaseModel):
     name: str
-    type: str # 'stdio' or 'http'
-    command: Optional[str] = None
-    args: Optional[List[str]] = None
-    env: Optional[Dict[str, str]] = None
-    httpUrl: Optional[str] = None
+    type: str  # 'local'/'remote' (OpenCode) or 'stdio'/'http' (legacy)
+    # OpenCode format: command is an array; legacy: string + separate args
+    command: Optional[Any] = None
+    args: Optional[List[str]] = None  # Legacy: separate args list
+    url: Optional[str] = None
+    httpUrl: Optional[str] = None  # Legacy alias for url
+    environment: Optional[Dict[str, str]] = None
+    env: Optional[Dict[str, str]] = None  # Legacy alias for environment
     headers: Optional[Dict[str, str]] = None
+    enabled: Optional[bool] = True
+    timeout: Optional[int] = None
     store_in_vault: bool = False
+
+    def normalize(self) -> "McpServerConfig":
+        """Normalize legacy fields to OpenCode format in-place."""
+        # Normalize type: stdio → local, http → remote
+        if self.type == "stdio":
+            self.type = "local"
+        elif self.type == "http":
+            self.type = "remote"
+        # Normalize command: string + args → array
+        if isinstance(self.command, str):
+            cmd_parts = [self.command]
+            if self.args:
+                cmd_parts.extend(self.args)
+            self.command = cmd_parts
+            self.args = None
+        # Normalize url: httpUrl → url
+        if self.httpUrl and not self.url:
+            self.url = self.httpUrl
+            self.httpUrl = None
+        # Normalize env: env → environment
+        if self.env and not self.environment:
+            self.environment = self.env
+            self.env = None
+        return self
 
 
 class CredentialUpdate(BaseModel):
@@ -72,6 +101,11 @@ def _read_json(path: Path) -> dict:
     if not path.exists():
         return {}
     return json.loads(path.read_text())
+
+
+def _get_servers(data: dict) -> dict:
+    """Extract MCP servers dict, supporting both OpenCode 'mcp' and legacy 'mcpServers' keys."""
+    return data.get("mcp", data.get("mcpServers", {}))
 
 
 async def _run_script(args: list[str], timeout: int = 120) -> dict:
@@ -114,7 +148,7 @@ def _mask_sensitive_config(config: dict) -> dict:
     """Return a copy of the MCP server config with env/header values masked."""
     import copy
     safe = copy.deepcopy(config)
-    for section in ("env", "headers"):
+    for section in ("environment", "headers"):
         if section in safe and isinstance(safe[section], dict):
             for k, v in safe[section].items():
                 if isinstance(v, str) and not v.startswith("${"):
@@ -126,8 +160,8 @@ def _mask_sensitive_config(config: dict) -> dict:
 @router.get("/servers")
 async def list_mcp_servers(user: dict = Depends(get_current_user)):
     """List all MCP servers from builtin and home config with credential status."""
-    builtin = _read_json(BUILTIN_CONFIG_FILE).get("mcpServers", {})
-    home = _read_json(HOME_CONFIG_FILE).get("mcpServers", {})
+    builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
+    home = _get_servers(_read_json(HOME_CONFIG_FILE))
 
     merged = {}
     merged.update(builtin)
@@ -139,7 +173,7 @@ async def list_mcp_servers(user: dict = Depends(get_current_user)):
     servers = []
     for name, config in merged.items():
         is_builtin = name in builtin
-        server_type = "http" if "httpUrl" in config else "stdio"
+        server_type = config.get("type", "remote" if "url" in config else "local")
         
         # Check credential status
         credential_status = "ok" # Default if no vault refs
@@ -169,11 +203,13 @@ async def list_mcp_servers(user: dict = Depends(get_current_user)):
 @router.post("/servers")
 async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_current_user)):
     """Add a new MCP server to home config."""
-    data = _read_json(HOME_CONFIG_FILE)
-    if "mcpServers" not in data:
-        data["mcpServers"] = {}
+    server.normalize()  # Convert legacy stdio/http/env/args/httpUrl → OpenCode format
 
-    config = {}
+    data = _read_json(HOME_CONFIG_FILE)
+    if "mcp" not in data:
+        data["mcp"] = {}
+
+    config = {"type": server.type}
     vault = get_vault() if get_vault else None
 
     def process_dict(d: Dict[str, str], prefix: str):
@@ -188,18 +224,21 @@ async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_curre
                 processed[k] = v
         return processed
 
-    if server.type == "http":
-        config["httpUrl"] = server.httpUrl
+    if server.type == "remote":
+        config["url"] = server.url
         if server.headers:
             config["headers"] = process_dict(server.headers, "HEADER")
     else:
         config["command"] = server.command
-        if server.args:
-            config["args"] = server.args
-        if server.env:
-            config["env"] = process_dict(server.env, "")
+        if server.environment:
+            config["environment"] = process_dict(server.environment, "")
 
-    data["mcpServers"][server.name] = config
+    if server.enabled is not None:
+        config["enabled"] = server.enabled
+    if server.timeout is not None:
+        config["timeout"] = server.timeout
+
+    data["mcp"][server.name] = config
     
     # Ensure directory exists
     HOME_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -212,19 +251,19 @@ async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_curre
 async def remove_mcp_server(name: str, user: dict = Depends(get_current_user)):
     """Remove an MCP server from home config."""
     data = _read_json(HOME_CONFIG_FILE)
-    if "mcpServers" in data and name in data["mcpServers"]:
-        del data["mcpServers"][name]
+    if "mcp" in data and name in data["mcp"]:
+        del data["mcp"][name]
         HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2))
         return {"status": "success"}
-    
+
     raise HTTPException(status_code=404, detail=f"Server {name} not found in home config")
 
 
 @router.post("/servers/{name}/test")
 async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
     """Test connectivity to an MCP server by performing protocol handshake."""
-    builtin = _read_json(BUILTIN_CONFIG_FILE).get("mcpServers", {})
-    home = _read_json(HOME_CONFIG_FILE).get("mcpServers", {})
+    builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
+    home = _get_servers(_read_json(HOME_CONFIG_FILE))
     config = home.get(name) or builtin.get(name)
 
     if not config:
@@ -262,34 +301,38 @@ async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
         }
 
     try:
-        if "httpUrl" in config:
-            url = config["httpUrl"]
+        if config.get("type") == "remote" or "url" in config:
+            url = config["url"]
             headers = config.get("headers", {})
             async with sse_client(url, headers=headers) as (read, write):
                 async with ClientSession(read, write) as session:
                     return await _test_session(session)
         else:
-            command = config.get("command", "")
-            if command.startswith("${AGENT_DIR}"):
-                command = command.replace("${AGENT_DIR}", str(AGENTS_DIR))
-            
-            # Split multi-word command strings (e.g. "npx -y @modelcontextprotocol/server-github")
-            # into executable + extra args, then prepend extra args to config args.
-            import shlex
             import shutil
-            parts = shlex.split(command)
-            executable = parts[0] if parts else command
-            extra_args = parts[1:] if len(parts) > 1 else []
-            
+            command = config.get("command", [])
+            # OpenCode format: command is an array
+            if isinstance(command, list):
+                executable = command[0] if command else ""
+                cmd_args = command[1:] if len(command) > 1 else []
+            else:
+                # Legacy fallback: string command
+                import shlex
+                parts = shlex.split(command)
+                executable = parts[0] if parts else command
+                cmd_args = parts[1:] if len(parts) > 1 else []
+
+            if "{env:AGENT_DIR}" in executable:
+                executable = executable.replace("{env:AGENT_DIR}", str(AGENTS_DIR))
+
             # Resolve executable via PATH
             full_command = shutil.which(executable) or executable
-            
+
             server_params = StdioServerParameters(
                 command=full_command,
-                args=extra_args + config.get("args", []),
-                env={**os.environ, **config.get("env", {})}
+                args=cmd_args,
+                env={**os.environ, **config.get("environment", {})}
             )
-            
+
             async with stdio_client(server_params) as (read, write):
                 async with ClientSession(read, write) as session:
                     return await _test_session(session)
@@ -303,8 +346,8 @@ async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
 @router.get("/servers/{name}/credentials")
 async def list_server_credentials(name: str, user: dict = Depends(get_current_user)):
     """List credential key names for a server."""
-    builtin = _read_json(BUILTIN_CONFIG_FILE).get("mcpServers", {})
-    home = _read_json(HOME_CONFIG_FILE).get("mcpServers", {})
+    builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
+    home = _get_servers(_read_json(HOME_CONFIG_FILE))
     config = home.get(name) or builtin.get(name)
 
     if not config:
@@ -472,9 +515,9 @@ async def sync_config(user: dict = Depends(get_current_user)):
     result = await _run_script(["sync"])
 
     # Merge builtin + home config to return the current state
-    builtin = _read_json(BUILTIN_CONFIG_FILE).get("mcpServers", {})
-    home = _read_json(HOME_CONFIG_FILE).get("mcpServers", {})
-    merged = {"mcpServers": {**builtin, **home}}
+    builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
+    home = _get_servers(_read_json(HOME_CONFIG_FILE))
+    merged = {"mcp": {**builtin, **home}}
     return {
         "status": "synced",
         "output": result["stdout"],
@@ -485,6 +528,6 @@ async def sync_config(user: dict = Depends(get_current_user)):
 @router.get("/config")
 async def get_mcp_config(user: dict = Depends(get_current_user)):
     """Get the current merged mcp-config.json (builtin + home)."""
-    builtin = _read_json(BUILTIN_CONFIG_FILE).get("mcpServers", {})
-    home = _read_json(HOME_CONFIG_FILE).get("mcpServers", {})
-    return {"mcpServers": {**builtin, **home}}
+    builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
+    home = _get_servers(_read_json(HOME_CONFIG_FILE))
+    return {"mcp": {**builtin, **home}}

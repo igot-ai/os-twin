@@ -370,10 +370,11 @@ if (-not $NoMcp) {
         # Parse the MCP config and wrap it for opencode.json format
         try {
             $mcpParsed = $mcpConfigContent | ConvertFrom-Json
-            # opencode.json expects { "mcp": { "<name>": { "command": ..., "args": ... } } }
-            # Source config may be { "mcpServers": { ... } } or { "servers": { ... } } or raw
+            # opencode.json expects { "mcp": { "<name>": { "type": "local"|"remote", "command": [...], ... } } }
+            # Source config uses "mcp" key directly (OpenCode format), fallback to legacy "mcpServers"/"servers"
             $mcpServers = $null
-            if ($mcpParsed.PSObject.Properties['mcpServers']) { $mcpServers = $mcpParsed.mcpServers }
+            if ($mcpParsed.PSObject.Properties['mcp']) { $mcpServers = $mcpParsed.mcp }
+            elseif ($mcpParsed.PSObject.Properties['mcpServers']) { $mcpServers = $mcpParsed.mcpServers }
             elseif ($mcpParsed.PSObject.Properties['servers']) { $mcpServers = $mcpParsed.servers }
             else { $mcpServers = $mcpParsed }
 

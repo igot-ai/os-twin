@@ -127,10 +127,10 @@ if [[ ! -f "$PROJECT_MCP_CONFIG" ]]; then
   elif [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
     cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$PROJECT_MCP_CONFIG"
   else
-    echo '{"mcpServers":{}}' > "$PROJECT_MCP_CONFIG"
+    echo '{"mcp":{}}' > "$PROJECT_MCP_CONFIG"
   fi
 
-  # Resolve ${AGENT_DIR} and ${PROJECT_DIR} → absolute paths
+  # Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} → absolute paths
   AGENT_DIR_ABS=""
   if [[ -d "$HOME/.ostwin" ]]; then
     AGENT_DIR_ABS="$HOME/.ostwin"
@@ -143,8 +143,8 @@ if [[ ! -f "$PROJECT_MCP_CONFIG" ]]; then
   "$PYTHON" - <<PYEOF
 with open('$PROJECT_MCP_CONFIG') as _f:
     _raw = _f.read()
-_raw = _raw.replace('\${AGENT_DIR}', '$AGENT_DIR_ABS')
-_raw = _raw.replace('\${PROJECT_DIR}', '$PROJECT_DIR_ABS')
+_raw = _raw.replace('{env:AGENT_DIR}', '$AGENT_DIR_ABS')
+_raw = _raw.replace('{env:PROJECT_DIR}', '$PROJECT_DIR_ABS')
 with open('$PROJECT_MCP_CONFIG', 'w') as _f:
     _f.write(_raw)
 PYEOF
@@ -249,7 +249,7 @@ if [[ ! -f "$GLOBAL_MCP_CONFIG" ]]; then
   elif [[ -f "$GLOBAL_MCP_DIR/mcp-builtin.json" ]]; then
     cp "$GLOBAL_MCP_DIR/mcp-builtin.json" "$GLOBAL_MCP_CONFIG"
   else
-    echo '{"mcpServers":{}}' > "$GLOBAL_MCP_CONFIG"
+    echo '{"mcp":{}}' > "$GLOBAL_MCP_CONFIG"
   fi
 fi
 

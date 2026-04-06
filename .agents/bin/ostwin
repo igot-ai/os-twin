@@ -854,12 +854,15 @@ if not env_vars:
 with open(mcp_path) as f:
     config = json.load(f)
 
-servers = config.get('mcpServers', {})
+servers = config.get('mcp', {})
 for name, server in servers.items():
-    if 'env' not in server:
-        server['env'] = {}
+    # Only inject environment into local servers (OpenCode spec)
+    if server.get('type') == 'remote':
+        continue
+    if 'environment' not in server:
+        server['environment'] = {}
     for k, v in env_vars.items():
-        server['env'][k] = v
+        server['environment'][k] = v
 
 with open(mcp_path, 'w') as f:
     json.dump(config, f, indent=2)
