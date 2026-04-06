@@ -43,37 +43,12 @@ When reviewing:
 Use the `memory` MCP tools:
 
 ```
-# For every schema/model you designed:
 save_memory(
-  content="<paste the full schema definition with field types, constraints, and relationships>",
-  name="Database schema — <resource>",
-  path="architecture/schemas",
-  tags=["database", "schema", "<resource>"]
-)
-
-# For every API contract you drafted:
-save_memory(
-  content="<paste full request/response JSON shapes, HTTP methods, status codes, auth requirements>",
-  name="API contract — <endpoint>",
-  path="architecture/api",
-  tags=["api", "interface", "<resource>"]
-)
-
-# For every architectural decision:
-save_memory(
-  content="Chose X over Y. Why: <detailed reasoning, trade-offs, consequences>",
-  name="Decision — <topic>",
-  path="architecture/decisions",
-  tags=["architecture", "decision", "<topic>"]
-)
-
-# For the tech stack:
-save_memory(
-  content="<frameworks, languages, key dependencies, project structure rationale>",
-  name="Tech stack and project structure",
-  path="architecture/stack",
-  tags=["stack", "architecture"]
+  content="<paste the full content>",
+  name="<short descriptive name>",
+  path="architecture/<category>",
+  tags=["<relevant>", "<tags>"]
 )
 ```
 
-This is NOT optional. Other agents in other rooms depend on this context to build correctly. If you skip this, the frontend won't know the API contracts and the backend won't know the schema.
+This is NOT optional. Other agents in other rooms depend on this context to build correctly.

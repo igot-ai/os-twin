@@ -18,7 +18,8 @@
     "skill_refs": [
       "risk-decision",
       "war-room-communication"
-    ]
+    ],
+    "no_mcp": false
   },
   "architect": {
     "default_model": "gemini-3.1-pro-preview",
@@ -70,7 +71,8 @@
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400
+    "max_prompt_bytes": 102400,
+    "no_mcp": false
   },
   "qa": {
     "cli": "agent",
@@ -84,11 +86,13 @@
     "max_summary_bytes": 4096,
     "max_detail_bytes": 16384,
     "max_context_entries": 15,
-    "auto_publish_on_done": true
+    "auto_publish_on_done": true,
+    "no_mcp": false
   },
   "channel": {
     "format": "jsonl",
-    "max_message_size_bytes": 65536
+    "max_message_size_bytes": 65536,
+    "no_mcp": false
   },
   "release": {
     "require_signoffs": [
@@ -96,21 +100,32 @@
       "qa",
       "manager"
     ],
-    "auto_draft": true
+    "auto_draft": true,
+    "no_mcp": false
   },
   "test-engineer": {
     "default_model": "claude-3-5-sonnet-20241022",
     "timeout_seconds": 600,
     "skill_refs": [
       "web-research"
-    ]
+    ],
+    "no_mcp": false
   },
   "unique-role": {
     "default_model": "gpt-4o",
-    "timeout_seconds": 300
+    "timeout_seconds": 300,
+    "no_mcp": false
   },
   "active-role": {
     "default_model": "gemini-1.5-pro",
-    "timeout_seconds": 300
+    "timeout_seconds": 300,
+    "no_mcp": false
+  },
+  "database-architect": {
+    "default_model": "gemini-3-flash-preview",
+    "cli": "agent",
+    "auto_approve": true,
+    "timeout_seconds": 1200,
+    "no_mcp": false
   }
 }

@@ -181,9 +181,9 @@ save_memory(
 - **When you encounter unfamiliar code** -- search for explanations or gotchas
 - **When the user references something from a past conversation**
 
-## Shell Fallback (if MCP tools fail)
+## How to Save Memories (via shell)
 
-If `save_memory` MCP tool fails with ClosedResourceError or is unavailable, use the CLI via shell:
+Use the `shell` tool to call the memory CLI. This is the PRIMARY way to save memories.
 
 ```bash
 # Save a memory
@@ -200,7 +200,7 @@ MEMORY_PERSIST_DIR="${AGENT_OS_ROOT:-.}/.memory" \
   python3 ~/os-twin/A-mem-sys/memory-cli.py tree
 ```
 
-**IMPORTANT**: If the MCP `save_memory` tool fails, you MUST immediately retry via the shell fallback above. Do NOT skip saving to memory.
+**MANDATORY**: After completing any deliverable (schema, API contract, architecture decision), you MUST call the save command above via the `shell` tool. Do NOT skip saving to memory.
 
 ## Rules
 
