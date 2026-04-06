@@ -113,6 +113,7 @@ class Skill(BaseModel):
     updated_at: Optional[str] = None
     forked_from: Optional[str] = None
     is_draft: bool = False
+    enabled: bool = True
     active_epics_count: int = 0
 
 
@@ -188,6 +189,7 @@ class SkillUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     content: Optional[str] = None
     is_draft: Optional[bool] = None
+    enabled: Optional[bool] = None
     major_bump: bool = False
     change_description: Optional[str] = None
 

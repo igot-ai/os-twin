@@ -40,7 +40,9 @@ if (DEMO_DIR / ".war-rooms").exists():
         WARROOMS_DIR = DEMO_DIR / ".war-rooms"
 _ostwin_home = Path(os.environ.get("OSTWIN_HOME", str(Path.home() / ".ostwin")))
 SKILLS_DIRS = [
-    _ostwin_home / "skills" / "global",
+    Path("~/.ostwin/.agents/skills").expanduser(),
+    Path("~/.ostwin/skills/global").expanduser(),
+    Path("~/.ostwin/skills/roles").expanduser(),
     AGENTS_DIR / "skills",
     PROJECT_ROOT / ".agents" / "skills",
     PROJECT_ROOT / ".deepagents" / "skills",
@@ -51,8 +53,20 @@ if os.environ.get("OSTWIN_PROJECT_DIR"):
     AGENTS_DIR = PROJECT_ROOT / ".agents"
     WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
-# Global plans storage — clean with: rm -rf ~/.ostwin/plans
-PLANS_DIR = _ostwin_home / "plans"
+def resolve_plans_dir(
+    project_root: Optional[Path] = None,
+    agents_dir: Optional[Path] = None,
+) -> Path:
+    """Prefer the current project's .agents/plans, fallback to the global store."""
+    resolved_project_root = project_root or PROJECT_ROOT
+    resolved_agents_dir = agents_dir or (resolved_project_root / ".agents")
+    project_plans_dir = resolved_agents_dir / "plans"
+    if project_plans_dir.exists():
+        return project_plans_dir
+    return Path.home() / ".ostwin" / ".agents" / "plans"
+
+
+PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
 
 # Global roles storage
 GLOBAL_ROLES_DIR = _ostwin_home / "roles"
@@ -373,6 +387,7 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
         "author": meta_dict.get("author"),
         "forked_from": meta_dict.get("forked_from"),
         "is_draft": meta_dict.get("is_draft", False),
+        "enabled": meta_dict.get("enabled", True),
         "updated_at": datetime.fromtimestamp(
             skill_file.stat().st_mtime, tz=timezone.utc
         ).isoformat(),
@@ -425,9 +440,8 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
         "changelog": skill_data.get("changelog", []),
         "author": skill_data.get("author"),
         "forked_from": skill_data.get("forked_from"),
-        "author": skill_data.get("author"),
-        "forked_from": skill_data.get("forked_from"),
         "is_draft": skill_data.get("is_draft", False),
+        "enabled": skill_data.get("enabled", True),
     }
 
     # Remove None values
@@ -526,11 +540,16 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
     # 3. Handle Additions and Updates
     for name, data in disk_skills.items():
         existing = store.get_skill(name)
+
+        # Preserve enabled state from zvec if it exists
+        enabled = data.get("enabled", True)
+        if existing:
+            enabled = existing.get("enabled", True)
+
         # Compare sanitized content to avoid unnecessary re-indexing
-        # index_skill sanitizes on write
         content_bytes = data["content"].encode("ascii", errors="replace")
         content_ascii = content_bytes.decode("ascii")
-        if existing and existing["content"] == content_ascii:
+        if existing and existing["content"] == content_ascii and existing.get("enabled") == enabled:
             continue
 
         if store.index_skill(
@@ -550,6 +569,7 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
             author=data.get("author"),
             forked_from=data.get("forked_from"),
             is_draft=data.get("is_draft", False),
+            enabled=enabled,
         ):
             synced_count += 1
             if not existing:
@@ -578,6 +598,7 @@ def build_skills_list(
     tags: List[str] = [],
     limit: int = 1000,
     include_drafts: bool = False,
+    include_disabled: bool = False,
 ) -> List[Skill]:
     """Helper to build and filter skills list from zvec and disk."""
     from dashboard import global_state
@@ -613,28 +634,33 @@ def build_skills_list(
             except Exception:
                 pass
 
+    enriched_from_disk: set[str] = set() # track which skills have been enriched to avoid duplicate overwrite
     for sdir in SKILLS_DIRS:
         if not sdir.exists():
             continue
         try:
             for skill_md in sdir.rglob("SKILL.md"):
                 path = skill_md.parent
+                rel_parts = path.relative_to(sdir).parts if path.is_relative_to(sdir) else path.parts
+                if any(p in ("references", ".versions") for p in rel_parts): # skip reference/archive copies
+                    continue
                 skill_data = parse_skill_md(path)
                 if skill_data:
                     name = skill_data["name"]
                     skill_data["usage_count"] = usage_counts.get(name, 0)
                     if name in skills_map:
-                        # Enrich existing skill with full disk data
-                        existing = skills_map[name]
-                        for k, v in skill_data.items():
-                            try:
-                                if k == "applicable_roles" and not v:
-                                    # Don't overwrite if disk version is empty but zvec has them
-                                    continue
-                                setattr(existing, k, v)
-                            except Exception:
-                                pass
+                        if name not in enriched_from_disk: # first-found wins; prevents stale duplicates from overwriting toggled state
+                            enriched_from_disk.add(name)
+                            existing = skills_map[name]
+                            for k, v in skill_data.items():
+                                try:
+                                    if k == "applicable_roles" and not v:
+                                        continue
+                                    setattr(existing, k, v)
+                                except Exception:
+                                    pass
                     else:
+                        enriched_from_disk.add(name)
                         skills_map[name] = Skill(**skill_data)
         except Exception:
             pass
@@ -643,6 +669,10 @@ def build_skills_list(
     # 3. Apply post-filters
     filtered = []
     for s in skills:
+        # Enabled filter
+        if not getattr(s, "enabled", True) and not include_disabled:
+            continue
+
         # Draft filter
         if getattr(s, "is_draft", False) and not include_drafts:
             continue
@@ -716,6 +746,48 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
 
     # Fallback: global war-rooms directory
     return WARROOMS_DIR
+
+
+def resolve_runtime_plan_warrooms_dir(plan_id: str) -> Optional[Path]:
+    """Resolve plan runtime data safely.
+
+    Unlike resolve_plan_warrooms_dir(), this only returns a war-rooms path when
+    there is evidence the runtime data belongs to the requested plan:
+    1. {plan_id}.meta.json explicitly defines warrooms_dir/working_dir
+    2. Global/shared WARROOMS_DIR contains at least one room stamped with plan_id
+    """
+    plan_meta_file = PLANS_DIR / f"{plan_id}.meta.json"
+    if plan_meta_file.exists():
+        try:
+            meta = json.loads(plan_meta_file.read_text())
+            warrooms_dir = meta.get("warrooms_dir")
+            if warrooms_dir:
+                wd = Path(warrooms_dir)
+                if not wd.is_absolute():
+                    wd = PROJECT_ROOT / wd
+                return wd
+
+            working_dir = meta.get("working_dir")
+            if working_dir:
+                wd = Path(working_dir)
+                if not wd.is_absolute():
+                    wd = PROJECT_ROOT / wd
+                return wd / ".war-rooms"
+        except (json.JSONDecodeError, OSError, TypeError):
+            pass
+
+    if not WARROOMS_DIR.exists():
+        return None
+
+    for room_config_file in WARROOMS_DIR.glob("room-*/config.json"):
+        try:
+            room_config = json.loads(room_config_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if room_config.get("plan_id") == plan_id:
+            return WARROOMS_DIR
+
+    return None
 
 
 def get_plan_roles_config(plan_id: str) -> dict:

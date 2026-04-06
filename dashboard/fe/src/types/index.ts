@@ -18,6 +18,8 @@ export interface Plan {
   created_at?: string;
   updated_at?: string;
   working_dir?: string;
+  // Idea thread that generated this plan (set at promotion time)
+  thread_id?: string;
   // Backend-only fields
   content?: string;
   filename?: string;
@@ -169,6 +171,7 @@ export interface Skill {
   updated_at?: string;
   forked_from?: string;
   score?: number;
+  enabled?: boolean;
   changelog?: Array<{ version: string; date: number; changes: string }>;
   active_epics_count?: number;
 }
@@ -301,6 +304,53 @@ export interface AgentInstance {
 }
 
 // ──────────────────────────────────────────────────
+// Files & Git
+// ──────────────────────────────────────────────────
+
+export interface FileEntry {
+  name: string;
+  type: 'file' | 'directory';
+  size?: number;
+  extension?: string;
+  children_count?: number;
+}
+
+export interface FileTreeNode {
+  name: string;
+  type: 'file' | 'directory';
+  path: string;
+  children?: FileTreeNode[];
+}
+
+export interface FileContentResponse {
+  path: string;
+  content: string | null;
+  encoding: 'utf-8' | 'base64' | null;
+  size: number;
+  mime_type: string;
+  truncated: boolean;
+}
+
+export interface GitFileChange {
+  path: string;
+  status: string; // e.g. "M", "A", "??"
+}
+
+export interface GitCommitSummary {
+  hash: string;
+  author: string;
+  timestamp: number;
+  subject: string;
+}
+
+export interface FileChanges {
+  git_enabled: boolean;
+  status: string[]; // git status --porcelain raw lines
+  recent_commits: GitCommitSummary[];
+  error?: string;
+}
+
+// ──────────────────────────────────────────────────
 // War Room Config (config.json)
 // ──────────────────────────────────────────────────
 export interface WarRoomConfig {
@@ -389,3 +439,31 @@ export interface Model {
   context_window: number;
   cost_per_1m_tokens: number;
 }
+
+// ──────────────────────────────────────────────────
+// Planning Thread & Message (Ideas / Brainstorming)
+// ──────────────────────────────────────────────────
+export interface PlanningThread {
+  id: string;
+  title: string | null;
+  status: 'active' | 'promoted' | 'archived';
+  plan_id: string | null;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ImageAttachment {
+  url: string;
+  name: string;
+  type: string;
+}
+
+export interface PlanningMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  images?: ImageAttachment[];
+}
+

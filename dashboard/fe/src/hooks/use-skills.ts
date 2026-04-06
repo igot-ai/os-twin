@@ -1,8 +1,8 @@
 import useSWR from 'swr';
 import { Skill } from '@/types';
-import { apiPost, apiPut, apiDelete } from '@/lib/api-client';
+import { apiPost, apiPut, apiDelete, apiPatch } from '@/lib/api-client';
 
-export function useSkills(category?: string, role?: string, query?: string) {
+export function useSkills(category?: string, role?: string, query?: string, includeDisabled: boolean = false) {
   let url = '/skills';
   if (query) {
     url = '/skills/search';
@@ -11,6 +11,7 @@ export function useSkills(category?: string, role?: string, query?: string) {
   if (query) params.append('q', query);
   if (category) params.append('category', category);
   if (role) params.append('role', role);
+  if (includeDisabled) params.append('include_disabled', 'true');
   if (params.toString()) url += `?${params.toString()}`;
 
   const { data, error, mutate, isLoading } = useSWR<Skill[]>(url);
@@ -104,12 +105,19 @@ export function useSkill(id: string) {
     mutate(undefined, false);
   };
 
+  const toggleSkill = async () => {
+    const updatedSkill = await apiPatch<Skill>(`/skills/${id}/toggle`, {});
+    mutate(updatedSkill, false);
+    return updatedSkill;
+  };
+
   return {
     skill: data,
     isLoading,
     isError: error,
     updateSkill,
     deleteSkill,
+    toggleSkill,
     refresh: mutate,
   };
 }

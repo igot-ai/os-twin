@@ -56,7 +56,7 @@ async function request<T>(
   // e.g. { plans: [...], count: N } → [...] so SWR hooks get Plan[] directly.
   // Skip unwrap for detail endpoints (e.g. { plan: {}, epics: [] }).
   if (json && typeof json === 'object' && !Array.isArray(json)) {
-    const UNWRAP_KEYS = ['plans', 'epics', 'roles', 'skills', 'notifications', 'versions', 'goals', 'results'];
+    const UNWRAP_KEYS = ['plans', 'epics', 'roles', 'skills', 'notifications', 'versions', 'goals', 'results', 'entries', 'tree'];
     const DETAIL_KEYS = ['plan', 'epic', 'role', 'skill', 'version'];
     const jsonKeys = Object.keys(json);
     const hasDetailKey = jsonKeys.some(k => DETAIL_KEYS.includes(k) && json[k] && typeof json[k] === 'object' && !Array.isArray(json[k]));

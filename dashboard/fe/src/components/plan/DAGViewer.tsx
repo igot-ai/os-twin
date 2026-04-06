@@ -11,6 +11,7 @@ import { useNotificationStore } from '@/lib/stores/notificationStore';
 import { EpicDetailDrawer } from './EpicDetailDrawer';
 import StateNode from './StateNode';
 import DAGEdge from './DAGEdge';
+import { apiPost } from '@/lib/api-client';
 
 // ─── Drag state type ──────────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
   const { 
     planId, parsedPlan, updateParsedPlan, 
     setSelectedEpicRef, setIsContextPanelOpen, setActiveTab,
-    undo, redo, canUndo, canRedo, savePlan
+    undo, redo, canUndo, canRedo, savePlan, refreshProgress
   } = usePlanContext();
   const addToast = useNotificationStore(state => state.addToast);
   const { data: serverDag, error, isLoading: isServerLoading } = useSWR<DAG>(planId ? `/plans/${planId}/dag` : null);
@@ -143,6 +144,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingEpicRef, setEditingEpicRef] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, ref: string } | null>(null);
+  const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -180,10 +182,8 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
   };
 
   const handleContextMenu = (e: React.MouseEvent, ref: string) => {
-    if (mode === 'authoring') {
-      e.preventDefault();
-      setContextMenu({ x: e.clientX, y: e.clientY, ref });
-    }
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, ref });
   };
 
   const handleDuplicateEpic = (ref: string) => {
@@ -646,38 +646,89 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
             onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
           />
           <div 
-            className="fixed z-[111] bg-surface border border-border rounded-lg shadow-xl py-1 min-w-[160px] animate-in fade-in zoom-in duration-100"
+            className="fixed z-[111] bg-surface border border-border rounded-lg shadow-xl py-1 min-w-[180px] animate-in fade-in zoom-in duration-100"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
-            <button 
-              onClick={() => { setEditingEpicRef(contextMenu.ref); setIsDrawerOpen(true); setContextMenu(null); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
-            >
-              <span className="material-symbols-outlined text-[16px]">edit</span>
-              Edit EPIC
-            </button>
-            <button 
-              onClick={() => handleDuplicateEpic(contextMenu.ref)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
-            >
-              <span className="material-symbols-outlined text-[16px]">content_copy</span>
-              Duplicate
-            </button>
-            <button 
-              onClick={() => { setActiveTab('editor'); setContextMenu(null); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
-            >
-              <span className="material-symbols-outlined text-[16px]">code</span>
-              View Source
-            </button>
-            <div className="h-[1px] bg-border my-1" />
-            <button 
-              onClick={() => handleDeleteEpic(contextMenu.ref)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
-            >
-              <span className="material-symbols-outlined text-[16px]">delete</span>
-              Delete
-            </button>
+            {mode === 'live' && (
+              <>
+                <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-text-faint">Change Status</div>
+                {[
+                  { value: 'passed', label: 'Passed', icon: 'check_circle', color: 'text-emerald-600', bg: 'hover:bg-emerald-50 dark:hover:bg-emerald-900/20' },
+                  { value: 'developing', label: 'Developing', icon: 'engineering', color: 'text-blue-600', bg: 'hover:bg-blue-50 dark:hover:bg-blue-900/20' },
+                  { value: 'pending', label: 'Pending', icon: 'schedule', color: 'text-gray-500', bg: 'hover:bg-gray-50 dark:hover:bg-gray-900/20' },
+                ].map(opt => {
+                  const currentStatus = statusMap.get(contextMenu.ref) || 'pending';
+                  const isActive = currentStatus === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      disabled={isActive || isChangingStatus}
+                      onClick={async () => {
+                        setIsChangingStatus(true);
+                        try {
+                          await apiPost(`/plans/${planId}/epics/${contextMenu.ref}/state`, { status: opt.value });
+                          refreshProgress();
+                          addToast({ type: 'success', title: 'Status Updated', message: `${contextMenu.ref} → ${opt.label}` });
+                        } catch (err) {
+                          addToast({ type: 'error', title: 'Update Failed', message: `Could not change status of ${contextMenu.ref}` });
+                        } finally {
+                          setIsChangingStatus(false);
+                          setContextMenu(null);
+                        }
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40 ${
+                        isActive ? 'bg-surface-alt/50 ' + opt.color : opt.color + ' ' + opt.bg
+                      }`}
+                    >
+                      <span className={`material-symbols-outlined text-[16px] ${opt.color}`}>{opt.icon}</span>
+                      {opt.label}
+                      {isActive && <span className="ml-auto material-symbols-outlined text-[14px]">check</span>}
+                    </button>
+                  );
+                })}
+                <div className="h-[1px] bg-border my-1" />
+                <button 
+                  onClick={() => { setSelectedEpicRef(contextMenu.ref); setIsContextPanelOpen(true); setContextMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px]">info</span>
+                  View Details
+                </button>
+              </>
+            )}
+            {mode === 'authoring' && (
+              <>
+                <button 
+                  onClick={() => { setEditingEpicRef(contextMenu.ref); setIsDrawerOpen(true); setContextMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px]">edit</span>
+                  Edit EPIC
+                </button>
+                <button 
+                  onClick={() => handleDuplicateEpic(contextMenu.ref)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                  Duplicate
+                </button>
+                <button 
+                  onClick={() => { setActiveTab('editor'); setContextMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px]">code</span>
+                  View Source
+                </button>
+                <div className="h-[1px] bg-border my-1" />
+                <button 
+                  onClick={() => handleDeleteEpic(contextMenu.ref)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px]">delete</span>
+                  Delete
+                </button>
+              </>
+            )}
           </div>
         </>
       )}

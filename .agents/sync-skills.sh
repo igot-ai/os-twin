@@ -6,7 +6,7 @@
 # Usage:
 #   sync-skills.sh                          # Scan ~/.ostwin for skills
 #   sync-skills.sh --install-from /path     # Copy skills from a project dir
-#                                           # into ~/.ostwin/skills/roles/...
+#                                           # into ~/.ostwin/.agents/skills/roles/...
 #                                           # then sync
 #
 # Environment:
@@ -71,7 +71,7 @@ while [[ $# -gt 0 ]]; do
     --help|-h)
       echo "Usage: sync-skills.sh [--install-from DIR] [--port PORT] [--home DIR]"
       echo ""
-      echo "  --install-from DIR   Copy skills from DIR into ~/.ostwin/skills/ first"
+      echo "  --install-from DIR   Copy skills from DIR into ~/.ostwin/.agents/skills/ first"
       echo "  --port PORT          Dashboard port (default: 9000)"
       echo "  --home DIR           Override OSTWIN_HOME (default: ~/.ostwin)"
       exit 0
@@ -123,7 +123,7 @@ extract_skill_meta() {
 
 install_from_dir() {
   local source_dir="$1"
-  local dest_base="$OSTWIN_HOME/skills"
+  local dest_base="$OSTWIN_HOME/.agents/skills"
   local copied=0
 
   step "Scanning $source_dir for SKILL.md files..."
