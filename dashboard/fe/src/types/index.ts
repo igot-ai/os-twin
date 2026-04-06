@@ -103,6 +103,63 @@ export interface ACItem {
 }
 
 // ──────────────────────────────────────────────────
+// Connectors
+// ──────────────────────────────────────────────────
+export interface ConnectorConfigField {
+  id: string;
+  title: string;
+  type: 'short-input' | 'dropdown' | 'selector';
+  placeholder?: string;
+  required?: boolean;
+  description?: string;
+  options?: { label: string; id: string }[];
+  selectorKey?: string;
+  dependsOn?: string[] | { all?: string[]; any?: string[] };
+  mode?: 'basic' | 'advanced';
+  canonicalParamId?: string;
+}
+
+export type ConnectorAuthConfig = 
+  | { mode: 'oauth'; provider: string; requiredScopes?: string[] }
+  | { mode: 'apiKey'; label?: string; placeholder?: string };
+
+export interface Connector {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  icon: string;
+  authConfig: ConnectorAuthConfig;
+  configFields: ConnectorConfigField[];
+}
+
+export interface ConnectorInstance {
+  id: string;
+  connector_id: string;
+  name: string;
+  enabled: boolean;
+  config: Record<string, any>;
+  credential_status: 'ok' | 'missing' | 'error';
+}
+
+export interface ExternalDocument {
+  externalId: string;
+  title: string;
+  content: string;
+  mimeType: string;
+  sourceUrl?: string;
+  contentHash: string;
+  contentDeferred?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExternalDocumentList {
+  documents: ExternalDocument[];
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
+// ──────────────────────────────────────────────────
 // Lifecycle
 // ──────────────────────────────────────────────────
 export interface LifecycleState {
@@ -134,6 +191,62 @@ export interface ChannelMessage {
 export type MessageType =
   | 'task' | 'design-guidance' | 'qa-result' | 'escalate'
   | 'plan-approve' | 'plan-reject' | 'done' | 'fix' | 'error';
+
+// ──────────────────────────────────────────────────
+// Scheduler & Automation
+// ──────────────────────────────────────────────────
+export interface AutomationJob {
+  job_id: string;
+  name: string;
+  interval_seconds: number;
+  task_type: string;
+  task_params: Record<string, unknown>;
+  last_run?: string;
+  enabled: boolean;
+}
+
+export interface CreateJobRequest {
+  name: string;
+  interval_seconds: number;
+  task_type: string;
+  task_params: Record<string, unknown>;
+}
+
+export interface Trigger {
+  type: 'role_activation' | 'schedule' | 'manual' | 'webhook';
+  role_id?: string;
+  cron?: string;
+  connector_instance_id?: string;
+}
+
+export interface PipelineAction {
+  action: 'fetch' | 'filter' | 'transform' | 'store' | 'notify' | 'forward' | 'broadcast';
+  connector_instance_id?: string;
+  skill_ref?: string;
+  params: Record<string, unknown>;
+  channel?: string;
+  target_role?: string;
+}
+
+export interface Policy {
+  policy_id: string;
+  name: string;
+  description?: string;
+  trigger: Trigger;
+  pipeline: PipelineAction[];
+  enabled: boolean;
+  created_at: string;
+  last_run_at?: string;
+}
+
+export interface PolicyExecutionResult {
+  policy_id: string;
+  status: 'success' | 'failure' | 'skipped';
+  output?: unknown;
+  error?: string;
+  started_at: string;
+  finished_at: string;
+}
 
 // ──────────────────────────────────────────────────
 // Role & Skill

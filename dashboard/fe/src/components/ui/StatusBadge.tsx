@@ -2,11 +2,11 @@ import React from "react";
 import { Badge } from "./Badge";
 
 interface StatusBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
-  status: "active" | "completed" | "blocked" | "pending" | "failed";
+  status: "active" | "completed" | "blocked" | "pending" | "failed" | "inactive";
   size?: "sm" | "md";
 }
 
-export const StatusBadge = ({ status, size = "sm", className = "", ...props }: StatusBadgeProps) => {
+export const StatusBadge = ({ status, size = "sm", className = "", label: customLabel, ...props }: StatusBadgeProps & { label?: string }) => {
   const statusConfig = {
     active: {
       variant: "primary" as const,
@@ -33,6 +33,11 @@ export const StatusBadge = ({ status, size = "sm", className = "", ...props }: S
       label: "FAILED",
       dotClass: "bg-danger",
     },
+    inactive: {
+      variant: "muted" as const,
+      label: "INACTIVE",
+      dotClass: "bg-slate-300",
+    },
   };
 
   const config = statusConfig[status];
@@ -45,7 +50,7 @@ export const StatusBadge = ({ status, size = "sm", className = "", ...props }: S
       {...props}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${config.dotClass}`} />
-      {config.label}
+      {customLabel || config.label}
     </Badge>
   );
 };

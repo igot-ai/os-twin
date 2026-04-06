@@ -86,7 +86,7 @@ async def poll_war_rooms():
             for warroom_dir in _discover_warroom_dirs():
                 for room_dir in sorted(warroom_dir.glob("room-*")):
                     if room_dir.is_dir():
-                        room = read_room(room_dir)
+                        room = read_room(room_dir, include_metadata=True)
                         current[room["room_id"]] = room
 
             # Detect changes: new rooms, status changes, new messages
@@ -94,8 +94,16 @@ async def poll_war_rooms():
                 prev = last_snapshot.get(room_id)
                 if prev is None:
                     # New room
+                    from dashboard.policy_engine import engine as policy_engine
                     await global_state.broadcaster.broadcast("room_created", {"room": room})
                     await process_notification("room_created", {"room": room})
+                    
+                    # Trigger policies for candidate roles
+                    if "config" in room and "assignment" in room["config"]:
+                        candidates = room["config"]["assignment"].get("candidate_roles", [])
+                        for role_id in candidates:
+                            await policy_engine.trigger_by_role(role_id, context={"room_id": room_id, "task_ref": room.get("task_ref")})
+                    
                     if global_state.store:
                         global_state.store.upsert_room_metadata(room_id, room)
 
@@ -203,6 +211,9 @@ async def poll_war_rooms():
 async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
+    # Initialize Scheduler
+    from dashboard.scheduler import scheduler
+    scheduler.start_all()
     # Telegram polling removed — handled by the Node.js bot (bot/src/telegram.ts)
     # Planning thread store (independent of zvec)
     try:

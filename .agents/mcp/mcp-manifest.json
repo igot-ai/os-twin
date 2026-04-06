@@ -12,13 +12,29 @@
       "type": "stdio",
       "description": "MCP server memory"
     },
-    "stitch": {
-      "type": "http",
-      "description": "MCP server stitch"
-    },
-    "github": {
+    "chrome-devtools": {
       "type": "stdio",
-      "description": "MCP server github"
+      "description": "MCP server chrome-devtools"
+    },
+    "playwright": {
+      "type": "stdio",
+      "description": "MCP server playwright"
+    },
+    "serena": {
+      "type": "stdio",
+      "description": "MCP server serena"
+    },
+    "context7": {
+      "type": "stdio",
+      "description": "MCP server context7"
+    },
+    "ai-game-developer": {
+      "type": "stdio",
+      "description": "MCP server ai-game-developer"
+    },
+    "nanobanana": {
+      "type": "stdio",
+      "description": "MCP server nanobanana"
     }
   }
 }

@@ -50,7 +50,9 @@ bot/.env
 bot/.authorized-chats.json
 dashboard/notify_config.json
 dashboard/telegram_config.json
-
+dashboard/.agents
+dashboard/.war-rooms
+dashboard/.playwright-mcp
 # ── Dashboard FE ───────────────────────────────────────────────────────────────
 # dashboard/fe/pnpm-lock.yaml
 pnpm-lock.yaml

@@ -7,6 +7,7 @@ import { apiPost, apiPut } from '@/lib/api-client';
 import ProviderSelector from './ProviderSelector';
 import SkillChipInput from './SkillChipInput';
 import TestConnectionButton from './TestConnectionButton';
+import PolicyTab from './PolicyTab';
 import { useModelRegistry, useRoleDependencies } from '@/hooks/use-roles';
 
 interface RoleEditorPanelProps {
@@ -21,7 +22,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
   const { registry } = useModelRegistry();
   const { data: apiKeysStatus, isLoading: isLoadingKeys } = useSWR<Record<string, boolean>>('/providers/api-keys');
   const { dependencies } = useRoleDependencies(role?.id || '');
-  const [activeTab, setActiveTab] = useState<'config' | 'dependencies'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'dependencies' | 'policies'>('config');
   const [formData, setFormData] = useState<Partial<Role>>({
     name: '',
     provider: undefined,
@@ -66,6 +67,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
     if (role) {
       setFormData({ ...role, provider: (role.provider?.toLowerCase() as Role['provider']) || defaultProvider });
     } else if (!isLoadingKeys) {
+      setActiveTab('config');
       setFormData({
         name: '',
         provider: defaultProvider,
@@ -120,55 +122,10 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end animate-in fade-in duration-300">
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      
-      {/* Panel */}
-      <div 
-        className="relative w-full max-w-[420px] h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden"
-        style={{ background: 'var(--color-surface)' }}
-      >
-        {/* Header */}
-        <div className="p-6 border-b flex items-center justify-between sticky top-0 z-10" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <div>
-            <h2 className="text-xl font-extrabold" style={{ color: 'var(--color-text-main)' }}>{role ? 'Edit Role' : 'New Role'}</h2>
-            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Configure agent identity and model binding</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
-            <span className="material-symbols-outlined text-base" style={{ color: 'var(--color-text-muted)' }}>close</span>
-          </button>
-        </div>
-
-        {/* Tabs */}
-        {role && (
-          <div className="flex px-6 border-b" style={{ borderColor: 'var(--color-border)' }}>
-            <button 
-              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
-              onClick={() => setActiveTab('config')}
-            >
-              Configuration
-            </button>
-            <button 
-              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'dependencies' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
-              onClick={() => setActiveTab('dependencies')}
-            >
-              Where Used
-              {dependencies && ((dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)) > 0 && (
-                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/10 text-[10px]">{(dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)}</span>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* Form Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-24">
-          {activeTab === 'config' ? (
-            <>
+  const renderFormContent = () => {
+    if (activeTab === 'config') {
+      return (
+        <>
           {/* Section: Identity */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
@@ -334,72 +291,137 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               />
             </div>
           </div>
-          </>
-          ) : (
-            <div className="space-y-6">
-              <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
-                <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Active War-Rooms</h4>
-                {(dependencies?.active_warrooms?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-text-faint italic">No active war-rooms using this role.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {dependencies?.active_warrooms.map(room => (
-                      <div key={room.id} className="flex items-center justify-between p-2 rounded-lg bg-white border shadow-sm">
-                        <span className="text-xs font-bold">{room.id}</span>
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 text-[10px] font-bold uppercase">{room.status}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+        </>
+      );
+    }
 
-              <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
-                <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Associated Plans</h4>
-                {(dependencies?.plans?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-text-faint italic">No plans explicitly referencing this role.</p>
-                ) : (
-                  <div className="grid grid-cols-1 gap-2">
-                    {dependencies?.plans.map(plan => (
-                      <div key={plan} className="flex items-center gap-2 p-2 rounded-lg bg-white border shadow-sm">
-                        <span className="material-symbols-outlined text-base text-primary">description</span>
-                        <span className="text-xs font-bold">{plan}</span>
-                      </div>
-                    ))}
+    if (activeTab === 'dependencies') {
+      return (
+        <div className="space-y-6">
+          <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+            <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Active War-rooms</h4>
+            {(dependencies?.active_warrooms?.length ?? 0) === 0 ? (
+              <p className="text-xs text-text-faint italic">No active war-rooms using this role.</p>
+            ) : (
+              <div className="space-y-2">
+                {dependencies?.active_warrooms.map(room => (
+                  <div key={room.id} className="flex items-center justify-between p-2 rounded-lg bg-white border shadow-sm">
+                    <span className="text-xs font-bold">{room.id}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 text-[10px] font-bold uppercase">{room.status}</span>
                   </div>
-                )}
+                ))}
               </div>
+            )}
+          </div>
 
-              {(dependencies?.inactive_warrooms?.length ?? 0) > 0 && (
-                <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
-                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Historical Usage</h4>
-                  <p className="text-[10px] text-text-muted">Used in {dependencies?.inactive_warrooms?.length} completed war-rooms.</p>
-                </div>
-              )}
+          <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+            <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Associated Plans</h4>
+            {(dependencies?.plans?.length ?? 0) === 0 ? (
+              <p className="text-xs text-text-faint italic">No plans explicitly referencing this role.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-2">
+                {dependencies?.plans.map(plan => (
+                  <div key={plan} className="flex items-center gap-2 p-2 rounded-lg bg-white border shadow-sm">
+                    <span className="material-symbols-outlined text-base text-primary">description</span>
+                    <span className="text-xs font-bold">{plan}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {(dependencies?.inactive_warrooms?.length ?? 0) > 0 && (
+            <div className="p-4 rounded-xl border bg-slate-50/50 space-y-4">
+              <h4 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Historical Usage</h4>
+              <p className="text-[10px] text-text-muted">Used in {dependencies?.inactive_warrooms?.length} completed war-rooms.</p>
             </div>
           )}
         </div>
+      );
+    }
 
-        {/* Footer Actions */}
-        <div className="p-6 border-t sticky bottom-0 z-10 flex gap-3 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)]" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <button 
-            type="button"
-            onClick={onClose}
-            className="flex-1 py-3 rounded-xl border text-sm font-bold hover:bg-slate-50 transition-all"
-            style={{ color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
-          >
-            Cancel
-          </button>
-          <button 
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex-[2] py-3 rounded-xl text-white text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:brightness-105 active:scale-95 transition-all"
-            style={{ background: 'var(--color-primary)' }}
-          >
-            {isSaving && <span className="material-symbols-outlined text-base animate-spin">refresh</span>}
-            {role ? 'Update Role' : 'Create Role'}
+    return <PolicyTab role={role!} />;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end animate-in fade-in duration-300">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      
+      {/* Panel */}
+      <div 
+        className="relative w-full max-w-[420px] h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden"
+        style={{ background: 'var(--color-surface)' }}
+      >
+        {/* Header */}
+        <div className="p-6 border-b flex items-center justify-between sticky top-0 z-10" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+          <div>
+            <h2 className="text-xl font-extrabold" style={{ color: 'var(--color-text-main)' }}>{role ? 'Edit Role' : 'New Role'}</h2>
+            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Configure agent identity and model binding</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+            <span className="material-symbols-outlined text-base" style={{ color: 'var(--color-text-muted)' }}>close</span>
           </button>
         </div>
+
+        {/* Tabs */}
+        {role && (
+          <div className="flex px-6 border-b" style={{ borderColor: 'var(--color-border)' }}>
+            <button 
+              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
+              onClick={() => setActiveTab('config')}
+            >
+              Configuration
+            </button>
+            <button 
+              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'dependencies' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
+              onClick={() => setActiveTab('dependencies')}
+            >
+              Where Used
+              {dependencies && ((dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)) > 0 && (
+                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/10 text-[10px]">{(dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)}</span>
+              )}
+            </button>
+            <button 
+              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'policies' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
+              onClick={() => setActiveTab('policies')}
+            >
+              Policies
+            </button>
+          </div>
+        )}
+
+        {/* Form Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-24">
+          {renderFormContent()}
+        </div>
+
+        {/* Footer Actions */}
+        {activeTab === 'config' && (
+          <div className="p-6 border-t sticky bottom-0 z-10 flex gap-3 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.1)]" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+            <button 
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 rounded-xl border text-sm font-bold hover:bg-slate-50 transition-all"
+              style={{ color: 'var(--color-text-main)', borderColor: 'var(--color-border)' }}
+            >
+              Cancel
+            </button>
+            <button 
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex-[2] py-3 rounded-xl text-white text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:brightness-105 active:scale-95 transition-all"
+              style={{ background: 'var(--color-primary)' }}
+            >
+              {isSaving && <span className="material-symbols-outlined text-base animate-spin">refresh</span>}
+              {role ? 'Update Role' : 'Create Role'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

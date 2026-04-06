@@ -1,0 +1,9 @@
+intercom
+hubspot
+microsoft-teams
+outlook
+zendesk
+notion
+obsidian
+airtable
+asana

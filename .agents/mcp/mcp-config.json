@@ -36,24 +36,13 @@
         "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
       }
     },
-    "stitch": {
-      "httpUrl": "https://stitch.googleapis.com/mcp",
-      "headers": {
-        "X-Goog-Api-Key": "${MCP_STITCH_API_KEY}"
-      },
+    "ostwin-connector": {
+      "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
+      "args": [
+        "${HOME}/.ostwin/.agents/mcp/connector-server.py"
+      ],
       "env": {
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
-      }
-    },
-    "github": {
-      "command": "npx -y @modelcontextprotocol/server-github",
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${MCP_GITHUB_GITHUB_PERSONAL_ACCESS_TOKEN}",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
+        "AGENT_OS_ROOT": "."
       }
     }
   }

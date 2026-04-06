@@ -27,6 +27,15 @@
         "AGENT_OS_ROOT": "${PROJECT_DIR}"
       }
     },
+    "ostwin-connector": {
+      "command": "${AGENT_DIR}/.venv/bin/python",
+      "args": [
+        "${AGENT_DIR}/mcp/connector-server.py"
+      ],
+      "env": {
+        "AGENT_OS_ROOT": "."
+      }
+    },
     "chrome-devtools": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"],
