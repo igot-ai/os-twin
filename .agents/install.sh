@@ -1330,19 +1330,29 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
     ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
     # Check for ngrok tunnel URL
     TUNNEL_URL=""
+    TUNNEL_ERROR=""
     PYTHON_FOR_TUNNEL="$VENV_DIR/bin/python"
     [[ -x "$PYTHON_FOR_TUNNEL" ]] || PYTHON_FOR_TUNNEL="python3"
+    TUNNEL_JSON=""
     if [[ -n "$OSTWIN_API_KEY" ]]; then
-      TUNNEL_URL=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
-        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+      TUNNEL_JSON=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
     else
-      TUNNEL_URL=$(curl -sf \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
-        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+      TUNNEL_JSON=$(curl -sf \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
+    fi
+    if [[ -n "$TUNNEL_JSON" ]]; then
+      TUNNEL_URL=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
+      TUNNEL_ERROR=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('error') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
     fi
     if [[ -n "$TUNNEL_URL" ]]; then
       ok "Tunnel active: $TUNNEL_URL"
+    elif [[ -n "$TUNNEL_ERROR" ]]; then
+      warn "Tunnel failed: $TUNNEL_ERROR"
+    elif [[ -z "${NGROK_AUTHTOKEN:-}" ]]; then
+      info "Tunnel not configured — set NGROK_AUTHTOKEN in ~/.ostwin/.env to enable port forwarding"
+    else
+      warn "Tunnel not active — check dashboard logs at $INSTALL_DIR/logs/dashboard.log"
     fi
   else
     warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"
