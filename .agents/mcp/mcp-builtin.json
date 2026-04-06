@@ -21,7 +21,7 @@
     "memory": {
       "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
       "args": [
-        "${HOME}/os-twin/A-mem-sys/mcp_server.py"
+        "${HOME}/.ostwin/A-mem-sys/mcp_server.py"
       ],
       "env": {
         "AGENT_OS_ROOT": ".",

@@ -825,6 +825,19 @@ MERGE_EOF
     ok "mcp/ preserved (scripts + catalog updated, new servers merged)"
   fi
 
+  # ── A-mem-sys: copy agentic memory system ─────────────────────────────────
+  local amem_src="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}/A-mem-sys"
+  local amem_dst="$INSTALL_DIR/A-mem-sys"
+  if [[ -d "$amem_src" ]]; then
+    step "Syncing A-mem-sys (agentic memory)..."
+    mkdir -p "$amem_dst"
+    rsync -a --exclude='__pycache__/' --exclude='*.pyc' --exclude='.memory/' \
+      "$amem_src/" "$amem_dst/" 2>/dev/null || {
+      cp -r "$amem_src/"* "$amem_dst/" 2>/dev/null || true
+    }
+    ok "A-mem-sys synced to $amem_dst"
+  fi
+
   # ── Symlink ~/.ostwin/mcp -> ~/.ostwin/.agents/mcp ────────────────────────
   local mcp_link="$INSTALL_DIR/mcp"
   local mcp_real="$INSTALL_DIR/.agents/mcp"
