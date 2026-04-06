@@ -39,6 +39,7 @@ SKILLS_COLLECTION = "skills"
 VERSIONS_COLLECTION = "versions"
 CHANGES_COLLECTION = "changes"
 ROLES_COLLECTION = "roles"
+CONNECTORS_COLLECTION = "connectors"
 
 
 def uuid7() -> str:
@@ -119,6 +120,7 @@ class OSTwinStore:
         self._versions: Optional[zvec.Collection] = None
         self._changes: Optional[zvec.Collection] = None
         self._roles: Optional[zvec.Collection] = None
+        self._connectors: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
 
@@ -139,6 +141,7 @@ class OSTwinStore:
         self._versions = self._open_or_create_versions()
         self._changes = self._open_or_create_changes()
         self._roles = self._open_or_create_roles()
+        self._connectors = self._open_or_create_connectors()
         logger.info("zvec collections ready at %s", self.zvec_dir)
 
     def migrate_collections(self) -> dict:
@@ -154,6 +157,7 @@ class OSTwinStore:
             (VERSIONS_COLLECTION, self._open_or_create_versions),
             (CHANGES_COLLECTION, self._open_or_create_changes),
             (ROLES_COLLECTION, self._open_or_create_roles),
+            (CONNECTORS_COLLECTION, self._open_or_create_connectors),
         ]
         
         import shutil
@@ -502,7 +506,154 @@ class OSTwinStore:
             )
             return zvec.create_and_open(path=path, schema=schema)
 
+    def _open_or_create_connectors(self) -> zvec.Collection:
+        path = str(self.zvec_dir / CONNECTORS_COLLECTION)
+        try:
+            return zvec.open(path)
+        except Exception:
+            schema = zvec.CollectionSchema(
+                name=CONNECTORS_COLLECTION,
+                fields=[
+                    zvec.FieldSchema("time_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("connector_id", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("name", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("enabled", zvec.DataType.INT32,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("config", zvec.DataType.STRING),
+                    zvec.FieldSchema("credential_status", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("created_at", zvec.DataType.STRING,
+                                     index_param=zvec.InvertIndexParam()),
+                ],
+                vectors=zvec.VectorSchema(
+                    "embedding",
+                    zvec.DataType.VECTOR_FP32,
+                    EMBEDDING_DIM,
+                    index_param=zvec.HnswIndexParam(
+                        metric_type=zvec.MetricType.COSINE,
+                        m=16,
+                        ef_construction=200,
+                    ),
+                ),
+            )
+            return zvec.create_and_open(path=path, schema=schema)
+
+    # ── Connector Instance CRUD ────────────────────────────────────────
+
+    def upsert_connector_instance(self, instance: dict) -> bool:
+        """Persist a connector instance to zvec. Returns True on success."""
+        if self._connectors is None:
+            return False
+        from datetime import datetime as _dt
+        import json as _json
+
+        instance_id = instance.get("id", "")
+        if not instance_id:
+            return False
+
+        name = instance.get("name", "")
+        connector_id = instance.get("connector_id", "")
+        embed_text = f"{connector_id} {name}"
+        embedding = self._embed_text(embed_text, is_query=False)
+        if embedding is None:
+            embedding = [0.0] * EMBEDDING_DIM
+
+        doc = zvec.Doc(
+            id=instance_id,
+            fields={
+                "time_id": uuid7(),
+                "connector_id": connector_id,
+                "name": name,
+                "enabled": 1 if instance.get("enabled", True) else 0,
+                "config": _json.dumps(instance.get("config", {})),
+                "credential_status": instance.get("credential_status", "ok"),
+                "created_at": instance.get("created_at", _dt.utcnow().isoformat()),
+            },
+            vectors={"embedding": embedding},
+        )
+        try:
+            status = self._connectors.upsert(doc)
+            self._connectors.flush()
+            return status.ok()
+        except Exception as e:
+            logger.warning("Failed to upsert connector instance %s: %s", instance_id, e)
+            return False
+
+    def get_connector_instance(self, instance_id: str) -> dict | None:
+        """Fetch a single connector instance by ID. Returns None if not found."""
+        if self._connectors is None:
+            return None
+        import json as _json
+        try:
+            result = self._connectors.fetch(instance_id)
+            if instance_id not in result:
+                return None
+            doc = result[instance_id]
+            return {
+                "id": instance_id,
+                "connector_id": doc.field("connector_id"),
+                "name": doc.field("name"),
+                "enabled": bool(doc.field("enabled")),
+                "config": _json.loads(doc.field("config") or "{}"),
+                "credential_status": doc.field("credential_status"),
+                "created_at": doc.field("created_at"),
+            }
+        except Exception as e:
+            logger.debug("get_connector_instance(%s) failed: %s", instance_id, e)
+            return None
+
+    def delete_connector_instance(self, instance_id: str) -> bool:
+        """Delete a connector instance. Returns True if deleted."""
+        if self._connectors is None:
+            return False
+        try:
+            self._connectors.delete(instance_id)
+            self._connectors.flush()
+            return True
+        except Exception as e:
+            logger.warning("Failed to delete connector instance %s: %s", instance_id, e)
+            return False
+
+    def list_connector_instances(self) -> list[dict]:
+        """List all connector instances stored in zvec."""
+        if self._connectors is None:
+            return []
+        import json as _json
+        try:
+            # zvec doesn't have a native scan-all, so we use search with a zero vector
+            results = self._connectors.search(
+                vector=[0.0] * EMBEDDING_DIM,
+                top_k=1000,
+            )
+            instances = []
+            for hit in results:
+                doc_id = hit.id
+                try:
+                    fetched = self._connectors.fetch(doc_id)
+                    if doc_id not in fetched:
+                        continue
+                    doc = fetched[doc_id]
+                    instances.append({
+                        "id": doc_id,
+                        "connector_id": doc.field("connector_id"),
+                        "name": doc.field("name"),
+                        "enabled": bool(doc.field("enabled")),
+                        "config": _json.loads(doc.field("config") or "{}"),
+                        "credential_status": doc.field("credential_status"),
+                        "created_at": doc.field("created_at"),
+                    })
+                except Exception:
+                    continue
+            return instances
+        except Exception as e:
+            logger.warning("list_connector_instances failed: %s", e)
+            return []
+
     # ── Embedding ──────────────────────────────────────────────────────
+
 
     def _get_embed_fn(self):
         """Lazy-load embedding model on first use."""
