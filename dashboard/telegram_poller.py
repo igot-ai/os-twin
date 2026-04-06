@@ -463,8 +463,8 @@ async def _cmd_submenu_monitoring(bot_token: str, chat_id: int):
         [{"text": "⚠️ Errors", "callback_data": "cmd:errors"}],
         [{"text": "⬅️ Back", "callback_data": "menu:main"}],
     ]
-        await send_inline_keyboard(bot_token, chat_id,
-            "📊 *Monitoring*\nReal-time War-Room insights:", keyboard)
+    await send_inline_keyboard(bot_token, chat_id,
+        "📊 *Monitoring*\nReal-time War-Room insights:", keyboard)
 
 async def _generate_plan_from_assets(bot_token: str, chat_id: int, plan_id: str):
     """Generate a plan from uploaded assets using AI."""

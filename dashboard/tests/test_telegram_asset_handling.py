@@ -120,7 +120,7 @@ async def test_handle_document_in_planning_session(temp_plan, monkeypatch):
     # Mock send_reply to capture messages
     sent_messages = []
 
-    async def mock_send(bot_token, chat_id, text):
+    async def mock_send(bot_token, chat_id, text, **kwargs):
         sent_messages.append(text)
 
     monkeypatch.setattr("dashboard.telegram_poller.send_reply", mock_send)
@@ -178,7 +178,7 @@ async def test_handle_photo_in_planning_session(temp_plan, monkeypatch):
 
     sent_messages = []
 
-    async def mock_send(bot_token, chat_id, text):
+    async def mock_send(bot_token, chat_id, text, **kwargs):
         sent_messages.append(text)
 
     monkeypatch.setattr("dashboard.telegram_poller.send_reply", mock_send)
