@@ -1,6 +1,7 @@
 'use client';
 
 import { Connector } from '@/types';
+import ConnectorIcon from './ConnectorIcon';
 
 interface RegistryCardProps {
   connector: Connector;
