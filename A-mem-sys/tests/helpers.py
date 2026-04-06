@@ -118,7 +118,7 @@ class InMemoryRetriever:
     def __init__(
         self,
         collection_name: str = "memories",
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: str = "microsoft/harrier-oss-v1-270m",
         persist_dir: str | None = None,
         embedding_backend: str = "sentence-transformer",
     ):
@@ -180,7 +180,7 @@ def patched_memory_system(llm: DeterministicLLM | None = None, **kwargs):
         return SimpleNamespace(llm=fake_llm)
 
     with patch("agentic_memory.memory_system.LLMController", new=_controller_factory), patch(
-        "agentic_memory.memory_system.ChromaRetriever", new=InMemoryRetriever
+        "agentic_memory.memory_system.ZvecRetriever", new=InMemoryRetriever
     ):
         system = AgenticMemorySystem(**kwargs)
         yield system, fake_llm

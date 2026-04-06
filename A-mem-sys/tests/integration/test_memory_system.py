@@ -154,3 +154,42 @@ class TestAgenticMemorySystemIntegration(unittest.TestCase):
             updated_neighbor = memory_system.read(processed_note.links[0])
             self.assertTrue(updated_neighbor.context.startswith("Updated context"))
             self.assertIn("updated", updated_neighbor.tags)
+
+    def test_vector_index_rebuilt_on_startup_when_missing(self):
+        """Test that vector index is rebuilt from persisted notes on startup."""
+        import shutil
+        
+        with TemporaryDirectory() as temp_dir:
+            # Phase 1: Create memories and persist
+            with patched_memory_system(persist_dir=temp_dir) as (memory_system, _fake_llm):
+                memory_id = memory_system.add_note(
+                    "Python async programming with asyncio and coroutines",
+                    name="Async Python",
+                    path="programming/python",
+                )
+                memory_system.sync_to_disk()
+                
+                # Verify search works before restart
+                results = memory_system.search("async programming", k=1)
+                self.assertEqual(len(results), 1)
+                self.assertEqual(results[0]["id"], memory_id)
+            
+            # Phase 2: Delete vectordb but keep notes
+            vectordb_path = Path(temp_dir) / "vectordb"
+            if vectordb_path.exists():
+                shutil.rmtree(vectordb_path)
+            
+            # Verify notes still exist but vectordb is gone
+            notes_path = Path(temp_dir) / "notes"
+            self.assertTrue(notes_path.exists())
+            self.assertFalse(vectordb_path.exists())
+            
+            # Phase 3: Reload - vector index should be rebuilt
+            with patched_memory_system(persist_dir=temp_dir) as (reloaded, _fake_llm):
+                # Memories should be loaded
+                self.assertEqual(len(reloaded.memories), 1)
+                
+                # Search should work (vector index rebuilt)
+                results = reloaded.search("async programming", k=1)
+                self.assertEqual(len(results), 1, "Search should return results after index rebuild")
+                self.assertEqual(results[0]["id"], memory_id)
