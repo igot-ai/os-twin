@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # agent — bash entry point for Agent OS CLI
 #
-# Wraps cli.py with environment resolution so roles can invoke via:
+# Wraps opencode with environment resolution so roles can invoke via:
 #   ostwin agent [args...]
 #   .agents/bin/agent [args...]
 #
@@ -15,27 +15,6 @@ set -euo pipefail
 # --- Resolve AGENTS_DIR ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# --- Resolve Python interpreter ---
-PYTHON="${AGENTS_DIR}/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="$HOME/.ostwin/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="python3"
-
-# Prefer the Python that has deepagents_cli installed
-if command -v deepagents &>/dev/null; then
-  _DA_BIN="$(command -v deepagents)"
-  _DA_SHEBANG_PY="$(head -1 "$_DA_BIN" 2>/dev/null | sed 's|^#!||')"
-  if [[ -x "$_DA_SHEBANG_PY" ]]; then
-    PYTHON="$_DA_SHEBANG_PY"
-  else
-    _DA_BIN_DIR="$(dirname "$(realpath "$_DA_BIN" 2>/dev/null || echo "$_DA_BIN")")"
-    if [[ -x "$_DA_BIN_DIR/python3" ]]; then
-      PYTHON="$_DA_BIN_DIR/python3"
-    elif [[ -x "$_DA_BIN_DIR/python" ]]; then
-      PYTHON="$_DA_BIN_DIR/python"
-    fi
-  fi
-fi
 
 # --- Load .env files ---
 _load_env_file() {
@@ -58,12 +37,19 @@ _load_env_file "$HOME/.ostwin/.env"
 _load_env_file "$AGENTS_DIR/.env"
 
 # --- Self-register PID for orchestration tracking ---
-# Write our PID (which exec will inherit) so the manager can track us.
 # AGENT_OS_PID_FILE is set by Invoke-Agent.ps1 when launching via the
 # orchestration system. When run standalone, this is a no-op.
 if [[ -n "${AGENT_OS_PID_FILE:-}" ]]; then
   echo "$$" > "$AGENT_OS_PID_FILE"
 fi
 
-# --- Execute cli.py with all arguments ---
-exec "$PYTHON" "$AGENTS_DIR/bin/cli.py" "$@"
+# --- Ensure opencode is available ---
+if ! command -v opencode &>/dev/null; then
+  echo "[agent] ERROR: opencode not found in PATH." >&2
+  echo "  Install with: brew install anomalyco/tap/opencode" >&2
+  echo "            or: curl -fsSL https://opencode.ai/install | bash" >&2
+  exit 1
+fi
+
+# --- Execute opencode run with all arguments ---
+exec opencode run "$@"
