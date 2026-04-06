@@ -2,6 +2,7 @@
 
 import { Connector, ConnectorInstance } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import ConnectorIcon from './ConnectorIcon';
 
 interface ConnectorCardProps {
   instance: ConnectorInstance;
@@ -10,7 +11,6 @@ interface ConnectorCardProps {
 }
 
 export default function ConnectorCard({ instance, connector, onClick }: ConnectorCardProps) {
-  const iconName = connector?.icon || 'hub';
   const isEnabled = instance.enabled;
   const status = instance.credential_status;
 
@@ -20,8 +20,8 @@ export default function ConnectorCard({ instance, connector, onClick }: Connecto
       className="group relative flex flex-col p-6 rounded-2xl bg-white border border-slate-200 hover:border-primary/30 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 text-left"
     >
       <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${isEnabled ? 'bg-primary/10 text-primary' : 'bg-slate-100 text-slate-400'}`}>
-          <span className="material-symbols-outlined text-2xl font-bold">{iconName}</span>
+        <div className={`w-12 h-12 rounded-xl border flex items-center justify-center overflow-hidden p-1.5 transition-all ${isEnabled ? 'border-primary/20 bg-primary/5' : 'border-slate-200 bg-slate-50 opacity-60'}`}>
+          <ConnectorIcon name={connector?.icon || ''} className="w-full h-full" />
         </div>
         <div className="flex flex-col items-end gap-2">
           <StatusBadge 

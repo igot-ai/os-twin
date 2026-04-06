@@ -9,16 +9,14 @@ interface RegistryCardProps {
 }
 
 export default function RegistryCard({ connector, onClick }: RegistryCardProps) {
-  const iconName = connector.icon || 'hub';
-
   return (
     <button
       onClick={onClick}
       className="group relative flex flex-col p-6 rounded-2xl bg-slate-50 border-2 border-dashed border-slate-200 hover:border-primary/50 hover:bg-primary/5 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300 text-left"
     >
       <div className="flex items-start justify-between mb-4">
-        <div className="w-12 h-12 rounded-xl bg-slate-200 flex items-center justify-center text-slate-500 group-hover:bg-primary/20 group-hover:text-primary transition-colors">
-          <span className="material-symbols-outlined text-2xl font-bold">{iconName}</span>
+        <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-primary/30 group-hover:shadow-sm transition-all overflow-hidden p-1.5">
+          <ConnectorIcon name={connector.icon} className="w-full h-full" />
         </div>
         <div className="flex flex-col items-end gap-2">
           <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-primary/50 transition-colors">
