@@ -94,7 +94,7 @@ if ($auditConfigs) {
     $auditRoleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $auditConfigs[0].FullName -Encoding utf8
     $auditRoleConfigFile = $auditConfigs[0].FullName
 } else {
-    $auditModel = "gemini-3.1-pro-preview"
+    $auditModel = "google-vertex/gemini-3.1-pro-preview"
     if ($config -and $config.audit -and $config.audit.default_model) {
         $auditModel = $config.audit.default_model
     }
@@ -321,7 +321,7 @@ if ($prompt.Length -gt $maxPromptBytes) {
 Write-Log "INFO" "[AUDIT] Starting investigation on $taskRef in $roomName"
 
 # --- Run the agent ---
-$agentModel = "gemini-3.1-pro-preview"
+$agentModel = "google-vertex/gemini-3.1-pro-preview"
 if ($auditConfigs) {
     $latestConfig = Get-Content $auditConfigs[0].FullName -Raw | ConvertFrom-Json
     if ($latestConfig.model) { $agentModel = $latestConfig.model }

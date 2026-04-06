@@ -62,7 +62,7 @@ Create `~/.ostwin/roles/<role-name>/role.json` using this template:
     "<skill-2>"
   ],
   "cli": "deepagents",
-  "model": "gemini-3-flash-preview",
+  "model": "google-vertex/gemini-3-flash-preview",
   "timeout": 600
 }
 ```
@@ -76,7 +76,7 @@ Create `~/.ostwin/roles/<role-name>/role.json` using this template:
 | `capabilities` | What the agent *can do* (e.g. `code-generation`, `security-review`, `documentation`) |
 | `quality_gates` | Checks that must pass before work is accepted (e.g. `unit-tests`, `lint-clean`) |
 | `skills` | Technologies / domains the agent is proficient in |
-| `model` | LLM model to use. Use `gemini-3-flash-preview` for speed, `gemini-3.1-pro-preview` for complex reasoning |
+| `model` | LLM model to use. Use `google-vertex/gemini-3-flash-preview` for speed, `google-vertex/gemini-3.1-pro-preview` for complex reasoning |
 | `timeout` | Max seconds the agent can run per invocation (default: 600) |
 
 ### 3. Create `ROLE.md`
@@ -135,7 +135,7 @@ Add an entry to the `roles` array in `~/.ostwin/roles/registry.json`:
   "supported_task_types": ["task", "epic"],
   "capabilities": ["<cap-1>", "<cap-2>"],
   "quality_gates": ["<gate-1>", "<gate-2>"],
-  "default_model": "gemini-3-flash-preview"
+  "default_model": "google-vertex/gemini-3-flash-preview"
 }
 ```
 

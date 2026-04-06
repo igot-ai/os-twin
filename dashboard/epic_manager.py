@@ -122,7 +122,7 @@ class EpicSkillsManager:
         skill_refs -= disabled
 
         merged = {
-            "model": room_overrides.get("default_model") or plan_role_config.get("default_model") or role_defaults.get("default_model", "gemini-3-flash-preview"),
+            "model": room_overrides.get("default_model") or plan_role_config.get("default_model") or role_defaults.get("default_model", "google-vertex/gemini-3-flash-preview"),
             "temperature": room_overrides.get("temperature") if room_overrides.get("temperature") is not None else plan_role_config.get("temperature") if plan_role_config.get("temperature") is not None else 0.7,
             "skill_refs": list(skill_refs),
             "brief": room_brief

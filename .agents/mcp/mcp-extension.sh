@@ -300,7 +300,7 @@ import json, os, glob, sys
 ext_path = '$ext_path'
 name = '$name'
 candidates = []
-for f in ['gemini-extension.json', 'config.json', 'mcp-config.json']:
+for f in ['google-vertex/gemini-extension.json', 'config.json', 'mcp-config.json']:
     p = os.path.join(ext_path, f)
     if os.path.isfile(p): candidates.append(p)
 for p in sorted(glob.glob(os.path.join(ext_path, '*.json'))):

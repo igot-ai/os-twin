@@ -24,6 +24,6 @@
     "risk-decision"
   ],
   "cli": "agent",
-  "model": "gemini-3.1-pro-preview",
+  "model": "google-vertex/gemini-3.1-pro-preview",
   "timeout": 2400
 }

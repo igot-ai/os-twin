@@ -7,7 +7,7 @@ mode, ACP server, and sandbox features.
 
 Usage:
     ostwin chat [options]
-    ostwin chat -a coder -M gemini-3-flash-preview
+    ostwin chat -a coder -M google-vertex/gemini-3-flash-preview
     ostwin chat -m "Explain the architecture"
     ostwin chat -r                     # Resume most recent thread
     ostwin chat -r <thread-id>         # Resume specific thread
@@ -50,7 +50,7 @@ def _show_help() -> None:
 
 \033[1mOptions:\033[0m
   -a, --agent NAME         Agent to use (default: agent)
-  -M, --model MODEL        Model to use (e.g., gemini-3-flash-preview)
+  -M, --model MODEL        Model to use (e.g., google-vertex/gemini-3-flash-preview)
   --model-params JSON      Extra model kwargs as JSON string
   -m, --message TEXT       Initial prompt to auto-submit on start
   -r, --resume [ID]        Resume thread: -r for most recent, -r ID for specific
@@ -65,7 +65,7 @@ def _show_help() -> None:
 \033[1mExamples:\033[0m
   ostwin chat                              # Start new interactive session
   ostwin chat -a coder                     # Use the 'coder' agent
-  ostwin chat -M gemini-3-flash-preview    # Use specific model
+  ostwin chat -M google-vertex/gemini-3-flash-preview    # Use specific model
   ostwin chat -m "Explain the codebase"    # Auto-submit initial prompt
   ostwin chat -r                           # Resume most recent thread
   ostwin chat --auto-approve               # Auto-approve tool calls
@@ -95,7 +95,7 @@ def parse_chat_args() -> argparse.Namespace:
     parser.add_argument(
         "-M", "--model",
         metavar="MODEL",
-        help="Model to use (e.g., gemini-3-flash-preview). "
+        help="Model to use (e.g., google-vertex/gemini-3-flash-preview). "
              "Provider is auto-detected from model name.",
     )
 

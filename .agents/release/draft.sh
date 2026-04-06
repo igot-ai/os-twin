@@ -66,7 +66,7 @@ if msgs:
         r'^Running task non-interactively',
         r'^Agent active',
         r'^Usage Stats',
-        r'^\s*gemini-',
+        r'^\s*google-vertex/gemini-',
         r'^. Task completed',
         r'^System\.Management\.Automation',
         r'^\s*Reqs\s+InputTok',      # Usage stats table header
