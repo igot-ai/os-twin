@@ -7,8 +7,13 @@
 
 set -euo pipefail
 
-# Load global environment variables (~/.ostwin/.env)
+# Activate the Ostwin venv — makes `python` resolve to the managed interpreter
 OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
+if [[ -f "$OSTWIN_HOME/.venv/bin/activate" ]]; then
+  source "$OSTWIN_HOME/.venv/bin/activate"
+fi
+
+# Load global environment variables (~/.ostwin/.env)
 if [[ -f "$OSTWIN_HOME/.env" ]]; then
   set -a
   source <(grep -v '^\s*#' "$OSTWIN_HOME/.env" | grep -v '^\s*$')
@@ -48,9 +53,8 @@ if [[ -z "$AGENTS_DIR" ]]; then
   fi
   AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
 fi
-PYTHON="$HOME/.ostwin/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="${AGENTS_DIR}/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="python3"
+# After venv activation, `python` is the managed interpreter
+PYTHON="$(command -v python 2>/dev/null || echo python3)"
 
 # --- Load .env files (available to ALL subcommands) ---
 # Priority: ~/.ostwin/.env (global) → $AGENTS_DIR/.env (project)

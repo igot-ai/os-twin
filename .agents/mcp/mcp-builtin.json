@@ -2,21 +2,21 @@
   "mcp": {
     "channel": {
       "type": "local",
-      "command": ["{env:AGENT_DIR}/.venv/bin/python", "{env:AGENT_DIR}/mcp/channel-server.py"],
+      "command": ["python", "{env:AGENT_DIR}/mcp/channel-server.py"],
       "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "warroom": {
       "type": "local",
-      "command": ["{env:AGENT_DIR}/.venv/bin/python", "{env:AGENT_DIR}/mcp/warroom-server.py"],
+      "command": ["python", "{env:AGENT_DIR}/mcp/warroom-server.py"],
       "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "memory": {
       "type": "local",
-      "command": ["{env:AGENT_DIR}/.venv/bin/python", "{env:AGENT_DIR}/mcp/memory-server.py"],
+      "command": ["python", "{env:AGENT_DIR}/mcp/memory-server.py"],
       "environment": {
         "AGENT_OS_ROOT": "{env:PROJECT_DIR}"
       }

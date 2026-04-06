@@ -41,7 +41,11 @@ MCP_DIR = AGENTS_DIR / "mcp"
 EXTENSIONS_FILE = MCP_DIR / "extensions.json"
 CATALOG_FILE = MCP_DIR / "mcp-catalog.json"
 BUILTIN_CONFIG_FILE = MCP_DIR / "mcp-builtin.json"
-HOME_CONFIG_FILE = Path.home() / ".ostwin" / "mcp" / "mcp-config.json"
+HOME_CONFIG_FILE = Path.home() / ".ostwin" / ".agents" / "mcp" / "config.json"
+if not HOME_CONFIG_FILE.exists():
+    _legacy = Path.home() / ".ostwin" / ".agents" / "mcp" / "mcp-config.json"
+    if _legacy.exists():
+        HOME_CONFIG_FILE = _legacy
 SCRIPT = MCP_DIR / "mcp-extension.sh"
 
 
@@ -151,8 +155,8 @@ def _mask_sensitive_config(config: dict) -> dict:
     for section in ("environment", "headers"):
         if section in safe and isinstance(safe[section], dict):
             for k, v in safe[section].items():
-                if isinstance(v, str) and not v.startswith("${"):
-                    # Plaintext value — mask it
+                if isinstance(v, str) and not (v.startswith("${") or v.startswith("{env:")):
+                    # Plaintext value — mask it (skip template references)
                     safe[section][k] = v[:4] + "****" if len(v) > 4 else "****"
     return safe
 
@@ -308,29 +312,40 @@ async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
                 async with ClientSession(read, write) as session:
                     return await _test_session(session)
         else:
+            import re
             import shutil
+
+            def _resolve_env_placeholders(value: str) -> str:
+                """Replace {env:VAR} with os.environ[VAR], leave unresolved as-is."""
+                return re.sub(
+                    r'\{env:(\w+)\}',
+                    lambda m: os.environ.get(m.group(1), m.group(0)),
+                    value,
+                )
+
             command = config.get("command", [])
             # OpenCode format: command is an array
             if isinstance(command, list):
+                command = [_resolve_env_placeholders(c) for c in command]
                 executable = command[0] if command else ""
                 cmd_args = command[1:] if len(command) > 1 else []
             else:
                 # Legacy fallback: string command
                 import shlex
+                command = _resolve_env_placeholders(command)
                 parts = shlex.split(command)
                 executable = parts[0] if parts else command
                 cmd_args = parts[1:] if len(parts) > 1 else []
 
-            if "{env:AGENT_DIR}" in executable:
-                executable = executable.replace("{env:AGENT_DIR}", str(AGENTS_DIR))
-
             # Resolve executable via PATH
             full_command = shutil.which(executable) or executable
 
+            # Resolve {env:VAR} in environment values too
+            env_vars = {k: _resolve_env_placeholders(v) for k, v in config.get("environment", {}).items()}
             server_params = StdioServerParameters(
                 command=full_command,
                 args=cmd_args,
-                env={**os.environ, **config.get("environment", {})}
+                env={**os.environ, **env_vars}
             )
 
             async with stdio_client(server_params) as (read, write):

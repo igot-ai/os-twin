@@ -892,14 +892,16 @@ patch_mcp_config() {
 
   step "Patching MCP config..."
 
-  # 1. Replace OSTWIN_VENV_PYTHON placeholder
-  if [[ "$OS" == "macos" ]]; then
-    sed -i '' "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+  # 1. Ensure OSTWIN_PYTHON is set in .env (used by {env:OSTWIN_PYTHON} in config)
+  if [[ -f "$env_file" ]]; then
+    if ! grep -q "^OSTWIN_PYTHON=" "$env_file"; then
+      echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" >> "$env_file"
+    fi
   else
-    sed -i "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+    echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" > "$env_file"
   fi
 
-  # 2. Inject all .env variables into every MCP server's "env" block
+  # 2. Inject all .env variables into every MCP server's "environment" block
   if [[ -f "$env_file" ]]; then
     "$VENV_DIR/bin/python" - "$mcp_config" "$env_file" <<'PYEOF'
 import json, sys, os
@@ -951,6 +953,75 @@ with open(mcp_path, 'w') as f:
 print(f"    Injected {len(env_vars)} env var(s) into {len(servers)} MCP server(s)")
 PYEOF
   fi
+
+  # 3. Write $PROJECT_DIR/.opencode/opencode.json with all {env:*} resolved
+  "$VENV_DIR/bin/python" - "$mcp_config" "$INSTALL_DIR" "$env_file" <<'PYEOF'
+import json, sys, os, re
+
+mcp_path, project_dir, env_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# Load .env for resolving {env:VAR} references
+env_extra = {}
+if os.path.exists(env_path):
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, _, v = line.partition('=')
+            env_extra[k.strip()] = v.strip().strip('"').strip("'")
+env_all = {**os.environ, **env_extra}
+
+def resolve_env_refs(text):
+    return re.sub(r'\{env:(\w+)\}', lambda m: env_all.get(m.group(1), m.group(0)), text)
+
+with open(mcp_path) as f:
+    config = json.load(f)
+servers = config.get('mcp', config.get('mcpServers', {}))
+
+# Build opencode.json:
+# - command arrays: resolve ALL {env:*} to literal paths
+# - environment/headers: STRIP {env:*} pass-throughs (server inherits parent env, no secrets on disk)
+import shutil
+python_abs = shutil.which('python') or shutil.which('python3') or 'python'
+
+env_ref_pattern = re.compile(r'\{env:\w+\}')
+resolved_mcp = {}
+for name, cfg in servers.items():
+    out = {}
+    for key, val in cfg.items():
+        if key == 'command' and isinstance(val, list):
+            resolved_cmd = []
+            for i, c in enumerate(val):
+                if isinstance(c, str):
+                    c = resolve_env_refs(c)
+                    if i == 0 and c in ('python', 'python3'):
+                        c = python_abs
+                resolved_cmd.append(c)
+            out[key] = resolved_cmd
+        elif key in ('environment', 'headers') and isinstance(val, dict):
+            cleaned = {k: v for k, v in val.items()
+                       if not (isinstance(v, str) and env_ref_pattern.search(v))}
+            if cleaned:
+                out[key] = cleaned
+        elif key == 'url' and isinstance(val, str):
+            out[key] = resolve_env_refs(val)
+        else:
+            out[key] = val
+    resolved_mcp[name] = out
+
+opencode_dir = os.path.join(project_dir, '.opencode')
+os.makedirs(opencode_dir, exist_ok=True)
+opencode_file = os.path.join(opencode_dir, 'opencode.json')
+opencode_config = {
+    "$schema": "https://opencode.ai/config.json",
+    "mcp": resolved_mcp
+}
+with open(opencode_file, 'w') as f:
+    json.dump(opencode_config, f, indent=2)
+    f.write('\n')
+print(f"    Generated {opencode_file}")
+PYEOF
 
   ok "MCP config patched"
 }

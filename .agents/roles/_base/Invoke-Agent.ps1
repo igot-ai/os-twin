@@ -312,80 +312,99 @@ foreach ($f in $Files) { $extraCliArgs += "--file"; $extraCliArgs += $f }
 $extraCliArgs += "--file"; $extraCliArgs += $promptFileAbsolute
 
 # --- MCP config: resolve and generate opencode.json for MCP servers ---
-# opencode run reads MCP config from opencode.json, not CLI flags.
+# opencode run reads MCP config from .opencode/opencode.json (standard location).
 # If no_mcp is set in role config, skip MCP entirely.
 $tempMcpConfig = $null
 if (-not $NoMcp) {
-    $resolvedMcpConfig = $McpConfig
-    if (-not $resolvedMcpConfig) {
-        # Priority 1: project-local MCP config
-        if ($ProjectDir) {
-            foreach ($projectMcpConfig in @(
-                    (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
-                    (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
-                )) {
-                if (Test-Path $projectMcpConfig) {
-                    $resolvedMcpConfig = $projectMcpConfig
-                    break
-                }
-            }
-        }
-        # Priority 2: agents dir (same repo, e.g. installed copy)
-        if (-not $resolvedMcpConfig) {
-            foreach ($agentsDirMcpConfig in @(
-                    (Join-Path $agentsDir "mcp" "config.json"),
-                    (Join-Path $agentsDir "mcp" "mcp-config.json")
-                )) {
-                if (Test-Path $agentsDirMcpConfig) {
-                    $resolvedMcpConfig = $agentsDirMcpConfig
-                    break
-                }
-            }
-        }
-        # Priority 3: OSTWIN_HOME global config
-        if (-not $resolvedMcpConfig) {
-            foreach ($ostwinMcpConfig in @(
-                    (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
-                    (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
-                    (Join-Path $OstwinHome "mcp" "config.json"),
-                    (Join-Path $OstwinHome "mcp" "mcp-config.json")
-                )) {
-                if (Test-Path $ostwinMcpConfig) {
-                    $resolvedMcpConfig = $ostwinMcpConfig
-                    break
-                }
-            }
-        }
+    # Priority 0: pre-compiled .opencode/opencode.json in project dir (written by ostwin init/compile)
+    $precompiledOpencode = $null
+    if ($ProjectDir) {
+        $precompiledOpencode = Join-Path $ProjectDir ".opencode" "opencode.json"
     }
-    if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
-        $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
-        # Expand ${AGENT_DIR} → absolute agentsDir
-        if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
-        }
-        # Expand ${PROJECT_DIR} → absolute project dir
-        if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
-        }
-        # Parse the MCP config and wrap it for opencode.json format
-        try {
-            $mcpParsed = $mcpConfigContent | ConvertFrom-Json
-            # opencode.json expects { "mcp": { "<name>": { "type": "local"|"remote", "command": [...], ... } } }
-            # Source config uses "mcp" key directly (OpenCode format), fallback to legacy "mcpServers"/"servers"
-            $mcpServers = $null
-            if ($mcpParsed.PSObject.Properties['mcp']) { $mcpServers = $mcpParsed.mcp }
-            elseif ($mcpParsed.PSObject.Properties['mcpServers']) { $mcpServers = $mcpParsed.mcpServers }
-            elseif ($mcpParsed.PSObject.Properties['servers']) { $mcpServers = $mcpParsed.servers }
-            else { $mcpServers = $mcpParsed }
-
-            if ($mcpServers) {
-                $opencodeConfig = @{ mcp = $mcpServers } | ConvertTo-Json -Depth 10
-                $tempMcpConfig = Join-Path $artifactsDir "opencode.json"
-                $opencodeConfig | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
+    if ($precompiledOpencode -and (Test-Path $precompiledOpencode)) {
+        # Use pre-compiled config directly — already in OpenCode format with $schema
+        $tempMcpConfig = $precompiledOpencode
+    }
+    else {
+        # Fallback: resolve from .agents/mcp/ configs and generate opencode.json
+        $resolvedMcpConfig = $McpConfig
+        if (-not $resolvedMcpConfig) {
+            # Priority 1: project-local MCP config
+            if ($ProjectDir) {
+                foreach ($projectMcpConfig in @(
+                        (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
+                        (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
+                    )) {
+                    if (Test-Path $projectMcpConfig) {
+                        $resolvedMcpConfig = $projectMcpConfig
+                        break
+                    }
+                }
+            }
+            # Priority 2: agents dir (same repo, e.g. installed copy)
+            if (-not $resolvedMcpConfig) {
+                foreach ($agentsDirMcpConfig in @(
+                        (Join-Path $agentsDir "mcp" "config.json"),
+                        (Join-Path $agentsDir "mcp" "mcp-config.json")
+                    )) {
+                    if (Test-Path $agentsDirMcpConfig) {
+                        $resolvedMcpConfig = $agentsDirMcpConfig
+                        break
+                    }
+                }
+            }
+            # Priority 3: OSTWIN_HOME global config
+            if (-not $resolvedMcpConfig) {
+                foreach ($ostwinMcpConfig in @(
+                        (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
+                        (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
+                        (Join-Path $OstwinHome "mcp" "config.json"),
+                        (Join-Path $OstwinHome "mcp" "mcp-config.json")
+                    )) {
+                    if (Test-Path $ostwinMcpConfig) {
+                        $resolvedMcpConfig = $ostwinMcpConfig
+                        break
+                    }
+                }
             }
         }
-        catch {
-            Write-Warning "[Invoke-Agent] Failed to parse MCP config for opencode.json: $($_.Exception.Message)"
+        if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
+            $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
+            # Expand {env:AGENT_DIR} → absolute agentsDir (OpenCode format)
+            if ($mcpConfigContent -match '\{env:AGENT_DIR\}') {
+                $mcpConfigContent = $mcpConfigContent -replace '\{env:AGENT_DIR\}', $agentsDir.Replace('\', '/')
+            }
+            # Expand {env:PROJECT_DIR} → absolute project dir (OpenCode format)
+            if ($ProjectDir -and ($mcpConfigContent -match '\{env:PROJECT_DIR\}')) {
+                $mcpConfigContent = $mcpConfigContent -replace '\{env:PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
+            }
+            # Legacy: also expand ${AGENT_DIR} / ${PROJECT_DIR} for pre-migration configs
+            if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
+                $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
+            }
+            if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
+                $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
+            }
+            # Parse the MCP config and wrap it for opencode.json format
+            try {
+                $mcpParsed = $mcpConfigContent | ConvertFrom-Json
+                # opencode.json expects { "$schema": "...", "mcp": { ... } }
+                # Source config uses "mcp" key directly (OpenCode format), fallback to legacy "mcpServers"/"servers"
+                $mcpServers = $null
+                if ($mcpParsed.PSObject.Properties['mcp']) { $mcpServers = $mcpParsed.mcp }
+                elseif ($mcpParsed.PSObject.Properties['mcpServers']) { $mcpServers = $mcpParsed.mcpServers }
+                elseif ($mcpParsed.PSObject.Properties['servers']) { $mcpServers = $mcpParsed.servers }
+                else { $mcpServers = $mcpParsed }
+
+                if ($mcpServers) {
+                    $opencodeConfig = @{ '$schema' = 'https://opencode.ai/config.json'; mcp = $mcpServers } | ConvertTo-Json -Depth 10
+                    $tempMcpConfig = Join-Path $artifactsDir "opencode.json"
+                    $opencodeConfig | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
+                }
+            }
+            catch {
+                Write-Warning "[Invoke-Agent] Failed to parse MCP config for opencode.json: $($_.Exception.Message)"
+            }
         }
     }
 }
