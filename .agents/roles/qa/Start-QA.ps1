@@ -42,7 +42,7 @@ if (Test-Path $logModule) { Import-Module $logModule -Force }
 
 # --- Load config ---
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
-              else { Join-Path $agentsDir "config.json" }
+else { Join-Path $agentsDir "config.json" }
 
 if (Test-Path $configPath) {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -63,19 +63,19 @@ if ($qaConfigs) {
 }
 else {
     # First QA assignment — create qa_001.json
-    $qaModel = "gemini-3-flash-preview"
+    $qaModel = "google-vertex/gemini-3-flash-preview"
     if ($config -and $config.qa.default_model) {
         $qaModel = $config.qa.default_model
     }
     $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     $qaRoleConfigObj = [ordered]@{
-        role          = "qa"
-        instance_id   = "001"
-        instance_type = ""
-        display_name  = "qa #001"
-        model         = $qaModel
-        assigned_at   = $ts
-        status        = "active"
+        role            = "qa"
+        instance_id     = "001"
+        instance_type   = ""
+        display_name    = "qa #001"
+        model           = $qaModel
+        assigned_at     = $ts
+        status          = "active"
         config_override = [ordered]@{}
     }
     $qaRoleConfigFile = Join-Path $RoomDir "qa_001.json"
@@ -85,7 +85,8 @@ else {
 # --- Read task ref ---
 $taskRef = if (Test-Path (Join-Path $RoomDir "task-ref")) {
     (Get-Content (Join-Path $RoomDir "task-ref") -Raw).Trim()
-} else { "UNKNOWN" }
+}
+else { "UNKNOWN" }
 
 $roomName = Split-Path $RoomDir -Leaf
 
@@ -93,7 +94,8 @@ $roomName = Split-Path $RoomDir -Leaf
 $qaModel = if ($qaConfigs) {
     $qaRoleConfig = Get-Content $qaConfigs[0].FullName -Raw | ConvertFrom-Json
     $qaRoleConfig.model
-} else { "gemini-3-flash-preview" }
+}
+else { "google-vertex/gemini-3-flash-preview" }
 Write-Host "[QA] === Debug Config ==="
 Write-Host "[QA]   Room:      $roomName"
 Write-Host "[QA]   TaskRef:   $taskRef"
@@ -135,7 +137,8 @@ catch { }
 # --- Read original task ---
 $taskDesc = if (Test-Path (Join-Path $RoomDir "brief.md")) {
     Get-Content (Join-Path $RoomDir "brief.md") -Raw
-} else { "No task description found." }
+}
+else { "No task description found." }
 
 # --- Read TASKS.md for Epic reviews ---
 $tasksMd = ""
@@ -208,7 +211,8 @@ if (Test-Path $dagFile) {
                     if ($body.Length -gt 10240) { $body = $body.Substring(0, 10240) + "`n[TRUNCATED]" }
                     $sections += "### $depRef`n$body"
                 }
-            } catch { }
+            }
+            catch { }
         }
         if ($sections.Count -gt 0) {
             $predecessorSection = "`n`n## Predecessor Outputs`n`n$($sections -join "`n`n")"
@@ -248,8 +252,8 @@ Follow with detailed reasoning.
 "@
 
 $prompt = & $buildPrompt -RoleName "qa" -RolePath $scriptDir `
-                         -RoomDir $RoomDir -TaskRef $taskRef `
-                         -ExtraContext $extraContext
+    -RoomDir $RoomDir -TaskRef $taskRef `
+    -ExtraContext $extraContext
 
 Write-Host "[QA] Prompt assembled ($($prompt.Length) chars)"
 
@@ -264,7 +268,7 @@ else {
 # --- Run the agent ---
 Write-Host "[QA] Invoking agent: qa, room=$roomName, timeout=${TimeoutSeconds}s"
 $result = & $invokeAgent -RoomDir $RoomDir -RoleName "qa" `
-                         -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
+    -Prompt $prompt -TimeoutSeconds $TimeoutSeconds
 Write-Host "[QA] Agent returned: exitCode=$($result.ExitCode), timedOut=$($result.TimedOut), outputLen=$($result.Output.Length)"
 
 # --- Parse verdict from output ---
@@ -278,16 +282,16 @@ $cleanLines = ($rawOutput -split "`n") | Where-Object {
     # Skip empty and very short lines (likely corrupted fragments)
     if (-not $line -or $line.Length -lt 4) { return $false }
     -not ($line -match '^🔧' -or
-          $line -match '[Cc]alling tool:' -or
-          $line -match '^\w{0,5}\s*tool:' -or
-          $line -match '^Loading MCP' -or
-          $line -match '^Running task non-interactively' -or
-          $line -match '^Agent active' -or
-          $line -match '^Usage Stats' -or
-          $line -match '^\s*Reqs\s+InputTok' -or
-          $line -match '^\s*gemini-' -or
-          $line -match '^✓ Task completed' -or
-          $line -match '^System\.Management\.Automation')
+        $line -match '[Cc]alling tool:' -or
+        $line -match '^\w{0,5}\s*tool:' -or
+        $line -match '^Loading MCP' -or
+        $line -match '^Running task non-interactively' -or
+        $line -match '^Agent active' -or
+        $line -match '^Usage Stats' -or
+        $line -match '^\s*Reqs\s+InputTok' -or
+        $line -match '^\s*google-vertex/gemini-' -or
+        $line -match '^✓ Task completed' -or
+        $line -match '^System\.Management\.Automation')
 }
 $output = ($cleanLines -join "`n").Trim()
 if (-not $output) {
@@ -318,36 +322,36 @@ if (-not $verdict) {
 # --- Post result to channel ---
 if ($result.TimedOut) {
     & $postMessage -RoomDir $RoomDir -From "qa" -To "manager" `
-                   -Type "error" -Ref $taskRef -Body "QA timed out after ${TimeoutSeconds}s"
+        -Type "error" -Ref $taskRef -Body "QA timed out after ${TimeoutSeconds}s"
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level ERROR -Message "Timed out on $taskRef after ${TimeoutSeconds}s."
     }
 }
 elseif ($verdict -eq "PASS") {
     & $postMessage -RoomDir $RoomDir -From "qa" -To "manager" `
-                   -Type "pass" -Ref $taskRef -Body $output
+        -Type "pass" -Ref $taskRef -Body $output
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level INFO -Message "PASSED $taskRef."
     }
 }
 elseif ($verdict -eq "FAIL") {
     & $postMessage -RoomDir $RoomDir -From "qa" -To "manager" `
-                   -Type "fail" -Ref $taskRef -Body $output
+        -Type "fail" -Ref $taskRef -Body $output
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level INFO -Message "FAILED $taskRef."
     }
 }
 elseif ($verdict -eq "ESCALATE") {
     & $postMessage -RoomDir $RoomDir -From "qa" -To "manager" `
-                   -Type "escalate" -Ref $taskRef -Body $output
+        -Type "escalate" -Ref $taskRef -Body $output
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level WARN -Message "ESCALATED $taskRef — design/scope issue."
     }
 }
 else {
     & $postMessage -RoomDir $RoomDir -From "qa" -To "manager" `
-                   -Type "error" -Ref $taskRef `
-                   -Body "Could not parse QA verdict. Full output: $output"
+        -Type "error" -Ref $taskRef `
+        -Body "Could not parse QA verdict. Full output: $output"
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level WARN -Message "Could not parse verdict for $taskRef — posting as error."
     }

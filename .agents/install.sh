@@ -16,7 +16,7 @@
 #   - Python 3.10+       (via uv / brew / apt)
 #   - PowerShell 7+      (via brew / Microsoft repos)
 #   - uv                 (Python package/env manager)
-#   - deepagents-cli     (Agent execution engine)
+#   - opencode            (Agent execution engine)
 #   - Pester 5+          (PowerShell test framework)
 #   - MCP dependencies   (fastapi, uvicorn, etc.)
 #
@@ -193,8 +193,8 @@ check_uv() {
   command -v uv &>/dev/null
 }
 
-check_deepagents() {
-  command -v deepagents &>/dev/null
+check_opencode() {
+  command -v opencode &>/dev/null
 }
 
 check_brew() {
@@ -390,36 +390,29 @@ install_node() {
   ok "Node.js $NODE_VER installed to $node_dir"
 }
 
-install_deepagents() {
-  step "Installing deepagents-cli..."
-  if check_uv; then
-    # Preferred: uv tool install creates an isolated env
-    uv tool install 'deepagents-cli' 2>/dev/null || {
-      # If already installed, upgrade
-      uv tool upgrade deepagents-cli 2>/dev/null || true
-    }
+install_opencode() {
+  step "Installing opencode..."
+
+  # Preferred: brew (macOS and Linux, always up to date)
+  if command -v brew &>/dev/null; then
+    brew install anomalyco/tap/opencode 2>/dev/null || brew upgrade anomalyco/tap/opencode 2>/dev/null || true
   else
-    # Fallback: pip in the project venv
-    local pip_cmd="$VENV_DIR/bin/pip"
-    if [[ -x "$pip_cmd" ]]; then
-      "$pip_cmd" install --quiet deepagents-cli
-    else
-      pip3 install --user deepagents-cli
-    fi
+    # Fallback: official install script
+    curl -fsSL https://opencode.ai/install | bash
   fi
 
   # Verify
-  if check_deepagents; then
-    local da_ver
-    da_ver=$(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
-    ok "deepagents-cli $da_ver installed"
+  if check_opencode; then
+    local oc_ver
+    oc_ver=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+    ok "opencode $oc_ver installed"
   else
-    # May need PATH refresh
-    export PATH="$HOME/.local/bin:$HOME/.local/share/uv/tools/deepagents-cli/bin:$PATH"
-    if check_deepagents; then
-      ok "deepagents-cli installed (PATH updated)"
+    # PATH may need refreshing
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if check_opencode; then
+      ok "opencode installed (PATH updated)"
     else
-      warn "deepagents-cli installed but not in PATH yet"
+      warn "opencode installed but not in PATH yet"
       info "Run: source ~/.bashrc  (or open a new terminal)"
     fi
   fi
@@ -468,7 +461,7 @@ setup_venv() {
   fi
 
   # Always sync requirements — even if the venv was reused.
-  # This ensures newly added packages (e.g. deepagents) are installed
+  # This ensures newly added packages are installed
   # when a user re-runs install.sh after an update.
 
   # Install MCP requirements
@@ -1110,12 +1103,12 @@ else
   fi
 fi
 
-# --- deepagents-cli ---
-if check_deepagents; then
-  DA_VERSION=$(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
-  ok "deepagents-cli $DA_VERSION"
+# --- opencode ---
+if check_opencode; then
+  OC_VERSION=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+  ok "opencode $OC_VERSION"
 else
-  install_deepagents
+  install_opencode
 fi
 
 # --- Node.js ---
@@ -1270,10 +1263,10 @@ else
     echo -e "    uv:               ${YELLOW}⚠️  not installed${NC}"
   fi
 
-  if check_deepagents; then
-    echo -e "    deepagents-cli:   ${GREEN}✅ $(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
+  if check_opencode; then
+    echo -e "    opencode:         ${GREEN}✅ $(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
   else
-    echo -e "    deepagents-cli:   ${YELLOW}⚠️  not in PATH${NC}"
+    echo -e "    opencode:         ${YELLOW}⚠️  not in PATH${NC}"
   fi
 
   if [[ -d "$VENV_DIR" ]]; then

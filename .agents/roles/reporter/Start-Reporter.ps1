@@ -124,7 +124,7 @@ if ($TimeoutSeconds -eq 0) {
     $TimeoutSeconds = if ($roleDef -and $roleDef.Timeout) { $roleDef.Timeout } else { 600 }
 }
 
-$agentModel = if ($roleDef -and $roleDef.Model) { $roleDef.Model } else { "gemini-3-flash-preview" }
+$agentModel = if ($roleDef -and $roleDef.Model) { $roleDef.Model } else { "google-vertex/gemini-3-flash-preview" }
 
 # --- Read per-role config file (reporter_{id}.json) ---
 $roleInstanceModel = ""

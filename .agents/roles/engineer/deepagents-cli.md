@@ -34,7 +34,7 @@ deepagents --acp                  # Run as ACP server over stdio
 |------|-------------|
 | `-r, --resume [ID]` | Resume thread: `-r` for most recent, `-r ID` for specific |
 | `-a, --agent NAME` | Agent to use (e.g., `coder`, `researcher`) |
-| `-M, --model MODEL` | Model to use (e.g., `gemini-3.1-pro-preview`) |
+| `-M, --model MODEL` | Model to use (e.g., `google-vertex/gemini-3.1-pro-preview`) |
 | `--model-params JSON` | Extra model kwargs (e.g., `'{"temperature": 0.7}'`) |
 | `--profile-override JSON` | Override model profile fields as JSON |
 | `-m, --message TEXT` | Initial prompt to auto-submit on start |

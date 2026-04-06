@@ -26,10 +26,11 @@ interface RolesApiResponse {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
-  { value: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro' },
-  { value: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
+  { value: 'google-vertex/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
+  { value: 'google-vertex/gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+  { value: 'google-vertex/gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro' },
+  { value: 'google-vertex/gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
+  { value: 'google-vertex/zai-org/glm-5-maas', label: 'GLM-5' },
   { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
