@@ -48,7 +48,7 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, command, threads, tunnel
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, command, threads, tunnel, files
 from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
@@ -128,6 +128,7 @@ app.include_router(memory.router)
 app.include_router(channels.router)
 app.include_router(command.router)
 app.include_router(tunnel.router)
+app.include_router(files.router)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:

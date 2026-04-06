@@ -26,7 +26,7 @@ Describe "Read-OstwinConfig" {
             }
             engineer     = @{
                 cli             = "deepagents"
-                default_model   = "gemini-3-flash-preview"
+                default_model   = "google-vertex/gemini-3-flash-preview"
                 timeout_seconds = 600
                 max_prompt_bytes = 102400
             }
@@ -46,7 +46,7 @@ Describe "Read-OstwinConfig" {
     }
 
     It "reads a deeply nested key" {
-        Read-OstwinConfig -KeyPath "engineer.default_model" -ConfigPath $script:configFile | Should -Be "gemini-3-flash-preview"
+        Read-OstwinConfig -KeyPath "engineer.default_model" -ConfigPath $script:configFile | Should -Be "google-vertex/gemini-3-flash-preview"
     }
 
     It "reads boolean values as lowercase strings" {

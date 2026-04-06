@@ -1,23 +1,23 @@
 {
-  "mcpServers": {
+  "mcp": {
     "channel": {
-      "type": "stdio",
+      "type": "local",
       "description": "MCP server channel"
     },
     "warroom": {
-      "type": "stdio",
+      "type": "local",
       "description": "MCP server warroom"
     },
     "memory": {
-      "type": "stdio",
+      "type": "local",
       "description": "MCP server memory"
     },
     "stitch": {
-      "type": "http",
+      "type": "remote",
       "description": "MCP server stitch"
     },
     "github": {
-      "type": "stdio",
+      "type": "local",
       "description": "MCP server github"
     }
   }

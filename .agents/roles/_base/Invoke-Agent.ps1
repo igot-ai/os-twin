@@ -1,33 +1,49 @@
 <#
 .SYNOPSIS
-    Universal agent launcher — wraps deepagents CLI for any role.
+    Universal agent launcher — wraps opencode run for any role.
 
 .DESCRIPTION
-    Provides a common interface for launching deepagents with role-specific
+    Provides a common interface for launching opencode run with role-specific
     prompts, config, PID tracking, timeout, and output capture.
     Used by Start-Engineer.ps1, Start-QA.ps1, and future role runners.
 
-    New in v0.2 — replaces role-specific bash wrappers with a single reusable launcher.
+    v0.3 — migrated from deepagents CLI to opencode run.
 
 .PARAMETER RoomDir
     Path to the war-room directory.
 .PARAMETER RoleName
-    Role identifier (engineer, qa, architect, etc.).
+    Role identifier (engineer, qa, architect, etc.). Passed as --agent.
 .PARAMETER Prompt
-    Full prompt text to send to deepagents.
+    Full prompt text. Passed as a positional argument to opencode run.
 .PARAMETER Model
-    Model to use. Default from config.
+    Model to use (provider/model format). Passed as --model / -m.
 .PARAMETER TimeoutSeconds
     Max execution time. Default from config.
 .PARAMETER AgentCmd
-    Override CLI command (for testing with mocks). Default: deepagents.
-.PARAMETER AutoApprove
-    Auto-approve tool usage. Default: true.
-.PARAMETER Quiet
-    Always $true — agents always run in quiet mode (-q flag).
+    Override CLI command (for testing with mocks). Default: opencode run.
 .PARAMETER McpConfig
-    Path to the MCP config JSON. Defaults to <AGENTS_DIR>/mcp/config.json.
-    Pass empty string to disable MCP tool injection.
+    Path to the MCP config JSON. Used to generate an opencode.json config
+    in the artifacts dir. Pass empty string to disable MCP tool injection.
+.PARAMETER Format
+    Output format: 'default' (formatted) or 'json' (raw JSON events).
+.PARAMETER Files
+    File(s) to attach to the message. Each is passed as --file.
+.PARAMETER SessionTitle
+    Title for the session. Passed as --title.
+.PARAMETER SessionId
+    Session ID to continue. Passed as --session / -s.
+.PARAMETER ContinueSession
+    Continue the last session. Passed as --continue / -c.
+.PARAMETER ForkSession
+    Fork the session when continuing. Passed as --fork.
+.PARAMETER ShareSession
+    Share the session. Passed as --share.
+.PARAMETER Command
+    Command to run, use message for args. Passed as --command.
+.PARAMETER AttachUrl
+    Attach to a running opencode server. Passed as --attach.
+.PARAMETER Port
+    Port for the local server. Passed as --port.
 .PARAMETER ExtraArgs
     Additional CLI arguments as string array.
 
@@ -53,15 +69,21 @@ param(
     [string]$Model = '',
     [int]$TimeoutSeconds = 600,
     [string]$AgentCmd = '',
-    [bool]$AutoApprove = $true,
     [string]$InstanceId = '',
     [string]$WorkingDir = '',
     [string]$McpConfig = '',
+    [string]$Format = '',
+    [string[]]$Files = @(),
+    [string]$SessionTitle = '',
+    [string]$SessionId = '',
+    [switch]$ContinueSession,
+    [switch]$ForkSession,
+    [switch]$ShareSession,
+    [string]$Command = '',
+    [string]$AttachUrl = '',
+    [int]$Port = 0,
     [string[]]$ExtraArgs = @()
 )
-
-# --- Always run agents in quiet mode ---
-$Quiet = $true
 
 # --- Resolve paths ---
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
@@ -75,7 +97,7 @@ $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromP
 
 # --- Load config ---
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
-              else { Join-Path $agentsDir "config.json" }
+else { Join-Path $agentsDir "config.json" }
 
 # --- Load plan-specific roles config from room's config.json → plan_id ---
 $planRolesConfig = $null
@@ -90,7 +112,8 @@ if (Test-Path $roomConfigFile) {
                 $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
             }
         }
-    } catch { }
+    }
+    catch { }
 }
 
 # Safe defaults (overridden inside config block below)
@@ -185,13 +208,13 @@ if (Test-Path $configPath) {
         }
         else {
             $AgentCmd = $config.$RoleName.cli
-            if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or (-not $AgentCmd)) { $AgentCmd = "deepagents" }
+            if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
         }
     }
 }
 
-if (-not $AgentCmd) { $AgentCmd = "deepagents" }
-if (-not $Model) { $Model = "gemini-3-flash-preview" }
+if (-not $AgentCmd) { $AgentCmd = "opencode run" }
+if (-not $Model) { $Model = "google-vertex/zai-org/glm-5-maas" }
 
 # --- Env var overrides for testing ---
 $envCmdVar = "${RoleName}_CMD".ToUpper()
@@ -258,98 +281,139 @@ $maxProcessRetries = 3
 $exitCode = 0
 
 $stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
-             else { "NUL" }
+else { "NUL" }
 
 # Write prompt to a file to avoid shell escaping issues
 $promptFile = Join-Path $artifactsDir "prompt.txt"
 $Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
+# Resolve to absolute path for -f flag
+$promptFileAbsolute = (Resolve-Path $promptFile).Path
 
 # --- Debug: write a human-readable copy of the compiled prompt ---
 $debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
 $Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
 
-# Build non-prompt CLI args safely
+# Build non-prompt CLI args safely (opencode run flags)
+# Prompt is passed as --file <path> to avoid ARG_MAX limits with large prompts
 $extraCliArgs = @()
-if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
-if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
 if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
-if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
-if ($Quiet) { $extraCliArgs += "--quiet" }
+if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
+if ($Format) { $extraCliArgs += "--format"; $extraCliArgs += $Format }
+if ($SessionTitle) { $extraCliArgs += "--title"; $extraCliArgs += $SessionTitle }
+if ($SessionId) { $extraCliArgs += "--session"; $extraCliArgs += $SessionId }
+if ($ContinueSession) { $extraCliArgs += "--continue" }
+if ($ForkSession) { $extraCliArgs += "--fork" }
+if ($ShareSession) { $extraCliArgs += "--share" }
+if ($Command) { $extraCliArgs += "--command"; $extraCliArgs += $Command }
+if ($AttachUrl) { $extraCliArgs += "--attach"; $extraCliArgs += $AttachUrl }
+if ($Port -gt 0) { $extraCliArgs += "--port"; $extraCliArgs += $Port.ToString() }
+foreach ($f in $Files) { $extraCliArgs += "--file"; $extraCliArgs += $f }
+# Attach prompt file — avoids inlining huge prompt text on the command line
+$extraCliArgs += "--file"; $extraCliArgs += $promptFileAbsolute
 
-# --- MCP config: prefer project-local config.json, fall back to legacy/global ---
-# If no_mcp is set in role config, skip MCP entirely to avoid ClosedResourceError
-# on remote LangGraph execution. Role scripts handle channel communication instead.
-if ($NoMcp) {
-    $extraCliArgs += "--no-mcp"
-}
-else {
-    $resolvedMcpConfig = $McpConfig
-    if (-not $resolvedMcpConfig) {
-        # Priority 1: project-local MCP config
-        if ($ProjectDir) {
-            foreach ($projectMcpConfig in @(
-                (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
-                (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
-            )) {
-                if (Test-Path $projectMcpConfig) {
-                    $resolvedMcpConfig = $projectMcpConfig
-                    break
-                }
-            }
-        }
-        # Priority 2: agents dir (same repo, e.g. installed copy)
-        if (-not $resolvedMcpConfig) {
-            foreach ($agentsDirMcpConfig in @(
-                (Join-Path $agentsDir "mcp" "config.json"),
-                (Join-Path $agentsDir "mcp" "mcp-config.json")
-            )) {
-                if (Test-Path $agentsDirMcpConfig) {
-                    $resolvedMcpConfig = $agentsDirMcpConfig
-                    break
-                }
-            }
-        }
-        # Priority 3: OSTWIN_HOME global config
-        if (-not $resolvedMcpConfig) {
-            foreach ($ostwinMcpConfig in @(
-                (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
-                (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
-                (Join-Path $OstwinHome "mcp" "config.json"),
-                (Join-Path $OstwinHome "mcp" "mcp-config.json")
-            )) {
-                if (Test-Path $ostwinMcpConfig) {
-                    $resolvedMcpConfig = $ostwinMcpConfig
-                    break
-                }
-            }
-        }
+# --- MCP config: resolve and generate opencode.json for MCP servers ---
+# opencode run reads MCP config from .opencode/opencode.json (standard location).
+# If no_mcp is set in role config, skip MCP entirely.
+$tempMcpConfig = $null
+if (-not $NoMcp) {
+    # Priority 0: pre-compiled .opencode/opencode.json in project dir (written by ostwin init/compile)
+    $precompiledOpencode = $null
+    if ($ProjectDir) {
+        $precompiledOpencode = Join-Path $ProjectDir ".opencode" "opencode.json"
     }
-    if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
-        $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
-        # Expand ${AGENT_DIR} → absolute agentsDir
-        if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
+    if ($precompiledOpencode -and (Test-Path $precompiledOpencode)) {
+        # Use pre-compiled config directly — already in OpenCode format with $schema
+        $tempMcpConfig = $precompiledOpencode
+    }
+    else {
+        # Fallback: resolve from .agents/mcp/ configs and generate opencode.json
+        $resolvedMcpConfig = $McpConfig
+        if (-not $resolvedMcpConfig) {
+            # Priority 1: project-local MCP config
+            if ($ProjectDir) {
+                foreach ($projectMcpConfig in @(
+                        (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
+                        (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
+                    )) {
+                    if (Test-Path $projectMcpConfig) {
+                        $resolvedMcpConfig = $projectMcpConfig
+                        break
+                    }
+                }
+            }
+            # Priority 2: agents dir (same repo, e.g. installed copy)
+            if (-not $resolvedMcpConfig) {
+                foreach ($agentsDirMcpConfig in @(
+                        (Join-Path $agentsDir "mcp" "config.json"),
+                        (Join-Path $agentsDir "mcp" "mcp-config.json")
+                    )) {
+                    if (Test-Path $agentsDirMcpConfig) {
+                        $resolvedMcpConfig = $agentsDirMcpConfig
+                        break
+                    }
+                }
+            }
+            # Priority 3: OSTWIN_HOME global config
+            if (-not $resolvedMcpConfig) {
+                foreach ($ostwinMcpConfig in @(
+                        (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
+                        (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
+                        (Join-Path $OstwinHome "mcp" "config.json"),
+                        (Join-Path $OstwinHome "mcp" "mcp-config.json")
+                    )) {
+                    if (Test-Path $ostwinMcpConfig) {
+                        $resolvedMcpConfig = $ostwinMcpConfig
+                        break
+                    }
+                }
+            }
         }
-        # Expand ${PROJECT_DIR} → absolute project dir
-        if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
+        if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
+            $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
+            # Expand {env:AGENT_DIR} → absolute agentsDir (OpenCode format)
+            if ($mcpConfigContent -match '\{env:AGENT_DIR\}') {
+                $mcpConfigContent = $mcpConfigContent -replace '\{env:AGENT_DIR\}', $agentsDir.Replace('\', '/')
+            }
+            # Expand {env:PROJECT_DIR} → absolute project dir (OpenCode format)
+            if ($ProjectDir -and ($mcpConfigContent -match '\{env:PROJECT_DIR\}')) {
+                $mcpConfigContent = $mcpConfigContent -replace '\{env:PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
+            }
+            # Legacy: also expand ${AGENT_DIR} / ${PROJECT_DIR} for pre-migration configs
+            if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
+                $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
+            }
+            if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
+                $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
+            }
+            # Parse the MCP config and wrap it for opencode.json format
+            try {
+                $mcpParsed = $mcpConfigContent | ConvertFrom-Json
+                # opencode.json expects { "$schema": "...", "mcp": { ... } }
+                # Source config uses "mcp" key directly (OpenCode format), fallback to legacy "mcpServers"/"servers"
+                $mcpServers = $null
+                if ($mcpParsed.PSObject.Properties['mcp']) { $mcpServers = $mcpParsed.mcp }
+                elseif ($mcpParsed.PSObject.Properties['mcpServers']) { $mcpServers = $mcpParsed.mcpServers }
+                elseif ($mcpParsed.PSObject.Properties['servers']) { $mcpServers = $mcpParsed.servers }
+                else { $mcpServers = $mcpParsed }
+
+                if ($mcpServers) {
+                    $opencodeConfig = @{ '$schema' = 'https://opencode.ai/config.json'; mcp = $mcpServers } | ConvertTo-Json -Depth 10
+                    $tempMcpConfig = Join-Path $artifactsDir "opencode.json"
+                    $opencodeConfig | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
+                }
+            }
+            catch {
+                Write-Warning "[Invoke-Agent] Failed to parse MCP config for opencode.json: $($_.Exception.Message)"
+            }
         }
-        # Write resolved config if any placeholders were expanded
-        if ($mcpConfigContent -ne (Get-Content $resolvedMcpConfig -Raw)) {
-            $tempMcpConfig = Join-Path $artifactsDir "mcp-config-resolved.json"
-            $mcpConfigContent | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
-            $resolvedMcpConfig = $tempMcpConfig
-        }
-        $extraCliArgs += "--mcp-config"
-        $extraCliArgs += (Resolve-Path $resolvedMcpConfig).Path
     }
 }
 
 $extraCliArgs += $ExtraArgs
 
 $argsLine = ($extraCliArgs | ForEach-Object {
-    if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
-}) -join ' '
+        if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
+    }) -join ' '
 
 for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
     $exitCode = 0
@@ -366,7 +430,14 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
         $safePidFile = $pidFile -replace "'", "'\''"
         $safeOstwinHome = $OstwinHome.Replace('\', '/').Replace("'", "'\''")
-        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''")} else { "" }
+        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''") } else { "" }
+        $opencodeConfigLine = ""
+        if ($tempMcpConfig) {
+            $safeOpencodeConfig = $tempMcpConfig.Replace('\', '/').Replace("'", "'\''")
+            $opencodeConfigLine = "export OPENCODE_CONFIG='$safeOpencodeConfig'"
+        }
+        # Log diagnostic info before exec
+        Write-Host "[Invoke-Agent] Launching: CMD=$AgentCmd, PromptFile=$promptFile, ArgsLine=$argsLine"
         $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
@@ -376,14 +447,17 @@ export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 export AGENT_OS_PID_FILE='$safePidFile'
 export OSTWIN_HOME='$safeOstwinHome'
 export AGENT_OS_PROJECT_DIR='$safeProjectDir'
+$opencodeConfigLine
 $cwdLine
 # Write PID before exec — `$`$ survives exec, so this is the real agent PID.
 # bin/agent also writes this (harmless overwrite); this fallback ensures
-# non-bin/agent commands (deepagents, custom CLIs) still get tracked.
+# non-bin/agent commands (opencode run, custom CLIs) still get tracked.
 echo "`$$" > '$safePidFile'
 # Log diagnostic info before exec
 echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> '$safeOutput'
-exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine >> '$safeOutput' 2>&1
+echo "[wrapper] PROMPT_FILE='$safePrompt' (exists: `$(test -f '$safePrompt' && echo yes || echo no), size: `$(wc -c < '$safePrompt' 2>/dev/null || echo 0) bytes)" >> '$safeOutput'
+echo "[wrapper] EXEC: $AgentCmd 'start' $argsLine" >> '$safeOutput'
+exec $AgentCmd 'start' $argsLine >> '$safeOutput' 2>&1
 # If exec fails, this line runs:
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
 "@
@@ -432,7 +506,8 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
                         try {
                             $p = Get-Process -Id $candidatePid -ErrorAction Stop
                             if ($p) { $confirmedPid = $candidatePid; break }
-                        } catch { }
+                        }
+                        catch { }
                     }
                 }
             }
@@ -492,10 +567,10 @@ $output = if (Test-Path $outputFile) {
 }
 else { "No output captured" }
 
-    # --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
-    Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
-    Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
-# Remove resolved MCP config copy if one was generated
+# --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
+Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
+Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
+# Remove generated opencode.json (MCP config) if one was created
 if ($tempMcpConfig -and (Test-Path $tempMcpConfig)) {
     Remove-Item $tempMcpConfig -Force -ErrorAction SilentlyContinue
 }

@@ -575,7 +575,7 @@ export const mockRoles: Role[] = [
     id: 'role-004',
     name: 'auditor',
     provider: 'gemini',
-    version: 'gemini-2.5-pro',
+    version: 'google-vertex/gemini-2.5-pro',
     temperature: 0.1,
     budget_tokens_max: 600000,
     max_retries: 2,
@@ -732,7 +732,7 @@ export const mockModels: Model[] = [
     cost_per_1m_tokens: 5,
   },
   {
-    id: 'gemini-2.5-pro',
+    id: 'google-vertex/gemini-2.5-pro',
     name: 'Gemini 2.5 Pro',
     provider: 'gemini',
     context_window: 1000000,

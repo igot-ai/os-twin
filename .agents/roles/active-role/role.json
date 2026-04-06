@@ -1,5 +1,5 @@
 {
-  "model": "gemini-1.5-pro",
+  "model": "google-vertex/gemini-1.5-pro",
   "skill_refs": [],
   "timeout": 300,
   "description": ""

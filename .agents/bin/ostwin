@@ -7,8 +7,13 @@
 
 set -euo pipefail
 
-# Load global environment variables (~/.ostwin/.env)
+# Activate the Ostwin venv — makes `python` resolve to the managed interpreter
 OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
+if [[ -f "$OSTWIN_HOME/.venv/bin/activate" ]]; then
+  source "$OSTWIN_HOME/.venv/bin/activate"
+fi
+
+# Load global environment variables (~/.ostwin/.env)
 if [[ -f "$OSTWIN_HOME/.env" ]]; then
   set -a
   source <(grep -v '^\s*#' "$OSTWIN_HOME/.env" | grep -v '^\s*$')
@@ -48,9 +53,8 @@ if [[ -z "$AGENTS_DIR" ]]; then
   fi
   AGENTS_DIR="$(cd "$BIN_DIR/.." && pwd)"
 fi
-PYTHON="$HOME/.ostwin/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="${AGENTS_DIR}/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="python3"
+# After venv activation, `python` is the managed interpreter
+PYTHON="$(command -v python 2>/dev/null || echo python3)"
 
 # --- Load .env files (available to ALL subcommands) ---
 # Priority: ~/.ostwin/.env (global) → $AGENTS_DIR/.env (project)
@@ -77,25 +81,6 @@ _load_env_file() {
 _load_env_file "$HOME/.ostwin/.env"
 _load_env_file "$AGENTS_DIR/.env"
 
-# Resolve the Python that has deepagents_cli installed (uv-tool env).
-# Priority: shebang of the deepagents binary → sibling python3 → fallback to $PYTHON.
-DEEPAGENTS_PYTHON="$PYTHON"
-if command -v deepagents &>/dev/null; then
-  _DA_BIN="$(command -v deepagents)"
-  # Extract interpreter from shebang line (e.g. #!/path/to/python)
-  _DA_SHEBANG_PY="$(head -1 "$_DA_BIN" 2>/dev/null | sed 's|^#!||')"
-  if [[ -x "$_DA_SHEBANG_PY" ]]; then
-    DEEPAGENTS_PYTHON="$_DA_SHEBANG_PY"
-  else
-    # Try python3 sibling in the same bin dir as deepagents
-    _DA_BIN_DIR="$(dirname "$(realpath "$_DA_BIN" 2>/dev/null || echo "$_DA_BIN")")"
-    if [[ -x "$_DA_BIN_DIR/python3" ]]; then
-      DEEPAGENTS_PYTHON="$_DA_BIN_DIR/python3"
-    elif [[ -x "$_DA_BIN_DIR/python" ]]; then
-      DEEPAGENTS_PYTHON="$_DA_BIN_DIR/python"
-    fi
-  fi
-fi
 
 # Version from config
 VERSION=$("$PYTHON" -c "import json; print(json.load(open('$AGENTS_DIR/config.json'))['version'])" 2>/dev/null || echo "unknown")
@@ -203,7 +188,7 @@ Usage:
   ostwin <command> [options]
 
 Commands:
-  agent [args...]    Run the Agent OS CLI (role-aware deepagents wrapper)
+  agent [args...]    Run the Agent OS agent (opencode run wrapper)
   chat [options]    Interactive AI chat session
                     Options: -a AGENT, -M MODEL, -m MSG, --auto-approve, -r [ID]
   run <plan_id|file> Execute a plan by ID or file path
@@ -318,7 +303,7 @@ case "${1:-}" in
     ;;
   chat)
     shift
-    exec "$DEEPAGENTS_PYTHON" "$AGENTS_DIR/bin/chat.py" "$@"
+    exec "$PYTHON" "$AGENTS_DIR/bin/chat.py" "$@"
     ;;
   run)
     shift
@@ -873,12 +858,18 @@ if not env_vars:
 with open(mcp_path) as f:
     config = json.load(f)
 
-servers = config.get('mcpServers', {})
+# Support both OpenCode 'mcp' and legacy 'mcpServers' keys
+servers = config.get('mcp', config.get('mcpServers', {}))
 for name, server in servers.items():
-    if 'env' not in server:
-        server['env'] = {}
+    # Only inject environment into local servers (OpenCode spec)
+    if server.get('type') == 'remote':
+        continue
+    # Support both 'environment' (OpenCode) and 'env' (legacy)
+    env_key = 'environment' if 'environment' in server else 'env' if 'env' in server else 'environment'
+    if env_key not in server:
+        server[env_key] = {}
     for k, v in env_vars.items():
-        server['env'][k] = v
+        server[env_key][k] = v
 
 with open(mcp_path, 'w') as f:
     json.dump(config, f, indent=2)

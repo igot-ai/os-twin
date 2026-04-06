@@ -34,7 +34,7 @@ $result = [PSCustomObject]@{
     Name         = $RoleName
     BaseRole     = $baseRole
     Runner       = $null
-    Model        = 'gemini-3-flash-preview'
+    Model        = 'google-vertex/gemini-3-flash-preview'
     Timeout      = 600
     Capabilities = @()
     Source       = 'ephemeral'
@@ -52,7 +52,8 @@ if ($RolePath -and (Test-Path $RolePath)) {
     $customRunner = Join-Path $RolePath "Start-$baseRole.ps1"
     if (Test-Path $customRunner) {
         $result.Runner = $customRunner
-    } else {
+    }
+    else {
         $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
     }
     $result.Source = 'override'
@@ -114,7 +115,8 @@ if (-not $result.Runner) {
                 $customRunner = Join-Path $dir "Start-$baseRole.ps1"
                 if (Test-Path $customRunner) {
                     $result.Runner = $customRunner
-                } else {
+                }
+                else {
                     # Use universal dynamic runner as fallback for discovered roles
                     $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
                 }
@@ -129,11 +131,13 @@ if (-not $result.Runner) {
 if (-not $result.Runner -and $RequiredCapabilities.Count -gt 0) {
     $allRoles = if ($AvailableRoles) {
         $AvailableRoles
-    } else {
+    }
+    else {
         $getAvailable = Join-Path $AgentsDir "roles" "_base" "Get-AvailableRoles.ps1"
         if (Test-Path $getAvailable) {
             & $getAvailable -AgentsDir $AgentsDir -WarRoomsDir $WarRoomsDir
-        } else { @() }
+        }
+        else { @() }
     }
     
     if ($allRoles) {

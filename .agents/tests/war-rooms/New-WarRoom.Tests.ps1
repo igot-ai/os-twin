@@ -229,7 +229,7 @@ Describe "New-WarRoom" {
 
             $planRolesConfig = @{
                 engineer = @{
-                    default_model   = "gemini-plan-custom-model"
+                    default_model   = "google-vertex/gemini-plan-custom-model"
                     timeout_seconds = 1800
                     skill_refs      = @("write-tests", "code-review")
                 }
@@ -260,7 +260,7 @@ Describe "New-WarRoom" {
             $roleFile = Get-ChildItem (Join-Path $script:warRoomsDir "room-plan-01") -Filter "engineer_*.json" | Select-Object -First 1
             $roleFile | Should -Not -BeNullOrEmpty
             $roleConfig = Get-Content $roleFile.FullName -Raw | ConvertFrom-Json
-            $roleConfig.model | Should -Be "gemini-plan-custom-model"
+            $roleConfig.model | Should -Be "google-vertex/gemini-plan-custom-model"
         }
 
         It "uses timeout from plan roles.json" {
@@ -292,7 +292,7 @@ Describe "New-WarRoom" {
             $roleFile = Get-ChildItem (Join-Path $script:warRoomsDir "room-plan-04") -Filter "engineer_*.json" | Select-Object -First 1
             $roleConfig = Get-Content $roleFile.FullName -Raw | ConvertFrom-Json
             # Should fall back to global config or default
-            $roleConfig.model | Should -Not -Be "gemini-plan-custom-model"
+            $roleConfig.model | Should -Not -Be "google-vertex/gemini-plan-custom-model"
         }
     }
 }

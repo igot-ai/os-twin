@@ -126,7 +126,7 @@ $(Get-ChildItem -Path (Join-Path $agentsDir "skills") -Directory | Select-Object
 "@
     
     # Run a quick synthesis LLM call
-    $SyncResult = & $invokeAgent -RoomDir $RoomDir -RoleName "manager" -Prompt $SynthesisPrompt -Model "gemini-3.1-pro-preview" -TimeoutSeconds 120 -InstanceId "synth"
+    $SyncResult = & $invokeAgent -RoomDir $RoomDir -RoleName "manager" -Prompt $SynthesisPrompt -Model "google-vertex/gemini-3.1-pro-preview" -TimeoutSeconds 120 -InstanceId "synth"
     
     if ($SyncResult.ExitCode -ne 0) {
         Cleanup-And-Exit 1 "Agent synthesis failed. See output: $($SyncResult.Output)"
