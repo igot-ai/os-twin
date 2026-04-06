@@ -39,7 +39,7 @@ For more details, please refer to our paper: [A-MEM: Agentic Memory for LLM Agen
 ## Key Features ✨
 
 - 🔄 Dynamic memory organization based on Zettelkasten principles
-- 🔍 Intelligent indexing and linking of memories via ChromaDB
+- 🔍 Intelligent indexing and linking of memories via Zvec
 - 📝 Comprehensive note generation with structured attributes
 - 🌐 Interconnected knowledge networks
 - 🧬 Continuous memory evolution and refinement
@@ -58,7 +58,7 @@ For more details, please refer to our paper: [A-MEM: Agentic Memory for LLM Agen
 When a new memory is added to the system:
 1. **LLM Analysis**: Automatically analyzes content to generate keywords, context, and tags (if not provided)
 2. **Enhanced Embedding**: Creates vector embeddings using both content and generated metadata for superior retrieval
-3. **Semantic Storage**: Stores memories in ChromaDB with rich semantic information
+3. **Semantic Storage**: Stores memories in Zvec vector database with rich semantic information
 4. **Relationship Analysis**: Analyzes historical memories for relevant connections using enhanced embeddings
 5. **Dynamic Linking**: Establishes meaningful links based on content and metadata similarities
 6. **Memory Evolution**: Enables continuous memory evolution and updates through intelligent analysis
@@ -100,9 +100,10 @@ from agentic_memory.memory_system import AgenticMemorySystem
 
 # Initialize the memory system with OpenAI 🚀
 memory_system = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',  # Embedding model for ChromaDB
+    model_name='all-MiniLM-L6-v2',  # Embedding model for vector storage
     llm_backend="openai",           # LLM backend (openai/ollama/sglang/openrouter)
-    llm_model="gpt-4o-mini"         # LLM model name
+    llm_model="gpt-4o-mini",        # LLM model name
+    persist_dir="./memory_data"     # Directory for persistent storage
 )
 
 # OR initialize with SGLang for faster local inference 🚀
@@ -111,7 +112,8 @@ memory_system = AgenticMemorySystem(
     llm_backend="sglang",           # Use SGLang backend
     llm_model="meta-llama/Llama-3.1-8B-Instruct",  # Your local model
     sglang_host="http://localhost", # SGLang server host
-    sglang_port=30000               # SGLang server port
+    sglang_port=30000,              # SGLang server port
+    persist_dir="./memory_data"     # Directory for persistent storage
 )
 
 # OR initialize with OpenRouter for multi-provider access 🚀
@@ -119,14 +121,16 @@ memory_system = AgenticMemorySystem(
     model_name='all-MiniLM-L6-v2',
     llm_backend="openrouter",       # Use OpenRouter backend
     llm_model="openai/gpt-4o-mini", # OpenRouter model identifier
-    api_key="your-openrouter-key"   # Or set OPENROUTER_API_KEY env variable
+    api_key="your-openrouter-key",  # Or set OPENROUTER_API_KEY env variable
+    persist_dir="./memory_data"     # Directory for persistent storage
 )
 
 # OR initialize with Ollama 🚀
 memory_system = AgenticMemorySystem(
     model_name='all-MiniLM-L6-v2',
     llm_backend="ollama",
-    llm_model="llama2"
+    llm_model="llama2",
+    persist_dir="./memory_data"     # Directory for Zvec storage
 )
 
 # Add Memories with Automatic LLM Analysis ✨
@@ -185,7 +189,7 @@ memory_system.delete(memory_id3)
 # Memory Evolution 🧬
 # The system automatically evolves memories by:
 # 1. Using LLM to analyze content and generate semantic metadata
-# 2. Finding relationships using enhanced ChromaDB embeddings (content + metadata)
+# 2. Finding relationships using enhanced vector embeddings (content + metadata)
 # 3. Updating tags, context, and connections based on related memories
 # 4. Creating semantic links between memories
 # This happens automatically when adding or updating memories!
@@ -199,11 +203,11 @@ memory_system.delete(memory_id3)
    - Smart tag assignment for categorization
    - Seamless integration with OpenAI, Ollama, and OpenRouter backends
 
-2. **Enhanced ChromaDB Vector Storage** 📦
+2. **Enhanced Vector Storage** 📦
    - Embedding generation using content + metadata for superior semantic search
    - Fast similarity search leveraging both content and generated attributes
    - Automatic metadata serialization and handling
-   - Persistent memory storage with rich semantic information
+   - Persistent memory storage with rich semantic information via Zvec
 
 3. **Memory Evolution** 🧬
    - Automatically analyzes content relationships using LLM-generated metadata

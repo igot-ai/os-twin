@@ -86,8 +86,6 @@ class StdioMcpBridge {
         cwd: this.repoRoot,
         env: {
           ...process.env,
-          MEMORY_VECTOR_BACKEND:
-            process.env.MCP_UI_MEMORY_VECTOR_BACKEND ?? process.env.MEMORY_VECTOR_BACKEND ?? "chroma",
         },
         stderr: "inherit",
       });

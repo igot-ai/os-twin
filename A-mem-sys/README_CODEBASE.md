@@ -67,7 +67,7 @@ File: [`agentic_memory/retrievers.py`](agentic_memory/retrievers.py)
 
 Phần này làm hai việc:
 
-- lưu memory vào ChromaDB
+- lưu memory vào Zvec
 - truy tìm các memory gần với câu truy vấn
 
 Điểm quan trọng là repo không embed mỗi `content`, mà ghép thêm:
@@ -130,7 +130,7 @@ Sau khi có metadata, hệ thống gọi `process_memory(...)`.
 Trong đó:
 
 - memory mới được dùng làm truy vấn
-- hệ thống tìm các memory gần nhất qua Chroma
+- hệ thống tìm các memory gần nhất qua Zvec
 - các memory gần nhất này được đưa vào prompt cho LLM
 
 Mục tiêu là để model trả lời câu hỏi:
@@ -160,7 +160,7 @@ mà còn nói:
 Sau khi xử lý xong:
 
 - memory được đưa vào `self.memories`
-- đồng thời được đưa vào ChromaDB để phục vụ truy hồi
+- đồng thời được đưa vào Zvec để phục vụ truy hồi
 
 ## 6. Khi tìm kiếm, hệ thống trả về cái gì?
 
@@ -170,7 +170,7 @@ Repo có hai kiểu tìm chính.
 
 Đây là kiểu tìm gọn hơn:
 
-- query Chroma
+- query Zvec
 - lấy ra các memory tương ứng
 - trả về nội dung, context, keywords, tags, score
 

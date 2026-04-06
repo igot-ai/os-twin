@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Any, Tuple
 import uuid
 from datetime import datetime
 from .llm_controller import LLMController
-from .retrievers import ChromaRetriever, ZvecRetriever
+from .retrievers import ZvecRetriever
 import json
 import logging
 from rank_bm25 import BM25Okapi
@@ -199,7 +199,7 @@ class AgenticMemorySystem:
     """
     
     def __init__(self,
-                 model_name: str = 'all-MiniLM-L6-v2',
+                 model_name: str = 'microsoft/harrier-oss-v1-270m',
                  llm_backend: str = "openai",
                  llm_model: str = "gpt-4o-mini",
                  evo_threshold: int = 100,
@@ -208,7 +208,6 @@ class AgenticMemorySystem:
                  sglang_port: int = 30000,
                  persist_dir: Optional[str] = None,
                  embedding_backend: str = "sentence-transformer",
-                 vector_backend: str = "chroma",
                  context_aware_analysis: bool = False,
                  context_aware_tree: bool = False,
                  max_links: Optional[int] = None):
@@ -222,9 +221,8 @@ class AgenticMemorySystem:
             api_key: API key for the LLM service
             sglang_host: Host URL for SGLang server (default: http://localhost)
             sglang_port: Port for SGLang server (default: 30000)
-            persist_dir: Directory for persistent storage. If None, uses in-memory mode.
+            persist_dir: Directory for persistent storage. If None, uses /tmp/zvec for vectors.
             embedding_backend: Embedding backend ("sentence-transformer" or "gemini")
-            vector_backend: Vector database backend ("chroma" or "zvec")
             context_aware_analysis: When True, analyze_content sees similar memories
                 and directory paths to keep naming/categorization consistent.
             context_aware_tree: When True (requires context_aware_analysis=True),
@@ -237,7 +235,6 @@ class AgenticMemorySystem:
         self.model_name = model_name
         self.persist_dir = persist_dir
         self.embedding_backend = embedding_backend
-        self.vector_backend = vector_backend
         self.context_aware_analysis = context_aware_analysis
         self.context_aware_tree = context_aware_tree
         self.max_links = max_links
@@ -251,22 +248,18 @@ class AgenticMemorySystem:
             self._vector_dir = os.path.join(self.persist_dir, "vectordb")
             os.makedirs(self._notes_dir, exist_ok=True)
             os.makedirs(self._vector_dir, exist_ok=True)
-
-        if not self.persist_dir and self.vector_backend == "chroma":
-            # In-memory mode: reset old ChromaDB collection
-            try:
-                temp = ChromaRetriever(
-                    collection_name="memories", model_name=self.model_name,
-                    embedding_backend=self.embedding_backend
-                )
-                temp.client.reset()
-            except Exception as e:
-                logger.warning(f"Could not reset ChromaDB collection: {e}")
+        else:
+            # Use a unique temp directory for isolation between instances
+            import tempfile
+            self._vector_dir = tempfile.mkdtemp(prefix="zvec_memories_")
 
         self.retriever = self._create_retriever()
 
         if self.persist_dir:
             self._load_notes()
+            # Rebuild vector index if we have memories but index is empty
+            if self.memories:
+                self._ensure_vector_index()
 
         # Initialize LLM controller
         self.llm_controller = LLMController(llm_backend, llm_model, api_key, sglang_host, sglang_port)
@@ -274,17 +267,30 @@ class AgenticMemorySystem:
         self.evo_threshold = evo_threshold
 
     def _create_retriever(self):
-        """Create the vector retriever based on configured backend."""
-        if self.vector_backend == "zvec":
-            return ZvecRetriever(
-                collection_name="memories", model_name=self.model_name,
-                persist_dir=self._vector_dir, embedding_backend=self.embedding_backend
-            )
-        else:
-            return ChromaRetriever(
-                collection_name="memories", model_name=self.model_name,
-                persist_dir=self._vector_dir, embedding_backend=self.embedding_backend
-            )
+        """Create the Zvec vector retriever."""
+        return ZvecRetriever(
+            collection_name="memories", model_name=self.model_name,
+            persist_dir=self._vector_dir, embedding_backend=self.embedding_backend
+        )
+
+    def _ensure_vector_index(self):
+        """Ensure the vector index is in sync with in-memory memories.
+        
+        Rebuilds the index if it's empty but we have memories loaded from disk.
+        This handles the case where notes/ exists but vectordb/ is missing or empty.
+        """
+        if not self.memories:
+            return
+        
+        # Check if vector index is empty
+        try:
+            index_count = self.retriever.count()
+            if index_count == 0:
+                logger.info(f"Rebuilding vector index from {len(self.memories)} persisted notes")
+                self.consolidate_memories()
+        except Exception as e:
+            logger.warning(f"Could not check vector index, rebuilding: {e}")
+            self.consolidate_memories()
 
     # --- Persistence helpers ---
 
@@ -624,7 +630,7 @@ class AgenticMemorySystem:
         evo_label, note = self.process_memory(note)
         self._save_note(note)
 
-        # Add to ChromaDB with complete metadata
+        # Add to vector database with complete metadata
         metadata = {
             "id": note.id,
             "content": note.content,
@@ -774,7 +780,7 @@ class AgenticMemorySystem:
             self.retriever.add_document(memory.content, metadata, memory.id)
     
     def find_related_memories(self, query: str, k: int = 5) -> Tuple[str, List[str]]:
-        """Find related memories using ChromaDB retrieval
+        """Find related memories using vector database retrieval
 
         Returns:
             Tuple[str, List[str]]: (formatted_memory_string, list_of_memory_ids)
@@ -783,7 +789,7 @@ class AgenticMemorySystem:
             return "", []
 
         try:
-            # Get results from ChromaDB
+            # Get results from vector database
             results = self.retriever.search(query, k)
 
             # Convert to list of memories
@@ -792,7 +798,7 @@ class AgenticMemorySystem:
 
             if 'ids' in results and results['ids'] and len(results['ids']) > 0 and len(results['ids'][0]) > 0:
                 for i, doc_id in enumerate(results['ids'][0]):
-                    # Get metadata from ChromaDB results
+                    # Get metadata from vector database results
                     if i < len(results['metadatas'][0]):
                         metadata = results['metadatas'][0][i]
                         # Format memory string with actual memory ID
@@ -805,11 +811,11 @@ class AgenticMemorySystem:
             return "", []
 
     def find_related_memories_raw(self, query: str, k: int = 5) -> str:
-        """Find related memories using ChromaDB retrieval in raw format"""
+        """Find related memories using vector database retrieval in raw format"""
         if not self.memories:
             return ""
             
-        # Get results from ChromaDB
+        # Get results from vector database
         results = self.retriever.search(query, k)
         
         # Convert to list of memories
@@ -818,7 +824,7 @@ class AgenticMemorySystem:
         if 'ids' in results and results['ids'] and len(results['ids']) > 0:
             for i, doc_id in enumerate(results['ids'][0][:k]):
                 if i < len(results['metadatas'][0]):
-                    # Get metadata from ChromaDB results
+                    # Get metadata from vector database results
                     metadata = results['metadatas'][0][i]
                     
                     # Add main memory info
@@ -902,7 +908,7 @@ class AgenticMemorySystem:
                     else:
                         break
 
-        # Update in ChromaDB
+        # Update in vector database
         metadata = {
             "id": note.id,
             "content": note.content,
@@ -969,7 +975,7 @@ class AgenticMemorySystem:
 
             # Delete markdown file first (needs note for filename)
             self._delete_note_file(memory_id)
-            # Delete from ChromaDB
+            # Delete from vector database
             self.retriever.delete_document(memory_id)
             # Delete from local storage
             del self.memories[memory_id]
@@ -977,7 +983,7 @@ class AgenticMemorySystem:
         return False
     
     def _search_raw(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Internal search method that returns raw results from ChromaDB.
+        """Internal search method that returns raw results from vector database.
         
         This is used internally by the memory evolution system to find
         related memories for potential evolution.
@@ -987,7 +993,7 @@ class AgenticMemorySystem:
             k (int): Maximum number of results to return
             
         Returns:
-            List[Dict[str, Any]]: Raw search results from ChromaDB
+            List[Dict[str, Any]]: Raw search results from vector database
         """
         results = self.retriever.search(query, k)
         return [{'id': doc_id, 'score': score} 
@@ -995,11 +1001,11 @@ class AgenticMemorySystem:
                 
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Search for memories using a hybrid retrieval approach."""
-        # Get results from ChromaDB (only do this once)
+        # Get results from vector database (only do this once)
         search_results = self.retriever.search(query, k)
         memories = []
 
-        # Process ChromaDB results
+        # Process vector database results
         for i, doc_id in enumerate(search_results['ids'][0]):
             memory = self.memories.get(doc_id)
             if memory:
@@ -1018,7 +1024,7 @@ class AgenticMemorySystem:
         """Search for memories using a hybrid retrieval approach.
 
         This method combines results from both:
-        1. ChromaDB vector store (semantic similarity)
+        1. vector database vector store (semantic similarity)
         2. Embedding-based retrieval (dense vectors)
 
         The results are deduplicated and ranked by relevance.
@@ -1036,12 +1042,12 @@ class AgenticMemorySystem:
                 - tags: Memory tags
                 - score: Similarity score
         """
-        # Get results from ChromaDB
-        chroma_results = self.retriever.search(query, k)
+        # Get results from vector database
+        results = self.retriever.search(query, k)
         memories = []
 
-        # Process ChromaDB results
-        for i, doc_id in enumerate(chroma_results['ids'][0]):
+        # Process vector database results
+        for i, doc_id in enumerate(results['ids'][0]):
             memory = self.memories.get(doc_id)
             if memory:
                 memories.append({
@@ -1050,7 +1056,7 @@ class AgenticMemorySystem:
                     'context': memory.context,
                     'keywords': memory.keywords,
                     'tags': memory.tags,
-                    'score': chroma_results['distances'][0][i]
+                    'score': results['distances'][0][i]
                 })
 
         # Get results from embedding retriever
@@ -1076,12 +1082,12 @@ class AgenticMemorySystem:
         return memories[:k]
 
     def search_agentic(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Search for memories using ChromaDB retrieval."""
+        """Search for memories using vector database retrieval."""
         if not self.memories:
             return []
             
         try:
-            # Get results from ChromaDB
+            # Get results from vector database
             results = self.retriever.search(query, k)
             
             # Process results
@@ -1093,7 +1099,7 @@ class AgenticMemorySystem:
                 len(results['ids']) == 0 or len(results['ids'][0]) == 0):
                 return []
                 
-            # Process ChromaDB results
+            # Process vector database results
             for i, doc_id in enumerate(results['ids'][0][:k]):
                 if doc_id in seen_ids:
                     continue

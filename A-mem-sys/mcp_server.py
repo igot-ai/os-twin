@@ -30,9 +30,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 LLM_BACKEND = os.getenv("MEMORY_LLM_BACKEND", "gemini")
 LLM_MODEL = os.getenv("MEMORY_LLM_MODEL", "gemini-3-flash-preview")
-EMBEDDING_MODEL = os.getenv("MEMORY_EMBEDDING_MODEL", "gemini-embedding-001")
-EMBEDDING_BACKEND = os.getenv("MEMORY_EMBEDDING_BACKEND", "gemini")
-VECTOR_BACKEND = os.getenv("MEMORY_VECTOR_BACKEND", "zvec")
+EMBEDDING_MODEL = os.getenv("MEMORY_EMBEDDING_MODEL", "microsoft/harrier-oss-v1-270m")
+EMBEDDING_BACKEND = os.getenv("MEMORY_EMBEDDING_BACKEND", "sentence-transformer")
 CONTEXT_AWARE = os.getenv("MEMORY_CONTEXT_AWARE", "true").lower() == "true"
 CONTEXT_AWARE_TREE = os.getenv("MEMORY_CONTEXT_AWARE_TREE", "false").lower() == "true"
 MAX_LINKS = int(os.getenv("MEMORY_MAX_LINKS", "3"))
@@ -67,8 +66,8 @@ def optional_tool(name: str):
 
 logger.info("=" * 60)
 logger.info("MCP Server starting up (lazy init)")
-logger.info("persist_dir=%s  llm=%s/%s  embedding=%s/%s  vector=%s",
-            PERSIST_DIR, LLM_BACKEND, LLM_MODEL, EMBEDDING_BACKEND, EMBEDDING_MODEL, VECTOR_BACKEND)
+logger.info("persist_dir=%s  llm=%s/%s  embedding=%s/%s",
+            PERSIST_DIR, LLM_BACKEND, LLM_MODEL, EMBEDDING_BACKEND, EMBEDDING_MODEL)
 logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
 
 # --- Lazy-initialized memory system ---
@@ -86,7 +85,6 @@ def get_memory() -> AgenticMemorySystem:
                 _memory = AgenticMemorySystem(
                     model_name=EMBEDDING_MODEL,
                     embedding_backend=EMBEDDING_BACKEND,
-                    vector_backend=VECTOR_BACKEND,
                     llm_backend=LLM_BACKEND,
                     llm_model=LLM_MODEL,
                     persist_dir=PERSIST_DIR,

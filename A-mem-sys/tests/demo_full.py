@@ -11,7 +11,6 @@ if os.path.exists(PERSIST_DIR):
 ms = AgenticMemorySystem(
     model_name='gemini-embedding-001',
     embedding_backend='gemini',
-    vector_backend='zvec',
     llm_backend='gemini',
     llm_model='gemini-3-flash-preview',
     persist_dir=PERSIST_DIR,
@@ -289,7 +288,6 @@ print("=" * 70)
 ms2 = AgenticMemorySystem(
     model_name='gemini-embedding-001',
     embedding_backend='gemini',
-    vector_backend='zvec',
     llm_backend='gemini',
     llm_model='gemini-3-flash-preview',
     persist_dir=PERSIST_DIR,
