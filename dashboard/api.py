@@ -48,7 +48,7 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, channels, command, threads, tunnel
+from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, amem, channels, command, threads, tunnel
 from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
@@ -129,6 +129,7 @@ app.include_router(mcp.router)
 app.include_router(skills.router)
 app.include_router(roles.router)
 app.include_router(memory.router)
+app.include_router(amem.router)
 app.include_router(channels.router)
 app.include_router(command.router)
 app.include_router(tunnel.router)
