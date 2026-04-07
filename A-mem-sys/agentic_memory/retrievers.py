@@ -193,7 +193,23 @@ class ZvecRetriever:
         self._collection_path = collection_path
 
         if os.path.exists(collection_path):
-            self.collection = _zvec.open(path=collection_path)
+            # Retry on lock contention — multiple MCP server processes may
+            # try to open the same collection simultaneously when several
+            # agents call save_memory concurrently.
+            import time
+            last_err = None
+            for attempt in range(30):  # ~30s total wait
+                try:
+                    self.collection = _zvec.open(path=collection_path)
+                    break
+                except RuntimeError as e:
+                    last_err = e
+                    if "lock" in str(e).lower():
+                        time.sleep(1.0)
+                        continue
+                    raise
+            else:
+                raise last_err if last_err else RuntimeError("Failed to open zvec collection")
         else:
             os.makedirs(os.path.dirname(collection_path), exist_ok=True)
             schema = _zvec.CollectionSchema(

@@ -1076,10 +1076,17 @@ for name, cfg in servers.items():
                 resolved_cmd.append(c)
             out[key] = resolved_cmd
         elif key in ('environment', 'headers') and isinstance(val, dict):
-            cleaned = {k: v for k, v in val.items()
-                       if not (isinstance(v, str) and env_ref_pattern.search(v))}
-            if cleaned:
-                out[key] = cleaned
+            resolved_env = {}
+            for k, v in val.items():
+                if isinstance(v, str):
+                    rv = resolve_env_refs(v)
+                    if env_ref_pattern.search(rv):
+                        continue
+                    resolved_env[k] = rv
+                else:
+                    resolved_env[k] = v
+            if resolved_env:
+                out[key] = resolved_env
         elif key == 'url' and isinstance(val, str):
             out[key] = resolve_env_refs(val)
         else:

@@ -10,6 +10,11 @@ If you want to understand the codebase quickly instead of only the high-level pr
 - [`agentic_memory/README.md`](agentic_memory/README.md) - core package and main classes
 - [`tests/README.md`](tests/README.md) - what the test suite is trying to protect
 
+## Setup Guides
+
+- [`SETUP-GUIDE.md`](SETUP-GUIDE.md) - install and run the Memory MCP server with ostwin
+- [`OPENCODE-VERTEX-SETUP.md`](OPENCODE-VERTEX-SETUP.md) - configure OpenCode to use Vertex AI partner models such as `zai-org/glm-5-maas`
+
 ## Tài liệu tiếng Việt
 
 Nếu bạn muốn đọc repo theo logic của hệ thống A-MEM thay vì theo góc nhìn kỹ thuật thuần túy:

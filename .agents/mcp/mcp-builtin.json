@@ -22,29 +22,6 @@
         "MEMORY_PERSIST_DIR": "./.memory",
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}"
       }
-    },
-    "chrome-devtools": {
-      "type": "local",
-      "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
-      "environment": {}
-    },
-    "playwright": {
-      "type": "local",
-      "command": ["npx", "-y", "@playwright/mcp@latest"],
-      "environment": {}
-    },
-    "serena": {
-      "type": "local",
-      "command": ["uvx", "--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context", "ide-assistant"]
-    },
-    "context7": {
-      "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"]
-    },
-    "ai-game-developer": {
-      "type": "remote",
-      "url": "http://localhost:51657",
-      "enabled": true
     }
   }
 }

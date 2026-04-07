@@ -683,7 +683,7 @@ def resolve_env_refs(text):
 
 # Write .opencode/opencode.json
 # - command arrays: resolve ALL {env:*} to literal paths
-# - environment/headers: STRIP {env:*} pass-throughs (server inherits parent env)
+# - environment/headers: RESOLVE {env:*} to literal values from current env (drop only if unresolved)
 with open(config_file) as f:
     config = json.load(f)
 
@@ -705,10 +705,18 @@ for name, cfg in config.get('mcp', {}).items():
                 resolved_cmd.append(c)
             out[key] = resolved_cmd
         elif key in ('environment', 'headers') and isinstance(val, dict):
-            cleaned = {k: v for k, v in val.items()
-                       if not (isinstance(v, str) and env_ref_pattern.search(v))}
-            if cleaned:
-                out[key] = cleaned
+            resolved_env = {}
+            for k, v in val.items():
+                if isinstance(v, str):
+                    rv = resolve_env_refs(v)
+                    # Only drop if still unresolved (env var not in current env)
+                    if env_ref_pattern.search(rv):
+                        continue
+                    resolved_env[k] = rv
+                else:
+                    resolved_env[k] = v
+            if resolved_env:
+                out[key] = resolved_env
         elif key == 'url' and isinstance(val, str):
             out[key] = resolve_env_refs(val)
         else:
@@ -718,8 +726,79 @@ for name, cfg in config.get('mcp', {}).items():
 opencode_dir = os.path.join(project_dir, '.opencode')
 os.makedirs(opencode_dir, exist_ok=True)
 opencode_file = os.path.join(opencode_dir, 'opencode.json')
+
+# Build permission ruleset that allows access to the parent directory of the project.
+parent_dir = os.path.dirname(project_dir.rstrip('/'))
+
+# Inject opencode agent definitions for every ostwin role.
+# OpenCode looks up agents by name when --agent is passed; if missing it
+# falls back to the default 'build' agent. Generating agent definitions here
+# avoids the "agent X not found" warning and lets each role have its own model.
+agents = {}
+ostwin_config_path = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'config.json')
+if os.path.exists(ostwin_config_path):
+    try:
+        with open(ostwin_config_path) as f:
+            ostwin_cfg = json.load(f)
+        for role_name, role_cfg in ostwin_cfg.items():
+            if not isinstance(role_cfg, dict) or 'default_model' not in role_cfg:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': role_cfg['default_model'],
+                'description': role_cfg.get('description', f'{role_name} agent'),
+            }
+            for inst_name, inst_cfg in role_cfg.get('instances', {}).items():
+                full_name = f'{role_name}-{inst_name}'
+                agents[full_name] = {
+                    'mode': 'primary',
+                    'model': inst_cfg.get('default_model', role_cfg['default_model']),
+                    'description': inst_cfg.get('display_name', f'{role_name} {inst_name}'),
+                }
+    except (json.JSONDecodeError, OSError):
+        pass
+
+# Also pull in roles from ~/.ostwin/.agents/roles/<name>/role.json (covers
+# dynamically-created roles like database-architect that aren't in config.json)
+roles_dir = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'roles')
+if os.path.isdir(roles_dir):
+    for role_name in os.listdir(roles_dir):
+        if role_name.startswith('_') or role_name in agents:
+            continue
+        role_json = os.path.join(roles_dir, role_name, 'role.json')
+        if not os.path.exists(role_json):
+            continue
+        try:
+            with open(role_json) as f:
+                rj = json.load(f)
+            model = rj.get('model') or rj.get('default_model')
+            if not model:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': model,
+                'description': rj.get('description', f'{role_name} agent'),
+            }
+        except (json.JSONDecodeError, OSError):
+            pass
+
+opencode_config = {
+    "\$schema": "https://opencode.ai/config.json",
+    "mcp": resolved_mcp,
+    "permission": {
+        "external_directory": {
+            f"{parent_dir}/*": "allow",
+            f"{parent_dir}/**": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/*": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/**": "allow",
+        },
+    },
+}
+if agents:
+    opencode_config["agent"] = agents
+
 with open(opencode_file, 'w') as f:
-    json.dump({"\$schema": "https://opencode.ai/config.json", "mcp": resolved_mcp}, f, indent=2)
+    json.dump(opencode_config, f, indent=2)
     f.write('\n')
 PYEOF
 }
@@ -1198,11 +1277,18 @@ for name, cfg in config.get('mcp', {}).items():
                 resolved_cmd.append(c)
             out[key] = resolved_cmd
         elif key in ('environment', 'headers') and isinstance(val, dict):
-            # Only keep literal values; strip {env:*} pass-throughs (secrets stay in env)
-            cleaned = {k: v for k, v in val.items()
-                       if not (isinstance(v, str) and env_ref_pattern.search(v))}
-            if cleaned:
-                out[key] = cleaned
+            # Resolve {env:*} to literal values; drop entries that stay unresolved
+            resolved_env = {}
+            for k, v in val.items():
+                if isinstance(v, str):
+                    rv = resolve_env_refs(v)
+                    if env_ref_pattern.search(rv):
+                        continue
+                    resolved_env[k] = rv
+                else:
+                    resolved_env[k] = v
+            if resolved_env:
+                out[key] = resolved_env
         elif key == 'url' and isinstance(val, str):
             out[key] = resolve_env_refs(val)
         else:
@@ -1213,10 +1299,70 @@ opencode_dir = os.path.join(project_dir, '.opencode')
 opencode_file = os.path.join(opencode_dir, 'opencode.json')
 os.makedirs(opencode_dir, exist_ok=True)
 
+parent_dir = os.path.dirname(project_dir.rstrip('/'))
+
+# Inject opencode agent definitions for every ostwin role.
+agents = {}
+ostwin_config_path = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'config.json')
+if os.path.exists(ostwin_config_path):
+    try:
+        with open(ostwin_config_path) as f:
+            ostwin_cfg = json.load(f)
+        for role_name, role_cfg in ostwin_cfg.items():
+            if not isinstance(role_cfg, dict) or 'default_model' not in role_cfg:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': role_cfg['default_model'],
+                'description': role_cfg.get('description', f'{role_name} agent'),
+            }
+            for inst_name, inst_cfg in role_cfg.get('instances', {}).items():
+                full_name = f'{role_name}-{inst_name}'
+                agents[full_name] = {
+                    'mode': 'primary',
+                    'model': inst_cfg.get('default_model', role_cfg['default_model']),
+                    'description': inst_cfg.get('display_name', f'{role_name} {inst_name}'),
+                }
+    except (json.JSONDecodeError, OSError):
+        pass
+
+roles_dir = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'roles')
+if os.path.isdir(roles_dir):
+    for role_name in os.listdir(roles_dir):
+        if role_name.startswith('_') or role_name in agents:
+            continue
+        role_json = os.path.join(roles_dir, role_name, 'role.json')
+        if not os.path.exists(role_json):
+            continue
+        try:
+            with open(role_json) as f:
+                rj = json.load(f)
+            model = rj.get('model') or rj.get('default_model')
+            if not model:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': model,
+                'description': rj.get('description', f'{role_name} agent'),
+            }
+        except (json.JSONDecodeError, OSError):
+            pass
+
 opencode_config = {
     "\$schema": "https://opencode.ai/config.json",
-    "mcp": resolved_mcp
+    "mcp": resolved_mcp,
+    "permission": {
+        "external_directory": {
+            f"{parent_dir}/*": "allow",
+            f"{parent_dir}/**": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/*": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/**": "allow",
+        },
+    },
 }
+if agents:
+    opencode_config["agent"] = agents
+
 with open(opencode_file, 'w') as f:
     json.dump(opencode_config, f, indent=2)
     f.write('\n')

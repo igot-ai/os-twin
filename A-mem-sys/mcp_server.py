@@ -3,6 +3,61 @@
 Exposes the memory system as MCP tools for LLM agents.
 Run with: python mcp_server.py
 """
+# --- Self-healing interpreter check (must run BEFORE heavy imports) ---
+# Various MCP launchers (deepagents, opencode, codex) invoke this script with
+# whatever `python` resolves to in their own environment, which often lacks
+# the heavy deps (`requests`, `litellm`, `chromadb`, `sentence-transformers`).
+# If the current interpreter can't import a required dep, re-exec ourselves
+# with the venv shipped next to this script.
+def _ensure_correct_interpreter() -> None:
+    import importlib.util
+    import os as _os
+    import sys as _sys
+
+    # Honor an opt-out so users can debug interpreter resolution.
+    if _os.getenv("MEMORY_NO_REEXEC", "").lower() in ("1", "true", "yes"):
+        return
+
+    # Pick a sentinel dep that the project needs but lightweight venvs lack.
+    if importlib.util.find_spec("requests") is not None:
+        return
+
+    here = _os.path.dirname(_os.path.abspath(__file__))
+    candidates = [
+        _os.path.join(here, ".venv", "bin", "python"),
+        _os.path.join(here, ".venv", "bin", "python3"),
+        _os.path.join(here, "venv", "bin", "python"),
+    ]
+    target = next((c for c in candidates if _os.path.isfile(c) and _os.access(c, _os.X_OK)), None)
+    if target is None or _os.path.realpath(target) == _os.path.realpath(_sys.executable):
+        # No alternative found, or we ARE the alternative — let the import
+        # fail naturally with the standard ModuleNotFoundError downstream.
+        return
+
+    # Verify the candidate actually has `requests` before we re-exec, to
+    # avoid an infinite loop if the alternate venv is also broken.
+    import subprocess as _sp
+    probe = _sp.run(
+        [target, "-c", "import requests"],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        return
+
+    # Re-exec. We're early enough that no MCP traffic has been read yet, so
+    # stdin/stdout/stderr are still attached to the parent and the re-exec
+    # is transparent to the launcher.
+    _sys.stderr.write(
+        f"mcp_server: re-execing with {target} (current {_sys.executable} "
+        f"lacks 'requests')\n"
+    )
+    _sys.stderr.flush()
+    _os.execv(target, [target, _os.path.abspath(__file__), *_sys.argv[1:]])
+
+
+_ensure_correct_interpreter()
+
 import json
 import logging
 import os
@@ -74,6 +129,76 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+
+# Suppress noisy "Received exception from stream" errors that FastMCP would
+# otherwise forward to the client as notifications/message events. These are
+# triggered by junk on stdin (e.g. stray newlines when stdio is attached to a
+# TTY) and have no useful signal — they just spam the terminal/client.
+class _DropStreamParseErrors(logging.Filter):
+    _NOISE = (
+        "Received exception from stream",
+        "Invalid JSON",
+        "Internal Server Error",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:  # True = keep
+        msg = record.getMessage()
+        return not any(needle in msg for needle in self._NOISE)
+
+
+_noise_filter = _DropStreamParseErrors()
+for _name in ("mcp.server.lowlevel.server", "mcp.server.exception_handler"):
+    logging.getLogger(_name).addFilter(_noise_filter)
+
+
+# Monkey-patch the lowlevel server's _handle_message so stream-level exceptions
+# (e.g. JSON parse errors from junk on stdin) are logged locally instead of
+# forwarded to the client as "Internal Server Error" notifications. Upstream
+# unconditionally calls session.send_log_message for any Exception on the read
+# stream — see mcp/server/lowlevel/server.py:707. That's the spam source.
+def _patch_mcp_exception_silence() -> None:
+    try:
+        import warnings as _warnings
+        from mcp.server.lowlevel import server as _lowlevel
+        from mcp.shared.session import RequestResponder as _RR
+        from mcp import types as _mcp_types
+
+        async def _handle_message_quiet(
+            self,
+            message,
+            session,
+            lifespan_context,
+            raise_exceptions: bool = False,
+        ):
+            with _warnings.catch_warnings(record=True) as w:
+                if isinstance(message, _RR) and isinstance(
+                    getattr(message, "request", None), _mcp_types.ClientRequest
+                ):
+                    req = message.request.root
+                    with message:
+                        await self._handle_request(
+                            message, req, session, lifespan_context, raise_exceptions
+                        )
+                elif isinstance(message, _mcp_types.ClientNotification):
+                    await self._handle_notification(message.root)
+                elif isinstance(message, Exception):
+                    logger.debug("Suppressed stream exception: %r", message)
+                    if raise_exceptions:
+                        raise message
+
+                for warning in w:
+                    logger.info(
+                        "Warning: %s: %s", warning.category.__name__, warning.message
+                    )
+
+        _lowlevel.Server._handle_message = _handle_message_quiet
+        logger.info("Patched mcp.server.lowlevel.Server._handle_message to silence stream errors")
+    except Exception:
+        logger.exception("Failed to patch mcp lowlevel server; stream errors may still spam client")
+
+
+_patch_mcp_exception_silence()
 LLM_BACKEND = os.getenv("MEMORY_LLM_BACKEND", "gemini")
 LLM_MODEL = os.getenv("MEMORY_LLM_MODEL", "gemini-3-flash-preview")
 EMBEDDING_MODEL = os.getenv("MEMORY_EMBEDDING_MODEL", "gemini-embedding-001")
@@ -111,8 +236,11 @@ def optional_tool(name: str):
         return func
     return noop
 
+import sys as _sys
 logger.info("=" * 60)
 logger.info("MCP Server starting up (lazy init)")
+logger.info("python=%s (%s)", _sys.executable, _sys.version.split()[0])
+logger.info("script=%s  cwd=%s", os.path.abspath(__file__), os.getcwd())
 logger.info("persist_dir=%s  llm=%s/%s  embedding=%s/%s  vector=%s",
             PERSIST_DIR, LLM_BACKEND, LLM_MODEL, EMBEDDING_BACKEND, EMBEDDING_MODEL, VECTOR_BACKEND)
 logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
@@ -123,13 +251,14 @@ logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
 # the first tool call arrives. The MCP server responds to initialize/tools/list
 # instantly while the background load completes.
 _memory = None
+_memory_init_error: Optional[BaseException] = None
 _memory_lock = threading.Lock()
 _memory_ready = threading.Event()
 
 
 def _init_memory():
     """Initialize the memory system (runs in background thread)."""
-    global _memory, AgenticMemorySystem
+    global _memory, _memory_init_error, AgenticMemorySystem
     try:
         logger.info("Background: importing agentic_memory...")
         from agentic_memory.memory_system import AgenticMemorySystem as _AMS
@@ -148,7 +277,8 @@ def _init_memory():
                 max_links=MAX_LINKS,
             )
         logger.info("Background: memory system ready (%d memories loaded)", len(_memory.memories))
-    except Exception:
+    except BaseException as exc:
+        _memory_init_error = exc
         logger.exception("Background: failed to initialize memory system")
     finally:
         _memory_ready.set()
@@ -160,12 +290,28 @@ _init_thread.start()
 
 
 def get_memory():
-    """Get the memory system, waiting for background init if needed."""
+    """Get the memory system, waiting for background init if needed.
+
+    Raises a RuntimeError that includes the original initialization exception
+    (and python interpreter path) so MCP clients see actionable diagnostics
+    instead of a generic failure.
+    """
     if _memory is None:
         logger.info("Waiting for memory system initialization...")
         _memory_ready.wait(timeout=60)
         if _memory is None:
-            raise RuntimeError("Memory system failed to initialize")
+            err = _memory_init_error
+            if err is not None:
+                raise RuntimeError(
+                    f"Memory system failed to initialize: "
+                    f"{type(err).__name__}: {err}. "
+                    f"python={_sys.executable} script={os.path.abspath(__file__)}. "
+                    f"See {os.path.join(LOG_DIR, 'mcp_server.log')} for the full traceback."
+                ) from err
+            raise RuntimeError(
+                "Memory system failed to initialize within 60s "
+                f"(python={_sys.executable}). See {os.path.join(LOG_DIR, 'mcp_server.log')}."
+            )
     return _memory
 
 GRAPH_GROUP_COLORS = [
@@ -372,6 +518,10 @@ def save_memory(
     - Find and link related existing memories
     - Create a summary for long content (>150 words)
 
+    LLM analysis runs in a background thread (~10s) so this tool returns
+    immediately with a stable UUID. The note appears in `search_memory` /
+    `memory_tree` once analysis completes.
+
     Args:
         content: The memory content. Be detailed and thorough — include context,
             reasoning, specific examples, and lessons learned. Aim for 3-10 sentences
@@ -382,8 +532,11 @@ def save_memory(
         tags: Optional list of tags. Auto-generated if not provided.
 
     Returns:
-        JSON with the saved memory's id, name, path, and generated metadata.
+        JSON with the saved memory's id and accepted status. Background analysis
+        fills in keywords/tags/links/summary asynchronously.
     """
+    import uuid as _uuid
+
     kwargs = {}
     if name:
         kwargs["name"] = name
@@ -392,20 +545,46 @@ def save_memory(
     if tags:
         kwargs["tags"] = tags
 
-    logger.info("save_memory: name=%s path=%s tags=%s content_len=%d", name, path, tags, len(content))
-    mid = get_memory().add_note(content, **kwargs)
-    note = get_memory().read(mid)
-    logger.info("save_memory: saved id=%s name=%s path=%s", note.id, note.name, note.path)
+    # Pre-generate the ID so the client gets a stable handle immediately,
+    # before the slow LLM analysis runs in the background.
+    memory_id = str(_uuid.uuid4())
+    kwargs["id"] = memory_id
+
+    logger.info(
+        "save_memory: id=%s name=%s path=%s tags=%s content_len=%d",
+        memory_id, name, path, tags, len(content),
+    )
+
+    # Resolve the memory system synchronously so we can fail fast with a
+    # useful error if init is broken (rather than swallowing it in a thread).
+    mem = get_memory()
+
+    # In stdio mode the server process exits as soon as the response is sent,
+    # so background threads get killed before they can finish. Run synchronously
+    # so the note is on disk before we return. This adds ~10s latency for the
+    # LLM analysis, but is the only way to guarantee persistence in stdio mode.
+    try:
+        mem.add_note(content, **kwargs)
+        note = mem.read(memory_id)
+        if note is not None:
+            logger.info(
+                "save_memory: completed id=%s name=%s path=%s",
+                note.id, note.name, note.path,
+            )
+        else:
+            logger.warning("save_memory: note %s not found after add_note", memory_id)
+    except Exception:
+        logger.exception("save_memory: failed for id=%s", memory_id)
+        return json.dumps({
+            "id": memory_id,
+            "status": "error",
+            "message": "Failed to save memory. See server log for details.",
+        }, ensure_ascii=False)
 
     return json.dumps({
-        "id": note.id,
-        "name": note.name,
-        "path": note.path,
-        "filepath": note.filepath,
-        "keywords": note.keywords,
-        "tags": note.tags,
-        "links": note.links,
-        "has_summary": note.summary is not None,
+        "id": memory_id,
+        "status": "saved",
+        "message": "Memory saved to disk with full LLM analysis.",
     }, ensure_ascii=False)
 
 
@@ -822,6 +1001,7 @@ def find_memory(args: Optional[str] = None) -> str:
 
 if __name__ == "__main__":
     import argparse
+    import sys
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", default="stdio", choices=["stdio", "sse"],
                         help="MCP transport: stdio (default) or sse (persistent HTTP daemon)")

@@ -101,10 +101,9 @@ if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
   cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json" 2>/dev/null || true
 fi
 
-# Copy deploy config (uses {env:OSTWIN_PYTHON}/{env:HOME}, overrides builtin's {env:AGENT_DIR})
-if [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
-  cp "$SCRIPT_DIR/mcp/mcp-config.json" "$TARGET_AGENTS/mcp/mcp-config.json" 2>/dev/null || true
-fi
+# Note: mcp-config.json is the deploy template — it's read by the compile step
+# from the source repo, but we don't copy it into the project (only config.json
+# is the canonical compiled output). Avoid leaving unresolved {env:VAR} files.
 
 # Copy extension manager script
 if [[ -f "$SCRIPT_DIR/mcp/mcp-extension.sh" ]]; then

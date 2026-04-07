@@ -126,10 +126,11 @@ if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) {
     $planReviewTimeout = [int]$config.manager.plan_review_timeout_seconds
 }
 
-# --- Resolve war-rooms directory ---
+# --- Resolve war-rooms directory (provisional — finalized after plan parsing) ---
 $warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
                else { Join-Path $ProjectDir ".war-rooms" }
 $env:WARROOMS_DIR = $warRoomsDir
+$warRoomsDirFromEnv = [bool]$env:WARROOMS_DIR -and -not ($env:WARROOMS_DIR -eq (Join-Path $ProjectDir ".war-rooms"))
 
 # --- Bootstrap room-000 for plan negotiation ---
 $room000Dir = Join-Path $warRoomsDir "room-000"
@@ -243,6 +244,12 @@ if ($planContent -match '(?m)^working_dir:\s*(.+)$') {
     if ($globalWorkingDir -and (Test-Path $globalWorkingDir)) {
         $ProjectDir = (Resolve-Path $globalWorkingDir).Path
         Write-Host "  Project: $ProjectDir" -ForegroundColor DarkGray
+        # Re-resolve war-rooms dir to follow the plan's working_dir (unless explicitly set via env)
+        if (-not $warRoomsDirFromEnv) {
+            $warRoomsDir = Join-Path $ProjectDir ".war-rooms"
+            $env:WARROOMS_DIR = $warRoomsDir
+            $room000Dir = Join-Path $warRoomsDir "room-000"
+        }
     } elseif ($globalWorkingDir -and $globalWorkingDir -ne '...') {
         Write-Warning "working_dir '$globalWorkingDir' not found. Falling back to ProjectDir: $ProjectDir"
     }

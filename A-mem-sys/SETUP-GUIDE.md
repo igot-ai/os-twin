@@ -1,6 +1,8 @@
 # Memory MCP Server — Setup Guide
 
-This guide explains how to set up the Agentic Memory MCP server for use with ostwin agents, Codex, and Claude Code.
+This guide explains how to set up the Agentic Memory MCP server for use with ostwin agents, Codex, Claude Code, and OpenCode.
+
+If you want to run OpenCode against Vertex AI partner models such as `zai-org/glm-5-maas`, see [`OPENCODE-VERTEX-SETUP.md`](OPENCODE-VERTEX-SETUP.md) for the required ADC and region configuration.
 
 ## Prerequisites
 

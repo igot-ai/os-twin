@@ -105,11 +105,69 @@ class ConfigResolver:
             if k not in known_vars:
                 known_vars[k] = v
 
+        # Auto-load env vars from .env files so `ostwin init` can resolve
+        # placeholders like {env:GOOGLE_API_KEY} without requiring the user
+        # to export them in their shell. Search order (later wins):
+        #   1. ~/.ostwin/.env (global ostwin secrets)
+        #   2. <agent_dir>/.env (deploy-specific)
+        #   3. <project_dir>/.env (project-specific)
+        #   4. <agent_dir>/mcp/.env.mcp (MCP-specific)
+        def _load_env_file(path):
+            if not os.path.exists(path):
+                return
+            try:
+                with open(path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, _, v = line.partition("=")
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k and k not in known_vars:
+                            known_vars[k] = v
+            except (OSError, IOError):
+                pass
+
+        _load_env_file(os.path.join(home, ".ostwin", ".env"))
+        _load_env_file(os.path.join(agent_dir, ".env"))
+        _load_env_file(os.path.join(project_dir, ".env"))
+        _load_env_file(os.path.join(agent_dir, ".agents", "mcp", ".env.mcp"))
+
+        # Also scan shell rc files for `export VAR=value` lines.
+        # Useful for users who keep secrets in ~/.bashrc / ~/.zshrc instead of .env.
+        _shell_export_re = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)\s*$")
+        def _load_shell_rc(path):
+            if not os.path.exists(path):
+                return
+            try:
+                with open(path) as f:
+                    for line in f:
+                        m = _shell_export_re.match(line)
+                        if not m:
+                            continue
+                        k = m.group(1)
+                        v = m.group(2).strip().strip('"').strip("'")
+                        # Strip inline comments
+                        if " #" in v:
+                            v = v.split(" #")[0].rstrip()
+                        if k and k not in known_vars:
+                            known_vars[k] = v
+            except (OSError, IOError):
+                pass
+
+        for rc in (".bashrc", ".zshrc", ".profile", ".bash_profile"):
+            _load_shell_rc(os.path.join(home, rc))
+
         env_vars = {}
 
+        # OpenCode {env:VAR} pattern
+        opencode_var = re.compile(r'\{env:(\w+)\}')
+
         def _resolve_bash_vars(s: str) -> str:
-            """Resolve ${VAR} and ${VAR:-default} patterns.
-            Strategy: resolve innermost simple ${VAR} first, then ${VAR:-default} on next pass."""
+            """Resolve ${VAR}, ${VAR:-default}, and {env:VAR} patterns.
+            Strategy: resolve innermost simple ${VAR} first, then ${VAR:-default} on next pass.
+            Also handles OpenCode-style {env:VAR}."""
             for _ in range(5):  # max passes
                 prev = s
                 # Pass A: resolve simple ${VAR}
@@ -129,6 +187,14 @@ class ConfigResolver:
                         return value
                     return default
                 s = self._DEFAULT_VAR.sub(_replace_default, s)
+                # Pass C: resolve OpenCode {env:VAR}
+                def _replace_opencode(m):
+                    var_name = m.group(1)
+                    value = known_vars.get(var_name)
+                    if value is not None:
+                        return value
+                    return m.group(0)
+                s = opencode_var.sub(_replace_opencode, s)
                 if s == prev:
                     break
             return s
@@ -158,14 +224,15 @@ class ConfigResolver:
             compiled_config["mcp"][name] = _compile_recursive(server_cfg, name)
 
         # Clean up + resolve relative paths in environment/env values
+        _unresolved_re = re.compile(r"\$\{[^}]+\}|\{env:[^}]+\}")
         for name, server_cfg in compiled_config["mcp"].items():
             # Support both "environment" (OpenCode) and "env" (legacy)
             for env_key in ("environment", "env"):
                 if env_key in server_cfg and isinstance(server_cfg[env_key], dict):
-                    # Drop unresolved ${VAR} placeholders
+                    # Drop entries that still contain unresolved ${VAR} or {env:VAR} placeholders
                     server_cfg[env_key] = {
                         k: v for k, v in server_cfg[env_key].items()
-                        if not (isinstance(v, str) and v.startswith("${") and v.endswith("}"))
+                        if not (isinstance(v, str) and _unresolved_re.search(v))
                     }
                     # Resolve relative paths to absolute project_dir
                     for k, v in server_cfg[env_key].items():
