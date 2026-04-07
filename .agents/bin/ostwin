@@ -299,7 +299,9 @@ ps_dispatch() {
 case "${1:-}" in
   agent)
     shift
-    exec "$AGENTS_DIR/bin/agent" "$@"
+    # Always exec the canonical OSTWIN_HOME copy — never the project-local
+    # $AGENTS_DIR/bin/agent (dev tree). $OSTWIN_HOME is set at line 11.
+    exec "$OSTWIN_HOME/.agents/bin/agent" "$@"
     ;;
   chat)
     shift

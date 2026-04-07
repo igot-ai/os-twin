@@ -2,47 +2,51 @@
   "mcp": {
     "channel": {
       "type": "local",
-      "command": ["python", "{env:AGENT_DIR}/mcp/channel-server.py"],
+      "command": [
+        "python",
+        "{env:AGENT_DIR}/mcp/channel-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "warroom": {
       "type": "local",
-      "command": ["python", "{env:AGENT_DIR}/mcp/warroom-server.py"],
+      "command": [
+        "python",
+        "{env:AGENT_DIR}/mcp/warroom-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "memory": {
       "type": "local",
-      "command": ["python", "{env:AGENT_DIR}/mcp/memory-server.py"],
+      "command": [
+        "python",
+        "{env:AGENT_DIR}/mcp/memory-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": "{env:PROJECT_DIR}"
       }
     },
     "chrome-devtools": {
       "type": "local",
-      "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+      "command": [
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
       "environment": {}
     },
     "playwright": {
       "type": "local",
-      "command": ["npx", "-y", "@playwright/mcp@latest"],
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest"
+      ],
       "environment": {}
-    },
-    "serena": {
-      "type": "local",
-      "command": ["uvx", "--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context", "ide-assistant"]
-    },
-    "context7": {
-      "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"]
-    },
-    "ai-game-developer": {
-      "type": "remote",
-      "url": "http://localhost:51657",
-      "enabled": true
     }
   }
 }

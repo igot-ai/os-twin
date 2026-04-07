@@ -107,13 +107,47 @@ if (Test-Path $roomConfigFile) {
         $roomCfg = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
         $roomPlanId = $roomCfg.plan_id
         if ($roomPlanId) {
-            $planRolesFile = Join-Path $env:HOME ".ostwin" "plans" "$roomPlanId.roles.json"
+            $planRolesFile = Join-Path $OstwinHome ".agents" "plans" "$roomPlanId.roles.json"
             if (Test-Path $planRolesFile) {
                 $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
             }
         }
     }
     catch { }
+}
+
+# --- Plan roles resolution (highest priority after explicit -Model) ---
+# Runs unconditionally — does NOT depend on .agents/config.json existing.
+# Schema: { "<role>": { "default_model": "...", "timeout_seconds": N,
+#                       "instances": { "<id>": { "default_model": "...", "timeout_seconds": N } } } }
+$timeoutWasExplicit = $PSBoundParameters.ContainsKey('TimeoutSeconds')
+
+if ($planRolesConfig -and $planRolesConfig.$RoleName) {
+    $planRoleNode = $planRolesConfig.$RoleName
+
+    if (-not $Model) {
+        # Priority 1a: plan-roles instance override
+        if ($InstanceId -and $planRoleNode.instances `
+            -and $planRoleNode.instances.$InstanceId `
+            -and $planRoleNode.instances.$InstanceId.default_model) {
+            $Model = $planRoleNode.instances.$InstanceId.default_model
+        }
+        # Priority 1b: plan-roles role default
+        elseif ($planRoleNode.default_model) {
+            $Model = $planRoleNode.default_model
+        }
+    }
+
+    if (-not $timeoutWasExplicit) {
+        if ($InstanceId -and $planRoleNode.instances `
+            -and $planRoleNode.instances.$InstanceId `
+            -and $planRoleNode.instances.$InstanceId.timeout_seconds) {
+            $TimeoutSeconds = [int]$planRoleNode.instances.$InstanceId.timeout_seconds
+        }
+        elseif ($planRoleNode.timeout_seconds) {
+            $TimeoutSeconds = [int]$planRoleNode.timeout_seconds
+        }
+    }
 }
 
 # Safe defaults (overridden inside config block below)
@@ -129,13 +163,10 @@ if (Test-Path $configPath) {
         $instanceConfig = $config.$RoleName.instances.$InstanceId
     }
 
-    # Model: plan roles.json → instance → role config.json → role.json → hardcoded default
+    # Model fallback chain (plan roles already applied above):
+    # instance → role config.json → role.json → hardcoded default
     if (-not $Model) {
-        # Priority 1: plan-specific roles.json
-        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.default_model) {
-            $Model = $planRolesConfig.$RoleName.default_model
-        }
-        elseif ($instanceConfig -and $instanceConfig.default_model) {
+        if ($instanceConfig -and $instanceConfig.default_model) {
             $Model = $instanceConfig.default_model
         }
         elseif ($config.$RoleName.default_model) {
@@ -153,12 +184,9 @@ if (Test-Path $configPath) {
         }
     }
 
-    # Timeout: plan roles.json → instance → role
-    if ($TimeoutSeconds -eq 600) {
-        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.timeout_seconds) {
-            $TimeoutSeconds = $planRolesConfig.$RoleName.timeout_seconds
-        }
-        elseif ($instanceConfig -and $instanceConfig.timeout_seconds) {
+    # Timeout fallback chain (plan roles already applied above): instance → role
+    if (-not $timeoutWasExplicit) {
+        if ($instanceConfig -and $instanceConfig.timeout_seconds) {
             $TimeoutSeconds = $instanceConfig.timeout_seconds
         }
         elseif ($config.$RoleName.timeout_seconds) {
@@ -200,11 +228,13 @@ if (Test-Path $configPath) {
     if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
     if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
-    # --- CLI resolution: local wrapper → role config → global fallback ---
+    # --- CLI resolution: OSTWIN_HOME bin/agent → role config → opencode fallback ---
+    # ALWAYS resolve to $OstwinHome/.agents/bin/agent (canonical install).
+    # Never the project-local $agentsDir/bin/agent (dev tree) — those can drift.
     if (-not $AgentCmd) {
-        $localAgent = Join-Path $agentsDir "bin" "agent"
-        if (Test-Path $localAgent) {
-            $AgentCmd = "'$localAgent'"
+        $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
+        if (Test-Path $ostwinAgent) {
+            $AgentCmd = "'$ostwinAgent'"
         }
         else {
             $AgentCmd = $config.$RoleName.cli
@@ -220,6 +250,10 @@ if (-not $Model) { $Model = "google-vertex/zai-org/glm-5-maas" }
 $envCmdVar = "${RoleName}_CMD".ToUpper()
 $envCmd = [System.Environment]::GetEnvironmentVariable($envCmdVar)
 if ($envCmd) { $AgentCmd = $envCmd }
+
+# --- Log resolved model/timeout for debugging ---
+# This is the value that will actually drive opencode run.
+Write-Host "[Invoke-Agent] Resolved Role=$RoleName Instance=$InstanceId Model=$Model Timeout=${TimeoutSeconds}s"
 
 # --- Prepare output directory ---
 $artifactsDir = Join-Path $absRoomDir "artifacts"
