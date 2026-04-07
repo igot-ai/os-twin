@@ -228,22 +228,50 @@ if (Test-Path $configPath) {
     if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
     if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
-    # --- CLI resolution: OSTWIN_HOME bin/agent → role config → opencode fallback ---
-    # ALWAYS resolve to $OstwinHome/.agents/bin/agent (canonical install).
-    # Never the project-local $agentsDir/bin/agent (dev tree) — those can drift.
+    # --- CLI resolution: env override → OSTWIN_HOME bin/agent → project-local → role config → opencode fallback ---
+    # Prefer $OSTWIN_AGENT_CMD env var (for dev/test overrides), then canonical
+    # install path, then project-local dev tree, then role config, then opencode.
     if (-not $AgentCmd) {
-        $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
-        if (Test-Path $ostwinAgent) {
-            $AgentCmd = "'$ostwinAgent'"
+        if ($env:OSTWIN_AGENT_CMD) {
+            $AgentCmd = $env:OSTWIN_AGENT_CMD
         }
         else {
-            $AgentCmd = $config.$RoleName.cli
-            if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
+            $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
+            $localAgent = Join-Path $agentsDir "bin" "agent"
+            if (Test-Path $ostwinAgent) {
+                $AgentCmd = "'$ostwinAgent'"
+            }
+            elseif (Test-Path $localAgent) {
+                $AgentCmd = "'$localAgent'"
+            }
+            else {
+                $AgentCmd = $config.$RoleName.cli
+                if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
+            }
         }
     }
 }
 
 if (-not $AgentCmd) { $AgentCmd = "opencode run" }
+
+# --- Role.json model fallback (runs even when config.json is absent) ---
+# If no model was resolved from -Model param, plan.roles.json, or config.json,
+# try role.json as the last config-based source before the hardcoded default.
+# Search order: HOME-based (authoritative) → project-local (legacy).
+if (-not $Model) {
+    $homeRoleJson = Join-Path $OstwinHome ".agents" "roles" $RoleName "role.json"
+    $localRoleJson = Join-Path $agentsDir "roles" $RoleName "role.json"
+    $roleJsonPath = if (Test-Path $homeRoleJson) { $homeRoleJson } elseif (Test-Path $localRoleJson) { $localRoleJson } else { $null }
+    if ($roleJsonPath) {
+        try {
+            $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+            if ($roleJson.model) {
+                $Model = $roleJson.model
+            }
+        }
+        catch { }
+    }
+}
 if (-not $Model) { $Model = "google-vertex/zai-org/glm-5-maas" }
 
 # --- Env var overrides for testing ---

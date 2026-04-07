@@ -135,8 +135,8 @@ Describe "Resolve-RoleSkills" {
             $resolved.Path | Should -Match "roles[\\/]engineer[\\/]review-skill"
         }
 
-        It "resolves flat path before hierarchical paths" {
-            # Skill exists at BOTH flat and role paths — flat should win
+        It "resolves own-role path before flat path" {
+            # Skill exists at BOTH flat and role paths — own-role should win
             mkdir -p (Join-Path $script:baseDir "dual-skill")
             "Flat version" > (Join-Path $script:baseDir "dual-skill" "SKILL.md")
             mkdir -p (Join-Path $script:baseDir "roles" "engineer" "dual-skill")
@@ -151,8 +151,8 @@ Describe "Resolve-RoleSkills" {
 
             $resolved = $skills | Where-Object { $_.Name -eq "dual-skill" }
             $resolved | Should -Not -BeNullOrEmpty
-            # Flat path is searched first (before hierarchical)
-            $resolved.Path | Should -Not -Match "roles[\\/]engineer"
+            # Own-role path is searched first (role-specific overrides win)
+            $resolved.Path | Should -Match "roles[\\/]engineer[\\/]dual-skill"
         }
     }
 

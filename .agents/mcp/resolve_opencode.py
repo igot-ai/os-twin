@@ -86,7 +86,8 @@ def resolve_mcp_servers(servers, env_all):
     return resolved
 
 
-def resolve_and_write(config_path, output_dir, env_file=None, merge=False):
+def resolve_and_write(config_path, output_dir, env_file=None, merge=False,
+                      strict=False):
     """Main entry point: load config, resolve, write opencode.json.
 
     Args:
@@ -96,6 +97,8 @@ def resolve_and_write(config_path, output_dir, env_file=None, merge=False):
         merge:       If True, only update the 'mcp' key in an existing
                      opencode.json, preserving user settings (theme, model,
                      keybinds, etc.). If the file doesn't exist, creates fresh.
+        strict:      If True, exit with error when unresolved {env:*}
+                     placeholders are detected. Default False (warn only).
 
     Returns the resolved MCP dict (useful for callers that need to add
     tools/agent blocks on top).
@@ -132,19 +135,36 @@ def resolve_and_write(config_path, output_dir, env_file=None, merge=False):
         json.dump(opencode_config, f, indent=2)
         f.write('\n')
 
-    # Warn about unresolved refs in command arrays
+    # Check for unresolved {env:*} refs across all config fields
     env_ref_pattern = re.compile(r'\{env:\w+\}')
     unresolved = []
     for name, cfg in resolved_mcp.items():
+        # Check command arrays
         for c in cfg.get('command', []):
             if isinstance(c, str) and env_ref_pattern.search(c):
-                unresolved.append(c)
+                unresolved.append(f"{name}/command: {c}")
+        # Check args arrays
+        for a in cfg.get('args', []):
+            if isinstance(a, str) and env_ref_pattern.search(a):
+                unresolved.append(f"{name}/args: {a}")
+        # Check url strings
+        url = cfg.get('url', '')
+        if isinstance(url, str) and env_ref_pattern.search(url):
+            unresolved.append(f"{name}/url: {url}")
+        # Check environment dict values
+        for k, v in cfg.get('environment', {}).items():
+            if isinstance(v, str) and env_ref_pattern.search(v):
+                unresolved.append(f"{name}/environment/{k}: {v}")
     if unresolved:
-        print(
-            f"  Warning: unresolved in commands (set these vars): "
-            f"{', '.join(sorted(set(unresolved)))}",
-            file=sys.stderr,
+        msg = (
+            f"  Unresolved placeholders (set these vars): "
+            f"{', '.join(sorted(set(unresolved)))}"
         )
+        if strict:
+            print(f"  ERROR: {msg}", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print(f"  Warning: {msg}", file=sys.stderr)
 
     print(f"  Generated {opencode_file}")
     return resolved_mcp
@@ -165,13 +185,19 @@ def main():
         help='Merge into existing opencode.json (only update mcp key, '
              'preserve user settings like theme/model/keybinds)',
     )
+    parser.add_argument(
+        '--strict', action='store_true', default=False,
+        help='Exit with error (code 1) if any {env:*} placeholders '
+             'remain unresolved after resolution. Default: warn only.',
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.config):
         print(f"Error: config file not found: {args.config}", file=sys.stderr)
         sys.exit(1)
 
-    resolve_and_write(args.config, args.output_dir, args.env_file, args.merge)
+    resolve_and_write(args.config, args.output_dir, args.env_file, args.merge,
+                      args.strict)
 
 
 if __name__ == '__main__':
