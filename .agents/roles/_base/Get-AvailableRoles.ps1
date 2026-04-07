@@ -88,7 +88,7 @@ foreach ($searchDir in $searchDirs) {
                 Name         = $roleName
                 Runner       = $runnerPath
                 Model        = if ($roleJson.model) { $roleJson.model } else { 'google-vertex/gemini-3-flash-preview' }
-                Timeout      = if ($roleJson.timeout_seconds) { $roleJson.timeout_seconds } else { 600 }
+                Timeout      = if ($roleJson.timeout) { $roleJson.timeout } elseif ($roleJson.timeout_seconds) { $roleJson.timeout_seconds } else { 600 }
                 Capabilities = if ($roleJson.capabilities) { @($roleJson.capabilities) } else { @() }
                 Source       = 'discovered'
             })

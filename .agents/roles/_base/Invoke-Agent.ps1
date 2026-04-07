@@ -365,35 +365,23 @@ if (-not $NoMcp) {
         if (-not $resolvedMcpConfig) {
             # Priority 1: project-local MCP config
             if ($ProjectDir) {
-                foreach ($projectMcpConfig in @(
-                        (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
-                        (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
-                    )) {
-                    if (Test-Path $projectMcpConfig) {
-                        $resolvedMcpConfig = $projectMcpConfig
-                        break
-                    }
+                $projectMcpConfig = Join-Path $ProjectDir ".agents" "mcp" "config.json"
+                if (Test-Path $projectMcpConfig) {
+                    $resolvedMcpConfig = $projectMcpConfig
                 }
             }
             # Priority 2: agents dir (same repo, e.g. installed copy)
             if (-not $resolvedMcpConfig) {
-                foreach ($agentsDirMcpConfig in @(
-                        (Join-Path $agentsDir "mcp" "config.json"),
-                        (Join-Path $agentsDir "mcp" "mcp-config.json")
-                    )) {
-                    if (Test-Path $agentsDirMcpConfig) {
-                        $resolvedMcpConfig = $agentsDirMcpConfig
-                        break
-                    }
+                $agentsDirMcpConfig = Join-Path $agentsDir "mcp" "config.json"
+                if (Test-Path $agentsDirMcpConfig) {
+                    $resolvedMcpConfig = $agentsDirMcpConfig
                 }
             }
             # Priority 3: OSTWIN_HOME global config
             if (-not $resolvedMcpConfig) {
                 foreach ($ostwinMcpConfig in @(
                         (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
-                        (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
-                        (Join-Path $OstwinHome "mcp" "config.json"),
-                        (Join-Path $OstwinHome "mcp" "mcp-config.json")
+                        (Join-Path $OstwinHome "mcp" "config.json")
                     )) {
                     if (Test-Path $ostwinMcpConfig) {
                         $resolvedMcpConfig = $ostwinMcpConfig

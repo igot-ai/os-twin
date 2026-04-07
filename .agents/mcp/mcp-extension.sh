@@ -32,20 +32,15 @@ fi
 # Catalog + builtins always come from global install
 CATALOG_FILE="$HOME/.ostwin/.agents/mcp/mcp-catalog.json"
 BUILTIN_FILE="$HOME/.ostwin/.agents/mcp/mcp-builtin.json"
-# Deploy config: uses {env:OSTWIN_PYTHON}/{env:HOME} (overrides builtin's {env:AGENT_DIR})
-DEPLOY_CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
-
 # Dev mode fallbacks
 [[ ! -f "$CATALOG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-catalog.json" ]] && CATALOG_FILE="$SCRIPT_DIR/mcp-catalog.json"
 [[ ! -f "$BUILTIN_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-builtin.json" ]] && BUILTIN_FILE="$SCRIPT_DIR/mcp-builtin.json"
-[[ ! -f "$DEPLOY_CONFIG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-config.json" ]] && DEPLOY_CONFIG_FILE="$SCRIPT_DIR/mcp-config.json"
 
 # Project-local paths — set after --project-dir is parsed (see MAIN)
 MCP_DIR=""
 EXTENSIONS_DIR=""
 EXTENSIONS_FILE=""
 CONFIG_FILE="$HOME/.ostwin/.agents/mcp/config.json"
-LEGACY_CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
 PROJECT_DIR=""
 
 # Python: use activated venv (ostwin sources activate), fallback to system
@@ -100,10 +95,6 @@ ensure_dirs() {
 ensure_global_config_file() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
   if [[ -f "$CONFIG_FILE" ]]; then
-    return
-  fi
-  if [[ -f "$LEGACY_CONFIG_FILE" ]]; then
-    cp "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
     return
   fi
   if [[ -f "$BUILTIN_FILE" ]]; then
@@ -614,21 +605,24 @@ with open('$EXTENSIONS_FILE', 'w') as f:
 
 cmd_sync_quiet() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
+
+  local mcp_module_dir
+  mcp_module_dir="$(dirname "$CONFIG_FILE")"
+
   "$PYTHON" -c "
-import json
-builtin = {}
+import json, sys, os
+
+sys.path.insert(0, '$mcp_module_dir')
+from validate_mcp import normalize_mcp_config, merge_mcp_configs
+
+# Load builtin config (may be legacy mcpServers format)
+builtin_raw = {}
 try:
     with open('$BUILTIN_FILE') as f:
-        d = json.load(f)
-        builtin = d.get('mcp', d.get('mcpServers', {}))
+        builtin_raw = json.load(f)
 except FileNotFoundError: pass
-# Deploy config overrides builtin (uses {env:OSTWIN_PYTHON}/{env:HOME} instead of {env:AGENT_DIR})
-deploy = {}
-try:
-    with open('$DEPLOY_CONFIG_FILE') as f:
-        d = json.load(f)
-        deploy = d.get('mcp', d.get('mcpServers', {}))
-except FileNotFoundError: pass
+
+# Load extensions
 extensions = {}
 try:
     with open('$EXTENSIONS_FILE') as f:
@@ -638,90 +632,17 @@ try:
         config = ext.get('config', {})
         if name and config: extensions[name] = config
 except FileNotFoundError: pass
-merged = {'mcp': {**builtin, **deploy, **extensions}}
+
+# Normalize builtin (handles mcpServers, shell vars, etc.)
+normalized_builtin = normalize_mcp_config(builtin_raw)
+
+# Merge: builtin → extensions (extensions override builtin)
+merged_servers = {**normalized_builtin, **extensions}
+
 with open('$CONFIG_FILE', 'w') as f:
-    json.dump(merged, f, indent=2)
+    json.dump({'mcp': merged_servers}, f, indent=2)
     f.write('\n')
 "
-  # Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} → absolute paths
-  local abs_project_dir
-  abs_project_dir="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
-  local env_mcp_file="$(dirname "$CONFIG_FILE")/.env.mcp"
-
-  export AGENT_DIR="$INSTALL_DIR"
-  export PROJECT_DIR="$abs_project_dir"
-
-  "$PYTHON" - <<PYEOF
-import json, os, re
-
-config_file = '$CONFIG_FILE'
-env_mcp_file = '$env_mcp_file'
-project_dir = '$abs_project_dir'
-
-# Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} in config.json
-with open(config_file) as f:
-    raw = f.read()
-raw = raw.replace('{env:AGENT_DIR}', '$INSTALL_DIR')
-raw = raw.replace('{env:PROJECT_DIR}', '$abs_project_dir')
-with open(config_file, 'w') as f:
-    f.write(raw)
-
-# Load .env.mcp for vault-derived secrets
-env_extra = {}
-if os.path.exists(env_mcp_file):
-    with open(env_mcp_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            k, _, v = line.partition('=')
-            env_extra[k.strip()] = v.strip()
-env_all = {**os.environ, **env_extra}
-
-def resolve_env_refs(text):
-    return re.sub(r'\{env:(\w+)\}', lambda m: env_all.get(m.group(1), m.group(0)), text)
-
-# Write .opencode/opencode.json
-# - command arrays: resolve ALL {env:*} to literal paths
-# - environment/headers: STRIP {env:*} pass-throughs (server inherits parent env)
-with open(config_file) as f:
-    config = json.load(f)
-
-import shutil
-python_abs = shutil.which('python') or shutil.which('python3') or 'python'
-
-env_ref_pattern = re.compile(r'\{env:\w+\}')
-resolved_mcp = {}
-for name, cfg in config.get('mcp', {}).items():
-    out = {}
-    for key, val in cfg.items():
-        if key == 'command' and isinstance(val, list):
-            resolved_cmd = []
-            for i, c in enumerate(val):
-                if isinstance(c, str):
-                    c = resolve_env_refs(c)
-                    if i == 0 and c in ('python', 'python3'):
-                        c = python_abs
-                resolved_cmd.append(c)
-            out[key] = resolved_cmd
-        elif key in ('environment', 'headers') and isinstance(val, dict):
-            cleaned = {k: v for k, v in val.items()
-                       if not (isinstance(v, str) and env_ref_pattern.search(v))}
-            if cleaned:
-                out[key] = cleaned
-        elif key == 'url' and isinstance(val, str):
-            out[key] = resolve_env_refs(val)
-        else:
-            out[key] = val
-    resolved_mcp[name] = out
-
-opencode_dir = os.path.join(project_dir, '.opencode')
-os.makedirs(opencode_dir, exist_ok=True)
-opencode_file = os.path.join(opencode_dir, 'opencode.json')
-with open(opencode_file, 'w') as f:
-    json.dump({"\$schema": "https://opencode.ai/config.json", "mcp": resolved_mcp}, f, indent=2)
-    f.write('\n')
-PYEOF
 }
 
 cmd_sync() {
@@ -761,12 +682,8 @@ cmd_init_project() {
   chmod +x "$dest_script"
 
   local project_config="$project_mcp/config.json"
-  local legacy_project_config="$project_mcp/mcp-config.json"
   if [[ ! -f "$project_config" ]]; then
-    if [[ -f "$legacy_project_config" ]]; then
-      cp "$legacy_project_config" "$project_config"
-    else
-      [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcp":{}}' > "$project_config"
+    [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcp":{}}' > "$project_config"
     fi
   fi
 
@@ -1026,7 +943,6 @@ cmd_compile() {
   export _SCRIPT_DIR="$SCRIPT_DIR"
   export _CONFIG_FILE="$CONFIG_FILE"
   export _BUILTIN_FILE="$BUILTIN_FILE"
-  export _DEPLOY_CONFIG_FILE="$DEPLOY_CONFIG_FILE"
   export _PROJECT_DIR="$project_dir"
 
   step "Compiling MCP config for project at $project_dir..."
@@ -1036,7 +952,7 @@ import json, sys, os
 script_dir = os.environ.get("_SCRIPT_DIR")
 home_config_file = os.environ.get("_CONFIG_FILE")
 builtin_file = os.environ.get("_BUILTIN_FILE")
-deploy_config_file = os.environ.get("_DEPLOY_CONFIG_FILE", "")
+
 project_dir = os.environ.get("_PROJECT_DIR")
 
 mcp_dir = os.path.join(project_dir, '.agents', 'mcp')
@@ -1066,18 +982,13 @@ if os.path.exists(builtin_file):
     with open(builtin_file) as f:
         builtin_config = json.load(f)
 
-# mcp-config.json is the DEPLOY template (uses {env:OSTWIN_PYTHON}/{env:HOME}).
-# It overrides mcp-builtin.json (which uses {env:AGENT_DIR} for dev mode).
-# Merge order: builtin → deploy → home (each layer overrides the previous).
-deploy_config = {}
-if deploy_config_file and os.path.exists(deploy_config_file):
-    with open(deploy_config_file) as f:
-        deploy_config = json.load(f)
+# Normalize builtin config (handles legacy mcpServers, shell vars, etc.)
+from validate_mcp import normalize_mcp_config
+normalized_builtin = normalize_mcp_config(builtin_config)
 
-# Merge deploy config ON TOP of builtin before passing to compile
+# Merge order: builtin → home (each layer overrides the previous).
 merged_builtin = {"mcp": {}}
-merged_builtin["mcp"].update(builtin_config.get("mcp", builtin_config.get("mcpServers", {})))
-merged_builtin["mcp"].update(deploy_config.get("mcp", deploy_config.get("mcpServers", {})))
+merged_builtin["mcp"].update(normalized_builtin)
 
 resolver = ConfigResolver()
 compiled_config, env_vars = resolver.compile_config(home_config, merged_builtin)
@@ -1122,116 +1033,62 @@ print(f'  ✓ Generated {env_mcp_file}')
 print(f'  ✓ Generated {manifest_file}')
 PYEOF
 
-  # ── Resolve placeholders and write .opencode/opencode.json ──
-  # OpenCode does NOT understand {env:VAR} — all placeholders must be resolved
-  # to literal values before writing the final config.
+  # ── Normalize, validate, and write .opencode/opencode.json ──
   local abs_project_dir
   abs_project_dir="$(cd "$project_dir" 2>/dev/null && pwd || echo "$project_dir")"
-  local env_mcp_file="$project_dir/.agents/mcp/.env.mcp"
+  local config_file="$project_dir/.agents/mcp/config.json"
+  local mcp_module_dir="$INSTALL_DIR/.agents/mcp"
+  local opencode_dir="$abs_project_dir/.opencode"
 
-  # Export known path vars so the Python resolver can find them
-  export AGENT_DIR="$INSTALL_DIR"
-  export PROJECT_DIR="$abs_project_dir"
+  "$PYTHON" -c "
+import json, sys, os
 
-  "$PYTHON" - <<PYEOF
-import json, os, re
+sys.path.insert(0, '$mcp_module_dir')
+from validate_mcp import normalize_mcp_config, validate_mcp_config
 
-project_dir = '$abs_project_dir'
-config_file = os.path.join(project_dir, '.agents', 'mcp', 'config.json')
-env_mcp_file = '$env_mcp_file'
+config_file = '$config_file'
+opencode_dir = '$opencode_dir'
 
-# Load .env.mcp (vault-derived secrets) into a lookup dict
-env_extra = {}
-if os.path.exists(env_mcp_file):
-    with open(env_mcp_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            k, _, v = line.partition('=')
-            env_extra[k.strip()] = v.strip()
-
-# Build unified env: real env + .env.mcp overrides
-env_all = {**os.environ, **env_extra}
-
-def resolve_env_refs(text):
-    """Replace ALL {env:VAR} with resolved values from environment."""
-    def _repl(m):
-        var = m.group(1)
-        return env_all.get(var, m.group(0))
-    return re.sub(r'\{env:(\w+)\}', _repl, text)
-
-# 1. Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} in config.json (internal copy)
 with open(config_file) as f:
-    raw = f.read()
-raw = raw.replace('{env:AGENT_DIR}', '$INSTALL_DIR')
-raw = raw.replace('{env:PROJECT_DIR}', '$abs_project_dir')
-with open(config_file, 'w') as f:
-    f.write(raw)
+    source = json.load(f)
 
-# 2. Write .opencode/opencode.json
-# - command arrays: resolve ALL {env:*} to literal paths
-# - environment/headers: STRIP {env:*} pass-throughs (server inherits parent env)
-#   to avoid writing secrets (API keys, tokens) to disk
-with open(config_file) as f:
-    config = json.load(f)
+# Normalize from any format to OpenCode
+normalized = normalize_mcp_config(source)
 
-import shutil
+# Validate
+validated, skipped, results = validate_mcp_config(normalized)
+for name, is_valid, errors, warnings in results:
+    for w in warnings:
+        print(f'  [WARN] {name}: {w}', file=sys.stderr)
+    if not is_valid:
+        for e in errors:
+            print(f'  [ERROR] {name}: {e}', file=sys.stderr)
 
-# Resolve bare "python" to absolute path (from activated venv) so OpenCode can find it
-python_abs = shutil.which('python') or shutil.which('python3') or 'python'
+# Build tools deny block
+tools_deny = {f'{name}*': False for name in validated}
 
-env_ref_pattern = re.compile(r'\{env:\w+\}')
-resolved_mcp = {}
-for name, cfg in config.get('mcp', {}).items():
-    out = {}
-    for key, val in cfg.items():
-        if key == 'command' and isinstance(val, list):
-            # Resolve {env:*} and bare "python" to absolute paths
-            resolved_cmd = []
-            for i, c in enumerate(val):
-                if isinstance(c, str):
-                    c = resolve_env_refs(c)
-                    # Resolve bare executable (first element) to absolute path
-                    if i == 0 and c in ('python', 'python3'):
-                        c = python_abs
-                resolved_cmd.append(c)
-            out[key] = resolved_cmd
-        elif key in ('environment', 'headers') and isinstance(val, dict):
-            # Only keep literal values; strip {env:*} pass-throughs (secrets stay in env)
-            cleaned = {k: v for k, v in val.items()
-                       if not (isinstance(v, str) and env_ref_pattern.search(v))}
-            if cleaned:
-                out[key] = cleaned
-        elif key == 'url' and isinstance(val, str):
-            out[key] = resolve_env_refs(val)
-        else:
-            out[key] = val
-    resolved_mcp[name] = out
-
-opencode_dir = os.path.join(project_dir, '.opencode')
-opencode_file = os.path.join(opencode_dir, 'opencode.json')
 os.makedirs(opencode_dir, exist_ok=True)
+opencode_file = os.path.join(opencode_dir, 'opencode.json')
 
-opencode_config = {
-    "\$schema": "https://opencode.ai/config.json",
-    "mcp": resolved_mcp
-}
+# Merge with existing (preserve user settings)
+existing = {}
+if os.path.exists(opencode_file):
+    try:
+        with open(opencode_file) as f:
+            existing = json.load(f)
+    except (json.JSONDecodeError, ValueError):
+        existing = {}
+
+existing['\$schema'] = 'https://opencode.ai/config.json'
+existing['mcp'] = validated
+existing['tools'] = tools_deny
+
 with open(opencode_file, 'w') as f:
-    json.dump(opencode_config, f, indent=2)
+    json.dump(existing, f, indent=2)
     f.write('\n')
 
-# Warn about unresolved refs in command arrays
-cmd_unresolved = []
-for name, cfg in resolved_mcp.items():
-    for c in cfg.get('command', []):
-        if isinstance(c, str) and env_ref_pattern.search(c):
-            cmd_unresolved.append(c)
-if cmd_unresolved:
-    print(f'  ⚠ Unresolved in commands (set these vars): {", ".join(sorted(set(cmd_unresolved)))}')
-
-print(f'  ✓ Generated {opencode_file}')
-PYEOF
+print(f'  ✓ Generated {opencode_file} ({len(validated)} servers, {len(tools_deny)} tools denied)')
+"
 }
 
 # ─── HELP ────────────────────────────────────────────────────────────────────

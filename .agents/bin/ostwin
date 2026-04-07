@@ -328,6 +328,7 @@ case "${1:-}" in
       fi
     done
 
+    #Check-role
     # Check for missing roles in the plan and generate a script if needed
     if [[ "$PLAN_ARG_RESOLVED" == true && -f "$RESOLVED_PLAN_FILE" ]]; then
       # Extract roles defined as "Role: role-name"
@@ -817,11 +818,8 @@ else:
     # Collect all MCP config files to patch
     MCP_CONFIGS=()
     [[ -f "$HOME/.ostwin/.agents/mcp/config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/.agents/mcp/config.json")
-    [[ -f "$HOME/.ostwin/.agents/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/.agents/mcp/mcp-config.json")
     [[ -f "$HOME/.ostwin/mcp/config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/mcp/config.json")
-    [[ -f "$HOME/.ostwin/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/mcp/mcp-config.json")
     [[ -f "$AGENTS_DIR/mcp/config.json" ]] && MCP_CONFIGS+=("$AGENTS_DIR/mcp/config.json")
-    [[ -f "$AGENTS_DIR/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$AGENTS_DIR/mcp/mcp-config.json")
     # Deduplicate (in case they're the same file)
     MCP_CONFIGS=($(printf '%s\n' "${MCP_CONFIGS[@]}" | sort -u))
 

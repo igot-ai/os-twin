@@ -101,10 +101,7 @@ if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
   cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json" 2>/dev/null || true
 fi
 
-# Copy deploy config (uses {env:OSTWIN_PYTHON}/{env:HOME}, overrides builtin's {env:AGENT_DIR})
-if [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
-  cp "$SCRIPT_DIR/mcp/mcp-config.json" "$TARGET_AGENTS/mcp/mcp-config.json" 2>/dev/null || true
-fi
+# (legacy mcp-config.json removed — config.json is the only MCP config format)
 
 # Copy extension manager script
 if [[ -f "$SCRIPT_DIR/mcp/mcp-extension.sh" ]]; then
@@ -124,17 +121,10 @@ for _py_file in vault.py config_resolver.py; do
 done
 
 PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/config.json"
-LEGACY_PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/mcp-config.json"
 
 if [[ ! -f "$PROJECT_MCP_CONFIG" ]]; then
-  # Priority: mcp-config.json (deployed format with {env:OSTWIN_PYTHON}/{env:HOME})
-  #         > legacy mcp-config.json
-  #         > mcp-builtin.json (dev format with {env:AGENT_DIR})
-  if [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
-    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$PROJECT_MCP_CONFIG"
-  elif [[ -f "$LEGACY_PROJECT_MCP_CONFIG" ]]; then
-    cp "$LEGACY_PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG"
-  elif [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
+  # Seed from mcp-builtin.json (dev format) if available
+  if [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
     cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$PROJECT_MCP_CONFIG"
   else
     echo '{"mcp":{}}' > "$PROJECT_MCP_CONFIG"
@@ -231,15 +221,10 @@ fi
 # Ensure global config.json exists (compile needs it)
 GLOBAL_MCP_DIR="$HOME/.ostwin/.agents/mcp"
 GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/config.json"
-LEGACY_GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/mcp-config.json"
 mkdir -p "$GLOBAL_MCP_DIR"
 if [[ ! -f "$GLOBAL_MCP_CONFIG" ]]; then
-  # Seed global config from mcp-config.json (deployed format) if available
-  if [[ -f "$LEGACY_GLOBAL_MCP_CONFIG" ]]; then
-    cp "$LEGACY_GLOBAL_MCP_CONFIG" "$GLOBAL_MCP_CONFIG"
-  elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
-    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$GLOBAL_MCP_CONFIG"
-  elif [[ -f "$GLOBAL_MCP_DIR/mcp-builtin.json" ]]; then
+  # Seed global config from mcp-builtin.json if available
+  if [[ -f "$GLOBAL_MCP_DIR/mcp-builtin.json" ]]; then
     cp "$GLOBAL_MCP_DIR/mcp-builtin.json" "$GLOBAL_MCP_CONFIG"
   else
     echo '{"mcp":{}}' > "$GLOBAL_MCP_CONFIG"

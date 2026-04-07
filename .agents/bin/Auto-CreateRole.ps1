@@ -28,10 +28,4 @@ if ($null -eq $deepagentsCmd) {
 }
 
 $McpConfig = Join-Path $AgentsDir "mcp/config.json"
-if (-not (Test-Path $McpConfig)) {
-    $LegacyMcpConfig = Join-Path $AgentsDir "mcp/mcp-config.json"
-    if (Test-Path $LegacyMcpConfig) {
-        $McpConfig = $LegacyMcpConfig
-    }
-}
 & $deepagentsCmd -a manager -n $ManagerPrompt --auto-approve --trust-project-mcp --shell-allow-list all --mcp-config $McpConfig
