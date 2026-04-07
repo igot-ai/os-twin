@@ -20,6 +20,7 @@ export interface Session {
   lastActivity: number;
   lastTranscription?: string;
   workingDir?: string;
+  activeEpicRef?: string;
 }
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes

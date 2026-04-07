@@ -3,10 +3,8 @@
 import React, { useState, useCallback, useRef } from 'react';
 import useSWR from 'swr';
 import { usePlanContext } from './PlanWorkspace';
-import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api-client';
-
-const assetFetcher = (url: string) => apiGet<{ plan_id: string; assets: PlanAsset[]; count: number }>(url);
 import { PlanAsset } from '@/types';
+import { useAssets } from '@/hooks/use-assets';
 
 const ASSET_TYPES = [
   'design-mockup', 'api-spec', 'test-data', 'reference-doc', 'config', 'media', 'other',
@@ -36,20 +34,22 @@ function isPreviewable(mime: string): boolean {
 
 export default function AssetPanel() {
   const { planId, epics } = usePlanContext();
-  const { data: assetsData, isLoading, mutate: refreshAssets } = useSWR(
-    `/plans/${planId}/assets`,
-    assetFetcher,
-  );
+  const {
+    assets,
+    isLoading,
+    uploading,
+    uploadAssets,
+    bindAsset,
+    unbindAsset,
+    updateAssetMeta,
+  } = useAssets(planId);
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState<string | null>(null); // null, 'plan', or epic_ref
   const [generating, setGenerating] = useState(false);
   const [generatingStatus, setGeneratingStatus] = useState<string | null>(null);
   const [editingAsset, setEditingAsset] = useState<string | null>(null);
   const [previewAsset, setPreviewAsset] = useState<PlanAsset | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const assets = assetsData?.assets || [];
 
   // Group assets by epic
   const planLevel: PlanAsset[] = [];
@@ -66,81 +66,48 @@ export default function AssetPanel() {
     }
   }
 
-  const epicRefs = Object.keys(byEpic).sort();
-
-  // Upload handler
-  const handleUpload = useCallback(async (files: FileList, epicRef?: string) => {
-    if (!files.length) return;
-    setUploading(true);
+  // Upload handler wrapper for error handling
+  const handleUpload = useCallback(async (files: FileList | File[], epicRef?: string) => {
     try {
-      const form = new FormData();
-      
-      // Log upload details for debugging
-      console.log(`Uploading ${files.length} file(s)...`);
-      
-      for (let i = 0; i < files.length; i++) {
-        form.append('files', files[i]);
-      }
-      if (epicRef) form.append('epic_ref', epicRef);
-
-      const response = await fetch(`/api/plans/${planId}/assets`, {
-        method: 'POST',
-        credentials: 'include',
-        body: form,
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Upload failed');
-      }
-      
-      const result = await response.json();
-      console.log(`Upload complete: ${result.count} file(s) saved`);
-      
-      refreshAssets();
-    } catch (error: any) {
-      console.error('Upload error:', error);
-      alert(`Upload failed: ${error.message}`);
-    } finally {
-      setUploading(false);
+      await uploadAssets(files, epicRef);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Upload failed: ${message}`);
     }
-  }, [planId, refreshAssets]);
+  }, [uploadAssets]);
 
   // Drag and drop
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent, ref: string = 'plan') => {
     e.preventDefault();
-    setIsDragging(true);
+    setIsDragging(ref);
   }, []);
 
   const handleDragLeave = useCallback(() => {
-    setIsDragging(false);
+    setIsDragging(null);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent, ref: string = 'plan') => {
     e.preventDefault();
-    setIsDragging(false);
+    setIsDragging(null);
     if (e.dataTransfer.files.length > 0) {
-      handleUpload(e.dataTransfer.files);
+      handleUpload(e.dataTransfer.files, ref === 'plan' ? undefined : ref);
     }
   }, [handleUpload]);
 
   // Bind/Unbind
   const handleBind = useCallback(async (filename: string, epicRef: string) => {
-    await apiPost(`/plans/${planId}/assets/${encodeURIComponent(filename)}/bind`, { epic_ref: epicRef });
-    refreshAssets();
-  }, [planId, refreshAssets]);
+    await bindAsset(filename, epicRef);
+  }, [bindAsset]);
 
   const handleUnbind = useCallback(async (filename: string, epicRef: string) => {
-    await apiDelete(`/plans/${planId}/assets/${encodeURIComponent(filename)}/bind/${epicRef}`);
-    refreshAssets();
-  }, [planId, refreshAssets]);
+    await unbindAsset(filename, epicRef);
+  }, [unbindAsset]);
 
   // Update metadata
   const handleUpdateMeta = useCallback(async (filename: string, updates: Partial<PlanAsset>) => {
-    await apiPatch(`/plans/${planId}/assets/${encodeURIComponent(filename)}`, updates);
-    refreshAssets();
+    await updateAssetMeta(filename, updates);
     setEditingAsset(null);
-  }, [planId, refreshAssets]);
+  }, [updateAssetMeta]);
 
   // Generate plan from assets
   const handleGeneratePlan = useCallback(async () => {
@@ -172,20 +139,35 @@ export default function AssetPanel() {
         setGeneratingStatus(null);
         alert('Plan generation completed with unexpected response');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to generate plan:', error);
       setGeneratingStatus(null);
-      alert(`Failed to generate plan: ${error.message || 'Unknown error'}`);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to generate plan: ${message}`);
     } finally {
       setGenerating(false);
     }
   }, [planId, assets.length]);
 
-  // Asset card
+  function TextPreview({ url }: { url: string }) {
+  const { data, error, isLoading } = useSWR(url, (u) => fetch(u).then(r => r.text()));
+
+  if (isLoading) return <div className="p-8 text-center animate-pulse text-text-faint text-xs">Loading text preview...</div>;
+  if (error) return <div className="p-8 text-center text-danger text-xs">Failed to load text preview.</div>;
+
+  return (
+    <pre className="p-4 bg-background border border-border rounded-lg overflow-auto max-h-[60vh] text-[10px] text-text-main font-mono whitespace-pre-wrap">
+      {data}
+    </pre>
+  );
+}
+
+// Asset card
   const AssetCard = ({ asset, showBinding = false }: { asset: PlanAsset; showBinding?: boolean }) => {
     const isEditing = editingAsset === asset.filename;
     const [editType, setEditType] = useState(asset.asset_type || 'unspecified');
     const [editDesc, setEditDesc] = useState(asset.description || '');
+    const [editTags, setEditTags] = useState((asset.tags || []).join(', '));
 
     return (
       <div className="border border-border rounded-lg p-3 bg-surface hover:bg-surface-hover transition-all group">
@@ -210,8 +192,19 @@ export default function AssetPanel() {
               )}
             </div>
 
+            {/* Tags */}
+            {(asset.tags || []).length > 0 && (
+              <div className="flex gap-1 mt-1 flex-wrap">
+                {(asset.tags || []).map(tag => (
+                  <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-border/40 text-text-muted rounded">
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* Meta */}
-            <div className="text-[10px] text-text-muted mt-0.5 flex gap-2">
+            <div className="text-[10px] text-text-muted mt-1 flex gap-2">
               <span>{asset.mime_type}</span>
               <span>{formatBytes(asset.size_bytes)}</span>
             </div>
@@ -257,9 +250,20 @@ export default function AssetPanel() {
                   placeholder="Description..."
                   className="w-full text-xs border border-border rounded px-2 py-1 bg-background text-text-main"
                 />
+                <input
+                  type="text"
+                  value={editTags}
+                  onChange={e => setEditTags(e.target.value)}
+                  placeholder="Tags (comma separated)..."
+                  className="w-full text-xs border border-border rounded px-2 py-1 bg-background text-text-main"
+                />
                 <div className="flex gap-1">
                   <button
-                    onClick={() => handleUpdateMeta(asset.filename, { asset_type: editType, description: editDesc })}
+                    onClick={() => handleUpdateMeta(asset.filename, { 
+                      asset_type: editType, 
+                      description: editDesc,
+                      tags: editTags.split(',').map(t => t.trim()).filter(t => t)
+                    })}
                     className="text-[10px] px-2 py-1 bg-primary text-white rounded hover:bg-primary/80"
                   >
                     Save
@@ -394,64 +398,99 @@ export default function AssetPanel() {
 
       {/* Drop zone + content */}
       <div
-        className={`flex-1 overflow-y-auto p-4 custom-scrollbar transition-colors ${
-          isDragging ? 'bg-primary/5 ring-2 ring-primary/30 ring-inset' : ''
+        className={`flex-1 overflow-y-auto custom-scrollbar transition-colors ${
+          isDragging === 'plan' ? 'bg-primary/5' : ''
         }`}
-        onDragOver={handleDragOver}
+        onDragOver={(e) => handleDragOver(e, 'plan')}
         onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+        onDrop={(e) => handleDrop(e, 'plan')}
       >
-        {assets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center text-text-muted">
-            <span className="material-symbols-outlined text-[48px] text-text-faint mb-3">cloud_upload</span>
-            <p className="text-sm font-medium">No assets yet</p>
-            <p className="text-xs mt-1">
-              Drag and drop files here, or click Upload to add assets to this plan.
-            </p>
-            <p className="text-xs mt-2 text-primary">
-              💡 Tip: Upload a ZIP file to batch-upload 50+ images at once!
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Help hint for bulk uploads */}
-            <div className="bg-primary/5 border border-primary/20 rounded-md p-2 text-xs text-text-muted flex items-center gap-2">
-              <span className="material-symbols-outlined text-[14px] text-primary">info</span>
-              <span>
-                <strong>Need to upload 50+ images?</strong> Upload them as a ZIP file — they'll extract automatically!
-              </span>
+        <div className="p-4 min-h-full">
+          {assets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[400px] text-center text-text-muted border-2 border-dashed border-border rounded-xl mt-4">
+              <span className="material-symbols-outlined text-[48px] text-text-faint mb-3">cloud_upload</span>
+              <p className="text-sm font-medium">No assets yet</p>
+              <p className="text-xs mt-1">
+                Drag and drop files here, or click Upload to add assets to this plan.
+              </p>
+              <p className="text-xs mt-2 text-primary">
+                💡 Tip: Upload a ZIP file to batch-upload 50+ images at once!
+              </p>
             </div>
-            {/* Plan-level assets */}
-            {planLevel.length > 0 && (
-              <section>
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-2 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[12px]">public</span>
-                  Plan-level ({planLevel.length})
+          ) : (
+            <div className="space-y-8">
+              {/* Help hint for bulk uploads */}
+              <div className="bg-primary/5 border border-primary/20 rounded-md p-2 text-xs text-text-muted flex items-center gap-2">
+                <span className="material-symbols-outlined text-[14px] text-primary">info</span>
+                <span>
+                  <strong>Need to upload 50+ images?</strong> Upload them as a ZIP file — they&apos;ll extract automatically!
+                </span>
+              </div>
+              
+              {/* Plan-level assets */}
+              <section 
+                className={`p-3 rounded-xl border-2 transition-all ${
+                  isDragging === 'plan' ? 'border-primary bg-primary/5 shadow-inner' : 'border-transparent'
+                }`}
+                onDragOver={(e) => { e.stopPropagation(); handleDragOver(e, 'plan'); }}
+                onDrop={(e) => { e.stopPropagation(); handleDrop(e, 'plan'); }}
+              >
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-3 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[14px]">public</span>
+                  Plan-level Assets
+                  <span className="ml-auto text-[9px] font-medium bg-border/40 px-1.5 py-0.5 rounded-full">
+                    {planLevel.length} files
+                  </span>
                 </h3>
                 <div className="space-y-2">
-                  {planLevel.map(a => (
-                    <AssetCard key={a.filename} asset={a} showBinding />
-                  ))}
+                  {planLevel.length === 0 ? (
+                    <div className="py-8 text-center border border-dashed border-border rounded-lg text-[10px] text-text-faint italic">
+                      No plan-level assets. Drag files here to upload.
+                    </div>
+                  ) : (
+                    planLevel.map(a => (
+                      <AssetCard key={a.filename} asset={a} showBinding />
+                    ))
+                  )}
                 </div>
               </section>
-            )}
 
-            {/* Per-epic assets */}
-            {epicRefs.map(epic => (
-              <section key={epic}>
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-2 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[12px]">task</span>
-                  {epic} ({byEpic[epic].length})
-                </h3>
-                <div className="space-y-2">
-                  {byEpic[epic].map(a => (
-                    <AssetCard key={a.filename} asset={a} />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
+              {/* Per-epic assets */}
+              {epics?.map(epic => {
+                const epicAssets = byEpic[epic.epic_ref] || [];
+                return (
+                  <section 
+                    key={epic.epic_ref}
+                    className={`p-3 rounded-xl border-2 transition-all ${
+                      isDragging === epic.epic_ref ? 'border-primary bg-primary/5 shadow-inner' : 'border-transparent'
+                    }`}
+                    onDragOver={(e) => { e.stopPropagation(); handleDragOver(e, epic.epic_ref); }}
+                    onDrop={(e) => { e.stopPropagation(); handleDrop(e, epic.epic_ref); }}
+                  >
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-3 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[14px]">task</span>
+                      {epic.epic_ref} — {epic.title}
+                      <span className="ml-auto text-[9px] font-medium bg-border/40 px-1.5 py-0.5 rounded-full">
+                        {epicAssets.length} files
+                      </span>
+                    </h3>
+                    <div className="space-y-2">
+                      {epicAssets.length === 0 ? (
+                        <div className="py-4 text-center border border-dashed border-border rounded-lg text-[10px] text-text-faint italic">
+                          No assets bound to this epic. Drag files here to bind.
+                        </div>
+                      ) : (
+                        epicAssets.map(a => (
+                          <AssetCard key={a.filename} asset={a} />
+                        ))
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Preview modal */}
@@ -468,11 +507,25 @@ export default function AssetPanel() {
               <img
                 src={`/api/plans/${planId}/assets/${encodeURIComponent(previewAsset.filename)}/download`}
                 alt={previewAsset.original_name}
-                className="max-w-full rounded-lg"
+                className="max-w-full rounded-lg mx-auto"
               />
             )}
             {previewAsset.mime_type.startsWith('text/') && (
-              <p className="text-xs text-text-muted italic">Text preview available after download.</p>
+              <TextPreview url={`/api/plans/${planId}/assets/${encodeURIComponent(previewAsset.filename)}/download`} />
+            )}
+            {previewAsset.mime_type === 'application/pdf' && (
+              <div className="flex flex-col items-center gap-4 py-12">
+                <span className="material-symbols-outlined text-[64px] text-text-faint">picture_as_pdf</span>
+                <p className="text-sm text-text-muted">PDF preview not supported inline.</p>
+                <a 
+                  href={`/api/plans/${planId}/assets/${encodeURIComponent(previewAsset.filename)}/download`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-primary text-white rounded-lg text-xs font-bold"
+                >
+                  Open PDF in New Tab
+                </a>
+              </div>
             )}
           </div>
         </div>

@@ -17,6 +17,14 @@ export interface Plan {
   content?: string;
 }
 
+export interface PlanEpic {
+  room_id: string;
+  task_ref: string;
+  title: string;
+  body?: string;
+  working_dir?: string;
+}
+
 export interface PlanAsset {
   plan_id?: string;
   filename: string;
@@ -173,6 +181,12 @@ export async function getPlans(): Promise<PlansResult> {
 
 export async function getPlan(planId: string): Promise<any> {
   return fetchJSON(`/api/plans/${planId}`);
+}
+
+export async function getPlanEpics(planId: string): Promise<{ epics: PlanEpic[]; count: number; error?: string }> {
+  const data = await fetchJSON(`/api/plans/${planId}/epics`);
+  if (data?._error) return { error: data._error, epics: [], count: 0 };
+  return { epics: data.epics || [], count: data.count || 0 };
 }
 
 export async function refinePlan(params: {
@@ -349,6 +363,7 @@ const api = {
   getBaseUrl,
   getPlans,
   getPlan,
+  getPlanEpics,
   refinePlan,
   createPlan,
   savePlan,

@@ -202,9 +202,9 @@ async function cmdPlans(): Promise<BotResponse> {
   const lines = ['📂 *Project Plans:*'];
   const buttons: Button[][] = [];
   for (const p of plans) {
-    let title = p.title || 'Untitled';
+    let title = p.title || p.plan_id;
     if (title.length > 40) title = title.slice(0, 37) + '...';
-    lines.push(`• *${title}* (${p.status || 'unknown'})`);
+    lines.push(`• *${title}* (\`${p.plan_id}\`, ${p.status || 'unknown'})`);
     if (isPublic) {
       buttons.push([{ label: `📄 ${title}`, callbackData: '_', url: `${baseUrl}/plans/${p.plan_id}` }]);
     }
@@ -317,20 +317,29 @@ async function cmdStartplanMenu(): Promise<BotResponse> {
 }
 
 async function cmdAssets(planId: string): Promise<BotResponse> {
-  const { assets, error } = await api.getPlanAssets(planId);
-  if (error) return text(`⚠️ ${error}`);
-  if (!assets.length) return text(`🖼 *Assets for \`${planId}\`*\nNo assets saved for this plan yet.`);
+  const [assetsRes, epicsRes] = await Promise.all([
+    api.getPlanAssets(planId),
+    api.getPlanEpics(planId),
+  ]);
+  
+  if (assetsRes.error) return text(`⚠️ ${assetsRes.error}`);
+  const assets = assetsRes.assets;
+  const epics = epicsRes.epics;
+
+  if (!assets.length && !epics.length) {
+    return text(`🖼 *Assets for \`${planId}\`*\nNo assets or epics found.`);
+  }
 
   // Group assets by epic binding
   const planLevel: PlanAsset[] = [];
   const byEpic: Record<string, PlanAsset[]> = {};
 
   for (const asset of assets) {
-    const epics = asset.bound_epics || [];
-    if (epics.length === 0) {
+    const bound = asset.bound_epics || [];
+    if (bound.length === 0) {
       planLevel.push(asset);
     } else {
-      for (const epic of epics) {
+      for (const epic of bound) {
         if (!byEpic[epic]) byEpic[epic] = [];
         byEpic[epic].push(asset);
       }
@@ -339,11 +348,17 @@ async function cmdAssets(planId: string): Promise<BotResponse> {
 
   const lines = [`🖼 *Assets for \`${planId}\`*`];
 
-  // Summary line
-  const epicKeys = Object.keys(byEpic).sort();
+  // Summary line: Include ALL epics even if they have no assets
   const parts = [`Plan-level: ${planLevel.length} file(s)`];
-  for (const epic of epicKeys) {
-    parts.push(`${epic}: ${byEpic[epic].length} file(s)`);
+  const allEpicRefs = Array.from(new Set([
+    ...epics.map(e => e.task_ref),
+    ...Object.keys(byEpic),
+  ])).sort();
+
+  for (const ref of allEpicRefs) {
+    const count = byEpic[ref] ? byEpic[ref].length : 0;
+    const label = count === 0 ? 'no assets' : (count === 1 ? '1 file' : `${count} files`);
+    parts.push(`${ref}: ${label}`);
   }
   lines.push(parts.join(' | '));
   lines.push('');
@@ -353,19 +368,21 @@ async function cmdAssets(planId: string): Promise<BotResponse> {
     lines.push('*Plan-level assets:*');
     for (const asset of planLevel.slice(0, 10)) {
       const typeLabel = asset.asset_type && asset.asset_type !== 'unspecified' ? ` [${asset.asset_type}]` : '';
-      lines.push(`• \`${asset.original_name}\`${typeLabel} (${formatBytes(asset.size_bytes)})`);
+      lines.push(`• \`${asset.original_name}\` → \`${asset.filename}\`${typeLabel} (${formatBytes(asset.size_bytes)})`);
     }
     if (planLevel.length > 10) lines.push(`  …and ${planLevel.length - 10} more`);
     lines.push('');
   }
 
   // Per-epic assets
-  for (const epic of epicKeys) {
-    const epicAssets = byEpic[epic];
-    lines.push(`*${epic}:*`);
+  for (const ref of allEpicRefs) {
+    const epicAssets = byEpic[ref];
+    if (!epicAssets || epicAssets.length === 0) continue;
+    
+    lines.push(`*${ref}:*`);
     for (const asset of epicAssets.slice(0, 10)) {
       const typeLabel = asset.asset_type && asset.asset_type !== 'unspecified' ? ` [${asset.asset_type}]` : '';
-      lines.push(`• \`${asset.original_name}\`${typeLabel} (${formatBytes(asset.size_bytes)})`);
+      lines.push(`• \`${asset.original_name}\` → \`${asset.filename}\`${typeLabel} (${formatBytes(asset.size_bytes)})`);
     }
     if (epicAssets.length > 10) lines.push(`  …and ${epicAssets.length - 10} more`);
     lines.push('');
@@ -381,9 +398,11 @@ async function cmdAssets(planId: string): Promise<BotResponse> {
     ]);
   }
   
-  for (const asset of assets.slice(0, 5)) {
+  // Show up to 4 assets with bind/unbind buttons (Discord has 5-row limit)
+  for (const asset of assets.slice(0, 4)) {
+    const shortName = asset.original_name.length > 15 ? asset.original_name.slice(0, 12) + '...' : asset.original_name;
     const row: Button[] = [
-      { label: `📎 Bind ${asset.original_name}`, callbackData: `asset:bind_pick:${planId}:${asset.filename}` },
+      { label: `📎 Bind ${shortName}`, callbackData: `asset:bind_pick:${planId}:${asset.filename}` },
     ];
     if ((asset.bound_epics || []).length > 0) {
       row.push({ label: `🔓 Unbind`, callbackData: `asset:unbind_pick:${planId}:${asset.filename}` });
@@ -397,12 +416,32 @@ async function cmdAssets(planId: string): Promise<BotResponse> {
   return text(lines.join('\n'));
 }
 
-const ASSET_TYPE_OPTIONS = ['design-mockup', 'api-spec', 'test-data', 'reference-doc', 'config', 'media', 'other'];
+const ASSET_TYPE_OPTIONS = [
+  { label: 'Design Mockup', value: 'design-mockup' },
+  { label: 'API Spec', value: 'api-spec' },
+  { label: 'Test Data', value: 'test-data' },
+  { label: 'Reference Doc', value: 'reference-doc' },
+  { label: 'Config', value: 'config' },
+  { label: 'Other', value: 'other' },
+];
 
 async function cmdAssetTypeSelector(planId: string, filename: string): Promise<BotResponse> {
-  const buttons: Button[][] = ASSET_TYPE_OPTIONS.map(t => [
-    { label: t, callbackData: `asset:set_type:${planId}:${filename}:${t}` },
-  ]);
+  const buttons: Button[][] = [];
+  // 2 buttons per row
+  for (let i = 0; i < ASSET_TYPE_OPTIONS.length; i += 2) {
+    const row: Button[] = [];
+    row.push({
+      label: ASSET_TYPE_OPTIONS[i].label,
+      callbackData: `asset:set_type:${planId}:${filename}:${ASSET_TYPE_OPTIONS[i].value}`
+    });
+    if (i + 1 < ASSET_TYPE_OPTIONS.length) {
+      row.push({
+        label: ASSET_TYPE_OPTIONS[i + 1].label,
+        callbackData: `asset:set_type:${planId}:${filename}:${ASSET_TYPE_OPTIONS[i + 1].value}`
+      });
+    }
+    buttons.push(row);
+  }
   return menu(`What type is this asset?`, buttons);
 }
 
@@ -498,11 +537,12 @@ async function processDraft(userId: string, platform: string, idea: string): Pro
     const epicCount = new Set(epicMatches).size;
     if (epicCount > 0) {
       responses.push(text(
-        `📎 This plan has ${epicCount} epic(s). Would you like to attach any files?\n` +
+        `📎 This plan has ${epicCount} epic(s). **Do you have any files to attach?**\n` +
         `Upload documents, images, or other assets now — they'll be linked to the plan.\n` +
-        `💡 **Tip:** Upload a ZIP file to batch-upload 50+ images at once!\n` +
-        `Or continue editing, and add assets later with \`/assets\`.`
+        `💡 **Tip:** Include the epic reference (e.g. EPIC-001) in the caption to auto-bind.`
       ));
+    } else {
+      responses.push(text(`**Do you have any files to attach?** You can upload documents or images now.`));
     }
   } catch (err: any) {
     clearSession(userId, platform);
@@ -567,6 +607,18 @@ export async function handleStatefulText(userId: string, platform: string, userT
     if (result.explanation) {
       responses.push(text(`📝 *Changes:*\n\n${result.explanation}\n\n_(Send more instructions to keep editing, or /cancel to exit)_`));
     }
+
+    // EPIC-003: Asset collection prompt (only if plan content was changed and has epics)
+    if (planText) {
+      const epicMatches = planText.match(/EPIC-\d+/g) || [];
+      const epicCount = new Set(epicMatches).size;
+      if (epicCount > 0) {
+        responses.push(text(
+          `📎 The plan now has ${epicCount} epic(s). **Do you have any files to attach?**\n` +
+          `Include the epic reference (e.g. EPIC-001) in the caption to auto-bind.`
+        ));
+      }
+    }
   } catch (err: any) {
     responses.push(text(`❌ Failed to refine plan: ${err.message}`));
   }
@@ -600,7 +652,17 @@ export async function handleFileAttachments(
 
   const responses: BotResponse[] = [];
   const names = result.assets.map(a => `\`${a.original_name}\``).join(', ');
-  responses.push(text(`Saved ${result.count} file(s) to plan \`${planId}\`: ${names}`));
+  responses.push(text(`✅ *Saved ${result.count} file(s)* to plan \`${planId}\`: ${names}`));
+
+  // EPIC-005: Ask for type selector after upload
+  if (result.assets.length > 0) {
+    // For batch uploads, we apply the type to the first file and potentially others
+    // but the selector UI is best served by picking the first filename as reference.
+    const first = result.assets[0];
+    const typeMenu = await cmdAssetTypeSelector(planId, first.filename);
+    typeMenu.text = `🖼 *Classification Needed*\nWhat is the type of the file(s) you just uploaded?`;
+    responses.push(typeMenu);
+  }
 
   return responses;
 }
@@ -896,13 +958,12 @@ export async function routeCallback(userId: string, platform: string, callbackDa
     const parts = callbackData.split(':');
     const planId = parts[2];
     const filename = parts[3];
-    const planData = await api.getPlan(planId);
-    const content = planData?.plan?.content || planData?.content || '';
-    const matches: string[] = (content as string).match(/EPIC-\d+/g) || [];
-    const epicRefs: string[] = [...new Set(matches)].sort();
-    if (!epicRefs.length) return [text('No epics found in this plan.')];
-    const buttons: Button[][] = epicRefs.map((epic: string) => [
-      { label: epic, callbackData: `asset:bind:${planId}:${filename}:${epic}` },
+    const { epics, error } = await api.getPlanEpics(planId);
+    if (error) return [text(`⚠️ ${error}`)];
+    if (!epics.length) return [text('No epics found in this plan. Define some epics in the plan markdown first.')];
+    
+    const buttons: Button[][] = epics.map(e => [
+      { label: `${e.task_ref}: ${e.title}`, callbackData: `asset:bind:${planId}:${filename}:${e.task_ref}` },
     ]);
     return [menu(`Bind \`${filename}\` to which epic?`, buttons)];
   }

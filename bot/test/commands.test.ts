@@ -14,6 +14,7 @@ describe('commands', () => {
     sessions.clearSession('u1', 'telegram');
     sessions.clearSession('u1', 'discord');
     sandbox.stub(api, 'getPlanAssets').resolves({ assets: [], count: 0 });
+    sandbox.stub(api, 'getPlanEpics').resolves({ epics: [], count: 0 });
   });
 
   afterEach(() => {
@@ -384,9 +385,10 @@ describe('commands', () => {
       sessions.setMode('u1', 'telegram', 'editing');
       sessions.setPlan('u1', 'telegram', 'p1');
       (api.getPlanAssets as sinon.SinonStub).resolves({ assets: [] });
+      (api.getPlanEpics as sinon.SinonStub).resolves({ epics: [] });
 
       const [resp] = await routeCommand('u1', 'telegram', 'assets');
-      expect(resp.text).to.include('No assets saved');
+      expect(resp.text).to.include('No assets or epics found');
       expect(resp.text).to.include('p1');
     });
 

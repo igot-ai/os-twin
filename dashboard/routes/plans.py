@@ -41,7 +41,22 @@ def _plan_assets_dir(plan_id: str) -> Path:
     return PLANS_DIR / "assets" / plan_id
 
 
+def _validate_id(identifier: str, name: str = "ID") -> None:
+    """Check that identifier is alphanumeric/dashes only (no path traversal)."""
+    if ".." in identifier or "/" in identifier or "\\" in identifier:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {name}: '{identifier}'. Path traversal is not allowed.",
+        )
+    if not re.match(r"^[a-zA-Z0-9._-]+$", identifier):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {name}: '{identifier}'. Must be alphanumeric with dashes/dots/underscores.",
+        )
+
+
 def _require_plan_file(plan_id: str) -> Path:
+    _validate_id(plan_id, "plan_id")
     plan_file = _plan_file_path(plan_id)
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
@@ -131,6 +146,15 @@ def _normalize_plan_assets(
         asset.setdefault("asset_type", "unspecified")
         asset.setdefault("tags", [])
         asset.setdefault("description", "")
+
+        # EPIC-001: Sync epic_assets index from bound_epics (handles legacy migration)
+        for epic_ref in asset["bound_epics"]:
+            ea = meta.setdefault("epic_assets", {})
+            if epic_ref not in ea:
+                ea[epic_ref] = []
+            if filename not in ea[epic_ref]:
+                ea[epic_ref].append(filename)
+                changed = True
 
         if asset != raw_asset:
             changed = True
@@ -418,8 +442,12 @@ def _merge_markdown_asset_edits_into_meta(plan_id: str, markdown_content: str) -
     for epic_ref, entries in parsed.items():
         for entry in entries:
             # Entry format: "original_name (type, mime) — description"
+            # Or portable: ".assets/original_name (type, mime) — description"
             # Extract original_name (first token before " (")
-            original_name = entry.split(" (")[0].strip() if " (" in entry else entry.strip()
+            raw_name = entry.split(" (")[0].strip() if " (" in entry else entry.strip()
+            # Strip portable prefix if present
+            original_name = raw_name[len(".assets/"):] if raw_name.startswith(".assets/") else raw_name
+            
             asset = assets_by_original.get(original_name) or assets_by_filename.get(original_name)
             if asset:
                 fn = asset["filename"]
@@ -536,6 +564,7 @@ def list_epic_assets(plan_id: str, epic_ref: str, *, validate: bool = True) -> L
 
 def get_asset_or_404(plan_id: str, filename: str) -> Dict[str, Any]:
     """Find an asset by filename in the plan's meta, or raise 404."""
+    _validate_id(filename, "filename")
     meta = _ensure_plan_meta(plan_id)
     _normalize_plan_assets(plan_id, meta)
     for asset in meta.get("assets", []):
@@ -606,11 +635,12 @@ def _update_plan_assets_section(plan_id: str, all_assets: list, assets_dir: Path
         "",
     ]
     for asset in all_assets:
-        abs_path = str(assets_dir / asset["filename"])
-        mime = asset.get("mime_type", "unknown")
         original = asset.get("original_name", asset["filename"])
+        mime = asset.get("mime_type", "unknown")
+        # Use portable relative path
+        portable_path = f".assets/{original}"
         lines.append(f"- **{original}** (`{mime}`)")
-        lines.append(f"  - path: `{abs_path}`")
+        lines.append(f"  - path: `{portable_path}`")
 
     assets_block = "\n".join(lines) + "\n"
 
@@ -671,48 +701,54 @@ def _update_epic_asset_sections(plan_id: str, all_assets: list, assets_dir: Path
 
         epic_block = content[epic_start:epic_end]
 
-        # Remove existing #### Assets section if present (including leading blank line).
-        # The lookahead stops before the next #### heading, depends_on:, ---, or end of block.
-        # We preserve trailing newlines to avoid collapsing the block.
+        # Remove existing #### Assets section (migration) and > Assets: line.
         epic_block = _re_mod.sub(
             r"\n?#### Assets\n(?:(?!####|depends_on:|\n---|\n### ).*\n)*",
             "\n",
             epic_block,
         )
+        epic_block = _re_mod.sub(
+            r"\n?> Assets: .*\n?",
+            "\n",
+            epic_block,
+        )
 
-        # Build new #### Assets block if this epic has assets
+        # Build new > Assets: line if this epic has assets
         epic_assets = by_epic.get(epic_ref, [])
         if epic_assets:
-            asset_lines = ["#### Assets\n"]
-            asset_lines.append("The following assets are available for this epic:\n\n")
+            asset_entries = []
             for asset in epic_assets:
                 original = asset.get("original_name", asset["filename"])
                 atype = asset.get("asset_type", "unspecified")
                 mime = asset.get("mime_type", "unknown")
                 desc = asset.get("description", "")
-                abs_path = str(assets_dir / asset["filename"])
                 
-                line = f"- **{original}** ({atype}, {mime})"
+                # Format: .assets/spec.yaml (api-spec, text/yaml) — API spec
+                entry = f".assets/{original} ({atype}, {mime})"
                 if desc:
-                    line += f" — {desc}"
-                asset_lines.append(line)
-                asset_lines.append(f"  - Absolute path: `{abs_path}`")
-                asset_lines.append(f"  - Working dir path: `.assets/{original}`")
-            asset_block = "\n".join(asset_lines) + "\n\n"
+                    entry += f" — {desc}"
+                asset_entries.append(entry)
+            
+            asset_line = "> Assets: " + "; ".join(asset_entries) + "\n"
 
-            # Insert before depends_on: or ---
-            depends_match = _re_mod.search(r"\ndepends_on:", epic_block)
-            separator_match = _re_mod.search(r"\n---", epic_block)
-            insert_pos = None
-            if depends_match:
-                insert_pos = depends_match.start()
-            elif separator_match:
-                insert_pos = separator_match.start()
-
-            if insert_pos is not None:
-                epic_block = epic_block[:insert_pos] + "\n" + asset_block + epic_block[insert_pos:]
+            # Insert after Skills: if present, or before depends_on:/---
+            skills_match = _re_mod.search(r"\nSkills: .*\n", epic_block)
+            if skills_match:
+                insert_pos = skills_match.end()
+                epic_block = epic_block[:insert_pos] + asset_line + epic_block[insert_pos:]
             else:
-                epic_block = epic_block.rstrip() + "\n\n" + asset_block
+                depends_match = _re_mod.search(r"\ndepends_on:", epic_block)
+                separator_match = _re_mod.search(r"\n---", epic_block)
+                insert_pos = None
+                if depends_match:
+                    insert_pos = depends_match.start()
+                elif separator_match:
+                    insert_pos = separator_match.start()
+
+                if insert_pos is not None:
+                    epic_block = epic_block[:insert_pos] + "\n" + asset_line + epic_block[insert_pos:]
+                else:
+                    epic_block = epic_block.rstrip() + "\n\n" + asset_line
 
         content = content[:epic_start] + epic_block + content[epic_end:]
 
@@ -741,17 +777,25 @@ def _parse_epic_assets_from_markdown(content: str) -> Dict[str, List[str]]:
 
         epic_block = content[epic_start:epic_end]
 
-        # Find #### Assets section
-        assets_match = _re_mod.search(r"#### Assets\n((?:.*\n)*?)(?=####|\ndepends_on:|\n---|\n### |\Z)", epic_block)
-        if assets_match:
-            asset_text = assets_match.group(1)
-            entries = []
-            for line in asset_text.strip().split("\n"):
-                line = line.strip()
-                if line.startswith("- "):
-                    entries.append(line[2:])
+        # Check for new format: > Assets: ...
+        new_match = _re_mod.search(r"^> Assets: (.*)$", epic_block, _re_mod.MULTILINE)
+        if new_match:
+            # Semicolon-separated entries
+            entries = [e.strip() for e in new_match.group(1).split(";") if e.strip()]
             if entries:
                 result[epic_ref] = entries
+        else:
+            # Fallback to legacy format
+            assets_match = _re_mod.search(r"#### Assets\n((?:.*\n)*?)(?=####|\ndepends_on:|\n---|\n### |\Z)", epic_block)
+            if assets_match:
+                asset_text = assets_match.group(1)
+                entries = []
+                for line in asset_text.strip().split("\n"):
+                    line = line.strip()
+                    if line.startswith("- "):
+                        entries.append(line[2:])
+                if entries:
+                    result[epic_ref] = entries
 
     return result
 
@@ -952,7 +996,6 @@ async def api_bind_asset(plan_id: str, filename: str, request: Request, user: di
         raise HTTPException(status_code=400, detail="epic_ref is required")
 
     bind_asset_to_epic(plan_id, filename, epic_ref)
-    meta = _ensure_plan_meta(plan_id)
     asset = get_asset_or_404(plan_id, filename)
     return {"status": "bound", "asset": _serialize_plan_asset(plan_id, asset)}
 
@@ -985,6 +1028,7 @@ async def api_list_epic_assets(plan_id: str, epic_ref: str, user: dict = Depends
 async def api_update_asset_metadata(plan_id: str, filename: str, request: Request, user: dict = Depends(get_current_user)):
     """Update asset metadata (type, tags, description)."""
     _require_plan_file(plan_id)
+    _validate_id(filename, "filename")
     body = await request.json()
 
     updated = update_asset_metadata(
@@ -1001,6 +1045,7 @@ async def api_update_asset_metadata(plan_id: str, filename: str, request: Reques
 async def download_asset(plan_id: str, filename: str, user: dict = Depends(get_current_user)):
     """Download an asset file."""
     _require_plan_file(plan_id)
+    _validate_id(filename, "filename")
     asset_path = _plan_assets_dir(plan_id) / filename
     if not asset_path.exists():
         raise HTTPException(status_code=404, detail=f"Asset file {filename} not found")

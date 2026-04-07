@@ -430,7 +430,9 @@ foreach ($item in $parsed) {
 }
 
 # --- Generate / load planning-DAG.json for advisory role assignment ---
-$planningDagFile = Join-Path (Split-Path $PlanFile) ".planning-DAG.json"
+$planDir = Split-Path $PlanFile
+if (-not $planDir) { $planDir = "." }
+$planningDagFile = Join-Path $planDir ".planning-DAG.json"
 if (-not $DryRun -and (Test-Path $buildPlanningDag)) {
     if (-not (Test-Path $planningDagFile) -or $Expand) {
         Write-Host "[PLANNING-DAG] Generating advisory DAG from plan content..." -ForegroundColor Cyan
@@ -643,6 +645,18 @@ function New-PlanWarRooms {
     
     # --- Re-parse plan in case it changed during negotiation ---
     $planContent = Get-Content $PlanFile -Raw
+    
+    # --- Load plan metadata for assets (Requirement: Inject assets into room) ---
+    $planMetaFile = Join-Path (Split-Path $PlanFile) "$planId.meta.json"
+    $planMeta = $null
+    if (Test-Path $planMetaFile) {
+        try {
+            $planMeta = Get-Content $planMetaFile -Raw | ConvertFrom-Json
+        } catch {
+            Write-Warning "Failed to read plan metadata for assets: $planMetaFile"
+        }
+    }
+
     $parsed = [System.Collections.Generic.List[PSObject]]::new()
     $roomIndex = 1
     # Patterns needed for re-parsing
@@ -707,6 +721,31 @@ function New-PlanWarRooms {
                 $depsOn = ($rawDeps -split ',') | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ }
             }
         }
+        # --- Collect assets for this epic (Requirement: Asset injection) ---
+        $assetsForEpic = @()
+        if ($planMeta -and $planMeta.assets) {
+            $allPlanAssets = @($planMeta.assets)
+            $epicAssetsMap = $planMeta.epic_assets
+            $epicBoundFilenames = if ($epicAssetsMap -and $epicAssetsMap.$epicRef) { @($epicAssetsMap.$epicRef) } else { @() }
+            
+            foreach ($asset in $allPlanAssets) {
+                $isBound = $epicBoundFilenames -contains $asset.filename
+                $isPlanLevel = -not $asset.bound_epics -or @($asset.bound_epics).Count -eq 0
+                
+                if ($isBound -or $isPlanLevel) {
+                    $plansDir = Split-Path $PlanFile
+                    $sourcePath = Join-Path (Join-Path $plansDir "assets") $planId $asset.filename
+                    
+                    $assetsForEpic += [PSCustomObject]@{
+                        Path        = $sourcePath
+                        Filename    = $asset.filename
+                        Description = $asset.description
+                        AssetType   = $asset.asset_type
+                    }
+                }
+            }
+        }
+
         $parsed.Add([PSCustomObject]@{
             RoomId      = "room-$('{0:D3}' -f $roomIndex)"
             TaskRef     = $epicRef
@@ -722,6 +761,7 @@ function New-PlanWarRooms {
             Pipeline    = $epicPipeline
             Capabilities = $epicCapabilities
             Lifecycle   = $epicLifecycle
+            Assets      = $assetsForEpic
         })
         $roomIndex++
     }
@@ -748,6 +788,31 @@ function New-PlanWarRooms {
             $taskRef = $tm.Groups[1].Value
             # Avoid duplicates if already parsed as an epic
             if (-not ($parsed | Where-Object { $_.TaskRef -eq $taskRef })) {
+                # --- Collect assets for this task (Requirement: Asset injection) ---
+                $assetsForTask = @()
+                if ($planMeta -and $planMeta.assets) {
+                    $allPlanAssets = @($planMeta.assets)
+                    $epicAssetsMap = $planMeta.epic_assets
+                    $boundFilenames = if ($epicAssetsMap -and $epicAssetsMap.$taskRef) { @($epicAssetsMap.$taskRef) } else { @() }
+                    
+                    foreach ($asset in $allPlanAssets) {
+                        $isBound = $boundFilenames -contains $asset.filename
+                        $isPlanLevel = -not $asset.bound_epics -or @($asset.bound_epics).Count -eq 0
+                        
+                        if ($isBound -or $isPlanLevel) {
+                            $plansDir = Split-Path $PlanFile
+                            $sourcePath = Join-Path (Join-Path $plansDir "assets") $planId $asset.filename
+                            
+                            $assetsForTask += [PSCustomObject]@{
+                                Path        = $sourcePath
+                                Filename    = $asset.filename
+                                Description = $asset.description
+                                AssetType   = $asset.asset_type
+                            }
+                        }
+                    }
+                }
+
                 $parsed.Add([PSCustomObject]@{
                     RoomId      = "room-$('{0:D3}' -f $roomIndex)"
                     TaskRef     = $taskRef
@@ -757,6 +822,7 @@ function New-PlanWarRooms {
                     AC          = @()
                     DependsOn   = @()
                     Type        = 'task'
+                    Assets      = $assetsForTask
                 })
                 $roomIndex++
             }
@@ -770,7 +836,9 @@ function New-PlanWarRooms {
     }
 
     # --- Merge advisory deps from planning-DAG.json (mirrors first-parse logic) ---
-    $planningDagFile = Join-Path (Split-Path $PlanFile) ".planning-DAG.json"
+    $planDir2 = Split-Path $PlanFile
+    if (-not $planDir2) { $planDir2 = "." }
+    $planningDagFile = Join-Path $planDir2 ".planning-DAG.json"
     if (Test-Path $planningDagFile) {
         try {
             $planningDag = Get-Content $planningDagFile -Raw | ConvertFrom-Json
@@ -866,6 +934,9 @@ function New-PlanWarRooms {
         }
         if ($entry.Lifecycle) {
             $roomArgs['Lifecycle'] = $entry.Lifecycle
+        }
+        if ($entry.Assets) {
+            $roomArgs['Assets'] = $entry.Assets
         }
 
         & $newWarRoom @roomArgs

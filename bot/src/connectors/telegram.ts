@@ -114,6 +114,63 @@ export class TelegramConnector implements Connector {
       }
     });
 
+    // ── EPIC-005: File/Document handling ──────────────────────────
+    const handleTelegramFiles = async (ctx: Context) => {
+      const userId = String(ctx.chat.id);
+      const msg = ctx.message as any;
+      const session = getSession(userId, 'telegram');
+      
+      // We only care about files if they are in drafting/editing mode
+      if (!session.activePlanId || session.activePlanId === 'new') return;
+
+      const files: any[] = [];
+      
+      if (msg.document) {
+        files.push(msg.document);
+      } else if (msg.photo) {
+        // Take the largest photo
+        files.push(msg.photo[msg.photo.length - 1]);
+      } else if (msg.audio) {
+        files.push(msg.audio);
+      } else if (msg.voice) {
+        files.push(msg.voice);
+      }
+
+      if (!files.length) return;
+
+      const downloadable: any[] = [];
+      for (const f of files) {
+        const fileId = f.file_id;
+        const link = await ctx.telegram.getFileLink(fileId);
+        const fileName = f.file_name || `file_${fileId.slice(-8)}`;
+        const mimeType = f.mime_type || 'application/octet-stream';
+        
+        try {
+          const res = await fetch(link.href);
+          if (!res.ok) continue;
+          const buffer = await res.arrayBuffer();
+          downloadable.push({
+            name: fileName,
+            contentType: mimeType,
+            data: new Uint8Array(buffer),
+          });
+        } catch (err) {
+          console.warn(`[TELEGRAM] Failed to download ${fileName}:`, err);
+        }
+      }
+
+      if (downloadable.length > 0) {
+        const { handleFileAttachments } = await import('../commands');
+        const responses = await handleFileAttachments(userId, 'telegram', downloadable);
+        await this.sendResponses(ctx, responses);
+      }
+    };
+
+    this.bot.on('document', handleTelegramFiles);
+    this.bot.on('photo', handleTelegramFiles);
+    this.bot.on('audio', handleTelegramFiles);
+    this.bot.on('voice', handleTelegramFiles);
+
     // ── Register command menu with Telegram ───────────────────────
     await this.bot.telegram.setMyCommands([
       { command: 'menu', description: '🏢 Main Control Center' },

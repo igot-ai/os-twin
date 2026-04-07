@@ -36,7 +36,7 @@
     "auto_approve": true,
     "timeout_seconds": 1200,
     "max_prompt_bytes": 102400,
-    "no_mcp": false,
+    "no_mcp": true,
     "instances": {
       "fe": {
         "display_name": "Frontend Engineer",
@@ -64,6 +64,33 @@
       }
     }
   },
+  "technical-writer": {
+    "cli": "agent",
+    "default_model": "gemini-3-flash-preview",
+    "shell_allow_list": "all",
+    "auto_approve": true,
+    "timeout_seconds": 1200,
+    "max_prompt_bytes": 102400,
+    "no_mcp": true
+  },
+  "tech-artist": {
+    "cli": "agent",
+    "default_model": "gemini-3-flash-preview",
+    "shell_allow_list": "all",
+    "auto_approve": true,
+    "timeout_seconds": 1200,
+    "max_prompt_bytes": 102400,
+    "no_mcp": true
+  },
+  "editor": {
+    "cli": "agent",
+    "default_model": "gemini-3-flash-preview",
+    "shell_allow_list": "all",
+    "auto_approve": true,
+    "timeout_seconds": 600,
+    "max_prompt_bytes": 102400,
+    "no_mcp": true
+  },
   "reporter": {
     "cli": "agent",
     "default_model": "google-vertex/gemini-3-flash-preview",
@@ -77,7 +104,7 @@
     "default_model": "google-vertex/gemini-3-flash-preview",
     "approval_mode": "auto-approve",
     "timeout_seconds": 600,
-    "no_mcp": false
+    "no_mcp": true
   },
   "memory": {
     "enabled": true,

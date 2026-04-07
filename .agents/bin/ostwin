@@ -291,7 +291,7 @@ ps_dispatch() {
         *)              ps_args+=("$1"); shift ;;
       esac
     done
-    exec pwsh -NoProfile -File "$ps1" "${ps_args[@]}"
+    exec pwsh -NoProfile -File "$ps1" ${ps_args[@]+"${ps_args[@]}"}
   elif [[ -f "$sh" ]]; then
     exec "$sh" "$@"
   else

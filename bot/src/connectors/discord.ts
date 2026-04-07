@@ -23,7 +23,7 @@ import { routeCommand, routeCallback, handleStatefulText, BotResponse, Button } 
 import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { transcribeAndLaunch } from '../audio-transcript';
-import { mdConvert, chunk } from './utils';
+import { mdConvert, chunk, detectEpicRef, guessAssetType } from './utils';
 import api, { PlanAsset } from '../api';
 
 // Voice command imports
@@ -185,6 +185,13 @@ export class DiscordConnector implements Connector {
 
       const userId = String(message.author.id);
       const session = getSession(userId, 'discord');
+      
+      // Update activeEpicRef if found in message content
+      const msgEpic = detectEpicRef(message.content);
+      if (msgEpic) {
+        session.activeEpicRef = msgEpic;
+      }
+
       const botUserId = this.client?.user?.id;
       const isMention = !!(botUserId && message.mentions.has(botUserId));
       const attachments = message.attachments ? Array.from(message.attachments.values()) : [];
@@ -198,7 +205,7 @@ export class DiscordConnector implements Connector {
 
       if (hasPendingAttachments && canSaveNow) {
         const assetResponses: BotResponse[] = [];
-        const uploadResult = await this.persistAttachments(session.activePlanId!, attachments);
+        const uploadResult = await this.persistAttachments(session.activePlanId!, attachments, message.content, session.activeEpicRef);
         if (uploadResult.saved.length > 0) {
           assetResponses.push({ text: this.formatSavedAssets(session.activePlanId!, uploadResult.saved) });
         }
@@ -263,7 +270,7 @@ export class DiscordConnector implements Connector {
         if (attachments.length > 0 && !canSaveNow) {
           const updatedSession = getSession(userId, 'discord');
           if (updatedSession.activePlanId && updatedSession.activePlanId !== 'new') {
-            const uploadResult = await this.persistAttachments(updatedSession.activePlanId, attachments);
+            const uploadResult = await this.persistAttachments(updatedSession.activePlanId, attachments, message.content, updatedSession.activeEpicRef);
             if (uploadResult.saved.length > 0) {
               responses.push({ text: this.formatSavedAssets(updatedSession.activePlanId, uploadResult.saved) });
             }
@@ -382,10 +389,16 @@ export class DiscordConnector implements Connector {
 
   private async persistAttachments(
     planId: string,
-    attachments: Array<{ url?: string; name?: string; contentType?: string | null }>
+    attachments: Array<{ url?: string; name?: string; contentType?: string | null }>,
+    messageContent?: string,
+    contextEpicRef?: string
   ): Promise<{ saved: PlanAsset[]; failures: string[] }> {
     const failures: string[] = [];
     const downloadable: Array<{ name: string; contentType?: string; data: Uint8Array }> = [];
+
+    // Detect epic ref from current message content or fallback to session context
+    const msgEpic = messageContent ? detectEpicRef(messageContent) : undefined;
+    const epicRef = msgEpic || contextEpicRef;
 
     for (const attachment of attachments) {
       const displayName = attachment.name || 'attachment';
@@ -415,7 +428,14 @@ export class DiscordConnector implements Connector {
       return { saved: [], failures };
     }
 
-    const uploadResult = await api.uploadPlanAssets(planId, downloadable);
+    // Guess asset type from the first file in the batch (they usually share context)
+    const firstFile = downloadable[0];
+    const assetType = guessAssetType(firstFile.name, firstFile.contentType);
+
+    const uploadResult = await api.uploadPlanAssets(planId, downloadable, {
+      epicRef,
+      assetType,
+    });
     if (uploadResult.error) {
       failures.push(uploadResult.error);
       return { saved: [], failures };
@@ -425,7 +445,19 @@ export class DiscordConnector implements Connector {
   }
 
   private formatSavedAssets(planId: string, assets: PlanAsset[]): string {
-    const lines = [`🖼 *Saved ${assets.length} asset(s) to \`${planId}\`:*`];
+    const first = assets[0];
+    const epicLabel = (first.bound_epics && first.bound_epics.length > 0)
+      ? ` for ${first.bound_epics[0]}`
+      : '';
+    const typeLabel = (first.asset_type && first.asset_type !== 'other')
+      ? ` as ${first.asset_type}`
+      : '';
+
+    if (assets.length === 1) {
+      return `✅ Saved \`${first.original_name}\`${typeLabel}${epicLabel}.`;
+    }
+
+    const lines = [`🖼 *Saved ${assets.length} asset(s) to \`${planId}\`${epicLabel}:*`];
     for (const asset of assets.slice(0, 10)) {
       lines.push(`• \`${asset.original_name}\` → \`${asset.filename}\``);
     }

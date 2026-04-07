@@ -35,6 +35,7 @@ Pipeline: <stage1 -> stage2>    (OPTIONAL: only for non-default stage sequences)
 Skills: <capabilities>          (comma-separated, guides agent focus)
 Working_dir: <path>             (scope agents to a subdirectory)
 Capabilities: <cap1, cap2>     (optional: auto-generates review stages)
+> Assets: <file1>, <file2>      (list of bound assets, auto-generated)
 ```
 
 {{AVAILABLE_ROLES}}

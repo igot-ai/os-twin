@@ -71,7 +71,9 @@ param(
  
     [string[]]$RequiredCapabilities = @(),
 
-    [string]$Lifecycle = ''
+    [string]$Lifecycle = '',
+
+    [PSCustomObject[]]$Assets = @()
 )
 
 # --- Resolve war-rooms directory ---
@@ -93,6 +95,28 @@ New-Item -ItemType Directory -Path $roomDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $roomDir "contexts") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $roomDir "assets") -Force | Out-Null
+
+# --- Inject Assets ---
+$assetManifest = ""
+if ($Assets -and $Assets.Count -gt 0) {
+    $assetManifest = "## Available Assets`n`n"
+    foreach ($asset in $Assets) {
+        $sourcePath = $asset.Path
+        $targetFilename = $asset.Filename
+        $targetPath = Join-Path $roomDir "assets" $targetFilename
+        
+        if (Test-Path $sourcePath) {
+            # Copy asset (read-only in the room)
+            Copy-Item -Path $sourcePath -Destination $targetPath -Force
+            $assetManifest += "- ``assets/$targetFilename`` — $($asset.Description) (Type: $($asset.AssetType))`n"
+        } else {
+            Write-Warning "Asset file not found: $sourcePath"
+            $assetManifest += "- [WARNING: MISSING ON DISK] ``assets/$targetFilename`` — $($asset.Description)`n"
+        }
+    }
+    $assetManifest += "`n"
+}
 
 # --- Initialize channel ---
 New-Item -ItemType File -Path (Join-Path $roomDir "channel.jsonl") -Force | Out-Null
@@ -272,6 +296,7 @@ $TaskDescription
 $dodSection
 $acSection
 
+$assetManifest
 ## Working Directory
 $($config.working_dir)
 
@@ -279,6 +304,18 @@ $($config.working_dir)
 $ts
 "@
 $briefContent | Out-File -FilePath (Join-Path $roomDir "brief.md") -Encoding utf8
+
+# --- Create skeleton TASKS.md for Epics ---
+if ($assignmentType -eq 'epic') {
+    $tasksContent = @"
+# Tasks for $TaskRef
+
+$assetManifest
+- [ ] TASK-001 — Planning and context gathering
+- [ ] TASK-002 — Core implementation
+"@
+    $tasksContent | Out-File -FilePath (Join-Path $roomDir "TASKS.md") -Encoding utf8
+}
 
 # --- Generate per-room lifecycle (if Pipeline or Capabilities provided) ---
 if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)) {

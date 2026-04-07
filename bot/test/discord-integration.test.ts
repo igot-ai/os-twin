@@ -371,7 +371,7 @@ describe('discord integration', () => {
 
       expect((api.uploadPlanAssets as sinon.SinonStub).calledOnce).to.be.true;
       expect(msg.channel.send.called).to.be.true;
-      expect(msg.channel.send.firstCall.args[0].content).to.include('Saved 1 asset');
+      expect(msg.channel.send.firstCall.args[0].content).to.include('Saved `mockup.png`');
       expect(msg.channel.send.firstCall.args[0].content).to.include('mockup.png');
     });
 
@@ -428,7 +428,7 @@ describe('discord integration', () => {
       expect((api.uploadPlanAssets as sinon.SinonStub).firstCall.args[0]).to.equal('deferred-plan');
       const allContent = msg.channel.send.getCalls().map((c: any) => c.args[0].content).join(' ');
       expect(allContent).to.include('Plan Drafted');
-      expect(allContent).to.include('Saved 1 asset');
+      expect(allContent).to.include('Saved `img.png`');
     });
 
     it('ignores attachments when session is idle', async () => {
@@ -599,7 +599,7 @@ describe('discord integration', () => {
       expect(msg.channel.send.called).to.be.true;
       // Should have two messages: one for saved, one for failures
       const allContent = msg.channel.send.getCalls().map((c: any) => c.args[0].content).join(' ');
-      expect(allContent).to.include('Saved 1 asset');
+      expect(allContent).to.include('Saved `good.png`');
       expect(allContent).to.include('could not be saved');
       expect(allContent).to.include('missing.jpg');
     });
@@ -629,7 +629,7 @@ describe('discord integration', () => {
 
       const allContent = msg.channel.send.getCalls().map((c: any) => c.args[0].content).join(' ');
       // Both asset saved confirmation and plan refine confirmation
-      expect(allContent).to.include('Saved 1 asset');
+      expect(allContent).to.include('Saved `ref.png`');
       expect(allContent).to.include('Refining');
     });
 
@@ -659,7 +659,7 @@ describe('discord integration', () => {
 
       expect((api.uploadPlanAssets as sinon.SinonStub).calledOnce).to.be.true;
       const allContent = msg.channel.send.getCalls().map((c: any) => c.args[0].content).join(' ');
-      expect(allContent).to.include('Saved 1 asset');
+      expect(allContent).to.include('Saved `blog-img.png`');
       expect(allContent).to.include('blog-img.png');
     });
 
@@ -699,7 +699,7 @@ describe('discord integration', () => {
       const allContent = msg.channel.send.getCalls().map((c: any) => c.args[0].content).join(' ');
       expect(allContent).to.include('Drafting');
       expect(allContent).to.include('Plan Drafted');
-      expect(allContent).to.include('Saved 1 asset');
+      expect(allContent).to.include('Saved `hero.png`');
       expect(allContent).to.include('hero.png');
     });
 

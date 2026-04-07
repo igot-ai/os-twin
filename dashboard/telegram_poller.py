@@ -151,7 +151,8 @@ async def _handle_file_upload(bot_token: str, chat_id: int, message: dict, sessi
     (assets_dir / stored_name).write_bytes(file_bytes)
 
     # Guess metadata
-    epic_ref = _detect_epic_ref(file_info["caption"])
+    caption_epic = _detect_epic_ref(file_info["caption"])
+    epic_ref = caption_epic or session.active_epic_ref
     asset_type = _guess_asset_type(original_name, file_info["mime_type"])
 
     # FIX-1: Validate epic_ref against plan — silently drop invalid refs
@@ -190,7 +191,8 @@ async def _handle_file_upload(bot_token: str, chat_id: int, message: dict, sessi
     _sync_asset_sections(plan_id)
 
     # Confirmation with "Generate Plan" button
-    binding_msg = f" for {epic_ref}" if epic_ref else " (plan-level)"
+    epic_label = f" for {epic_ref}" if epic_ref else ""
+    type_label = f" as {asset_type}" if asset_type and asset_type != "other" else ""
     
     # Check if we should offer plan generation
     meta = _ensure_plan_meta(plan_id)
@@ -210,14 +212,14 @@ async def _handle_file_upload(bot_token: str, chat_id: int, message: dict, sessi
         }
         await send_reply(
             bot_token, chat_id,
-            f"Saved `{original_name}` as {asset_type}{binding_msg}.\n\n"
+            f"✅ Saved `{original_name}`{type_label}{epic_label}.\n\n"
             f"You now have {asset_count} asset(s). Would you like to generate a plan from them?",
             keyboard=keyboard
         )
     else:
         await send_reply(
             bot_token, chat_id,
-            f"Saved `{original_name}` as {asset_type}{binding_msg}."
+            f"✅ Saved `{original_name}`{type_label}{epic_label}."
         )
 
 
@@ -248,6 +250,11 @@ async def handle_message(message: dict, bot_token: str):
 
     # Authorized commands
     session = get_session(chat_id)
+    
+    # Track epic reference in context
+    msg_epic = _detect_epic_ref(text)
+    if msg_epic:
+        session.active_epic_ref = msg_epic
 
     if text.startswith("/menu"):
         await _cmd_menu(bot_token, chat_id)
@@ -684,15 +691,18 @@ async def _process_draft(bot_token: str, chat_id: int, idea: str):
         await send_reply(bot_token, chat_id, f"📝 *Plan Summary:*\n\n{summary}")
 
         # EPIC-003: Asset collection prompt
-        # Count epics in the drafted plan
         epic_count = len(_re_mod.findall(r"EPIC-\d+", result))
         if epic_count > 0:
             await send_reply(
                 bot_token, chat_id,
-                f"📎 This plan has {epic_count} epic(s). Would you like to attach any files?\n"
-                "You can upload documents, images, or other assets now — they'll be linked to the plan.\n"
-                "💡 Tip: Upload a ZIP file to batch-upload 50+ images at once!\n"
-                "Include the epic reference (e.g. EPIC-001) in the caption to auto-bind."
+                f"📎 This plan has {epic_count} epic(s). **Do you have any files to attach?**\n"
+                "Include the epic reference (e.g. EPIC-001) in the caption to auto-bind.\n"
+                "💡 Tip: Upload a ZIP file to batch-upload 50+ images at once!"
+            )
+        else:
+            await send_reply(
+                bot_token, chat_id,
+                "**Do you have any files to attach?** You can upload documents or images now."
             )
 
     except Exception as e:
@@ -745,6 +755,15 @@ async def _handle_stateful_text(bot_token: str, chat_id: int, text: str, session
         await send_reply(bot_token, chat_id, "⏳ *Generating Update Summary...*")
         summary = await summarize_plan(result, plans_dir=plans_dir)
         await send_reply(bot_token, chat_id, f"📝 *Plan Summary (Post-Update):*\n\n{summary}\n\n_(Send more instructions to keep editing, or /cancel to exit)_")
+
+        # EPIC-003: Asset collection prompt (only if content was updated and has epics)
+        epic_count = len(_re_mod.findall(r"EPIC-\d+", result))
+        if epic_count > 0:
+            await send_reply(
+                bot_token, chat_id,
+                f"📎 The plan now has {epic_count} epic(s). **Do you have any files to attach?**\n"
+                "Include the epic reference (e.g. EPIC-001) in the caption to auto-bind."
+            )
     except Exception as e:
         logger.error(f"Error refining plan: {e}")
         await send_reply(bot_token, chat_id, f"❌ Failed to refine plan: {e}")

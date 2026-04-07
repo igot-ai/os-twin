@@ -287,7 +287,7 @@ def test_bind_accepts_valid_epic_ref(temp_plan):
 # ── FIX-2: Asset sections sync on mutations ──────────────────────
 
 def test_bind_updates_plan_markdown(temp_plan):
-    """After binding, the plan markdown should have per-epic #### Assets section."""
+    """After binding, the plan markdown should have per-epic > Assets: section."""
     plan_id, tmp_path, assets_dir = temp_plan
     (assets_dir / "spec.yaml").write_text("openapi: 3.0")
 
@@ -301,12 +301,12 @@ def test_bind_updates_plan_markdown(temp_plan):
     bind_asset_to_epic(plan_id, "spec.yaml", "EPIC-001")
 
     content = (tmp_path / f"{plan_id}.md").read_text()
-    assert "#### Assets" in content
+    assert "> Assets:" in content
     assert "spec.yaml" in content
 
 
 def test_unbind_updates_plan_markdown(temp_plan):
-    """After unbinding last epic, #### Assets section should be removed from that epic."""
+    """After unbinding last epic, > Assets: section should be removed from that epic."""
     plan_id, tmp_path, assets_dir = temp_plan
     (assets_dir / "doc.txt").write_text("content")
 
@@ -325,17 +325,18 @@ def test_unbind_updates_plan_markdown(temp_plan):
     unbind_asset_from_epic(plan_id, "doc.txt", "EPIC-001")
 
     content = (tmp_path / f"{plan_id}.md").read_text()
-    # EPIC-001 should no longer have #### Assets with doc.txt
+    # EPIC-001 should no longer have > Assets: with doc.txt
     epic1_pos = content.index("### EPIC-001")
     epic2_pos = content.index("### EPIC-002")
     epic1_section = content[epic1_pos:epic2_pos]
     assert "doc.txt" not in epic1_section
+    assert "> Assets:" not in epic1_section
 
 
 # ── R2-FIX-1: Round-trip — edits in markdown merge back into meta ─
 
 def test_merge_markdown_edits_into_meta(temp_plan):
-    """If a user edits an #### Assets section in markdown, the change should be
+    """If a user edits a > Assets: section in markdown, the change should be
     picked up and merged into meta.json on save."""
     plan_id, tmp_path, assets_dir = temp_plan
     (assets_dir / "spec.yaml").write_text("openapi: 3.0")
@@ -355,9 +356,7 @@ def test_merge_markdown_edits_into_meta(temp_plan):
         "# Plan: API Test Plan\n\n## Epics\n\n"
         "### EPIC-001 — First\n\n"
         "### EPIC-002 — Second\n\n"
-        "#### Assets\n\n"
-        "- spec.yaml (api-spec, text/yaml) — New description\n"
-        "  Path: `/fake/path`\n\n"
+        "> Assets: .assets/spec.yaml (api-spec, text/yaml) — New description\n\n"
     )
     plan_file.write_text(new_md)
 
@@ -370,7 +369,7 @@ def test_merge_markdown_edits_into_meta(temp_plan):
 
 
 def test_merge_markdown_no_assets_is_noop(temp_plan):
-    """If no #### Assets sections exist, merge should not crash."""
+    """If no > Assets: sections exist, merge should not crash."""
     plan_id, tmp_path, assets_dir = temp_plan
     md = "# Plan: API Test Plan\n\n## Epics\n\n### EPIC-001 — First\n"
     _merge_markdown_asset_edits_into_meta(plan_id, md)

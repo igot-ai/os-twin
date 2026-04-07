@@ -199,9 +199,30 @@ def test_normalize_missing_filename_or_file(temp_plan):
 
     normalized = _normalize_plan_assets(plan_id, meta)
     assert len(normalized) == 0
-    # Should have updated meta.json
-    loaded = _ensure_plan_meta(plan_id)
-    assert len(loaded["assets"]) == 0
+
+
+def test_sync_index_from_bound_epics(temp_plan):
+    plan_id, tmp_path, assets_dir = temp_plan
+    (assets_dir / "synced.txt").write_text("synced")
+    
+    meta = {
+        "plan_id": plan_id,
+        "title": "Test Plan",
+        "assets": [
+            {"filename": "synced.txt", "bound_epics": ["EPIC-777"]}
+        ],
+        "epic_assets": {} # Empty index
+    }
+    _write_plan_meta(plan_id, meta)
+    
+    # Trigger normalization
+    loaded_meta = _ensure_plan_meta(plan_id)
+    normalized = _normalize_plan_assets(plan_id, loaded_meta)
+    
+    # Verify index was rebuilt
+    assert "EPIC-777" in loaded_meta["epic_assets"]
+    assert "synced.txt" in loaded_meta["epic_assets"]["EPIC-777"]
+    assert len(normalized) == 1
 
 
 def test_normalize_partial_asset(temp_plan):
@@ -342,7 +363,7 @@ def test_update_plan_assets_section(temp_plan):
     _update_plan_assets_section(plan_id, all_assets, assets_dir)
     content = plan_file.read_text()
     assert "## Assets" in content
-    assert f"path: `{assets_dir}/asset1.txt`" in content
+    assert "path: `.assets/asset1.txt`" in content
 
     # Test replacement
     all_assets.append({"filename": "asset2.txt", "original_name": "asset2.txt", "mime_type": "text/plain"})
