@@ -53,13 +53,25 @@ function Build-LifecycleV2 {
     $lastWorkerOptimize = $null
 
     # Pre-compute state names
+    # Rules:
+    #   - First worker  → "developing"        (always the entry point when workers exist)
+    #   - Subsequent workers → "developing-{roleName}" (never a raw role name)
+    #   - First evaluator   → "review"
+    #   - Subsequent evaluators → "review-{roleName}"
     $stateNames = @()
     $hasReview = $false
+    $hasWorker = $false
     for ($i = 0; $i -lt $RoleOverrides.Count; $i++) {
         $type = $RoleOverrides[$i].InstanceType
         $roleName = $RoleOverrides[$i].Name
-        if ($i -eq 0 -and $type -ne 'evaluator') {
-            $stateNames += "developing"
+        if ($type -ne 'evaluator') {
+            # Worker: first → "developing", subsequent → "developing-{roleName}"
+            if (-not $hasWorker) {
+                $stateNames += "developing"
+                $hasWorker = $true
+            } else {
+                $stateNames += "developing-$roleName"
+            }
         } elseif ($type -eq 'evaluator') {
             if (-not $hasReview) {
                 $stateNames += "review"
@@ -67,17 +79,18 @@ function Build-LifecycleV2 {
             } else {
                 $stateNames += "review-$roleName"
             }
-        } else {
-            $stateNames += $roleName
         }
     }
 
+    $firstWorkerSeen = $false
     for ($i = 0; $i -lt $RoleOverrides.Count; $i++) {
         $roleInfo = $RoleOverrides[$i]
         $roleName = $roleInfo.Name
         $type = $roleInfo.InstanceType
 
-        $isFirstWorker = ($i -eq 0 -and $type -ne 'evaluator')
+        $isFirstWorker = (-not $firstWorkerSeen -and $type -ne 'evaluator')
+        if ($type -ne 'evaluator') { $firstWorkerSeen = $true }
+
         $stateName = $stateNames[$i]
         if (-not $firstState) { $firstState = $stateName }
 
@@ -127,13 +140,16 @@ function Build-LifecycleV2 {
         }
     }
 
+    # Determine lifecycle entry point: "developing" if any worker exists, else first state
+    $entryPoint = if ($hasWorker) { 'developing' } elseif ($firstState) { $firstState } else { 'passed' }
+
     # --- triage: manager handles escalations ---
     $states['triage'] = [ordered]@{
         role    = 'manager'
         type    = 'triage'
         signals = [ordered]@{
             fix      = [ordered]@{ target = if ($lastWorkerOptimize) { $lastWorkerOptimize } else { 'failed' }; actions = @('increment_retries') }
-            redesign = [ordered]@{ target = if ($firstState) { $firstState } else { 'failed' }; actions = @('increment_retries', 'revise_brief') }
+            redesign = [ordered]@{ target = $entryPoint; actions = @('increment_retries', 'revise_brief') }
             reject   = [ordered]@{ target = 'failed-final' }
         }
     }
@@ -144,7 +160,7 @@ function Build-LifecycleV2 {
         type            = 'decision'
         auto_transition = $true
         signals         = [ordered]@{
-            retry   = [ordered]@{ target = if ($firstState) { $firstState } else { 'failed-final' }; guard = 'retries < max_retries' }
+            retry   = [ordered]@{ target = $entryPoint; guard = 'retries < max_retries' }
             exhaust = [ordered]@{ target = 'failed-final'; guard = 'retries >= max_retries' }
         }
     }
@@ -155,7 +171,7 @@ function Build-LifecycleV2 {
 
     return [ordered]@{
         version       = 2
-        initial_state = if ($firstState) { $firstState } else { 'passed' }
+        initial_state = $entryPoint
         max_retries   = $MaxRetries
         states        = $states
     }

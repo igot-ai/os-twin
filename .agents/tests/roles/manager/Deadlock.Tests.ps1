@@ -254,10 +254,10 @@ Describe "Deadlock Exploitation Tests" {
 
             $lc = Get-Content $lifecycleFile -Raw | ConvertFrom-Json
 
-            # V2: security capability → security-auditor state
-            $lc.states.'security-auditor' | Should -Not -BeNullOrEmpty
-            $lc.states.'security-auditor'.role | Should -Be "security-auditor"
-            $lc.states.'security-auditor'.role | Should -Not -Be "engineer" `
+            # V2: security capability → security-auditor as non-first worker → "developing-security-auditor"
+            $lc.states.'developing-security-auditor' | Should -Not -BeNullOrEmpty
+            $lc.states.'developing-security-auditor'.role | Should -Be "security-auditor"
+            $lc.states.'developing-security-auditor'.role | Should -Not -Be "engineer" `
                 -Because "security-auditor state role differs from room assigned_role, triggering wrong-runner bug"
         }
     }
