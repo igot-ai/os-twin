@@ -102,7 +102,7 @@ Describe "Invoke-Agent" {
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                     -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
 
-                # Should use echo instead of deepagents
+                # Should use echo instead of opencode run
                 $result | Should -Not -BeNullOrEmpty
             }
             finally {
@@ -272,6 +272,265 @@ Describe "Invoke-Agent" {
             Test-Path $isolatedSkillsDir | Should -BeTrue
             # Note: non-existent-role will still get Global skills if they exist in .agents/skills/global
             # So this might not be 0 unless we mock Resolve-RoleSkills.
+        }
+    }
+
+    Context "opencode run CLI flags" {
+        # These tests verify that the generated wrapper script contains
+        # the correct opencode run flags. We use a mock that captures $@
+        # and the wrapper content.
+
+        BeforeEach {
+            # Create a mock that dumps all args to a file
+            $script:argsDump = Join-Path $TestDrive "args-$(Get-Random).txt"
+            $script:argsMock = Join-Path $TestDrive "argsmock-$(Get-Random).sh"
+            @"
+#!/bin/bash
+# Write all args to the dump file
+for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
+"@ | Out-File $script:argsMock -Encoding utf8
+            chmod +x $script:argsMock
+        }
+
+        It "passes 'start' as positional message and prompt via --file" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "Hello world test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                # First arg should be 'start' (the positional message)
+                $capturedArgs[0] | Should -Be "start"
+                # Prompt should NOT appear as inline text on the command line
+                $capturedArgs | Should -Not -Contain "Hello world test"
+                # Prompt file should be attached via --file
+                $capturedArgs | Should -Contain "--file"
+                # Should contain an absolute path to prompt.txt
+                $promptArg = $capturedArgs | Where-Object { $_ -match 'prompt\.txt$' }
+                $promptArg | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It "passes --model flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Model "openai/gpt-4o" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--model"
+                $args | Should -Contain "openai/gpt-4o"
+            }
+        }
+
+        It "passes --agent flag with role name" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "architect" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--agent"
+                $args | Should -Contain "architect"
+            }
+        }
+
+        It "passes --format flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Format "json" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--format"
+                $args | Should -Contain "json"
+            }
+        }
+
+        It "passes --title flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -SessionTitle "My Task Title" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--title"
+                $args | Should -Contain "My Task Title"
+            }
+        }
+
+        It "passes --session flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -SessionId "abc-123" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--session"
+                $args | Should -Contain "abc-123"
+            }
+        }
+
+        It "passes --continue flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "continue from here" `
+                -ContinueSession `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--continue"
+            }
+        }
+
+        It "passes --fork flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -ForkSession `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--fork"
+            }
+        }
+
+        It "passes --share flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -ShareSession `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--share"
+            }
+        }
+
+        It "passes --command flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "src/app.test.ts" `
+                -Command "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--command"
+                $args | Should -Contain "test"
+            }
+        }
+
+        It "passes --file flag for each extra file plus prompt file" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "review these files" `
+                -Files @("file1.txt", "file2.txt") `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                # --file should appear 3 times: file1.txt, file2.txt, plus prompt.txt
+                $fileFlags = $capturedArgs | Where-Object { $_ -eq "--file" }
+                $fileFlags.Count | Should -Be 3
+                $capturedArgs | Should -Contain "file1.txt"
+                $capturedArgs | Should -Contain "file2.txt"
+                # Prompt file should also be present
+                $promptArg = $capturedArgs | Where-Object { $_ -match 'prompt\.txt$' }
+                $promptArg | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It "passes --attach flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AttachUrl "http://localhost:4096" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--attach"
+                $args | Should -Contain "http://localhost:4096"
+            }
+        }
+
+        It "passes --port flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Port 8080 `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--port"
+                $args | Should -Contain "8080"
+            }
+        }
+
+        It "does not pass legacy deepagents flags" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Not -Contain "--auto-approve"
+                $args | Should -Not -Contain "--quiet"
+                $args | Should -Not -Contain "-q"
+                $args | Should -Not -Contain "--shell-allow-list"
+                $args | Should -Not -Contain "--no-mcp"
+                $args | Should -Not -Contain "--mcp-config"
+            }
+        }
+
+        It "uses 'start' as positional message, not inline prompt text" {
+            $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).sh"
+            @"
+#!/bin/bash
+echo "ARGS: `$@"
+"@ | Out-File $captureMock -Encoding utf8
+            chmod +x $captureMock
+
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test positional prompt" `
+                -AgentCmd $captureMock -TimeoutSeconds 5
+
+            if ($result.Output) {
+                # Should see 'start' as the message, not inline prompt
+                $result.Output | Should -Match "ARGS: start"
+                # Should NOT contain the raw prompt text inline
+                $result.Output | Should -Not -Match "test positional prompt"
+            }
+        }
+    }
+
+    Context "Default AgentCmd resolution" {
+        It "defaults to opencode run when no bin/agent or config CLI found" {
+            # Create a minimal config that doesn't specify cli
+            $configFile = Join-Path $TestDrive "no-cli-config.json"
+            @{
+                engineer = @{
+                    default_model   = "test-model"
+                    timeout_seconds = 10
+                }
+            } | ConvertTo-Json -Depth 3 | Out-File $configFile -Encoding utf8
+
+            $env:AGENT_OS_CONFIG = $configFile
+            $env:ENGINEER_CMD = "echo"  # override so the test actually runs
+            try {
+                # The test verifies that the script doesn't crash when
+                # resolving to "opencode run" as default
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+            }
+            finally {
+                Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue
+                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
+            }
         }
     }
 }

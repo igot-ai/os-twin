@@ -1,33 +1,50 @@
 {
-  "mcpServers": {
+  "mcp": {
     "channel": {
-      "command": "${AGENT_DIR}/.venv/bin/python",
-      "args": [
-        "${AGENT_DIR}/mcp/channel-server.py"
-      ],
-      "env": {
+      "type": "local",
+      "command": ["python", "{env:AGENT_DIR}/mcp/channel-server.py"],
+      "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "warroom": {
-      "command": "${AGENT_DIR}/.venv/bin/python",
-      "args": [
-        "${AGENT_DIR}/mcp/warroom-server.py"
-      ],
-      "env": {
+      "type": "local",
+      "command": ["python", "{env:AGENT_DIR}/mcp/warroom-server.py"],
+      "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "memory": {
-      "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
-      "args": [
-        "${HOME}/.ostwin/A-mem-sys/mcp_server.py"
-      ],
-      "env": {
-        "AGENT_OS_ROOT": ".",
+      "type": "local",
+      "command": ["python", "{env:AGENT_DIR}/A-mem-sys/mcp_server.py"],
+      "environment": {
+        "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
         "MEMORY_PERSIST_DIR": "./.memory",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}"
+        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}"
       }
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+      "environment": {}
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@latest"],
+      "environment": {}
+    },
+    "serena": {
+      "type": "local",
+      "command": ["uvx", "--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context", "ide-assistant"]
+    },
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"]
+    },
+    "ai-game-developer": {
+      "type": "remote",
+      "url": "http://localhost:51657",
+      "enabled": true
     }
   }
 }

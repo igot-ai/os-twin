@@ -101,6 +101,11 @@ if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
   cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json" 2>/dev/null || true
 fi
 
+# Copy deploy config (uses {env:OSTWIN_PYTHON}/{env:HOME}, overrides builtin's {env:AGENT_DIR})
+if [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
+  cp "$SCRIPT_DIR/mcp/mcp-config.json" "$TARGET_AGENTS/mcp/mcp-config.json" 2>/dev/null || true
+fi
+
 # Copy extension manager script
 if [[ -f "$SCRIPT_DIR/mcp/mcp-extension.sh" ]]; then
   local_src="$(realpath "$SCRIPT_DIR/mcp/mcp-extension.sh" 2>/dev/null || echo "$SCRIPT_DIR/mcp/mcp-extension.sh")"
@@ -122,13 +127,17 @@ PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/config.json"
 LEGACY_PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/mcp-config.json"
 
 if [[ ! -f "$PROJECT_MCP_CONFIG" ]]; then
-  # Seed from builtin/legacy — compile step below resolves all variables
-  if [[ -f "$LEGACY_PROJECT_MCP_CONFIG" ]]; then
+  # Priority: mcp-config.json (deployed format with {env:OSTWIN_PYTHON}/{env:HOME})
+  #         > legacy mcp-config.json
+  #         > mcp-builtin.json (dev format with {env:AGENT_DIR})
+  if [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
+    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$PROJECT_MCP_CONFIG"
+  elif [[ -f "$LEGACY_PROJECT_MCP_CONFIG" ]]; then
     cp "$LEGACY_PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG"
   elif [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
     cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$PROJECT_MCP_CONFIG"
   else
-    echo '{"mcpServers":{}}' > "$PROJECT_MCP_CONFIG"
+    echo '{"mcp":{}}' > "$PROJECT_MCP_CONFIG"
   fi
   ok "MCP config seeded"
 else
@@ -225,12 +234,15 @@ GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/config.json"
 LEGACY_GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/mcp-config.json"
 mkdir -p "$GLOBAL_MCP_DIR"
 if [[ ! -f "$GLOBAL_MCP_CONFIG" ]]; then
+  # Seed global config from mcp-config.json (deployed format) if available
   if [[ -f "$LEGACY_GLOBAL_MCP_CONFIG" ]]; then
     cp "$LEGACY_GLOBAL_MCP_CONFIG" "$GLOBAL_MCP_CONFIG"
+  elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
+    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$GLOBAL_MCP_CONFIG"
   elif [[ -f "$GLOBAL_MCP_DIR/mcp-builtin.json" ]]; then
     cp "$GLOBAL_MCP_DIR/mcp-builtin.json" "$GLOBAL_MCP_CONFIG"
   else
-    echo '{"mcpServers":{}}' > "$GLOBAL_MCP_CONFIG"
+    echo '{"mcp":{}}' > "$GLOBAL_MCP_CONFIG"
   fi
 fi
 
@@ -240,24 +252,33 @@ bash "$MCP_EXTENSION_SCRIPT" --project-dir "$TARGET_DIR" compile
 # ─── Update .gitignore ────────────────────────────────────────────────────────
 
 GITIGNORE="$TARGET_DIR/.gitignore"
+GITIGNORE_ENTRIES=(".agents/mcp/.env.mcp" ".opencode/opencode.json")
 if [[ -f "$GITIGNORE" ]]; then
-  if ! grep -q ".agents/mcp/.env.mcp" "$GITIGNORE"; then
-    echo "" >> "$GITIGNORE"
-    echo "# Ostwin MCP secrets" >> "$GITIGNORE"
-    echo ".agents/mcp/.env.mcp" >> "$GITIGNORE"
-    ok "Added .agents/mcp/.env.mcp to .gitignore"
-  else
-    ok ".agents/mcp/.env.mcp already in .gitignore"
-  fi
+  for entry in "${GITIGNORE_ENTRIES[@]}"; do
+    if ! grep -q "$entry" "$GITIGNORE"; then
+      echo "" >> "$GITIGNORE"
+      echo "# Ostwin generated" >> "$GITIGNORE"
+      echo "$entry" >> "$GITIGNORE"
+      ok "Added $entry to .gitignore"
+    else
+      ok "$entry already in .gitignore"
+    fi
+  done
 else
-  echo ".agents/mcp/.env.mcp" > "$GITIGNORE"
-  ok "Created .gitignore with .agents/mcp/.env.mcp"
+  {
+    echo "# Ostwin generated"
+    for entry in "${GITIGNORE_ENTRIES[@]}"; do
+      echo "$entry"
+    done
+  } > "$GITIGNORE"
+  ok "Created .gitignore with Ostwin entries"
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
+OPENCODE_CONFIG="$TARGET_DIR/.opencode/opencode.json"
 echo ""
-echo -e "  ${GREEN}${BOLD}✓ MCP configured at:${NC} $PROJECT_MCP_CONFIG"
+echo -e "  ${GREEN}${BOLD}✓ MCP configured at:${NC} $OPENCODE_CONFIG"
 echo ""
 echo -e "  ${BOLD}Manage extensions:${NC}"
 echo "    ostwin mcp catalog              Show available packages"

@@ -62,7 +62,7 @@ if ($archConfigs) {
     $archRoleConfigFile = $archConfigs[0].FullName
 }
 else {
-    $archModel = "gemini-3-flash-preview"
+    $archModel = "google-vertex/gemini-3-flash-preview"
     if ($config -and $config.architect -and $config.architect.default_model) {
         $archModel = $config.architect.default_model
     }
@@ -219,7 +219,7 @@ $cleanLines = ($rawOutput -split "`n") | Where-Object {
           $line -match '^Agent active' -or
           $line -match '^Usage Stats' -or
           $line -match '^\s*Reqs\s+InputTok' -or
-          $line -match '^\s*gemini-' -or
+          $line -match '^\s*google-vertex/gemini-' -or
           $line -match '^✓ Task completed' -or
           $line -match '^System\.Management\.Automation')
 }

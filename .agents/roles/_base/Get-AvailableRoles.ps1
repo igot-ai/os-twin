@@ -34,13 +34,13 @@ if (Test-Path $registryPath) {
             if (Test-Path $candidate) { $runnerPath = $candidate }
         }
         $roles.Add([PSCustomObject]@{
-            Name         = $r.name
-            Runner       = $runnerPath
-            Model        = if ($r.default_model) { $r.default_model } else { 'gemini-3-flash-preview' }
-            Timeout      = 600
-            Capabilities = if ($r.capabilities) { @($r.capabilities) } else { @() }
-            Source       = 'registry'
-        })
+                Name         = $r.name
+                Runner       = $runnerPath
+                Model        = if ($r.default_model) { $r.default_model } else { 'google-vertex/gemini-3-flash-preview' }
+                Timeout      = 600
+                Capabilities = if ($r.capabilities) { @($r.capabilities) } else { @() }
+                Source       = 'registry'
+            })
     }
 }
  
@@ -85,13 +85,13 @@ foreach ($searchDir in $searchDirs) {
         }
  
         $roles.Add([PSCustomObject]@{
-            Name         = $roleName
-            Runner       = $runnerPath
-            Model        = if ($roleJson.model) { $roleJson.model } else { 'gemini-3-flash-preview' }
-            Timeout      = if ($roleJson.timeout_seconds) { $roleJson.timeout_seconds } else { 600 }
-            Capabilities = if ($roleJson.capabilities) { @($roleJson.capabilities) } else { @() }
-            Source       = 'discovered'
-        })
+                Name         = $roleName
+                Runner       = $runnerPath
+                Model        = if ($roleJson.model) { $roleJson.model } else { 'google-vertex/gemini-3-flash-preview' }
+                Timeout      = if ($roleJson.timeout_seconds) { $roleJson.timeout_seconds } else { 600 }
+                Capabilities = if ($roleJson.capabilities) { @($roleJson.capabilities) } else { @() }
+                Source       = 'discovered'
+            })
     }
 }
  

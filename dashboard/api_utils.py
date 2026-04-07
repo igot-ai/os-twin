@@ -818,7 +818,7 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
         role_config = config.get(name, {})
         defaults = ROLE_DEFAULTS.get(name, {})
 
-        dm_def = defaults.get("default_model", "gemini-3-flash-preview")
+        dm_def = defaults.get("default_model", "google-vertex/gemini-3-flash-preview")
         dm = role_config.get("default_model", role_obj.version or dm_def)
 
         ts_def = defaults.get("timeout_seconds", 600)

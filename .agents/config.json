@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "project_name": "ostwin",
   "manager": {
-    "default_model": "gemini-3.1-pro-preview",
+    "default_model": "google-vertex/gemini-3.1-pro-preview",
     "poll_interval_seconds": 5,
     "max_concurrent_rooms": 50,
     "max_engineer_retries": 10,
@@ -18,21 +18,20 @@
     "skill_refs": [
       "risk-decision",
       "war-room-communication"
-    ],
-    "no_mcp": false
+    ]
   },
   "architect": {
-    "default_model": "gemini-3.1-pro-preview",
+    "default_model": "google-vertex/gemini-3.1-pro-preview",
     "cli": "agent",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
     "max_prompt_bytes": 102400,
-    "no_mcp": false
+    "no_mcp": true
   },
   "engineer": {
     "cli": "agent",
-    "default_model": "gemini-3-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -41,7 +40,7 @@
     "instances": {
       "fe": {
         "display_name": "Frontend Engineer",
-        "default_model": "gemini-3.1-pro-preview",
+        "default_model": "google-vertex/gemini-3.1-pro-preview",
         "timeout_seconds": 2400,
         "working_dir": "dashboard",
         "skills": [
@@ -53,7 +52,7 @@
       },
       "be": {
         "display_name": "Backend Engineer",
-        "default_model": "gemini-3-flash-preview",
+        "default_model": "google-vertex/gemini-3-flash-preview",
         "timeout_seconds": 1200,
         "working_dir": "api",
         "skills": [
@@ -67,16 +66,15 @@
   },
   "reporter": {
     "cli": "agent",
-    "default_model": "gemini-3-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
-    "max_prompt_bytes": 102400,
-    "no_mcp": false
+    "max_prompt_bytes": 102400
   },
   "qa": {
     "cli": "agent",
-    "default_model": "gemini-3-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "approval_mode": "auto-approve",
     "timeout_seconds": 600,
     "no_mcp": false
@@ -86,13 +84,11 @@
     "max_summary_bytes": 4096,
     "max_detail_bytes": 16384,
     "max_context_entries": 15,
-    "auto_publish_on_done": true,
-    "no_mcp": false
+    "auto_publish_on_done": true
   },
   "channel": {
     "format": "jsonl",
-    "max_message_size_bytes": 65536,
-    "no_mcp": false
+    "max_message_size_bytes": 65536
   },
   "release": {
     "require_signoffs": [
@@ -100,32 +96,21 @@
       "qa",
       "manager"
     ],
-    "auto_draft": true,
-    "no_mcp": false
+    "auto_draft": true
   },
   "test-engineer": {
     "default_model": "claude-3-5-sonnet-20241022",
     "timeout_seconds": 600,
     "skill_refs": [
       "web-research"
-    ],
-    "no_mcp": false
+    ]
   },
   "unique-role": {
     "default_model": "gpt-4o",
-    "timeout_seconds": 300,
-    "no_mcp": false
+    "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "gemini-1.5-pro",
-    "timeout_seconds": 300,
-    "no_mcp": false
-  },
-  "database-architect": {
-    "default_model": "gemini-3-flash-preview",
-    "cli": "agent",
-    "auto_approve": true,
-    "timeout_seconds": 1200,
-    "no_mcp": false
+    "default_model": "google-vertex/gemini-1.5-pro",
+    "timeout_seconds": 300
   }
 }

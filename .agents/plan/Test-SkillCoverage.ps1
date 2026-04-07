@@ -32,9 +32,11 @@ $rolesDir = Join-Path $agentsDir "roles"
 $installDir = $null
 if ($env:OSTWIN_HOME -and (Test-Path $env:OSTWIN_HOME)) {
     $installDir = $env:OSTWIN_HOME
-} elseif (Test-Path (Join-Path $agentsDir "roles" "_base" "Start-DynamicRole.ps1")) {
+}
+elseif (Test-Path (Join-Path $agentsDir "roles" "_base" "Start-DynamicRole.ps1")) {
     $installDir = $agentsDir
-} else {
+}
+else {
     # Fall back to ~/.ostwin
     $fallback = Join-Path ([Environment]::GetFolderPath('UserProfile')) ".ostwin"
     if (Test-Path $fallback) { $installDir = $fallback }
@@ -59,8 +61,8 @@ foreach ($entry in $PlanParsed) {
 
                     # Extract description from the plan entry
                     $roleDesc = if ($entry.Objective) { $entry.Objective }
-                                elseif ($entry.Description) { $entry.Description }
-                                else { "$currentRole specialist agent" }
+                    elseif ($entry.Description) { $entry.Description }
+                    else { "$currentRole specialist agent" }
 
                     # Create role.json
                     $roleData = @{
@@ -71,7 +73,7 @@ foreach ($entry in $PlanParsed) {
                         quality_gates = @()
                         skills        = @("global", "roles")
                         cli           = "agent"
-                        model         = "gemini-3-flash-preview"
+                        model         = "google-vertex/gemini-3-flash-preview"
                         timeout       = 600
                     }
                     $roleData | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $rolePath "role.json") -Encoding utf8
@@ -102,7 +104,7 @@ $roleDesc
                         if (-not $alreadyRegistered) {
                             $newEntry = [PSCustomObject]@{
                                 name               = $currentRole
-                                description         = $roleDesc
+                                description        = $roleDesc
                                 runner             = "roles/_base/Start-DynamicRole.ps1"
                                 definition         = "roles/$currentRole/role.json"
                                 prompt             = "roles/$currentRole/ROLE.md"
@@ -187,7 +189,8 @@ if ($missingSkills.Count -gt 0) {
         Write-Error "Pre-flight skill check failed. Halting execution."
         exit 1
     }
-} else {
+}
+else {
     Write-Host "[PRE-FLIGHT] All required skills and roles verified." -ForegroundColor Green
 }
 

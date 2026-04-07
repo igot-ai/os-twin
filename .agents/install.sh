@@ -16,7 +16,7 @@
 #   - Python 3.10+       (via uv / brew / apt)
 #   - PowerShell 7+      (via brew / Microsoft repos)
 #   - uv                 (Python package/env manager)
-#   - deepagents-cli     (Agent execution engine)
+#   - opencode            (Agent execution engine)
 #   - Pester 5+          (PowerShell test framework)
 #   - MCP dependencies   (fastapi, uvicorn, etc.)
 #
@@ -193,8 +193,8 @@ check_uv() {
   command -v uv &>/dev/null
 }
 
-check_deepagents() {
-  command -v deepagents &>/dev/null
+check_opencode() {
+  command -v opencode &>/dev/null
 }
 
 check_brew() {
@@ -390,36 +390,29 @@ install_node() {
   ok "Node.js $NODE_VER installed to $node_dir"
 }
 
-install_deepagents() {
-  step "Installing deepagents-cli..."
-  if check_uv; then
-    # Preferred: uv tool install creates an isolated env
-    uv tool install 'deepagents-cli' 2>/dev/null || {
-      # If already installed, upgrade
-      uv tool upgrade deepagents-cli 2>/dev/null || true
-    }
+install_opencode() {
+  step "Installing opencode..."
+
+  # Preferred: brew (macOS and Linux, always up to date)
+  if command -v brew &>/dev/null; then
+    brew install anomalyco/tap/opencode 2>/dev/null || brew upgrade anomalyco/tap/opencode 2>/dev/null || true
   else
-    # Fallback: pip in the project venv
-    local pip_cmd="$VENV_DIR/bin/pip"
-    if [[ -x "$pip_cmd" ]]; then
-      "$pip_cmd" install --quiet deepagents-cli
-    else
-      pip3 install --user deepagents-cli
-    fi
+    # Fallback: official install script
+    curl -fsSL https://opencode.ai/install | bash
   fi
 
   # Verify
-  if check_deepagents; then
-    local da_ver
-    da_ver=$(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
-    ok "deepagents-cli $da_ver installed"
+  if check_opencode; then
+    local oc_ver
+    oc_ver=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+    ok "opencode $oc_ver installed"
   else
-    # May need PATH refresh
-    export PATH="$HOME/.local/bin:$HOME/.local/share/uv/tools/deepagents-cli/bin:$PATH"
-    if check_deepagents; then
-      ok "deepagents-cli installed (PATH updated)"
+    # PATH may need refreshing
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if check_opencode; then
+      ok "opencode installed (PATH updated)"
     else
-      warn "deepagents-cli installed but not in PATH yet"
+      warn "opencode installed but not in PATH yet"
       info "Run: source ~/.bashrc  (or open a new terminal)"
     fi
   fi
@@ -468,7 +461,7 @@ setup_venv() {
   fi
 
   # Always sync requirements — even if the venv was reused.
-  # This ensures newly added packages (e.g. deepagents) are installed
+  # This ensures newly added packages are installed
   # when a user re-runs install.sh after an update.
 
   # Install MCP requirements
@@ -966,14 +959,16 @@ patch_mcp_config() {
 
   step "Patching MCP config..."
 
-  # 1. Replace OSTWIN_VENV_PYTHON placeholder
-  if [[ "$OS" == "macos" ]]; then
-    sed -i '' "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+  # 1. Ensure OSTWIN_PYTHON is set in .env (used by {env:OSTWIN_PYTHON} in config)
+  if [[ -f "$env_file" ]]; then
+    if ! grep -q "^OSTWIN_PYTHON=" "$env_file"; then
+      echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" >> "$env_file"
+    fi
   else
-    sed -i "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+    echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" > "$env_file"
   fi
 
-  # 2. Inject all .env variables into every MCP server's "env" block
+  # 2. Inject all .env variables into every MCP server's "environment" block
   if [[ -f "$env_file" ]]; then
     "$VENV_DIR/bin/python" - "$mcp_config" "$env_file" <<'PYEOF'
 import json, sys, os
@@ -1004,22 +999,28 @@ with open(mcp_path) as f:
     config = json.load(f)
 
 import re
-servers = config.get('mcpServers', {})
+# Support both OpenCode 'mcp' and legacy 'mcpServers' keys
+servers = config.get('mcp', config.get('mcpServers', {}))
 for name, server in servers.items():
-    if 'env' not in server:
-        server['env'] = {}
-    # Find ${VAR} references in this server's config (command, args, env values)
+    # Only inject environment into local servers (OpenCode spec)
+    if server.get('type') == 'remote':
+        continue
+    # Support both 'environment' (OpenCode) and 'env' (legacy)
+    env_key = 'environment' if 'environment' in server else 'env' if 'env' in server else 'environment'
+    if env_key not in server:
+        server[env_key] = {}
+    # Find ${VAR} or {env:VAR} references in this server's config
     server_str = json.dumps(server)
     server_refs = set(re.findall(r'\$\{(\w+)(?:[:-][^}]*)?\}', server_str))
-    # Only inject vars that this server already references, or resolve existing ${VAR} env values
+    server_refs |= set(re.findall(r'\{env:(\w+)\}', server_str))
+    # Only inject vars that this server references, or resolve existing placeholder env values
     for k, v in env_vars.items():
-        if k in server['env']:
-            # Resolve ${VAR} placeholder in existing env value
-            cur = server['env'][k]
-            if isinstance(cur, str) and '${' in cur and v:
-                server['env'][k] = v
+        if k in server[env_key]:
+            cur = server[env_key][k]
+            if isinstance(cur, str) and ('${' in cur or '{env:' in cur) and v:
+                server[env_key][k] = v
         elif k in server_refs and v:
-            server['env'][k] = v
+            server[env_key][k] = v
 
 with open(mcp_path, 'w') as f:
     json.dump(config, f, indent=2)
@@ -1028,6 +1029,75 @@ with open(mcp_path, 'w') as f:
 print(f"    Injected {len(env_vars)} env var(s) into {len(servers)} MCP server(s)")
 PYEOF
   fi
+
+  # 3. Write $PROJECT_DIR/.opencode/opencode.json with all {env:*} resolved
+  "$VENV_DIR/bin/python" - "$mcp_config" "$INSTALL_DIR" "$env_file" <<'PYEOF'
+import json, sys, os, re
+
+mcp_path, project_dir, env_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# Load .env for resolving {env:VAR} references
+env_extra = {}
+if os.path.exists(env_path):
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, _, v = line.partition('=')
+            env_extra[k.strip()] = v.strip().strip('"').strip("'")
+env_all = {**os.environ, **env_extra}
+
+def resolve_env_refs(text):
+    return re.sub(r'\{env:(\w+)\}', lambda m: env_all.get(m.group(1), m.group(0)), text)
+
+with open(mcp_path) as f:
+    config = json.load(f)
+servers = config.get('mcp', config.get('mcpServers', {}))
+
+# Build opencode.json:
+# - command arrays: resolve ALL {env:*} to literal paths
+# - environment/headers: STRIP {env:*} pass-throughs (server inherits parent env, no secrets on disk)
+import shutil
+python_abs = shutil.which('python') or shutil.which('python3') or 'python'
+
+env_ref_pattern = re.compile(r'\{env:\w+\}')
+resolved_mcp = {}
+for name, cfg in servers.items():
+    out = {}
+    for key, val in cfg.items():
+        if key == 'command' and isinstance(val, list):
+            resolved_cmd = []
+            for i, c in enumerate(val):
+                if isinstance(c, str):
+                    c = resolve_env_refs(c)
+                    if i == 0 and c in ('python', 'python3'):
+                        c = python_abs
+                resolved_cmd.append(c)
+            out[key] = resolved_cmd
+        elif key in ('environment', 'headers') and isinstance(val, dict):
+            cleaned = {k: v for k, v in val.items()
+                       if not (isinstance(v, str) and env_ref_pattern.search(v))}
+            if cleaned:
+                out[key] = cleaned
+        elif key == 'url' and isinstance(val, str):
+            out[key] = resolve_env_refs(val)
+        else:
+            out[key] = val
+    resolved_mcp[name] = out
+
+opencode_dir = os.path.join(project_dir, '.opencode')
+os.makedirs(opencode_dir, exist_ok=True)
+opencode_file = os.path.join(opencode_dir, 'opencode.json')
+opencode_config = {
+    "$schema": "https://opencode.ai/config.json",
+    "mcp": resolved_mcp
+}
+with open(opencode_file, 'w') as f:
+    json.dump(opencode_config, f, indent=2)
+    f.write('\n')
+print(f"    Generated {opencode_file}")
+PYEOF
 
   ok "MCP config patched"
 }
@@ -1186,12 +1256,12 @@ else
   fi
 fi
 
-# --- deepagents-cli ---
-if check_deepagents; then
-  DA_VERSION=$(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
-  ok "deepagents-cli $DA_VERSION"
+# --- opencode ---
+if check_opencode; then
+  OC_VERSION=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+  ok "opencode $OC_VERSION"
 else
-  install_deepagents
+  install_opencode
 fi
 
 # --- Node.js ---
@@ -1346,10 +1416,10 @@ else
     echo -e "    uv:               ${YELLOW}⚠️  not installed${NC}"
   fi
 
-  if check_deepagents; then
-    echo -e "    deepagents-cli:   ${GREEN}✅ $(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
+  if check_opencode; then
+    echo -e "    opencode:         ${GREEN}✅ $(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
   else
-    echo -e "    deepagents-cli:   ${YELLOW}⚠️  not in PATH${NC}"
+    echo -e "    opencode:         ${YELLOW}⚠️  not in PATH${NC}"
   fi
 
   if [[ -d "$VENV_DIR" ]]; then

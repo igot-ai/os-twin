@@ -1,48 +1,49 @@
 {
-  "mcpServers": {
+  "mcp": {
     "channel": {
-      "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
-      "args": [
-        "${HOME}/.ostwin/.agents/mcp/channel-server.py"
-      ],
-      "env": {
+      "type": "local",
+      "command": ["python", "{env:HOME}/.ostwin/.agents/mcp/channel-server.py"],
+      "environment": {
         "AGENT_OS_ROOT": ".",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
+        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
+        "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
+        "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
       }
     },
     "warroom": {
-      "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
-      "args": [
-        "${HOME}/.ostwin/.agents/mcp/warroom-server.py"
-      ],
-      "env": {
+      "type": "local",
+      "command": ["python", "{env:HOME}/.ostwin/.agents/mcp/warroom-server.py"],
+      "environment": {
         "AGENT_OS_ROOT": ".",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
+        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
+        "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
+        "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
       }
     },
     "memory": {
-      "command": "${OSTWIN_PYTHON:-${HOME}/.ostwin/.venv/bin/python}",
-      "args": [
-        "${HOME}/os-twin/A-mem-sys/mcp_server.py"
-      ],
-      "env": {
-        "AGENT_OS_ROOT": "${AGENT_OS_PROJECT_DIR:-.}",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
+      "type": "local",
+      "command": ["python", "{env:HOME}/.ostwin/A-mem-sys/mcp_server.py"],
+      "environment": {
+        "AGENT_OS_ROOT": "{env:AGENT_OS_PROJECT_DIR}",
+        "MEMORY_PERSIST_DIR": "./.memory",
+        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}"
+      }
+    },
+    "stitch": {
+      "type": "remote",
+      "url": "https://stitch.googleapis.com/mcp",
+      "headers": {
+        "X-Goog-Api-Key": "{env:MCP_STITCH_API_KEY}"
       }
     },
     "github": {
-      "command": "npx -y @modelcontextprotocol/server-github",
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${MCP_GITHUB_GITHUB_PERSONAL_ACCESS_TOKEN}",
-        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "${OSTWIN_API_KEY}"
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+      "environment": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:MCP_GITHUB_GITHUB_PERSONAL_ACCESS_TOKEN}",
+        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
+        "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
+        "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
       }
     }
   }

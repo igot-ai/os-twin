@@ -89,7 +89,7 @@ def test_role_dependencies(tmp_path):
     role_data = {
         "name": role_name,
         "provider": "Gemini",
-        "version": "gemini-1.5-pro",
+        "version": "google-vertex/gemini-1.5-pro",
     }
     res = client.post("/api/roles", json=role_data, headers=headers)
     role_id = res.json()["id"]

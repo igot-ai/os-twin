@@ -83,7 +83,7 @@ def load_roles() -> List[Role]:
                 if name in loaded_names: continue
                 role_json = _read_role_json(name)
                 engine_role = engine_config.get(name, {})
-                model = engine_role.get("default_model") or role_json.get("model") or r.get("default_model", "gemini-3-flash-preview")
+                model = engine_role.get("default_model") or role_json.get("model") or r.get("default_model", "google-vertex/gemini-3-flash-preview")
                 timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
                 skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
                 description = role_json.get("description", r.get("description", ""))
@@ -133,7 +133,7 @@ def load_roles() -> List[Role]:
                     if role_file.exists() or md_file.exists():
                         role_json = _read_role_json(name)
                         engine_role = engine_config.get(name, {})
-                        model = engine_role.get("default_model") or role_json.get("model") or "gemini-3-flash-preview"
+                        model = engine_role.get("default_model") or role_json.get("model") or "google-vertex/gemini-3-flash-preview"
                         timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", 300)
                         skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
                         description = role_json.get("description", "")
@@ -291,10 +291,10 @@ async def get_model_registry(user: dict = Depends(get_current_user)):
             {"id": 'o4-mini', "context_window": '200K', "tier": 'reasoning'},
         ],
         'Gemini': [
-            {"id": 'gemini-3.1-pro-preview', "context_window": '1M', "tier": 'flagship'},
-            {"id": 'gemini-3-flash-preview', "context_window": '1M', "tier": 'balanced'},
-            {"id": 'gemini-2.5-pro-preview-05-06', "context_window": '1M', "tier": 'reasoning'},
-            {"id": 'gemini-2.5-flash-preview-05-20', "context_window": '1M', "tier": 'fast'},
+            {"id": 'google-vertex/gemini-3.1-pro-preview', "context_window": '1M', "tier": 'flagship'},
+            {"id": 'google-vertex/gemini-3-flash-preview', "context_window": '1M', "tier": 'balanced'},
+            {"id": 'google-vertex/gemini-2.5-pro-preview-05-06', "context_window": '1M', "tier": 'reasoning'},
+            {"id": 'google-vertex/gemini-2.5-flash-preview-05-20', "context_window": '1M', "tier": 'fast'},
         ]
     }
 

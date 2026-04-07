@@ -1966,7 +1966,7 @@ export OSTWIN_HOME='/Users/test/.ostwin'
 export AGENT_OS_PROJECT_DIR='/Users/test/project'
 echo "`$`$" > '$pidFile'
 echo "[wrapper] PID=`$`$, CMD=deepagents, CWD=`$(pwd)" >> '$outputFile'
-exec deepagents -n "`$(cat '$promptFile')" --agent $Role --auto-approve --model gemini-test --quiet >> '$outputFile' 2>&1
+exec deepagents -n "`$(cat '$promptFile')" --agent $Role --auto-approve --model google-vertex/gemini-test --quiet >> '$outputFile' 2>&1
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
 "@
                 $scriptPath = Join-Path $artifactsDir "run-agent.sh"

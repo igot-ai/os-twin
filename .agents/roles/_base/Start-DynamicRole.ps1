@@ -154,7 +154,7 @@ if ($TimeoutSeconds -eq 0) {
     $TimeoutSeconds = if ($roleDef -and $roleDef.Timeout) { $roleDef.Timeout } else { 600 }
 }
 
-$agentModel = if ($roleDef -and $roleDef.Model) { $roleDef.Model } else { "gemini-3-flash-preview" }
+$agentModel = if ($roleDef -and $roleDef.Model) { $roleDef.Model } else { "google-vertex/gemini-3-flash-preview" }
 $agentInstanceType = if ($roleDef -and $roleDef.InstanceType) { $roleDef.InstanceType } else { "worker" }
 
 # --- Resolve instance-specific config ---
