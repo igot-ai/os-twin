@@ -606,8 +606,9 @@ with open('$EXTENSIONS_FILE', 'w') as f:
 cmd_sync_quiet() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
 
-  local mcp_module_dir
-  mcp_module_dir="$(dirname "$CONFIG_FILE")"
+  # validate_mcp.py lives in the global install, not project-local
+  local mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  [[ -f "$mcp_module_dir/validate_mcp.py" ]] || mcp_module_dir="$SCRIPT_DIR"
 
   "$PYTHON" -c "
 import json, sys, os
@@ -684,7 +685,6 @@ cmd_init_project() {
   local project_config="$project_mcp/config.json"
   if [[ ! -f "$project_config" ]]; then
     [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcp":{}}' > "$project_config"
-    fi
   fi
 
   ok "Project MCP scaffolded at $project_mcp"
@@ -944,6 +944,10 @@ cmd_compile() {
   export _CONFIG_FILE="$CONFIG_FILE"
   export _BUILTIN_FILE="$BUILTIN_FILE"
   export _PROJECT_DIR="$project_dir"
+  # validate_mcp.py lives in the global install, not project-local
+  local _mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  [[ -f "$_mcp_module_dir/validate_mcp.py" ]] || _mcp_module_dir="$SCRIPT_DIR"
+  export _MCP_MODULE_DIR="$_mcp_module_dir"
 
   step "Compiling MCP config for project at $project_dir..."
 
@@ -983,6 +987,9 @@ if os.path.exists(builtin_file):
         builtin_config = json.load(f)
 
 # Normalize builtin config (handles legacy mcpServers, shell vars, etc.)
+mcp_module_dir = os.environ.get("_MCP_MODULE_DIR", script_dir)
+if mcp_module_dir not in sys.path:
+    sys.path.insert(0, mcp_module_dir)
 from validate_mcp import normalize_mcp_config
 normalized_builtin = normalize_mcp_config(builtin_config)
 
@@ -1033,62 +1040,8 @@ print(f'  ✓ Generated {env_mcp_file}')
 print(f'  ✓ Generated {manifest_file}')
 PYEOF
 
-  # ── Normalize, validate, and write .opencode/opencode.json ──
-  local abs_project_dir
-  abs_project_dir="$(cd "$project_dir" 2>/dev/null && pwd || echo "$project_dir")"
-  local config_file="$project_dir/.agents/mcp/config.json"
-  local mcp_module_dir="$INSTALL_DIR/.agents/mcp"
-  local opencode_dir="$abs_project_dir/.opencode"
-
-  "$PYTHON" -c "
-import json, sys, os
-
-sys.path.insert(0, '$mcp_module_dir')
-from validate_mcp import normalize_mcp_config, validate_mcp_config
-
-config_file = '$config_file'
-opencode_dir = '$opencode_dir'
-
-with open(config_file) as f:
-    source = json.load(f)
-
-# Normalize from any format to OpenCode
-normalized = normalize_mcp_config(source)
-
-# Validate
-validated, skipped, results = validate_mcp_config(normalized)
-for name, is_valid, errors, warnings in results:
-    for w in warnings:
-        print(f'  [WARN] {name}: {w}', file=sys.stderr)
-    if not is_valid:
-        for e in errors:
-            print(f'  [ERROR] {name}: {e}', file=sys.stderr)
-
-# Build tools deny block
-tools_deny = {f'{name}*': False for name in validated}
-
-os.makedirs(opencode_dir, exist_ok=True)
-opencode_file = os.path.join(opencode_dir, 'opencode.json')
-
-# Merge with existing (preserve user settings)
-existing = {}
-if os.path.exists(opencode_file):
-    try:
-        with open(opencode_file) as f:
-            existing = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        existing = {}
-
-existing['\$schema'] = 'https://opencode.ai/config.json'
-existing['mcp'] = validated
-existing['tools'] = tools_deny
-
-with open(opencode_file, 'w') as f:
-    json.dump(existing, f, indent=2)
-    f.write('\n')
-
-print(f'  ✓ Generated {opencode_file} ({len(validated)} servers, {len(tools_deny)} tools denied)')
-"
+  # MCP servers are loaded to the global config at ~/.config/opencode/opencode.json
+  # by install.sh — no project-local .opencode/opencode.json is created.
 }
 
 # ─── HELP ────────────────────────────────────────────────────────────────────

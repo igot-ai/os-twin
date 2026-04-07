@@ -533,4 +533,63 @@ echo "ARGS: `$@"
             }
         }
     }
+
+    Context "No opencode.json generation" {
+        It "does not create opencode.json in artifacts directory" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test no opencode.json" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $artifactsDir = Join-Path $script:roomDir "artifacts"
+            $opencodeJson = Join-Path $artifactsDir "opencode.json"
+            Test-Path $opencodeJson | Should -BeFalse `
+                -Because "Invoke-Agent must not generate opencode.json during ostwin run"
+        }
+
+        It "does not create opencode.json even when MCP config exists" {
+            # Create a project dir with .agents/mcp/config.json and a room inside
+            $projectDir = Join-Path $TestDrive "project-mcp-$(Get-Random)"
+            $mcpDir = Join-Path $projectDir ".agents" "mcp"
+            New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
+            @{ mcp = @{ "test-server" = @{ type = "local"; command = @("echo") } } } `
+                | ConvertTo-Json -Depth 5 `
+                | Out-File (Join-Path $mcpDir "config.json") -Encoding utf8
+
+            # Place room inside .war-rooms so Invoke-Agent resolves ProjectDir
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-mcp"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test with mcp config" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $artifactsDir = Join-Path $roomDir "artifacts"
+            $opencodeJson = Join-Path $artifactsDir "opencode.json"
+            Test-Path $opencodeJson | Should -BeFalse `
+                -Because "Invoke-Agent must not generate opencode.json even when MCP config exists"
+        }
+    }
+
+    Context "No .agents/mcp folder creation" {
+        It "does not create .agents/mcp folder in the project directory" {
+            # Create a project dir without .agents/mcp
+            $projectDir = Join-Path $TestDrive "project-nomcp-$(Get-Random)"
+            $agentsDir = Join-Path $projectDir ".agents"
+            New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+
+            # Place room inside .war-rooms so Invoke-Agent resolves ProjectDir
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-nomcp"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test no mcp folder" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $mcpDir = Join-Path $agentsDir "mcp"
+            Test-Path $mcpDir | Should -BeFalse `
+                -Because "Invoke-Agent must not create .agents/mcp folder"
+        }
+    }
 }

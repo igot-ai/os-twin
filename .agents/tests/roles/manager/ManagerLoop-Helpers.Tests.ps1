@@ -1057,4 +1057,49 @@ Describe "Resolve-RoomSkills — success path" {
             Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+
+    It "retries without role filter when API returns 0 results with role filter" {
+        InModuleScope ManagerLoop-Helpers {
+            $script:callCount = 0
+            Mock Invoke-RestMethod {
+                $script:callCount++
+                # First call (with role filter) returns empty
+                if ($Uri -match 'role=') { return @() }
+                # Second call (without role filter) returns results
+                return @([PSCustomObject]@{ name = "skill-fallback"; relative_path = "skills/roles/engineer/fallback" })
+            }
+            $td = Join-Path $env:TMPDIR "test-room-noprole-$(Get-Random)"
+            New-Item -ItemType Directory -Path $td -Force | Out-Null
+            @{ task_ref="T1"; assignment=@{assigned_role="game-engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
+            "Build a game UI" | Out-File (Join-Path $td "brief.md") -Encoding utf8
+
+            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "game-engineer"
+
+            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
+            $cfg.skill_refs | Should -Not -BeNullOrEmpty
+            $cfg.skill_refs | Should -Contain "skill-fallback"
+            # Verify it was called twice — first with role filter, then without
+            $script:callCount | Should -Be 2
+            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "uses results from role-filtered call when API returns matches" {
+        InModuleScope ManagerLoop-Helpers {
+            Mock Invoke-RestMethod {
+                # API returns results with role filter — should NOT retry
+                return @([PSCustomObject]@{ name = "role-matched-skill"; relative_path = "skills/roles/engineer/matched" })
+            }
+            $td = Join-Path $env:TMPDIR "test-room-roleok-$(Get-Random)"
+            New-Item -ItemType Directory -Path $td -Force | Out-Null
+            @{ task_ref="T1"; assignment=@{assigned_role="engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
+
+            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "engineer"
+
+            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
+            $cfg.skill_refs | Should -Contain "role-matched-skill"
+            Assert-MockCalled Invoke-RestMethod -Times 1 -Exactly
+            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }

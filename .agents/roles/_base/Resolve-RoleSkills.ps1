@@ -149,10 +149,39 @@ if (Test-Path $jsonFile) {
                     continue
                 }
 
-                # Fallback to skills/<ref>/SKILL.md
-                $fallbackPath = Join-Path $SkillsBaseDir $ref "SKILL.md"
+                # Fallback: hierarchical search matching Test-SkillCoverage.ps1 pattern
+                # Search order:
+                #   1. skills/<ref>/SKILL.md                    (flat)
+                #   2. skills/roles/<RoleName>/<ref>/SKILL.md   (own role — preferred)
+                #   3. skills/global/<ref>/SKILL.md             (global)
+                #   4. skills/roles/*/<ref>/SKILL.md            (any role)
+                $fallbackPath = $null
+                $searchPaths = @(
+                    (Join-Path $SkillsBaseDir $ref "SKILL.md")
+                )
+                # Own role's directory first (preferred over other roles)
+                $ownRolePath = Join-Path $SkillsBaseDir "roles" $RoleName $ref "SKILL.md"
+                $searchPaths += $ownRolePath
+                # Global directory
+                $searchPaths += (Join-Path $SkillsBaseDir "global" $ref "SKILL.md")
+                # All other role directories
+                $rolesSkillDir = Join-Path $SkillsBaseDir "roles"
+                if (Test-Path $rolesSkillDir) {
+                    Get-ChildItem -Path $rolesSkillDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                        if ($_.Name -ne $RoleName) {
+                            $searchPaths += Join-Path $_.FullName $ref "SKILL.md"
+                        }
+                    }
+                }
 
-                if (Test-Path $fallbackPath) {
+                foreach ($candidate in $searchPaths) {
+                    if (Test-Path $candidate) {
+                        $fallbackPath = $candidate
+                        break
+                    }
+                }
+
+                if ($fallbackPath) {
                     if (-not (Test-SkillPlatform -SkillMdPath $fallbackPath)) {
                         Write-Verbose "Skipping platform-incompatible skill '$ref' (fallback)"
                         continue
@@ -231,7 +260,7 @@ trust_level: $($matchedSkill.trust_level)
                         if ($registryPath) {
                             $errorMsg += " Registry path tried: $registryPath."
                         }
-                        $errorMsg += " Fallback path tried: $fallbackPath."
+                        $errorMsg += " Hierarchical paths tried: $($searchPaths -join '; ')."
                         if ($ApiKey) {
                             $errorMsg += " Backend search also failed."
                         }
@@ -246,6 +275,50 @@ trust_level: $($matchedSkill.trust_level)
             throw $_
         }
         Write-Warning "Failed to parse role.json for skills: $_"
+    }
+}
+
+# --- Auto-include role-private skills ---
+# Any skill living under skills/roles/<RoleName>/*/SKILL.md is treated as
+# private to this role and is automatically loaded whenever the role is
+# resolved, even when not declared in skill_refs/capabilities. This lets
+# users drop a skill folder into their role's private bucket and have it
+# picked up without editing role.json. Both the project-local skills tree
+# and the user-global ~/.ostwin/.agents/skills tree are scanned.
+$autoLoadDirs = [System.Collections.Generic.List[string]]::new()
+$projectRolePrivate = Join-Path $SkillsBaseDir "roles" $RoleName
+if (Test-Path $projectRolePrivate) {
+    $autoLoadDirs.Add($projectRolePrivate)
+}
+$homeRolePrivate = Join-Path $ostwinHome ".agents" "skills" "roles" $RoleName
+if ((Test-Path $homeRolePrivate) -and (-not ($autoLoadDirs -contains $homeRolePrivate))) {
+    $autoLoadDirs.Add($homeRolePrivate)
+}
+
+foreach ($autoDir in $autoLoadDirs) {
+    Get-ChildItem -Path $autoDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $skillMd = Join-Path $_.FullName "SKILL.md"
+        if (-not (Test-Path $skillMd)) { return }
+
+        $skillName = $_.Name
+        # Explicit refs (already in $resolvedSkills) win over auto-discovery.
+        if ($resolvedSkills.ContainsKey($skillName)) { return }
+
+        if (-not (Test-SkillPlatform -SkillMdPath $skillMd)) {
+            Write-Verbose "Skipping platform-incompatible role-private skill '$skillName'"
+            return
+        }
+        if (-not (Test-SkillEnabled -SkillMdPath $skillMd)) {
+            Write-Verbose "Skipping disabled role-private skill '$skillName'"
+            return
+        }
+
+        $resolvedSkills[$skillName] = [PSCustomObject]@{
+            Name = $skillName
+            Path = $skillMd
+            Tier = "RoleAuto"
+        }
+        Write-Verbose "Auto-loaded role-private skill '$skillName' for role '$RoleName' from $skillMd"
     }
 }
 
