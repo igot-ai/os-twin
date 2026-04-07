@@ -133,7 +133,8 @@
       "supported_task_types": [
         "task",
         "epic",
-        "investigation"
+        "investigation",
+        "review"
       ],
       "capabilities": [
         "risk-assessment",

@@ -28,11 +28,12 @@ Describe "Resolve-Pipeline.ps1 — Dynamic Lifecycle Generation" {
         $lc.initial_state | Should -Be "developing"
         $lc.states.developing.role | Should -Be "game-architect"
         $lc.states.developing.type | Should -Be "work"
-        $lc.states.developing.signals.done.target | Should -Be "game-engineer"
+        $lc.states.developing.signals.done.target | Should -Be "developing-game-engineer"
 
-        $lc.states."game-engineer".role | Should -Be "game-engineer"
-        $lc.states."game-engineer".type | Should -Be "work"
-        $lc.states."game-engineer".signals.done.target | Should -Be "review"
+        # Non-first workers get "developing-{roleName}" — never a raw role name
+        $lc.states."developing-game-engineer".role | Should -Be "game-engineer"
+        $lc.states."developing-game-engineer".type | Should -Be "work"
+        $lc.states."developing-game-engineer".signals.done.target | Should -Be "review"
 
         $lc.states.review.role | Should -Be "game-qa"
         $lc.states.review.type | Should -Be "review"

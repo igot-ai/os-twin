@@ -30,8 +30,8 @@ Describe "New-WarRoom lifecycle.json" {
         }
     }
 
-    Context "Single candidate — developing goes through review to passed" {
-        It "candidate_roles=['engineer'] → developing role is engineer" {
+    Context "Single candidate — developing goes to passed (no evaluator)" {
+        It "candidate_roles=['engineer'] → developing role is engineer, done goes to passed" {
             & $script:NewWarRoom -RoomId "room-sc-01" -TaskRef "EPIC-001" `
                                  -TaskDescription "Engineer only" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -40,7 +40,8 @@ Describe "New-WarRoom lifecycle.json" {
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-sc-01" "lifecycle.json") -Raw | ConvertFrom-Json
             $lc.states.developing.role | Should -Be "engineer"
-            $lc.states.developing.signals.done.target | Should -Be "review"
+            # Single worker with no evaluator → done goes directly to passed
+            $lc.states.developing.signals.done.target | Should -Be "passed"
         }
 
         It "candidate_roles=['reporter'] → reporter does developing" {
@@ -66,8 +67,8 @@ Describe "New-WarRoom lifecycle.json" {
         }
     }
 
-    Context "Multi-candidate — review chain from candidate_roles[1..N]" {
-        It "candidate_roles=['engineer','qa'] → qa-review is final gate" {
+    Context "Multi-candidate — review chain from evaluator roles" {
+        It "candidate_roles=['engineer','qa'] → review is final gate (qa=evaluator)" {
             & $script:NewWarRoom -RoomId "room-mc-01" -TaskRef "EPIC-010" `
                                  -TaskDescription "With QA" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -75,13 +76,15 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("engineer", "qa")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-mc-01" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.developing.signals.done.target | Should -Be "qa-review"
-            $lc.states.'qa-review'.role | Should -Be "qa"
-            $lc.states.'qa-review'.signals.pass.target | Should -Be "passed"
-            $lc.states.'qa-review'.signals.fail.target | Should -Be "optimize"
+            # qa has instance_type=evaluator → first evaluator gets state name "review"
+            $lc.states.developing.signals.done.target | Should -Be "review"
+            $lc.states.review.role | Should -Be "qa"
+            $lc.states.review.type | Should -Be "review"
+            $lc.states.review.signals.pass.target | Should -Be "passed"
+            $lc.states.review.signals.fail.target | Should -Be "optimize"
         }
 
-        It "candidate_roles=['architect','manager'] → architect develops, manager excluded from review" {
+        It "candidate_roles=['architect','manager'] → architect is evaluator, manager excluded" {
             & $script:NewWarRoom -RoomId "room-mc-02" -TaskRef "PLAN-REVIEW" `
                                  -TaskDescription "Plan negotiation" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -89,12 +92,14 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("architect", "manager")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-mc-02" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.developing.role | Should -Be "architect"
-            # manager excluded from review chain (orchestrator); QA review is final gate
-            $lc.states.review.role | Should -Be "qa"
+            # architect has instance_type=evaluator; manager is orchestrator (filtered)
+            # Only evaluator remains → initial_state = "review" (no workers)
+            $lc.initial_state | Should -Be "review"
+            $lc.states.review.role | Should -Be "architect"
+            $lc.states.review.type | Should -Be "review"
         }
 
-        It "three candidates chain correctly: developing → architect-review → qa-review → passed" {
+        It "three candidates chain correctly: developing → review(architect) → review-qa → passed" {
             & $script:NewWarRoom -RoomId "room-mc-04" -TaskRef "EPIC-012" `
                                  -TaskDescription "Full pipeline" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -102,11 +107,12 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("engineer", "architect", "qa")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-mc-04" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.developing.signals.done.target | Should -Be "architect-review"
-            $lc.states.'architect-review'.role | Should -Be "architect"
-            $lc.states.'architect-review'.signals.pass.target | Should -Match "qa-review|review"
-            $lc.states.'qa-review'.role | Should -Be "qa"
-            $lc.states.'qa-review'.signals.pass.target | Should -Be "passed"
+            # engineer=worker → developing; architect=evaluator → review; qa=evaluator → review-qa
+            $lc.states.developing.signals.done.target | Should -Be "review"
+            $lc.states.review.role | Should -Be "architect"
+            $lc.states.review.signals.pass.target | Should -Be "review-qa"
+            $lc.states.'review-qa'.role | Should -Be "qa"
+            $lc.states.'review-qa'.signals.pass.target | Should -Be "passed"
         }
     }
 
@@ -136,13 +142,17 @@ Describe "New-WarRoom lifecycle.json" {
                                  -Pipeline "engineer -> security-review -> qa"
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-pp-01" "lifecycle.json") -Raw | ConvertFrom-Json
-            # Pipeline produces security-review (which candidate-only would NOT)
-            $lc.states.'security-review-review' | Should -Not -BeNullOrEmpty
+            # Pipeline: engineer(worker) → security-review(worker, no role.json) → qa(evaluator)
+            # security-review has no role.json → defaults to worker → "developing-security-review"
+            $lc.states.'developing-security-review' | Should -Not -BeNullOrEmpty
+            $lc.states.'developing-security-review'.type | Should -Be "work"
+            # qa is evaluator → "review"
+            $lc.states.review.role | Should -Be "qa"
         }
     }
 
-    Context "Unknown role gets generic state name" {
-        It "unknown role 'data-scientist' gets 'data-scientist-review' state" {
+    Context "Unknown role gets developing state (defaults to worker)" {
+        It "unknown role 'data-scientist' gets 'developing-data-scientist' state" {
             & $script:NewWarRoom -RoomId "room-ur-01" -TaskRef "EPIC-040" `
                                  -TaskDescription "Custom role" `
                                  -WarRoomsDir $script:warRoomsDir `
@@ -150,8 +160,10 @@ Describe "New-WarRoom lifecycle.json" {
                                  -CandidateRoles @("engineer", "data-scientist")
 
             $lc = Get-Content (Join-Path $script:warRoomsDir "room-ur-01" "lifecycle.json") -Raw | ConvertFrom-Json
-            $lc.states.'data-scientist-review'.role | Should -Be "data-scientist"
-            $lc.states.'data-scientist-review'.signals.pass | Should -Not -BeNullOrEmpty
+            # data-scientist has no role.json → defaults to worker → "developing-data-scientist"
+            $lc.states.'developing-data-scientist'.role | Should -Be "data-scientist"
+            $lc.states.'developing-data-scientist'.type | Should -Be "work"
+            $lc.states.'developing-data-scientist'.signals.done | Should -Not -BeNullOrEmpty
         }
     }
 }
