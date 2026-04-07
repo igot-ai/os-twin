@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useLayoutEffect, forwardRef } from 'react';
 import { processImages, MAX_IMAGES, type ProcessedImage } from '@/lib/image-utils';
 import type { ImageAttachment } from '@/types';
 
@@ -10,11 +10,14 @@ interface CommandPromptProps {
   isLoading?: boolean;
 }
 
-export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConversationActive = false, value, onChange, isLoading = false }) => {
+export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>(({ onSubmit, isConversationActive = false, value, onChange, isLoading = false }, ref) => {
   const [internalPrompt, setInternalPrompt] = useState('');
   const [pendingImages, setPendingImages] = useState<ProcessedImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const innerTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const combinedRef = (ref as React.MutableRefObject<HTMLTextAreaElement | null>) || innerTextareaRef;
 
   const isControlled = value !== undefined && onChange !== undefined;
   const prompt = isControlled ? value : internalPrompt;
@@ -40,7 +43,7 @@ export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConver
     }
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     const imageFiles: File[] = [];
@@ -53,6 +56,13 @@ export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConver
     if (imageFiles.length > 0) {
       e.preventDefault();
       addImages(imageFiles);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSubmit(e as unknown as React.FormEvent);
     }
   };
 
@@ -76,6 +86,13 @@ export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConver
     setPendingImages([]);
     setImageError(null);
   };
+
+  useLayoutEffect(() => {
+    const el = combinedRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.4) + 'px';
+  }, [prompt]);
 
   return (
     <div className={isConversationActive ? 'w-full max-w-4xl mx-auto' : 'w-full max-w-2xl mx-auto mt-8'}>
@@ -107,7 +124,7 @@ export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConver
 
       <form
         onSubmit={handleSubmit}
-        className="relative flex items-center bg-surface/80 backdrop-blur-[12px] border border-border rounded-2xl shadow-card transition-all duration-300 focus-within:ring-4 focus-within:ring-primary-muted focus-within:border-primary hover:border-primary-light"
+        className="relative flex items-start bg-surface/80 backdrop-blur-[12px] border border-border rounded-2xl shadow-card transition-all duration-300 focus-within:ring-4 focus-within:ring-primary-muted focus-within:border-primary hover:border-primary-light"
       >
         {/* Hidden file input */}
         <input
@@ -121,7 +138,7 @@ export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConver
 
         <button
           type="button"
-          className="p-3 ml-2 text-text-muted hover:text-primary transition-colors active:scale-95 disabled:opacity-30"
+          className="p-3 ml-2 text-text-muted hover:text-primary transition-colors active:scale-95 disabled:opacity-30 flex-shrink-0"
           aria-label="Add image"
           disabled={isLoading || pendingImages.length >= MAX_IMAGES}
           onClick={() => fileInputRef.current?.click()}
@@ -129,17 +146,20 @@ export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConver
           <span className="material-symbols-outlined text-xl">add_photo_alternate</span>
         </button>
 
-        <input
-          type="text"
+        <textarea
+          ref={combinedRef}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onPaste={handlePaste}
+          onKeyDown={handleKeyDown}
           disabled={isLoading}
           placeholder="What do you want to build?"
-          className="flex-1 bg-transparent border-none py-4 px-2 text-[16px] font-[var(--font-display)] text-[var(--color-text-main)] outline-none placeholder:text-[var(--color-text-faint)] transition-all disabled:opacity-50"
+          rows={1}
+          className="flex-1 bg-transparent border-none py-4 px-2 text-[16px] font-[var(--font-display)] text-[var(--color-text-main)] outline-none placeholder:text-[var(--color-text-faint)] transition-all disabled:opacity-50 resize-none"
+          style={{ maxHeight: '40vh' }}
         />
 
-        <div className="flex items-center gap-2 pr-4">
+        <div className="flex items-center gap-2 pr-4 flex-shrink-0 self-center">
           <div className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-primary-muted)] text-[var(--color-primary)] rounded-[var(--radius-full)] text-sm font-[var(--font-display)] font-medium">
             <span className="material-symbols-outlined text-sm">account_tree</span>
             Plan
@@ -159,4 +179,6 @@ export const CommandPrompt: React.FC<CommandPromptProps> = ({ onSubmit, isConver
       </form>
     </div>
   );
-};
+});
+
+CommandPrompt.displayName = 'CommandPrompt';
