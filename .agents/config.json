@@ -114,6 +114,13 @@
     "timeout_seconds": 300
   },
   "runtime": {
-    "max_concurrent_rooms": 9999
+    "max_concurrent_rooms": 100,
+    "poll_interval": 5,
+    "auto_approve_tools": false,
+    "dynamic_pipelines": true
+  },
+  "autonomy": {
+    "idle_explore_enabled": true,
+    "interval": 3600
   }
 }

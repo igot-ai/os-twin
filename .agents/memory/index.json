@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-04-07T06:57:50Z",
-  "count": 21,
+  "updated_at": "2026-04-07T08:46:14Z",
+  "count": 24,
   "entries": [
     {
       "id": "mem-cod-1774690708043958000-81954",
@@ -315,6 +315,54 @@
         "typescript"
       ],
       "summary": "dashboard/fe/src/components/plan/RolesConfigTab.tsx \u2014 Enhanced with dynamic model fetch, all role parameters, provenance chips, and new settings API"
+    },
+    {
+      "id": "mem-int-1775551570084699000-32894",
+      "ts": "2026-04-07T08:46:10Z",
+      "kind": "interface",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "api",
+        "settings",
+        "rest",
+        "vault",
+        "broadcasting"
+      ],
+      "summary": "dashboard/routes/settings.py \u2014 Unified Settings REST API with vault integration and event broadcasting",
+      "detail": "GET /api/settings\n- Returns MasterSettings with vault refs preserved as ${vault:...} strings\n- Never dereferences secrets\n\nGET /api/settings/effective?role=&plan_id=&task_ref=\n- Returns EffectiveResolution (effective + provenance)\n- Dereferences vault refs but masks secrets as ***\n\nGET /api/settings/schema\n- Returns MasterSettings.model_json_schema() for UI form generation\n\nPUT /api/settings/{namespace}\n- Patches global namespace (runtime, autonomy, memory, etc.)\n- Broadcasts settings_updated event\n\nPUT /api/settings/plan/{plan_id}/role/{role}\n- Patches plan-level role override\n- Broadcasts settings_updated event\n\nPUT /api/settings/room/{plan_id}/{task_ref}/role/{role}\n- Patches room-level role override\n- Broadcasts settings_updated event\n\nPOST /api/settings/reset/{namespace}\n- Restores namespace to defaults\n- Broadcasts settings_updated event\n\nPOST /api/settings/test/{provider}\n- Tests provider connectivity\n- Delegates to existing test_model_connection\n- Returns {status: ok/fail, latency_ms: number}\n\nPOST /api/settings/vault/{scope}/{key}\n- Stores secret in vault (body: {value: string})\n- Returns {is_set: true}\n- NEVER returns the secret value\n\nGET /api/settings/vault/{scope}\n- Returns {key: {is_set: bool}} map\n- NEVER returns secret values\n\nDELETE /api/settings/vault/{scope}/{key}\n- Deletes secret from vault\n\nAll endpoints require authentication via get_current_user dependency."
+    },
+    {
+      "id": "mem-cod-1775551572481212000-32894",
+      "ts": "2026-04-07T08:46:12Z",
+      "kind": "code",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "code",
+        "settings",
+        "resolver",
+        "vault"
+      ],
+      "summary": "dashboard/lib/settings/resolver.py \u2014 Settings resolver with vault integration and role overrides",
+      "detail": "class SettingsResolver:\n    \"\"\"Unified settings resolver with vault integration.\"\"\"\n    \n    def get_master_settings() -> MasterSettings\n        # Returns config with vault refs preserved as strings\n    \n    def resolve_role(role, plan_id=None, task_ref=None, masked=True) -> EffectiveResolution\n        # Resolves effective settings with provenance tracking\n        # Resolution order: default -> global -> plan -> room\n    \n    def patch_namespace(namespace, value)\n        # Updates global namespace in config.json\n    \n    def patch_plan_role(plan_id, role, value)\n        # Updates plan-level role override\n    \n    def patch_room_role(plan_id, task_ref, role, value)\n        # Updates room-level role override\n    \n    def reset_namespace(namespace)\n        # Removes namespace from config\n\n# Key features:\n# - Vault refs: ${vault:scope/key} syntax\n# - Secret masking: replaces secrets with ***\n# - Provenance tracking: shows where each setting came from\n# - Plan/room override support"
+    },
+    {
+      "id": "mem-cod-1775551574200258000-32894",
+      "ts": "2026-04-07T08:46:14Z",
+      "kind": "code",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "code",
+        "vault",
+        "secrets"
+      ],
+      "summary": "dashboard/lib/settings/vault.py \u2014 Vault wrapper for settings secrets using MCP vault backend",
+      "detail": "class SettingsVault:\n    \"\"\"Wrapper around MCP vault for settings secrets.\"\"\"\n    \n    def get(scope, key) -> Optional[str]\n    def set(scope, key, value)\n    def delete(scope, key) -> bool\n    def list_keys(scope) -> Dict[str, Any]\n    \n# Uses existing vault from .agents/mcp/vault.py\n# - macOS: Keychain storage\n# - Other: Encrypted file storage\n# Never exposes secret values through list_keys()"
     }
   ]
 }

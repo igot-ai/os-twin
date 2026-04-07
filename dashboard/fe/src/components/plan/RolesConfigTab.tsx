@@ -26,18 +26,14 @@ interface RolesApiResponse {
 }
 
 const MODEL_OPTIONS = [
-  { value: 'google-vertex/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
-  { value: 'google-vertex/gemini-3-flash-preview', label: 'Gemini 3 Flash' },
-  { value: 'google-vertex/gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro' },
-  { value: 'google-vertex/gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
+  { value: 'google-vertex/gemini-3.1-pro-preview', label: 'Vertex Gemini 3.1 Pro' },
+  { value: 'google-vertex/gemini-3-flash-preview', label: 'Vertex Gemini 3 Flash' },
+  { value: 'gemini/gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+  { value: 'byteplus/seed-2-0-pro-260328', label: 'Seed 2.0 Pro' },
   { value: 'google-vertex/zai-org/glm-5-maas', label: 'GLM-5' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-  { value: 'gpt-4.1', label: 'GPT-4.1' },
-  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
-  { value: 'o3', label: 'O3' },
-  { value: 'o4-mini', label: 'O4 Mini' },
+  { value: 'google-vertex-anthropic/claude-opus-4-6@default', label: 'Claude Opus 4.6' },
+  { value: 'google-vertex-anthropic/claude-sonnet-4-6@default', label: 'Claude Sonnet 4.6' },
+  { value: 'google-vertex-anthropic/claude-haiku-4-5@20251001', label: 'Claude Haiku 4.5' },
 ];
 
 // ── Main Component ──────────────────────────────────────────────
