@@ -133,9 +133,9 @@ export default function DashboardHomePage() {
         )}
         {homeLoading && (
           <div className="w-full mt-12 mb-16">
-            <div className="flex gap-2 overflow-x-auto pb-2 border-b border-[var(--color-border)] mb-6">
+            <div className="flex pb-2 border-b border-[var(--color-border)] mb-6">
               {Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} className="h-8 w-24 rounded-[var(--radius-full)] shrink-0" />
+                <Skeleton key={i} className="h-8 flex-1 min-w-0 rounded-[var(--radius-full)]" />
               ))}
             </div>
             <div className="flex flex-col gap-1">
