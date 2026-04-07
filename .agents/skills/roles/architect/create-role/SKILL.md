@@ -59,11 +59,12 @@ Create `contributes/roles/<role-name>/role.json` using this template:
     "<gate-1>",
     "<gate-2>"
   ],
-  "skills": [
-    "<skill-1>",
-    "<skill-2>"
+  "skill_refs": [
+    "<skill-ref-1>",
+    "<skill-ref-2>"
   ],
   "cli": "agent",
+  "instance_type": "worker",
   "model": "google-vertex/gemini-3-flash-preview",
   "timeout": 600
 }
@@ -77,9 +78,11 @@ Create `contributes/roles/<role-name>/role.json` using this template:
 | `description` | One line — shown in logs and the registry |
 | `capabilities` | What the agent *can do* (e.g. `code-generation`, `security-review`, `documentation`) |
 | `quality_gates` | Checks that must pass before work is accepted (e.g. `unit-tests`, `lint-clean`) |
-| `skills` | Technologies / domains the agent is proficient in |
-| `model` | LLM model to use. Use `google-vertex/gemini-3-flash-preview` for speed, `google-vertex/gemini-3.1-pro-preview` for complex reasoning |
-| `timeout` | Max seconds the agent can run per invocation (default: 600) |
+| `skill_refs` | Skill references this role can use (e.g. `implement-epic`, `write-tests`, `code-review`). Resolved by `Resolve-RoleSkills.ps1` at runtime. |
+| `cli` | CLI engine to use (`agent` for OpenCode). |
+| `instance_type` | Instance type for war-room assignment (`worker` or `singleton`). Default: `worker`. |
+| `model` | LLM model to use. Use `google-vertex/gemini-3-flash-preview` for speed, `google-vertex/gemini-3.1-pro-preview` for complex reasoning. |
+| `timeout` | Max seconds the agent can run per invocation (default: 600). |
 
 ### 3. Create `ROLE.md`
 
@@ -134,12 +137,15 @@ Add an entry to the `roles` array in `.agents/roles/registry.json`:
   "definition": "roles/<role-name>/role.json",
   "prompt": "roles/<role-name>/ROLE.md",
   "default_assignment": false,
+  "instance_support": false,
   "supported_task_types": ["task", "epic"],
   "capabilities": ["<cap-1>", "<cap-2>"],
   "quality_gates": ["<gate-1>", "<gate-2>"],
   "default_model": "google-vertex/gemini-3-flash-preview"
 }
 ```
+
+> **Note:** Set `instance_support: true` if the role supports multiple concurrent instances (e.g. `engineer:fe`, `engineer:be`). Most roles should use `false`.
 
 ### 5. Publish Agent Definition to OpenCode
 
