@@ -13,7 +13,10 @@ AGENTS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$AGENTS_DIR/lib/read-config.sh"
 
 # --- Read configuration values with defaults ---
-POLL_INTERVAL=$(read_config '.runtime.poll_interval_seconds' 5)
+# Accept both .runtime.poll_interval (canonical) and .runtime.poll_interval_seconds (legacy)
+_poll_canonical=$(read_config '.runtime.poll_interval' '')
+_poll_legacy=$(read_config '.runtime.poll_interval_seconds' '')
+POLL_INTERVAL="${_poll_canonical:-${_poll_legacy:-5}}"
 MAX_CONCURRENT_ROOMS=$(read_config '.runtime.max_concurrent_rooms' 50)
 IDLE_EXPLORE_ENABLED=$(read_config '.autonomy.idle_explore_enabled' false)
 
@@ -68,6 +71,9 @@ echo "[loop.sh] Max concurrent rooms: $MAX_CONCURRENT_ROOMS"
 MANAGER_PS1="$SCRIPT_DIR/Start-ManagerLoop.ps1"
 if [[ -f "$MANAGER_PS1" ]]; then
     echo "[loop.sh] Delegating to PowerShell manager loop..."
+    # Remove PID file before exec — exec replaces this shell so the EXIT
+    # trap will never fire. Let the PowerShell process manage its own PID.
+    rm -f "$MANAGER_PID_FILE"
     exec pwsh -NoProfile -File "$MANAGER_PS1" "$@"
 else
     echo "[loop.sh] WARNING: PowerShell manager loop not found"

@@ -299,9 +299,16 @@ ps_dispatch() {
 case "${1:-}" in
   agent)
     shift
-    # Always exec the canonical OSTWIN_HOME copy — never the project-local
-    # $AGENTS_DIR/bin/agent (dev tree). $OSTWIN_HOME is set at line 11.
-    exec "$OSTWIN_HOME/.agents/bin/agent" "$@"
+    # Prefer the local repo's agent when running from a checked-out branch
+    # (enables testing branch changes without installing globally first).
+    # Fall back to the canonical OSTWIN_HOME copy for production use.
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    LOCAL_AGENT="$SCRIPT_DIR/agent"
+    if [[ -f "$LOCAL_AGENT" ]]; then
+      exec "$LOCAL_AGENT" "$@"
+    else
+      exec "$OSTWIN_HOME/.agents/bin/agent" "$@"
+    fi
     ;;
   chat)
     shift
