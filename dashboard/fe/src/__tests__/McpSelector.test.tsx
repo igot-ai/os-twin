@@ -10,9 +10,9 @@ vi.mock('../hooks/use-mcp', () => ({
 }));
 
 const mockServers = [
-  { name: 'unity-mcp', type: 'stdio' as const, status: 'active', credential_status: 'ok' as const, missing_keys: [] as string[], builtin: true, config: {} },
-  { name: 'github-mcp', type: 'http' as const, status: 'active', credential_status: 'missing' as const, missing_keys: ['GITHUB_TOKEN'], builtin: false, config: {} },
-  { name: 'serena-mcp', type: 'stdio' as const, status: 'inactive', credential_status: 'ok' as const, missing_keys: [] as string[], builtin: false, config: {} },
+  { name: 'unity-mcp', type: 'stdio' as const, status: 'active', credential_status: 'ok' as const, missing_keys: [] as string[], builtin: true, config: { command: ['node', 'unity-mcp-server'] } },
+  { name: 'github-mcp', type: 'http' as const, status: 'active', credential_status: 'missing' as const, missing_keys: ['GITHUB_TOKEN'], builtin: false, config: { url: 'https://mcp.github.com' } },
+  { name: 'serena-mcp', type: 'stdio' as const, status: 'inactive', credential_status: 'ok' as const, missing_keys: [] as string[], builtin: false, config: { command: ['serena'] } },
 ];
 
 describe('McpSelector', () => {
@@ -71,7 +71,8 @@ describe('McpSelector', () => {
 
   it('calls onChange with added server on click', () => {
     render(<McpSelector selectedMcpRefs={['unity-mcp']} onChange={mockOnChange} />);
-    fireEvent.focus(screen.getByPlaceholderText(/search mcp/i));
+    // When items are selected, placeholder is empty - use getByRole instead
+    fireEvent.focus(screen.getByRole('textbox'));
     fireEvent.click(screen.getByText('github-mcp'));
 
     expect(mockOnChange).toHaveBeenCalledWith(['unity-mcp', 'github-mcp']);
@@ -89,11 +90,12 @@ describe('McpSelector', () => {
 
   it('excludes already-selected servers from dropdown list', () => {
     render(<McpSelector selectedMcpRefs={['unity-mcp']} onChange={mockOnChange} />);
-    fireEvent.focus(screen.getByPlaceholderText(/search mcp/i));
+    // When items are selected, placeholder is empty - use getByRole instead
+    fireEvent.focus(screen.getByRole('textbox'));
 
     // Dropdown should only show github-mcp and serena-mcp (not unity-mcp)
     const dropdownButtons = screen.getAllByRole('button').filter(
-      btn => btn.textContent?.includes('github-mcp') || btn.textContent?.includes('serena-mcp')
+      (btn: HTMLElement) => btn.textContent?.includes('github-mcp') || btn.textContent?.includes('serena-mcp')
     );
     expect(dropdownButtons.length).toBe(2);
   });
@@ -117,5 +119,47 @@ describe('McpSelector', () => {
 
     // github-mcp has credential_status: 'missing'
     expect(screen.getByText(/missing key/i)).toBeInTheDocument();
+  });
+});
+
+describe('McpSelector - enhanced chip metadata', () => {
+  const mockOnChange = vi.fn();
+  const mockUseMcpServers = useMcpServers as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseMcpServers.mockReturnValue({
+      servers: mockServers,
+      isLoading: false,
+      isError: undefined,
+    });
+  });
+
+  it('shows status indicator dot on selected chips', () => {
+    const { container } = render(
+      <McpSelector selectedMcpRefs={['unity-mcp', 'serena-mcp']} onChange={mockOnChange} />
+    );
+
+    // unity-mcp is active (green dot), serena-mcp is inactive (grey dot)
+    const greenDots = container.querySelectorAll('.bg-emerald-500');
+    const greyDots = container.querySelectorAll('.bg-slate-300');
+    expect(greenDots.length).toBeGreaterThanOrEqual(1);
+    expect(greyDots.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shows credential warning icon on selected chips with missing keys', () => {
+    render(<McpSelector selectedMcpRefs={['github-mcp']} onChange={mockOnChange} />);
+
+    // github-mcp has credential_status: 'missing' - should show warning on the chip
+    expect(screen.getByText('warning')).toBeInTheDocument();
+  });
+
+  it('shows config detail (command or url) on selected chips', () => {
+    render(<McpSelector selectedMcpRefs={['unity-mcp', 'github-mcp']} onChange={mockOnChange} />);
+
+    // unity-mcp has config.command, github-mcp has config.url
+    // Should show a shortened config hint
+    expect(screen.getByText(/unity-mcp-server/i)).toBeInTheDocument();
+    expect(screen.getByText(/mcp\.github\.com/i)).toBeInTheDocument();
   });
 });

@@ -230,6 +230,21 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
                 ))}
               </select>
             </div>
+
+            <div className="space-y-1.5 mt-3">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Or Custom Model ID</label>
+              <input
+                type="text"
+                placeholder="e.g. my-custom-model or provider/model-name"
+                className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold shadow-sm focus:ring-4 focus:ring-primary/10 transition-all"
+                value={formData.version && !normalizedRegistry?.[formData.provider?.toLowerCase() || defaultProvider]?.some(m => m.id === formData.version) ? formData.version : ''}
+                onChange={e => {
+                  if (e.target.value) {
+                    setFormData({ ...formData, version: e.target.value });
+                  }
+                }}
+              />
+            </div>
             
             <TestConnectionButton version={formData.version || ''} />
           </div>

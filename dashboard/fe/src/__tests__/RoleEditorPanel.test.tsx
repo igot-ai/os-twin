@@ -5,27 +5,22 @@ import '@testing-library/jest-dom';
 import RoleEditorPanel from '../components/roles/RoleEditorPanel';
 import { Role } from '../types';
 import { apiPost, apiPut } from '../lib/api-client';
+import useSWR from 'swr';
+import { useModelRegistry, useRoleDependencies } from '../hooks/use-roles';
 
-// Mock SWR (used for /providers/api-keys)
-vi.mock('swr', () => ({
-  default: vi.fn(() => ({
-    data: { Claude: true, GPT: false, Gemini: true },
-    error: undefined,
-    isLoading: false,
-    mutate: vi.fn(),
-  })),
-  useSWRConfig: vi.fn(() => ({ mutate: vi.fn() })),
-}));
+// Mock SWR - use vi.fn() so we can control return values per-test
+vi.mock('swr', () => {
+  const mutateFn = () => Promise.resolve();
+  return {
+    default: vi.fn(),
+    useSWRConfig: vi.fn(() => ({ mutate: mutateFn })),
+  };
+});
 
-// Mock hooks
+// Mock hooks - use vi.fn() so we can set stable returns in beforeEach
 vi.mock('../hooks/use-roles', () => ({
-  useModelRegistry: vi.fn(() => ({
-    registry: {
-      claude: [{ id: 'claude-opus-4', context_window: '200k', tier: 'flagship' }],
-      gemini: [{ id: 'gemini-flash', context_window: '1M', tier: 'fast' }],
-    },
-  })),
-  useRoleDependencies: vi.fn(() => ({ dependencies: null })),
+  useModelRegistry: vi.fn(),
+  useRoleDependencies: vi.fn(),
 }));
 
 // Mock api-client
@@ -36,7 +31,7 @@ vi.mock('../lib/api-client', () => ({
 
 // Mock sub-components with minimal implementations
 vi.mock('../components/roles/ProviderSelector', () => ({
-  default: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+  default: ({ value }: { value: string }) => (
     <div data-testid="provider-selector">Provider: {value}</div>
   ),
 }));
@@ -45,16 +40,14 @@ vi.mock('../components/roles/TestConnectionButton', () => ({
   default: () => <div data-testid="test-connection">TestConnection</div>,
 }));
 
-// Mock SkillChipInput - render with a way to verify props
 vi.mock('../components/roles/SkillChipInput', () => ({
-  default: ({ selectedSkillRefs, onChange }: { selectedSkillRefs: string[]; onChange: (refs: string[]) => void }) => (
+  default: ({ selectedSkillRefs }: { selectedSkillRefs: string[] }) => (
     <div data-testid="skill-chip-input">
       Skills: {selectedSkillRefs.join(', ')}
     </div>
   ),
 }));
 
-// Mock McpSelector - render with a way to verify props and trigger changes
 vi.mock('../components/roles/McpSelector', () => ({
   default: ({ selectedMcpRefs, onChange }: { selectedMcpRefs: string[]; onChange: (refs: string[]) => void }) => (
     <div data-testid="mcp-selector">
@@ -66,12 +59,32 @@ vi.mock('../components/roles/McpSelector', () => ({
   ),
 }));
 
+// Stable mock data (defined at module level to avoid new references each render)
+const stableApiKeysData = { Claude: true, GPT: false, Gemini: true };
+const stableSWRReturn = {
+  data: stableApiKeysData,
+  error: undefined,
+  isLoading: false,
+  mutate: vi.fn(),
+};
+
+const stableRegistry = {
+  claude: [{ id: 'claude-opus-4', context_window: '200k', tier: 'flagship' }],
+  gemini: [{ id: 'gemini-flash', context_window: '1M', tier: 'fast' }],
+};
+const stableRegistryReturn = { registry: stableRegistry, isLoading: false, isError: undefined };
+const stableDepsReturn = { dependencies: null, isLoading: false, isError: undefined };
+
 describe('RoleEditorPanel', () => {
   const mockOnClose = vi.fn();
   const existingRoles: Role[] = [];
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Set stable return values to prevent infinite re-render loops
+    (useSWR as unknown as ReturnType<typeof vi.fn>).mockReturnValue(stableSWRReturn);
+    (useModelRegistry as unknown as ReturnType<typeof vi.fn>).mockReturnValue(stableRegistryReturn);
+    (useRoleDependencies as unknown as ReturnType<typeof vi.fn>).mockReturnValue(stableDepsReturn);
   });
 
   it('renders all 6 configuration sections when open', () => {
@@ -200,5 +213,50 @@ describe('RoleEditorPanel', () => {
     // Section numbering: 01=Identity, 02=Model, 03=Sampling, 04=Skills, 05=MCP, 06=Instructions
     expect(screen.getByText('05')).toBeInTheDocument();
     expect(screen.getByText('MCP Binding')).toBeInTheDocument();
+  });
+
+  it('provides a custom model ID input for non-registry models', () => {
+    render(
+      <RoleEditorPanel
+        isOpen={true}
+        onClose={mockOnClose}
+        existingRoles={existingRoles}
+      />
+    );
+
+    // Should have a text input for entering a custom model ID
+    expect(screen.getByPlaceholderText(/my-custom-model/i)).toBeInTheDocument();
+    expect(screen.getByText('Or Custom Model ID')).toBeInTheDocument();
+  });
+
+  it('saves custom model ID when user types one', async () => {
+    render(
+      <RoleEditorPanel
+        isOpen={true}
+        onClose={mockOnClose}
+        existingRoles={existingRoles}
+      />
+    );
+
+    // Fill name
+    const nameInput = screen.getByPlaceholderText(/e.g. Frontend Engineer/i);
+    fireEvent.change(nameInput, { target: { value: 'custom-role' } });
+
+    // Enter a custom model ID
+    const customModelInput = screen.getByPlaceholderText(/my-custom-model/i);
+    fireEvent.change(customModelInput, { target: { value: 'my-finetuned-model-v2' } });
+
+    // Save
+    fireEvent.click(screen.getByText('Create Role'));
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith(
+        '/roles',
+        expect.objectContaining({
+          name: 'custom-role',
+          version: 'my-finetuned-model-v2',
+        })
+      );
+    });
   });
 });

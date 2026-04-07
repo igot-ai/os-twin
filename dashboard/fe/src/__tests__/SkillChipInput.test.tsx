@@ -96,12 +96,13 @@ describe('SkillChipInput', () => {
 
   it('excludes selected skills from dropdown', () => {
     render(<SkillChipInput selectedSkillRefs={['implement-epic']} onChange={mockOnChange} />);
-    fireEvent.click(screen.getByPlaceholderText(/search skills/i));
+    // When items are selected, placeholder is empty - use getByRole instead
+    fireEvent.click(screen.getByRole('textbox'));
 
     // implement-epic is selected, should not appear in dropdown list
     // But it appears as a chip - dropdown items should not include it
     const dropdownItems = screen.getAllByRole('button').filter(
-      btn => btn.textContent?.includes('refactor-code') ||
+      (btn: HTMLElement) => btn.textContent?.includes('refactor-code') ||
              btn.textContent?.includes('code-review') ||
              btn.textContent?.includes('write-tests') ||
              btn.textContent?.includes('security-review')

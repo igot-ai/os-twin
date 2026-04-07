@@ -49,25 +49,42 @@ export default function McpSelector({ selectedMcpRefs, onChange }: McpSelectorPr
         style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
         onClick={() => setIsOpen(true)}
       >
-        {selectedServers.map(server => (
-          <span
-            key={server.name}
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold animate-in zoom-in-95"
-            style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
-          >
-            <span className="px-1 py-0.5 rounded text-[9px] font-black uppercase bg-slate-200 text-slate-600">
-              {server.type}
-            </span>
-            {server.name}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); removeServer(server.name); }}
-              className="hover:opacity-70"
+        {selectedServers.map(server => {
+          const configHint = server.config?.url
+            ? new URL(server.config.url).hostname
+            : server.config?.command
+              ? (Array.isArray(server.config.command) ? server.config.command.join(' ') : String(server.config.command))
+              : null;
+
+          return (
+            <span
+              key={server.name}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold animate-in zoom-in-95"
+              style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
             >
-              <span className="material-symbols-outlined text-[10px] leading-none">close</span>
-            </button>
-          </span>
-        ))}
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${server.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+              <span className="px-1 py-0.5 rounded text-[9px] font-black uppercase bg-slate-200 text-slate-600">
+                {server.type}
+              </span>
+              <span className="flex flex-col leading-tight">
+                <span>{server.name}</span>
+                {configHint && (
+                  <span className="text-[9px] font-normal opacity-70 truncate max-w-[140px]">{configHint}</span>
+                )}
+              </span>
+              {server.credential_status === 'missing' && (
+                <span className="material-symbols-outlined text-xs text-amber-500 shrink-0">warning</span>
+              )}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); removeServer(server.name); }}
+                className="hover:opacity-70 shrink-0"
+              >
+                <span className="material-symbols-outlined text-[10px] leading-none">close</span>
+              </button>
+            </span>
+          );
+        })}
         {/* Chips for selected refs that aren't in current server list */}
         {selectedMcpRefs
           .filter(ref => !servers.some(s => s.name === ref))
