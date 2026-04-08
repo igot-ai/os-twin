@@ -278,23 +278,71 @@ trust_level: $($matchedSkill.trust_level)
     }
 }
 
-# --- Always include global forced skills (auto-memory, etc.) ---
-$forcedGlobalSkills = @("auto-memory")
-foreach ($forced in $forcedGlobalSkills) {
-    if (-not $resolvedSkills.ContainsKey($forced)) {
-        # Search in global/ subdirectory first, then top-level skills/
-        $globalPath = Join-Path $SkillsBaseDir "global" $forced "SKILL.md"
-        $topPath = Join-Path $SkillsBaseDir $forced "SKILL.md"
-        $skillPath = if (Test-Path $globalPath) { $globalPath } elseif (Test-Path $topPath) { $topPath } else { $null }
+# --- Auto-include role-private skills ---
+# Any skill living under skills/roles/<RoleName>/*/SKILL.md is treated as
+# private to this role and is automatically loaded whenever the role is
+# resolved, even when not declared in skill_refs/capabilities. This lets
+# users drop a skill folder into their role's private bucket and have it
+# picked up without editing role.json. Both the project-local skills tree
+# and the user-global ~/.ostwin/.agents/skills tree are scanned.
+#
+# Opt-out: set "auto_load_skills": false in role.json to disable auto-loading.
+# Individual skills can also be excluded via "skip_auto_skills": ["skill-name"].
+$skipAutoLoad = $false
+$skipAutoSkills = @()
+if ($roleData) {
+    if ($roleData.PSObject.Properties['auto_load_skills'] -and $roleData.auto_load_skills -eq $false) {
+        $skipAutoLoad = $true
+    }
+    if ($roleData.PSObject.Properties['skip_auto_skills'] -and $roleData.skip_auto_skills) {
+        $skipAutoSkills = @($roleData.skip_auto_skills)
+    }
+}
 
-        if ($skillPath -and (Test-SkillPlatform -SkillMdPath $skillPath)) {
-            $resolvedSkills[$forced] = [PSCustomObject]@{
-                Name = $forced
-                Path = $skillPath
-                Tier = "Global"
-            }
-            Write-Verbose "Auto-injected global skill '$forced' from $skillPath"
+if ($skipAutoLoad) {
+    Write-Verbose "Auto-loading of role-private skills disabled for role '$RoleName' via role.json"
+    return $resolvedSkills.Values | Sort-Object Tier, Name
+}
+
+$autoLoadDirs = [System.Collections.Generic.List[string]]::new()
+$projectRolePrivate = Join-Path $SkillsBaseDir "roles" $RoleName
+if (Test-Path $projectRolePrivate) {
+    $autoLoadDirs.Add($projectRolePrivate)
+}
+$homeRolePrivate = Join-Path $ostwinHome ".agents" "skills" "roles" $RoleName
+if ((Test-Path $homeRolePrivate) -and (-not ($autoLoadDirs -contains $homeRolePrivate))) {
+    $autoLoadDirs.Add($homeRolePrivate)
+}
+
+foreach ($autoDir in $autoLoadDirs) {
+    Get-ChildItem -Path $autoDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $skillMd = Join-Path $_.FullName "SKILL.md"
+        if (-not (Test-Path $skillMd)) { return }
+
+        $skillName = $_.Name
+        # Explicit refs (already in $resolvedSkills) win over auto-discovery.
+        if ($resolvedSkills.ContainsKey($skillName)) { return }
+        # Skip skills listed in skip_auto_skills from role.json
+        if ($skipAutoSkills -contains $skillName) {
+            Write-Verbose "Skipping auto-load of '$skillName' (listed in skip_auto_skills)"
+            return
         }
+
+        if (-not (Test-SkillPlatform -SkillMdPath $skillMd)) {
+            Write-Verbose "Skipping platform-incompatible role-private skill '$skillName'"
+            return
+        }
+        if (-not (Test-SkillEnabled -SkillMdPath $skillMd)) {
+            Write-Verbose "Skipping disabled role-private skill '$skillName'"
+            return
+        }
+
+        $resolvedSkills[$skillName] = [PSCustomObject]@{
+            Name = $skillName
+            Path = $skillMd
+            Tier = "RoleAuto"
+        }
+        Write-Verbose "Auto-loaded role-private skill '$skillName' for role '$RoleName' from $skillMd"
     }
 }
 

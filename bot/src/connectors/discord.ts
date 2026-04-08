@@ -25,6 +25,7 @@ import { getSession } from '../sessions';
 import { transcribeAndLaunch } from '../audio-transcript';
 import { mdConvert, chunk, detectEpicRef, guessAssetType } from './utils';
 import api, { PlanAsset } from '../api';
+import { stageAttachments, flushStagedAttachments, getStagedCount } from '../asset-staging';
 
 // Voice command imports
 import * as pingCommand from '../commands/ping';
@@ -197,31 +198,50 @@ export class DiscordConnector implements Connector {
       const attachments = message.attachments ? Array.from(message.attachments.values()) : [];
       const isStateful = ['drafting', 'editing', 'awaiting_idea'].includes(session.mode);
 
-      // ── Handle attachments: save to active plan regardless of @mention ──
-      // For awaiting_idea mode, defer — attachments are saved after the plan is created below.
-      const hasPendingAttachments = attachments.length > 0 && (isStateful || isMention);
+      // ── Handle attachments: save immediately or stage for later ──
+      const hasAttachments = attachments.length > 0;
       const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
         && ['drafting', 'editing'].includes(session.mode);
 
-      if (hasPendingAttachments && canSaveNow) {
-        const assetResponses: BotResponse[] = [];
-        const uploadResult = await this.persistAttachments(session.activePlanId!, attachments, message.content, session.activeEpicRef);
-        if (uploadResult.saved.length > 0) {
-          assetResponses.push({ text: this.formatSavedAssets(session.activePlanId!, uploadResult.saved) });
+      if (hasAttachments) {
+        if (canSaveNow) {
+          // Plan exists → save immediately (existing fast path)
+          const assetResponses: BotResponse[] = [];
+          const uploadResult = await this.persistAttachments(session.activePlanId!, attachments, message.content, session.activeEpicRef);
+          if (uploadResult.saved.length > 0) {
+            assetResponses.push({ text: this.formatSavedAssets(session.activePlanId!, uploadResult.saved) });
+          }
+          if (uploadResult.failures.length > 0) {
+            assetResponses.push({ text: this.formatFailedAssets(uploadResult.failures) });
+          }
+          if (assetResponses.length > 0) {
+            await this.sendToChannel(message.channel as TextChannel, assetResponses);
+          }
+        } else {
+          // No plan yet → download from CDN and stage in session buffer
+          const epicRef = detectEpicRef(message.content) || session.activeEpicRef;
+          const stageResult = await stageAttachments(userId, 'discord',
+            attachments.map(a => ({ url: a.url, name: a.name || 'attachment', contentType: a.contentType })),
+            epicRef,
+          );
+
+          if (stageResult.rejected) {
+            await this.sendToChannel(message.channel as TextChannel, [{
+              text: '⚠️ Staged files exceed the 50MB limit. Upload large files via the dashboard.',
+            }]);
+          } else if (stageResult.staged > 0) {
+            const noun = stageResult.staged === 1 ? 'file' : 'files';
+            await this.sendToChannel(message.channel as TextChannel, [{
+              text: `📎 Holding ${stageResult.staged} ${noun} — processing your request...`,
+            }]);
+          }
+          if (stageResult.failedNames.length > 0) {
+            await this.sendToChannel(message.channel as TextChannel, [{
+              text: this.formatFailedAssets(stageResult.failedNames.map(n => `${n}: download failed`)),
+            }]);
+          }
         }
-        if (uploadResult.failures.length > 0) {
-          assetResponses.push({ text: this.formatFailedAssets(uploadResult.failures) });
-        }
-        if (assetResponses.length > 0) {
-          await this.sendToChannel(message.channel as TextChannel, assetResponses);
-        }
-      } else if (hasPendingAttachments && !isStateful && !canSaveNow) {
-        // Not in any editing/drafting mode and no active plan — warn
-        await this.sendToChannel(message.channel as TextChannel, [{
-          text: '⚠️ Attachments can only be saved while editing a specific plan. Use /edit to pick a plan first.',
-        }]);
       }
-      // If awaiting_idea with attachments, we fall through — they'll be saved after draft below.
 
       // ── @mention: route to plan refine when editing, otherwise Q&A ──
       if (isMention) {
@@ -240,18 +260,21 @@ export class DiscordConnector implements Connector {
           return;
         }
 
-        // Otherwise fall through to generic Q&A
+        // Otherwise: AI agent with tool-calling (can create plans, check status, etc.)
         if (question) {
           (message.channel as TextChannel).sendTyping().catch(() => {});
           console.log(`🤖 [AGENT] ${entry.username} asked: ${question}`);
 
           try {
-            const answer = await askAgent(question);
+            const answer = await askAgent(question, { userId, platform: 'discord' });
             await message.reply(answer);
           } catch (err: any) {
             console.error('❌ [AGENT] Bridge error:', err);
             await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});
           }
+
+          // Flush staged attachments if plan was created by the agent
+          await this.flushStagedIfReady(userId, message.channel as TextChannel);
         }
         return;
       }
@@ -266,19 +289,9 @@ export class DiscordConnector implements Connector {
           responses.push(...textResponses);
         }
 
-        // After draft/refine, the plan may now exist — save deferred attachments
-        if (attachments.length > 0 && !canSaveNow) {
-          const updatedSession = getSession(userId, 'discord');
-          if (updatedSession.activePlanId && updatedSession.activePlanId !== 'new') {
-            const uploadResult = await this.persistAttachments(updatedSession.activePlanId, attachments, message.content, updatedSession.activeEpicRef);
-            if (uploadResult.saved.length > 0) {
-              responses.push({ text: this.formatSavedAssets(updatedSession.activePlanId, uploadResult.saved) });
-            }
-            if (uploadResult.failures.length > 0) {
-              responses.push({ text: this.formatFailedAssets(uploadResult.failures) });
-            }
-          }
-        }
+        // After draft/refine, the plan may now exist — flush staged attachments
+        const flushResponses = await this.flushStagedIfReady(userId);
+        responses.push(...flushResponses);
 
         if (responses.length > 0) {
           await this.sendToChannel(message.channel as TextChannel, responses);
@@ -385,6 +398,31 @@ export class DiscordConnector implements Connector {
       valid: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
     };
+  }
+
+  /**
+   * Flush staged attachments if a plan now exists in the session.
+   * Optionally sends confirmation/failure messages to the given channel.
+   * Returns BotResponse[] for inline use.
+   */
+  private async flushStagedIfReady(userId: string, channel?: TextChannel): Promise<BotResponse[]> {
+    const session = getSession(userId, 'discord');
+    const responses: BotResponse[] = [];
+
+    if (getStagedCount(userId, 'discord') > 0 && session.activePlanId && session.activePlanId !== 'new') {
+      const flushResult = await flushStagedAttachments(userId, 'discord', session.activePlanId);
+      if (flushResult.saved.length > 0) {
+        responses.push({ text: this.formatSavedAssets(session.activePlanId, flushResult.saved as PlanAsset[]) });
+      }
+      if (flushResult.failures.length > 0) {
+        responses.push({ text: this.formatFailedAssets(flushResult.failures) });
+      }
+      if (channel && responses.length > 0) {
+        await this.sendToChannel(channel, responses);
+      }
+    }
+
+    return responses;
   }
 
   private async persistAttachments(

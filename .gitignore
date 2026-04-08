@@ -82,6 +82,9 @@ python-patches/
 
 CLAUDE.md
 
+.codex/
+.cursor/
+
 # ── Scratch / temp files ──────────────────────────────────────────────────────
 run_tsc.py
 test_ws.py

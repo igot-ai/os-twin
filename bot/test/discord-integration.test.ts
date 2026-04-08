@@ -703,6 +703,105 @@ describe('discord integration', () => {
       expect(allContent).to.include('hero.png');
     });
 
+    // ── Stage→Flush: @mention + idle + images ─────────────────────
+
+    it('stages attachments when @mentioning while idle (no plan yet)', async function () {
+      this.timeout(15000);  // Agent bridge may take time
+      // User is idle — no plan exists. Files should be staged.
+      sessions.clearSession('456', 'discord');
+
+      sandbox.stub(globalThis, 'fetch').resolves({
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        headers: new Headers({ 'content-type': 'image/png' }),
+      } as any);
+
+      // Agent bridge will reply but NOT create a plan (simulating Q&A fallback)
+      sandbox.stub(api, 'getPlans').resolves({ plans: [] });
+      sandbox.stub(api, 'getRooms').resolves({ rooms: [], summary: {} });
+
+      const msg = mockMessage('@os-twin make a coffee blog with these images', {
+        mentions: { has: sinon.stub().returns(true) },
+        attachments: new Map([
+          ['a1', { url: 'https://cdn.discordapp.com/coffee.png', name: 'coffee.png', contentType: 'image/png' }],
+        ]),
+      });
+      client.emit('messageCreate', msg);
+      await WAIT(500);
+
+      // Files should be staged in session (downloaded from CDN)
+      const session = sessions.getSession('456', 'discord');
+      expect(session.pendingAttachments).to.have.length(1);
+      expect(session.pendingAttachments[0].name).to.equal('coffee.png');
+
+      // User should see the "Holding" message
+      const allContent = msg.channel.send.getCalls()
+        .map((c: any) => typeof c.args[0] === 'string' ? c.args[0] : c.args[0]?.content || '')
+        .join(' ');
+      expect(allContent).to.include('Holding');
+    });
+
+    it('stages images-only messages (no text) when idle and prompts user', async () => {
+      sessions.clearSession('456', 'discord');
+
+      sandbox.stub(globalThis, 'fetch').resolves({
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1]).buffer,
+        headers: new Headers({ 'content-type': 'image/png' }),
+      } as any);
+
+      const msg = mockMessage('', {
+        attachments: new Map([
+          ['a1', { url: 'https://cdn.discordapp.com/img.png', name: 'img.png', contentType: 'image/png' }],
+        ]),
+      });
+      client.emit('messageCreate', msg);
+      await WAIT(200);
+
+      // Should stage the file
+      const session = sessions.getSession('456', 'discord');
+      expect(session.pendingAttachments).to.have.length(1);
+
+      const allContent = msg.channel.send.getCalls()
+        .map((c: any) => typeof c.args[0] === 'string' ? c.args[0] : c.args[0]?.content || '')
+        .join(' ');
+      expect(allContent).to.include('Holding');
+    });
+
+    it('flushes accumulated staged files when plan exists in session', async () => {
+      sessions.clearSession('456', 'discord');
+
+      // Pre-stage files AND set plan (simulating: images staged earlier, then plan was created)
+      const session = sessions.getSession('456', 'discord');
+      session.pendingAttachments = [
+        { data: new Uint8Array([1, 2]), name: 'earlier.png', mimeType: 'image/png', stagedAt: Date.now() },
+      ];
+      sessions.setMode('456', 'discord', 'editing');
+      sessions.setPlan('456', 'discord', 'plan-from-second-msg');
+
+      sandbox.stub(api, 'uploadPlanAssets').resolves({
+        assets: [
+          { filename: 'stored-earlier.png', original_name: 'earlier.png', mime_type: 'image/png', uploaded_at: '2026-04-08' },
+        ],
+      });
+      sandbox.stub(api, 'refinePlan').resolves({ plan: '# Updated' });
+      sandbox.stub(api, 'savePlan').resolves({});
+
+      // User sends text while editing (triggers stateful text + flush)
+      const msg = mockMessage('Add more details');
+      client.emit('messageCreate', msg);
+      await WAIT(300);
+
+      // Staged files should be flushed
+      expect((api.uploadPlanAssets as sinon.SinonStub).calledOnce).to.be.true;
+      expect((api.uploadPlanAssets as sinon.SinonStub).firstCall.args[0]).to.equal('plan-from-second-msg');
+      expect((api.uploadPlanAssets as sinon.SinonStub).firstCall.args[1][0].name).to.equal('earlier.png');
+
+      // Buffer should be cleared
+      const updatedSession = sessions.getSession('456', 'discord');
+      expect(updatedSession.pendingAttachments).to.have.length(0);
+    });
+
     it('processes text when in awaiting_idea mode', async () => {
       sessions.setMode('456', 'discord', 'awaiting_idea');
       sessions.setPlan('456', 'discord', 'new');

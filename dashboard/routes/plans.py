@@ -2088,9 +2088,27 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.warning(f"Failed to inject assets for plan {plan_id}: {e}")
 
+    # --- Sync plan files into the project's local .agents/plans/ ---
+    # opencode's file sandbox blocks reads outside the project directory.
+    # Agents need the plan file within their CWD tree, so copy from the
+    # global store (PLANS_DIR) into {working_dir}/.agents/plans/.
+    local_plans_dir = wd_path / ".agents" / "plans"
+    local_plans_dir.mkdir(parents=True, exist_ok=True)
+    for suffix in (".md", ".meta.json", ".roles.json"):
+        src = plans_dir / f"{plan_id}{suffix}"
+        dst = local_plans_dir / f"{plan_id}{suffix}"
+        if src.exists() and str(src.resolve()) != str(dst.resolve()):
+            import shutil
+            shutil.copy2(str(src), str(dst))
+            logger.info(f"run_plan: synced {src.name} -> {local_plans_dir}")
+
+    # Use the local copy for run.sh so the path is within the sandbox
+    local_plan_path = local_plans_dir / f"{plan_id}.md"
+    launch_plan_path = local_plan_path if local_plan_path.exists() else plan_path
+
     # Spawn OS Twin in background
     subprocess.Popen(
-        [str(run_sh), plan_path],
+        [str(run_sh), str(launch_plan_path)],
         cwd=str(wd_path),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

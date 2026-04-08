@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import dashboard.global_state as global_state
 from dashboard.notify import get_config, authorize_chat
-from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR, PLANS_DIR, PROJECT_ROOT, build_skills_list, read_channel, read_room
+from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR, PLANS_DIR, PROJECT_ROOT, build_skills_list, read_channel, read_room, find_plan_file
 from dashboard.telegram_sessions import get_session, clear_session, set_plan, set_mode
 
 # Try to import plan_agent, handle graceful fallback if deepagents not available
@@ -263,7 +263,26 @@ async def handle_message(message: dict, bot_token: str):
     elif text.startswith("/edit"):
         await _cmd_edit_menu(bot_token, chat_id)
     elif text.startswith("/startplan"):
-        await _cmd_startplan_menu(bot_token, chat_id)
+        parts = text.split(maxsplit=1)
+        if len(parts) > 1:
+            plan_id = parts[1].strip()
+            plan_file = find_plan_file(plan_id)
+            if plan_file:
+                await _prompt_launch(bot_token, chat_id, plan_id)
+            else:
+                plans = _get_available_plans()
+                plan_list = "\n".join(f"  • `{p['id']}`" for p in plans) if plans else "No plans found."
+                await send_reply(
+                    bot_token, chat_id,
+                    f"❌ Plan `{plan_id}` not found.\n\n"
+                    f"📋 *Available plans:*\n{plan_list}\n\n"
+                    f"Use `/startplan <plan_id>` with a valid ID, or tap below to pick one."
+                )
+                if plans:
+                    keyboard = _build_plan_keyboard(plans, "menu:launch_prompt")
+                    await send_inline_keyboard(bot_token, chat_id, "🚀 *Select a Plan to Launch:*", keyboard)
+        else:
+            await _cmd_startplan_menu(bot_token, chat_id)
     elif text.startswith("/viewplan"):
         parts = text.split(maxsplit=1)
         if len(parts) > 1:
@@ -546,13 +565,27 @@ async def _cmd_submenu_system(bot_token: str, chat_id: int):
         "⚙️ *System*\nSystem operations & resources:", keyboard)
 
 def _get_available_plans() -> list:
-    plans_dir = PLANS_DIR
-    if not plans_dir.exists():
-        return []
-    plans = []
-    for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
-        if f.stem == "PLAN.template" or f.name.endswith(".refined.md") or ".meta" in f.name:
+    from dashboard.api_utils import GLOBAL_PLANS_DIR
+
+    # Collect plan files from both project-local and global stores, dedup by stem
+    seen_ids = set()
+    all_files = []
+    for plans_dir in [PLANS_DIR, GLOBAL_PLANS_DIR]:
+        if not plans_dir or not plans_dir.exists():
             continue
+        for f in plans_dir.glob("*.md"):
+            if f.stem in seen_ids:
+                continue
+            if f.stem == "PLAN.template" or f.name.endswith(".refined.md") or ".meta" in f.name:
+                continue
+            seen_ids.add(f.stem)
+            all_files.append(f)
+
+    # Sort by modification time (newest first)
+    all_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    plans = []
+    for f in all_files:
         try:
             content = f.read_text()
             title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
@@ -596,8 +629,8 @@ async def _cmd_viewplan_menu(bot_token: str, chat_id: int):
     await send_inline_keyboard(bot_token, chat_id, "👁 *Select a Plan to View:*", keyboard)
 
 async def _view_plan(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = PLANS_DIR / f"{plan_id}.md"
-    if not plan_file.exists():
+    plan_file = find_plan_file(plan_id)
+    if not plan_file:
         await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
         return
     content = plan_file.read_text()
@@ -609,8 +642,8 @@ async def _view_plan(bot_token: str, chat_id: int, plan_id: str):
     await send_reply(bot_token, chat_id, f"```markdown\n{content}\n```")
 
 async def _start_editing(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = PLANS_DIR / f"{plan_id}.md"
-    if not plan_file.exists():
+    plan_file = find_plan_file(plan_id)
+    if not plan_file:
         await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
         return
     set_plan(chat_id, plan_id)
@@ -776,8 +809,8 @@ async def _prompt_launch(bot_token: str, chat_id: int, plan_id: str):
     await send_inline_keyboard(bot_token, chat_id, f"⚠️ *Confirm Launch*\nAre you sure you want to launch `{plan_id}`? This will wipe the current war-rooms.", keyboard)
 
 async def _launch_plan(bot_token: str, chat_id: int, plan_id: str):
-    plan_file = PLANS_DIR / f"{plan_id}.md"
-    if not plan_file.exists():
+    plan_file = find_plan_file(plan_id)
+    if not plan_file:
         await send_reply(bot_token, chat_id, f"❌ Plan `{plan_id}` not found.")
         return
         
@@ -867,17 +900,35 @@ async def _launch_plan(bot_token: str, chat_id: int, plan_id: str):
         except Exception as e:
             logger.error(f"zvec: plan indexing failed ({e})")
 
+    # --- Sync plan files into the project's local .agents/plans/ ---
+    # opencode's file sandbox blocks reads outside the project directory.
+    # Copy plan files from the global store into {working_dir}/.agents/plans/
+    # so agents can read them within their CWD sandbox.
+    import shutil as _shutil
+    local_plans_dir = Path(working_dir) / ".agents" / "plans"
+    local_plans_dir.mkdir(parents=True, exist_ok=True)
+    plan_source_dir = plan_file.parent  # directory containing the resolved plan file
+    for suffix in (".md", ".meta.json", ".roles.json"):
+        src = plan_source_dir / f"{plan_id}{suffix}"
+        dst = local_plans_dir / f"{plan_id}{suffix}"
+        if src.exists() and str(src.resolve()) != str(dst.resolve()):
+            _shutil.copy2(str(src), str(dst))
+            logger.info(f"_launch_plan: synced {src.name} -> {local_plans_dir}")
+
+    # Use the local copy for run.sh so the path is within the sandbox
+    local_plan_path = local_plans_dir / f"{plan_id}.md"
+    launch_plan_path = local_plan_path if local_plan_path.exists() else plan_file
+
     # Prepare environment for run.sh to enforce correct working directory
-    import os
     env = os.environ.copy()
     env["PROJECT_DIR"] = working_dir
 
     # Launch in background
     import subprocess
     try:
-        logger.info(f"Telegram Launch: {run_sh} {plan_file} at {working_dir}")
+        logger.info(f"Telegram Launch: {run_sh} {launch_plan_path} at {working_dir}")
         subprocess.Popen(
-            [str(run_sh), str(plan_file)],
+            [str(run_sh), str(launch_plan_path)],
             cwd=str(PROJECT_ROOT),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

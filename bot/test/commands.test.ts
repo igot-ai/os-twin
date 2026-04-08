@@ -748,6 +748,40 @@ describe('commands', () => {
     });
   });
 
+  // ── Session pendingAttachments ─────────────────────────────────
+
+  describe('session pendingAttachments', () => {
+    it('new session has empty pendingAttachments array', () => {
+      sessions.clearSession('u1', 'telegram');
+      const session = sessions.getSession('u1', 'telegram');
+      expect(session.pendingAttachments).to.deep.equal([]);
+    });
+
+    it('clearSession resets pendingAttachments', () => {
+      const session = sessions.getSession('u1', 'telegram');
+      session.pendingAttachments = [
+        { data: new Uint8Array([1]), name: 'a.png', mimeType: 'image/png', stagedAt: Date.now() },
+      ];
+      expect(session.pendingAttachments).to.have.length(1);
+
+      sessions.clearSession('u1', 'telegram');
+      const fresh = sessions.getSession('u1', 'telegram');
+      expect(fresh.pendingAttachments).to.deep.equal([]);
+    });
+
+    it('pendingAttachments are independent per platform', () => {
+      const discordSession = sessions.getSession('u1', 'discord');
+      const telegramSession = sessions.getSession('u1', 'telegram');
+
+      discordSession.pendingAttachments = [
+        { data: new Uint8Array([1]), name: 'd.png', mimeType: 'image/png', stagedAt: Date.now() },
+      ];
+
+      expect(discordSession.pendingAttachments).to.have.length(1);
+      expect(telegramSession.pendingAttachments).to.have.length(0);
+    });
+  });
+
   describe('transcribe commands', () => {
     it('routeCommand transcribe returns info if no files', async () => {
       sandbox.stub(fs, 'readdirSync').returns([]);

@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { usePlanContext } from './PlanWorkspace';
 import { PlanAsset } from '@/types';
 import { useAssets } from '@/hooks/use-assets';
+import { apiPost } from '@/lib/api-client';
 
 const ASSET_TYPES = [
   'design-mockup', 'api-spec', 'test-data', 'reference-doc', 'config', 'media', 'other',
