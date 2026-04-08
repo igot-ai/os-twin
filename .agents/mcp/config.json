@@ -2,7 +2,10 @@
   "mcp": {
     "channel": {
       "type": "local",
-      "command": ["python", "{env:HOME}/.ostwin/.agents/mcp/channel-server.py"],
+      "command": [
+        "python",
+        "{env:HOME}/.ostwin/.agents/mcp/channel-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": ".",
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
@@ -12,7 +15,10 @@
     },
     "warroom": {
       "type": "local",
-      "command": ["python", "{env:HOME}/.ostwin/.agents/mcp/warroom-server.py"],
+      "command": [
+        "python",
+        "{env:HOME}/.ostwin/.agents/mcp/warroom-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": ".",
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
@@ -22,7 +28,10 @@
     },
     "memory": {
       "type": "local",
-      "command": ["python", "{env:HOME}/.ostwin/.agents/mcp/memory-server.py"],
+      "command": [
+        "python",
+        "{env:HOME}/.ostwin/.agents/mcp/memory-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": "{env:AGENT_OS_PROJECT_DIR}",
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
@@ -39,7 +48,11 @@
     },
     "github": {
       "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
       "environment": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:MCP_GITHUB_GITHUB_PERSONAL_ACCESS_TOKEN}",
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",

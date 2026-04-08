@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { IdeaChat } from '../components/ideas/IdeaChat';
 import { usePlanningThread } from '../hooks/use-planning-thread';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import '@testing-library/jest-dom';
 
 vi.mock('../hooks/use-planning-thread', () => ({
   usePlanningThread: vi.fn()
@@ -20,6 +21,8 @@ describe('IdeaChat Component', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // jsdom does not implement scrollIntoView
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
     mockUsePlanningThread.mockReturnValue({
       thread: null,
       messages: [],
@@ -80,6 +83,6 @@ describe('IdeaChat Component', () => {
     const sendIcon = screen.getByText('send');
     fireEvent.click(sendIcon);
     
-    expect(sendMessage).toHaveBeenCalledWith('Test message');
+    expect(sendMessage).toHaveBeenCalledWith('Test message', undefined);
   });
 });

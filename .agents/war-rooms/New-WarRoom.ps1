@@ -184,6 +184,21 @@ if ($planRolesConfig -and $planRolesConfig.$baseRole) {
         $roleSkillRefs = @($planRoleConfig.skill_refs)
     }
 }
+# Priority 1b: fallback to role.json skill_refs when plan roles.json is missing/empty
+if ($roleSkillRefs.Count -eq 0) {
+    $homeRoleJsonPath = Join-Path $env:HOME ".ostwin" "roles" $baseRole "role.json"
+    if (Test-Path $homeRoleJsonPath) {
+        try {
+            $homeRoleData = Get-Content $homeRoleJsonPath -Raw | ConvertFrom-Json
+            if ($homeRoleData.skill_refs) {
+                $roleSkillRefs = @($homeRoleData.skill_refs)
+            }
+        }
+        catch {
+            Write-Verbose "Failed to read skill_refs from role.json for '$baseRole': $_"
+        }
+    }
+}
 
 # Priority 2: global config.json (only fill in what plan config didn't set)
 if ($roleModel -eq "google-vertex/gemini-3-flash-preview" -and $globalConfig) {
