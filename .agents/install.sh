@@ -637,7 +637,7 @@ ENVSHEOF
         *) info "Skipped API key setup. Please edit $env_file later." ;;
       esac
 
-      for key_name in "${selected_keys[@]}"; do
+      for key_name in ${selected_keys[@]+"${selected_keys[@]}"}; do
         echo -en "    ${CYAN}→${NC} Enter $key_name: "
         read -s -r user_val
         echo ""
