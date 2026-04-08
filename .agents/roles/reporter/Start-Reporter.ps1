@@ -318,8 +318,11 @@ $invokeArgs = @{
     TimeoutSeconds = $TimeoutSeconds
 }
 
+# Model resolution: only pass explicit per-room instance model overrides.
+# Do NOT pass the fallback $agentModel (from role.json / config.json) — let
+# Invoke-Agent.ps1 resolve from plan.roles.json → config.json → role.json → default.
+# This ensures the user's plan-level model configuration is respected.
 if ($roleInstanceModel) { $invokeArgs['Model'] = $roleInstanceModel }
-elseif ($agentModel) { $invokeArgs['Model'] = $agentModel }
 
 # Grant shell access so the agent can run python -m reporter
 $invokeArgs['ExtraArgs'] = @("--shell-allow-list", "all")

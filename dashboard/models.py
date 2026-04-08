@@ -129,6 +129,7 @@ class Role(BaseModel):
     max_retries: int = 3
     timeout_seconds: int = 300
     skill_refs: List[str] = Field(default_factory=list)
+    mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
     created_at: str
     updated_at: str
@@ -147,6 +148,7 @@ class CreateRoleRequest(BaseModel):
     max_retries: int = Field(3, ge=1, le=10)
     timeout_seconds: int = Field(300, ge=60, le=3600)
     skill_refs: List[str] = Field(default_factory=list)
+    mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = Field(None, max_length=2000)
 
 

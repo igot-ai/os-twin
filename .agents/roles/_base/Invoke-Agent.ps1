@@ -228,22 +228,50 @@ if (Test-Path $configPath) {
     if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
     if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
-    # --- CLI resolution: OSTWIN_HOME bin/agent → role config → opencode fallback ---
-    # ALWAYS resolve to $OstwinHome/.agents/bin/agent (canonical install).
-    # Never the project-local $agentsDir/bin/agent (dev tree) — those can drift.
+    # --- CLI resolution: env override → OSTWIN_HOME bin/agent → project-local → role config → opencode fallback ---
+    # Prefer $OSTWIN_AGENT_CMD env var (for dev/test overrides), then canonical
+    # install path, then project-local dev tree, then role config, then opencode.
     if (-not $AgentCmd) {
-        $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
-        if (Test-Path $ostwinAgent) {
-            $AgentCmd = "'$ostwinAgent'"
+        if ($env:OSTWIN_AGENT_CMD) {
+            $AgentCmd = $env:OSTWIN_AGENT_CMD
         }
         else {
-            $AgentCmd = $config.$RoleName.cli
-            if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
+            $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
+            $localAgent = Join-Path $agentsDir "bin" "agent"
+            if (Test-Path $ostwinAgent) {
+                $AgentCmd = "'$ostwinAgent'"
+            }
+            elseif (Test-Path $localAgent) {
+                $AgentCmd = "'$localAgent'"
+            }
+            else {
+                $AgentCmd = $config.$RoleName.cli
+                if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
+            }
         }
     }
 }
 
 if (-not $AgentCmd) { $AgentCmd = "opencode run" }
+
+# --- Role.json model fallback (runs even when config.json is absent) ---
+# If no model was resolved from -Model param, plan.roles.json, or config.json,
+# try role.json as the last config-based source before the hardcoded default.
+# Search order: HOME-based (authoritative) → project-local (legacy).
+if (-not $Model) {
+    $homeRoleJson = Join-Path $OstwinHome ".agents" "roles" $RoleName "role.json"
+    $localRoleJson = Join-Path $agentsDir "roles" $RoleName "role.json"
+    $roleJsonPath = if (Test-Path $homeRoleJson) { $homeRoleJson } elseif (Test-Path $localRoleJson) { $localRoleJson } else { $null }
+    if ($roleJsonPath) {
+        try {
+            $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+            if ($roleJson.model) {
+                $Model = $roleJson.model
+            }
+        }
+        catch { }
+    }
+}
 if (-not $Model) { $Model = "google-vertex/zai-org/glm-5-maas" }
 
 # --- Env var overrides for testing ---
@@ -345,101 +373,14 @@ foreach ($f in $Files) { $extraCliArgs += "--file"; $extraCliArgs += $f }
 # Attach prompt file — avoids inlining huge prompt text on the command line
 $extraCliArgs += "--file"; $extraCliArgs += $promptFileAbsolute
 
-# --- MCP config: resolve and generate opencode.json for MCP servers ---
+# --- MCP config: use pre-compiled .opencode/opencode.json if available ---
 # opencode run reads MCP config from .opencode/opencode.json (standard location).
-# If no_mcp is set in role config, skip MCP entirely.
+# Invoke-Agent does NOT generate opencode.json — it must be pre-compiled by ostwin init/compile.
 $tempMcpConfig = $null
-if (-not $NoMcp) {
-    # Priority 0: pre-compiled .opencode/opencode.json in project dir (written by ostwin init/compile)
-    $precompiledOpencode = $null
-    if ($ProjectDir) {
-        $precompiledOpencode = Join-Path $ProjectDir ".opencode" "opencode.json"
-    }
-    if ($precompiledOpencode -and (Test-Path $precompiledOpencode)) {
-        # Use pre-compiled config directly — already in OpenCode format with $schema
+if (-not $NoMcp -and $ProjectDir) {
+    $precompiledOpencode = Join-Path $ProjectDir ".opencode" "opencode.json"
+    if (Test-Path $precompiledOpencode) {
         $tempMcpConfig = $precompiledOpencode
-    }
-    else {
-        # Fallback: resolve from .agents/mcp/ configs and generate opencode.json
-        $resolvedMcpConfig = $McpConfig
-        if (-not $resolvedMcpConfig) {
-            # Priority 1: project-local MCP config
-            if ($ProjectDir) {
-                foreach ($projectMcpConfig in @(
-                        (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
-                        (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
-                    )) {
-                    if (Test-Path $projectMcpConfig) {
-                        $resolvedMcpConfig = $projectMcpConfig
-                        break
-                    }
-                }
-            }
-            # Priority 2: agents dir (same repo, e.g. installed copy)
-            if (-not $resolvedMcpConfig) {
-                foreach ($agentsDirMcpConfig in @(
-                        (Join-Path $agentsDir "mcp" "config.json"),
-                        (Join-Path $agentsDir "mcp" "mcp-config.json")
-                    )) {
-                    if (Test-Path $agentsDirMcpConfig) {
-                        $resolvedMcpConfig = $agentsDirMcpConfig
-                        break
-                    }
-                }
-            }
-            # Priority 3: OSTWIN_HOME global config
-            if (-not $resolvedMcpConfig) {
-                foreach ($ostwinMcpConfig in @(
-                        (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
-                        (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
-                        (Join-Path $OstwinHome "mcp" "config.json"),
-                        (Join-Path $OstwinHome "mcp" "mcp-config.json")
-                    )) {
-                    if (Test-Path $ostwinMcpConfig) {
-                        $resolvedMcpConfig = $ostwinMcpConfig
-                        break
-                    }
-                }
-            }
-        }
-        if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
-            $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
-            # Expand {env:AGENT_DIR} → absolute agentsDir (OpenCode format)
-            if ($mcpConfigContent -match '\{env:AGENT_DIR\}') {
-                $mcpConfigContent = $mcpConfigContent -replace '\{env:AGENT_DIR\}', $agentsDir.Replace('\', '/')
-            }
-            # Expand {env:PROJECT_DIR} → absolute project dir (OpenCode format)
-            if ($ProjectDir -and ($mcpConfigContent -match '\{env:PROJECT_DIR\}')) {
-                $mcpConfigContent = $mcpConfigContent -replace '\{env:PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
-            }
-            # Legacy: also expand ${AGENT_DIR} / ${PROJECT_DIR} for pre-migration configs
-            if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
-                $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
-            }
-            if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
-                $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
-            }
-            # Parse the MCP config and wrap it for opencode.json format
-            try {
-                $mcpParsed = $mcpConfigContent | ConvertFrom-Json
-                # opencode.json expects { "$schema": "...", "mcp": { ... } }
-                # Source config uses "mcp" key directly (OpenCode format), fallback to legacy "mcpServers"/"servers"
-                $mcpServers = $null
-                if ($mcpParsed.PSObject.Properties['mcp']) { $mcpServers = $mcpParsed.mcp }
-                elseif ($mcpParsed.PSObject.Properties['mcpServers']) { $mcpServers = $mcpParsed.mcpServers }
-                elseif ($mcpParsed.PSObject.Properties['servers']) { $mcpServers = $mcpParsed.servers }
-                else { $mcpServers = $mcpParsed }
-
-                if ($mcpServers) {
-                    $opencodeConfig = @{ '$schema' = 'https://opencode.ai/config.json'; mcp = $mcpServers } | ConvertTo-Json -Depth 10
-                    $tempMcpConfig = Join-Path $artifactsDir "opencode.json"
-                    $opencodeConfig | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
-                }
-            }
-            catch {
-                Write-Warning "[Invoke-Agent] Failed to parse MCP config for opencode.json: $($_.Exception.Message)"
-            }
-        }
     }
 }
 
@@ -482,6 +423,11 @@ export AGENT_OS_PID_FILE='$safePidFile'
 export OSTWIN_HOME='$safeOstwinHome'
 export AGENT_OS_PROJECT_DIR='$safeProjectDir'
 $opencodeConfigLine
+# Source user-controlled pre-exec hook for dynamic env vars
+# (e.g. refreshing short-lived API tokens like VERTEX_API_KEY).
+# Static vars belong in `$safeOstwinHome`/.env; this file is for shell logic.
+if [ -f "`$HOME/.ostwin/.env.sh" ]; then . "`$HOME/.ostwin/.env.sh"; fi
+if [ -f '$safeOstwinHome/.env.sh' ]; then . '$safeOstwinHome/.env.sh'; fi
 $cwdLine
 # Write PID before exec — `$`$ survives exec, so this is the real agent PID.
 # bin/agent also writes this (harmless overwrite); this fallback ensures
@@ -604,10 +550,8 @@ else { "No output captured" }
 # --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
 Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
 Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
-# Remove generated opencode.json (MCP config) if one was created
-if ($tempMcpConfig -and (Test-Path $tempMcpConfig)) {
-    Remove-Item $tempMcpConfig -Force -ErrorAction SilentlyContinue
-}
+# Note: opencode.json is no longer generated by Invoke-Agent.
+# Pre-compiled .opencode/opencode.json (from ostwin init/compile) is used directly.
 
 # Note: PID file is NOT removed here. The caller (Start-Engineer/Start-QA)
 # must clean it up after posting the channel message, to avoid race conditions

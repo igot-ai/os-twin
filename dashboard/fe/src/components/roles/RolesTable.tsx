@@ -5,11 +5,13 @@ import { Role, Skill } from '@/types';
 import { useSWRConfig } from 'swr';
 import { useModelRegistry } from '@/hooks/use-roles';
 import { apiDelete } from '@/lib/api-client';
+import { McpServer } from '@/hooks/use-mcp';
 import TestConnectionButton from './TestConnectionButton';
 
 interface RolesTableProps {
   roles: Role[];
   skills: Skill[];
+  mcpServers: McpServer[];
   onEdit: (role: Role) => void;
   onAdd: () => void;
   isLoading?: boolean;
@@ -76,7 +78,7 @@ const RoleSVGs: Record<string, React.ReactNode> = {
   )
 };
 
-export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: RolesTableProps) {
+export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, isLoading }: RolesTableProps) {
   const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' });
@@ -182,6 +184,7 @@ export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: 
                 </div>
               </th>
               <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-faint)' }}>Skills</th>
+              <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-faint)' }}>MCPs</th>
               <th 
                 className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest cursor-pointer hover:bg-slate-50 transition-colors group" 
                 onClick={() => toggleSort('temperature')}
@@ -213,6 +216,7 @@ export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: 
             {sortedRoles.map((role) => {
               const pb = providerBranding[role.provider] || providerBranding.custom;
               const roleSkills = skills.filter((s) => role.skill_refs.includes(s.name));
+              const roleMcpRefs = role.mcp_refs || [];
               
               return (
                 <tr
@@ -271,6 +275,26 @@ export default function RolesTable({ roles, skills, onEdit, onAdd, isLoading }: 
                       )}
                       {roleSkills.length === 0 && (
                         <span className="text-[11px] text-slate-300 italic">No skills</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1.5 max-w-[200px]">
+                      {roleMcpRefs.slice(0, 2).map((ref) => (
+                        <span
+                          key={ref}
+                          className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-slate-50 text-slate-600 border-slate-200"
+                        >
+                          {ref}
+                        </span>
+                      ))}
+                      {roleMcpRefs.length > 2 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                          +{roleMcpRefs.length - 2}
+                        </span>
+                      )}
+                      {roleMcpRefs.length === 0 && (
+                        <span className="text-[11px] text-slate-300 italic">No MCPs</span>
                       )}
                     </div>
                   </td>
