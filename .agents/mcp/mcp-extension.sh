@@ -32,7 +32,6 @@ fi
 # Catalog + builtins always come from global install
 CATALOG_FILE="$HOME/.ostwin/.agents/mcp/mcp-catalog.json"
 BUILTIN_FILE="$HOME/.ostwin/.agents/mcp/mcp-builtin.json"
-
 # Dev mode fallbacks
 [[ ! -f "$CATALOG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-catalog.json" ]] && CATALOG_FILE="$SCRIPT_DIR/mcp-catalog.json"
 [[ ! -f "$BUILTIN_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-builtin.json" ]] && BUILTIN_FILE="$SCRIPT_DIR/mcp-builtin.json"
@@ -42,12 +41,10 @@ MCP_DIR=""
 EXTENSIONS_DIR=""
 EXTENSIONS_FILE=""
 CONFIG_FILE="$HOME/.ostwin/.agents/mcp/config.json"
-LEGACY_CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
 PROJECT_DIR=""
 
-# Python: prefer venv, fallback to system
-PYTHON="$HOME/.ostwin/.venv/bin/python"
-[[ -x "$PYTHON" ]] || PYTHON="python3"
+# Python: use activated venv (ostwin sources activate), fallback to system
+PYTHON="$(command -v python 2>/dev/null || echo python3)"
 
 # Trigger vault hook (non-fatal — vault is lazy-loaded per subcommand)
 "$PYTHON" -c "
@@ -100,14 +97,10 @@ ensure_global_config_file() {
   if [[ -f "$CONFIG_FILE" ]]; then
     return
   fi
-  if [[ -f "$LEGACY_CONFIG_FILE" ]]; then
-    cp "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
-    return
-  fi
   if [[ -f "$BUILTIN_FILE" ]]; then
     cp "$BUILTIN_FILE" "$CONFIG_FILE"
   else
-    echo '{"mcpServers":{}}' > "$CONFIG_FILE"
+    echo '{"mcp":{}}' > "$CONFIG_FILE"
   fi
 }
 
@@ -189,7 +182,7 @@ cmd_install() {
     repo="$target"
     name="${opt_name:-$(echo "$repo" | awk -F/ '{print $3}' | tr '.' '-')}"
     branch="main"
-    config_json="{\"httpUrl\": \"$repo\", \"headers\": {}}"
+    config_json="{\"type\": \"remote\", \"url\": \"$repo\", \"headers\": {}}"
     # Parse headers: --header "X-Key=Val"
     if [[ -n "${opt_headers:-}" ]]; then
       for h in $opt_headers; do
@@ -294,13 +287,13 @@ cmd_install() {
 
   # ── Resolve config from repo JSON if not from catalog ──
   if [[ -z "$config_json" ]] && [[ "$build_type" != "http" ]]; then
-    step "Scanning for mcpServers declaration in repo..."
+    step "Scanning for MCP server declaration in repo..."
     config_json=$("$PYTHON" -c "
 import json, os, glob, sys
 ext_path = '$ext_path'
 name = '$name'
 candidates = []
-for f in ['gemini-extension.json', 'config.json', 'mcp-config.json']:
+for f in ['google-vertex/gemini-extension.json', 'config.json', 'mcp-config.json']:
     p = os.path.join(ext_path, f)
     if os.path.isfile(p): candidates.append(p)
 for p in sorted(glob.glob(os.path.join(ext_path, '*.json'))):
@@ -311,7 +304,8 @@ for filepath in candidates:
     try:
         with open(filepath) as f:
             data = json.load(f)
-        servers = data.get('mcpServers', {})
+        # Support both OpenCode format ('mcp') and legacy ('mcpServers')
+        servers = data.get('mcp', data.get('mcpServers', {}))
         if servers:
             cfg = servers.get(name, list(servers.values())[0])
             print(json.dumps(cfg))
@@ -321,9 +315,9 @@ print('{}')
 " 2>/dev/null)
 
     if [[ "$config_json" != "{}" ]] && [[ -n "$config_json" ]]; then
-      ok "Found mcpServers declaration"
+      ok "Found MCP server declaration"
     else
-      warn "No mcpServers declaration found"
+      warn "No MCP server declaration found"
       config_json='{}'
     fi
   fi
@@ -334,7 +328,7 @@ print('{}')
     abs_ext_path="$(cd "$ext_path" 2>/dev/null && pwd || echo "$ext_path")"
   fi
   abs_project_dir="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
-  config_json=$(echo "$config_json" | sed "s|\${extensionPath}|$abs_ext_path|g; s|\${AGENT_DIR}|$INSTALL_DIR|g; s|\${PROJECT_DIR}|$abs_project_dir|g")
+  config_json=$(echo "$config_json" | sed "s|{env:extensionPath}|$abs_ext_path|g; s|{env:AGENT_DIR}|$INSTALL_DIR|g; s|{env:PROJECT_DIR}|$abs_project_dir|g; s|\${extensionPath}|$abs_ext_path|g; s|\${AGENT_DIR}|$INSTALL_DIR|g; s|\${PROJECT_DIR}|$abs_project_dir|g")
 
   # ── Merge --env file if provided ──
   if [[ -n "$opt_env" ]] && [[ -f "$opt_env" ]]; then
@@ -342,14 +336,14 @@ print('{}')
     config_json=$(echo "$config_json" | "$PYTHON" -c "
 import json, sys
 config = json.load(sys.stdin) if True else {}
-env_dict = config.get('env', {})
+env_dict = config.get('environment', {})
 with open('$opt_env') as f:
     for line in f:
         line = line.strip()
         if not line or line.startswith('#') or '=' not in line: continue
         k, v = line.split('=', 1)
         env_dict[k.strip()] = v.strip().strip('\"').strip(\"'\")
-if env_dict: config['env'] = env_dict
+if env_dict: config['environment'] = env_dict
 print(json.dumps(config))
 " 2>/dev/null || echo "$config_json")
     ok "Environment variables merged"
@@ -377,7 +371,7 @@ def scan_dict(d):
         if isinstance(v, dict): scan_dict(v)
         elif is_secret(v): secrets.append((k, v))
 
-if 'env' in config: scan_dict(config['env'])
+if 'environment' in config: scan_dict(config['environment'])
 if 'headers' in config: scan_dict(config['headers'])
 
 for k, v in secrets:
@@ -416,7 +410,7 @@ def replace_in_dict(d):
     for v in d.values():
         if isinstance(v, dict): replace_in_dict(v)
 
-if 'env' in config: replace_in_dict(config['env'])
+if 'environment' in config: replace_in_dict(config['environment'])
 if 'headers' in config: replace_in_dict(config['headers'])
 print(json.dumps(config))
 PYEOF
@@ -487,12 +481,14 @@ def check_vault_status(config, server_name):
 
 if os.path.isfile(builtin_file):
     with open(builtin_file) as f:
-        builtins = json.load(f).get('mcpServers', {})
+        d = json.load(f)
+        builtins = d.get('mcp', d.get('mcpServers', {}))
     if builtins:
         print(f'  Builtin servers ({len(builtins)}):')
         print()
         for name, cfg in builtins.items():
-            cmd = cfg.get('command', '?')
+            cmd = cfg.get('command', ['?'])
+            if isinstance(cmd, list): cmd = ' '.join(cmd)
             vault_info = check_vault_status(cfg, name)
             cred_status = ""
             if vault_info:
@@ -535,7 +531,9 @@ else:
         print(f'      repo:       {ext.get("repo","?")}')
         print(f'      build_type: {ext.get("build_type","?")}')
         print(f'      installed:  {ext.get("installed_at","?")}')
-        print(f'      command:    {config.get("command","?")}')
+        cmd = config.get('command', ['?'])
+        if isinstance(cmd, list): cmd = ' '.join(cmd)
+        print(f'      command:    {cmd}')
         print()
 PYEOF
 }
@@ -607,13 +605,25 @@ with open('$EXTENSIONS_FILE', 'w') as f:
 
 cmd_sync_quiet() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
+
+  # validate_mcp.py lives in the global install, not project-local
+  local mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  [[ -f "$mcp_module_dir/validate_mcp.py" ]] || mcp_module_dir="$SCRIPT_DIR"
+
   "$PYTHON" -c "
-import json
-builtin = {}
+import json, sys, os
+
+sys.path.insert(0, '$mcp_module_dir')
+from validate_mcp import normalize_mcp_config, merge_mcp_configs
+
+# Load builtin config (may be legacy mcpServers format)
+builtin_raw = {}
 try:
     with open('$BUILTIN_FILE') as f:
-        builtin = json.load(f).get('mcpServers', {})
+        builtin_raw = json.load(f)
 except FileNotFoundError: pass
+
+# Load extensions
 extensions = {}
 try:
     with open('$EXTENSIONS_FILE') as f:
@@ -623,22 +633,17 @@ try:
         config = ext.get('config', {})
         if name and config: extensions[name] = config
 except FileNotFoundError: pass
-merged = {'mcpServers': {**builtin, **extensions}}
+
+# Normalize builtin (handles mcpServers, shell vars, etc.)
+normalized_builtin = normalize_mcp_config(builtin_raw)
+
+# Merge: builtin → extensions (extensions override builtin)
+merged_servers = {**normalized_builtin, **extensions}
+
 with open('$CONFIG_FILE', 'w') as f:
-    json.dump(merged, f, indent=2)
+    json.dump({'mcp': merged_servers}, f, indent=2)
     f.write('\n')
 "
-  # Resolve ${AGENT_DIR} and ${PROJECT_DIR} → absolute paths
-  local abs_project_dir
-  abs_project_dir="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
-  "$PYTHON" - <<PYEOF
-with open('$CONFIG_FILE') as _f:
-    _raw = _f.read()
-_raw = _raw.replace('\${AGENT_DIR}', '$INSTALL_DIR')
-_raw = _raw.replace('\${PROJECT_DIR}', '$abs_project_dir')
-with open('$CONFIG_FILE', 'w') as _f:
-    _f.write(_raw)
-PYEOF
 }
 
 cmd_sync() {
@@ -648,10 +653,12 @@ cmd_sync() {
   "$PYTHON" -c "
 import json
 with open('$CONFIG_FILE') as f:
-    servers = json.load(f).get('mcpServers', {})
+    servers = json.load(f).get('mcp', {})
 print(f'  {len(servers)} server(s) in config.json:')
 for name in servers:
-    print(f'    • {name} ({servers[name].get(\"command\",\"?\")})')
+    cmd = servers[name].get('command', ['?'])
+    if isinstance(cmd, list): cmd = ' '.join(cmd)
+    print(f'    • {name} ({cmd})')
 "
 }
 
@@ -676,13 +683,8 @@ cmd_init_project() {
   chmod +x "$dest_script"
 
   local project_config="$project_mcp/config.json"
-  local legacy_project_config="$project_mcp/mcp-config.json"
   if [[ ! -f "$project_config" ]]; then
-    if [[ -f "$legacy_project_config" ]]; then
-      cp "$legacy_project_config" "$project_config"
-    else
-      [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcpServers":{}}' > "$project_config"
-    fi
+    [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcp":{}}' > "$project_config"
   fi
 
   ok "Project MCP scaffolded at $project_mcp"
@@ -736,7 +738,8 @@ else:
             servers = [e['name'] for e in json.load(f).get('extensions', [])]
     if os.path.exists('$BUILTIN_FILE'):
         with open('$BUILTIN_FILE') as f:
-            servers.extend(json.load(f).get('mcpServers', {}).keys())
+            bd = json.load(f)
+            servers.extend(bd.get('mcp', bd.get('mcpServers', {})).keys())
     servers = sorted(list(set(servers)))
 
 for s in servers:
@@ -814,8 +817,8 @@ def process_dict(d, server_name):
             d[k] = f'\${{vault:{server_name}/{k}}}'
             changed = True
 
-for server_name, server_cfg in config.get('mcpServers', {}).items():
-    if 'env' in server_cfg: process_dict(server_cfg['env'], server_name)
+for server_name, server_cfg in config.get('mcp', {}).items():
+    if 'environment' in server_cfg: process_dict(server_cfg['environment'], server_name)
     if 'headers' in server_cfg: process_dict(server_cfg['headers'], server_name)
 
 if changed:
@@ -874,13 +877,14 @@ with open(config_file) as f:
 if os.path.exists(builtin_file):
     with open(builtin_file) as f:
         builtins_raw = f.read()
-        builtins_raw = builtins_raw.replace('${AGENT_DIR}', agent_dir)
-        builtins_raw = builtins_raw.replace('${PROJECT_DIR}', project_dir)
-        builtins = json.loads(builtins_raw).get('mcpServers', {})
-        config.setdefault('mcpServers', {}).update(builtins)
+        builtins_raw = builtins_raw.replace('{env:AGENT_DIR}', agent_dir)
+        builtins_raw = builtins_raw.replace('{env:PROJECT_DIR}', project_dir)
+        bd = json.loads(builtins_raw)
+        builtins = bd.get('mcp', bd.get('mcpServers', {}))
+        config.setdefault('mcp', {}).update(builtins)
 
 resolver = ConfigResolver()
-servers = config.get('mcpServers', {})
+servers = config.get('mcp', {})
 
 if target_server and target_server not in servers:
     print(f'  ✗ Server not found in config: {target_server}')
@@ -895,12 +899,19 @@ for name in test_list:
         # Resolve vault refs for testing
         resolved_cfg = resolver.resolve_config(cfg)
         
-        if 'httpUrl' in resolved_cfg:
-            res = test_http_server(resolved_cfg['httpUrl'], resolved_cfg.get('headers'))
+        if resolved_cfg.get('type') == 'remote' or 'url' in resolved_cfg:
+            res = test_http_server(resolved_cfg['url'], resolved_cfg.get('headers'))
         elif 'command' in resolved_cfg:
-            res = test_stdio_server(resolved_cfg['command'], resolved_cfg.get('args', []), resolved_cfg.get('env'))
+            cmd = resolved_cfg['command']
+            if isinstance(cmd, list):
+                executable = cmd[0] if cmd else ''
+                cmd_args = cmd[1:] if len(cmd) > 1 else []
+            else:
+                executable = cmd
+                cmd_args = []
+            res = test_stdio_server(executable, cmd_args, resolved_cfg.get('environment'))
         else:
-            res = {"status": "error", "message": "Unknown server type (no httpUrl or command)"}
+            res = {"status": "error", "message": "Unknown server type (no url or command)"}
             
         results.append((name, res))
     except Exception as e:
@@ -933,14 +944,19 @@ cmd_compile() {
   export _CONFIG_FILE="$CONFIG_FILE"
   export _BUILTIN_FILE="$BUILTIN_FILE"
   export _PROJECT_DIR="$project_dir"
+  # validate_mcp.py lives in the global install, not project-local
+  local _mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  [[ -f "$_mcp_module_dir/validate_mcp.py" ]] || _mcp_module_dir="$SCRIPT_DIR"
+  export _MCP_MODULE_DIR="$_mcp_module_dir"
 
   step "Compiling MCP config for project at $project_dir..."
-  
+
   "$PYTHON" - <<'PYEOF'
 import json, sys, os
 script_dir = os.environ.get("_SCRIPT_DIR")
 home_config_file = os.environ.get("_CONFIG_FILE")
 builtin_file = os.environ.get("_BUILTIN_FILE")
+
 project_dir = os.environ.get("_PROJECT_DIR")
 
 mcp_dir = os.path.join(project_dir, '.agents', 'mcp')
@@ -956,9 +972,8 @@ except ImportError as e:
     sys.exit(1)
 
 if not os.path.exists(home_config_file):
-    # Bootstrap from builtins if home config doesn't exist yet
     os.makedirs(os.path.dirname(home_config_file), exist_ok=True)
-    home_config = {"mcpServers": {}}
+    home_config = {"mcp": {}}
     with open(home_config_file, 'w') as f:
         json.dump(home_config, f, indent=2)
     print(f'  ✓ Created home config: {home_config_file}')
@@ -971,11 +986,27 @@ if os.path.exists(builtin_file):
     with open(builtin_file) as f:
         builtin_config = json.load(f)
 
+# Normalize builtin config (handles legacy mcpServers, shell vars, etc.)
+mcp_module_dir = os.environ.get("_MCP_MODULE_DIR", script_dir)
+if mcp_module_dir not in sys.path:
+    sys.path.insert(0, mcp_module_dir)
+from validate_mcp import normalize_mcp_config
+normalized_builtin = normalize_mcp_config(builtin_config)
+
+# Merge order: builtin → home (each layer overrides the previous).
+merged_builtin = {"mcp": {}}
+merged_builtin["mcp"].update(normalized_builtin)
+
 resolver = ConfigResolver()
-compiled_config, env_vars = resolver.compile_config(home_config, builtin_config)
+compiled_config, env_vars = resolver.compile_config(home_config, merged_builtin)
 
 # Ensure directory exists
 os.makedirs(mcp_dir, exist_ok=True)
+
+# Strip 'environment' from remote servers (OpenCode only supports it for local)
+for name, cfg in compiled_config['mcp'].items():
+    if cfg.get('type') == 'remote' and 'environment' in cfg:
+        del cfg['environment']
 
 # Write compiled config
 with open(compiled_config_file, 'w') as f:
@@ -990,12 +1021,12 @@ with open(env_mcp_file, 'w') as f:
 
 # Write mcp-manifest.json (declarative list without secrets)
 manifest = {
-    "mcpServers": {}
+    "mcp": {}
 }
-for name, cfg in compiled_config['mcpServers'].items():
-    # Strip env/headers that might contain secrets (though they should be ${ENV_VAR} now)
-    manifest['mcpServers'][name] = {
-        "type": "http" if "httpUrl" in cfg else "stdio",
+for name, cfg in compiled_config['mcp'].items():
+    # Strip environment/headers that might contain secrets (though they should be ${ENV_VAR} now)
+    manifest['mcp'][name] = {
+        "type": cfg.get("type", "remote" if "url" in cfg else "local"),
         "description": f"MCP server {name}"
     }
 
@@ -1003,11 +1034,14 @@ with open(manifest_file, 'w') as f:
     json.dump(manifest, f, indent=2)
     f.write('\n')
 
-print(f'  ✓ Compiled {len(compiled_config["mcpServers"])} servers')
+print(f'  ✓ Compiled {len(compiled_config["mcp"])} servers')
 print(f'  ✓ Generated {compiled_config_file}')
 print(f'  ✓ Generated {env_mcp_file}')
 print(f'  ✓ Generated {manifest_file}')
 PYEOF
+
+  # MCP servers are loaded to the global config at ~/.config/opencode/opencode.json
+  # by install.sh — no project-local .opencode/opencode.json is created.
 }
 
 # ─── HELP ────────────────────────────────────────────────────────────────────
@@ -1042,6 +1076,10 @@ Examples:
   ostwin mcp catalog
   ostwin mcp install chrome-devtools
   ostwin mcp install --http https://stitch.googleapis.com/mcp --header "X-Goog-Api-Key=AIza..."
+#
+# Config format (OpenCode-compatible):
+#   {"mcp": {"server-name": {"type": "local", "command": [...], "environment": {...}}}}
+#   {"mcp": {"server-name": {"type": "remote", "url": "...", "headers": {...}}}}
   ostwin mcp credentials list
   ostwin mcp migrate
 HELP

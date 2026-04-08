@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRoles } from '@/hooks/use-roles';
 import { useSkills } from '@/hooks/use-skills';
+import { useMcpServers } from '@/hooks/use-mcp';
 import { Role } from '@/types';
 import RolesTable from '@/components/roles/RolesTable';
 import RoleEditorPanel from '@/components/roles/RoleEditorPanel';
@@ -10,6 +11,7 @@ import RoleEditorPanel from '@/components/roles/RoleEditorPanel';
 export default function RolesPage() {
   const { roles = [], isLoading: rolesLoading } = useRoles();
   const { skills = [] } = useSkills();
+  const { servers: mcpServers = [] } = useMcpServers();
   
   const [editingRole, setEditingRole] = useState<Role | undefined>(undefined);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -61,13 +63,14 @@ export default function RolesPage() {
       {/* Main Table View */}
       <RolesTable 
         roles={roles} 
-        skills={skills} 
+        skills={skills}
+        mcpServers={mcpServers}
         onEdit={handleEdit} 
         onAdd={handleAdd}
         isLoading={rolesLoading}
       />
 
-      {/* Slide-over Panel */}
+      {/* Bottom Drawer */}
       <RoleEditorPanel 
         role={editingRole}
         isOpen={isPanelOpen}

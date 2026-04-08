@@ -167,7 +167,7 @@ $baseRole = $AssignedRole -replace ':.*$', ''
 $instanceSuffix = if ($AssignedRole -match ':(.+)$') { $Matches[1] } else { '' }
 
 # Resolve model for this role: plan roles.json → instance → global config → role.json → default
-$roleModel = "gemini-3-flash-preview"
+$roleModel = "google-vertex/gemini-3-flash-preview"
 $roleTimeout = $TimeoutSeconds
 $roleSkillRefs = @()
 
@@ -184,9 +184,24 @@ if ($planRolesConfig -and $planRolesConfig.$baseRole) {
         $roleSkillRefs = @($planRoleConfig.skill_refs)
     }
 }
+# Priority 1b: fallback to role.json skill_refs when plan roles.json is missing/empty
+if ($roleSkillRefs.Count -eq 0) {
+    $homeRoleJsonPath = Join-Path $env:HOME ".ostwin" "roles" $baseRole "role.json"
+    if (Test-Path $homeRoleJsonPath) {
+        try {
+            $homeRoleData = Get-Content $homeRoleJsonPath -Raw | ConvertFrom-Json
+            if ($homeRoleData.skill_refs) {
+                $roleSkillRefs = @($homeRoleData.skill_refs)
+            }
+        }
+        catch {
+            Write-Verbose "Failed to read skill_refs from role.json for '$baseRole': $_"
+        }
+    }
+}
 
 # Priority 2: global config.json (only fill in what plan config didn't set)
-if ($roleModel -eq "gemini-3-flash-preview" -and $globalConfig) {
+if ($roleModel -eq "google-vertex/gemini-3-flash-preview" -and $globalConfig) {
     if ($instanceSuffix -and $globalConfig.$baseRole.instances.$instanceSuffix.default_model) {
         $roleModel = $globalConfig.$baseRole.instances.$instanceSuffix.default_model
     }
@@ -196,7 +211,7 @@ if ($roleModel -eq "gemini-3-flash-preview" -and $globalConfig) {
 }
 
 # Priority 3: role.json fallback
-if ($roleModel -eq "gemini-3-flash-preview") {
+if ($roleModel -eq "google-vertex/gemini-3-flash-preview") {
     $roleJsonPath = Join-Path $agentsDir "roles" $baseRole "role.json"
     if (Test-Path $roleJsonPath) {
         $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json

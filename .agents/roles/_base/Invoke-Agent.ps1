@@ -1,33 +1,49 @@
 <#
 .SYNOPSIS
-    Universal agent launcher — wraps deepagents CLI for any role.
+    Universal agent launcher — wraps opencode run for any role.
 
 .DESCRIPTION
-    Provides a common interface for launching deepagents with role-specific
+    Provides a common interface for launching opencode run with role-specific
     prompts, config, PID tracking, timeout, and output capture.
     Used by Start-Engineer.ps1, Start-QA.ps1, and future role runners.
 
-    New in v0.2 — replaces role-specific bash wrappers with a single reusable launcher.
+    v0.3 — migrated from deepagents CLI to opencode run.
 
 .PARAMETER RoomDir
     Path to the war-room directory.
 .PARAMETER RoleName
-    Role identifier (engineer, qa, architect, etc.).
+    Role identifier (engineer, qa, architect, etc.). Passed as --agent.
 .PARAMETER Prompt
-    Full prompt text to send to deepagents.
+    Full prompt text. Passed as a positional argument to opencode run.
 .PARAMETER Model
-    Model to use. Default from config.
+    Model to use (provider/model format). Passed as --model / -m.
 .PARAMETER TimeoutSeconds
     Max execution time. Default from config.
 .PARAMETER AgentCmd
-    Override CLI command (for testing with mocks). Default: deepagents.
-.PARAMETER AutoApprove
-    Auto-approve tool usage. Default: true.
-.PARAMETER Quiet
-    Always $true — agents always run in quiet mode (-q flag).
+    Override CLI command (for testing with mocks). Default: opencode run.
 .PARAMETER McpConfig
-    Path to the MCP config JSON. Defaults to <AGENTS_DIR>/mcp/config.json.
-    Pass empty string to disable MCP tool injection.
+    Path to the MCP config JSON. Used to generate an opencode.json config
+    in the artifacts dir. Pass empty string to disable MCP tool injection.
+.PARAMETER Format
+    Output format: 'default' (formatted) or 'json' (raw JSON events).
+.PARAMETER Files
+    File(s) to attach to the message. Each is passed as --file.
+.PARAMETER SessionTitle
+    Title for the session. Passed as --title.
+.PARAMETER SessionId
+    Session ID to continue. Passed as --session / -s.
+.PARAMETER ContinueSession
+    Continue the last session. Passed as --continue / -c.
+.PARAMETER ForkSession
+    Fork the session when continuing. Passed as --fork.
+.PARAMETER ShareSession
+    Share the session. Passed as --share.
+.PARAMETER Command
+    Command to run, use message for args. Passed as --command.
+.PARAMETER AttachUrl
+    Attach to a running opencode server. Passed as --attach.
+.PARAMETER Port
+    Port for the local server. Passed as --port.
 .PARAMETER ExtraArgs
     Additional CLI arguments as string array.
 
@@ -53,15 +69,21 @@ param(
     [string]$Model = '',
     [int]$TimeoutSeconds = 600,
     [string]$AgentCmd = '',
-    [bool]$AutoApprove = $true,
     [string]$InstanceId = '',
     [string]$WorkingDir = '',
     [string]$McpConfig = '',
+    [string]$Format = '',
+    [string[]]$Files = @(),
+    [string]$SessionTitle = '',
+    [string]$SessionId = '',
+    [switch]$ContinueSession,
+    [switch]$ForkSession,
+    [switch]$ShareSession,
+    [string]$Command = '',
+    [string]$AttachUrl = '',
+    [int]$Port = 0,
     [string[]]$ExtraArgs = @()
 )
-
-# --- Always run agents in quiet mode ---
-$Quiet = $true
 
 # --- Resolve paths ---
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
@@ -75,7 +97,7 @@ $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromP
 
 # --- Load config ---
 $configPath = if ($env:AGENT_OS_CONFIG) { $env:AGENT_OS_CONFIG }
-              else { Join-Path $agentsDir "config.json" }
+else { Join-Path $agentsDir "config.json" }
 
 # --- Load plan-specific roles config from room's config.json → plan_id ---
 $planRolesConfig = $null
@@ -85,12 +107,47 @@ if (Test-Path $roomConfigFile) {
         $roomCfg = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
         $roomPlanId = $roomCfg.plan_id
         if ($roomPlanId) {
-            $planRolesFile = Join-Path $env:HOME ".ostwin" "plans" "$roomPlanId.roles.json"
+            $planRolesFile = Join-Path $OstwinHome ".agents" "plans" "$roomPlanId.roles.json"
             if (Test-Path $planRolesFile) {
                 $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
             }
         }
-    } catch { }
+    }
+    catch { }
+}
+
+# --- Plan roles resolution (highest priority after explicit -Model) ---
+# Runs unconditionally — does NOT depend on .agents/config.json existing.
+# Schema: { "<role>": { "default_model": "...", "timeout_seconds": N,
+#                       "instances": { "<id>": { "default_model": "...", "timeout_seconds": N } } } }
+$timeoutWasExplicit = $PSBoundParameters.ContainsKey('TimeoutSeconds')
+
+if ($planRolesConfig -and $planRolesConfig.$RoleName) {
+    $planRoleNode = $planRolesConfig.$RoleName
+
+    if (-not $Model) {
+        # Priority 1a: plan-roles instance override
+        if ($InstanceId -and $planRoleNode.instances `
+            -and $planRoleNode.instances.$InstanceId `
+            -and $planRoleNode.instances.$InstanceId.default_model) {
+            $Model = $planRoleNode.instances.$InstanceId.default_model
+        }
+        # Priority 1b: plan-roles role default
+        elseif ($planRoleNode.default_model) {
+            $Model = $planRoleNode.default_model
+        }
+    }
+
+    if (-not $timeoutWasExplicit) {
+        if ($InstanceId -and $planRoleNode.instances `
+            -and $planRoleNode.instances.$InstanceId `
+            -and $planRoleNode.instances.$InstanceId.timeout_seconds) {
+            $TimeoutSeconds = [int]$planRoleNode.instances.$InstanceId.timeout_seconds
+        }
+        elseif ($planRoleNode.timeout_seconds) {
+            $TimeoutSeconds = [int]$planRoleNode.timeout_seconds
+        }
+    }
 }
 
 # Safe defaults (overridden inside config block below)
@@ -106,13 +163,10 @@ if (Test-Path $configPath) {
         $instanceConfig = $config.$RoleName.instances.$InstanceId
     }
 
-    # Model: plan roles.json → instance → role config.json → role.json → hardcoded default
+    # Model fallback chain (plan roles already applied above):
+    # instance → role config.json → role.json → hardcoded default
     if (-not $Model) {
-        # Priority 1: plan-specific roles.json
-        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.default_model) {
-            $Model = $planRolesConfig.$RoleName.default_model
-        }
-        elseif ($instanceConfig -and $instanceConfig.default_model) {
+        if ($instanceConfig -and $instanceConfig.default_model) {
             $Model = $instanceConfig.default_model
         }
         elseif ($config.$RoleName.default_model) {
@@ -130,12 +184,9 @@ if (Test-Path $configPath) {
         }
     }
 
-    # Timeout: plan roles.json → instance → role
-    if ($TimeoutSeconds -eq 600) {
-        if ($planRolesConfig -and $planRolesConfig.$RoleName -and $planRolesConfig.$RoleName.timeout_seconds) {
-            $TimeoutSeconds = $planRolesConfig.$RoleName.timeout_seconds
-        }
-        elseif ($instanceConfig -and $instanceConfig.timeout_seconds) {
+    # Timeout fallback chain (plan roles already applied above): instance → role
+    if (-not $timeoutWasExplicit) {
+        if ($instanceConfig -and $instanceConfig.timeout_seconds) {
             $TimeoutSeconds = $instanceConfig.timeout_seconds
         }
         elseif ($config.$RoleName.timeout_seconds) {
@@ -177,26 +228,60 @@ if (Test-Path $configPath) {
     if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
     if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
-    # --- CLI resolution: local wrapper → role config → global fallback ---
+    # --- CLI resolution: env override → OSTWIN_HOME bin/agent → project-local → role config → opencode fallback ---
+    # Prefer $OSTWIN_AGENT_CMD env var (for dev/test overrides), then canonical
+    # install path, then project-local dev tree, then role config, then opencode.
     if (-not $AgentCmd) {
-        $localAgent = Join-Path $agentsDir "bin" "agent"
-        if (Test-Path $localAgent) {
-            $AgentCmd = "'$localAgent'"
+        if ($env:OSTWIN_AGENT_CMD) {
+            $AgentCmd = $env:OSTWIN_AGENT_CMD
         }
         else {
-            $AgentCmd = $config.$RoleName.cli
-            if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or (-not $AgentCmd)) { $AgentCmd = "deepagents" }
+            $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
+            $localAgent = Join-Path $agentsDir "bin" "agent"
+            if (Test-Path $ostwinAgent) {
+                $AgentCmd = "'$ostwinAgent'"
+            }
+            elseif (Test-Path $localAgent) {
+                $AgentCmd = "'$localAgent'"
+            }
+            else {
+                $AgentCmd = $config.$RoleName.cli
+                if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
+            }
         }
     }
 }
 
-if (-not $AgentCmd) { $AgentCmd = "deepagents" }
-if (-not $Model) { $Model = "gemini-3-flash-preview" }
+if (-not $AgentCmd) { $AgentCmd = "opencode run" }
+
+# --- Role.json model fallback (runs even when config.json is absent) ---
+# If no model was resolved from -Model param, plan.roles.json, or config.json,
+# try role.json as the last config-based source before the hardcoded default.
+# Search order: HOME-based (authoritative) → project-local (legacy).
+if (-not $Model) {
+    $homeRoleJson = Join-Path $OstwinHome ".agents" "roles" $RoleName "role.json"
+    $localRoleJson = Join-Path $agentsDir "roles" $RoleName "role.json"
+    $roleJsonPath = if (Test-Path $homeRoleJson) { $homeRoleJson } elseif (Test-Path $localRoleJson) { $localRoleJson } else { $null }
+    if ($roleJsonPath) {
+        try {
+            $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+            if ($roleJson.model) {
+                $Model = $roleJson.model
+            }
+        }
+        catch { }
+    }
+}
+if (-not $Model) { $Model = "google-vertex/zai-org/glm-5-maas" }
 
 # --- Env var overrides for testing ---
 $envCmdVar = "${RoleName}_CMD".ToUpper()
 $envCmd = [System.Environment]::GetEnvironmentVariable($envCmdVar)
 if ($envCmd) { $AgentCmd = $envCmd }
+
+# --- Log resolved model/timeout for debugging ---
+# This is the value that will actually drive opencode run.
+Write-Host "[Invoke-Agent] Resolved Role=$RoleName Instance=$InstanceId Model=$Model Timeout=${TimeoutSeconds}s"
 
 # --- Prepare output directory ---
 $artifactsDir = Join-Path $absRoomDir "artifacts"
@@ -258,98 +343,52 @@ $maxProcessRetries = 3
 $exitCode = 0
 
 $stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
-             else { "NUL" }
+else { "NUL" }
 
 # Write prompt to a file to avoid shell escaping issues
 $promptFile = Join-Path $artifactsDir "prompt.txt"
 $Prompt | Out-File -FilePath $promptFile -Encoding utf8 -NoNewline -Force
+# Resolve to absolute path for -f flag
+$promptFileAbsolute = (Resolve-Path $promptFile).Path
 
 # --- Debug: write a human-readable copy of the compiled prompt ---
 $debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
 $Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
 
-# Build non-prompt CLI args safely
+# Build non-prompt CLI args safely (opencode run flags)
+# Prompt is passed as --file <path> to avoid ARG_MAX limits with large prompts
 $extraCliArgs = @()
-if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
-if ($AutoApprove) { $extraCliArgs += "--auto-approve" }
 if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
-if ($RoleName -eq 'engineer') { $extraCliArgs += "--shell-allow-list"; $extraCliArgs += "all" }
-if ($Quiet) { $extraCliArgs += "--quiet" }
+if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
+if ($Format) { $extraCliArgs += "--format"; $extraCliArgs += $Format }
+if ($SessionTitle) { $extraCliArgs += "--title"; $extraCliArgs += $SessionTitle }
+if ($SessionId) { $extraCliArgs += "--session"; $extraCliArgs += $SessionId }
+if ($ContinueSession) { $extraCliArgs += "--continue" }
+if ($ForkSession) { $extraCliArgs += "--fork" }
+if ($ShareSession) { $extraCliArgs += "--share" }
+if ($Command) { $extraCliArgs += "--command"; $extraCliArgs += $Command }
+if ($AttachUrl) { $extraCliArgs += "--attach"; $extraCliArgs += $AttachUrl }
+if ($Port -gt 0) { $extraCliArgs += "--port"; $extraCliArgs += $Port.ToString() }
+foreach ($f in $Files) { $extraCliArgs += "--file"; $extraCliArgs += $f }
+# Attach prompt file — avoids inlining huge prompt text on the command line
+$extraCliArgs += "--file"; $extraCliArgs += $promptFileAbsolute
 
-# --- MCP config: prefer project-local config.json, fall back to legacy/global ---
-# If no_mcp is set in role config, skip MCP entirely to avoid ClosedResourceError
-# on remote LangGraph execution. Role scripts handle channel communication instead.
-if ($NoMcp) {
-    $extraCliArgs += "--no-mcp"
-}
-else {
-    $resolvedMcpConfig = $McpConfig
-    if (-not $resolvedMcpConfig) {
-        # Priority 1: project-local MCP config
-        if ($ProjectDir) {
-            foreach ($projectMcpConfig in @(
-                (Join-Path $ProjectDir ".agents" "mcp" "config.json"),
-                (Join-Path $ProjectDir ".agents" "mcp" "mcp-config.json")
-            )) {
-                if (Test-Path $projectMcpConfig) {
-                    $resolvedMcpConfig = $projectMcpConfig
-                    break
-                }
-            }
-        }
-        # Priority 2: agents dir (same repo, e.g. installed copy)
-        if (-not $resolvedMcpConfig) {
-            foreach ($agentsDirMcpConfig in @(
-                (Join-Path $agentsDir "mcp" "config.json"),
-                (Join-Path $agentsDir "mcp" "mcp-config.json")
-            )) {
-                if (Test-Path $agentsDirMcpConfig) {
-                    $resolvedMcpConfig = $agentsDirMcpConfig
-                    break
-                }
-            }
-        }
-        # Priority 3: OSTWIN_HOME global config
-        if (-not $resolvedMcpConfig) {
-            foreach ($ostwinMcpConfig in @(
-                (Join-Path $OstwinHome ".agents" "mcp" "config.json"),
-                (Join-Path $OstwinHome ".agents" "mcp" "mcp-config.json"),
-                (Join-Path $OstwinHome "mcp" "config.json"),
-                (Join-Path $OstwinHome "mcp" "mcp-config.json")
-            )) {
-                if (Test-Path $ostwinMcpConfig) {
-                    $resolvedMcpConfig = $ostwinMcpConfig
-                    break
-                }
-            }
-        }
-    }
-    if ($resolvedMcpConfig -and (Test-Path $resolvedMcpConfig)) {
-        $mcpConfigContent = Get-Content $resolvedMcpConfig -Raw
-        # Expand ${AGENT_DIR} → absolute agentsDir
-        if ($mcpConfigContent -match '\$\{AGENT_DIR\}') {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{AGENT_DIR\}', $agentsDir.Replace('\', '/')
-        }
-        # Expand ${PROJECT_DIR} → absolute project dir
-        if ($ProjectDir -and ($mcpConfigContent -match '\$\{PROJECT_DIR\}')) {
-            $mcpConfigContent = $mcpConfigContent -replace '\$\{PROJECT_DIR\}', $ProjectDir.Replace('\', '/')
-        }
-        # Write resolved config if any placeholders were expanded
-        if ($mcpConfigContent -ne (Get-Content $resolvedMcpConfig -Raw)) {
-            $tempMcpConfig = Join-Path $artifactsDir "mcp-config-resolved.json"
-            $mcpConfigContent | Out-File -FilePath $tempMcpConfig -Encoding utf8 -NoNewline -Force
-            $resolvedMcpConfig = $tempMcpConfig
-        }
-        $extraCliArgs += "--mcp-config"
-        $extraCliArgs += (Resolve-Path $resolvedMcpConfig).Path
+# --- MCP config: use pre-compiled .opencode/opencode.json if available ---
+# opencode run reads MCP config from .opencode/opencode.json (standard location).
+# Invoke-Agent does NOT generate opencode.json — it must be pre-compiled by ostwin init/compile.
+$tempMcpConfig = $null
+if (-not $NoMcp -and $ProjectDir) {
+    $precompiledOpencode = Join-Path $ProjectDir ".opencode" "opencode.json"
+    if (Test-Path $precompiledOpencode) {
+        $tempMcpConfig = $precompiledOpencode
     }
 }
 
 $extraCliArgs += $ExtraArgs
 
 $argsLine = ($extraCliArgs | ForEach-Object {
-    if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
-}) -join ' '
+        if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
+    }) -join ' '
 
 for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
     $exitCode = 0
@@ -366,7 +405,14 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
         $safePidFile = $pidFile -replace "'", "'\''"
         $safeOstwinHome = $OstwinHome.Replace('\', '/').Replace("'", "'\''")
-        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''")} else { "" }
+        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''") } else { "" }
+        $opencodeConfigLine = ""
+        if ($tempMcpConfig) {
+            $safeOpencodeConfig = $tempMcpConfig.Replace('\', '/').Replace("'", "'\''")
+            $opencodeConfigLine = "export OPENCODE_CONFIG='$safeOpencodeConfig'"
+        }
+        # Log diagnostic info before exec
+        Write-Host "[Invoke-Agent] Launching: CMD=$AgentCmd, PromptFile=$promptFile, ArgsLine=$argsLine"
         $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
@@ -376,14 +422,22 @@ export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 export AGENT_OS_PID_FILE='$safePidFile'
 export OSTWIN_HOME='$safeOstwinHome'
 export AGENT_OS_PROJECT_DIR='$safeProjectDir'
+$opencodeConfigLine
+# Source user-controlled pre-exec hook for dynamic env vars
+# (e.g. refreshing short-lived API tokens like VERTEX_API_KEY).
+# Static vars belong in `$safeOstwinHome`/.env; this file is for shell logic.
+if [ -f "`$HOME/.ostwin/.env.sh" ]; then . "`$HOME/.ostwin/.env.sh"; fi
+if [ -f '$safeOstwinHome/.env.sh' ]; then . '$safeOstwinHome/.env.sh'; fi
 $cwdLine
 # Write PID before exec — `$`$ survives exec, so this is the real agent PID.
 # bin/agent also writes this (harmless overwrite); this fallback ensures
-# non-bin/agent commands (deepagents, custom CLIs) still get tracked.
+# non-bin/agent commands (opencode run, custom CLIs) still get tracked.
 echo "`$$" > '$safePidFile'
 # Log diagnostic info before exec
 echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> '$safeOutput'
-exec $AgentCmd -n "`$(cat '$safePrompt')" $argsLine >> '$safeOutput' 2>&1
+echo "[wrapper] PROMPT_FILE='$safePrompt' (exists: `$(test -f '$safePrompt' && echo yes || echo no), size: `$(wc -c < '$safePrompt' 2>/dev/null || echo 0) bytes)" >> '$safeOutput'
+echo "[wrapper] EXEC: $AgentCmd 'start' $argsLine" >> '$safeOutput'
+exec $AgentCmd 'start' $argsLine >> '$safeOutput' 2>&1
 # If exec fails, this line runs:
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
 "@
@@ -432,7 +486,8 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
                         try {
                             $p = Get-Process -Id $candidatePid -ErrorAction Stop
                             if ($p) { $confirmedPid = $candidatePid; break }
-                        } catch { }
+                        }
+                        catch { }
                     }
                 }
             }
@@ -492,13 +547,11 @@ $output = if (Test-Path $outputFile) {
 }
 else { "No output captured" }
 
-    # --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
-    Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
-    Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
-# Remove resolved MCP config copy if one was generated
-if ($tempMcpConfig -and (Test-Path $tempMcpConfig)) {
-    Remove-Item $tempMcpConfig -Force -ErrorAction SilentlyContinue
-}
+# --- Clean up temp files (OPT-003: prevent accumulation on retries) ---
+Remove-Item $wrapperScript -Force -ErrorAction SilentlyContinue
+Remove-Item $promptFile -Force -ErrorAction SilentlyContinue
+# Note: opencode.json is no longer generated by Invoke-Agent.
+# Pre-compiled .opencode/opencode.json (from ostwin init/compile) is used directly.
 
 # Note: PID file is NOT removed here. The caller (Start-Engineer/Start-QA)
 # must clean it up after posting the channel message, to avoid race conditions

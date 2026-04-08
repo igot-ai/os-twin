@@ -4,8 +4,10 @@ import { useState, useEffect, useMemo } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Role } from '@/types';
 import { apiPost, apiPut } from '@/lib/api-client';
-import ProviderSelector from './ProviderSelector';
+import { ModelSelect } from '@/components/settings/ModelSelect';
+import { useConfiguredModels } from '@/hooks/use-configured-models';
 import SkillChipInput from './SkillChipInput';
+import McpSelector from './McpSelector';
 import TestConnectionButton from './TestConnectionButton';
 import { useModelRegistry, useRoleDependencies } from '@/hooks/use-roles';
 
@@ -19,6 +21,7 @@ interface RoleEditorPanelProps {
 export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }: RoleEditorPanelProps) {
   const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
+  const { allModels, providers: configuredProviders } = useConfiguredModels();
   const { data: apiKeysStatus, isLoading: isLoadingKeys } = useSWR<Record<string, boolean>>('/providers/api-keys');
   const { dependencies } = useRoleDependencies(role?.id || '');
   const [activeTab, setActiveTab] = useState<'config' | 'dependencies'>('config');
@@ -31,6 +34,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
     max_retries: 3,
     timeout_seconds: 900,
     skill_refs: [],
+    mcp_refs: [],
     description: '',
     instructions: '',
     system_prompt_override: '',
@@ -75,6 +79,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
         max_retries: 3,
         timeout_seconds: 900,
         skill_refs: [],
+        mcp_refs: [],
         description: '',
         instructions: '',
         system_prompt_override: '',
@@ -121,7 +126,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-50 flex items-end justify-center animate-in fade-in duration-300">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
@@ -130,14 +135,19 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
       
       {/* Panel */}
       <div 
-        className="relative w-full max-w-[420px] h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden"
+        className="relative w-full max-w-3xl max-h-[85vh] shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-500 overflow-hidden rounded-t-2xl"
         style={{ background: 'var(--color-surface)' }}
       >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+
         {/* Header */}
-        <div className="p-6 border-b flex items-center justify-between sticky top-0 z-10" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+        <div className="px-6 pb-4 pt-2 border-b flex items-center justify-between sticky top-0 z-10" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <div>
             <h2 className="text-xl font-extrabold" style={{ color: 'var(--color-text-main)' }}>{role ? 'Edit Role' : 'New Role'}</h2>
-            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Configure agent identity and model binding</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Configure agent identity and model provider</p>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
             <span className="material-symbols-outlined text-base" style={{ color: 'var(--color-text-muted)' }}>close</span>
@@ -200,32 +210,47 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
             </div>
           </div>
 
-          {/* Section: Model Binding */}
+          {/* Section: Model Provider */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">02</span>
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Model Binding</h3>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Model Provider</h3>
             </div>
             
-            <ProviderSelector
-              value={(formData.provider?.toLowerCase() as Role['provider']) || defaultProvider}
-              onChange={p => setFormData({ ...formData, provider: p, version: normalizedRegistry?.[p]?.[0]?.id || '' })}
-              apiKeysStatus={apiKeysStatus}
-            />
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Model</label>
+              <ModelSelect
+                value={formData.version || ''}
+                onChange={(modelId) => {
+                  // Auto-detect provider from selected model
+                  const model = allModels.find(m => m.id === modelId);
+                  const detectedProvider = model?.provider_id as Role['provider'] | undefined;
+                  setFormData({
+                    ...formData,
+                    version: modelId,
+                    ...(detectedProvider ? { provider: detectedProvider } : {}),
+                  });
+                }}
+                models={allModels}
+                providers={configuredProviders}
+                placeholder="Search models or providers..."
+              />
+              {errors.version && <p className="text-[10px] font-bold text-red-500 px-1">{errors.version}</p>}
+            </div>
 
-            <div className="space-y-1.5 mt-4">
-              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Model Version</label>
-              <select 
-                className="w-full p-3 rounded-xl border bg-white text-sm font-semibold shadow-sm focus:ring-4 focus:ring-primary/10"
-                value={formData.version}
-                onChange={e => setFormData({ ...formData, version: e.target.value })}
-              >
-                {normalizedRegistry?.[formData.provider?.toLowerCase() || defaultProvider]?.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.id} ({m.tier}) — {m.context_window}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-1.5 mt-3">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Or Custom Model ID</label>
+              <input
+                type="text"
+                placeholder="e.g. my-custom-model or provider/model-name"
+                className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold shadow-sm focus:ring-4 focus:ring-primary/10 transition-all"
+                value={formData.version && !normalizedRegistry?.[formData.provider?.toLowerCase() || defaultProvider]?.some(m => m.id === formData.version) ? formData.version : ''}
+                onChange={e => {
+                  if (e.target.value) {
+                    setFormData({ ...formData, version: e.target.value });
+                  }
+                }}
+              />
             </div>
             
             <TestConnectionButton version={formData.version || ''} />
@@ -305,10 +330,23 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
             />
           </div>
 
-          {/* Section: Instructions */}
+          {/* Section: MCP Binding */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">05</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">MCP Binding</h3>
+            </div>
+            
+            <McpSelector 
+              selectedMcpRefs={formData.mcp_refs || []}
+              onChange={refs => setFormData({ ...formData, mcp_refs: refs })}
+            />
+          </div>
+
+          {/* Section: Instructions */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">06</span>
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Role Instructions</h3>
             </div>
 

@@ -3,12 +3,29 @@ import { apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
 export interface McpServer {
   name: string;
-  type: 'stdio' | 'http';
+  type: 'local' | 'remote' | 'stdio' | 'http';
   status: string;
   credential_status: 'ok' | 'missing';
   missing_keys: string[];
   builtin: boolean;
   config: any;
+}
+
+export interface TestAllServer {
+  name: string;
+  status: 'connected' | 'failed';
+  message: string;
+  details: string[];
+  command?: string;
+}
+
+export interface TestAllResult {
+  servers: TestAllServer[];
+  total: number;
+  connected: number;
+  failed: number;
+  error?: string;
+  raw_output?: string;
 }
 
 export function useMcpServers() {
@@ -31,6 +48,11 @@ export function useMcpServers() {
     return res;
   };
 
+  const testAllServers = async () => {
+    const res = await apiPost<TestAllResult>('/mcp/servers/test-all', {});
+    return res;
+  };
+
   return {
     servers: data?.servers,
     isLoading,
@@ -38,6 +60,7 @@ export function useMcpServers() {
     addServer,
     removeServer,
     testServer,
+    testAllServers,
     refresh: mutate,
   };
 }

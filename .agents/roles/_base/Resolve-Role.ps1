@@ -34,7 +34,7 @@ $result = [PSCustomObject]@{
     Name         = $RoleName
     BaseRole     = $baseRole
     Runner       = $null
-    Model        = 'gemini-3-flash-preview'
+    Model        = 'google-vertex/gemini-3-flash-preview'
     Timeout      = 600
     Capabilities = @()
     Source       = 'ephemeral'
@@ -46,13 +46,15 @@ if ($RolePath -and (Test-Path $RolePath)) {
         $roleJson = Get-Content (Join-Path $RolePath "role.json") -Raw | ConvertFrom-Json
         $result.Capabilities = if ($roleJson.capabilities) { @($roleJson.capabilities) } else { @() }
         if ($roleJson.model) { $result.Model = $roleJson.model }
-        if ($roleJson.timeout_seconds) { $result.Timeout = $roleJson.timeout_seconds }
+        $t = if ($roleJson.timeout) { $roleJson.timeout } elseif ($roleJson.timeout_seconds) { $roleJson.timeout_seconds } else { $null }
+        if ($t) { $result.Timeout = $t }
     }
     
     $customRunner = Join-Path $RolePath "Start-$baseRole.ps1"
     if (Test-Path $customRunner) {
         $result.Runner = $customRunner
-    } else {
+    }
+    else {
         $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
     }
     $result.Source = 'override'
@@ -102,19 +104,25 @@ if (-not $result.Runner) {
             if (Test-Path $contributesDir) { $searchDirs += $contributesDir }
         }
         $searchDirs += Join-Path $AgentsDir "roles" $baseRole
+        # ~/.ostwin/.agents/roles/ — auto-scaffolded and globally installed roles
+        $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) ".ostwin" }
+        $ostwinRoleDir = Join-Path $OstwinHome ".agents" "roles" $baseRole
+        if (Test-Path $ostwinRoleDir) { $searchDirs += $ostwinRoleDir }
      
         foreach ($dir in $searchDirs) {
             if (Test-Path (Join-Path $dir "role.json")) {
                 $roleJson = Get-Content (Join-Path $dir "role.json") -Raw | ConvertFrom-Json
                 $result.Capabilities = if ($roleJson.capabilities) { @($roleJson.capabilities) } else { @() }
                 if ($roleJson.model) { $result.Model = $roleJson.model }
-                if ($roleJson.timeout_seconds) { $result.Timeout = $roleJson.timeout_seconds }
+                $t = if ($roleJson.timeout) { $roleJson.timeout } elseif ($roleJson.timeout_seconds) { $roleJson.timeout_seconds } else { $null }
+        if ($t) { $result.Timeout = $t }
      
                 # Check for custom runner script
                 $customRunner = Join-Path $dir "Start-$baseRole.ps1"
                 if (Test-Path $customRunner) {
                     $result.Runner = $customRunner
-                } else {
+                }
+                else {
                     # Use universal dynamic runner as fallback for discovered roles
                     $result.Runner = Join-Path $AgentsDir "roles" "_base" "Start-DynamicRole.ps1"
                 }
@@ -129,11 +137,13 @@ if (-not $result.Runner) {
 if (-not $result.Runner -and $RequiredCapabilities.Count -gt 0) {
     $allRoles = if ($AvailableRoles) {
         $AvailableRoles
-    } else {
+    }
+    else {
         $getAvailable = Join-Path $AgentsDir "roles" "_base" "Get-AvailableRoles.ps1"
         if (Test-Path $getAvailable) {
             & $getAvailable -AgentsDir $AgentsDir -WarRoomsDir $WarRoomsDir
-        } else { @() }
+        }
+        else { @() }
     }
     
     if ($allRoles) {

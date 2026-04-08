@@ -16,7 +16,7 @@
 #   - Python 3.10+       (via uv / brew / apt)
 #   - PowerShell 7+      (via brew / Microsoft repos)
 #   - uv                 (Python package/env manager)
-#   - deepagents-cli     (Agent execution engine)
+#   - opencode            (Agent execution engine)
 #   - Pester 5+          (PowerShell test framework)
 #   - MCP dependencies   (fastapi, uvicorn, etc.)
 #
@@ -193,8 +193,8 @@ check_uv() {
   command -v uv &>/dev/null
 }
 
-check_deepagents() {
-  command -v deepagents &>/dev/null
+check_opencode() {
+  command -v opencode &>/dev/null
 }
 
 check_brew() {
@@ -390,36 +390,29 @@ install_node() {
   ok "Node.js $NODE_VER installed to $node_dir"
 }
 
-install_deepagents() {
-  step "Installing deepagents-cli..."
-  if check_uv; then
-    # Preferred: uv tool install creates an isolated env
-    uv tool install 'deepagents-cli' 2>/dev/null || {
-      # If already installed, upgrade
-      uv tool upgrade deepagents-cli 2>/dev/null || true
-    }
+install_opencode() {
+  step "Installing opencode..."
+
+  # Preferred: brew (macOS and Linux, always up to date)
+  if command -v brew &>/dev/null; then
+    brew install anomalyco/tap/opencode 2>/dev/null || brew upgrade anomalyco/tap/opencode 2>/dev/null || true
   else
-    # Fallback: pip in the project venv
-    local pip_cmd="$VENV_DIR/bin/pip"
-    if [[ -x "$pip_cmd" ]]; then
-      "$pip_cmd" install --quiet deepagents-cli
-    else
-      pip3 install --user deepagents-cli
-    fi
+    # Fallback: official install script
+    curl -fsSL https://opencode.ai/install | bash
   fi
 
   # Verify
-  if check_deepagents; then
-    local da_ver
-    da_ver=$(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
-    ok "deepagents-cli $da_ver installed"
+  if check_opencode; then
+    local oc_ver
+    oc_ver=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+    ok "opencode $oc_ver installed"
   else
-    # May need PATH refresh
-    export PATH="$HOME/.local/bin:$HOME/.local/share/uv/tools/deepagents-cli/bin:$PATH"
-    if check_deepagents; then
-      ok "deepagents-cli installed (PATH updated)"
+    # PATH may need refreshing
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if check_opencode; then
+      ok "opencode installed (PATH updated)"
     else
-      warn "deepagents-cli installed but not in PATH yet"
+      warn "opencode installed but not in PATH yet"
       info "Run: source ~/.bashrc  (or open a new terminal)"
     fi
   fi
@@ -468,7 +461,7 @@ setup_venv() {
   fi
 
   # Always sync requirements — even if the venv was reused.
-  # This ensures newly added packages (e.g. deepagents) are installed
+  # This ensures newly added packages are installed
   # when a user re-runs install.sh after an update.
 
   # Install MCP requirements
@@ -582,6 +575,29 @@ ENVEOF
   chmod 600 "$env_file"   # Protect API keys
   ok ".env created — edit $env_file to add your API keys"
 
+  # Create a companion .env.sh hook for dynamic env logic (subshells,
+  # token refresh, etc.) that .env can't express. Sourced by every
+  # generated run-agent.sh wrapper before the agent execs.
+  local env_sh="$INSTALL_DIR/.env.sh"
+  if [[ ! -f "$env_sh" ]]; then
+    cat > "$env_sh" << 'ENVSHEOF'
+# Ostwin — dynamic environment hook
+# Sourced by every generated run-agent.sh wrapper before the agent execs.
+# Use this for env vars that require shell logic (subshells, conditionals,
+# token refresh, etc.). Static KEY=VALUE pairs belong in ~/.ostwin/.env.
+
+# Refresh a Vertex AI access token from the active gcloud account.
+# The OpenAI-compatible Vertex endpoint expects this as a Bearer token,
+# and access tokens expire ~1h, so re-mint per agent launch.
+if command -v gcloud >/dev/null 2>&1; then
+  VERTEX_API_KEY="$(gcloud auth print-access-token 2>/dev/null)"
+  export VERTEX_API_KEY
+fi
+ENVSHEOF
+    chmod 600 "$env_sh"
+    ok ".env.sh created — add dynamic env hooks (e.g. token refresh) here"
+  fi
+
   # Migrate any existing exported key from the current shell environment
   local migrated=false
   for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY NGROK_AUTHTOKEN; do
@@ -621,7 +637,7 @@ ENVEOF
         *) info "Skipped API key setup. Please edit $env_file later." ;;
       esac
 
-      for key_name in "${selected_keys[@]}"; do
+      for key_name in ${selected_keys[@]+"${selected_keys[@]}"}; do
         echo -en "    ${CYAN}→${NC} Enter $key_name: "
         read -s -r user_val
         echo ""
@@ -765,7 +781,7 @@ install_files() {
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
-    --exclude='mcp/config.json' --exclude='mcp/mcp-config.json' --exclude='mcp/.env.mcp' \
+    --exclude='mcp/config.json' --exclude='mcp/.env.mcp' \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ manually)
       find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
@@ -791,6 +807,18 @@ install_files() {
       [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/.agents/mcp/"
     done
     ok "mcp/ preserved (scripts + catalog updated, config untouched)"
+  fi
+
+  # ── MCP: migrate legacy mcp-config.json → config.json ─────────────────────
+  local installed_mcp_dir="$INSTALL_DIR/.agents/mcp"
+  if [[ -f "$installed_mcp_dir/mcp-config.json" && ! -f "$installed_mcp_dir/config.json" ]]; then
+    step "Migrating mcp-config.json → config.json..."
+    mv "$installed_mcp_dir/mcp-config.json" "$installed_mcp_dir/config.json"
+    ok "Renamed mcp-config.json → config.json"
+  elif [[ -f "$installed_mcp_dir/mcp-config.json" && -f "$installed_mcp_dir/config.json" ]]; then
+    # Both exist — remove legacy, config.json takes precedence
+    rm -f "$installed_mcp_dir/mcp-config.json"
+    ok "Removed legacy mcp-config.json (config.json exists)"
   fi
 
   # ── Dashboard: always override from source repo ───────────────────────────
@@ -886,12 +914,7 @@ compute_build_hash() {
 
 patch_mcp_config() {
   local mcp_config="$INSTALL_DIR/.agents/mcp/config.json"
-  local legacy_mcp_config="$INSTALL_DIR/.agents/mcp/mcp-config.json"
   local env_file="$INSTALL_DIR/.env"
-
-  if [[ ! -f "$mcp_config" && -f "$legacy_mcp_config" ]]; then
-    mcp_config="$legacy_mcp_config"
-  fi
 
   if [[ ! -f "$mcp_config" ]]; then
     return
@@ -899,14 +922,16 @@ patch_mcp_config() {
 
   step "Patching MCP config..."
 
-  # 1. Replace OSTWIN_VENV_PYTHON placeholder
-  if [[ "$OS" == "macos" ]]; then
-    sed -i '' "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+  # 1. Ensure OSTWIN_PYTHON is set in .env (used by {env:OSTWIN_PYTHON} in config)
+  if [[ -f "$env_file" ]]; then
+    if ! grep -q "^OSTWIN_PYTHON=" "$env_file"; then
+      echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" >> "$env_file"
+    fi
   else
-    sed -i "s|OSTWIN_VENV_PYTHON|$VENV_DIR/bin/python|g" "$mcp_config"
+    echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" > "$env_file"
   fi
 
-  # 2. Inject all .env variables into every MCP server's "env" block
+  # 2. Inject all .env variables into every MCP server's "environment" block
   if [[ -f "$env_file" ]]; then
     "$VENV_DIR/bin/python" - "$mcp_config" "$env_file" <<'PYEOF'
 import json, sys, os
@@ -936,14 +961,20 @@ if not env_vars:
 with open(mcp_path) as f:
     config = json.load(f)
 
-servers = config.get('mcpServers', {})
+# Support both OpenCode 'mcp' and legacy 'mcpServers' keys
+servers = config.get('mcp', config.get('mcpServers', {}))
 for name, server in servers.items():
-    if 'env' not in server:
-        server['env'] = {}
+    # Only inject environment into local servers (OpenCode spec)
+    if server.get('type') == 'remote':
+        continue
+    # Support both 'environment' (OpenCode) and 'env' (legacy)
+    env_key = 'environment' if 'environment' in server else 'env' if 'env' in server else 'environment'
+    if env_key not in server:
+        server[env_key] = {}
     # Merge .env vars (don't overwrite existing per-server values)
     for k, v in env_vars.items():
-        if k not in server['env']:
-            server['env'][k] = v
+        if k not in server[env_key]:
+            server[env_key][k] = v
 
 with open(mcp_path, 'w') as f:
     json.dump(config, f, indent=2)
@@ -953,7 +984,129 @@ print(f"    Injected {len(env_vars)} env var(s) into {len(servers)} MCP server(s
 PYEOF
   fi
 
+  # 3. Normalize + validate + merge MCP servers into ~/.config/opencode/opencode.json
+  #    - Normalizes from any format (legacy mcpServers, shell ${VAR}, etc.) to OpenCode.
+  #    - Validates each server against OpenCode MCP spec.
+  #    - Ensures each server has "enabled": true.
+  #    - Builds a "tools" deny block: "<server>*": false for each server.
+  #    - Preserves existing user settings (theme, model, keybinds).
+  local opencode_home="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  mkdir -p "$opencode_home"
+  "$VENV_DIR/bin/python" - "$mcp_config" "$opencode_home/opencode.json" "$INSTALL_DIR/.agents/mcp" <<'PYEOF'
+import json, sys, os
+
+mcp_source, opencode_file, mcp_module_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# Import from the shared module (.agents/mcp/validate_mcp.py)
+sys.path.insert(0, mcp_module_dir)
+from validate_mcp import normalize_mcp_config, validate_mcp_config, build_opencode_config
+
+# Read the MCP source config (may be OpenCode or legacy format)
+with open(mcp_source) as f:
+    source = json.load(f)
+
+# Normalize: legacy mcpServers → mcp, shell ${VAR} → {env:VAR},
+#            string command → array, env → environment, httpUrl → url
+normalized = normalize_mcp_config(source)
+
+# Validate against OpenCode spec
+validated_mcp, skipped_names, results = validate_mcp_config(normalized)
+
+for name, is_valid, errors, warnings in results:
+    for w in warnings:
+        print(f"    [WARN] '{name}': {w}", file=sys.stderr)
+    if not is_valid:
+        for e in errors:
+            print(f"    [ERROR] '{name}': {e} — skipping", file=sys.stderr)
+
+# Build tools deny + agent config:
+#   - Global tools deny: blocks all MCP tools EXCEPT core servers
+#     (channel, warroom, memory are available to ALL agents)
+#   - Agent config: privileged agents (manager, architect, qa, audit,
+#     reporter) get ALL tools enabled
+tools_deny, agent_config = build_opencode_config(validated_mcp)
+
+# Load existing opencode.json if present (preserve user settings)
+existing = {}
+if os.path.exists(opencode_file):
+    try:
+        with open(opencode_file) as f:
+            existing = json.load(f)
+    except (json.JSONDecodeError, ValueError):
+        existing = {}
+
+# Merge: replace only the managed keys (mcp, tools, agent)
+existing["$schema"] = "https://opencode.ai/config.json"
+existing["mcp"] = validated_mcp
+existing["tools"] = tools_deny
+existing["agent"] = agent_config
+
+with open(opencode_file, 'w') as f:
+    json.dump(existing, f, indent=2)
+    f.write('\n')
+
+core_count = len([n for n in validated_mcp if n in {"channel", "warroom", "memory"}])
+print(f"    Merged {len(validated_mcp)} MCP server(s) into {opencode_file}")
+if skipped_names:
+    print(f"    Skipped {len(skipped_names)} invalid server(s): {', '.join(skipped_names)}")
+print(f"    Tools deny block: {len(tools_deny)} server(s) globally disabled")
+print(f"    Core servers (channel/warroom/memory): {core_count} available to all agents")
+print(f"    Agent config: {len(agent_config)} privileged agent(s) with full tool access")
+PYEOF
+
   ok "MCP config patched"
+}
+
+# ─── Sync roles to OpenCode agents dir ───────────────────────────────────────
+# Copies ROLE.md from each role directory to ~/.config/opencode/agents/<role>.md
+# so the OpenCode CLI can discover and invoke them as named agents.
+
+sync_opencode_agents() {
+  local opencode_home="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  local agents_dir="$opencode_home/agents"
+  local roles_dirs=(
+    "$INSTALL_DIR/.agents/roles"
+    "$INSTALL_DIR/contributes/roles"
+  )
+
+  step "Syncing agent definitions to $agents_dir..."
+  mkdir -p "$agents_dir"
+
+  local synced=0
+  local skipped=0
+
+  for roles_dir in "${roles_dirs[@]}"; do
+    [[ -d "$roles_dir" ]] || continue
+
+    for role_dir in "$roles_dir"/*/; do
+      [[ -d "$role_dir" ]] || continue
+
+      local role_name
+      role_name="$(basename "$role_dir")"
+
+      # Skip _base (infrastructure scripts, not a role)
+      if [[ "$role_name" == "_base" ]]; then
+        continue
+      fi
+
+      # Must have role.json to be a valid role
+      if [[ ! -f "$role_dir/role.json" ]]; then
+        skipped=$((skipped + 1))
+        continue
+      fi
+
+      # Copy ROLE.md as <role-name>.md (built-in roles take precedence over contributes)
+      local role_md="$role_dir/ROLE.md"
+      if [[ -f "$role_md" ]]; then
+        cp "$role_md" "$agents_dir/${role_name}.md"
+        synced=$((synced + 1))
+      else
+        skipped=$((skipped + 1))
+      fi
+    done
+  done
+
+  ok "$synced agent(s) synced to $agents_dir ($skipped skipped — no ROLE.md)"
 }
 
 # ─── PATH setup ──────────────────────────────────────────────────────────────
@@ -1110,12 +1263,12 @@ else
   fi
 fi
 
-# --- deepagents-cli ---
-if check_deepagents; then
-  DA_VERSION=$(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
-  ok "deepagents-cli $DA_VERSION"
+# --- opencode ---
+if check_opencode; then
+  OC_VERSION=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+  ok "opencode $OC_VERSION"
 else
-  install_deepagents
+  install_opencode
 fi
 
 # --- Node.js ---
@@ -1176,7 +1329,7 @@ install_files
 
 # ─── 4b. macOS host daemon (optional, desktop automation support) ─────────────
 
-if [[ "$OS" == "macos" ]]; then
+if [[ "$OS" == "..." ]]; then
   DAEMON_INSTALL="$INSTALL_DIR/.agents/daemons/macos-host/install.sh"
   if [[ -f "$DAEMON_INSTALL" ]]; then
     if ask "Install macOS host daemon? (enables desktop automation: windows, clicks, screenshots)"; then
@@ -1192,6 +1345,7 @@ fi
 header "5. Setting up Python environment"
 setup_venv
 patch_mcp_config
+sync_opencode_agents
 compute_build_hash
 
 # ─── 5b. Environment variables (.env) ────────────────────────────────────────
@@ -1270,10 +1424,10 @@ else
     echo -e "    uv:               ${YELLOW}⚠️  not installed${NC}"
   fi
 
-  if check_deepagents; then
-    echo -e "    deepagents-cli:   ${GREEN}✅ $(deepagents --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
+  if check_opencode; then
+    echo -e "    opencode:         ${GREEN}✅ $(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
   else
-    echo -e "    deepagents-cli:   ${YELLOW}⚠️  not in PATH${NC}"
+    echo -e "    opencode:         ${YELLOW}⚠️  not in PATH${NC}"
   fi
 
   if [[ -d "$VENV_DIR" ]]; then
@@ -1335,19 +1489,29 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
     ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
     # Check for ngrok tunnel URL
     TUNNEL_URL=""
+    TUNNEL_ERROR=""
     PYTHON_FOR_TUNNEL="$VENV_DIR/bin/python"
     [[ -x "$PYTHON_FOR_TUNNEL" ]] || PYTHON_FOR_TUNNEL="python3"
+    TUNNEL_JSON=""
     if [[ -n "$OSTWIN_API_KEY" ]]; then
-      TUNNEL_URL=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
-        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+      TUNNEL_JSON=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
     else
-      TUNNEL_URL=$(curl -sf \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
-        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+      TUNNEL_JSON=$(curl -sf \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
+    fi
+    if [[ -n "$TUNNEL_JSON" ]]; then
+      TUNNEL_URL=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
+      TUNNEL_ERROR=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('error') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
     fi
     if [[ -n "$TUNNEL_URL" ]]; then
       ok "Tunnel active: $TUNNEL_URL"
+    elif [[ -n "$TUNNEL_ERROR" ]]; then
+      warn "Tunnel failed: $TUNNEL_ERROR"
+    elif [[ -z "${NGROK_AUTHTOKEN:-}" ]]; then
+      info "Tunnel not configured — set NGROK_AUTHTOKEN in ~/.ostwin/.env to enable port forwarding"
+    else
+      warn "Tunnel not active — check dashboard logs at $INSTALL_DIR/logs/dashboard.log"
     fi
   else
     warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"

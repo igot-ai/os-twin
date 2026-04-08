@@ -14,7 +14,7 @@
     "global"
   ],
   "cli": "agent",
-  "model": "gemini-3-flash-preview",
+  "model": "google-vertex/gemini-3-flash-preview",
   "timeout": 600,
   "instance_type": "worker"
 }

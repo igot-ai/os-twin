@@ -154,7 +154,7 @@ if ($TimeoutSeconds -eq 0) {
     $TimeoutSeconds = if ($roleDef -and $roleDef.Timeout) { $roleDef.Timeout } else { 600 }
 }
 
-$agentModel = if ($roleDef -and $roleDef.Model) { $roleDef.Model } else { "gemini-3-flash-preview" }
+$agentModel = if ($roleDef -and $roleDef.Model) { $roleDef.Model } else { "google-vertex/gemini-3-flash-preview" }
 $agentInstanceType = if ($roleDef -and $roleDef.InstanceType) { $roleDef.InstanceType } else { "worker" }
 
 # --- Resolve instance-specific config ---
@@ -412,8 +412,11 @@ $invokeArgs = @{
 
 if ($instanceSuffix) { $invokeArgs['InstanceId'] = $instanceSuffix }
 if ($instanceWorkingDir) { $invokeArgs['WorkingDir'] = $instanceWorkingDir }
+# Model resolution: only pass explicit per-room instance model overrides.
+# Do NOT pass the fallback $agentModel (from role.json / config.json) — let
+# Invoke-Agent.ps1 resolve from plan.roles.json → config.json → role.json → default.
+# This ensures the user's plan-level model configuration is respected.
 if ($roleInstanceModel) { $invokeArgs['Model'] = $roleInstanceModel }
-elseif ($agentModel) { $invokeArgs['Model'] = $agentModel }
 
 $result = & $invokeAgent @invokeArgs
 

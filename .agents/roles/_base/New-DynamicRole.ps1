@@ -18,7 +18,7 @@
 .PARAMETER Skills
     Array of skill strings.
 .PARAMETER Model
-    LLM model to use. Default: gemini-3-flash-preview.
+    LLM model to use. Default: google-vertex/gemini-3-flash-preview.
 .PARAMETER Timeout
     Timeout in seconds. Default: 600.
 .PARAMETER CLI
@@ -46,7 +46,7 @@ param(
     [string]$Description = '',
     [string[]]$Capabilities = @(),
     [string[]]$Skills = @(),
-    [string]$Model = 'gemini-3-flash-preview',
+    [string]$Model = 'google-vertex/gemini-3-flash-preview',
     [int]$Timeout = 600,
     [string]$CLI = 'agent',
     [string]$InstanceType = 'worker',
@@ -97,7 +97,7 @@ $roleDefinition = [ordered]@{
     capabilities  = @($Capabilities)
     prompt_file   = "ROLE.md"
     quality_gates = @()
-    skills        = @($Skills)
+    skill_refs    = @($Skills)
     cli           = $CLI
     instance_type = $InstanceType
     model         = $Model

@@ -2,15 +2,16 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { ActivityFeed } from './ActivityFeed';
 import { useWebSocket } from '@/hooks/use-websocket';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
 
-jest.mock('@/hooks/use-websocket');
+vi.mock('@/hooks/use-websocket');
 
 describe('ActivityFeed', () => {
-  const mockUseWebSocket = useWebSocket as jest.Mock;
+  const mockUseWebSocket = useWebSocket as unknown as ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders empty state initially', () => {

@@ -56,13 +56,13 @@ Write-Output @()
                 @{
                     name           = "engineer"
                     runner         = "roles/engineer/Start-Engineer.ps1"
-                    default_model  = "gemini-3-flash-preview"
+                    default_model  = "google-vertex/gemini-3-flash-preview"
                     capabilities   = @("code-generation", "file-editing", "shell-execution", "testing")
                 },
                 @{
                     name           = "qa"
                     runner         = "roles/qa/Start-QA.ps1"
-                    default_model  = "gemini-3.1-pro-preview"
+                    default_model  = "google-vertex/gemini-3.1-pro-preview"
                     capabilities   = @("code-review", "test-execution", "security-review")
                 }
             )
@@ -74,7 +74,7 @@ Write-Output @()
         @{
             name         = "engineer"
             capabilities = @("code-generation", "file-editing")
-            model        = "gemini-3-flash-preview"
+            model        = "google-vertex/gemini-3-flash-preview"
             timeout_seconds = 600
         } | ConvertTo-Json | Out-File -FilePath (Join-Path $script:agentsDir "roles" "engineer" "role.json") -Encoding utf8
 
@@ -82,7 +82,7 @@ Write-Output @()
         @{
             name         = "qa"
             capabilities = @("code-review", "test-execution", "security-review")
-            model        = "gemini-3.1-pro-preview"
+            model        = "google-vertex/gemini-3.1-pro-preview"
             timeout_seconds = 300
         } | ConvertTo-Json | Out-File -FilePath (Join-Path $script:agentsDir "roles" "qa" "role.json") -Encoding utf8
     }
@@ -115,7 +115,7 @@ Write-Output @()
 
         It "propagates default_model from registry" {
             $result = & $script:resolveRole -RoleName "qa" -AgentsDir $script:agentsDir
-            $result.Model | Should -Be "gemini-3.1-pro-preview"
+            $result.Model | Should -Be "google-vertex/gemini-3.1-pro-preview"
         }
 
         It "propagates capabilities from registry" {
@@ -155,7 +155,7 @@ Write-Output @()
             @{
                 name         = "security-auditor"
                 capabilities = @("security-review", "vulnerability-scanning")
-                model        = "gemini-3.1-pro-preview"
+                model        = "google-vertex/gemini-3.1-pro-preview"
                 timeout_seconds = 900
             } | ConvertTo-Json | Out-File -FilePath (Join-Path $script:customRoleDir "role.json") -Encoding utf8
         }
@@ -190,7 +190,7 @@ Write-Output @()
 
         It "propagates model and timeout from discovered role.json" {
             $result = & $script:resolveRole -RoleName "security-auditor" -AgentsDir $script:agentsDir
-            $result.Model | Should -Be "gemini-3.1-pro-preview"
+            $result.Model | Should -Be "google-vertex/gemini-3.1-pro-preview"
             $result.Timeout | Should -Be 900
         }
 
@@ -211,7 +211,7 @@ Write-Output @()
                 [PSCustomObject]@{
                     Name         = "engineer"
                     Runner       = $script:engineerRunner
-                    Model        = "gemini-3-flash-preview"
+                    Model        = "google-vertex/gemini-3-flash-preview"
                     Timeout      = 600
                     Capabilities = @("code-generation", "file-editing", "shell-execution")
                     Source       = "registry"
@@ -219,7 +219,7 @@ Write-Output @()
                 [PSCustomObject]@{
                     Name         = "qa"
                     Runner       = $script:qaRunner
-                    Model        = "gemini-3.1-pro-preview"
+                    Model        = "google-vertex/gemini-3.1-pro-preview"
                     Timeout      = 300
                     Capabilities = @("code-review", "test-execution", "security-review")
                     Source       = "registry"
@@ -243,7 +243,7 @@ Write-Output @()
                 [PSCustomObject]@{
                     Name         = "engineer"
                     Runner       = $script:engineerRunner
-                    Model        = "gemini-3-flash-preview"
+                    Model        = "google-vertex/gemini-3-flash-preview"
                     Timeout      = 600
                     Capabilities = @("code-generation", "file-editing", "shell-execution")
                     Source       = "registry"
@@ -251,7 +251,7 @@ Write-Output @()
                 [PSCustomObject]@{
                     Name         = "qa"
                     Runner       = $script:qaRunner
-                    Model        = "gemini-3.1-pro-preview"
+                    Model        = "google-vertex/gemini-3.1-pro-preview"
                     Timeout      = 300
                     Capabilities = @("code-review", "test-execution", "security-review")
                     Source       = "registry"
@@ -308,7 +308,7 @@ Write-Output @()
 
         It "sets default model for ephemeral roles" {
             $result = & $script:resolveRole -RoleName "unknown-role" -AgentsDir $script:agentsDir
-            $result.Model | Should -Be "gemini-3-flash-preview"
+            $result.Model | Should -Be "google-vertex/gemini-3-flash-preview"
         }
     }
 
@@ -322,7 +322,7 @@ Write-Output @()
                 [PSCustomObject]@{
                     Name         = "engineer"
                     Runner       = "/custom/path/Start-Engineer.ps1"
-                    Model        = "gemini-turbo"
+                    Model        = "google-vertex/gemini-turbo"
                     Timeout      = 999
                     Capabilities = @("everything")
                     Source       = "registry"
@@ -331,7 +331,7 @@ Write-Output @()
 
             $result = & $script:resolveRole -RoleName "engineer" -AgentsDir $script:agentsDir -AvailableRoles $cachedRoles
             $result.Runner | Should -Be "/custom/path/Start-Engineer.ps1"
-            $result.Model | Should -Be "gemini-turbo"
+            $result.Model | Should -Be "google-vertex/gemini-turbo"
             $result.Timeout | Should -Be 999
             $result.Capabilities | Should -Contain "everything"
         }
@@ -366,10 +366,17 @@ Write-Output @()
             # Create ephemeral stub
             "# stub" | Out-File -FilePath (Join-Path $tempAgents "roles" "_base" "Start-EphemeralAgent.ps1") -Encoding utf8
 
-            $result = & $script:resolveRole -RoleName "engineer" -AgentsDir $tempAgents
-            $result.Source | Should -Be "ephemeral"
-
-            Remove-Item $tempAgents -Recurse -Force
+            # Isolate from ~/.ostwin so globally-scaffolded roles don't interfere
+            $savedOstwinHome = $env:OSTWIN_HOME
+            $env:OSTWIN_HOME = Join-Path ([System.IO.Path]::GetTempPath()) "ostwin-empty-$(Get-Random)"
+            try {
+                $result = & $script:resolveRole -RoleName "engineer" -AgentsDir $tempAgents
+                $result.Source | Should -Be "ephemeral"
+            }
+            finally {
+                $env:OSTWIN_HOME = $savedOstwinHome
+                Remove-Item $tempAgents -Recurse -Force
+            }
         }
 
         It "handles registry with runner that doesn't exist on disk" {

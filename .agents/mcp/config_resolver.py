@@ -71,14 +71,16 @@ class ConfigResolver:
         """
         Compiles home config + builtin config into project config.
         Replaces ${vault:server/key} with ${ENV_VAR} and returns the env var mapping.
+        Uses OpenCode format: top-level "mcp" key, "type"/"command" array/"environment"/"url".
         """
-        # Merge configs
-        compiled_config = {"mcpServers": {}}
-        compiled_config["mcpServers"].update(builtin_config.get("mcpServers", {}))
-        compiled_config["mcpServers"].update(home_config.get("mcpServers", {}))
-        
+        # Merge configs (OpenCode format uses "mcp" as top-level key)
+        # Also accept legacy "mcpServers" key to avoid silently dropping servers during upgrade
+        compiled_config = {"mcp": {}}
+        compiled_config["mcp"].update(builtin_config.get("mcp", builtin_config.get("mcpServers", {})))
+        compiled_config["mcp"].update(home_config.get("mcp", home_config.get("mcpServers", {})))
+
         env_vars = {}
-        
+
         def _compile_recursive(obj, server_name):
             if isinstance(obj, dict):
                 return {k: _compile_recursive(v, server_name) for k, v in obj.items()}
@@ -91,27 +93,29 @@ class ConfigResolver:
                     secret = self.vault.get(server, key)
                     if secret is None:
                         # If we can't find it in vault, we'll leave it as is for now
-                        # or raise an error? The spec says to resolve it.
                         pass
-                    
+
                     # ENV var naming convention: MCP_{SERVER}_{KEY} (uppercased, sanitized)
+                    # Use OpenCode {env:VAR} syntax for variable references
                     env_name = f"MCP_{server.upper()}_{key.upper()}".replace("-", "_").replace(".", "_")
                     env_vars[env_name] = secret or ""
-                    return obj.replace(match.group(0), f"${{{env_name}}}")
+                    return obj.replace(match.group(0), f"{{env:{env_name}}}")
             return obj
 
-        for name, server_cfg in compiled_config["mcpServers"].items():
-            compiled_config["mcpServers"][name] = _compile_recursive(server_cfg, name)
-            
+        for name, server_cfg in compiled_config["mcp"].items():
+            compiled_config["mcp"][name] = _compile_recursive(server_cfg, name)
+
         return compiled_config, env_vars
 
 if __name__ == "__main__":
     # Test script
     resolver = ConfigResolver()
     test_config = {
-        "mcpServers": {
+        "mcp": {
             "test": {
-                "env": {
+                "type": "local",
+                "command": ["python", "-m", "server"],
+                "environment": {
                     "API_KEY": "${vault:test/API_KEY}",
                     "OTHER": "plain"
                 }
@@ -120,7 +124,7 @@ if __name__ == "__main__":
     }
     print("Extracting refs:", resolver.extract_vault_refs(test_config))
     print("Has unresolved:", resolver.has_unresolved_refs(test_config))
-    
+
     # Try setting a value and resolving
     resolver.vault.set("test", "API_KEY", "secret-value")
     print("Resolved config:", resolver.resolve_config(test_config))

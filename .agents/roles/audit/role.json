@@ -1,6 +1,7 @@
 {
   "name": "audit",
   "description": "Auditor — scopes risk investigations, commissions data analysis, validates findings, and makes risk decisions",
+  "instance_type": "evaluator",
   "capabilities": [
     "risk-assessment",
     "investigation-scoping",
@@ -24,6 +25,6 @@
     "risk-decision"
   ],
   "cli": "agent",
-  "model": "gemini-3.1-pro-preview",
+  "model": "google-vertex/gemini-3.1-pro-preview",
   "timeout": 2400
 }

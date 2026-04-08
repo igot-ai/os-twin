@@ -63,9 +63,19 @@ function Resolve-RoomSkills {
     try {
         $encodedQuery = [System.Uri]::EscapeDataString($query)
         $encodedRole  = [System.Uri]::EscapeDataString($AssignedRole)
-        $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}&limit=5"
         $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
+
+        # Try with role filter first
+        $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}&limit=5"
         $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
+
+        # Retry without role filter when role-filtered call returns empty
+        if (-not $response -or $response.Count -eq 0) {
+            Write-Log "DEBUG" "[$TaskRef] Role-filtered skill search returned 0 results, retrying without role filter"
+            $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&limit=5"
+            $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
+        }
+
         if ($response -and $response.Count -gt 0) {
             $topSkills  = @($response | Select-Object -First 10)
             $skillNames = @($topSkills | ForEach-Object { $_.name })

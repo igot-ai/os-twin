@@ -255,16 +255,34 @@ async def get_env(user: dict = Depends(get_current_user)):
     return {"path": str(_ENV_FILE), "entries": entries, "raw": raw}
 
 
+_VAULT_MANAGED_KEYS = {
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
+    "TELEGRAM_BOT_TOKEN", "DISCORD_TOKEN", "NGROK_AUTHTOKEN", "OSTWIN_API_KEY",
+}
+
+
 @router.post("/env")
 async def save_env(request: dict, user: dict = Depends(get_current_user)):
     """Write structured entries back to ~/.ostwin/.env.
 
     Body: { "entries": [...] }
     Each entry: { type: "var"|"comment"|"blank", key?, value?, enabled?, text? }
+
+    Known secret keys (API keys, bot tokens) are blocked from being
+    written as plaintext.  Use the /api/settings/vault endpoint instead.
     """
     entries = request.get("entries", [])
     if not entries:
         raise HTTPException(status_code=400, detail="entries is required")
+
+    for entry in entries:
+        key = entry.get("key", "")
+        value = entry.get("value", "")
+        if key in _VAULT_MANAGED_KEYS and value and not value.startswith("${vault:"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{key}' is vault-managed. Use POST /api/settings/vault/... to set its value.",
+            )
 
     # Ensure ~/.ostwin directory exists
     _OSTWIN_DIR.mkdir(parents=True, exist_ok=True)

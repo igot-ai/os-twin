@@ -20,29 +20,32 @@ class TestMCPCompile(unittest.TestCase):
     def test_compile_config(self):
         resolver = ConfigResolver()
         resolver.vault = MockVault()
-        
+
         home_config = {
-            "mcpServers": {
+            "mcp": {
                 "test": {
-                    "env": {
+                    "type": "local",
+                    "command": ["python", "-m", "server"],
+                    "environment": {
                         "API_KEY": "${vault:test/API_KEY}"
                     }
                 }
             }
         }
         builtin_config = {
-            "mcpServers": {
+            "mcp": {
                 "builtin": {
-                    "command": "python"
+                    "type": "local",
+                    "command": ["python"]
                 }
             }
         }
-        
+
         compiled, env_vars = resolver.compile_config(home_config, builtin_config)
-        
-        self.assertIn("test", compiled["mcpServers"])
-        self.assertIn("builtin", compiled["mcpServers"])
-        self.assertEqual(compiled["mcpServers"]["test"]["env"]["API_KEY"], "${MCP_TEST_API_KEY}")
+
+        self.assertIn("test", compiled["mcp"])
+        self.assertIn("builtin", compiled["mcp"])
+        self.assertEqual(compiled["mcp"]["test"]["environment"]["API_KEY"], "{env:MCP_TEST_API_KEY}")
         self.assertEqual(env_vars["MCP_TEST_API_KEY"], "secret-value")
 
 if __name__ == "__main__":

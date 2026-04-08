@@ -29,7 +29,7 @@
         "lint-clean",
         "no-hardcoded-secrets"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "qa",
@@ -52,7 +52,7 @@
         "verdict-required",
         "evidence-based-review"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "architect",
@@ -77,7 +77,7 @@
         "scalability-check",
         "security-review"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "manager",
@@ -99,7 +99,7 @@
         "skill-install"
       ],
       "quality_gates": [],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3.1-pro-preview"
     },
     {
       "name": "reporter",
@@ -122,7 +122,7 @@
         "report-renders",
         "no-empty-pages"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "audit",
@@ -133,7 +133,8 @@
       "supported_task_types": [
         "task",
         "epic",
-        "investigation"
+        "investigation",
+        "review"
       ],
       "capabilities": [
         "risk-assessment",
@@ -148,7 +149,7 @@
         "validation-complete",
         "risk-decision-recorded"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3.1-pro-preview"
     },
     {
       "name": "macos-automation-engineer",
@@ -172,7 +173,7 @@
         "axbridge"
       ],
       "quality_gates": [],
-      "default_model": "gemini-3-flash-preview",
+      "default_model": "google-vertex/gemini-3-flash-preview",
       "platform": [
         "macos"
       ]
@@ -205,7 +206,7 @@
         "60fps-non-negotiable",
         "story-acs-satisfied"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3.1-pro-preview"
     },
     {
       "name": "game-qa",
@@ -232,7 +233,7 @@
         "acceptance-criteria-met",
         "code-review-clean"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3.1-pro-preview"
     },
     {
       "name": "game-architect",
@@ -257,7 +258,7 @@
         "60fps-constraints-covered",
         "project-context-exists"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3.1-pro-preview"
     },
     {
       "name": "game-designer",
@@ -283,7 +284,7 @@
         "gdd-validates-pillars",
         "stories-have-acceptance-criteria"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-producer",
@@ -308,7 +309,7 @@
         "milestones-trackable",
         "risks-documented"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3.1-pro-preview"
     },
     {
       "name": "game-devops",
@@ -333,7 +334,7 @@
         "build-reproducible",
         "distribution-verified"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-ui-analyst",
@@ -386,7 +387,7 @@
         "tutorial-teaches-all-mechanics",
         "reward-pacing-validated"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "narrative-designer",
@@ -411,7 +412,7 @@
         "dialogue-localization-ready",
         "character-voices-consistent"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "sound-designer",
@@ -435,7 +436,7 @@
         "no-clipping",
         "compression-appropriate"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "tech-artist",
@@ -459,7 +460,7 @@
         "vfx-within-drawcall-budget",
         "60fps-maintained"
       ],
-      "default_model": "gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3.1-pro-preview"
     },
     {
       "name": "ux-researcher",
@@ -484,7 +485,7 @@
         "findings-actionable",
         "recommendations-prioritized"
       ],
-      "default_model": "gemini-3-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "technical-writer",

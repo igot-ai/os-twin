@@ -78,7 +78,7 @@ MIN_CHUNK_SIZE = 200
 CHUNK_OVERLAP = 200
 TOP_K = 3
 
-EMBEDDING_MODEL = "gemini-embedding-2-preview"
+EMBEDDING_MODEL = "google-vertex/gemini-embedding-2-preview"
 
 # Track whether cocoindex.init() has been called
 _initialized = False

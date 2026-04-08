@@ -148,6 +148,7 @@ export interface Role {
   max_retries: number;
   timeout_seconds: number;
   skill_refs: string[];
+  mcp_refs?: string[];
   description?: string;
   instructions?: string;
   system_prompt_override?: string;
@@ -466,4 +467,9 @@ export interface PlanningMessage {
   created_at: string;
   images?: ImageAttachment[];
 }
+
+// ──────────────────────────────────────────────────
+// Settings (EPIC-004)
+// ──────────────────────────────────────────────────
+export * from './settings';
 

@@ -16,7 +16,7 @@ BeforeAll {
         }
         engineer     = @{
             cli              = "deepagents"
-            default_model    = "gemini-3-flash-preview"
+            default_model    = "google-vertex/gemini-3-flash-preview"
             shell_allow_list = "all"
             auto_approve     = $true
             timeout_seconds  = 600
@@ -24,7 +24,7 @@ BeforeAll {
         }
         qa           = @{
             cli             = "deepagents"
-            default_model   = "gemini-3-flash-preview"
+            default_model   = "google-vertex/gemini-3-flash-preview"
             approval_mode   = "auto-approve"
             timeout_seconds = 300
         }

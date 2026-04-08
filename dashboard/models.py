@@ -129,6 +129,7 @@ class Role(BaseModel):
     max_retries: int = 3
     timeout_seconds: int = 300
     skill_refs: List[str] = Field(default_factory=list)
+    mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
     created_at: str
     updated_at: str
@@ -147,6 +148,7 @@ class CreateRoleRequest(BaseModel):
     max_retries: int = Field(3, ge=1, le=10)
     timeout_seconds: int = Field(300, ge=60, le=3600)
     skill_refs: List[str] = Field(default_factory=list)
+    mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = Field(None, max_length=2000)
 
 
@@ -216,3 +218,90 @@ class SkillDuplicateCheckRequest(BaseModel):
 class SkillDuplicateCheckResponse(BaseModel):
     is_duplicate: bool
     similar_skills: List[str] = Field(default_factory=list)
+
+
+class ProviderSettings(BaseModel):
+    api_key_ref: Optional[str] = None
+    base_url: Optional[str] = None
+    org_id: Optional[str] = None
+    enabled: bool = True
+    default_model: Optional[str] = None
+    deployment_mode: Optional[str] = None   # 'gemini' | 'vertex' (Google only)
+    project_id: Optional[str] = None        # Vertex AI project ID (Google only)
+    enabled_models: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Model IDs from the catalog that this provider exposes. "
+            "Empty list means ALL models for this provider are enabled."
+        ),
+    )
+
+
+class ProvidersNamespace(BaseModel):
+    openai: Optional[ProviderSettings] = None
+    anthropic: Optional[ProviderSettings] = None
+    google: Optional[ProviderSettings] = None
+    byteplus: Optional[ProviderSettings] = None
+    custom: Dict[str, ProviderSettings] = Field(default_factory=dict)
+
+
+class RoleSettings(BaseModel):
+    default_model: Optional[str] = None
+    temperature: Optional[float] = None
+    timeout_seconds: Optional[int] = None
+    max_retries: Optional[int] = None
+    budget_tokens_max: Optional[int] = None
+    system_prompt_override: Optional[str] = None
+    skill_refs: List[str] = Field(default_factory=list)
+    disabled_skills: List[str] = Field(default_factory=list)
+
+
+class RuntimeSettings(BaseModel):
+    poll_interval: int = Field(default=5, ge=1, le=300)
+    max_concurrent_rooms: int = Field(default=10, ge=1, le=500)
+    auto_approve_tools: bool = False
+    dynamic_pipelines: bool = True
+
+
+class MemorySettings(BaseModel):
+    vector_store: str = "chroma"
+    embedding_model: str = "text-embedding-3-small"
+    ttl_days: int = 30
+
+
+class ChannelPlatformSettings(BaseModel):
+    enabled: bool = True
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ChannelsNamespace(BaseModel):
+    telegram: Optional[ChannelPlatformSettings] = None
+    slack: Optional[ChannelPlatformSettings] = None
+    discord: Optional[ChannelPlatformSettings] = None
+    custom: Dict[str, ChannelPlatformSettings] = Field(default_factory=dict)
+
+
+class AutonomySettings(BaseModel):
+    idle_explore_enabled: bool = False
+    interval: int = 3600
+
+
+class ObservabilitySettings(BaseModel):
+    log_level: str = "INFO"
+    broadcast_verbosity: str = "normal"
+    otel_enabled: bool = False
+
+
+class MasterSettings(BaseModel):
+    providers: ProvidersNamespace = Field(default_factory=ProvidersNamespace)
+    roles: Dict[str, RoleSettings] = Field(default_factory=dict)
+    runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
+    channels: ChannelsNamespace = Field(default_factory=ChannelsNamespace)
+    autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+
+
+class EffectiveResolution(BaseModel):
+    effective: Dict[str, Any]
+    provenance: Dict[str, str]

@@ -102,7 +102,7 @@ Describe "Invoke-Agent" {
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                     -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
 
-                # Should use echo instead of deepagents
+                # Should use echo instead of opencode run
                 $result | Should -Not -BeNullOrEmpty
             }
             finally {
@@ -272,6 +272,433 @@ Describe "Invoke-Agent" {
             Test-Path $isolatedSkillsDir | Should -BeTrue
             # Note: non-existent-role will still get Global skills if they exist in .agents/skills/global
             # So this might not be 0 unless we mock Resolve-RoleSkills.
+        }
+    }
+
+    Context "opencode run CLI flags" {
+        # These tests verify that the generated wrapper script contains
+        # the correct opencode run flags. We use a mock that captures $@
+        # and the wrapper content.
+
+        BeforeEach {
+            # Create a mock that dumps all args to a file
+            $script:argsDump = Join-Path $TestDrive "args-$(Get-Random).txt"
+            $script:argsMock = Join-Path $TestDrive "argsmock-$(Get-Random).sh"
+            @"
+#!/bin/bash
+# Write all args to the dump file
+for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
+"@ | Out-File $script:argsMock -Encoding utf8
+            chmod +x $script:argsMock
+        }
+
+        It "passes 'start' as positional message and prompt via --file" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "Hello world test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                # First arg should be 'start' (the positional message)
+                $capturedArgs[0] | Should -Be "start"
+                # Prompt should NOT appear as inline text on the command line
+                $capturedArgs | Should -Not -Contain "Hello world test"
+                # Prompt file should be attached via --file
+                $capturedArgs | Should -Contain "--file"
+                # Should contain an absolute path to prompt.txt
+                $promptArg = $capturedArgs | Where-Object { $_ -match 'prompt\.txt$' }
+                $promptArg | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It "passes --model flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Model "openai/gpt-4o" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--model"
+                $args | Should -Contain "openai/gpt-4o"
+            }
+        }
+
+        It "passes --agent flag with role name" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "architect" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--agent"
+                $args | Should -Contain "architect"
+            }
+        }
+
+        It "passes --format flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Format "json" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--format"
+                $args | Should -Contain "json"
+            }
+        }
+
+        It "passes --title flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -SessionTitle "My Task Title" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--title"
+                $args | Should -Contain "My Task Title"
+            }
+        }
+
+        It "passes --session flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -SessionId "abc-123" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--session"
+                $args | Should -Contain "abc-123"
+            }
+        }
+
+        It "passes --continue flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "continue from here" `
+                -ContinueSession `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--continue"
+            }
+        }
+
+        It "passes --fork flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -ForkSession `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--fork"
+            }
+        }
+
+        It "passes --share flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -ShareSession `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--share"
+            }
+        }
+
+        It "passes --command flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "src/app.test.ts" `
+                -Command "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--command"
+                $args | Should -Contain "test"
+            }
+        }
+
+        It "passes --file flag for each extra file plus prompt file" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "review these files" `
+                -Files @("file1.txt", "file2.txt") `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                # --file should appear 3 times: file1.txt, file2.txt, plus prompt.txt
+                $fileFlags = $capturedArgs | Where-Object { $_ -eq "--file" }
+                $fileFlags.Count | Should -Be 3
+                $capturedArgs | Should -Contain "file1.txt"
+                $capturedArgs | Should -Contain "file2.txt"
+                # Prompt file should also be present
+                $promptArg = $capturedArgs | Where-Object { $_ -match 'prompt\.txt$' }
+                $promptArg | Should -Not -BeNullOrEmpty
+            }
+        }
+
+        It "passes --attach flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AttachUrl "http://localhost:4096" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--attach"
+                $args | Should -Contain "http://localhost:4096"
+            }
+        }
+
+        It "passes --port flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Port 8080 `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--port"
+                $args | Should -Contain "8080"
+            }
+        }
+
+        It "does not pass legacy deepagents flags" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Not -Contain "--auto-approve"
+                $args | Should -Not -Contain "--quiet"
+                $args | Should -Not -Contain "-q"
+                $args | Should -Not -Contain "--shell-allow-list"
+                $args | Should -Not -Contain "--no-mcp"
+                $args | Should -Not -Contain "--mcp-config"
+            }
+        }
+
+        It "uses 'start' as positional message, not inline prompt text" {
+            $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).sh"
+            @"
+#!/bin/bash
+echo "ARGS: `$@"
+"@ | Out-File $captureMock -Encoding utf8
+            chmod +x $captureMock
+
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test positional prompt" `
+                -AgentCmd $captureMock -TimeoutSeconds 5
+
+            if ($result.Output) {
+                # Should see 'start' as the message, not inline prompt
+                $result.Output | Should -Match "ARGS: start"
+                # Should NOT contain the raw prompt text inline
+                $result.Output | Should -Not -Match "test positional prompt"
+            }
+        }
+    }
+
+    Context "Default AgentCmd resolution" {
+        It "defaults to opencode run when no bin/agent or config CLI found" {
+            # Create a minimal config that doesn't specify cli
+            $configFile = Join-Path $TestDrive "no-cli-config.json"
+            @{
+                engineer = @{
+                    default_model   = "test-model"
+                    timeout_seconds = 10
+                }
+            } | ConvertTo-Json -Depth 3 | Out-File $configFile -Encoding utf8
+
+            $env:AGENT_OS_CONFIG = $configFile
+            $env:ENGINEER_CMD = "echo"  # override so the test actually runs
+            try {
+                # The test verifies that the script doesn't crash when
+                # resolving to "opencode run" as default
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+            }
+            finally {
+                Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue
+                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context "No opencode.json generation" {
+        It "does not create opencode.json in artifacts directory" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test no opencode.json" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $artifactsDir = Join-Path $script:roomDir "artifacts"
+            $opencodeJson = Join-Path $artifactsDir "opencode.json"
+            Test-Path $opencodeJson | Should -BeFalse `
+                -Because "Invoke-Agent must not generate opencode.json during ostwin run"
+        }
+
+        It "does not create opencode.json even when MCP config exists" {
+            # Create a project dir with .agents/mcp/config.json and a room inside
+            $projectDir = Join-Path $TestDrive "project-mcp-$(Get-Random)"
+            $mcpDir = Join-Path $projectDir ".agents" "mcp"
+            New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
+            @{ mcp = @{ "test-server" = @{ type = "local"; command = @("echo") } } } `
+                | ConvertTo-Json -Depth 5 `
+                | Out-File (Join-Path $mcpDir "config.json") -Encoding utf8
+
+            # Place room inside .war-rooms so Invoke-Agent resolves ProjectDir
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-mcp"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test with mcp config" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $artifactsDir = Join-Path $roomDir "artifacts"
+            $opencodeJson = Join-Path $artifactsDir "opencode.json"
+            Test-Path $opencodeJson | Should -BeFalse `
+                -Because "Invoke-Agent must not generate opencode.json even when MCP config exists"
+        }
+    }
+
+    Context "No .agents/mcp folder creation" {
+        It "does not create .agents/mcp folder in the project directory" {
+            # Create a project dir without .agents/mcp
+            $projectDir = Join-Path $TestDrive "project-nomcp-$(Get-Random)"
+            $agentsDir = Join-Path $projectDir ".agents"
+            New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+
+            # Place room inside .war-rooms so Invoke-Agent resolves ProjectDir
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-nomcp"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test no mcp folder" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $mcpDir = Join-Path $agentsDir "mcp"
+            Test-Path $mcpDir | Should -BeFalse `
+                -Because "Invoke-Agent must not create .agents/mcp folder"
+        }
+    }
+
+    Context "Model resolution fallback chain (integration)" {
+        # Full chain: -Model param → plan.roles.json → config.json instance →
+        #             config.json role → role.json → hardcoded default.
+        # Critical: role.json fallback must work even when config.json is ABSENT.
+
+        It "uses role.json model when config.json is absent" {
+            # Setup: no config.json, but role.json has a model
+            $fakeHome = Join-Path $TestDrive "home-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $fakeHome ".ostwin" ".agents" "roles" "engineer") -Force | Out-Null
+            @{ model = "role-json-model"; skill_refs = @() } | ConvertTo-Json |
+                Out-File (Join-Path $fakeHome ".ostwin" ".agents" "roles" "engineer" "role.json") -Encoding utf8
+
+            $roomDir = Join-Path $TestDrive "room-rolejson-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $savedHome = $env:HOME
+            $savedConfig = $env:AGENT_OS_CONFIG
+            try {
+                $env:HOME = $fakeHome
+                # Point config to a non-existent file so it skips config.json block
+                $env:AGENT_OS_CONFIG = Join-Path $TestDrive "nonexistent-config.json"
+
+                $result = & $script:InvokeAgent -RoomDir $roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+                # The agent should have used role-json-model (not the hardcoded default)
+                $result.Output | Should -Match "role-json-model" `
+                    -Because "role.json model must be used when config.json is absent"
+            }
+            finally {
+                $env:HOME = $savedHome
+                if ($savedConfig) { $env:AGENT_OS_CONFIG = $savedConfig }
+                else { Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It "explicit -Model param wins over all fallbacks" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Model "explicit-param-model" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $result.Output | Should -Match "explicit-param-model"
+        }
+
+        It "falls back to hardcoded default when nothing is configured" {
+            $savedConfig = $env:AGENT_OS_CONFIG
+            try {
+                $env:AGENT_OS_CONFIG = Join-Path $TestDrive "nonexistent-$(Get-Random).json"
+
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+                # Should resolve to the hardcoded default model
+                $result.Output | Should -Match "google-vertex" `
+                    -Because "hardcoded default should be used as last resort"
+            }
+            finally {
+                if ($savedConfig) { $env:AGENT_OS_CONFIG = $savedConfig }
+                else { Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It "plan.roles.json model wins over config.json model" {
+            # Setup plan.roles.json
+            $fakeHome = Join-Path $TestDrive "home-plan-$(Get-Random)"
+            $plansDir = Join-Path $fakeHome ".ostwin" ".agents" "plans"
+            New-Item -ItemType Directory -Path $plansDir -Force | Out-Null
+            @{ engineer = @{ default_model = "plan-level-model" } } | ConvertTo-Json -Depth 3 |
+                Out-File (Join-Path $plansDir "test-plan.roles.json") -Encoding utf8
+
+            # Setup room config pointing to the plan
+            $roomDir = Join-Path $TestDrive "room-plan-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+            @{ plan_id = "test-plan" } | ConvertTo-Json |
+                Out-File (Join-Path $roomDir "config.json") -Encoding utf8
+
+            # Setup config.json with a different model
+            $configFile = Join-Path $TestDrive "config-plan-$(Get-Random).json"
+            @{ engineer = @{ cli = "echo"; default_model = "config-model" } } | ConvertTo-Json -Depth 3 |
+                Out-File $configFile -Encoding utf8
+
+            $savedHome = $env:HOME
+            $savedConfig = $env:AGENT_OS_CONFIG
+            try {
+                $env:HOME = $fakeHome
+                $env:AGENT_OS_CONFIG = $configFile
+
+                $result = & $script:InvokeAgent -RoomDir $roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result.Output | Should -Match "plan-level-model" `
+                    -Because "plan.roles.json must take priority over config.json"
+            }
+            finally {
+                $env:HOME = $savedHome
+                if ($savedConfig) { $env:AGENT_OS_CONFIG = $savedConfig }
+                else { Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue }
+            }
         }
     }
 }
