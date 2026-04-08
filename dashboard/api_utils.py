@@ -68,7 +68,7 @@ def resolve_plans_dir(
 PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
 
 # Global roles storage
-GLOBAL_ROLES_DIR = Path.home() / ".ostwin" / "roles"
+GLOBAL_ROLES_DIR = Path.home() / ".ostwin" / ".agents" / "roles"
 
 # Frontend static-export detection (dashboard/fe/out)
 FE_OUT_DIR = DEMO_DIR / "fe" / "out"

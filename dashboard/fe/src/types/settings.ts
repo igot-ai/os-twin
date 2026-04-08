@@ -149,7 +149,7 @@ export interface EffectiveResolution {
   provenance: Record<string, string>;
 }
 
-export type SettingsNamespace = 'providers' | 'roles' | 'runtime' | 'memory';
+export type SettingsNamespace = 'providers' | 'runtime' | 'memory';
 
 export interface VaultStatus {
   is_set: boolean;

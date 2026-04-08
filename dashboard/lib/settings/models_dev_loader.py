@@ -267,6 +267,14 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
     return providers
 
 
+# When a provider is configured, also pull models from these companion
+# provider IDs in models.dev.  The companion models use a prefixed id
+# (e.g. "google-vertex/gemini-...") so they don't collide.
+_COMPANION_PROVIDERS: Dict[str, List[str]] = {
+    "google": ["google-vertex", "google-vertex-anthropic"],
+}
+
+
 def _build_configured_models(
     raw_catalog: Dict[str, Any],
     configured_providers: Dict[str, Dict[str, Any]],
@@ -280,6 +288,9 @@ def _build_configured_models(
     2. **opencode.json provider block** -- custom / manually-added models.
        Each model is tagged ``"source": "custom"``.  These appear even
        when the provider doesn't exist in models.dev at all.
+    3. **Companion providers** -- e.g. when ``google`` is configured,
+       models from ``google-vertex`` and ``google-vertex-anthropic`` in
+       models.dev are also included (with prefixed IDs).
 
     Returns the structured configured_models.json content.
     """
@@ -354,7 +365,35 @@ def _build_configured_models(
                     "source": "models.dev",
                 }
 
-        # ── 2) Merge custom models from opencode.json ─────────────
+        # ── 2) Ingest companion provider models ───────────────────
+        for companion_id in _COMPANION_PROVIDERS.get(provider_id, []):
+            companion = raw_catalog.get(companion_id)
+            if companion is None:
+                continue
+            for model_id, model_data in companion.get("models", {}).items():
+                # Prefix model id with companion provider so it's
+                # unique and routable: "google-vertex/gemini-3-flash"
+                prefixed_id = f"{companion_id}/{model_id}"
+                if prefixed_id in provider_entry["models"]:
+                    continue
+                provider_entry["models"][prefixed_id] = {
+                    "id": prefixed_id,
+                    "name": model_data.get("name", model_id),
+                    "family": model_data.get("family", ""),
+                    "reasoning": model_data.get("reasoning", False),
+                    "tool_call": model_data.get("tool_call", False),
+                    "attachment": model_data.get("attachment", False),
+                    "temperature": model_data.get("temperature", True),
+                    "cost": model_data.get("cost", {}),
+                    "limit": model_data.get("limit", {}),
+                    "modalities": model_data.get("modalities", {}),
+                    "knowledge": model_data.get("knowledge", ""),
+                    "release_date": model_data.get("release_date", ""),
+                    "source": "models.dev",
+                    "companion_provider": companion_id,
+                }
+
+        # ── 3) Merge custom models from opencode.json ─────────────
         if custom_block is not None:
             for model_key, model_def in custom_block.get("models", {}).items():
                 # The opencode model key is the short id (e.g. "seed-2-0-pro-260328").

@@ -12,9 +12,8 @@ import { AddProviderModal } from '@/components/settings/AddProviderModal';
 import { VaultSecretModal } from '@/components/settings/VaultSecretModal';
 import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
-import { RolesPanel } from '@/components/settings/RolesPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
-import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api-client';
+import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
 
 // Providers that have dedicated cards at the top of the settings page.
 // These are hidden from the Additional Providers section.
@@ -370,20 +369,6 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
-          </div>
-        );
-
-      case 'roles':
-        return (
-          <div>
-            <h2 className="text-lg font-bold text-on-surface mb-4">Roles</h2>
-            <RolesPanel
-              roles={settings.roles || {}}
-              onUpdate={async (role, value) => {
-                await apiPatch(`/roles/by-name/${encodeURIComponent(role)}`, value);
-              }}
-              models={allModelIds}
-            />
           </div>
         );
 

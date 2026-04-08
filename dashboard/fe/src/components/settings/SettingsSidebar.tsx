@@ -10,7 +10,6 @@ export interface SettingsSidebarProps {
 
 const NAMESPACE_ITEMS: { id: SettingsNamespace; icon: string; label: string }[] = [
   { id: 'providers',     icon: 'memory',               label: 'Provider Config' },
-  { id: 'roles',         icon: 'smart_toy',            label: 'Agent Fleet' },
   { id: 'runtime',       icon: 'settings',             label: 'Runtime' },
   { id: 'memory',        icon: 'storage',              label: 'Memory' },
 ];

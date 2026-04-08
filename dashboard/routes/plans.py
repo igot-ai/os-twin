@@ -645,7 +645,7 @@ async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
 
     # Quick role lookup from the on-disk role.json files (no skill scanning)
     role_registry: Dict[str, dict] = {}
-    for roles_root in [AGENTS_DIR / "roles", Path.home() / ".ostwin" / "roles"]:
+    for roles_root in [AGENTS_DIR / "roles", Path.home() / ".ostwin" / ".agents" / "roles"]:
         if not roles_root.exists():
             continue
         for role_dir in roles_root.iterdir():

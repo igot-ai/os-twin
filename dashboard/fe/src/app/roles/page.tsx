@@ -67,7 +67,7 @@ export default function RolesPage() {
         isLoading={rolesLoading}
       />
 
-      {/* Slide-over Panel */}
+      {/* Bottom Drawer */}
       <RoleEditorPanel 
         role={editingRole}
         isOpen={isPanelOpen}
