@@ -6,6 +6,7 @@ import { Role } from '@/types';
 import { apiPost, apiPut } from '@/lib/api-client';
 import ProviderSelector from './ProviderSelector';
 import SkillChipInput from './SkillChipInput';
+import McpSelector from './McpSelector';
 import TestConnectionButton from './TestConnectionButton';
 import { useModelRegistry, useRoleDependencies } from '@/hooks/use-roles';
 
@@ -31,6 +32,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
     max_retries: 3,
     timeout_seconds: 900,
     skill_refs: [],
+    mcp_refs: [],
     description: '',
     instructions: '',
     system_prompt_override: '',
@@ -75,6 +77,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
         max_retries: 3,
         timeout_seconds: 900,
         skill_refs: [],
+        mcp_refs: [],
         description: '',
         instructions: '',
         system_prompt_override: '',
@@ -130,7 +133,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
       
       {/* Panel */}
       <div 
-        className="relative w-full max-w-[420px] h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden"
+        className="relative w-full max-w-[540px] h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden"
         style={{ background: 'var(--color-surface)' }}
       >
         {/* Header */}
@@ -227,6 +230,21 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
                 ))}
               </select>
             </div>
+
+            <div className="space-y-1.5 mt-3">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Or Custom Model ID</label>
+              <input
+                type="text"
+                placeholder="e.g. my-custom-model or provider/model-name"
+                className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold shadow-sm focus:ring-4 focus:ring-primary/10 transition-all"
+                value={formData.version && !normalizedRegistry?.[formData.provider?.toLowerCase() || defaultProvider]?.some(m => m.id === formData.version) ? formData.version : ''}
+                onChange={e => {
+                  if (e.target.value) {
+                    setFormData({ ...formData, version: e.target.value });
+                  }
+                }}
+              />
+            </div>
             
             <TestConnectionButton version={formData.version || ''} />
           </div>
@@ -305,10 +323,23 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
             />
           </div>
 
-          {/* Section: Instructions */}
+          {/* Section: MCP Binding */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">05</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">MCP Binding</h3>
+            </div>
+            
+            <McpSelector 
+              selectedMcpRefs={formData.mcp_refs || []}
+              onChange={refs => setFormData({ ...formData, mcp_refs: refs })}
+            />
+          </div>
+
+          {/* Section: Instructions */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">06</span>
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-text-faint">Role Instructions</h3>
             </div>
 

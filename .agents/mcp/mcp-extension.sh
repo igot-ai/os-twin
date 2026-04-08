@@ -32,20 +32,15 @@ fi
 # Catalog + builtins always come from global install
 CATALOG_FILE="$HOME/.ostwin/.agents/mcp/mcp-catalog.json"
 BUILTIN_FILE="$HOME/.ostwin/.agents/mcp/mcp-builtin.json"
-# Deploy config: uses {env:OSTWIN_PYTHON}/{env:HOME} (overrides builtin's {env:AGENT_DIR})
-DEPLOY_CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
-
 # Dev mode fallbacks
 [[ ! -f "$CATALOG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-catalog.json" ]] && CATALOG_FILE="$SCRIPT_DIR/mcp-catalog.json"
 [[ ! -f "$BUILTIN_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-builtin.json" ]] && BUILTIN_FILE="$SCRIPT_DIR/mcp-builtin.json"
-[[ ! -f "$DEPLOY_CONFIG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-config.json" ]] && DEPLOY_CONFIG_FILE="$SCRIPT_DIR/mcp-config.json"
 
 # Project-local paths — set after --project-dir is parsed (see MAIN)
 MCP_DIR=""
 EXTENSIONS_DIR=""
 EXTENSIONS_FILE=""
 CONFIG_FILE="$HOME/.ostwin/.agents/mcp/config.json"
-LEGACY_CONFIG_FILE="$HOME/.ostwin/.agents/mcp/mcp-config.json"
 PROJECT_DIR=""
 
 # Python: use activated venv (ostwin sources activate), fallback to system
@@ -100,10 +95,6 @@ ensure_dirs() {
 ensure_global_config_file() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
   if [[ -f "$CONFIG_FILE" ]]; then
-    return
-  fi
-  if [[ -f "$LEGACY_CONFIG_FILE" ]]; then
-    cp "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
     return
   fi
   if [[ -f "$BUILTIN_FILE" ]]; then
@@ -614,21 +605,25 @@ with open('$EXTENSIONS_FILE', 'w') as f:
 
 cmd_sync_quiet() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
+
+  # validate_mcp.py lives in the global install, not project-local
+  local mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  [[ -f "$mcp_module_dir/validate_mcp.py" ]] || mcp_module_dir="$SCRIPT_DIR"
+
   "$PYTHON" -c "
-import json
-builtin = {}
+import json, sys, os
+
+sys.path.insert(0, '$mcp_module_dir')
+from validate_mcp import normalize_mcp_config, merge_mcp_configs
+
+# Load builtin config (may be legacy mcpServers format)
+builtin_raw = {}
 try:
     with open('$BUILTIN_FILE') as f:
-        d = json.load(f)
-        builtin = d.get('mcp', d.get('mcpServers', {}))
+        builtin_raw = json.load(f)
 except FileNotFoundError: pass
-# Deploy config overrides builtin (uses {env:OSTWIN_PYTHON}/{env:HOME} instead of {env:AGENT_DIR})
-deploy = {}
-try:
-    with open('$DEPLOY_CONFIG_FILE') as f:
-        d = json.load(f)
-        deploy = d.get('mcp', d.get('mcpServers', {}))
-except FileNotFoundError: pass
+
+# Load extensions
 extensions = {}
 try:
     with open('$EXTENSIONS_FILE') as f:
@@ -638,9 +633,15 @@ try:
         config = ext.get('config', {})
         if name and config: extensions[name] = config
 except FileNotFoundError: pass
-merged = {'mcp': {**builtin, **deploy, **extensions}}
+
+# Normalize builtin (handles mcpServers, shell vars, etc.)
+normalized_builtin = normalize_mcp_config(builtin_raw)
+
+# Merge: builtin → extensions (extensions override builtin)
+merged_servers = {**normalized_builtin, **extensions}
+
 with open('$CONFIG_FILE', 'w') as f:
-    json.dump(merged, f, indent=2)
+    json.dump({'mcp': merged_servers}, f, indent=2)
     f.write('\n')
 "
   # Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} → absolute paths
@@ -840,13 +841,8 @@ cmd_init_project() {
   chmod +x "$dest_script"
 
   local project_config="$project_mcp/config.json"
-  local legacy_project_config="$project_mcp/mcp-config.json"
   if [[ ! -f "$project_config" ]]; then
-    if [[ -f "$legacy_project_config" ]]; then
-      cp "$legacy_project_config" "$project_config"
-    else
-      [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcp":{}}' > "$project_config"
-    fi
+    [[ -f "$BUILTIN_FILE" ]] && cp "$BUILTIN_FILE" "$project_config" || echo '{"mcp":{}}' > "$project_config"
   fi
 
   ok "Project MCP scaffolded at $project_mcp"
@@ -1105,8 +1101,11 @@ cmd_compile() {
   export _SCRIPT_DIR="$SCRIPT_DIR"
   export _CONFIG_FILE="$CONFIG_FILE"
   export _BUILTIN_FILE="$BUILTIN_FILE"
-  export _DEPLOY_CONFIG_FILE="$DEPLOY_CONFIG_FILE"
   export _PROJECT_DIR="$project_dir"
+  # validate_mcp.py lives in the global install, not project-local
+  local _mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  [[ -f "$_mcp_module_dir/validate_mcp.py" ]] || _mcp_module_dir="$SCRIPT_DIR"
+  export _MCP_MODULE_DIR="$_mcp_module_dir"
 
   step "Compiling MCP config for project at $project_dir..."
 
@@ -1115,7 +1114,7 @@ import json, sys, os
 script_dir = os.environ.get("_SCRIPT_DIR")
 home_config_file = os.environ.get("_CONFIG_FILE")
 builtin_file = os.environ.get("_BUILTIN_FILE")
-deploy_config_file = os.environ.get("_DEPLOY_CONFIG_FILE", "")
+
 project_dir = os.environ.get("_PROJECT_DIR")
 
 mcp_dir = os.path.join(project_dir, '.agents', 'mcp')
@@ -1145,18 +1144,16 @@ if os.path.exists(builtin_file):
     with open(builtin_file) as f:
         builtin_config = json.load(f)
 
-# mcp-config.json is the DEPLOY template (uses {env:OSTWIN_PYTHON}/{env:HOME}).
-# It overrides mcp-builtin.json (which uses {env:AGENT_DIR} for dev mode).
-# Merge order: builtin → deploy → home (each layer overrides the previous).
-deploy_config = {}
-if deploy_config_file and os.path.exists(deploy_config_file):
-    with open(deploy_config_file) as f:
-        deploy_config = json.load(f)
+# Normalize builtin config (handles legacy mcpServers, shell vars, etc.)
+mcp_module_dir = os.environ.get("_MCP_MODULE_DIR", script_dir)
+if mcp_module_dir not in sys.path:
+    sys.path.insert(0, mcp_module_dir)
+from validate_mcp import normalize_mcp_config
+normalized_builtin = normalize_mcp_config(builtin_config)
 
-# Merge deploy config ON TOP of builtin before passing to compile
+# Merge order: builtin → home (each layer overrides the previous).
 merged_builtin = {"mcp": {}}
-merged_builtin["mcp"].update(builtin_config.get("mcp", builtin_config.get("mcpServers", {})))
-merged_builtin["mcp"].update(deploy_config.get("mcp", deploy_config.get("mcpServers", {})))
+merged_builtin["mcp"].update(normalized_builtin)
 
 resolver = ConfigResolver()
 compiled_config, env_vars = resolver.compile_config(home_config, merged_builtin)

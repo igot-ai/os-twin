@@ -38,6 +38,7 @@ if (DEMO_DIR / ".war-rooms").exists():
     # If DEMO_DIR has room-* subdirs, prefer it
     if any((DEMO_DIR / ".war-rooms").glob("room-*")):
         WARROOMS_DIR = DEMO_DIR / ".war-rooms"
+_ostwin_home = Path(os.environ.get("OSTWIN_HOME", str(Path.home() / ".ostwin")))
 SKILLS_DIRS = [
     Path("~/.ostwin/.agents/skills").expanduser(),
     Path("~/.ostwin/skills/global").expanduser(),
@@ -68,7 +69,7 @@ def resolve_plans_dir(
 PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
 
 # Global roles storage
-GLOBAL_ROLES_DIR = Path.home() / ".ostwin" / "roles"
+GLOBAL_ROLES_DIR = _ostwin_home / "roles"
 
 # Frontend static-export detection (dashboard/fe/out)
 FE_OUT_DIR = DEMO_DIR / "fe" / "out"

@@ -86,6 +86,7 @@ def load_roles() -> List[Role]:
                 model = engine_role.get("default_model") or role_json.get("model") or r.get("default_model", "google-vertex/gemini-3-flash-preview")
                 timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
                 skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
+                mcp_refs = role_json.get("mcp_refs", [])
                 description = role_json.get("description", r.get("description", ""))
                 role_md_file = GLOBAL_ROLES_DIR / name / "ROLE.md"
                 if not role_md_file.exists():
@@ -109,6 +110,7 @@ def load_roles() -> List[Role]:
                     max_retries=3,
                     timeout_seconds=timeout,
                     skill_refs=skill_refs,
+                    mcp_refs=mcp_refs,
                     system_prompt_override=None,
                     created_at=now,
                     updated_at=now
@@ -136,6 +138,7 @@ def load_roles() -> List[Role]:
                         model = engine_role.get("default_model") or role_json.get("model") or "google-vertex/gemini-3-flash-preview"
                         timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", 300)
                         skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
+                        mcp_refs = role_json.get("mcp_refs", [])
                         description = role_json.get("description", "")
                         
                         instructions = ""
@@ -151,7 +154,7 @@ def load_roles() -> List[Role]:
                             id=str(uuid.uuid4()), name=name, description=description, instructions=instructions,
                             provider=_detect_provider(model).lower(), version=model, temperature=0.7,
                             budget_tokens_max=500000, max_retries=3, timeout_seconds=timeout, skill_refs=skill_refs,
-                            system_prompt_override=None, created_at=now, updated_at=now
+                            mcp_refs=mcp_refs, system_prompt_override=None, created_at=now, updated_at=now
                         )
                         roles_list.append(role)
                         loaded_names.add(name)
@@ -182,6 +185,8 @@ def _sync_role_to_engine(role: Role):
     engine_config[role.name]["timeout_seconds"] = role.timeout_seconds
     if role.skill_refs:
         engine_config[role.name]["skill_refs"] = role.skill_refs
+    if role.mcp_refs:
+        engine_config[role.name]["mcp_refs"] = role.mcp_refs
     try:
         ENGINE_CONFIG_FILE.write_text(json.dumps(engine_config, indent=2))
     except OSError as e:
@@ -194,6 +199,7 @@ def _sync_role_to_engine(role: Role):
     role_json = _read_role_json(role.name)
     role_json["model"] = role.version
     role_json["skill_refs"] = role.skill_refs
+    role_json["mcp_refs"] = role.mcp_refs
     role_json["timeout"] = role.timeout_seconds
     role_json["description"] = role.description
     try:

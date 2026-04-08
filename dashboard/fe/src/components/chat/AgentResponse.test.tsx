@@ -1,9 +1,10 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { AgentResponse } from './AgentResponse';
+import { vi, describe, it, expect } from 'vitest';
 import '@testing-library/jest-dom';
 
-jest.mock('@/lib/markdown-renderer', () => ({
+vi.mock('@/lib/markdown-renderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>
 }));
 

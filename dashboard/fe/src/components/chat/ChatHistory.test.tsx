@@ -2,26 +2,27 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { ChatHistory } from './ChatHistory';
 import { useConversation } from '@/hooks/use-conversation';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom';
 
 // Mock the hook
-jest.mock('@/hooks/use-conversation');
+vi.mock('@/hooks/use-conversation');
 
 // Mock MarkdownRenderer to avoid complexity
-jest.mock('@/lib/markdown-renderer', () => ({
+vi.mock('@/lib/markdown-renderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>
 }));
 
 describe('ChatHistory', () => {
-  const mockUseConversation = useConversation as jest.Mock;
+  const mockUseConversation = useConversation as unknown as ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     // Basic setup for scrollIntoView
-    window.HTMLElement.prototype.scrollIntoView = jest.fn();
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders loading state when loading and no data', () => {

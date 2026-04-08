@@ -1945,10 +1945,13 @@ Context "PLAN-REVIEW Verdict Logic" {
 
             # Helper: write a minimal run-agent.sh that mirrors Invoke-Agent.ps1's output.
             # Only the fields we assert on need to be present.
+            # Accepts an optional -Model parameter to simulate plan.roles.json model
+            # propagation through Invoke-Agent.ps1 → run-agent.sh.
             function Write-MockRunAgentScript {
                 param(
                     [string]$RoomDir,
-                    [string]$Role
+                    [string]$Role,
+                    [string]$Model = 'google-vertex/gemini-test'
                 )
                 $artifactsDir = Join-Path $RoomDir "artifacts"
                 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
@@ -1966,7 +1969,7 @@ export OSTWIN_HOME='/Users/test/.ostwin'
 export AGENT_OS_PROJECT_DIR='/Users/test/project'
 echo "`$`$" > '$pidFile'
 echo "[wrapper] PID=`$`$, CMD=deepagents, CWD=`$(pwd)" >> '$outputFile'
-exec deepagents -n "`$(cat '$promptFile')" --agent $Role --auto-approve --model google-vertex/gemini-test --quiet >> '$outputFile' 2>&1
+exec deepagents -n "`$(cat '$promptFile')" --agent $Role --auto-approve --model $Model --quiet >> '$outputFile' 2>&1
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
 "@
                 $scriptPath = Join-Path $artifactsDir "run-agent.sh"
@@ -2189,6 +2192,284 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
                 $line | Should -Not -Match "game-engineer" `
                     -Because "review state: run-agent.sh role fields must reference '$reviewRole', not 'game-engineer'"
             }
+        }
+    }
+
+    # ==========================================================================
+    # plan.roles.json model propagation to run-agent.sh
+    #
+    # These tests verify the CONTRACT that the model configured in
+    # ~/.ostwin/.agents/plans/{plan_id}.roles.json propagates through:
+    #   plan.roles.json → Invoke-Agent.ps1 → run-agent.sh (--model flag)
+    #
+    # When a user customizes the model per role in plan.roles.json, the
+    # manager must ensure that model reaches the run-agent.sh wrapper via
+    # Invoke-Agent.ps1's plan-roles resolution chain.
+    #
+    # Tests are offline: they verify the contract by mocking run-agent.sh
+    # with the expected model and by static-analysis of Invoke-Agent.ps1.
+    # ==========================================================================
+    Context "plan.roles.json model propagation to run-agent.sh" {
+
+        BeforeAll {
+            # Redefine Write-MockRunAgentScript for this Context scope.
+            # Mirrors Invoke-Agent.ps1's run-agent.sh output format.
+            function Write-MockRunAgentScript {
+                param(
+                    [string]$RoomDir,
+                    [string]$Role,
+                    [string]$Model = 'google-vertex/gemini-test'
+                )
+                $artifactsDir = Join-Path $RoomDir "artifacts"
+                New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
+                $pidFile = ($RoomDir -replace "'", "'\''") + "/pids/$Role.pid"
+                $promptFile = ($RoomDir -replace "'", "'\''") + "/artifacts/prompt.txt"
+                $outputFile = ($RoomDir -replace "'", "'\''") + "/artifacts/$Role-output.txt"
+                $content = @"
+#!/bin/bash
+export AGENT_OS_ROOM_DIR='$RoomDir'
+export AGENT_OS_ROLE='$Role'
+export AGENT_OS_PARENT_PID='12345'
+export AGENT_OS_SKILLS_DIR='$RoomDir/skills'
+export AGENT_OS_PID_FILE='$pidFile'
+export OSTWIN_HOME='/Users/test/.ostwin'
+export AGENT_OS_PROJECT_DIR='/Users/test/project'
+echo "`$`$" > '$pidFile'
+echo "[wrapper] PID=`$`$, CMD=opencode, CWD=`$(pwd)" >> '$outputFile'
+exec opencode run 'start' --model $Model --agent $Role --file '$promptFile' >> '$outputFile' 2>&1
+echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
+"@
+                $scriptPath = Join-Path $artifactsDir "run-agent.sh"
+                $content | Out-File -FilePath $scriptPath -Encoding utf8 -NoNewline -Force
+                return $scriptPath
+            }
+        }
+
+        It "run-agent.sh --model flag carries the plan-configured model" {
+            & $script:NewWarRoom -RoomId "room-model-001" -TaskRef "TASK-MODEL-001" `
+                                 -TaskDescription "Model propagation test" -WarRoomsDir $script:warRoomsDir
+            $roomDir = Join-Path $script:warRoomsDir "room-model-001"
+
+            # Simulate: plan.roles.json sets engineer model to a custom value
+            $planModel = "anthropic/claude-sonnet-4-20250514"
+
+            # Write mock run-agent.sh with the plan-configured model
+            # (mirrors what Invoke-Agent.ps1 produces when plan.roles.json is read)
+            $scriptPath = Write-MockRunAgentScript -RoomDir $roomDir -Role "engineer" -Model $planModel
+            $content = Get-Content $scriptPath -Raw
+
+            # Assert --model flag carries the plan-configured model
+            $content | Should -Match "--model $([regex]::Escape($planModel))" `
+                -Because "run-agent.sh must carry the model from plan.roles.json"
+            # Assert it does NOT carry the hardcoded default
+            $content | Should -Not -Match "--model google-vertex/zai-org/glm-5-maas" `
+                -Because "hardcoded default must not appear when plan.roles.json specifies a model"
+        }
+
+        It "different roles get different models from plan.roles.json" {
+            $engineerModel = "anthropic/claude-sonnet-4-20250514"
+            $qaModel = "google-vertex/gemini-2.5-pro"
+
+            # Engineer room
+            & $script:NewWarRoom -RoomId "room-model-eng" -TaskRef "TASK-MODEL-ENG" `
+                                 -TaskDescription "Engineer model" -WarRoomsDir $script:warRoomsDir
+            $engDir = Join-Path $script:warRoomsDir "room-model-eng"
+            $engScript = Write-MockRunAgentScript -RoomDir $engDir -Role "engineer" -Model $engineerModel
+
+            # QA room
+            & $script:NewWarRoom -RoomId "room-model-qa" -TaskRef "TASK-MODEL-QA" `
+                                 -TaskDescription "QA model" -WarRoomsDir $script:warRoomsDir
+            $qaDir = Join-Path $script:warRoomsDir "room-model-qa"
+            $qaScript = Write-MockRunAgentScript -RoomDir $qaDir -Role "qa" -Model $qaModel
+
+            $engContent = Get-Content $engScript -Raw
+            $qaContent = Get-Content $qaScript -Raw
+
+            $engContent | Should -Match "--model $([regex]::Escape($engineerModel))"
+            $qaContent | Should -Match "--model $([regex]::Escape($qaModel))"
+            # Ensure they don't share the same model
+            $engContent | Should -Not -Match "--model $([regex]::Escape($qaModel))"
+            $qaContent | Should -Not -Match "--model $([regex]::Escape($engineerModel))"
+        }
+
+        It "Invoke-Agent.ps1 reads plan.roles.json from room config.json plan_id" {
+            # Static analysis: Invoke-Agent.ps1 must contain the plan-roles
+            # resolution logic that reads {plan_id}.roles.json
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $content = Get-Content $invokeAgentScript -Raw
+
+            # Must resolve plan_id from room config.json
+            $content | Should -Match 'roomPlanId' `
+                -Because "Invoke-Agent must read plan_id from room config.json"
+            # Must construct plan.roles.json path
+            $content | Should -Match 'planRolesFile' `
+                -Because "Invoke-Agent must construct path to {plan_id}.roles.json"
+            $content | Should -Match '\.roles\.json' `
+                -Because "Invoke-Agent must reference .roles.json files"
+            # Must use plan roles for model resolution
+            $content | Should -Match 'planRolesConfig' `
+                -Because "Invoke-Agent must load plan.roles.json config"
+            $content | Should -Match 'planRoleNode\.default_model' `
+                -Because "Invoke-Agent must read default_model from plan.roles.json role node"
+        }
+
+        It "Invoke-Agent.ps1 plan.roles.json model has priority over config.json model" {
+            # Static analysis: plan.roles.json model resolution block must appear
+            # BEFORE the config.json model resolution block
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $content = Get-Content $invokeAgentScript -Raw
+
+            # Find positions of plan-roles block and config.json block
+            $planRolesPos = $content.IndexOf('planRolesConfig')
+            $configJsonPos = $content.IndexOf('$config.$RoleName.default_model')
+
+            $planRolesPos | Should -BeGreaterThan 0 `
+                -Because "plan.roles.json resolution must exist in Invoke-Agent.ps1"
+            $configJsonPos | Should -BeGreaterThan 0 `
+                -Because "config.json model fallback must exist in Invoke-Agent.ps1"
+            $planRolesPos | Should -BeLessThan $configJsonPos `
+                -Because "plan.roles.json model must be checked BEFORE config.json model (higher priority)"
+        }
+
+        It "Invoke-Agent.ps1 plan.roles.json model has priority over role.json model" {
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $content = Get-Content $invokeAgentScript -Raw
+
+            $planRolesPos = $content.IndexOf('planRolesConfig')
+            $roleJsonPos = $content.IndexOf('roleJsonPath')
+
+            $planRolesPos | Should -BeGreaterThan 0
+            $roleJsonPos | Should -BeGreaterThan 0
+            $planRolesPos | Should -BeLessThan $roleJsonPos `
+                -Because "plan.roles.json model must be checked BEFORE role.json model"
+        }
+
+        It "Invoke-Agent.ps1 passes resolved model as --model CLI arg" {
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $content = Get-Content $invokeAgentScript -Raw
+
+            # The model must be injected into CLI args for run-agent.sh
+            $content | Should -Match 'extraCliArgs.*"--model"' `
+                -Because "resolved model must be passed as --model to run-agent.sh"
+        }
+    }
+
+    # ==========================================================================
+    # Start-DynamicRole.ps1 must not override plan.roles.json model
+    #
+    # Start-DynamicRole.ps1 calls Invoke-Agent.ps1, which resolves model from
+    # plan.roles.json. If Start-DynamicRole.ps1 passes an explicit -Model from
+    # role.json or config.json, it OVERRIDES the plan.roles.json resolution.
+    #
+    # Start-Engineer.ps1 and Start-QA.ps1 already do this correctly — they do
+    # NOT pass -Model to Invoke-Agent.ps1.
+    # ==========================================================================
+    Context "Worker scripts do not override plan.roles.json model" {
+
+        It "Start-DynamicRole.ps1 does not pass fallback agentModel to Invoke-Agent" {
+            $dynamicRoleScript = Join-Path $script:agentsDir "roles" "_base" "Start-DynamicRole.ps1"
+            $content = Get-Content $dynamicRoleScript -Raw
+
+            # Must NOT contain: elseif ($agentModel) { $invokeArgs['Model'] = $agentModel }
+            # This pattern causes plan.roles.json to be bypassed because $agentModel
+            # is always set (from role.json or hardcoded default).
+            $content | Should -Not -Match "elseif \(\`$agentModel\).*invokeArgs\['Model'\].*=.*\`$agentModel" `
+                -Because "fallback agentModel from role.json must not override plan.roles.json resolution in Invoke-Agent.ps1"
+        }
+
+        It "Start-DynamicRole.ps1 only passes per-room roleInstanceModel override" {
+            $dynamicRoleScript = Join-Path $script:agentsDir "roles" "_base" "Start-DynamicRole.ps1"
+            $content = Get-Content $dynamicRoleScript -Raw
+
+            # SHOULD contain: if ($roleInstanceModel) { $invokeArgs['Model'] = $roleInstanceModel }
+            $content | Should -Match "roleInstanceModel.*invokeArgs\['Model'\]" `
+                -Because "per-room instance model overrides are legitimate and should be passed"
+        }
+
+        It "Start-Engineer.ps1 does not pass -Model to Invoke-Agent (correct pattern)" {
+            $engineerScript = Join-Path $script:agentsDir "roles" "engineer" "Start-Engineer.ps1"
+            $content = Get-Content $engineerScript -Raw
+
+            # Engineer should NOT set -Model in its invoke args
+            $content | Should -Not -Match "invokeArgs\['Model'\]" `
+                -Because "Start-Engineer.ps1 correctly delegates model resolution to Invoke-Agent.ps1"
+            # Verify it calls Invoke-Agent without -Model
+            $content | Should -Match 'invokeAgent -RoomDir \$RoomDir -RoleName "engineer"' `
+                -Because "Start-Engineer.ps1 must call Invoke-Agent without explicit -Model"
+        }
+
+        It "Start-QA.ps1 does not pass -Model to Invoke-Agent (correct pattern)" {
+            $qaScript = Join-Path $script:agentsDir "roles" "qa" "Start-QA.ps1"
+            $content = Get-Content $qaScript -Raw
+
+            # QA should NOT set -Model in its invoke args
+            $content | Should -Not -Match "invokeArgs\['Model'\]" `
+                -Because "Start-QA.ps1 correctly delegates model resolution to Invoke-Agent.ps1"
+        }
+    }
+
+    # ==========================================================================
+    # plan.roles.json model resolution chain in Invoke-Agent.ps1
+    #
+    # Priority order (highest → lowest):
+    #   1. Explicit -Model parameter (from per-room instance config)
+    #   2. plan.roles.json instance override (instances.<id>.default_model)
+    #   3. plan.roles.json role default (default_model)
+    #   4. config.json instance override
+    #   5. config.json role default
+    #   6. role.json model
+    #   7. Hardcoded fallback
+    # ==========================================================================
+    Context "Invoke-Agent.ps1 model resolution chain" {
+
+        It "plan.roles.json supports per-instance model override" {
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $content = Get-Content $invokeAgentScript -Raw
+
+            # Must support instances.<id>.default_model from plan.roles.json
+            $content | Should -Match 'planRoleNode\.instances' `
+                -Because "plan.roles.json must support per-instance overrides"
+            $content | Should -Match 'instances\.\$InstanceId' `
+                -Because "plan.roles.json must support per-instance model overrides"
+        }
+
+        It "plan.roles.json supports per-role timeout override" {
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $content = Get-Content $invokeAgentScript -Raw
+
+            # Must support timeout_seconds from plan.roles.json
+            $content | Should -Match 'planRoleNode\.timeout_seconds' `
+                -Because "plan.roles.json must support per-role timeout overrides"
+        }
+
+        It "model resolution runs unconditionally (does not depend on config.json)" {
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $lines = Get-Content $invokeAgentScript
+
+            # The comment "Runs unconditionally" must be present near the plan roles block
+            $unconditionalComment = $lines | Where-Object { $_ -match 'Runs unconditionally' }
+            $unconditionalComment | Should -Not -BeNullOrEmpty `
+                -Because "plan.roles.json resolution must not depend on config.json existing"
+        }
+
+        It "hardcoded default model is only used as last resort" {
+            $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
+            $content = Get-Content $invokeAgentScript -Raw
+
+            # The hardcoded default should only appear in the final fallback
+            # after all config sources are exhausted
+            $defaultModelPos = $content.IndexOf('if (-not $Model) { $Model = "google-vertex/')
+            $planRolesPos = $content.IndexOf('planRolesConfig')
+            $configPos = $content.IndexOf('$config.$RoleName.default_model')
+            $roleJsonPos = $content.IndexOf('roleJsonPath')
+
+            # All resolution sources must appear BEFORE the hardcoded default
+            $planRolesPos | Should -BeLessThan $defaultModelPos `
+                -Because "plan.roles.json must be checked before hardcoded default"
+            $configPos | Should -BeLessThan $defaultModelPos `
+                -Because "config.json must be checked before hardcoded default"
+            $roleJsonPos | Should -BeLessThan $defaultModelPos `
+                -Because "role.json must be checked before hardcoded default"
         }
     }
 }

@@ -2,14 +2,20 @@
   "mcp": {
     "channel": {
       "type": "local",
-      "command": ["python", "{env:AGENT_DIR}/mcp/channel-server.py"],
+      "command": [
+        "python",
+        "{env:AGENT_DIR}/mcp/channel-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": "."
       }
     },
     "warroom": {
       "type": "local",
-      "command": ["python", "{env:AGENT_DIR}/mcp/warroom-server.py"],
+      "command": [
+        "python",
+        "{env:AGENT_DIR}/mcp/warroom-server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": "."
       }
@@ -22,6 +28,24 @@
         "MEMORY_PERSIST_DIR": "./.memory",
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}"
       }
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "environment": {}
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "environment": {}
     }
   }
 }

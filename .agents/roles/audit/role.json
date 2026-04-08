@@ -1,6 +1,7 @@
 {
   "name": "audit",
   "description": "Auditor — scopes risk investigations, commissions data analysis, validates findings, and makes risk decisions",
+  "instance_type": "evaluator",
   "capabilities": [
     "risk-assessment",
     "investigation-scoping",

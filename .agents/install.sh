@@ -575,6 +575,29 @@ ENVEOF
   chmod 600 "$env_file"   # Protect API keys
   ok ".env created — edit $env_file to add your API keys"
 
+  # Create a companion .env.sh hook for dynamic env logic (subshells,
+  # token refresh, etc.) that .env can't express. Sourced by every
+  # generated run-agent.sh wrapper before the agent execs.
+  local env_sh="$INSTALL_DIR/.env.sh"
+  if [[ ! -f "$env_sh" ]]; then
+    cat > "$env_sh" << 'ENVSHEOF'
+# Ostwin — dynamic environment hook
+# Sourced by every generated run-agent.sh wrapper before the agent execs.
+# Use this for env vars that require shell logic (subshells, conditionals,
+# token refresh, etc.). Static KEY=VALUE pairs belong in ~/.ostwin/.env.
+
+# Refresh a Vertex AI access token from the active gcloud account.
+# The OpenAI-compatible Vertex endpoint expects this as a Bearer token,
+# and access tokens expire ~1h, so re-mint per agent launch.
+if command -v gcloud >/dev/null 2>&1; then
+  VERTEX_API_KEY="$(gcloud auth print-access-token 2>/dev/null)"
+  export VERTEX_API_KEY
+fi
+ENVSHEOF
+    chmod 600 "$env_sh"
+    ok ".env.sh created — add dynamic env hooks (e.g. token refresh) here"
+  fi
+
   # Migrate any existing exported key from the current shell environment
   local migrated=false
   for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY NGROK_AUTHTOKEN; do
@@ -758,7 +781,7 @@ install_files() {
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
-    --exclude='mcp/config.json' --exclude='mcp/mcp-config.json' --exclude='mcp/.env.mcp' \
+    --exclude='mcp/config.json' --exclude='mcp/.env.mcp' \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ manually)
       find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
@@ -851,6 +874,18 @@ MERGE_EOF
     ok "Migrated $mcp_link -> .agents/mcp (symlink)"
   else
     ln -s "$mcp_real" "$mcp_link"
+  fi
+
+  # ── MCP: migrate legacy mcp-config.json → config.json ─────────────────────
+  local installed_mcp_dir="$INSTALL_DIR/.agents/mcp"
+  if [[ -f "$installed_mcp_dir/mcp-config.json" && ! -f "$installed_mcp_dir/config.json" ]]; then
+    step "Migrating mcp-config.json → config.json..."
+    mv "$installed_mcp_dir/mcp-config.json" "$installed_mcp_dir/config.json"
+    ok "Renamed mcp-config.json → config.json"
+  elif [[ -f "$installed_mcp_dir/mcp-config.json" && -f "$installed_mcp_dir/config.json" ]]; then
+    # Both exist — remove legacy, config.json takes precedence
+    rm -f "$installed_mcp_dir/mcp-config.json"
+    ok "Removed legacy mcp-config.json (config.json exists)"
   fi
 
   # ── Dashboard: always override from source repo ───────────────────────────
@@ -946,12 +981,7 @@ compute_build_hash() {
 
 patch_mcp_config() {
   local mcp_config="$INSTALL_DIR/.agents/mcp/config.json"
-  local legacy_mcp_config="$INSTALL_DIR/.agents/mcp/mcp-config.json"
   local env_file="$INSTALL_DIR/.env"
-
-  if [[ ! -f "$mcp_config" && -f "$legacy_mcp_config" ]]; then
-    mcp_config="$legacy_mcp_config"
-  fi
 
   if [[ ! -f "$mcp_config" ]]; then
     return
@@ -1030,83 +1060,142 @@ print(f"    Injected {len(env_vars)} env var(s) into {len(servers)} MCP server(s
 PYEOF
   fi
 
-  # 3. Write $PROJECT_DIR/.opencode/opencode.json with all {env:*} resolved
-  "$VENV_DIR/bin/python" - "$mcp_config" "$INSTALL_DIR" "$env_file" <<'PYEOF'
-import json, sys, os, re
+  # 3. Normalize + validate + merge MCP servers into ~/.config/opencode/opencode.json
+  #    - Normalizes from any format (legacy mcpServers, shell ${VAR}, etc.) to OpenCode.
+  #    - Validates each server against OpenCode MCP spec.
+  #    - Ensures each server has "enabled": true.
+  #    - Builds a "tools" deny block: "<server>*": false for each server.
+  #    - Preserves existing user settings (theme, model, keybinds).
+  local opencode_home="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  mkdir -p "$opencode_home"
+  "$VENV_DIR/bin/python" - "$mcp_config" "$opencode_home/opencode.json" "$INSTALL_DIR/.agents/mcp" <<'PYEOF'
+import json, sys, os
 
-mcp_path, project_dir, env_path = sys.argv[1], sys.argv[2], sys.argv[3]
+mcp_source, opencode_file, mcp_module_dir = sys.argv[1], sys.argv[2], sys.argv[3]
 
-# Load .env for resolving {env:VAR} references
-env_extra = {}
-if os.path.exists(env_path):
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            k, _, v = line.partition('=')
-            env_extra[k.strip()] = v.strip().strip('"').strip("'")
-env_all = {**os.environ, **env_extra}
+# Import from the shared module (.agents/mcp/validate_mcp.py)
+sys.path.insert(0, mcp_module_dir)
+from validate_mcp import normalize_mcp_config, validate_mcp_config, build_opencode_config
 
-def resolve_env_refs(text):
-    return re.sub(r'\{env:(\w+)\}', lambda m: env_all.get(m.group(1), m.group(0)), text)
+# Read the MCP source config (may be OpenCode or legacy format)
+with open(mcp_source) as f:
+    source = json.load(f)
 
-with open(mcp_path) as f:
-    config = json.load(f)
-servers = config.get('mcp', config.get('mcpServers', {}))
+# Normalize: legacy mcpServers → mcp, shell ${VAR} → {env:VAR},
+#            string command → array, env → environment, httpUrl → url
+normalized = normalize_mcp_config(source)
 
-# Build opencode.json:
-# - command arrays: resolve ALL {env:*} to literal paths
-# - environment/headers: STRIP {env:*} pass-throughs (server inherits parent env, no secrets on disk)
-import shutil
-python_abs = shutil.which('python') or shutil.which('python3') or 'python'
+# Validate against OpenCode spec
+validated_mcp, skipped_names, results = validate_mcp_config(normalized)
 
-env_ref_pattern = re.compile(r'\{env:\w+\}')
-resolved_mcp = {}
-for name, cfg in servers.items():
-    out = {}
-    for key, val in cfg.items():
-        if key == 'command' and isinstance(val, list):
-            resolved_cmd = []
-            for i, c in enumerate(val):
-                if isinstance(c, str):
-                    c = resolve_env_refs(c)
-                    if i == 0 and c in ('python', 'python3'):
-                        c = python_abs
-                resolved_cmd.append(c)
-            out[key] = resolved_cmd
-        elif key in ('environment', 'headers') and isinstance(val, dict):
-            resolved_env = {}
-            for k, v in val.items():
-                if isinstance(v, str):
-                    rv = resolve_env_refs(v)
-                    if env_ref_pattern.search(rv):
-                        continue
-                    resolved_env[k] = rv
-                else:
-                    resolved_env[k] = v
-            if resolved_env:
-                out[key] = resolved_env
-        elif key == 'url' and isinstance(val, str):
-            out[key] = resolve_env_refs(val)
-        else:
-            out[key] = val
-    resolved_mcp[name] = out
+for name, is_valid, errors, warnings in results:
+    for w in warnings:
+        print(f"    [WARN] '{name}': {w}", file=sys.stderr)
+    if not is_valid:
+        for e in errors:
+            print(f"    [ERROR] '{name}': {e} — skipping", file=sys.stderr)
 
-opencode_dir = os.path.join(project_dir, '.opencode')
-os.makedirs(opencode_dir, exist_ok=True)
-opencode_file = os.path.join(opencode_dir, 'opencode.json')
-opencode_config = {
-    "$schema": "https://opencode.ai/config.json",
-    "mcp": resolved_mcp
-}
+# Reference-aware filtering: drop any environment entries that still contain
+# unresolved {env:VAR} references so OpenCode never sees a literal placeholder
+# as an env value. (Resolved values were already injected upstream from .env.)
+import re as _re
+_env_ref = _re.compile(r'\{env:\w+\}')
+for _name, _cfg in validated_mcp.items():
+    _envblock = _cfg.get('environment')
+    if isinstance(_envblock, dict):
+        _cfg['environment'] = {
+            k: v for k, v in _envblock.items()
+            if not (isinstance(v, str) and _env_ref.search(v))
+        }
+
+# Build tools deny + agent config:
+#   - Global tools deny: blocks all MCP tools EXCEPT core servers
+#     (channel, warroom, memory are available to ALL agents)
+#   - Agent config: privileged agents (manager, architect, qa, audit,
+#     reporter) get ALL tools enabled
+tools_deny, agent_config = build_opencode_config(validated_mcp)
+
+# Load existing opencode.json if present (preserve user settings)
+existing = {}
+if os.path.exists(opencode_file):
+    try:
+        with open(opencode_file) as f:
+            existing = json.load(f)
+    except (json.JSONDecodeError, ValueError):
+        existing = {}
+
+# Merge: replace only the managed keys (mcp, tools, agent)
+existing["$schema"] = "https://opencode.ai/config.json"
+existing["mcp"] = validated_mcp
+existing["tools"] = tools_deny
+existing["agent"] = agent_config
+
 with open(opencode_file, 'w') as f:
-    json.dump(opencode_config, f, indent=2)
+    json.dump(existing, f, indent=2)
     f.write('\n')
-print(f"    Generated {opencode_file}")
+
+core_count = len([n for n in validated_mcp if n in {"channel", "warroom", "memory"}])
+print(f"    Merged {len(validated_mcp)} MCP server(s) into {opencode_file}")
+if skipped_names:
+    print(f"    Skipped {len(skipped_names)} invalid server(s): {', '.join(skipped_names)}")
+print(f"    Tools deny block: {len(tools_deny)} server(s) globally disabled")
+print(f"    Core servers (channel/warroom/memory): {core_count} available to all agents")
+print(f"    Agent config: {len(agent_config)} privileged agent(s) with full tool access")
 PYEOF
 
   ok "MCP config patched"
+}
+
+# ─── Sync roles to OpenCode agents dir ───────────────────────────────────────
+# Copies ROLE.md from each role directory to ~/.config/opencode/agents/<role>.md
+# so the OpenCode CLI can discover and invoke them as named agents.
+
+sync_opencode_agents() {
+  local opencode_home="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  local agents_dir="$opencode_home/agents"
+  local roles_dirs=(
+    "$INSTALL_DIR/.agents/roles"
+    "$INSTALL_DIR/contributes/roles"
+  )
+
+  step "Syncing agent definitions to $agents_dir..."
+  mkdir -p "$agents_dir"
+
+  local synced=0
+  local skipped=0
+
+  for roles_dir in "${roles_dirs[@]}"; do
+    [[ -d "$roles_dir" ]] || continue
+
+    for role_dir in "$roles_dir"/*/; do
+      [[ -d "$role_dir" ]] || continue
+
+      local role_name
+      role_name="$(basename "$role_dir")"
+
+      # Skip _base (infrastructure scripts, not a role)
+      if [[ "$role_name" == "_base" ]]; then
+        continue
+      fi
+
+      # Must have role.json to be a valid role
+      if [[ ! -f "$role_dir/role.json" ]]; then
+        skipped=$((skipped + 1))
+        continue
+      fi
+
+      # Copy ROLE.md as <role-name>.md (built-in roles take precedence over contributes)
+      local role_md="$role_dir/ROLE.md"
+      if [[ -f "$role_md" ]]; then
+        cp "$role_md" "$agents_dir/${role_name}.md"
+        synced=$((synced + 1))
+      else
+        skipped=$((skipped + 1))
+      fi
+    done
+  done
+
+  ok "$synced agent(s) synced to $agents_dir ($skipped skipped — no ROLE.md)"
 }
 
 # ─── PATH setup ──────────────────────────────────────────────────────────────
@@ -1345,6 +1434,7 @@ fi
 header "5. Setting up Python environment"
 setup_venv
 patch_mcp_config
+sync_opencode_agents
 compute_build_hash
 
 # ─── 5b. Environment variables (.env) ────────────────────────────────────────
@@ -1488,19 +1578,29 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
     ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
     # Check for ngrok tunnel URL
     TUNNEL_URL=""
+    TUNNEL_ERROR=""
     PYTHON_FOR_TUNNEL="$VENV_DIR/bin/python"
     [[ -x "$PYTHON_FOR_TUNNEL" ]] || PYTHON_FOR_TUNNEL="python3"
+    TUNNEL_JSON=""
     if [[ -n "$OSTWIN_API_KEY" ]]; then
-      TUNNEL_URL=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
-        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+      TUNNEL_JSON=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
     else
-      TUNNEL_URL=$(curl -sf \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null \
-        | "$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || true)
+      TUNNEL_JSON=$(curl -sf \
+        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
+    fi
+    if [[ -n "$TUNNEL_JSON" ]]; then
+      TUNNEL_URL=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
+      TUNNEL_ERROR=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('error') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
     fi
     if [[ -n "$TUNNEL_URL" ]]; then
       ok "Tunnel active: $TUNNEL_URL"
+    elif [[ -n "$TUNNEL_ERROR" ]]; then
+      warn "Tunnel failed: $TUNNEL_ERROR"
+    elif [[ -z "${NGROK_AUTHTOKEN:-}" ]]; then
+      info "Tunnel not configured — set NGROK_AUTHTOKEN in ~/.ostwin/.env to enable port forwarding"
+    else
+      warn "Tunnel not active — check dashboard logs at $INSTALL_DIR/logs/dashboard.log"
     fi
   else
     warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"

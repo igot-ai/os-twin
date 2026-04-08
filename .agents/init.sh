@@ -146,112 +146,37 @@ fi
 echo -e "    ${DIM}Config: $PROJECT_MCP_CONFIG${NC}"
 
 # ─── Interactive MCP install ──────────────────────────────────────────────────
+# Note: MCP config also lives globally at ~/.ostwin/.agents/mcp/ and is compiled
+# into .opencode/opencode.json by `ostwin mcp compile`.
 
 PYTHON="python3"
-CATALOG_FILE="$TARGET_AGENTS/mcp/mcp-catalog.json"
-MCP_EXTENSION_SCRIPT="$TARGET_AGENTS/mcp/mcp-extension.sh"
+MCP_EXTENSION_SCRIPT="$SCRIPT_DIR/mcp/mcp-extension.sh"
 
-if [[ -f "$CATALOG_FILE" ]] && ! $AUTO_YES; then
-  echo ""
-  echo -e "  ${BLUE}${BOLD}── Available MCP Extensions ──${NC}"
-  echo ""
-
-  # Read catalog packages into arrays
-  PACKAGE_NAMES=()
-  PACKAGE_DESCS=()
-  while IFS='|' read -r pname pdesc; do
-    PACKAGE_NAMES+=("$pname")
-    PACKAGE_DESCS+=("$pdesc")
-  done < <("$PYTHON" -c "
-import json
-with open('$CATALOG_FILE') as f:
-    catalog = json.load(f)
-for name, spec in catalog.get('packages', {}).items():
-    desc = spec.get('description', '')
-    print(f'{name}|{desc}')
-" 2>/dev/null || true)
-
-  if [[ ${#PACKAGE_NAMES[@]} -gt 0 ]]; then
-    # Display packages
-    for i in "${!PACKAGE_NAMES[@]}"; do
-      local_num=$((i + 1))
-      echo -e "    ${BOLD}[$local_num]${NC} ${PACKAGE_NAMES[$i]}"
-      echo -e "        ${DIM}${PACKAGE_DESCS[$i]}${NC}"
-    done
-    echo ""
-
-    if ask "Would you like to install any MCP extensions now?"; then
-      echo ""
-      echo -en "    ${YELLOW}?${NC} Enter numbers separated by spaces (e.g. ${BOLD}1 2${NC}), or ${BOLD}all${NC}: "
-      read -r selection
-
-      SELECTED=()
-      if [[ "$selection" == "all" ]]; then
-        SELECTED=("${PACKAGE_NAMES[@]}")
-      else
-        for num in $selection; do
-          idx=$((num - 1))
-          if [[ $idx -ge 0 && $idx -lt ${#PACKAGE_NAMES[@]} ]]; then
-            SELECTED+=("${PACKAGE_NAMES[$idx]}")
-          else
-            warn "Invalid selection: $num — skipping"
-          fi
-        done
-      fi
-
-      echo ""
-      if [[ ${#SELECTED[@]} -gt 0 ]]; then
-        for pkg in "${SELECTED[@]}"; do
-          step "Installing ${BOLD}$pkg${NC}..."
-          if bash "$MCP_EXTENSION_SCRIPT" install "$pkg" --project-dir "$TARGET_DIR" 2>&1; then
-            ok "$pkg installed"
-          else
-            warn "$pkg installation failed — you can retry later with: ostwin mcp install $pkg"
-          fi
-          echo ""
-        done
-      else
-        info "No packages selected — you can install later with: ostwin mcp install <name>"
-      fi
-    else
-      echo ""
-      info "Skipped — install later with: ostwin mcp install <name>"
-    fi
-  fi
-else
-  if $AUTO_YES; then
-    info "Non-interactive mode — skipping MCP extension install"
-    info "Install later with: ostwin mcp install <name>"
-  fi
-fi
-
-# ─── Compile project-level config ─────────────────────────────────────────────
-
-# Ensure global config.json exists (compile needs it)
+# Ensure global MCP dir and config exist
 GLOBAL_MCP_DIR="$HOME/.ostwin/.agents/mcp"
 GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/config.json"
-LEGACY_GLOBAL_MCP_CONFIG="$GLOBAL_MCP_DIR/mcp-config.json"
 mkdir -p "$GLOBAL_MCP_DIR"
 if [[ ! -f "$GLOBAL_MCP_CONFIG" ]]; then
-  # Seed global config from mcp-config.json (deployed format) if available
-  if [[ -f "$LEGACY_GLOBAL_MCP_CONFIG" ]]; then
-    cp "$LEGACY_GLOBAL_MCP_CONFIG" "$GLOBAL_MCP_CONFIG"
-  elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
-    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$GLOBAL_MCP_CONFIG"
-  elif [[ -f "$GLOBAL_MCP_DIR/mcp-builtin.json" ]]; then
+  if [[ -f "$GLOBAL_MCP_DIR/mcp-builtin.json" ]]; then
     cp "$GLOBAL_MCP_DIR/mcp-builtin.json" "$GLOBAL_MCP_CONFIG"
   else
     echo '{"mcp":{}}' > "$GLOBAL_MCP_CONFIG"
   fi
+  ok "Global MCP config created at $GLOBAL_MCP_CONFIG"
+else
+  ok "Global MCP config exists (preserved)"
 fi
 
-step "Compiling project-level MCP config..."
-bash "$MCP_EXTENSION_SCRIPT" --project-dir "$TARGET_DIR" compile
+# Compile .opencode/opencode.json from global config
+if [[ -f "$MCP_EXTENSION_SCRIPT" ]]; then
+  step "Compiling project-level MCP config..."
+  bash "$MCP_EXTENSION_SCRIPT" --project-dir "$TARGET_DIR" compile
+fi
 
 # ─── Update .gitignore ────────────────────────────────────────────────────────
 
 GITIGNORE="$TARGET_DIR/.gitignore"
-GITIGNORE_ENTRIES=(".agents/mcp/.env.mcp" ".opencode/opencode.json")
+GITIGNORE_ENTRIES=(".opencode/opencode.json")
 if [[ -f "$GITIGNORE" ]]; then
   for entry in "${GITIGNORE_ENTRIES[@]}"; do
     if ! grep -q "$entry" "$GITIGNORE"; then

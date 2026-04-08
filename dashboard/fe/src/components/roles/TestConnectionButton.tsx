@@ -1,28 +1,35 @@
 'use client';
 
 import { useState } from 'react';
+import { apiPost } from '@/lib/api-client';
 
 interface TestConnectionButtonProps {
   version: string;
 }
 
+interface TestResult {
+  status: string;
+  latency_ms?: number;
+  error?: string;
+}
+
 export default function TestConnectionButton({ version }: TestConnectionButtonProps) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ status: string; latency_ms: number } | null>(null);
+  const [result, setResult] = useState<TestResult | null>(null);
 
   const handleTest = async () => {
     if (!version) return;
     setLoading(true);
     setResult(null);
     try {
-      const response = await fetch(`/api/models/${encodeURIComponent(version)}/test`, {
-        method: 'POST',
-      });
-      const data = await response.json();
+      const data = await apiPost<TestResult>(
+        `/models/${encodeURIComponent(version)}/test`,
+        {}
+      );
       setResult(data);
     } catch (error) {
-      console.error('Test connection failed:', error);
-      setResult({ status: 'fail', latency_ms: 0 });
+      const message = error instanceof Error ? error.message : 'Connection failed';
+      setResult({ status: 'fail', latency_ms: 0, error: message });
     } finally {
       setLoading(false);
     }
@@ -53,14 +60,14 @@ export default function TestConnectionButton({ version }: TestConnectionButtonPr
       {result && isOk && (
         <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 fade-in">
           <span className="material-symbols-outlined text-base">check_circle</span>
-          ✓ OK — {result.latency_ms}ms
+          OK — {result.latency_ms}ms
         </div>
       )}
 
       {result && !isOk && (
-        <div className="flex items-center gap-1.5 text-[11px] font-bold text-red-600 fade-in">
-          <span className="material-symbols-outlined text-base">error</span>
-          Connection Failed
+        <div className="flex items-center gap-1.5 text-[11px] font-bold text-red-600 fade-in max-w-[240px]">
+          <span className="material-symbols-outlined text-base shrink-0">error</span>
+          <span className="truncate">{result.error || 'Connection failed'}</span>
         </div>
       )}
     </div>

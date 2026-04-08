@@ -6,51 +6,50 @@ BeforeAll {
 }
 
 Describe "Resolve-Pipeline.ps1 — Dynamic Lifecycle Generation" {
-    It "Builds lifecycle with multiple workers and one evaluator" {
+    It "Builds lifecycle with three candidates (position-based)" {
+        # Position-based: [0]=worker, [1..N]=evaluators
+        # RoleOverrides kept for backward compat — InstanceType is ignored,
+        # only Name and position matter.
         $roles = @(
             [PSCustomObject]@{ Name = 'game-architect'; InstanceType = 'worker' },
             [PSCustomObject]@{ Name = 'game-engineer'; InstanceType = 'worker' },
             [PSCustomObject]@{ Name = 'game-qa'; InstanceType = 'evaluator' }
         )
 
-        $params = @{
-            CandidateRoles = @('game-architect', 'game-engineer', 'game-qa')
-            AgentsDir = $script:agentsDir
-        }
-
-        # Instead of calling the actual Resolve-Pipeline which depends on Resolve-Role.ps1 and directory structures, 
-        # we can source it and call Build-LifecycleV2
         . $script:ResolvePipeline -PipelineString "just_to_source_functions" -ErrorAction SilentlyContinue
 
         $lc = Build-LifecycleV2 -RoleOverrides $roles -MaxRetries 3
 
-        # State check
+        # State check — position-based: [0]=worker, [1..N]=evaluators
         $lc.initial_state | Should -Be "developing"
         $lc.states.developing.role | Should -Be "game-architect"
         $lc.states.developing.type | Should -Be "work"
-        $lc.states.developing.signals.done.target | Should -Be "game-engineer"
+        $lc.states.developing.signals.done.target | Should -Be "game-engineer-review"
 
-        $lc.states."game-engineer".role | Should -Be "game-engineer"
-        $lc.states."game-engineer".type | Should -Be "work"
-        $lc.states."game-engineer".signals.done.target | Should -Be "review"
+        # Position [1] is evaluator with {role}-review naming
+        $lc.states."game-engineer-review".role | Should -Be "game-engineer"
+        $lc.states."game-engineer-review".type | Should -Be "review"
+        $lc.states."game-engineer-review".signals.pass.target | Should -Be "game-qa-review"
 
-        $lc.states.review.role | Should -Be "game-qa"
-        $lc.states.review.type | Should -Be "review"
-        $lc.states.review.signals.pass.target | Should -Be "passed"
-        $lc.states.review.signals.done.target | Should -Be "passed"
-        
-        # Error signal on review state (crash-loop guard)
-        $lc.states.review.signals.error | Should -Not -BeNullOrEmpty
-        $lc.states.review.signals.error.target | Should -Be "failed"
-        $lc.states.review.signals.error.actions | Should -Contain "increment_retries"
+        # Position [2] is evaluator — final gate
+        $lc.states."game-qa-review".role | Should -Be "game-qa"
+        $lc.states."game-qa-review".type | Should -Be "review"
+        $lc.states."game-qa-review".signals.pass.target | Should -Be "passed"
+        $lc.states."game-qa-review".signals.done.target | Should -Be "passed"
 
-        # Optimize states routing
-        $lc.states.review.signals.fail.target | Should -Be "optimize-game-engineer"
-        $lc.states."optimize-game-engineer".role | Should -Be "game-engineer"
+        # Error signal on evaluator states (crash-loop guard)
+        $lc.states."game-qa-review".signals.error | Should -Not -BeNullOrEmpty
+        $lc.states."game-qa-review".signals.error.target | Should -Be "failed"
+        $lc.states."game-qa-review".signals.error.actions | Should -Contain "increment_retries"
+
+        # Evaluator fail → optimize (worker's optimize state)
+        $lc.states."game-qa-review".signals.fail.target | Should -Be "optimize"
+
+        # Optimize state carries the worker role
         $lc.states.optimize.role | Should -Be "game-architect"
     }
 
-    It "Builds lifecycle with single worker" {
+    It "Builds lifecycle with single candidate — QA review injected" {
         $roles = @(
             [PSCustomObject]@{ Name = 'game-ui-analyst'; InstanceType = 'worker' }
         )
@@ -61,32 +60,34 @@ Describe "Resolve-Pipeline.ps1 — Dynamic Lifecycle Generation" {
 
         $lc.initial_state | Should -Be "developing"
         $lc.states.developing.role | Should -Be "game-ui-analyst"
-        $lc.states.developing.signals.done.target | Should -Be "passed"
+        # Single candidate → QA review injected as final gate
+        $lc.states.developing.signals.done.target | Should -Be "review"
 
         $lc.states.optimize.role | Should -Be "game-ui-analyst"
-        $lc.states.optimize.signals.done.target | Should -Be "passed"
+        $lc.states.optimize.signals.done.target | Should -Be "review"
 
-        $lc.states.Keys -contains "game-ui-analyst-review" | Should -BeFalse
+        # Injected QA review state
+        $lc.states.review.role | Should -Be "qa"
+        $lc.states.review.type | Should -Be "review"
+        $lc.states.review.signals.pass.target | Should -Be "passed"
     }
 
-    It "Builds lifecycle with single evaluator (no workers)" {
-        $roles = @(
-            [PSCustomObject]@{ Name = 'game-qa'; InstanceType = 'evaluator' }
-        )
-
+    It "Single candidate via -Roles string array also works" {
         . $script:ResolvePipeline -PipelineString "just_to_source_functions" -ErrorAction SilentlyContinue
 
-        $lc = Build-LifecycleV2 -RoleOverrides $roles -MaxRetries 3
+        $lc = Build-LifecycleV2 -Roles @('game-qa') -MaxRetries 3
 
-        $lc.initial_state | Should -Be "review"
-        $lc.states.review.role | Should -Be "game-qa"
-        
-        # When an evaluator fails off the bat, since there are no prior workers, it should target failed
-        $lc.states.review.signals.fail.target | Should -Be "failed"
+        # Position [0] is always the worker regardless of role name
+        $lc.initial_state | Should -Be "developing"
+        $lc.states.developing.role | Should -Be "game-qa"
+
+        # Single candidate → QA review injected
+        $lc.states.review.role | Should -Be "qa"
+        $lc.states.review.signals.fail.target | Should -Be "optimize"
         $lc.states.review.signals.pass.target | Should -Be "passed"
         $lc.states.review.signals.done.target | Should -Be "passed"
-        
-        # Error signal present even on standalone evaluator
+
+        # Error signal present on injected review
         $lc.states.review.signals.error | Should -Not -BeNullOrEmpty
         $lc.states.review.signals.error.target | Should -Be "failed"
     }
@@ -121,8 +122,8 @@ Describe "Resolve-Pipeline.ps1 — Dynamic Lifecycle Generation" {
 
         $lc = Build-LifecycleV2 -RoleOverrides $roles -MaxRetries 3
 
-        # Both evaluator states must have error signal
-        foreach ($stateName in @('review', 'review-final-qa')) {
+        # Position-based: design-reviewer-review and final-qa-review
+        foreach ($stateName in @('design-reviewer-review', 'final-qa-review')) {
             $state = $lc.states[$stateName]
             $state | Should -Not -BeNullOrEmpty -Because "state '$stateName' should exist"
             $state.type | Should -Be 'review'
@@ -144,7 +145,7 @@ Describe "Resolve-Pipeline.ps1 — Dynamic Lifecycle Generation" {
 
         # Worker error signal
         $lc.states.developing.signals.error.target | Should -Be 'failed'
-        # Evaluator error signal
-        $lc.states.review.signals.error.target | Should -Be 'failed'
+        # Evaluator error signal (qa-review, position-based naming)
+        $lc.states.'qa-review'.signals.error.target | Should -Be 'failed'
     }
 }

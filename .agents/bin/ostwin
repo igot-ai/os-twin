@@ -303,7 +303,16 @@ ps_dispatch() {
 case "${1:-}" in
   agent)
     shift
-    exec "$AGENTS_DIR/bin/agent" "$@"
+    # Prefer the local repo's agent when running from a checked-out branch
+    # (enables testing branch changes without installing globally first).
+    # Fall back to the canonical OSTWIN_HOME copy for production use.
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    LOCAL_AGENT="$SCRIPT_DIR/agent"
+    if [[ -f "$LOCAL_AGENT" ]]; then
+      exec "$LOCAL_AGENT" "$@"
+    else
+      exec "$OSTWIN_HOME/.agents/bin/agent" "$@"
+    fi
     ;;
   chat)
     shift
@@ -330,6 +339,7 @@ case "${1:-}" in
       fi
     done
 
+    #Check-role
     # Check for missing roles in the plan and generate a script if needed
     if [[ "$PLAN_ARG_RESOLVED" == true && -f "$RESOLVED_PLAN_FILE" ]]; then
       # Extract roles defined as "Role: role-name"
@@ -819,11 +829,8 @@ else:
     # Collect all MCP config files to patch
     MCP_CONFIGS=()
     [[ -f "$HOME/.ostwin/.agents/mcp/config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/.agents/mcp/config.json")
-    [[ -f "$HOME/.ostwin/.agents/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/.agents/mcp/mcp-config.json")
     [[ -f "$HOME/.ostwin/mcp/config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/mcp/config.json")
-    [[ -f "$HOME/.ostwin/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$HOME/.ostwin/mcp/mcp-config.json")
     [[ -f "$AGENTS_DIR/mcp/config.json" ]] && MCP_CONFIGS+=("$AGENTS_DIR/mcp/config.json")
-    [[ -f "$AGENTS_DIR/mcp/mcp-config.json" ]] && MCP_CONFIGS+=("$AGENTS_DIR/mcp/mcp-config.json")
     # Deduplicate (in case they're the same file)
     MCP_CONFIGS=($(printf '%s\n' "${MCP_CONFIGS[@]}" | sort -u))
 
