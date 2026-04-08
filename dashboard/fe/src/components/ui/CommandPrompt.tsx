@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect, forwardRef } from 'react';
+import React, { useState, useRef, useLayoutEffect, useMemo, forwardRef } from 'react';
 import { processImages, MAX_IMAGES, type ProcessedImage } from '@/lib/image-utils';
 import type { ImageAttachment } from '@/types';
 
@@ -10,6 +10,20 @@ interface CommandPromptProps {
   isLoading?: boolean;
 }
 
+function useMergedRef<T>(...refs: Array<React.Ref<T> | null | undefined>) {
+  return useMemo(
+    () => (node: T | null) => {
+      refs.forEach(r => {
+        if (!r) return;
+        if (typeof r === 'function') r(node);
+        else (r as React.MutableRefObject<T | null>).current = node;
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    refs,
+  );
+}
+
 export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>(({ onSubmit, isConversationActive = false, value, onChange, isLoading = false }, ref) => {
   const [internalPrompt, setInternalPrompt] = useState('');
   const [pendingImages, setPendingImages] = useState<ProcessedImage[]>([]);
@@ -17,7 +31,7 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
   const fileInputRef = useRef<HTMLInputElement>(null);
   const innerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const combinedRef = (ref as React.MutableRefObject<HTMLTextAreaElement | null>) || innerTextareaRef;
+  const mergedRef = useMergedRef<HTMLTextAreaElement>(ref, innerTextareaRef);
 
   const isControlled = value !== undefined && onChange !== undefined;
   const prompt = isControlled ? value : internalPrompt;
@@ -59,20 +73,7 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      handleSubmit(e as unknown as React.FormEvent);
-    }
-  };
-
-  const removeImage = (index: number) => {
-    setPendingImages(prev => prev.filter((_, i) => i !== index));
-    setImageError(null);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const doSubmit = () => {
     const hasText = prompt.trim().length > 0;
     const hasImages = pendingImages.length > 0;
     if (!hasText && !hasImages) return;
@@ -87,8 +88,28 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
     setImageError(null);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ctrl/Cmd+Enter submits. Plain Enter inserts a newline so the user can
+    // safely edit multi-line templates (e.g. prompt templates with {{ }}
+    // placeholders) without accidentally submitting a half-filled template.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      doSubmit();
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setPendingImages(prev => prev.filter((_, i) => i !== index));
+    setImageError(null);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    doSubmit();
+  };
+
   useLayoutEffect(() => {
-    const el = combinedRef.current;
+    const el = innerTextareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.4) + 'px';
@@ -147,13 +168,15 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
         </button>
 
         <textarea
-          ref={combinedRef}
+          ref={mergedRef}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           disabled={isLoading}
           placeholder="What do you want to build?"
+          aria-label="Prompt"
+          aria-describedby="command-prompt-hint"
           rows={1}
           className="flex-1 bg-transparent border-none py-4 px-2 text-[16px] font-[var(--font-display)] text-[var(--color-text-main)] outline-none placeholder:text-[var(--color-text-faint)] transition-all disabled:opacity-50 resize-none"
           style={{ maxHeight: '40vh' }}
@@ -168,6 +191,7 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
             type="submit"
             disabled={(!prompt.trim() && pendingImages.length === 0) || isLoading}
             className="p-2 bg-primary text-white rounded-full hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 flex items-center justify-center min-w-[36px] min-h-[36px]"
+            aria-label="Send prompt (Ctrl or Cmd + Enter)"
           >
             {isLoading ? (
               <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
@@ -177,6 +201,17 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
           </button>
         </div>
       </form>
+      <div
+        id="command-prompt-hint"
+        className="mt-1.5 text-[11px] text-[var(--color-text-faint)] text-right pr-4 select-none"
+      >
+        Press <kbd className="px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[10px] font-mono">Ctrl</kbd>
+        <span className="mx-0.5">/</span>
+        <kbd className="px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[10px] font-mono">⌘</kbd>
+        <span className="mx-1">+</span>
+        <kbd className="px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[10px] font-mono">Enter</kbd>
+        <span className="ml-1">to send &middot; Enter for new line</span>
+      </div>
     </div>
   );
 });

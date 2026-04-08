@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Tooltip } from '@/components/ui/Tooltip';
 
 interface Template {
@@ -21,32 +21,47 @@ interface TemplatePickerProps {
 }
 
 export const TemplatePicker: React.FC<TemplatePickerProps> = ({ categories, onSelectTemplate }) => {
-  const [activeTabId, setActiveTabId] = useState(categories[0]?.id || 'engineering');
+  const [activeTabId, setActiveTabId] = useState(categories[0]?.id ?? '');
   const [focusedTabIndex, setFocusedTabIndex] = useState(0);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Tracks whether the next focus-move should come from a keyboard event,
+  // so we don't steal focus on the initial mount or on mouse clicks.
+  const shouldFocusTabRef = useRef(false);
 
   const activeCategory = categories.find(c => c.id === activeTabId);
 
+  useEffect(() => {
+    if (!shouldFocusTabRef.current) return;
+    shouldFocusTabRef.current = false;
+    const el = tabRefs.current[focusedTabIndex];
+    if (el) el.focus();
+  }, [focusedTabIndex]);
+
+  const moveToTab = useCallback((nextIndex: number) => {
+    if (categories.length === 0) return;
+    shouldFocusTabRef.current = true;
+    setFocusedTabIndex(nextIndex);
+    setActiveTabId(categories[nextIndex].id);
+  }, [categories]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (categories.length === 0) return;
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      const next = (focusedTabIndex + 1) % categories.length;
-      setFocusedTabIndex(next);
-      setActiveTabId(categories[next].id);
+      moveToTab((focusedTabIndex + 1) % categories.length);
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      const prev = (focusedTabIndex - 1 + categories.length) % categories.length;
-      setFocusedTabIndex(prev);
-      setActiveTabId(categories[prev].id);
+      moveToTab((focusedTabIndex - 1 + categories.length) % categories.length);
     } else if (e.key === 'Home') {
       e.preventDefault();
-      setFocusedTabIndex(0);
-      setActiveTabId(categories[0].id);
+      moveToTab(0);
     } else if (e.key === 'End') {
       e.preventDefault();
-      setFocusedTabIndex(categories.length - 1);
-      setActiveTabId(categories[categories.length - 1].id);
+      moveToTab(categories.length - 1);
     }
-  }, [categories, focusedTabIndex]);
+  }, [categories, focusedTabIndex, moveToTab]);
+
+  if (categories.length === 0) return null;
 
   return (
     <div className="w-full mt-12 mb-16">
@@ -59,13 +74,16 @@ export const TemplatePicker: React.FC<TemplatePickerProps> = ({ categories, onSe
         {categories.map((cat, idx) => (
           <button
             key={cat.id}
+            ref={el => { tabRefs.current[idx] = el; }}
             role="tab"
             id={`tab-${cat.id}`}
             aria-controls={`panel-${cat.id}`}
             aria-selected={activeTabId === cat.id}
             tabIndex={activeTabId === cat.id ? 0 : -1}
-            onClick={() => { setActiveTabId(cat.id); setFocusedTabIndex(idx); }}
-            onFocus={() => setFocusedTabIndex(idx)}
+            onClick={() => {
+              setActiveTabId(cat.id);
+              setFocusedTabIndex(idx);
+            }}
             className={`flex items-center justify-center gap-1.5 flex-1 min-w-0 px-1 py-2 text-sm font-medium transition-all border-b-2 -mb-[2px] truncate ${
               activeTabId === cat.id
                 ? 'border-[var(--color-primary)] text-[var(--color-primary)]'

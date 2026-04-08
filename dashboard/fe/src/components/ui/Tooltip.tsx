@@ -4,9 +4,10 @@ interface TooltipProps {
   content: string;
   children: React.ReactNode;
   position?: "top" | "bottom" | "left" | "right";
+  className?: string;
 }
 
-export const Tooltip = ({ content, children, position = "top" }: TooltipProps) => {
+export const Tooltip = ({ content, children, position = "top", className = "" }: TooltipProps) => {
   const positions = {
     top: "bottom-full left-1/2 -translate-x-1/2 mb-2",
     bottom: "top-full left-1/2 -translate-x-1/2 mt-2",
@@ -15,7 +16,7 @@ export const Tooltip = ({ content, children, position = "top" }: TooltipProps) =
   };
 
   return (
-    <div className="group relative inline-block">
+    <div className={`group relative inline-block ${className}`}>
       {children}
       <div
         className={`invisible group-hover:visible absolute z-[100] w-max max-w-xs rounded bg-text-main px-2 py-1 text-xs font-medium text-white shadow-lg ${positions[position]}`}
