@@ -49,9 +49,15 @@ $defaultLifecyclePath = Join-Path $AgentsDir "lifecycle" "default.json"
 # ------------------------------------------------------------------
 function Build-LifecycleV2 {
     param(
-        [string[]]$Roles,      # Ordered list: [0] = worker, [1..N] = evaluators
+        [string[]]$Roles,              # Ordered list: [0] = worker, [1..N] = evaluators
+        [PSCustomObject[]]$RoleOverrides,  # Backward-compat: array of @{ Name; InstanceType }
         [int]$MaxRetries = 3
     )
+
+    # --- Backward compatibility: normalize -RoleOverrides to -Roles ---
+    if (-not $Roles -and $RoleOverrides) {
+        $Roles = @($RoleOverrides | ForEach-Object { $_.Name })
+    }
 
     $states = [ordered]@{}
 

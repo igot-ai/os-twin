@@ -15,6 +15,7 @@ from validate_mcp import (
     normalize_mcp_server,
     normalize_mcp_config,
     merge_mcp_configs,
+    build_opencode_config,
     _convert_shell_vars,
 )
 
@@ -297,12 +298,13 @@ class TestNormalizeLegacyConfig(unittest.TestCase):
         """Full pipeline: legacy → normalize → validate → opencode.json format."""
         normalized = normalize_mcp_config(self.LEGACY_CONFIG)
         validated, _, _ = validate_mcp_config(normalized)
-        tools_deny = {f"{name}*": False for name in validated}
+        tools_deny, agent_config = build_opencode_config(validated)
 
         opencode = {
             "$schema": "https://opencode.ai/config.json",
             "mcp": validated,
             "tools": tools_deny,
+            "agent": agent_config,
         }
 
         # Schema
@@ -313,11 +315,27 @@ class TestNormalizeLegacyConfig(unittest.TestCase):
         for name, cfg in opencode["mcp"].items():
             self.assertTrue(cfg["enabled"], f"{name} missing enabled")
 
-        # All 5 tools deny entries
-        self.assertEqual(len(opencode["tools"]), 5)
+        # Tools deny: only non-core servers (github, stitch) are denied
+        # Core servers (channel, warroom, memory) are available to all agents
+        core_servers = {"channel", "warroom", "memory"}
+        non_core = {n for n in validated if n not in core_servers}
+        self.assertEqual(len(opencode["tools"]), len(non_core))
         for key, val in opencode["tools"].items():
             self.assertTrue(key.endswith("*"))
             self.assertFalse(val)
+        for core in core_servers:
+            self.assertNotIn(f"{core}*", opencode["tools"])
+
+        # Agent config: 5 privileged agents with ALL tools enabled
+        expected_agents = {"manager", "architect", "qa", "audit", "reporter"}
+        self.assertEqual(set(opencode["agent"].keys()), expected_agents)
+        for agent_name, agent_cfg in opencode["agent"].items():
+            self.assertIn("tools", agent_cfg)
+            for server_name in validated:
+                self.assertTrue(
+                    agent_cfg["tools"][f"{server_name}*"],
+                    f"Agent '{agent_name}' missing '{server_name}*'",
+                )
 
         # No shell ${VAR} syntax left anywhere
         raw = json.dumps(opencode)
@@ -849,14 +867,136 @@ class TestValidateMcpConfig(unittest.TestCase):
             self.assertTrue(cfg.get("enabled"), f"{name} missing enabled: true")
 
 
+# ─── build_opencode_config() ─────────────────────────────────────────────────
+
+
+class TestBuildOpencodeConfig(unittest.TestCase):
+    """Build tools deny and agent config for opencode.json."""
+
+    PRIVILEGED_AGENTS = {"manager", "architect", "qa", "audit", "reporter"}
+    CORE_SERVERS = {"channel", "warroom", "memory"}
+
+    def _make_validated(self, *names):
+        """Helper: create minimal validated MCP server entries."""
+        validated = {}
+        for name in names:
+            validated[name] = {
+                "type": "local",
+                "command": ["python", f"{name}-server.py"],
+                "environment": {"KEY": "val"},
+                "enabled": True,
+            }
+        return validated
+
+    def test_core_servers_not_denied_globally(self):
+        """channel, warroom, memory should NOT appear in global tools deny."""
+        validated = self._make_validated(
+            "channel", "warroom", "memory", "github", "stitch"
+        )
+        tools_deny, agent_config = build_opencode_config(validated)
+
+        # Core servers NOT denied
+        self.assertNotIn("channel*", tools_deny)
+        self.assertNotIn("warroom*", tools_deny)
+        self.assertNotIn("memory*", tools_deny)
+
+        # Non-core servers ARE denied
+        self.assertIn("github*", tools_deny)
+        self.assertFalse(tools_deny["github*"])
+        self.assertIn("stitch*", tools_deny)
+        self.assertFalse(tools_deny["stitch*"])
+
+    def test_privileged_agents_have_all_tools_enabled(self):
+        """manager, architect, qa, audit, reporter get ALL tools."""
+        validated = self._make_validated("channel", "warroom", "memory", "github")
+        tools_deny, agent_config = build_opencode_config(validated)
+
+        self.assertEqual(set(agent_config.keys()), self.PRIVILEGED_AGENTS)
+
+        for agent_name in self.PRIVILEGED_AGENTS:
+            agent_tools = agent_config[agent_name]["tools"]
+            for server_name in validated:
+                self.assertTrue(
+                    agent_tools[f"{server_name}*"],
+                    f"Agent '{agent_name}' missing tool '{server_name}*'",
+                )
+
+    def test_engineer_is_not_privileged(self):
+        """engineer should NOT be in the privileged agents list."""
+        validated = self._make_validated("channel", "github")
+        _, agent_config = build_opencode_config(validated)
+
+        self.assertNotIn("engineer", agent_config)
+
+    def test_no_core_servers_all_denied(self):
+        """When no core servers exist, all servers are denied globally."""
+        validated = self._make_validated("github", "stitch")
+        tools_deny, agent_config = build_opencode_config(validated)
+
+        self.assertEqual(len(tools_deny), 2)
+        self.assertFalse(tools_deny["github*"])
+        self.assertFalse(tools_deny["stitch*"])
+
+    def test_only_core_servers_empty_deny(self):
+        """When only core servers exist, tools deny block is empty."""
+        validated = self._make_validated("channel", "warroom", "memory")
+        tools_deny, agent_config = build_opencode_config(validated)
+
+        self.assertEqual(len(tools_deny), 0)
+
+    def test_empty_validated_mcp(self):
+        """Empty validated config -> empty tools, agents with empty tools."""
+        tools_deny, agent_config = build_opencode_config({})
+
+        self.assertEqual(len(tools_deny), 0)
+        self.assertEqual(set(agent_config.keys()), self.PRIVILEGED_AGENTS)
+        for agent_name, cfg in agent_config.items():
+            self.assertEqual(len(cfg["tools"]), 0)
+
+    def test_custom_core_servers(self):
+        """Custom core_servers parameter overrides defaults."""
+        validated = self._make_validated("channel", "github", "custom")
+        tools_deny, _ = build_opencode_config(
+            validated, core_servers={"channel", "custom"}
+        )
+
+        self.assertNotIn("channel*", tools_deny)
+        self.assertNotIn("custom*", tools_deny)
+        self.assertIn("github*", tools_deny)
+
+    def test_custom_privileged_agents(self):
+        """Custom privileged_agents parameter overrides defaults."""
+        validated = self._make_validated("channel", "github")
+        _, agent_config = build_opencode_config(
+            validated, privileged_agents=["my-agent"]
+        )
+
+        self.assertEqual(set(agent_config.keys()), {"my-agent"})
+        self.assertTrue(agent_config["my-agent"]["tools"]["channel*"])
+        self.assertTrue(agent_config["my-agent"]["tools"]["github*"])
+
+    def test_agent_tools_structure(self):
+        """Each agent entry has a 'tools' dict with correct structure."""
+        validated = self._make_validated("channel", "github", "stitch")
+        _, agent_config = build_opencode_config(validated)
+
+        for agent_name, cfg in agent_config.items():
+            self.assertIn("tools", cfg)
+            self.assertIsInstance(cfg["tools"], dict)
+            for server_name in validated:
+                key = f"{server_name}*"
+                self.assertIn(key, cfg["tools"])
+                self.assertTrue(cfg["tools"][key])
+
+
 # ─── Integration: opencode.json output format ────────────────────────────────
 
 
 class TestOpencodeJsonFormat(unittest.TestCase):
-    """Test the full pipeline: validate → build tools deny → write opencode.json."""
+    """Test the full pipeline: validate → build tools deny + agent → write opencode.json."""
 
     def test_opencode_json_output(self):
-        """Simulates what install.sh does: validate, add tools deny, write."""
+        """Simulates what install.sh does: validate, add tools deny + agent, write."""
         mcp_source = {
             "mcp": {
                 "channel": {
@@ -877,14 +1017,15 @@ class TestOpencodeJsonFormat(unittest.TestCase):
 
         validated, skipped, _ = validate_mcp_config(mcp_source["mcp"])
 
-        # Build tools deny block
-        tools_deny = {f"{name}*": False for name in validated}
+        # Build tools deny + agent config
+        tools_deny, agent_config = build_opencode_config(validated)
 
         # Build opencode.json
         opencode = {
             "$schema": "https://opencode.ai/config.json",
             "mcp": validated,
             "tools": tools_deny,
+            "agent": agent_config,
         }
 
         # --- Assertions ---
@@ -907,11 +1048,17 @@ class TestOpencodeJsonFormat(unittest.TestCase):
         self.assertEqual(st["url"], "https://stitch.googleapis.com/mcp")
         self.assertTrue(st["enabled"])
 
-        # Tools deny block
-        self.assertIn("channel*", opencode["tools"])
+        # Tools deny: channel is core (not denied), stitch is denied
+        self.assertNotIn("channel*", opencode["tools"])
         self.assertIn("stitch*", opencode["tools"])
-        self.assertFalse(opencode["tools"]["channel*"])
         self.assertFalse(opencode["tools"]["stitch*"])
+
+        # Agent config: 5 privileged agents with all tools enabled
+        expected_agents = {"manager", "architect", "qa", "audit", "reporter"}
+        self.assertEqual(set(opencode["agent"].keys()), expected_agents)
+        for agent_name, agent_cfg in opencode["agent"].items():
+            self.assertTrue(agent_cfg["tools"]["channel*"])
+            self.assertTrue(agent_cfg["tools"]["stitch*"])
 
     def test_opencode_json_merge_preserves_user_settings(self):
         """Existing user settings (theme, keybinds) are not clobbered."""
@@ -925,6 +1072,7 @@ class TestOpencodeJsonFormat(unittest.TestCase):
                     "keybinds": {"ctrl+p": "palette"},
                     "mcp": {"old-server": {"type": "local", "command": ["old"]}},
                     "tools": {"old-server*": False},
+                    "agent": {"old-agent": {"tools": {"old-server*": True}}},
                 },
                 f,
             )
@@ -944,12 +1092,13 @@ class TestOpencodeJsonFormat(unittest.TestCase):
                 }
             }
             validated, _, _ = validate_mcp_config(new_mcp)
-            tools_deny = {f"{name}*": False for name in validated}
+            tools_deny, agent_config = build_opencode_config(validated)
 
             # Merge (same logic as install.sh)
             existing["$schema"] = "https://opencode.ai/config.json"
             existing["mcp"] = validated
             existing["tools"] = tools_deny
+            existing["agent"] = agent_config
 
             # User settings preserved
             self.assertEqual(existing["theme"], "dracula")
@@ -959,7 +1108,13 @@ class TestOpencodeJsonFormat(unittest.TestCase):
             self.assertNotIn("old-server", existing["mcp"])
             self.assertIn("new-server", existing["mcp"])
             self.assertNotIn("old-server*", existing["tools"])
-            self.assertIn("new-server*", existing["tools"])
+
+            # Old agent replaced with new agent config
+            self.assertNotIn("old-agent", existing["agent"])
+            expected_agents = {"manager", "architect", "qa", "audit", "reporter"}
+            self.assertEqual(set(existing["agent"].keys()), expected_agents)
+            for agent_name, agent_cfg in existing["agent"].items():
+                self.assertTrue(agent_cfg["tools"]["new-server*"])
         finally:
             os.unlink(existing_path)
 

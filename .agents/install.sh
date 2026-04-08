@@ -976,7 +976,7 @@ mcp_source, opencode_file, mcp_module_dir = sys.argv[1], sys.argv[2], sys.argv[3
 
 # Import from the shared module (.agents/mcp/validate_mcp.py)
 sys.path.insert(0, mcp_module_dir)
-from validate_mcp import normalize_mcp_config, validate_mcp_config
+from validate_mcp import normalize_mcp_config, validate_mcp_config, build_opencode_config
 
 # Read the MCP source config (may be OpenCode or legacy format)
 with open(mcp_source) as f:
@@ -996,10 +996,12 @@ for name, is_valid, errors, warnings in results:
         for e in errors:
             print(f"    [ERROR] '{name}': {e} — skipping", file=sys.stderr)
 
-# Build global tools deny block: "<server>*": false for each server
-tools_deny = {}
-for name in validated_mcp:
-    tools_deny[f"{name}*"] = False
+# Build tools deny + agent config:
+#   - Global tools deny: blocks all MCP tools EXCEPT core servers
+#     (channel, warroom, memory are available to ALL agents)
+#   - Agent config: privileged agents (manager, architect, qa, audit,
+#     reporter) get ALL tools enabled
+tools_deny, agent_config = build_opencode_config(validated_mcp)
 
 # Load existing opencode.json if present (preserve user settings)
 existing = {}
@@ -1010,19 +1012,23 @@ if os.path.exists(opencode_file):
     except (json.JSONDecodeError, ValueError):
         existing = {}
 
-# Merge: replace only the managed keys (mcp, tools)
+# Merge: replace only the managed keys (mcp, tools, agent)
 existing["$schema"] = "https://opencode.ai/config.json"
 existing["mcp"] = validated_mcp
 existing["tools"] = tools_deny
+existing["agent"] = agent_config
 
 with open(opencode_file, 'w') as f:
     json.dump(existing, f, indent=2)
     f.write('\n')
 
+core_count = len([n for n in validated_mcp if n in {"channel", "warroom", "memory"}])
 print(f"    Merged {len(validated_mcp)} MCP server(s) into {opencode_file}")
 if skipped_names:
     print(f"    Skipped {len(skipped_names)} invalid server(s): {', '.join(skipped_names)}")
 print(f"    Tools deny block: {len(tools_deny)} server(s) globally disabled")
+print(f"    Core servers (channel/warroom/memory): {core_count} available to all agents")
+print(f"    Agent config: {len(agent_config)} privileged agent(s) with full tool access")
 PYEOF
 
   ok "MCP config patched"

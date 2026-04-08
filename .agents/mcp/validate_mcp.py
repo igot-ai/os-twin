@@ -294,6 +294,52 @@ def validate_mcp_server(name, cfg):
     return len(errors) == 0, errors, warnings
 
 
+def build_opencode_config(validated_mcp, core_servers=None, privileged_agents=None):
+    """Build the tools deny block and agent config for opencode.json.
+
+    Global tools deny: blocks all MCP tools EXCEPT core servers.
+    Core servers (channel, warroom, memory) are available to ALL agents
+    by NOT being denied in the global tools block.
+
+    Agent config: privileged agents (manager, architect, qa, audit,
+    reporter) get ALL tools enabled.
+
+    Args:
+        validated_mcp:     dict of validated MCP server configs.
+        core_servers:      set of server names available to all agents.
+                           Default: {"channel", "warroom", "memory"}
+        privileged_agents: list of agent names with access to ALL tools.
+                           Default: ["manager", "architect", "qa",
+                                     "audit", "reporter"]
+
+    Returns:
+        (tools_deny, agent_config) where:
+          - tools_deny:    dict of {"<server>*": False} for non-core servers.
+          - agent_config:  dict of {agent_name: {"tools": {"<server>*": True}}}
+                           for each privileged agent.
+    """
+    if core_servers is None:
+        core_servers = {"channel", "warroom", "memory"}
+    if privileged_agents is None:
+        privileged_agents = [
+            "manager", "architect", "qa", "audit", "reporter"
+        ]
+
+    # Global: deny non-core servers (core servers available to all agents)
+    tools_deny = {}
+    for name in validated_mcp:
+        if name not in core_servers:
+            tools_deny[f"{name}*"] = False
+
+    # Per-agent: privileged agents get ALL tools enabled
+    all_tools = {f"{name}*": True for name in validated_mcp}
+    agent_config = {}
+    for agent in privileged_agents:
+        agent_config[agent] = {"tools": dict(all_tools)}
+
+    return tools_deny, agent_config
+
+
 def validate_mcp_config(mcp_block):
     """Validate all servers in an MCP config block.
 

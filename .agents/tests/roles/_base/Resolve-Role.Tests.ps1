@@ -366,10 +366,17 @@ Write-Output @()
             # Create ephemeral stub
             "# stub" | Out-File -FilePath (Join-Path $tempAgents "roles" "_base" "Start-EphemeralAgent.ps1") -Encoding utf8
 
-            $result = & $script:resolveRole -RoleName "engineer" -AgentsDir $tempAgents
-            $result.Source | Should -Be "ephemeral"
-
-            Remove-Item $tempAgents -Recurse -Force
+            # Isolate from ~/.ostwin so globally-scaffolded roles don't interfere
+            $savedOstwinHome = $env:OSTWIN_HOME
+            $env:OSTWIN_HOME = Join-Path ([System.IO.Path]::GetTempPath()) "ostwin-empty-$(Get-Random)"
+            try {
+                $result = & $script:resolveRole -RoleName "engineer" -AgentsDir $tempAgents
+                $result.Source | Should -Be "ephemeral"
+            }
+            finally {
+                $env:OSTWIN_HOME = $savedOstwinHome
+                Remove-Item $tempAgents -Recurse -Force
+            }
         }
 
         It "handles registry with runner that doesn't exist on disk" {

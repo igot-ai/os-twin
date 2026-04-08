@@ -104,6 +104,10 @@ if (-not $result.Runner) {
             if (Test-Path $contributesDir) { $searchDirs += $contributesDir }
         }
         $searchDirs += Join-Path $AgentsDir "roles" $baseRole
+        # ~/.ostwin/.agents/roles/ — auto-scaffolded and globally installed roles
+        $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) ".ostwin" }
+        $ostwinRoleDir = Join-Path $OstwinHome ".agents" "roles" $baseRole
+        if (Test-Path $ostwinRoleDir) { $searchDirs += $ostwinRoleDir }
      
         foreach ($dir in $searchDirs) {
             if (Test-Path (Join-Path $dir "role.json")) {
