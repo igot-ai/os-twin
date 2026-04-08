@@ -177,7 +177,7 @@ export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, i
                 style={{ color: 'var(--color-text-faint)' }}
               >
                 <div className="flex items-center gap-1">
-                  Model Binding
+                  Model Provider
                   <span className={`material-symbols-outlined text-sm transition-opacity ${sortConfig.key === 'provider' ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
                     {sortConfig.dir === 'asc' ? 'expand_less' : 'expand_more'}
                   </span>

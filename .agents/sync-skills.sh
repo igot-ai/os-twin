@@ -135,6 +135,22 @@ install_from_dir() {
     local skill_name
     skill_name="$(basename "$skill_dir")"
 
+    # Skip nested SKILL.md files that live inside another skill's tree
+    # (e.g. develop-unity-ui/references/animation-modify/SKILL.md).
+    # The parent skill's cp -r already copies them.
+    local _parent="$skill_dir"
+    local _is_nested=false
+    while [[ "$_parent" != "$source_dir" && "$_parent" != "/" ]]; do
+      _parent="$(dirname "$_parent")"
+      if [[ -f "$_parent/SKILL.md" ]]; then
+        _is_nested=true
+        break
+      fi
+    done
+    if $_is_nested; then
+      continue
+    fi
+
     eval "$(extract_skill_meta "$skill_md")"
     if [[ -n "$skill_name_meta" ]]; then
        skill_name="$skill_name_meta"
@@ -200,13 +216,27 @@ install_from_dir() {
 # ─── Part 1: Scan OSTWIN_HOME and register via API ──────────────────────────
 
 sync_home_skills() {
-  step "Scanning $OSTWIN_HOME for SKILL.md files..."
+  local skills_base="$OSTWIN_HOME/.agents/skills"
+  step "Scanning $skills_base for SKILL.md files..."
 
   local total=0
   local installed=0
   local failed=0
+  local skipped=0
+  local seen_file
+  seen_file="$(mktemp)"
+  trap "rm -f '$seen_file'" RETURN
 
   while IFS= read -r skill_md; do
+    # Deduplicate via realpath (catches symlinks & overlapping mounts)
+    local real_path
+    real_path="$(realpath "$skill_md" 2>/dev/null || echo "$skill_md")"
+    if grep -qxF "$real_path" "$seen_file" 2>/dev/null; then
+      ((skipped++))
+      continue
+    fi
+    echo "$real_path" >> "$seen_file"
+
     local skill_dir
     skill_dir="$(dirname "$skill_md")"
     local skill_name
@@ -238,14 +268,22 @@ sync_home_skills() {
       ((failed++))
       info "  ✗ $skill_name"
     fi
-  done < <(find "$OSTWIN_HOME" -name "SKILL.md" -type f 2>/dev/null)
+  done < <(find "$skills_base/roles" "$skills_base/global" \
+             -name "SKILL.md" -type f \
+             -not -path "*/.git/*" \
+             -not -path "*/node_modules/*" \
+             -not -path "*/__pycache__/*" \
+             2>/dev/null)
 
   if [[ $total -eq 0 ]]; then
-    warn "No SKILL.md files found in $OSTWIN_HOME"
+    warn "No SKILL.md files found in $skills_base"
     return
   fi
 
   ok "$installed/$total skill(s) registered via API"
+  if [[ $skipped -gt 0 ]]; then
+    info "$skipped duplicate path(s) skipped"
+  fi
   if [[ $failed -gt 0 ]]; then
     warn "$failed skill(s) failed — dashboard may not be reachable"
   fi
