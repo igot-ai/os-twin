@@ -4,8 +4,8 @@ import uuid
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import Any, Dict, List
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
 from dashboard.models import Role, CreateRoleRequest
 from dashboard.api_utils import AGENTS_DIR, PLANS_DIR, GLOBAL_ROLES_DIR
@@ -19,8 +19,10 @@ ROLES_CONFIG_FILE = GLOBAL_ROLES_DIR / "config.json"
 ENGINE_CONFIG_FILE = AGENTS_DIR / "config.json"
 
 PROVIDER_MAP = {
+    "google-vertex": "Gemini",  # must precede "claude" to catch google-vertex-anthropic/*
     "gemini": "Gemini", "claude": "Claude", "anthropic": "Claude",
     "gpt": "GPT", "openai": "GPT", "o1": "GPT", "o3": "GPT", "o4": "GPT",
+    "byteplus": "BytePlus", "seed": "BytePlus", "doubao": "BytePlus",
 }
 
 
@@ -276,26 +278,90 @@ async def sync_roles_endpoint(user: dict = Depends(get_current_user)):
 
 @router.get("/api/models/registry")
 async def get_model_registry(user: dict = Depends(get_current_user)):
-    """Get the available models from the registry."""
-    # In a real app, this might fetch from an external service or a local file
+    """Get the available models, filtered by which providers are enabled.
+
+    Uses the dynamic models.dev catalog (populated at server startup)
+    filtered by providers configured in auth.json.  Falls back to the
+    static catalog if no dynamic data is available.
+    """
+    from dashboard.lib.settings.models_registry import get_model_registry as _build
+
+    try:
+        return _build()
+    except Exception:
+        return _build()
+
+
+@router.get("/api/models/configured")
+async def get_configured_models(user: dict = Depends(get_current_user)):
+    """Get the full configured models catalog.
+
+    Returns the complete structured data from models.dev/api.json
+    filtered by providers configured in auth.json and opencode.json.
+    Includes provider metadata, logos, model costs, limits, etc.
+    """
+    from dashboard.lib.settings.models_dev_loader import get_configured_models as _get
+    return _get()
+
+
+@router.get("/api/models/providers")
+async def get_configured_providers(user: dict = Depends(get_current_user)):
+    """Get the list of configured providers from auth.json + opencode.json."""
+    from dashboard.lib.settings.models_dev_loader import (
+        get_configured_models,
+        get_configured_providers as _get_providers,
+    )
+    configured = get_configured_models()
+    providers_config = _get_providers()
+
+    result = []
+    for pid, pcfg in providers_config.items():
+        provider_data = configured.get("providers", {}).get(pid, {})
+        result.append({
+            "id": pid,
+            "name": provider_data.get("name", pid),
+            "logo_url": provider_data.get("logo_url", f"https://models.dev/logos/{pid}.svg"),
+            "model_count": len(provider_data.get("models", {})),
+            "source": pcfg.get("source", ""),
+            "has_key": pcfg.get("has_key", False),
+            "doc": provider_data.get("doc", ""),
+        })
+
+    return {"providers": result}
+
+
+@router.get("/api/models/available")
+async def get_available_providers(user: dict = Depends(get_current_user)):
+    """Get ALL providers from models.dev for the Add Provider browser.
+
+    Returns every provider in the raw catalog, with a flag indicating
+    whether it is already configured.
+    """
+    from dashboard.lib.settings.models_dev_loader import (
+        get_available_providers as _get_all,
+    )
+    return {"providers": _get_all()}
+
+
+@router.post("/api/models/reload")
+async def reload_models(user: dict = Depends(get_current_user)):
+    """Force re-fetch models from models.dev and rebuild configured_models.json."""
+    from dashboard.lib.settings.models_dev_loader import (
+        invalidate_cache,
+        load_models_on_startup,
+    )
+    invalidate_cache()
+    result = load_models_on_startup()
+    provider_count = len(result.get("providers", {}))
+    model_count = sum(
+        len(p.get("models", {}))
+        for p in result.get("providers", {}).values()
+    )
     return {
-        'Claude': [
-            {"id": 'claude-opus-4-6', "context_window": '200K', "tier": 'flagship'},
-            {"id": 'claude-sonnet-4-6', "context_window": '200K', "tier": 'balanced'},
-            {"id": 'claude-haiku-4-5', "context_window": '200K', "tier": 'fast'},
-        ],
-        'GPT': [
-            {"id": 'gpt-4.1', "context_window": '1M', "tier": 'flagship'},
-            {"id": 'gpt-4.1-mini', "context_window": '1M', "tier": 'fast'},
-            {"id": 'o3', "context_window": '200K', "tier": 'reasoning'},
-            {"id": 'o4-mini', "context_window": '200K', "tier": 'reasoning'},
-        ],
-        'Gemini': [
-            {"id": 'google-vertex/gemini-3.1-pro-preview', "context_window": '1M', "tier": 'flagship'},
-            {"id": 'google-vertex/gemini-3-flash-preview', "context_window": '1M', "tier": 'balanced'},
-            {"id": 'google-vertex/gemini-2.5-pro-preview-05-06', "context_window": '1M', "tier": 'reasoning'},
-            {"id": 'google-vertex/gemini-2.5-flash-preview-05-20', "context_window": '1M', "tier": 'fast'},
-        ]
+        "status": "ok",
+        "providers": provider_count,
+        "models": model_count,
+        "loaded_at": result.get("loaded_at"),
     }
 
 
@@ -409,6 +475,60 @@ async def update_role(role_id: str, req: CreateRoleRequest, user: dict = Depends
     raise HTTPException(status_code=404, detail="Role not found")
 
 
+@router.patch("/api/roles/by-name/{role_name}", response_model=Role)
+async def patch_role_by_name(
+    role_name: str,
+    body: Dict[str, Any] = Body(...),
+    user: dict = Depends(get_current_user),
+):
+    """Patch a role's settings by name.
+
+    Persists to the dashboard roles cache (primary store) and syncs
+    to role.json + engine config.json (secondary file storage).
+
+    Accepted body fields:
+      - default_model / model: the model version string
+    """
+    roles = load_roles()
+    role = next((r for r in roles if r.name == role_name), None)
+    if not role:
+        raise HTTPException(status_code=404, detail=f"Role '{role_name}' not found")
+
+    changed = False
+
+    # Accept both 'default_model' (settings UI convention) and 'model' (role.json convention)
+    model = body.get("default_model") or body.get("model")
+    if model and model != role.version:
+        role.version = model
+        role.provider = _detect_provider(model)
+        changed = True
+
+    if not changed:
+        return role
+
+    role.updated_at = datetime.now(timezone.utc).isoformat()
+
+    # Primary: persist to dashboard roles cache
+    save_roles(roles)
+
+    # Secondary: sync to file storage (role.json + engine config.json)
+    _sync_role_to_engine(role)
+
+    # Update vector store index if available
+    store = global_state.store
+    if store:
+        store.index_role(
+            role_id=role.id, name=role.name, provider=role.provider,
+            version=role.version, temperature=role.temperature,
+            budget_tokens_max=role.budget_tokens_max, max_retries=role.max_retries,
+            timeout_seconds=role.timeout_seconds, skill_refs=role.skill_refs,
+            system_prompt_override=role.system_prompt_override,
+            created_at=role.created_at, updated_at=role.updated_at,
+        )
+
+    return role
+
+
 @router.get("/api/roles/{role_id}", response_model=Role)
 async def get_role(role_id: str, user: dict = Depends(get_current_user)):
     roles = load_roles()
@@ -518,11 +638,14 @@ PROVIDER_KEY_MAP = {
     "Claude": "ANTHROPIC_API_KEY",
     "GPT": "OPENAI_API_KEY",
     "Gemini": "GOOGLE_API_KEY",
+    "Gemini_vertex": "GOOGLE_APPLICATION_CREDENTIALS",
+    "BytePlus": "BYTEPLUS_API_KEY",
 }
 PROVIDER_LANGCHAIN_MAP = {
     "Claude": "anthropic",
     "GPT": "openai",
     "Gemini": "google_genai",
+    "Gemini_vertex": "google_vertexai",
 }
 
 _ENV_FILE = Path.home() / ".ostwin" / ".env"
@@ -535,14 +658,35 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
     from langchain.chat_models import init_chat_model
 
     provider = _detect_provider(version)
-    env_key = PROVIDER_KEY_MAP.get(provider)
-    lc_provider = PROVIDER_LANGCHAIN_MAP.get(provider)
+
+    # Vertex AI models use a separate auth pathway
+    is_vertex = version.startswith("google-vertex")
+    provider_key = f"{provider}_vertex" if is_vertex else provider
+    env_key = PROVIDER_KEY_MAP.get(provider_key, PROVIDER_KEY_MAP.get(provider))
+    lc_provider = PROVIDER_LANGCHAIN_MAP.get(provider_key, PROVIDER_LANGCHAIN_MAP.get(provider))
 
     env_vars = dotenv_values(_ENV_FILE) if _ENV_FILE.exists() else {}
     api_key = env_vars.get(env_key, "")
 
+    # Vault fallback: if env var is empty or is a vault ref, resolve from vault
+    _VAULT_SCOPE_MAP = {
+        "ANTHROPIC_API_KEY": ("providers", "claude"),
+        "OPENAI_API_KEY":    ("providers", "openai"),
+        "GOOGLE_API_KEY":    ("providers", "gemini"),
+        "GOOGLE_APPLICATION_CREDENTIALS": ("providers", "google_service_account"),
+        "BYTEPLUS_API_KEY":  ("providers", "byteplus"),
+    }
+    if (not api_key or api_key.startswith("${vault:")) and env_key in _VAULT_SCOPE_MAP:
+        try:
+            from dashboard.lib.settings.vault import get_vault
+            scope, vkey = _VAULT_SCOPE_MAP[env_key]
+            api_key = get_vault().get(scope, vkey) or ""
+        except Exception:
+            pass
+
     if not api_key:
-        return {"status": "fail", "error": f"API key not configured for {provider}"}
+        label = "service account" if is_vertex else "API key"
+        return {"status": "fail", "error": f"{label} not configured for {provider}"}
 
     def _test():
         llm = init_chat_model(version, model_provider=lc_provider, api_key=api_key)

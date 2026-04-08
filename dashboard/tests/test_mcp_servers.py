@@ -180,6 +180,72 @@ def test_remove_mcp_server():
         written_data = json.loads(mock_home_path.write_text.call_args[0][0])
         assert "test" not in written_data["mcp"]
 
+def test_test_all_mcp_servers_parser():
+    """Test the parser used by test-all with a realistic multi-server output."""
+    from dashboard.routes.mcp import _parse_opencode_mcp_list
+
+    sample_output = (
+        "┌  MCP Servers\n"
+        "│\n"
+        "●  ✓ channel connected\n"
+        "│      python /Users/test/.ostwin/.agents/mcp/channel-server.py\n"
+        "│\n"
+        "●  ✓ warroom connected\n"
+        "│      python /Users/test/.ostwin/.agents/mcp/warroom-server.py\n"
+        "│\n"
+        "●  ✗ github-mcp failed\n"
+        "│      Incompatible auth server: does not support dynamic client registration\n"
+        "│      https://api.githubcopilot.com/mcp\n"
+        "│\n"
+        "└  3 server(s)\n"
+    )
+
+    servers = _parse_opencode_mcp_list(sample_output)
+
+    assert len(servers) == 3
+    assert servers[0]["name"] == "channel"
+    assert servers[0]["status"] == "connected"
+    assert servers[0]["command"] == "python /Users/test/.ostwin/.agents/mcp/channel-server.py"
+    assert servers[1]["name"] == "warroom"
+    assert servers[1]["status"] == "connected"
+    assert servers[2]["name"] == "github-mcp"
+    assert servers[2]["status"] == "failed"
+    assert "Incompatible auth server" in servers[2]["message"]
+    assert len(servers[2]["details"]) == 2
+
+
+def test_parse_opencode_mcp_list_with_ansi():
+    """Test the parser handles ANSI escape codes in opencode output."""
+    from dashboard.routes.mcp import _parse_opencode_mcp_list
+
+    # Simulate ANSI-colored output
+    output = (
+        "\x1B[1m┌  MCP Servers\x1B[0m\n"
+        "│\n"
+        "●  \x1B[32m✓\x1B[0m stitch connected\n"
+        "│      https://stitch.googleapis.com/mcp\n"
+        "│\n"
+        "●  \x1B[31m✗\x1B[0m broken-server failed\n"
+        "│      Connection refused\n"
+        "│\n"
+        "└  2 server(s)\n"
+    )
+    servers = _parse_opencode_mcp_list(output)
+    assert len(servers) == 2
+    assert servers[0]["name"] == "stitch"
+    assert servers[0]["status"] == "connected"
+    assert servers[1]["name"] == "broken-server"
+    assert servers[1]["status"] == "failed"
+    assert servers[1]["message"] == "Connection refused"
+
+
+def test_parse_opencode_mcp_list_empty():
+    """Test the parser handles empty output."""
+    from dashboard.routes.mcp import _parse_opencode_mcp_list
+    assert _parse_opencode_mcp_list("") == []
+    assert _parse_opencode_mcp_list("┌  MCP Servers\n└  0 server(s)\n") == []
+
+
 def test_list_credentials():
     mock_resolver_inst = MagicMock()
     mock_resolver_inst.extract_vault_refs.return_value = [("serv", "key1"), ("serv", "key2")]

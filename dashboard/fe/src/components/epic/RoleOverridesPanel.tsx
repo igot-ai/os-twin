@@ -12,7 +12,7 @@ interface RoleOverridesPanelProps {
 }
 
 export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
-  const { roles, roomOverrides, candidateRoles, updateRoleConfig, updateEpicAssignment, isLoading } = useEpicRoles(epic.plan_id, epic.epic_ref);
+  const { roles, roomOverrides, candidateRoles, markdownRoles, effectiveRoles, updateRoleConfig, updateEpicAssignment, isLoading } = useEpicRoles(epic.plan_id, epic.epic_ref);
   const { skills: allSkills } = useSkills();
   const [editingRole, setEditingRole] = useState<any | null>(null);
   const [previewRole, setPreviewRole] = useState<any | null>(null);
@@ -78,14 +78,15 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
 
       {/* Role Overrides Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        {roles.filter(r => candidateRoles.includes(r.name)).length === 0 && (
+        {roles.filter(r => effectiveRoles.includes(r.name)).length === 0 && (
           <div className="text-center p-4 text-xs text-text-faint border border-dashed border-border rounded-lg bg-surface/50">
             No roles assigned to this epic yet.<br/>
             Click the "+" button to assign roles.
           </div>
         )}
-        {roles.filter(r => candidateRoles.includes(r.name)).map((role) => {
+        {roles.filter(r => effectiveRoles.includes(r.name)).map((role) => {
           const isOverridden = !!roomOverrides[role.name];
+          const isFromMarkdown = markdownRoles.includes(role.name) && !candidateRoles.includes(role.name);
           return (
             <div 
               key={role.name} 
@@ -101,9 +102,11 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
                     isOverridden 
                       ? 'bg-primary text-white' 
-                      : 'bg-surface-hover text-text-muted'
+                      : isFromMarkdown
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-surface-hover text-text-muted'
                   }`}>
-                    {isOverridden ? 'Overridden' : 'Inherited'}
+                    {isOverridden ? 'Overridden' : isFromMarkdown ? 'From Plan' : 'Inherited'}
                   </span>
                   <button 
                     onClick={() => handleEditRole(role)}
@@ -246,7 +249,23 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
         </Modal>
       )}
       {/* Assign Roles Modal */}
-      {isAssignmentModalOpen && (
+      {isAssignmentModalOpen && (() => {
+        // Sort: markdown-declared roles first, then the rest alphabetically
+        const sortedRoles = [...(roles || [])].sort((a, b) => {
+          const aInMd = markdownRoles.includes(a.name) ? 0 : 1;
+          const bInMd = markdownRoles.includes(b.name) ? 0 : 1;
+          if (aInMd !== bInMd) return aInMd - bInMd;
+          return a.name.localeCompare(b.name);
+        });
+        const filtered = sortedRoles.filter(r =>
+          r.name.toLowerCase().includes(roleSearch.toLowerCase()) ||
+          (r.description && r.description.toLowerCase().includes(roleSearch.toLowerCase()))
+        );
+        // Split into declared (from markdown) and other roles
+        const declaredRoles = filtered.filter(r => markdownRoles.includes(r.name));
+        const otherRoles = filtered.filter(r => !markdownRoles.includes(r.name));
+
+        return (
         <Modal
           isOpen={isAssignmentModalOpen}
           onClose={() => setIsAssignmentModalOpen(false)}
@@ -254,7 +273,16 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
         >
           <div className="space-y-4 p-4">
             <div>
-              <label className="block text-[11px] font-bold text-text-muted uppercase mb-2">Candidate Roles ({roles?.length || 0} total)</label>
+              {markdownRoles.length > 0 && (
+                <div className="mb-3 px-3 py-2 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-sm">description</span>
+                  Plan declares: <strong>{markdownRoles.join(', ')}</strong>
+                </div>
+              )}
+
+              <label className="block text-[11px] font-bold text-text-muted uppercase mb-2">
+                Candidate Roles ({roles?.length || 0} total)
+              </label>
               
               <div className="mb-3 relative">
                 <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-text-faint">search</span>
@@ -267,11 +295,45 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
                 />
               </div>
 
-              <div className="max-h-60 overflow-y-auto border border-border rounded p-2 space-y-1 bg-surface-hover/10 custom-scrollbar">
-                {roles?.filter(r => 
-                   r.name.toLowerCase().includes(roleSearch.toLowerCase()) || 
-                   (r.description && r.description.toLowerCase().includes(roleSearch.toLowerCase()))
-                ).map(role => {
+              <div className="max-h-60 overflow-y-auto border border-border rounded p-2 space-y-0.5 bg-surface-hover/10 custom-scrollbar">
+                {/* Markdown-declared roles section */}
+                {declaredRoles.length > 0 && (
+                  <>
+                    <div className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-wider text-amber-600">
+                      Declared in plan
+                    </div>
+                    {declaredRoles.map(role => {
+                      const isChecked = candidateRoles.includes(role.name);
+                      return (
+                        <label key={role.name} className="flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover rounded cursor-pointer group bg-amber-50/30">
+                          <input 
+                            type="checkbox" 
+                            className="accent-primary"
+                            checked={isChecked}
+                            onChange={async (e) => {
+                              const newCandidates = e.target.checked 
+                                ? [...candidateRoles, role.name]
+                                : candidateRoles.filter(r => r !== role.name);
+                              await updateEpicAssignment(newCandidates);
+                            }}
+                          />
+                          <div className="flex flex-col overflow-hidden flex-1">
+                            <span className="text-xs font-medium text-text-main group-hover:text-primary transition-colors truncate">{role.name}</span>
+                            <span className="text-[10px] text-text-faint truncate">{role.description || `Assign the ${role.name} role.`}</span>
+                          </div>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold uppercase shrink-0">plan</span>
+                        </label>
+                      );
+                    })}
+                  </>
+                )}
+                {/* Other available roles */}
+                {otherRoles.length > 0 && declaredRoles.length > 0 && (
+                  <div className="px-2 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-wider text-text-faint border-t border-border mt-1">
+                    Other available roles
+                  </div>
+                )}
+                {otherRoles.map(role => {
                   const isChecked = candidateRoles.includes(role.name);
                   return (
                     <label key={role.name} className="flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover rounded cursor-pointer group">
@@ -300,7 +362,8 @@ export default function RoleOverridesPanel({ epic }: RoleOverridesPanelProps) {
             </div>
           </div>
         </Modal>
-      )}
+        );
+      })()}
     </div>
   );
 }

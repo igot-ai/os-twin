@@ -1,360 +1,474 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { apiGet, apiPost } from '@/lib/api-client';
-import { useUIStore } from '@/lib/stores/uiStore';
+import { useState, useEffect } from 'react';
+import { useSettings } from '@/hooks/use-settings';
+import { useConfiguredModels } from '@/hooks/use-configured-models';
+import { LiveStatusBadge } from '@/components/settings/LiveStatusBadge';
+import { SettingsSidebar } from '@/components/settings/SettingsSidebar';
+import { ProviderCard } from '@/components/settings/ProviderCard';
+import { BytedanceProviderCard } from '@/components/settings/BytedanceProviderCard';
+import { DynamicProviderCard } from '@/components/settings/DynamicProviderCard';
+import { AddProviderModal } from '@/components/settings/AddProviderModal';
+import { VaultSecretModal } from '@/components/settings/VaultSecretModal';
+import { RuntimePanel } from '@/components/settings/RuntimePanel';
+import { MemoryPanel } from '@/components/settings/MemoryPanel';
+import { RolesPanel } from '@/components/settings/RolesPanel';
+import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api-client';
 
-type ThemeMode = 'light' | 'dark' | 'system';
+// Providers that have dedicated cards at the top of the settings page.
+// These are hidden from the Additional Providers section.
+const LEGACY_PRIMARY_PROVIDERS = new Set(['google', 'byteplus', 'anthropic', 'openai']);
 
-interface ApiKeysStatus {
-  Claude: boolean;
-  GPT: boolean;
-  Gemini: boolean;
-}
-
-interface TunnelStatus {
-  active: boolean;
-  url: string | null;
-  started_at: string | null;
-  error: string | null;
-}
-
-const API_KEY_DISPLAY: Record<string, { label: string; prefix: string }> = {
-  Claude: { label: 'Anthropic (Claude)', prefix: 'sk-ant-' },
-  GPT: { label: 'OpenAI (GPT)', prefix: 'sk-proj-' },
-  Gemini: { label: 'Google (Gemini)', prefix: '' },
+// Map internal provider names to registry keys (for legacy fallback)
+const PROVIDER_REGISTRY_KEY: Record<string, string> = {
+  google:    'Gemini',
+  anthropic: 'Claude',
+  openai:    'GPT',
+  byteplus:  'BytePlus',
 };
 
 export default function SettingsPage() {
-  const { theme, setTheme } = useUIStore();
+  const [activeNamespace, setActiveNamespace] = useState<SettingsNamespace>('providers');
+  const [vaultModalOpen, setVaultModalOpen] = useState(false);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [vaultScope, setVaultScope] = useState('');
+  const [vaultKey, setVaultKey] = useState('');
+  const [vaultStatus, setVaultStatus] = useState<Record<string, boolean>>({});
+  const [modelRegistry, setModelRegistry] = useState<Record<string, ModelInfo[]>>({});
 
-  const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
-  const wsUrl = BASE_URL.replace(/^http/, 'ws') + '/ws';
+  const { settings, isLoading, isError, updateNamespace, testProvider, updateVault } = useSettings();
+  const { configured, providers: configuredProviders, allModels, registry: dynamicRegistry, reload: reloadModels } = useConfiguredModels();
 
-  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
-  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
-  const [apiKeys, setApiKeys] = useState<ApiKeysStatus | null>(null);
-  const [apiKeysLoading, setApiKeysLoading] = useState(true);
-  const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
-  const [tunnelLoading, setTunnelLoading] = useState(true);
-  const [tunnelAction, setTunnelAction] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const checkConnection = useCallback(async () => {
-    setConnectionStatus('checking');
-    try {
-      await apiGet('/status');
-      setConnectionStatus('connected');
-    } catch {
-      setConnectionStatus('disconnected');
-    }
-  }, []);
-
+  // Fetch model registry (backward compat + dynamic)
   useEffect(() => {
-    checkConnection();
-  }, [checkConnection]);
-
-  useEffect(() => {
-    const fetchApiKeys = async () => {
+    const fetchRegistry = async () => {
       try {
-        const data = await apiGet<ApiKeysStatus>('/providers/api-keys');
-        setApiKeys(data);
+        const data = await apiGet<Record<string, ModelInfo[]>>('/models/registry');
+        setModelRegistry(data ?? {});
       } catch {
-        setApiKeys(null);
-      } finally {
-        setApiKeysLoading(false);
+        setModelRegistry({});
       }
     };
-    fetchApiKeys();
-  }, []);
-
-  const fetchTunnel = useCallback(async () => {
-    try {
-      const data = await apiGet<TunnelStatus>('/tunnel/status');
-      setTunnel(data);
-    } catch {
-      setTunnel(null);
-    } finally {
-      setTunnelLoading(false);
-    }
+    fetchRegistry();
   }, []);
 
   useEffect(() => {
-    fetchTunnel();
-  }, [fetchTunnel]);
+    const fetchVaultStatus = async () => {
+      try {
+        const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+        const entries = raw.keys ?? raw;
+        const status: Record<string, boolean> = {};
+        Object.entries(entries).forEach(([key, value]) => {
+          if (value && typeof value === 'object' && 'is_set' in value) {
+            status[key] = value.is_set;
+          }
+        });
+        setVaultStatus(status);
+      } catch {
+        setVaultStatus({});
+      }
+    };
+    fetchVaultStatus();
+  }, [settings]);
 
-  const handleTunnelRestart = async () => {
-    setTunnelAction(true);
-    try {
-      await apiPost('/tunnel/restart');
-      await fetchTunnel();
-    } catch { /* handled by status re-fetch */ }
-    setTunnelAction(false);
+  const handleVaultClick = (provider: string) => {
+    setVaultScope('providers');
+    setVaultKey(provider);
+    setVaultModalOpen(true);
   };
 
-  const handleTunnelShare = async () => {
-    setTunnelAction(true);
+  const handleVaultSubmit = async (secret: string) => {
+    await updateVault(vaultScope, vaultKey, secret);
+    const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+    const entries = raw.keys ?? raw;
+    const status: Record<string, boolean> = {};
+    Object.entries(entries).forEach(([key, value]) => {
+      if (value && typeof value === 'object' && 'is_set' in value) {
+        status[key] = value.is_set;
+      }
+    });
+    setVaultStatus(status);
+    // Reload models after a key change (provider may now be active)
+    reloadModels();
+  };
+
+  const handleRemoveProvider = async (providerId: string) => {
     try {
-      await apiPost('/tunnel/share');
+      await apiDelete(`/settings/vault/providers/${providerId}`);
+      await apiPost('/models/reload');
+      // Refresh vault status
+      const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+      const entries = raw.keys ?? raw;
+      const status: Record<string, boolean> = {};
+      Object.entries(entries).forEach(([key, value]) => {
+        if (value && typeof value === 'object' && 'is_set' in value) {
+          status[key] = value.is_set;
+        }
+      });
+      setVaultStatus(status);
+      reloadModels();
     } catch { /* ignore */ }
-    setTunnelAction(false);
   };
 
-  const copyTunnelUrl = () => {
-    if (tunnel?.url) {
-      navigator.clipboard.writeText(tunnel.url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+  const handleProviderAdded = async (_providerId: string) => {
+    // Refresh vault status + model catalog
+    try {
+      const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+      const entries = raw.keys ?? raw;
+      const status: Record<string, boolean> = {};
+      Object.entries(entries).forEach(([key, value]) => {
+        if (value && typeof value === 'object' && 'is_set' in value) {
+          status[key] = value.is_set;
+        }
+      });
+      setVaultStatus(status);
+    } catch { /* ignore */ }
+    reloadModels();
+    // Re-fetch registry
+    try {
+      const data = await apiGet<Record<string, ModelInfo[]>>('/models/registry');
+      setModelRegistry(data ?? {});
+    } catch { /* ignore */ }
   };
 
-  useEffect(() => {
-    const saved = localStorage.getItem('theme-mode') as ThemeMode | null;
-    if (saved === 'system') {
-      setThemeMode('system');
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      setTheme(mq.matches ? 'dark' : 'light');
-    } else {
-      setThemeMode(theme);
-    }
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (themeMode !== 'system') return;
-
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent) => setTheme(e.matches ? 'dark' : 'light');
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, [themeMode, setTheme]);
-
-  const handleThemeChange = (mode: ThemeMode) => {
-    setThemeMode(mode);
-    localStorage.setItem('theme-mode', mode);
-    if (mode === 'system') {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      setTheme(mq.matches ? 'dark' : 'light');
-    } else {
-      setTheme(mode);
-    }
+  // Get model registry entries for a provider
+  const getRegistryForProvider = (providerName: string): ModelInfo[] => {
+    const key = PROVIDER_REGISTRY_KEY[providerName];
+    return key ? (modelRegistry[key] || []) : [];
   };
 
-  const themeOptions: { mode: ThemeMode; icon: string; label: string }[] = [
-    { mode: 'light', icon: 'light_mode', label: 'Light' },
-    { mode: 'dark', icon: 'dark_mode', label: 'Dark' },
-    { mode: 'system', icon: 'computer', label: 'System' },
-  ];
+  // Get models for a specific provider from dynamic catalog
+  const getModelsForProvider = (providerId: string): ModelInfo[] => {
+    const provider = configuredProviders[providerId];
+    if (!provider) return [];
+    return Object.entries(provider.models).map(([modelId, model]) => ({
+      id: modelId,
+      label: model.name,
+      context_window: model.limit?.context
+        ? formatCtx(model.limit.context)
+        : '',
+      tier: classifyTier(model),
+      provider_id: providerId,
+      family: model.family,
+      cost: model.cost,
+      logo_url: provider.logo_url,
+      reasoning: model.reasoning,
+      tool_call: model.tool_call,
+      attachment: model.attachment,
+    }));
+  };
 
-  const connectionIndicator = () => {
-    if (connectionStatus === 'checking') {
-      return (
-        <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[10px] font-bold" style={{ background: 'rgba(234, 179, 8, 0.08)', color: 'var(--color-warning)' }}>
-          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--color-warning)' }} />
-          Checking...
-        </div>
-      );
-    }
-    if (connectionStatus === 'connected') {
-      return (
-        <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[10px] font-bold" style={{ background: 'rgba(16, 185, 129, 0.08)', color: 'var(--color-success)' }}>
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-success)' }} />
-          Connected
-        </div>
-      );
-    }
+  // Flat model IDs for backward-compat consumers (RolesPanel)
+  const allModelIds = allModels.length > 0
+    ? allModels.map((m) => m.id)
+    : Object.values(modelRegistry).flat().map((m) => m.id);
+
+  // Dynamic providers: those configured in auth.json but NOT legacy primary
+  const dynamicProviderIds = Object.keys(configuredProviders).filter(
+    (pid) => !LEGACY_PRIMARY_PROVIDERS.has(pid),
+  );
+
+  if (isLoading) {
     return (
-      <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[10px] font-bold" style={{ background: 'rgba(239, 68, 68, 0.08)', color: 'var(--color-danger)' }}>
-        <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-danger)' }} />
-        Disconnected
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center text-on-surface-variant">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4 mx-auto" />
+          <p className="text-sm font-body">Loading settings...</p>
+        </div>
       </div>
     );
+  }
+
+  if (isError || !settings) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <span className="material-symbols-outlined text-6xl mb-4 block text-error">error</span>
+          <p className="text-sm text-error">Failed to load settings</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Build provider settings with defaults for the four known providers
+  const defaultProvider = { enabled: true } as ProviderSettings;
+  const providers = settings.providers || {};
+  const googleSettings   = (providers as Record<string, ProviderSettings>).google    ?? defaultProvider;
+  const anthropicSettings = (providers as Record<string, ProviderSettings>).anthropic ?? defaultProvider;
+  const openaiSettings   = (providers as Record<string, ProviderSettings>).openai    ?? defaultProvider;
+  const byteplusSettings = (providers as Record<string, ProviderSettings>).byteplus  ?? defaultProvider;
+
+  const updateProvider = (name: string, current: ProviderSettings, updates: Partial<ProviderSettings>) =>
+    updateNamespace('providers', { ...providers, [name]: { ...current, ...updates } });
+
+  const handleServiceAccountUpload = async (jsonContent: string) => {
+    await updateVault('providers', 'google_service_account', jsonContent);
+    try {
+      const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+      const entries = raw.keys ?? raw;
+      const status: Record<string, boolean> = {};
+      Object.entries(entries).forEach(([key, value]) => {
+        if (value && typeof value === 'object' && 'is_set' in value) {
+          status[key] = value.is_set;
+        }
+      });
+      setVaultStatus(status);
+    } catch { /* ignore */ }
+  };
+
+  const renderActivePanel = () => {
+    switch (activeNamespace) {
+      case 'providers':
+        return (
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-mono text-primary bg-primary-container px-2 py-0.5 rounded">SYSTEM_ADMIN</span>
+              <span className="text-xs text-on-surface-variant">/ configuration / model-provisioning</span>
+            </div>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-2xl font-extrabold tracking-tight text-on-surface">
+                Global Model Provisioning
+              </h2>
+              <button
+                onClick={reloadModels}
+                className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-bold uppercase bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition-colors"
+                title="Re-fetch models from models.dev"
+              >
+                <span className="material-symbols-outlined text-sm">refresh</span>
+                Reload Models
+              </button>
+            </div>
+            <p className="text-sm text-on-surface-variant mb-2">
+              Configure and manage LLM endpoints and provider credentials.
+            </p>
+            {configured && (
+              <p className="text-[10px] text-slate-400 mb-6">
+                {Object.keys(configuredProviders).length} providers configured
+                {' \u00b7 '}
+                {allModels.length} models available
+                {' \u00b7 '}
+                Source: models.dev
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* ── Row 1: Google (8) + Anthropic/OpenAI stack (4) ──── */}
+
+              {/* Google Cloud Provisioning -- primary large card */}
+              <div className="lg:col-span-8">
+                <ProviderCard
+                  name="google"
+                  provider={googleSettings}
+                  variant="primary"
+                  onToggle={(enabled) => updateProvider('google', googleSettings, { enabled })}
+                  onModelChange={(model) => updateProvider('google', googleSettings, { default_model: model })}
+                  onSettingsChange={(updates) => updateProvider('google', googleSettings, updates)}
+                  onTest={() => testProvider('google')}
+                  onVaultClick={() => handleVaultClick('google')}
+                  onServiceAccountUpload={handleServiceAccountUpload}
+                  vaultSet={vaultStatus['google'] || false}
+                  serviceAccountVaultSet={vaultStatus['google_service_account'] || false}
+                  modelRegistry={getRegistryForProvider('google')}
+                  models={allModelIds}
+                />
+              </div>
+
+              {/* Anthropic & OpenAI -- stacked compact cards */}
+              <div className="lg:col-span-4 space-y-6">
+                <ProviderCard
+                  name="anthropic"
+                  provider={anthropicSettings}
+                  variant="compact"
+                  onToggle={(enabled) => updateProvider('anthropic', anthropicSettings, { enabled })}
+                  onModelChange={(model) => updateProvider('anthropic', anthropicSettings, { default_model: model })}
+                  onTest={() => testProvider('anthropic')}
+                  onVaultClick={() => handleVaultClick('anthropic')}
+                  vaultSet={vaultStatus['anthropic'] || false}
+                  modelRegistry={getRegistryForProvider('anthropic')}
+                  models={allModelIds}
+                />
+                <ProviderCard
+                  name="openai"
+                  provider={openaiSettings}
+                  variant="compact"
+                  onToggle={(enabled) => updateProvider('openai', openaiSettings, { enabled })}
+                  onModelChange={(model) => updateProvider('openai', openaiSettings, { default_model: model })}
+                  onTest={() => testProvider('openai')}
+                  onVaultClick={() => handleVaultClick('openai')}
+                  vaultSet={vaultStatus['openai'] || false}
+                  modelRegistry={getRegistryForProvider('openai')}
+                  models={allModelIds}
+                />
+              </div>
+
+              {/* ── Row 2: Bytedance (Ark) -- full-width bento ──────── */}
+              <BytedanceProviderCard
+                provider={byteplusSettings}
+                onSettingsChange={(updates) => updateProvider('byteplus', byteplusSettings, updates)}
+                onVaultClick={() => handleVaultClick('byteplus')}
+                onTest={() => testProvider('byteplus')}
+                vaultSet={vaultStatus['byteplus'] || false}
+                modelRegistry={getRegistryForProvider('byteplus')}
+              />
+            </div>
+
+            {/* ── Additional Providers ─────────────────────────────── */}
+            <div className="mt-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-slate-400 text-lg">extension</span>
+                  <h3 className="text-sm font-bold uppercase tracking-widest text-slate-700">
+                    Additional Providers
+                  </h3>
+                  {dynamicProviderIds.length > 0 && (
+                    <span className="text-[10px] text-slate-400">{dynamicProviderIds.length} configured</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setAddProviderOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  Add Provider
+                </button>
+              </div>
+
+              {dynamicProviderIds.length === 0 ? (
+                <button
+                  onClick={() => setAddProviderOpen(true)}
+                  className="w-full py-10 border-2 border-dashed border-slate-200 rounded-xl text-center hover:border-blue-300 hover:bg-blue-50/30 transition-colors cursor-pointer group"
+                >
+                  <span className="material-symbols-outlined text-3xl text-slate-300 group-hover:text-blue-400 mb-2 block">add_circle</span>
+                  <p className="text-xs font-semibold text-slate-500 group-hover:text-blue-600">
+                    Add your first provider
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Browse 100+ providers from models.dev
+                  </p>
+                </button>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {dynamicProviderIds.map((pid) => {
+                    const provider = configuredProviders[pid];
+                    if (!provider) return null;
+                    const provSettings = (providers as Record<string, ProviderSettings>)[pid] ?? defaultProvider;
+                    return (
+                      <DynamicProviderCard
+                        key={pid}
+                        providerId={pid}
+                        provider={provider}
+                        settings={provSettings}
+                        vaultSet={vaultStatus[pid] || false}
+                        onVaultClick={() => handleVaultClick(pid)}
+                        onToggle={(enabled) => updateProvider(pid, provSettings, { enabled })}
+                        onTest={() => testProvider(pid)}
+                        onRemove={() => handleRemoveProvider(pid)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+      case 'roles':
+        return (
+          <div>
+            <h2 className="text-lg font-bold text-on-surface mb-4">Roles</h2>
+            <RolesPanel
+              roles={settings.roles || {}}
+              onUpdate={async (role, value) => {
+                await apiPatch(`/roles/by-name/${encodeURIComponent(role)}`, value);
+              }}
+              models={allModelIds}
+            />
+          </div>
+        );
+
+      case 'runtime':
+        return (
+          <div>
+            <h2 className="text-lg font-bold text-on-surface mb-4">Runtime</h2>
+            <RuntimePanel
+              runtime={settings.runtime}
+              onUpdate={(value) => updateNamespace('runtime', { ...settings.runtime, ...value })}
+            />
+          </div>
+        );
+
+      case 'memory':
+        return (
+          <div>
+            <h2 className="text-lg font-bold text-on-surface mb-4">Memory</h2>
+            <MemoryPanel
+              memory={settings.memory || {}}
+              onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
+            />
+          </div>
+        );
+
+      default:
+        return null;
+    }
   };
 
   return (
-    <div className="p-6 max-w-[1000px] mx-auto fade-in-up">
-      <h1 className="text-xl font-extrabold mb-6" style={{ color: 'var(--color-text-main)' }}>Settings</h1>
+    <div className="min-h-screen bg-surface-container-low font-body text-on-surface">
+      <div className="flex h-screen overflow-hidden">
+        <SettingsSidebar
+          activeNamespace={activeNamespace}
+          onNamespaceChange={setActiveNamespace}
+        />
 
-      {/* API Configuration */}
-      <section className="rounded-xl border p-5 mb-4" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-        <h2 className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--color-text-main)' }}>
-          <span className="material-symbols-outlined text-base">api</span>
-          API Configuration
-        </h2>
-        <div className="space-y-3">
-          <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider mb-1 block" style={{ color: 'var(--color-text-faint)' }}>Backend URL</label>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 px-3 py-2 rounded-md text-xs font-mono" style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}>
-                {BASE_URL}
-              </div>
-              {connectionIndicator()}
+        <main className="flex-1 overflow-y-auto p-8">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex items-center justify-end mb-6">
+              <LiveStatusBadge />
             </div>
+
+            {renderActivePanel()}
           </div>
-          <div>
-            <label className="text-[11px] font-semibold uppercase tracking-wider mb-1 block" style={{ color: 'var(--color-text-faint)' }}>WebSocket URL</label>
-            <div className="px-3 py-2 rounded-md text-xs font-mono" style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}>
-              {wsUrl}
-            </div>
-          </div>
-          <p className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
-            Configured via <code className="font-mono">NEXT_PUBLIC_API_BASE_URL</code> environment variable.
-          </p>
-        </div>
-      </section>
+        </main>
+      </div>
 
-      {/* Tunnel */}
-      <section className="rounded-xl border p-5 mb-4" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-        <h2 className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--color-text-main)' }}>
-          <span className="material-symbols-outlined text-base">language</span>
-          Public Tunnel
-        </h2>
-        {tunnelLoading ? (
-          <div className="text-xs py-4 text-center" style={{ color: 'var(--color-text-faint)' }}>Loading tunnel status...</div>
-        ) : tunnel === null ? (
-          <div className="text-xs py-4 text-center" style={{ color: 'var(--color-text-faint)' }}>Tunnel not available</div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--color-background)' }}>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full" style={{ background: tunnel.active ? 'var(--color-success)' : 'var(--color-text-faint)' }} />
-                <span className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>
-                  {tunnel.active ? 'Active' : 'Inactive'}
-                </span>
-              </div>
-              {tunnel.started_at && (
-                <span className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
-                  Since {new Date(tunnel.started_at).toLocaleTimeString()}
-                </span>
-              )}
-            </div>
-            {tunnel.active && tunnel.url && (
-              <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider mb-1 block" style={{ color: 'var(--color-text-faint)' }}>Public URL</label>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 px-3 py-2 rounded-md text-xs font-mono" style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}>
-                    {tunnel.url}
-                  </div>
-                  <button
-                    onClick={copyTunnelUrl}
-                    className="px-2 py-2 rounded-md text-xs font-semibold"
-                    style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}
-                    title="Copy URL"
-                  >
-                    <span className="material-symbols-outlined text-sm">{copied ? 'check' : 'content_copy'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            {tunnel.error && (
-              <div className="text-xs p-2 rounded" style={{ background: 'rgba(239, 68, 68, 0.08)', color: 'var(--color-danger)' }}>
-                {tunnel.error}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={handleTunnelRestart}
-                disabled={tunnelAction}
-                className="px-3 py-1.5 rounded-md text-xs font-semibold"
-                style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)', opacity: tunnelAction ? 0.5 : 1 }}
-              >
-                {tunnelAction ? 'Working...' : 'Restart Tunnel'}
-              </button>
-              {tunnel.active && (
-                <button
-                  onClick={handleTunnelShare}
-                  disabled={tunnelAction}
-                  className="px-3 py-1.5 rounded-md text-xs font-semibold"
-                  style={{ background: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-main)', opacity: tunnelAction ? 0.5 : 1 }}
-                >
-                  Share via Telegram
-                </button>
-              )}
-            </div>
-            <p className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
-              Configured via <code className="font-mono">NGROK_AUTHTOKEN</code> in <code className="font-mono">~/.ostwin/.env</code>. Tunnel auto-starts with the dashboard.
-            </p>
-          </div>
-        )}
-      </section>
+      <VaultSecretModal
+        isOpen={vaultModalOpen}
+        onClose={() => setVaultModalOpen(false)}
+        scope={vaultScope}
+        keyName={vaultKey}
+        isSet={vaultStatus[vaultKey] || false}
+        onSubmit={handleVaultSubmit}
+      />
 
-      {/* Theme */}
-      <section className="rounded-xl border p-5 mb-4" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-        <h2 className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--color-text-main)' }}>
-          <span className="material-symbols-outlined text-base">palette</span>
-          Appearance
-        </h2>
-        <div className="flex gap-3">
-          {themeOptions.map((opt) => {
-            const isActive = themeMode === opt.mode;
-            return (
-              <button
-                key={opt.mode}
-                onClick={() => handleThemeChange(opt.mode)}
-                className="flex-1 p-4 rounded-lg flex flex-col items-center gap-2"
-                style={{
-                  border: isActive ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                  background: isActive ? 'var(--color-primary-muted)' : 'transparent',
-                }}
-              >
-                <span
-                  className="material-symbols-outlined text-2xl"
-                  style={{ color: isActive ? 'var(--color-primary)' : 'var(--color-text-faint)' }}
-                >
-                  {opt.icon}
-                </span>
-                <span
-                  className={`text-xs ${isActive ? 'font-semibold' : 'font-medium'}`}
-                  style={{ color: isActive ? 'var(--color-primary)' : 'var(--color-text-faint)' }}
-                >
-                  {opt.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* API Keys */}
-      <section className="rounded-xl border p-5" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-        <h2 className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--color-text-main)' }}>
-          <span className="material-symbols-outlined text-base">key</span>
-          API Keys
-        </h2>
-        <div className="space-y-3">
-          {apiKeysLoading ? (
-            <div className="text-xs py-4 text-center" style={{ color: 'var(--color-text-faint)' }}>Loading API key status...</div>
-          ) : apiKeys === null ? (
-            <div className="text-xs py-4 text-center" style={{ color: 'var(--color-danger)' }}>Failed to load API key status</div>
-          ) : (
-            Object.entries(apiKeys).map(([provider, configured]) => {
-              const display = API_KEY_DISPLAY[provider];
-              return (
-                <div key={provider} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--color-background)' }}>
-                  <div>
-                    <div className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>{display?.label ?? provider}</div>
-                    {configured && display?.prefix && (
-                      <div className="text-[10px] font-mono" style={{ color: 'var(--color-text-faint)' }}>
-                        {display.prefix}{'••••••••'}
-                      </div>
-                    )}
-                  </div>
-                  <span
-                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                    style={{
-                      background: configured ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                      color: configured ? 'var(--color-success)' : 'var(--color-danger)',
-                    }}
-                  >
-                    {configured ? '✓ Configured' : '✗ Missing'}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
+      <AddProviderModal
+        isOpen={addProviderOpen}
+        onClose={() => setAddProviderOpen(false)}
+        onProviderAdded={handleProviderAdded}
+      />
     </div>
   );
+}
+
+// Helper functions
+function formatCtx(ctx: number): string {
+  if (ctx >= 1_000_000) {
+    const val = ctx / 1_000_000;
+    return `${val % 1 === 0 ? val : val.toFixed(1)}M`;
+  }
+  if (ctx >= 1_000) {
+    const val = ctx / 1_000;
+    return `${val % 1 === 0 ? val : val.toFixed(1)}K`;
+  }
+  return String(ctx);
+}
+
+function classifyTier(model: { reasoning?: boolean; cost?: { input?: number } }): string {
+  if (model.reasoning) return 'reasoning';
+  const inputCost = model.cost?.input ?? 0;
+  if (inputCost >= 10) return 'flagship';
+  if (inputCost >= 1) return 'balanced';
+  if (inputCost > 0) return 'fast';
+  return 'unknown';
 }

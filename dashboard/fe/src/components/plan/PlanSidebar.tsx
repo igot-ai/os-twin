@@ -5,7 +5,7 @@ import { usePlanContext } from './PlanWorkspace';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default function PlanSidebar() {
-  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, launchPlan, isSaving } = usePlanContext();
+  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, isSaving } = usePlanContext();
 
   const tabs = [
     { id: 'editor', label: 'Planner', icon: 'edit_document' },
@@ -104,13 +104,6 @@ export default function PlanSidebar() {
             {isSaving ? 'progress_activity' : 'save'}
           </span>
           {isSaving ? 'Saving...' : 'Save Plan'}
-        </button>
-        <button
-          onClick={() => launchPlan()}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold bg-success/10 text-success hover:bg-success/20 transition-all"
-        >
-          <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
-          Launch Plan
         </button>
       </div>
 

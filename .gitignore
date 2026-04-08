@@ -22,6 +22,7 @@ __pycache__/
 # ── Local data & secrets ──────────────────────────────────────────────────────
 .ostwin/mcp/mcp-config.json
 .ostwin/mcp/config.json
+dashboard/.agents
 .claude/
 /plans/
 .data/

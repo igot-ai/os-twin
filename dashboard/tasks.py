@@ -203,6 +203,14 @@ async def poll_war_rooms():
 async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
+
+    # ── Load model catalog from models.dev ────────────────────────────
+    try:
+        from dashboard.lib.settings.models_dev_loader import load_models_on_startup
+        load_models_on_startup()
+    except Exception as e:
+        logger.error("Models catalog load failed: %s", e)
+
     # Telegram polling removed — handled by the Node.js bot (bot/src/telegram.ts)
     # Planning thread store (independent of zvec)
     try:
