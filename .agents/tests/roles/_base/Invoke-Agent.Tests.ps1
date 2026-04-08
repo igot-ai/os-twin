@@ -533,4 +533,172 @@ echo "ARGS: `$@"
             }
         }
     }
+
+    Context "No opencode.json generation" {
+        It "does not create opencode.json in artifacts directory" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test no opencode.json" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $artifactsDir = Join-Path $script:roomDir "artifacts"
+            $opencodeJson = Join-Path $artifactsDir "opencode.json"
+            Test-Path $opencodeJson | Should -BeFalse `
+                -Because "Invoke-Agent must not generate opencode.json during ostwin run"
+        }
+
+        It "does not create opencode.json even when MCP config exists" {
+            # Create a project dir with .agents/mcp/config.json and a room inside
+            $projectDir = Join-Path $TestDrive "project-mcp-$(Get-Random)"
+            $mcpDir = Join-Path $projectDir ".agents" "mcp"
+            New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
+            @{ mcp = @{ "test-server" = @{ type = "local"; command = @("echo") } } } `
+                | ConvertTo-Json -Depth 5 `
+                | Out-File (Join-Path $mcpDir "config.json") -Encoding utf8
+
+            # Place room inside .war-rooms so Invoke-Agent resolves ProjectDir
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-mcp"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test with mcp config" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $artifactsDir = Join-Path $roomDir "artifacts"
+            $opencodeJson = Join-Path $artifactsDir "opencode.json"
+            Test-Path $opencodeJson | Should -BeFalse `
+                -Because "Invoke-Agent must not generate opencode.json even when MCP config exists"
+        }
+    }
+
+    Context "No .agents/mcp folder creation" {
+        It "does not create .agents/mcp folder in the project directory" {
+            # Create a project dir without .agents/mcp
+            $projectDir = Join-Path $TestDrive "project-nomcp-$(Get-Random)"
+            $agentsDir = Join-Path $projectDir ".agents"
+            New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+
+            # Place room inside .war-rooms so Invoke-Agent resolves ProjectDir
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-nomcp"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test no mcp folder" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $mcpDir = Join-Path $agentsDir "mcp"
+            Test-Path $mcpDir | Should -BeFalse `
+                -Because "Invoke-Agent must not create .agents/mcp folder"
+        }
+    }
+
+    Context "Model resolution fallback chain (integration)" {
+        # Full chain: -Model param → plan.roles.json → config.json instance →
+        #             config.json role → role.json → hardcoded default.
+        # Critical: role.json fallback must work even when config.json is ABSENT.
+
+        It "uses role.json model when config.json is absent" {
+            # Setup: no config.json, but role.json has a model
+            $fakeHome = Join-Path $TestDrive "home-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $fakeHome ".ostwin" ".agents" "roles" "engineer") -Force | Out-Null
+            @{ model = "role-json-model"; skill_refs = @() } | ConvertTo-Json |
+                Out-File (Join-Path $fakeHome ".ostwin" ".agents" "roles" "engineer" "role.json") -Encoding utf8
+
+            $roomDir = Join-Path $TestDrive "room-rolejson-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $savedHome = $env:HOME
+            $savedConfig = $env:AGENT_OS_CONFIG
+            try {
+                $env:HOME = $fakeHome
+                # Point config to a non-existent file so it skips config.json block
+                $env:AGENT_OS_CONFIG = Join-Path $TestDrive "nonexistent-config.json"
+
+                $result = & $script:InvokeAgent -RoomDir $roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+                # The agent should have used role-json-model (not the hardcoded default)
+                $result.Output | Should -Match "role-json-model" `
+                    -Because "role.json model must be used when config.json is absent"
+            }
+            finally {
+                $env:HOME = $savedHome
+                if ($savedConfig) { $env:AGENT_OS_CONFIG = $savedConfig }
+                else { Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It "explicit -Model param wins over all fallbacks" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -Model "explicit-param-model" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $result.Output | Should -Match "explicit-param-model"
+        }
+
+        It "falls back to hardcoded default when nothing is configured" {
+            $savedConfig = $env:AGENT_OS_CONFIG
+            try {
+                $env:AGENT_OS_CONFIG = Join-Path $TestDrive "nonexistent-$(Get-Random).json"
+
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result | Should -Not -BeNullOrEmpty
+                # Should resolve to the hardcoded default model
+                $result.Output | Should -Match "google-vertex" `
+                    -Because "hardcoded default should be used as last resort"
+            }
+            finally {
+                if ($savedConfig) { $env:AGENT_OS_CONFIG = $savedConfig }
+                else { Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It "plan.roles.json model wins over config.json model" {
+            # Setup plan.roles.json
+            $fakeHome = Join-Path $TestDrive "home-plan-$(Get-Random)"
+            $plansDir = Join-Path $fakeHome ".ostwin" ".agents" "plans"
+            New-Item -ItemType Directory -Path $plansDir -Force | Out-Null
+            @{ engineer = @{ default_model = "plan-level-model" } } | ConvertTo-Json -Depth 3 |
+                Out-File (Join-Path $plansDir "test-plan.roles.json") -Encoding utf8
+
+            # Setup room config pointing to the plan
+            $roomDir = Join-Path $TestDrive "room-plan-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+            @{ plan_id = "test-plan" } | ConvertTo-Json |
+                Out-File (Join-Path $roomDir "config.json") -Encoding utf8
+
+            # Setup config.json with a different model
+            $configFile = Join-Path $TestDrive "config-plan-$(Get-Random).json"
+            @{ engineer = @{ cli = "echo"; default_model = "config-model" } } | ConvertTo-Json -Depth 3 |
+                Out-File $configFile -Encoding utf8
+
+            $savedHome = $env:HOME
+            $savedConfig = $env:AGENT_OS_CONFIG
+            try {
+                $env:HOME = $fakeHome
+                $env:AGENT_OS_CONFIG = $configFile
+
+                $result = & $script:InvokeAgent -RoomDir $roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
+
+                $result.Output | Should -Match "plan-level-model" `
+                    -Because "plan.roles.json must take priority over config.json"
+            }
+            finally {
+                $env:HOME = $savedHome
+                if ($savedConfig) { $env:AGENT_OS_CONFIG = $savedConfig }
+                else { Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue }
+            }
+        }
+    }
 }

@@ -1745,8 +1745,7 @@ def load_mcp_env() -> None:
     while True:
         mcp_dir = curr / ".agents" / "mcp"
         config_mcp = mcp_dir / "config.json"
-        legacy_config_mcp = mcp_dir / "mcp-config.json"
-        active_config = config_mcp if config_mcp.is_file() else legacy_config_mcp
+        active_config = config_mcp
         env_mcp = mcp_dir / ".env.mcp"
         
         # If we have a project-level MCP config but no credentials file, error out
