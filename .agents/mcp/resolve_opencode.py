@@ -86,6 +86,41 @@ def resolve_mcp_servers(servers, env_all):
     return resolved
 
 
+def load_global_opencode_config():
+    """Load the user's global opencode config, if any.
+
+    Search order (first hit wins):
+      1. $XDG_CONFIG_HOME/opencode/opencode.json
+      2. ~/.config/opencode/opencode.json
+      3. ~/.config/opencode/config.json
+
+    Returns a dict (possibly empty) with the parsed top-level config.
+    Used to seed fresh project opencode.json files so that
+    provider/model/permission/agent definitions are inherited rather
+    than silently dropped when ostwin sets OPENCODE_CONFIG (which makes
+    opencode skip its own global lookup).
+    """
+    candidates = []
+    xdg = os.environ.get('XDG_CONFIG_HOME')
+    if xdg:
+        candidates.append(os.path.join(xdg, 'opencode', 'opencode.json'))
+    home = os.environ.get('HOME') or os.path.expanduser('~')
+    if home:
+        candidates.append(os.path.join(home, '.config', 'opencode', 'opencode.json'))
+        candidates.append(os.path.join(home, '.config', 'opencode', 'config.json'))
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    print(f"  Inherited global opencode config from {path}", file=sys.stderr)
+                    return data
+            except (json.JSONDecodeError, ValueError, OSError) as exc:
+                print(f"  Warning: failed to read {path}: {exc}", file=sys.stderr)
+    return {}
+
+
 def resolve_and_write(config_path, output_dir, env_file=None, merge=False,
                       strict=False):
     """Main entry point: load config, resolve, write opencode.json.
@@ -126,10 +161,16 @@ def resolve_and_write(config_path, output_dir, env_file=None, merge=False,
         existing["mcp"] = resolved_mcp
         opencode_config = existing
     else:
-        opencode_config = {
-            "$schema": "https://opencode.ai/config.json",
-            "mcp": resolved_mcp,
-        }
+        # Fresh create: seed from the user's global opencode.json so that
+        # provider/model/permission/agent blocks survive into the project
+        # config. Without this, ostwin's OPENCODE_CONFIG override hides the
+        # user's global provider definitions from opencode at run time.
+        opencode_config = load_global_opencode_config()
+        # Drop any mcp block from the global config — the project's MCP
+        # block is authoritative.
+        opencode_config.pop('mcp', None)
+        opencode_config["$schema"] = "https://opencode.ai/config.json"
+        opencode_config["mcp"] = resolved_mcp
 
     with open(opencode_file, 'w') as f:
         json.dump(opencode_config, f, indent=2)

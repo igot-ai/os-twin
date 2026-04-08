@@ -575,6 +575,29 @@ ENVEOF
   chmod 600 "$env_file"   # Protect API keys
   ok ".env created — edit $env_file to add your API keys"
 
+  # Create a companion .env.sh hook for dynamic env logic (subshells,
+  # token refresh, etc.) that .env can't express. Sourced by every
+  # generated run-agent.sh wrapper before the agent execs.
+  local env_sh="$INSTALL_DIR/.env.sh"
+  if [[ ! -f "$env_sh" ]]; then
+    cat > "$env_sh" << 'ENVSHEOF'
+# Ostwin — dynamic environment hook
+# Sourced by every generated run-agent.sh wrapper before the agent execs.
+# Use this for env vars that require shell logic (subshells, conditionals,
+# token refresh, etc.). Static KEY=VALUE pairs belong in ~/.ostwin/.env.
+
+# Refresh a Vertex AI access token from the active gcloud account.
+# The OpenAI-compatible Vertex endpoint expects this as a Bearer token,
+# and access tokens expire ~1h, so re-mint per agent launch.
+if command -v gcloud >/dev/null 2>&1; then
+  VERTEX_API_KEY="$(gcloud auth print-access-token 2>/dev/null)"
+  export VERTEX_API_KEY
+fi
+ENVSHEOF
+    chmod 600 "$env_sh"
+    ok ".env.sh created — add dynamic env hooks (e.g. token refresh) here"
+  fi
+
   # Migrate any existing exported key from the current shell environment
   local migrated=false
   for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY NGROK_AUTHTOKEN; do

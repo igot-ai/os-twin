@@ -423,6 +423,11 @@ export AGENT_OS_PID_FILE='$safePidFile'
 export OSTWIN_HOME='$safeOstwinHome'
 export AGENT_OS_PROJECT_DIR='$safeProjectDir'
 $opencodeConfigLine
+# Source user-controlled pre-exec hook for dynamic env vars
+# (e.g. refreshing short-lived API tokens like VERTEX_API_KEY).
+# Static vars belong in `$safeOstwinHome`/.env; this file is for shell logic.
+if [ -f "`$HOME/.ostwin/.env.sh" ]; then . "`$HOME/.ostwin/.env.sh"; fi
+if [ -f '$safeOstwinHome/.env.sh' ]; then . '$safeOstwinHome/.env.sh'; fi
 $cwdLine
 # Write PID before exec — `$`$ survives exec, so this is the real agent PID.
 # bin/agent also writes this (harmless overwrite); this fallback ensures
