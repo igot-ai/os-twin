@@ -1,0 +1,23 @@
+{
+  "name": "documentation-agent",
+  "description": "Documentation agent — generates API docs, README files, inline comments, and technical guides automatically",
+  "capabilities": [
+    "api-documentation",
+    "readme-generation",
+    "inline-comment-generation",
+    "changelog-generation",
+    "technical-writing"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "accuracy-verified",
+    "examples-included",
+    "all-public-apis-covered",
+    "no-stale-documentation"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

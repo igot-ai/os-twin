@@ -1,0 +1,22 @@
+{
+  "name": "code-reviewer",
+  "description": "Code reviewer — automatically reviews pull requests for coding style, logic errors, and security issues",
+  "capabilities": [
+    "code-review",
+    "style-enforcement",
+    "logic-validation",
+    "security-analysis",
+    "best-practice-enforcement"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "severity-classified",
+    "actionable-feedback",
+    "evidence-based-findings"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

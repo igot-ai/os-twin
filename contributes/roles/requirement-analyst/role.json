@@ -1,0 +1,22 @@
+{
+  "name": "requirement-analyst",
+  "description": "Requirement analyst — analyzes user stories, creates acceptance criteria, validates completeness",
+  "capabilities": [
+    "requirement-analysis",
+    "acceptance-criteria-generation",
+    "user-story-validation",
+    "gap-analysis",
+    "traceability-mapping"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "criteria-completeness",
+    "ambiguity-check",
+    "testability-validation"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

@@ -1,0 +1,23 @@
+{
+  "name": "code-generator",
+  "description": "Code generator — generates source code from specifications and prompts, supports 20+ programming languages",
+  "capabilities": [
+    "code-generation",
+    "multi-language-support",
+    "boilerplate-scaffolding",
+    "api-implementation",
+    "schema-to-code"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "compiles-without-errors",
+    "follows-project-conventions",
+    "includes-error-handling",
+    "no-hardcoded-secrets"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

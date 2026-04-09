@@ -133,6 +133,98 @@ Describe "Resolve-Pipeline.ps1 — Dynamic Lifecycle Generation" {
         }
     }
 
+    It "MODE 4 fallback includes test-engineer" {
+        # No capabilities, no candidates — pure fallback
+        $result = & $script:ResolvePipeline -AssignedRole 'engineer' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'test-engineer'
+    }
+
+    It "MODE 4 fallback includes qa-test-planner" {
+        $result = & $script:ResolvePipeline -AssignedRole 'engineer' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'qa-test-planner'
+    }
+
+    It "MODE 3 capability pipeline includes test-engineer" {
+        $result = & $script:ResolvePipeline -RequiredCapabilities @('security') -AssignedRole 'engineer' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'test-engineer'
+    }
+
+    It "MODE 3 capability pipeline includes qa-test-planner" {
+        $result = & $script:ResolvePipeline -RequiredCapabilities @('security') -AssignedRole 'engineer' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'qa-test-planner'
+    }
+
+    It "MODE 3 includes refactoring-agent when refactoring capability detected" {
+        $result = & $script:ResolvePipeline -RequiredCapabilities @('refactoring') -AssignedRole 'engineer' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'refactoring-agent'
+    }
+
+    It "MODE 3 includes bug-hunter when bug-analysis capability detected" {
+        $result = & $script:ResolvePipeline -RequiredCapabilities @('bug-analysis') -AssignedRole 'engineer' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'bug-hunter'
+    }
+
+    It "MODE 3 includes code-generator when code-generation capability detected" {
+        $result = & $script:ResolvePipeline -RequiredCapabilities @('code-generation') -AssignedRole 'engineer' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'code-generator'
+    }
+
+    It "MODE 2 CandidateRoles pipeline includes test-engineer" {
+        $result = & $script:ResolvePipeline -CandidateRoles @('engineer', 'qa') -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'test-engineer'
+    }
+
+    It "MODE 2 CandidateRoles pipeline includes qa-test-planner" {
+        $result = & $script:ResolvePipeline -CandidateRoles @('engineer', 'qa') -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'qa-test-planner'
+    }
+
+    It "Does not duplicate test-engineer when already in CandidateRoles" {
+        $result = & $script:ResolvePipeline -CandidateRoles @('engineer', 'test-engineer', 'qa') -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = @($json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ -eq 'test-engineer' })
+        $roles.Count | Should -Be 1
+    }
+
+    It "MODE 1 explicit pipeline injects test-engineer" {
+        $result = & $script:ResolvePipeline -PipelineString 'engineer -> qa' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'test-engineer'
+    }
+
+    It "MODE 1 explicit pipeline injects qa-test-planner" {
+        $result = & $script:ResolvePipeline -PipelineString 'engineer -> qa' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = $json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ }
+        $roles | Should -Contain 'qa-test-planner'
+    }
+
+    It "MODE 1 does not duplicate test-engineer when already in explicit pipeline" {
+        $result = & $script:ResolvePipeline -PipelineString 'engineer -> test-engineer -> qa' -AgentsDir $script:agentsDir
+        $json = $result | ConvertFrom-Json
+        $roles = @($json.states.PSObject.Properties | ForEach-Object { $_.Value.role } | Where-Object { $_ -eq 'test-engineer' })
+        $roles.Count | Should -Be 1
+    }
+
     It "Worker and evaluator error signals both target failed state" {
         $roles = @(
             [PSCustomObject]@{ Name = 'eng'; InstanceType = 'worker' },

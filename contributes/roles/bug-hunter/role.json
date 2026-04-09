@@ -1,0 +1,22 @@
+{
+  "name": "bug-hunter",
+  "description": "Bug hunter — detects bugs, performs root cause analysis, and identifies failure patterns",
+  "capabilities": [
+    "bug-detection",
+    "root-cause-analysis",
+    "log-analysis",
+    "stack-trace-interpretation",
+    "regression-identification"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "root-cause-identified",
+    "reproduction-steps-provided",
+    "fix-recommendation-included"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

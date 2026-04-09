@@ -191,11 +191,18 @@ elseif ($CandidateRoles.Count -gt 0) {
 elseif ($RequiredCapabilities.Count -gt 0) {
     $baseRole = $AssignedRole -replace ':.*$', ''
     $capReviewerMap = @{
-        'security'       = 'security-auditor'
-        'database'       = 'database-architect'
-        'architecture'   = 'architect'
-        'infrastructure' = 'devops'
-        'accessibility'  = 'accessibility-specialist'
+        'security'        = 'security-scanner'
+        'database'        = 'database-architect'
+        'architecture'    = 'architecture-advisor'
+        'infrastructure'  = 'devops-agent'
+        'accessibility'   = 'accessibility-specialist'
+        'code-review'     = 'code-reviewer'
+        'documentation'   = 'documentation-agent'
+        'requirements'    = 'requirement-analyst'
+        'test-planning'   = 'qa-test-planner'
+        'refactoring'     = 'refactoring-agent'
+        'bug-analysis'    = 'bug-hunter'
+        'code-generation' = 'code-generator'
     }
     $candidateList = @($baseRole)
     foreach ($cap in $RequiredCapabilities) {
@@ -211,6 +218,16 @@ else {
         $resolvedLifecycle = Get-Content $defaultLifecyclePath -Raw | ConvertFrom-Json
     } else {
         $candidateList = @($AssignedRole)
+    }
+}
+
+# --- MANDATORY: Always include test-engineer and qa-test-planner in pipeline ---
+if ($candidateList.Count -gt 0) {
+    if ('test-engineer' -notin $candidateList) {
+        $candidateList += 'test-engineer'
+    }
+    if ('qa-test-planner' -notin $candidateList) {
+        $candidateList += 'qa-test-planner'
     }
 }
 
