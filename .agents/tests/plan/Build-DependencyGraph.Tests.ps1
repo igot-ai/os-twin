@@ -10,14 +10,6 @@
 Describe "Build-DependencyGraph" {
     BeforeAll {
         $script:builder = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Build-DependencyGraph.ps1"
-        # Verify the script is parseable upfront
-        $null = [System.Management.Automation.Language.Parser]::ParseFile($script:builder, [ref]$null, [ref]$null)
-    }
-
-    BeforeEach {
-        # Pester 5 sets $ErrorActionPreference = 'Stop' which can cause
-        # CommandNotFoundException for scripts with process{} blocks on Linux.
-        $ErrorActionPreference = 'Continue'
     }
 
     # =====================================================
