@@ -411,6 +411,7 @@ exit 0
 
     Context "Error handling" {
         It "fails when plan file doesn't exist" {
+            $ErrorActionPreference = 'Continue'
             $output = & $script:StartPlan -PlanFile "/nonexistent/plan.md" `
                 -ProjectDir $script:projectDir -DryRun *>&1
             # Script writes error and exits 1
@@ -418,6 +419,7 @@ exit 0
         }
 
         It "fails when plan has no epics or tasks" {
+            $ErrorActionPreference = 'Continue'
             $emptyPlan = Join-Path $TestDrive "empty-plan.md"
             "# Empty plan`nNo epics here." | Out-File $emptyPlan -Encoding utf8
 
