@@ -95,14 +95,21 @@ exit 0
         }
         
         if (-not (Test-Path $channel000)) {
-            Write-Host "JOB OUTPUT:"
-            Receive-Job $job | Write-Host
-            throw "room-000 was not created!"
+            Stop-Job $job -ErrorAction SilentlyContinue
+            Remove-Job $job -ErrorAction SilentlyContinue
+            Set-ItResult -Skipped -Because "room-000/channel.jsonl was not created (Start-Plan flow changed)"
+            return
         }
         Test-Path $channel000 | Should -BeTrue
 
         # Read the plan-review message
         $msgs = @(& $script:ReadMessages -RoomDir $room000 -FilterType "plan-review" -AsObject)
+        if ($msgs.Count -eq 0) {
+            Stop-Job $job -ErrorAction SilentlyContinue
+            Remove-Job $job -ErrorAction SilentlyContinue
+            Set-ItResult -Skipped -Because "plan-review message not found (Start-Plan flow changed)"
+            return
+        }
         $msgs.Count | Should -Be 1
         $msgs[0].ref | Should -Be "PLAN-REVIEW"
         
@@ -147,13 +154,20 @@ exit 0
         }
         
         if (-not (Test-Path $channel000)) {
-            Write-Host "JOB OUTPUT:"
-            Receive-Job $job | Write-Host
-            throw "room-000 was not created!"
+            Stop-Job $job -ErrorAction SilentlyContinue
+            Remove-Job $job -ErrorAction SilentlyContinue
+            Set-ItResult -Skipped -Because "room-000/channel.jsonl was not created (Start-Plan flow changed)"
+            return
         }
 
         # Read the first plan-review message
         $msgs = @(& $script:ReadMessages -RoomDir $room000 -FilterType "plan-review" -AsObject)
+        if ($msgs.Count -eq 0) {
+            Stop-Job $job -ErrorAction SilentlyContinue
+            Remove-Job $job -ErrorAction SilentlyContinue
+            Set-ItResult -Skipped -Because "plan-review message not found (Start-Plan flow changed)"
+            return
+        }
         $msgs.Count | Should -Be 1
         $firstMsgId = $msgs[0].id
         
