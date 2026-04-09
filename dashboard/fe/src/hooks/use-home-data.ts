@@ -1,17 +1,13 @@
 import useSWR from 'swr';
 import { apiGet } from '@/lib/api-client';
+import { templateCatalog, type TemplateCategoryMeta } from '@/data/template-catalog';
+
+export type { TemplateCategoryMeta };
 
 export interface PromptSuggestion {
   id: string;
   text: string;
   icon: string;
-}
-
-export interface PlanCategory {
-  id: string;
-  name: string;
-  icon: string;
-  description: string;
 }
 
 export interface HomeData {
@@ -20,23 +16,16 @@ export interface HomeData {
     avatar?: string;
     workspace: string;
   };
-  categories: PlanCategory[];
+  categories: TemplateCategoryMeta[];
   suggestions: PromptSuggestion[];
 }
 
-const mockHomeData: HomeData = {
+export const mockHomeData: HomeData = {
   user: {
     name: 'Alex',
     workspace: 'Ostwin Pro',
   },
-  categories: [
-    { id: 'web', name: 'Web App', icon: 'web', description: 'Create a responsive web application' },
-    { id: 'mobile', name: 'Mobile App', icon: 'smartphone', description: 'Build a cross-platform mobile app' },
-    { id: 'backend', name: 'Backend API', icon: 'api', description: 'Develop a scalable REST or GraphQL API' },
-    { id: 'data', name: 'Data Pipeline', icon: 'database', description: 'Setup an ETL pipeline' },
-    { id: 'bot', name: 'AI Discord Bot', icon: 'smart_toy', description: 'Deploy an interactive agent' },
-    { id: 'automation', name: 'Automation', icon: 'autorenew', description: 'Automate business workflows' },
-  ],
+  categories: templateCatalog,
   suggestions: [
     { id: 's1', text: 'Build a Next.js landing page with Tailwind CSS', icon: 'auto_awesome' },
     { id: 's2', text: 'Set up a Node.js Express server with MongoDB', icon: 'memory' },

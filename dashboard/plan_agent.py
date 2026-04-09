@@ -18,6 +18,26 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Dedicated file logger → ~/.ostwin/dashboard/plan.log
+# ---------------------------------------------------------------------------
+_plan_log_dir = Path.home() / ".ostwin" / "dashboard"
+_plan_log_dir.mkdir(parents=True, exist_ok=True)
+_plan_log_file = _plan_log_dir / "plan.log"
+
+plan_logger = logging.getLogger("plan_agent.trace")
+plan_logger.setLevel(logging.DEBUG)
+plan_logger.propagate = False  # don't duplicate to root
+
+if not plan_logger.handlers:
+    _fh = logging.FileHandler(_plan_log_file, encoding="utf-8")
+    _fh.setLevel(logging.DEBUG)
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)-5s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    plan_logger.addHandler(_fh)
+
 
 def parse_structured_response(text: str) -> Dict[str, Any]:
     """Parse the structured Markdown response from the Plan Architect."""
@@ -342,6 +362,13 @@ def build_messages(
     Returns:
         List of LangChain message objects.
     """
+    plan_logger.debug("=" * 80)
+    plan_logger.debug("BUILD_MESSAGES called")
+    plan_logger.debug("  user_message length: %d chars", len(user_message))
+    plan_logger.debug("  plan_content length: %d chars", len(plan_content) if plan_content else 0)
+    plan_logger.debug("  chat_history turns: %d", len(chat_history) if chat_history else 0)
+    plan_logger.debug("  images: %s", "yes" if images else "none")
+
     messages = []
 
     # Inject current plan as system context
@@ -351,20 +378,25 @@ def build_messages(
                 content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```"
             )
         )
+        plan_logger.debug("  + SystemMessage (plan_content): %d chars", len(plan_content))
 
     # Add chat history
     if chat_history:
-        for msg in chat_history:
+        for i, msg in enumerate(chat_history):
             role = msg.get("role", "user")
             content = msg.get("content", "")
             if role == "user":
                 hist_images = msg.get("images")
                 messages.append(HumanMessage(content=_make_human_content(content, hist_images)))
+                plan_logger.debug("  + History[%d] USER: %s...", i, content.replace('\n', ' '))
             elif role == "assistant":
                 messages.append(AIMessage(content=content))
+                plan_logger.debug("  + History[%d] ASSISTANT: %s...", i, content.replace('\n', ' '))
 
     # Add the latest user message
     messages.append(HumanMessage(content=_make_human_content(user_message, images)))
+    plan_logger.debug("  + Current USER message: %s...", user_message.replace('\n', ' '))
+    plan_logger.debug("  Total messages built: %d", len(messages))
 
     return messages
 
@@ -390,6 +422,12 @@ async def refine_plan(
     Returns:
         A dictionary with explanation, actions, and plan content.
     """
+    plan_logger.info("=" * 80)
+    plan_logger.info("REFINE_PLAN called")
+    plan_logger.info("  user_message: %s", user_message[:200].replace('\n', '\\n'))
+    plan_logger.info("  plan_content: %d chars", len(plan_content) if plan_content else 0)
+    plan_logger.info("  chat_history: %d turns", len(chat_history) if chat_history else 0)
+
     agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
     messages = build_messages(user_message, plan_content, chat_history)
 
@@ -500,6 +538,32 @@ Just have a natural, helpful conversation.
 Ask clarifying questions to dig deeper into the user's intent.
 Provide suggestions, trade-offs, and examples to guide them.
 Be concise but insightful.
+
+## Template-aware guidance
+
+The user's first message may follow this format:
+
+```
+@Template Name
+
+User's additional context here
+
+---
+
+<template>
+...template content with {{ }} placeholders...
+</template>
+```
+
+When you see this format:
+1. The `@Template Name` tells you what kind of plan they want (e.g. "Web app with login + database").
+2. The text between the @name and `---` is the user's own brief — acknowledge this first.
+3. The `<template>` block contains structured sections with {{ }} placeholders. These are the topics you should explore conversationally — do NOT repeat or display the raw template. Instead, ask about the unfilled sections naturally, 2-3 at a time.
+4. Never show the raw template or {{ }} markers in your responses.
+5. When all key sections have been covered through conversation, tell the user:
+   "Your plan is ready — click **Create Plan** when you're set."
+
+Keep responses concise — 2-4 short paragraphs max. Prioritize the most important gaps first.
 """
 
 def create_brainstorm_agent(model: str = ""):
@@ -515,7 +579,12 @@ def create_brainstorm_agent(model: str = ""):
         A compiled LangGraph agent without tools.
     """
     chat_model = _resolve_model(model)
-    logger.info("Brainstorm agent using model: %s", type(chat_model).__name__)
+    model_name = type(chat_model).__name__
+    logger.info("Brainstorm agent using model: %s", model_name)
+    plan_logger.info("CREATE_BRAINSTORM_AGENT: model=%s", model_name)
+    plan_logger.debug("  System prompt (%d chars): %s...",
+                      len(BRAINSTORM_SYSTEM_PROMPT),
+                      BRAINSTORM_SYSTEM_PROMPT[:200].replace('\n', '\\n'))
 
     agent = create_deep_agent(
         model=chat_model,
@@ -542,9 +611,23 @@ async def brainstorm_stream(
     Returns:
         AsyncIterator of string tokens.
     """
+    plan_logger.info("=" * 80)
+    plan_logger.info("BRAINSTORM_STREAM started")
+    plan_logger.info("  user_message: %s", user_message[:300].replace('\n', '\\n'))
+    plan_logger.info("  chat_history turns: %d", len(chat_history) if chat_history else 0)
+    plan_logger.info("  model: %s", model or "(auto-detect)")
+
     agent = create_brainstorm_agent(model=model)
     messages = build_messages(user_message, plan_content="", chat_history=chat_history, images=images)
 
+    plan_logger.info("BRAINSTORM_STREAM → sending %d messages to LLM", len(messages))
+    for i, m in enumerate(messages):
+        role = type(m).__name__
+        content_preview = m.content if isinstance(m.content, str) else str(m.content)[:200]
+        plan_logger.debug("  MSG[%d] %s: %s", i, role, content_preview[:200].replace('\n', '\\n'))
+
+    token_count = 0
+    full_response = ""
     try:
         async for event in agent.astream_events(
             {"messages": messages},
@@ -556,17 +639,24 @@ async def brainstorm_stream(
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     content = chunk.content
-                    # Gemini returns content as a list of blocks:
-                    #   [{"type": "text", "text": "..."}]
-                    # Other providers return a plain string.
                     if isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict) and block.get("text"):
+                                token_count += 1
+                                full_response += block["text"]
                                 yield block["text"]
                             elif isinstance(block, str):
+                                token_count += 1
+                                full_response += block
                                 yield block
                     elif isinstance(content, str):
+                        token_count += 1
+                        full_response += content
                         yield content
+
+        plan_logger.info("BRAINSTORM_STREAM completed: %d tokens, %d chars", token_count, len(full_response))
+        plan_logger.debug("  Response preview: %s", full_response[:500].replace('\n', '\\n'))
     except Exception as e:
+        plan_logger.error("BRAINSTORM_STREAM error: %s", e)
         logger.error("Brainstorm agent streaming error: %s", e)
         yield f"\n\n[Error: {str(e)}]"

@@ -2,8 +2,8 @@
 .env
 *pid
 .build-hash
-*.war-rooms/**
-.war-rooms/**
+**/.war-rooms/
+.war-rooms/
 
 # ── Agents (runtime data, not source) ────────────────────────────────────────
 .agents/.venv/
@@ -13,9 +13,12 @@
 .agents/plans/
 .agents/plans/**
 .agents/stats_history.json
+.agents/conversations/
+.agents/RELEASE.md
 
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
+
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 
@@ -32,6 +35,7 @@ dashboard/.agents
 .data/
 .data/**
 dashboard/.war-rooms
+dashboard/.agents/
 
 # ── Generated docs ────────────────────────────────────────────────────────────
 **/TODO.md
@@ -75,3 +79,10 @@ python-patches/
 .memory/
 
 CLAUDE.md
+
+# ── Scratch / temp files ──────────────────────────────────────────────────────
+run_tsc.py
+test_ws.py
+tsc_output.txt
+tsc_output_final.txt
+docs/opencode-vertex-ai-partner-models.md
