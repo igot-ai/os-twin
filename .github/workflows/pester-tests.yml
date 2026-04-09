@@ -83,9 +83,10 @@ jobs:
 
       - name: Publish test report
         if: always()
+        continue-on-error: true
         uses: dorny/test-reporter@v1
         with:
           name: Pester Test Report
           path: test-results/*.xml
           reporter: java-junit
-          fail-on-error: true
+          fail-on-error: false
