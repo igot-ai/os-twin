@@ -22,8 +22,8 @@ for candidate in \
 done
 
 if [[ -z "$SITE_PACKAGES" ]]; then
-  echo "ERROR: Could not find deepagents_cli package directory"
-  echo "Searched: ~/.local/share/uv/tools/deepagents-cli/lib/python3.*/site-packages/deepagents_cli"
+  echo "ERROR: Could not find deepagents_cli package directory" >&2
+  echo "Searched: ~/.local/share/uv/tools/deepagents-cli/lib/python3.*/site-packages/deepagents_cli" >&2
   exit 1
 fi
 
@@ -34,11 +34,11 @@ MCP_TOOLS="$SITE_PACKAGES/mcp_tools.py"
 
 # Verify files exist
 if [[ ! -f "$SERVER_GRAPH" ]]; then
-  echo "ERROR: $SERVER_GRAPH not found"
+  echo "ERROR: $SERVER_GRAPH not found" >&2
   exit 1
 fi
 if [[ ! -f "$MCP_TOOLS" ]]; then
-  echo "ERROR: $MCP_TOOLS not found"
+  echo "ERROR: $MCP_TOOLS not found" >&2
   exit 1
 fi
 

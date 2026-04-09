@@ -151,7 +151,7 @@ class _DropStreamParseErrors(logging.Filter):
         "Internal Server Error",
     )
 
-    def filter(self, record: logging.LogRecord) -> bool:  # True = keep
+    def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
         return not any(needle in msg for needle in self._NOISE)
 

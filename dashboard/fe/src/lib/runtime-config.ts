@@ -1,7 +1,7 @@
 const browserApiBase = '/api';
 
 function isBrowser(): boolean {
-  return typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined';
+  return globalThis !== undefined && globalThis.window !== undefined;
 }
 
 export function getApiBaseUrl(): string {

@@ -64,7 +64,7 @@ export function GraphCanvas({
   visibleGroupIds,
   onHoverNode,
   onSelectNode,
-}: GraphCanvasProps) {
+}: Readonly<GraphCanvasProps>) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -400,7 +400,8 @@ export function GraphCanvas({
               const curve = Math.min(distance * 0.16, 34 + settings.linkForce * 26);
               const controlX = (source.x + target.x) / 2 + normalX * curve;
               const controlY = (source.y + target.y) / 2 + normalY * curve;
-              const opacity = searchVisible ? (inFocus ? 0.48 : 0.12) : 0.05;
+              const inFocusOpacity = inFocus ? 0.48 : 0.12;
+              const opacity = searchVisible ? inFocusOpacity : 0.05;
               const strokeWidth = 0.45 + settings.linkThickness * 2.1 + link.strength * 0.45;
 
               return (

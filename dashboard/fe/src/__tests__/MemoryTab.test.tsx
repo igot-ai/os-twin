@@ -15,7 +15,7 @@ class MockResizeObserver implements ResizeObserver {
   unobserve() { /* noop */ }
   disconnect() { /* noop */ }
 }
-global.ResizeObserver = MockResizeObserver;
+globalThis.ResizeObserver = MockResizeObserver;
 
 // ── Mock api-client ──────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ const MOCK_GRAPH = {
       tags: [],
       groupId: 'misc',
       color: '#facc15',
-      weight: 1.0,
+      weight: 1,
       connections: 0,
     },
   ],

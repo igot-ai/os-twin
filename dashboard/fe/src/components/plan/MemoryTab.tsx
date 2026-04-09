@@ -159,14 +159,14 @@ function MemoryGraph({
   searchQuery,
   onSelect,
   onHover,
-}: {
+}: Readonly<{
   data: GraphData;
   selectedId: string | null;
   hoveredId: string | null;
   searchQuery: string;
   onSelect: (id: string) => void;
   onHover: (id: string | null) => void;
-}) {
+}>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 500 });
@@ -401,7 +401,7 @@ function MemoryGraph({
             const neighborhoodOpacity = isInNeighborhood ? activeOpacity : 0.18;
             const opacity = searchVisible ? neighborhoodOpacity : 0.06;
             const baseWidth = 1.6 + (link.strength ?? 0.4) * 1.4;
-            const strokeWidth = isActive ? baseWidth + 1.0 : baseWidth;
+            const strokeWidth = isActive ? baseWidth + 1 : baseWidth;
             return (
               <path
                 key={linkKey}
@@ -480,8 +480,8 @@ function MemoryGraph({
 function formatTimestamp(ts?: string | null): string | null {
   if (!ts || !/^\d{12}$/.test(ts)) return null;
   const y = ts.slice(0, 4);
-  const monthIndex = parseInt(ts.slice(4, 6), 10) - 1;
-  const d = parseInt(ts.slice(6, 8), 10);
+  const monthIndex = Number.parseInt(ts.slice(4, 6), 10) - 1;
+  const d = Number.parseInt(ts.slice(6, 8), 10);
   const hh = ts.slice(8, 10);
   const mm = ts.slice(10, 12);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
@@ -791,9 +791,9 @@ const STORAGE_KEY = 'memoryTab.panels';
 
 function Splitter({
   onDrag,
-}: {
+}: Readonly<{
   onDrag: (deltaX: number) => void;
-}) {
+}>) {
   const startX = useRef<number>(0);
   const dragging = useRef<boolean>(false);
 
@@ -823,6 +823,8 @@ function Splitter({
 
   return (
     <div
+      role="separator"
+      tabIndex={0}
       onMouseDown={handleMouseDown}
       className="flex-shrink-0 group relative"
       style={{
@@ -861,7 +863,7 @@ export default function MemoryTab() {
 
   // Load saved widths on mount
   useEffect(() => {
-    if (typeof globalThis.window === 'undefined') return;
+    if (globalThis.window === undefined) return;
     try {
       const saved = globalThis.window.localStorage.getItem(STORAGE_KEY);
       if (!saved) return;
@@ -879,7 +881,7 @@ export default function MemoryTab() {
 
   // Persist widths whenever they change
   useEffect(() => {
-    if (typeof globalThis.window === 'undefined') return;
+    if (globalThis.window === undefined) return;
     try {
       globalThis.window.localStorage.setItem(
         STORAGE_KEY,

@@ -283,27 +283,34 @@ class AgenticMemorySystem:
         if not self.memories:
             return "(empty)"
 
-        # Build nested dict from all note filepaths
-        root = {}
+        root = self._build_filepath_tree()
+        return "\n".join(self._render_tree(root))
+
+    def _build_filepath_tree(self) -> dict:
+        """Build a nested dict from all note filepaths."""
+        root: dict = {}
         for mem in sorted(self.memories.values(), key=lambda m: m.filepath):
             parts = mem.filepath.split(os.sep)
             node = root
             for part in parts:
                 node = node.setdefault(part, {})
+        return root
 
-        def _render(node, prefix=""):
-            lines = []
-            items = list(node.items())
-            for i, (name, children) in enumerate(items):
-                last = i == len(items) - 1
-                connector = "└── " if last else "├── "
-                lines.append(f"{prefix}{connector}{name}")
-                if children:
-                    extension = "    " if last else "│   "
-                    lines.extend(_render(children, prefix + extension))
-            return lines
-
-        return "\n".join(_render(root))
+    @staticmethod
+    def _render_tree(node: dict, prefix: str = "") -> List[str]:
+        """Render a nested dict as a tree-like list of strings."""
+        lines: List[str] = []
+        items = list(node.items())
+        for i, (name, children) in enumerate(items):
+            last = i == len(items) - 1
+            connector = "└── " if last else "├── "
+            lines.append(f"{prefix}{connector}{name}")
+            if children:
+                extension = "    " if last else "│   "
+                lines.extend(
+                    AgenticMemorySystem._render_tree(children, prefix + extension)
+                )
+        return lines
 
     def _get_existing_context(self, content: str, include_tree: bool = False) -> str:
         """Collect context from similar memories and existing directory structure.
@@ -620,9 +627,17 @@ class AgenticMemorySystem:
 
         # Remove orphan files (on disk but not in memory)
         orphans = existing_files - written_files
+        self._remove_orphan_files(orphans)
+
+        # Rebuild vector index from memory
+        self.consolidate_memories()
+
+        return {"written": len(written_files), "orphans_removed": len(orphans)}
+
+    def _remove_orphan_files(self, orphans: set) -> None:
+        """Delete orphan markdown files and clean up empty parent directories."""
         for orphan_path in orphans:
             os.remove(orphan_path)
-            # Clean empty parent dirs
             parent = os.path.dirname(orphan_path)
             while parent != self._notes_dir:
                 if os.path.isdir(parent) and not os.listdir(parent):
@@ -630,11 +645,6 @@ class AgenticMemorySystem:
                     parent = os.path.dirname(parent)
                 else:
                     break
-
-        # Rebuild vector index from memory
-        self.consolidate_memories()
-
-        return {"written": len(written_files), "orphans_removed": len(orphans)}
 
     def consolidate_memories(self):
         """Consolidate memories: rebuild the vector index from current in-memory state."""
@@ -699,31 +709,44 @@ class AgenticMemorySystem:
         if not self.memories:
             return ""
 
-        # Get results from ChromaDB
         results = self.retriever.search(query, k)
+        if "ids" not in results or not results["ids"] or len(results["ids"]) == 0:
+            return ""
 
-        # Convert to list of memories
-        memory_str = ""
+        parts: list = []
+        for i, doc_id in enumerate(results["ids"][0][:k]):
+            if i >= len(results["metadatas"][0]):
+                continue
+            metadata = results["metadatas"][0][i]
+            parts.append(self._format_memory_raw(metadata))
+            self._append_linked_raw(metadata.get("links", []), k, parts)
+        return "".join(parts)
 
-        if "ids" in results and results["ids"] and len(results["ids"]) > 0:
-            for i, doc_id in enumerate(results["ids"][0][:k]):
-                if i < len(results["metadatas"][0]):
-                    # Get metadata from ChromaDB results
-                    metadata = results["metadatas"][0][i]
+    @staticmethod
+    def _format_memory_raw(metadata: dict) -> str:
+        """Format a single memory metadata dict as a raw-text line."""
+        return (
+            f"talk start time:{metadata.get('timestamp', '')}\t"
+            f"memory content: {metadata.get('content', '')}\t"
+            f"memory context: {metadata.get('context', '')}\t"
+            f"memory keywords: {str(metadata.get('keywords', []))}\t"
+            f"memory tags: {str(metadata.get('tags', []))}\n"
+        )
 
-                    # Add main memory info
-                    memory_str += f"talk start time:{metadata.get('timestamp', '')}\tmemory content: {metadata.get('content', '')}\tmemory context: {metadata.get('context', '')}\tmemory keywords: {str(metadata.get('keywords', []))}\tmemory tags: {str(metadata.get('tags', []))}\n"
-
-                    # Add linked memories if available
-                    links = metadata.get("links", [])
-                    j = 0
-                    for link_id in links:
-                        if link_id in self.memories and j < k:
-                            neighbor = self.memories[link_id]
-                            memory_str += f"talk start time:{neighbor.timestamp}\tmemory content: {neighbor.content}\tmemory context: {neighbor.context}\tmemory keywords: {str(neighbor.keywords)}\tmemory tags: {str(neighbor.tags)}\n"
-                            j += 1
-
-        return memory_str
+    def _append_linked_raw(self, links: list, k: int, parts: list) -> None:
+        """Append raw-text lines for linked neighbor memories."""
+        j = 0
+        for link_id in links:
+            if link_id in self.memories and j < k:
+                neighbor = self.memories[link_id]
+                parts.append(
+                    f"talk start time:{neighbor.timestamp}\t"
+                    f"memory content: {neighbor.content}\t"
+                    f"memory context: {neighbor.context}\t"
+                    f"memory keywords: {str(neighbor.keywords)}\t"
+                    f"memory tags: {str(neighbor.tags)}\n"
+                )
+                j += 1
 
     def read(self, memory_id: str) -> Optional[MemoryNote]:
         """Retrieve a memory note by its ID.
@@ -974,92 +997,103 @@ class AgenticMemorySystem:
             return []
 
         try:
-            # Get results from ChromaDB
             results = self.retriever.search(query, k)
-
-            # Process results
-            memories = []
-            seen_ids = set()
-
-            # Check if we have valid results
-            if (
-                "ids" not in results
-                or not results["ids"]
-                or len(results["ids"]) == 0
-                or len(results["ids"][0]) == 0
-            ):
+            if not self._has_valid_ids(results):
                 return []
 
-            # Process ChromaDB results
-            for i, doc_id in enumerate(results["ids"][0][:k]):
-                if doc_id in seen_ids:
-                    continue
-
-                if i < len(results["metadatas"][0]):
-                    metadata = results["metadatas"][0][i]
-
-                    # Create result dictionary with all metadata fields
-                    memory_dict = {
-                        "id": doc_id,
-                        "content": metadata.get("content", ""),
-                        "context": metadata.get("context", ""),
-                        "keywords": metadata.get("keywords", []),
-                        "tags": metadata.get("tags", []),
-                        "timestamp": metadata.get("timestamp", ""),
-                        "category": metadata.get("category", "Uncategorized"),
-                        "is_neighbor": False,
-                    }
-
-                    # Add score if available
-                    if (
-                        "distances" in results
-                        and len(results["distances"]) > 0
-                        and i < len(results["distances"][0])
-                    ):
-                        memory_dict["score"] = results["distances"][0][i]
-
-                    memories.append(memory_dict)
-                    seen_ids.add(doc_id)
-
-            # Add linked memories (neighbors)
-            neighbor_count = 0
-            for memory in list(
-                memories
-            ):  # Use a copy to avoid modification during iteration
-                if neighbor_count >= k:
-                    break
-
-                # Get links from metadata
-                links = memory.get("links", [])
-                if not links and "id" in memory:
-                    # Try to get links from memory object
-                    mem_obj = self.memories.get(memory["id"])
-                    if mem_obj:
-                        links = mem_obj.links
-
-                for link_id in links:
-                    if link_id not in seen_ids and neighbor_count < k:
-                        neighbor = self.memories.get(link_id)
-                        if neighbor:
-                            memories.append(
-                                {
-                                    "id": link_id,
-                                    "content": neighbor.content,
-                                    "context": neighbor.context,
-                                    "keywords": neighbor.keywords,
-                                    "tags": neighbor.tags,
-                                    "timestamp": neighbor.timestamp,
-                                    "category": neighbor.category,
-                                    "is_neighbor": True,
-                                }
-                            )
-                            seen_ids.add(link_id)
-                            neighbor_count += 1
-
+            memories: List[Dict[str, Any]] = []
+            seen_ids: set = set()
+            self._collect_search_results(results, k, memories, seen_ids)
+            self._collect_neighbor_results(memories, seen_ids, k)
             return memories[:k]
         except Exception as e:
             logger.error(f"Error in search_agentic: {e}")
             return []
+
+    @staticmethod
+    def _has_valid_ids(results: dict) -> bool:
+        """Check whether retriever results contain at least one ID."""
+        return (
+            "ids" in results
+            and results["ids"]
+            and len(results["ids"]) > 0
+            and len(results["ids"][0]) > 0
+        )
+
+    @staticmethod
+    def _build_memory_dict(
+        doc_id: str, metadata: dict, results: dict, index: int
+    ) -> Dict[str, Any]:
+        """Build a single result dict from retriever metadata."""
+        memory_dict: Dict[str, Any] = {
+            "id": doc_id,
+            "content": metadata.get("content", ""),
+            "context": metadata.get("context", ""),
+            "keywords": metadata.get("keywords", []),
+            "tags": metadata.get("tags", []),
+            "timestamp": metadata.get("timestamp", ""),
+            "category": metadata.get("category", "Uncategorized"),
+            "is_neighbor": False,
+        }
+        if (
+            "distances" in results
+            and len(results["distances"]) > 0
+            and index < len(results["distances"][0])
+        ):
+            memory_dict["score"] = results["distances"][0][index]
+        return memory_dict
+
+    def _collect_search_results(
+        self, results: dict, k: int, memories: list, seen_ids: set
+    ) -> None:
+        """Extract primary search hits from retriever results."""
+        for i, doc_id in enumerate(results["ids"][0][:k]):
+            if doc_id in seen_ids:
+                continue
+            if i < len(results["metadatas"][0]):
+                memories.append(
+                    self._build_memory_dict(
+                        doc_id, results["metadatas"][0][i], results, i
+                    )
+                )
+                seen_ids.add(doc_id)
+
+    def _collect_neighbor_results(self, memories: list, seen_ids: set, k: int) -> None:
+        """Append linked (neighbor) memories to the result list."""
+        neighbor_count = 0
+        for memory in list(memories):
+            if neighbor_count >= k:
+                break
+            links = self._resolve_links(memory)
+            for link_id in links:
+                if link_id in seen_ids or neighbor_count >= k:
+                    continue
+                neighbor = self.memories.get(link_id)
+                if not neighbor:
+                    continue
+                memories.append(
+                    {
+                        "id": link_id,
+                        "content": neighbor.content,
+                        "context": neighbor.context,
+                        "keywords": neighbor.keywords,
+                        "tags": neighbor.tags,
+                        "timestamp": neighbor.timestamp,
+                        "category": neighbor.category,
+                        "is_neighbor": True,
+                    }
+                )
+                seen_ids.add(link_id)
+                neighbor_count += 1
+
+    def _resolve_links(self, memory: dict) -> list:
+        """Get link IDs from a result dict, falling back to the in-memory object."""
+        links = memory.get("links", [])
+        if not links and "id" in memory:
+            mem_obj = self.memories.get(memory["id"])
+            if mem_obj:
+                links = mem_obj.links
+        return links
 
     _EVOLUTION_RESPONSE_FORMAT = {
         "type": "json_schema",

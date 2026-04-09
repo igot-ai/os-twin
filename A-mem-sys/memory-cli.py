@@ -6,11 +6,13 @@ Usage:
     memory-cli.py search "query" [--k 5]
     memory-cli.py tree
 """
+
 import argparse
 import json
 import os
 import sys
 import time
+
 
 def _get_persist_dir():
     d = os.getenv("MEMORY_PERSIST_DIR", "")
@@ -21,6 +23,7 @@ def _get_persist_dir():
         return os.path.join(root, ".memory")
     return os.path.join(os.getcwd(), ".memory")
 
+
 def _get_memory():
     persist_dir = _get_persist_dir()
     # Add the A-mem-sys directory to path
@@ -28,6 +31,7 @@ def _get_memory():
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
     from agentic_memory.memory_system import AgenticMemorySystem
+
     return AgenticMemorySystem(
         model_name=os.getenv("MEMORY_EMBEDDING_MODEL", "gemini-embedding-001"),
         embedding_backend=os.getenv("MEMORY_EMBEDDING_BACKEND", "gemini"),
@@ -36,6 +40,7 @@ def _get_memory():
         llm_model=os.getenv("MEMORY_LLM_MODEL", "gemini-3-flash-preview"),
         persist_dir=persist_dir,
     )
+
 
 def cmd_save(args):
     mem = _get_memory()
@@ -48,30 +53,42 @@ def cmd_save(args):
         kwargs["tags"] = [t.strip() for t in args.tags.split(",")]
     mid = mem.add_note(args.content, **kwargs)
     note = mem.read(mid)
-    print(json.dumps({
-        "id": note.id,
-        "name": note.name,
-        "path": note.path,
-        "tags": note.tags,
-        "keywords": note.keywords,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "id": note.id,
+                "name": note.name,
+                "path": note.path,
+                "tags": note.tags,
+                "keywords": note.keywords,
+            },
+            indent=2,
+        )
+    )
+
 
 def cmd_search(args):
     mem = _get_memory()
     results = mem.search(args.query, k=args.k)
     for r in results:
         note = mem.read(r["id"])
-        print(json.dumps({
-            "id": r["id"],
-            "name": note.name if note else None,
-            "path": note.path if note else None,
-            "content": r["content"][:500],
-            "tags": r.get("tags", []),
-        }))
+        print(
+            json.dumps(
+                {
+                    "id": r["id"],
+                    "name": note.name if note else None,
+                    "path": note.path if note else None,
+                    "content": r["content"][:500],
+                    "tags": r.get("tags", []),
+                }
+            )
+        )
 
-def cmd_tree(args):
+
+def cmd_tree(_args):
     mem = _get_memory()
     print(mem.tree())
+
 
 def main():
     parser = argparse.ArgumentParser(description="Agentic Memory CLI")
@@ -95,6 +112,7 @@ def main():
         sys.exit(1)
 
     {"save": cmd_save, "search": cmd_search, "tree": cmd_tree}[args.cmd](args)
+
 
 if __name__ == "__main__":
     main()

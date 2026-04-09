@@ -222,7 +222,7 @@ async def poll_war_rooms():
             last_snapshot = current
             await asyncio.sleep(1)
         except asyncio.CancelledError:
-            break
+            raise
         except Exception as e:  # noqa: BLE001 - intentional catch-all for polling resilience
             logger.error("poll_war_rooms error: %s", e, exc_info=True)
             await asyncio.sleep(2)

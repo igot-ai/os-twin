@@ -135,7 +135,7 @@ class OllamaController(BaseLLMController):
                 kwargs["response_format"] = response_format
             response = completion(**kwargs)
             return response.choices[0].message.content
-        except Exception as e:
+        except Exception:
             empty_response = self._generate_empty_response(response_format or {})
             return json.dumps(empty_response)
 

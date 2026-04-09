@@ -1,5 +1,6 @@
 """Full architecture test: diverse memories across many domains,
 short + long notes, links, search, update, delete, persistence."""
+
 import os
 import shutil
 from agentic_memory.memory_system import AgenticMemorySystem
@@ -9,11 +10,11 @@ if os.path.exists(PERSIST_DIR):
     shutil.rmtree(PERSIST_DIR)
 
 ms = AgenticMemorySystem(
-    model_name='gemini-embedding-001',
-    embedding_backend='gemini',
-    vector_backend='zvec',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
+    model_name="gemini-embedding-001",
+    embedding_backend="gemini",
+    vector_backend="zvec",
+    llm_backend="gemini",
+    llm_model="gemini-3-flash-preview",
     persist_dir=PERSIST_DIR,
     context_aware_analysis=True,
     max_links=2,
@@ -29,31 +30,25 @@ short_notes = [
     "Kubernetes uses etcd as its distributed key-value store for cluster state.",
     "Terraform manages infrastructure as code using HCL declarative configuration files.",
     "GitHub Actions workflows are triggered by events like push, pull_request, or schedule.",
-
     # Backend / Database
     "Redis supports data structures like strings, hashes, lists, sets, and sorted sets.",
     "SQLite is a serverless embedded database that stores the entire DB in a single file.",
     "GraphQL lets clients request exactly the data they need, avoiding over-fetching.",
-
     # Frontend
     "React uses a virtual DOM to efficiently update only the changed parts of the UI.",
     "CSS Grid and Flexbox serve different layout purposes: Grid for 2D, Flexbox for 1D.",
     "Web Vitals metrics (LCP, FID, CLS) measure real-world user experience performance.",
-
     # Security
     "bcrypt hashes passwords with a configurable work factor to resist brute-force attacks.",
     "CORS (Cross-Origin Resource Sharing) controls which domains can access your API.",
-
     # Networking
     "DNS resolves domain names to IP addresses using a hierarchical caching system.",
     "TCP guarantees ordered delivery via sequence numbers and acknowledgments.",
     "WebSocket provides full-duplex communication over a single persistent TCP connection.",
-
     # Data Science / ML
     "Pandas DataFrame is the primary data structure for tabular data manipulation in Python.",
     "Gradient descent minimizes loss by iteratively adjusting model parameters.",
     "Feature engineering transforms raw data into meaningful inputs for ML models.",
-
     # Personal / Productivity
     "Pomodoro technique uses 25-minute focused work intervals with 5-minute breaks.",
     "Zettelkasten method links atomic notes to build a personal knowledge graph.",
@@ -75,7 +70,6 @@ and extensions like PostGIS for geospatial data, pg_trgm for fuzzy text matching
 and TimescaleDB for time-series workloads. Its advanced indexing strategies include
 B-tree, Hash, GIN (Generalized Inverted Index), GiST (Generalized Search Tree),
 SP-GiST, and BRIN (Block Range Index) for different query patterns.""",
-
     # OAuth 2.0 deep dive
     """OAuth 2.0 is an authorization framework that enables third-party applications to obtain
 limited access to user accounts on an HTTP service. The framework defines four grant types:
@@ -92,7 +86,6 @@ information. Security best practices include always using HTTPS, validating redi
 strictly, implementing token rotation for refresh tokens, using short-lived access tokens,
 storing tokens securely (HttpOnly cookies for web apps, secure storage for mobile),
 and implementing proper CORS policies.""",
-
     # Transformer architecture
     """The Transformer architecture, introduced in the paper "Attention Is All You Need" by
 Vaswani et al. in 2017, revolutionized natural language processing by replacing recurrent
@@ -109,7 +102,6 @@ generation), T5 (encoder-decoder, text-to-text framework), and Vision Transforme
 which adapts the architecture for image classification by treating image patches as tokens.
 Recent developments include sparse attention patterns for longer sequences, mixture of experts
 for scaling model capacity, and rotary position embeddings (RoPE) for efficiency.""",
-
     # Microservices architecture
     """Microservices architecture decomposes a monolithic application into small, independently
 deployable services that communicate via APIs. Each service owns its data store (database per
@@ -125,7 +117,6 @@ stack), and metrics (Prometheus + Grafana) provide visibility into system behavi
 driven communication via message brokers (Kafka, RabbitMQ) enables loose coupling and
 eventual consistency. Key challenges include network latency, data consistency, debugging
 distributed systems, and operational complexity of managing many deployments.""",
-
     # RAG systems
     """Retrieval-Augmented Generation (RAG) combines vector search with LLM generation to
 produce grounded, factual responses. The pipeline consists of three stages: indexing (chunk
@@ -160,7 +151,7 @@ for note in short_notes:
     print(f"  {m.path:<35} {m.name}")
 
 print(f"\n{'=' * 70}")
-print(f"PHASE 2: ADDING LONG NOTES (5 notes)")
+print("PHASE 2: ADDING LONG NOTES (5 notes)")
 print("=" * 70)
 
 long_ids = []
@@ -240,9 +231,9 @@ for q in queries:
     results = ms.search(q, k=3)
     print(f'\n  "{q}"')
     for i, r in enumerate(results):
-        m = ms.read(r['id'])
+        m = ms.read(r["id"])
         kind = "summary" if m.summary else "direct"
-        print(f"    [{i+1}] {m.name} ({m.path}, {kind})")
+        print(f"    [{i + 1}] {m.name} ({m.path}, {kind})")
 
 # =====================================================================
 # PHASE 6: Update and Delete
@@ -255,18 +246,27 @@ print("=" * 70)
 target_id = short_ids[5]  # SQLite note
 old = ms.read(target_id)
 print(f"  UPDATE: '{old.name}' ({old.path})")
-ms.update(target_id, content="DynamoDB is a fully managed NoSQL database by AWS with single-digit millisecond latency at any scale, using partition keys for data distribution.")
+ms.update(
+    target_id,
+    content="DynamoDB is a fully managed NoSQL database by AWS with single-digit millisecond latency at any scale, using partition keys for data distribution.",
+)
 new = ms.read(target_id)
 print(f"    -> '{new.name}' ({new.path})")
-print(f"    Old file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', old.filepath))}")
-print(f"    New file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', new.filepath))}")
+print(
+    f"    Old file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', old.filepath))}"
+)
+print(
+    f"    New file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', new.filepath))}"
+)
 
 # Delete a note
 del_id = short_ids[10]  # bcrypt note
 del_note = ms.read(del_id)
 print(f"\n  DELETE: '{del_note.name}' ({del_note.path})")
 ms.delete(del_id)
-print(f"    File exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', del_note.filepath))}")
+print(
+    f"    File exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', del_note.filepath))}"
+)
 print(f"    Memory exists: {ms.read(del_id) is not None}")
 # Verify no dangling references
 for mid in all_ids:
@@ -274,7 +274,7 @@ for mid in all_ids:
     if m:
         assert del_id not in m.links, f"Dangling link in {m.name}"
         assert del_id not in m.backlinks, f"Dangling backlink in {m.name}"
-print(f"    No dangling links: OK")
+print("    No dangling links: OK")
 
 # =====================================================================
 # PHASE 7: Persistence
@@ -287,11 +287,11 @@ print("PHASE 7: PERSISTENCE")
 print("=" * 70)
 
 ms2 = AgenticMemorySystem(
-    model_name='gemini-embedding-001',
-    embedding_backend='gemini',
-    vector_backend='zvec',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
+    model_name="gemini-embedding-001",
+    embedding_backend="gemini",
+    vector_backend="zvec",
+    llm_backend="gemini",
+    llm_model="gemini-3-flash-preview",
     persist_dir=PERSIST_DIR,
     context_aware_analysis=True,
 )
@@ -311,8 +311,8 @@ spot_checks = [
 print("\n  Spot checks after reload:")
 for query, domain in spot_checks:
     results = ms2.search(query, k=1)
-    name = ms2.read(results[0]['id']).name if results else "NO RESULT"
-    print(f"    [{domain}] \"{query}\" -> {name}")
+    name = ms2.read(results[0]["id"]).name if results else "NO RESULT"
+    print(f'    [{domain}] "{query}" -> {name}')
 
 # =====================================================================
 # PHASE 8: Final tree
@@ -328,7 +328,7 @@ print(ms2.tree())
 print(f"\n{'=' * 70}")
 print("PHASE 9: STATS")
 print("=" * 70)
-paths = sorted(set(m.path for m in ms2.memories.values() if m.path))
+paths = sorted({m.path for m in ms2.memories.values() if m.path})
 total_links = sum(len(m.links) for m in ms2.memories.values())
 total_backlinks = sum(len(m.backlinks) for m in ms2.memories.values())
 notes_with_summary = sum(1 for m in ms2.memories.values() if m.summary)

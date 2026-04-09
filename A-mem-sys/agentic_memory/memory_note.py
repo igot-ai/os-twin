@@ -42,7 +42,6 @@ class MemoryNote:
         timestamp: Optional[str] = None,
         last_accessed: Optional[str] = None,
         context: Optional[str] = None,
-        category: Optional[str] = None,
         tags: Optional[List[str]] = None,
         summary: Optional[str] = None,
         **kwargs,
@@ -61,10 +60,10 @@ class MemoryNote:
             timestamp: Creation time in format YYYYMMDDHHMM
             last_accessed: Last access time in format YYYYMMDDHHMM
             context: The broader context or domain of the memory
-            category: Classification category
             tags: Additional classification tags
             summary: Short summary for embedding when content exceeds token limit
             **kwargs: Additional fields. Supported keys:
+                category: Classification category (default: "Uncategorized")
                 backlinks: Passive references from other memories (auto-maintained)
                 evolution_history: Record of how the memory has evolved
         """
@@ -79,7 +78,7 @@ class MemoryNote:
         self.links = links or []
         self.backlinks: List[str] = kwargs.get("backlinks") or []
         self.context = context or "General"
-        self.category = category or "Uncategorized"
+        self.category = kwargs.get("category") or "Uncategorized"
         self.tags = tags or []
 
         # Temporal information

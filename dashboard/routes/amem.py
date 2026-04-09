@@ -106,6 +106,30 @@ def _extract_excerpt(body: str) -> str:
     return " ".join(excerpt_lines)[:280]
 
 
+def _resolve_relative_paths(md_file: Path, notes_dir: Path) -> tuple[str, str]:
+    """Compute relative path and relative file from a note's md_file."""
+    try:
+        rel_path = str(md_file.parent.relative_to(notes_dir))
+        rel_file = str(md_file.relative_to(notes_dir))
+    except ValueError:
+        rel_path = md_file.parent.name
+        rel_file = md_file.name
+    return rel_path, rel_file
+
+
+def _resolve_title(note_name: Optional[str], body: str, md_file: Path) -> str:
+    """Derive a title from frontmatter name, first H1, or filename slug."""
+    title = (note_name or "").strip()
+    if not title:
+        h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+        title = (
+            h1.group(1).strip()
+            if h1
+            else md_file.stem.replace("-", " ").replace("_", " ").title()
+        )
+    return title
+
+
 def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
     """Read a single markdown file and convert it to the dashboard's wire shape.
 
@@ -118,12 +142,7 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
     except OSError:
         return None
 
-    try:
-        rel_path = str(md_file.parent.relative_to(notes_dir))
-        rel_file = str(md_file.relative_to(notes_dir))
-    except ValueError:
-        rel_path = md_file.parent.name
-        rel_file = md_file.name
+    rel_path, rel_file = _resolve_relative_paths(md_file, notes_dir)
 
     if MemoryNote is None:
         return _stub_note_dict(md_file, rel_path, rel_file, raw, raw)
@@ -134,22 +153,10 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
         return _stub_note_dict(md_file, rel_path, rel_file, raw.strip(), raw)
 
     body = (note.content or "").strip()
-
-    # Title: frontmatter `name` -> first H1 -> filename slug
-    title = (note.name or "").strip()
-    if not title:
-        h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
-        title = (
-            h1.group(1).strip()
-            if h1
-            else md_file.stem.replace("-", " ").replace("_", " ").title()
-        )
-
-    category = note.category
-    if category and category != "Uncategorized":
-        category_val = category
-    else:
-        category_val = None
+    title = _resolve_title(note.name, body, md_file)
+    category_val = (
+        note.category if note.category and note.category != "Uncategorized" else None
+    )
 
     return {
         "id": note.id,
@@ -272,7 +279,7 @@ def _build_graph(notes: list) -> dict:
     }
 
 
-@router.get("/api/amem/{plan_id}/graph")
+@router.get("/api/amem/{plan_id}/graph", responses={404: {"description": "Not found"}})
 async def get_memory_graph(
     plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
 ):
@@ -296,7 +303,9 @@ async def list_memory_notes(
     return notes
 
 
-@router.get("/api/amem/{plan_id}/notes/{note_id}")
+@router.get(
+    "/api/amem/{plan_id}/notes/{note_id}", responses={404: {"description": "Not found"}}
+)
 async def get_memory_note(
     plan_id: str, note_id: str, user: Annotated[dict, Depends(get_current_user)] = None
 ) -> dict:

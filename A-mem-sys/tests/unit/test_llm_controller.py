@@ -12,8 +12,10 @@ from agentic_memory.llm_controller import (
 
 
 class DummyLLMController(BaseLLMController):
-    def get_completion(self, prompt: str) -> str:
-        del prompt
+    def get_completion(
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
+    ) -> str:
+        del prompt, response_format, temperature
         return "{}"
 
 
@@ -69,7 +71,9 @@ class TestSGLangController(unittest.TestCase):
             }
         }
 
-        result = self.controller.get_completion("test prompt", response_format, temperature=0.4)
+        result = self.controller.get_completion(
+            "test prompt", response_format, temperature=0.4
+        )
 
         self.assertEqual(result, '{"keywords": ["memory"]}')
         payload = mock_post.call_args.kwargs["json"]
@@ -90,7 +94,11 @@ class TestSGLangController(unittest.TestCase):
 
         result = self.controller.get_completion(
             "test prompt",
-            {"json_schema": {"schema": {"properties": {"context": {"type": "string"}}}}},
+            {
+                "json_schema": {
+                    "schema": {"properties": {"context": {"type": "string"}}}
+                }
+            },
         )
 
         self.assertEqual(json.loads(result), {"context": ""})
@@ -99,7 +107,9 @@ class TestSGLangController(unittest.TestCase):
 class TestLLMControllerDispatch(unittest.TestCase):
     def test_openai_backend_selection_is_patchable(self):
         with patch.object(OpenAIController, "__init__", return_value=None):
-            controller = LLMController(backend="openai", model="gpt-4o-mini", api_key="test-key")
+            controller = LLMController(
+                backend="openai", model="gpt-4o-mini", api_key="test-key"
+            )
 
         self.assertIsInstance(controller.llm, OpenAIController)
 

@@ -119,16 +119,14 @@ if [[ -f "$PID_FILE" ]]; then
 fi
 
 # Check if port is already in use by another project
-if command -v ss &>/dev/null; then
-  if ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
-    echo "Port $PORT in use. Trying next available..."
-    for _i in $(seq 1 10); do
-      PORT=$((PORT + 1))
-      if ! ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
-        break
-      fi
-    done
-  fi
+if command -v ss &>/dev/null && ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
+  echo "Port $PORT in use. Trying next available..."
+  for _i in $(seq 1 10); do
+    PORT=$((PORT + 1))
+    if ! ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
+      break
+    fi
+  done
 fi
 
 mkdir -p "$PERSIST_DIR"
@@ -178,7 +176,7 @@ if kill -0 "$DAEMON_PID" 2>/dev/null; then
   echo "  Stop:   $0 --stop $PROJECT_DIR"
   echo "  Status: $0 --status $PROJECT_DIR"
 else
-  echo "ERROR: Daemon failed to start. Check $PERSIST_DIR/daemon.log"
+  echo "ERROR: Daemon failed to start. Check $PERSIST_DIR/daemon.log" >&2
   cat "$PERSIST_DIR/daemon.log" 2>/dev/null | tail -10
   rm -f "$PID_FILE" "$PERSIST_DIR/.daemon.port"
   exit 1
