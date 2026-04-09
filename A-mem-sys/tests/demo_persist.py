@@ -1,4 +1,5 @@
 """Test persistence: save notes, reload from disk, verify search works."""
+
 import os
 import shutil
 from agentic_memory.memory_system import AgenticMemorySystem
@@ -15,10 +16,10 @@ print("PHASE 1: Creating memories with persistence")
 print("=" * 60)
 
 ms = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
-    persist_dir=PERSIST_DIR
+    model_name="all-MiniLM-L6-v2",
+    llm_backend="gemini",
+    llm_model="gemini-3-flash-preview",
+    persist_dir=PERSIST_DIR,
 )
 
 notes = [
@@ -58,10 +59,10 @@ print("PHASE 2: Reloading from disk (new instance)")
 print("=" * 60)
 
 ms2 = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
-    persist_dir=PERSIST_DIR
+    model_name="all-MiniLM-L6-v2",
+    llm_backend="gemini",
+    llm_model="gemini-3-flash-preview",
+    persist_dir=PERSIST_DIR,
 )
 
 print(f"Loaded memories: {len(ms2.memories)}")
@@ -78,10 +79,10 @@ for mid in ids:
 print(f"\n--- Search tests ---")
 queries = ["container orchestration", "database storage", "version control"]
 for q in queries:
-    print(f"\nQuery: \"{q}\"")
+    print(f'\nQuery: "{q}"')
     results = ms2.search(q, k=2)
     for i, r in enumerate(results):
-        print(f"  [{i+1}] {r['content'][:70]}...")
+        print(f"  [{i + 1}] {r['content'][:70]}...")
 
 # === Phase 4: Add more, delete one, verify ===
 print(f"\n--- Add + Delete test ---")
@@ -92,20 +93,24 @@ ms2.delete(ids[0])
 print(f"Deleted note: {ids[0][:8]}...")
 
 print(f"Total memories after add+delete: {len(ms2.memories)}")
-print(f"Deleted note file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', f'{ids[0]}.md'))}")
-print(f"New note file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', f'{new_id}.md'))}")
+print(
+    f"Deleted note file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', f'{ids[0]}.md'))}"
+)
+print(
+    f"New note file exists: {os.path.exists(os.path.join(PERSIST_DIR, 'notes', f'{new_id}.md'))}"
+)
 
 # === Phase 5: Final reload to verify add+delete persisted ===
 del ms2
 
 ms3 = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
-    persist_dir=PERSIST_DIR
+    model_name="all-MiniLM-L6-v2",
+    llm_backend="gemini",
+    llm_model="gemini-3-flash-preview",
+    persist_dir=PERSIST_DIR,
 )
 
-print(f"\n--- Final reload ---")
+print("\n--- Final reload ---")
 print(f"Total memories: {len(ms3.memories)}")
 print(f"Deleted note still exists: {ms3.read(ids[0]) is not None}")
 print(f"New note exists: {ms3.read(new_id) is not None}")

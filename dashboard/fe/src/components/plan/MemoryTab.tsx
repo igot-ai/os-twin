@@ -389,15 +389,17 @@ function MemoryGraph({
             const isActive = activeId && (link.source === activeId || link.target === activeId);
             const isInNeighborhood = !activeId || (neighborIds.has(link.source) && neighborIds.has(link.target));
             const searchVisible = !query || (searchMatches.has(link.source) && searchMatches.has(link.target));
-            const dx = tgt.x! - src.x!;
-            const dy = tgt.y! - src.y!;
+            const dx = tgt.x - src.x;
+            const dy = tgt.y - src.y;
             const dist = Math.max(Math.hypot(dx, dy), 1);
             const normalX = -dy / dist;
             const normalY = dx / dist;
             const curve = Math.min(dist * 0.12, 40);
-            const controlX = (src.x! + tgt.x!) / 2 + normalX * curve;
-            const controlY = (src.y! + tgt.y!) / 2 + normalY * curve;
-            const opacity = searchVisible ? (isInNeighborhood ? (isActive ? 0.9 : 0.5) : 0.18) : 0.06;
+            const controlX = (src.x + tgt.x) / 2 + normalX * curve;
+            const controlY = (src.y + tgt.y) / 2 + normalY * curve;
+            const activeOpacity = isActive ? 0.9 : 0.5;
+            const neighborhoodOpacity = isInNeighborhood ? activeOpacity : 0.18;
+            const opacity = searchVisible ? neighborhoodOpacity : 0.06;
             const baseWidth = 1.6 + (link.strength ?? 0.4) * 1.4;
             const strokeWidth = isActive ? baseWidth + 1.0 : baseWidth;
             return (
@@ -454,7 +456,7 @@ function MemoryGraph({
                   strokeWidth={isSelected ? 2 : 0}
                 />
                 <text
-                  x={node.x} y={node.y! + r + 14}
+                  x={node.x} y={node.y + r + 14}
                   textAnchor="middle"
                   fontSize={11}
                   fill="var(--color-text-main)"

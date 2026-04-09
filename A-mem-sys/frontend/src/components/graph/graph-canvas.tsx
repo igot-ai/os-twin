@@ -426,7 +426,8 @@ export function GraphCanvas({
               const searchVisible = !query || searchMatches.has(node.id);
               const inFocus = neighborhood.size === 0 || neighborhood.has(node.id);
               const baseRadius = 2.6 + node.weight * 2 + settings.nodeSize * 5.2;
-              const opacity = searchVisible ? (inFocus ? 1 : 0.3) : 0.14;
+              const focusOpacity = inFocus ? 1 : 0.3;
+              const opacity = searchVisible ? focusOpacity : 0.14;
               const labelStrength =
                 node.weight * 0.22 +
                 (isActive ? 0.46 : 0) +

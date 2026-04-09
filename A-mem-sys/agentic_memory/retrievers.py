@@ -42,6 +42,56 @@ def _create_embedding_function(embedding_backend: str, model_name: str):
         return SentenceTransformerEmbeddingFunction(model_name=model_name)
 
 
+def _parse_json_field(metadata: Dict, field: str) -> list:
+    """Parse a metadata field that may be a list or JSON string, returning a list."""
+    value = metadata.get(field)
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    return json.loads(value)
+
+
+def _build_enhanced_document(document: str, metadata: Dict) -> str:
+    """Build an enhanced document string by appending context, keywords, and tags."""
+    summary = metadata.get("summary")
+    enhanced = summary if summary else document
+
+    if "context" in metadata and metadata["context"] != "General":
+        enhanced += f" context: {metadata['context']}"
+
+    keywords = _parse_json_field(metadata, "keywords")
+    if keywords:
+        enhanced += f" keywords: {', '.join(keywords)}"
+
+    tags = _parse_json_field(metadata, "tags")
+    if tags:
+        enhanced += f" tags: {', '.join(tags)}"
+
+    return enhanced
+
+
+def _serialize_metadata(metadata: Dict) -> Dict[str, str]:
+    """Convert metadata values to ChromaDB-compatible string format."""
+    processed = {}
+    for key, value in metadata.items():
+        if isinstance(value, (list, dict)):
+            processed[key] = json.dumps(value)
+        else:
+            processed[key] = str(value)
+    return processed
+
+
+def _deserialize_json_value(value: str) -> Any:
+    """Try to parse a string as JSON list/dict, or as a number."""
+    try:
+        if value.startswith("[") or value.startswith("{"):
+            return json.loads(value)
+    except ValueError:
+        pass
+    return value
+
+
 class ChromaRetriever:
     """Vector database retrieval using ChromaDB"""
 
@@ -81,49 +131,10 @@ class ChromaRetriever:
             metadata: Dictionary of metadata including keywords, tags, context
             doc_id: Unique identifier for the document
         """
-        # Use summary for embedding when available (long content),
-        # otherwise use original content
-        summary = metadata.get("summary")
-        enhanced_document = summary if summary else document
-
-        # Add context information
-        if "context" in metadata and metadata["context"] != "General":
-            enhanced_document += f" context: {metadata['context']}"
-
-        # Add keywords information
-        if "keywords" in metadata and metadata["keywords"]:
-            keywords = (
-                metadata["keywords"]
-                if isinstance(metadata["keywords"], list)
-                else json.loads(metadata["keywords"])
-            )
-            if keywords:
-                enhanced_document += f" keywords: {', '.join(keywords)}"
-
-        # Add tags information
-        if "tags" in metadata and metadata["tags"]:
-            tags = (
-                metadata["tags"]
-                if isinstance(metadata["tags"], list)
-                else json.loads(metadata["tags"])
-            )
-            if tags:
-                enhanced_document += f" tags: {', '.join(tags)}"
-
-        # Convert MemoryNote object to serializable format
-        processed_metadata = {}
-        for key, value in metadata.items():
-            if isinstance(value, list):
-                processed_metadata[key] = json.dumps(value)
-            elif isinstance(value, dict):
-                processed_metadata[key] = json.dumps(value)
-            else:
-                processed_metadata[key] = str(value)
-
-        # Store enhanced document content for better embedding
+        enhanced_document = _build_enhanced_document(document, metadata)
+        processed_metadata = _serialize_metadata(metadata)
         processed_metadata["enhanced_content"] = enhanced_document
 
-        # Use enhanced document content for embedding generation
         self.collection.add(
             documents=[enhanced_document], metadatas=[processed_metadata], ids=[doc_id]
         )
@@ -152,13 +163,11 @@ class ChromaRetriever:
         """
         if not isinstance(value, str):
             return value
-        try:
-            if value.startswith("[") or value.startswith("{"):
-                return json.loads(value)
-            if value.replace(".", "", 1).isdigit():
-                return float(value) if "." in value else int(value)
-        except ValueError:
-            pass
+        parsed = _deserialize_json_value(value)
+        if parsed is not value:
+            return parsed
+        if value.replace(".", "", 1).isdigit():
+            return float(value) if "." in value else int(value)
         return value
 
     @staticmethod
@@ -230,112 +239,69 @@ class ZvecRetriever:
         self._collection_path = collection_path
 
         if os.path.exists(collection_path):
-            # Retry on lock contention — multiple MCP server processes may
-            # try to open the same collection simultaneously when several
-            # agents call save_memory concurrently.
-            import time
-
-            last_err = None
-            for attempt in range(30):  # ~30s total wait
-                try:
-                    self.collection = _zvec.open(path=collection_path)
-                    break
-                except RuntimeError as e:
-                    last_err = e
-                    if "lock" in str(e).lower():
-                        time.sleep(1.0)
-                        continue
-                    raise
-            else:
-                raise (
-                    last_err
-                    if last_err
-                    else RuntimeError("Failed to open zvec collection")
-                )
+            self.collection = self._open_with_retry(_zvec, collection_path)
         else:
             os.makedirs(os.path.dirname(collection_path), exist_ok=True)
-            schema = _zvec.CollectionSchema(
-                name=collection_name,
-                fields=[
-                    _zvec.FieldSchema(
-                        name="metadata_json", data_type=_zvec.DataType.STRING
-                    ),
-                ],
-                vectors=[
-                    _zvec.VectorSchema(
-                        name="embedding",
-                        data_type=_zvec.DataType.VECTOR_FP32,
-                        dimension=self._dimension,
-                        index_param=_zvec.HnswIndexParam(
-                            metric_type=_zvec.MetricType.COSINE
-                        ),
-                    ),
-                ],
+            self.collection = _zvec.create_and_open(
+                path=collection_path,
+                schema=self._build_schema(_zvec, collection_name),
             )
-            self.collection = _zvec.create_and_open(path=collection_path, schema=schema)
+
+    @staticmethod
+    def _open_with_retry(_zvec, collection_path: str):
+        """Open a Zvec collection with retry on lock contention.
+
+        Multiple MCP server processes may try to open the same collection
+        simultaneously when several agents call save_memory concurrently.
+        """
+        import time
+
+        last_err = None
+        for attempt in range(30):  # ~30s total wait
+            try:
+                return _zvec.open(path=collection_path)
+            except RuntimeError as e:
+                last_err = e
+                if "lock" not in str(e).lower():
+                    raise
+                time.sleep(1.0)
+        raise last_err if last_err else RuntimeError("Failed to open zvec collection")
+
+    def _build_schema(self, _zvec, collection_name: str):
+        """Build a Zvec collection schema for memory storage."""
+        return _zvec.CollectionSchema(
+            name=collection_name,
+            fields=[
+                _zvec.FieldSchema(
+                    name="metadata_json", data_type=_zvec.DataType.STRING
+                ),
+            ],
+            vectors=[
+                _zvec.VectorSchema(
+                    name="embedding",
+                    data_type=_zvec.DataType.VECTOR_FP32,
+                    dimension=self._dimension,
+                    index_param=_zvec.HnswIndexParam(
+                        metric_type=_zvec.MetricType.COSINE
+                    ),
+                ),
+            ],
+        )
 
     def clear(self):
         """Delete all documents and recreate the collection."""
         self.collection.destroy()
-        schema = self._zvec.CollectionSchema(
-            name="memories",
-            fields=[
-                self._zvec.FieldSchema(
-                    name="metadata_json", data_type=self._zvec.DataType.STRING
-                ),
-            ],
-            vectors=[
-                self._zvec.VectorSchema(
-                    name="embedding",
-                    data_type=self._zvec.DataType.VECTOR_FP32,
-                    dimension=self._dimension,
-                    index_param=self._zvec.HnswIndexParam(
-                        metric_type=self._zvec.MetricType.COSINE
-                    ),
-                ),
-            ],
-        )
         self.collection = self._zvec.create_and_open(
-            path=self._collection_path, schema=schema
+            path=self._collection_path,
+            schema=self._build_schema(self._zvec, "memories"),
         )
 
     def add_document(self, document: str, metadata: Dict, doc_id: str) -> None:
         """Add a document to Zvec with enhanced embedding using metadata."""
-        summary = metadata.get("summary")
-        enhanced_document = summary if summary else document
-
-        if "context" in metadata and metadata["context"] != "General":
-            enhanced_document += f" context: {metadata['context']}"
-        if "keywords" in metadata and metadata["keywords"]:
-            keywords = (
-                metadata["keywords"]
-                if isinstance(metadata["keywords"], list)
-                else json.loads(metadata["keywords"])
-            )
-            if keywords:
-                enhanced_document += f" keywords: {', '.join(keywords)}"
-        if "tags" in metadata and metadata["tags"]:
-            tags = (
-                metadata["tags"]
-                if isinstance(metadata["tags"], list)
-                else json.loads(metadata["tags"])
-            )
-            if tags:
-                enhanced_document += f" tags: {', '.join(tags)}"
-
-        # Generate embedding
+        enhanced_document = _build_enhanced_document(document, metadata)
         embedding = self.embedding_function([enhanced_document])[0]
 
-        # Serialize metadata to JSON string
-        processed_metadata = {}
-        for key, value in metadata.items():
-            if isinstance(value, (list, dict)):
-                processed_metadata[key] = value
-            elif value is None:
-                processed_metadata[key] = None
-            else:
-                processed_metadata[key] = str(value)
-
+        processed_metadata = self._prepare_zvec_metadata(metadata)
         doc = self._zvec.Doc(
             id=doc_id,
             vectors={"embedding": embedding},
@@ -344,6 +310,19 @@ class ZvecRetriever:
             },
         )
         self.collection.insert(doc)
+
+    @staticmethod
+    def _prepare_zvec_metadata(metadata: Dict) -> Dict:
+        """Convert metadata values for Zvec JSON storage."""
+        processed = {}
+        for key, value in metadata.items():
+            if isinstance(value, (list, dict)):
+                processed[key] = value
+            elif value is None:
+                processed[key] = None
+            else:
+                processed[key] = str(value)
+        return processed
 
     def delete_document(self, doc_id: str):
         """Delete a document from Zvec."""
@@ -355,10 +334,11 @@ class ZvecRetriever:
         embeddings = self.embedding_function([query])
         if not embeddings:
             return empty_result
-        embedding = embeddings[0]
 
         results = self.collection.query(
-            vectors=self._zvec.VectorQuery(field_name="embedding", vector=embedding),
+            vectors=self._zvec.VectorQuery(
+                field_name="embedding", vector=embeddings[0]
+            ),
             topk=k,
         )
         if not results:
@@ -371,21 +351,20 @@ class ZvecRetriever:
         for doc in results:
             ids.append(doc.id)
             distances.append(doc.score)
-            # Deserialize metadata
-            meta_str = doc.fields.get("metadata_json", "{}")
-            meta = json.loads(meta_str) if isinstance(meta_str, str) else {}
-            # Parse list/dict values
-            for key, value in meta.items():
-                if isinstance(value, str):
-                    try:
-                        if value.startswith("[") or value.startswith("{"):
-                            meta[key] = json.loads(value)
-                    except ValueError:
-                        pass
-            metadatas.append(meta)
+            metadatas.append(self._parse_doc_metadata(doc))
 
         return {
             "ids": [ids],
             "metadatas": [metadatas],
             "distances": [distances],
         }
+
+    @staticmethod
+    def _parse_doc_metadata(doc) -> dict:
+        """Deserialize metadata from a Zvec doc's fields."""
+        meta_str = doc.fields.get("metadata_json", "{}")
+        meta = json.loads(meta_str) if isinstance(meta_str, str) else {}
+        for key, value in meta.items():
+            if isinstance(value, str):
+                meta[key] = _deserialize_json_value(value)
+        return meta

@@ -316,35 +316,40 @@ class AgenticMemorySystem:
             return ""
 
         lines = []
+        self._append_similar_memories_context(content, lines)
+        self._append_directory_context(include_tree, lines)
+        return "\n            ".join(lines)
 
-        # 1. Find similar memories via vector search
+    def _append_similar_memories_context(self, content: str, lines: list) -> None:
+        """Search for similar memories and append context lines."""
         try:
             results = self.retriever.search(content, k=5)
-            if results.get("ids") and results["ids"][0]:
-                similar = []
-                similar_tags: set = set()
-                for doc_id in results["ids"][0]:
-                    mem = self.memories.get(doc_id)
-                    if mem:
-                        similar.append(f"{mem.name} (path: {mem.path})")
-                        similar_tags.update(mem.tags)
-                if similar:
-                    lines.append(f"Similar memories: {', '.join(similar)}")
-                if similar_tags:
-                    lines.append(f"Their tags: {', '.join(sorted(similar_tags)[:15])}")
+            ids = results.get("ids", [[]])[0]
+            if not ids:
+                return
+            similar = []
+            similar_tags: set = set()
+            for doc_id in ids:
+                mem = self.memories.get(doc_id)
+                if mem:
+                    similar.append(f"{mem.name} (path: {mem.path})")
+                    similar_tags.update(mem.tags)
+            if similar:
+                lines.append(f"Similar memories: {', '.join(similar)}")
+            if similar_tags:
+                lines.append(f"Their tags: {', '.join(sorted(similar_tags)[:15])}")
         except Exception as exc:
             logger.debug("Vector search during context collection failed: %s", exc)
 
-        # 2. Directory structure
+    def _append_directory_context(self, include_tree: bool, lines: list) -> None:
+        """Append directory structure context lines."""
         if include_tree:
             lines.append(f"Full memory tree:\n{self.tree()}")
-        else:
-            all_paths = sorted(set(m.path for m in self.memories.values() if m.path))
-            if all_paths:
-                tree_paths = sorted(set("/".join(p.split("/")[:2]) for p in all_paths))
-                lines.append(f"Existing directory tree: {', '.join(tree_paths)}")
-
-        return "\n            ".join(lines)
+            return
+        all_paths = sorted(set(m.path for m in self.memories.values() if m.path))
+        if all_paths:
+            tree_paths = sorted(set("/".join(p.split("/")[:2]) for p in all_paths))
+            lines.append(f"Existing directory tree: {', '.join(tree_paths)}")
 
     def analyze_content(self, content: str) -> Dict:
         """Analyze content using LLM to extract semantic metadata.
@@ -1062,6 +1067,52 @@ class AgenticMemorySystem:
             logger.error(f"Error in search_agentic: {e}")
             return []
 
+    _EVOLUTION_RESPONSE_FORMAT = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "response",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "should_evolve": {"type": "boolean"},
+                    "actions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "suggested_connections": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "new_context_neighborhood": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "tags_to_update": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "new_tags_neighborhood": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                },
+                "required": [
+                    "should_evolve",
+                    "actions",
+                    "suggested_connections",
+                    "tags_to_update",
+                    "new_context_neighborhood",
+                    "new_tags_neighborhood",
+                ],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+    }
+
     def process_memory(self, note: MemoryNote) -> Tuple[bool, MemoryNote]:
         """Process a memory note and determine if it should evolve.
 
@@ -1071,135 +1122,83 @@ class AgenticMemorySystem:
         Returns:
             Tuple[bool, MemoryNote]: (should_evolve, processed_note)
         """
-        # For first memory or testing, just return the note without evolution
         if not self.memories:
             return False, note
 
         try:
-            # Get nearest neighbors - now returns actual memory IDs
             neighbors_text, memory_ids = self.find_related_memories(note.content, k=5)
             if not neighbors_text or not memory_ids:
                 return False, note
 
-            # Format neighbors for LLM - in this case, neighbors_text is already formatted
-
-            # Query LLM for evolution decision
-            prompt = self._evolution_system_prompt.format(
-                content=note.content,
-                context=note.context,
-                keywords=note.keywords,
-                nearest_neighbors_memories=neighbors_text,
-                neighbor_number=len(memory_ids),
+            response_json = self._get_evolution_decision(
+                note, neighbors_text, memory_ids
             )
+            should_evolve = response_json["should_evolve"]
 
-            try:
-                response = self.llm_controller.llm.get_completion(
-                    prompt,
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "response",
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "should_evolve": {"type": "boolean"},
-                                    "actions": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                    "suggested_connections": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                    "new_context_neighborhood": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                    "tags_to_update": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                    "new_tags_neighborhood": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                        },
-                                    },
-                                },
-                                "required": [
-                                    "should_evolve",
-                                    "actions",
-                                    "suggested_connections",
-                                    "tags_to_update",
-                                    "new_context_neighborhood",
-                                    "new_tags_neighborhood",
-                                ],
-                                "additionalProperties": False,
-                            },
-                            "strict": True,
-                        },
-                    },
-                )
+            if should_evolve:
+                self._apply_evolution_actions(note, response_json, memory_ids)
 
-                response_json = json.loads(response)
-                should_evolve = response_json["should_evolve"]
+            return should_evolve, note
 
-                if should_evolve:
-                    actions = response_json["actions"]
-                    for action in actions:
-                        if action == "strengthen":
-                            suggest_connections = response_json["suggested_connections"]
-                            new_tags = response_json["tags_to_update"]
-                            if self.max_links is not None:
-                                suggest_connections = suggest_connections[
-                                    : self.max_links
-                                ]
-                            for conn_id in suggest_connections:
-                                self.add_link(note.id, conn_id)
-                            note.tags = new_tags
-                        elif action == "update_neighbor":
-                            new_context_neighborhood = response_json[
-                                "new_context_neighborhood"
-                            ]
-                            new_tags_neighborhood = response_json[
-                                "new_tags_neighborhood"
-                            ]
-
-                            # Update each neighbor memory using its actual ID
-                            for i in range(
-                                min(len(memory_ids), len(new_tags_neighborhood))
-                            ):
-                                memory_id = memory_ids[i]
-
-                                # Skip if memory doesn't exist
-                                if memory_id not in self.memories:
-                                    continue
-
-                                # Get the memory to update
-                                neighbor_memory = self.memories[memory_id]
-
-                                # Update tags
-                                if i < len(new_tags_neighborhood):
-                                    neighbor_memory.tags = new_tags_neighborhood[i]
-
-                                # Update context
-                                if i < len(new_context_neighborhood):
-                                    neighbor_memory.context = new_context_neighborhood[
-                                        i
-                                    ]
-
-                                # Save the updated memory back
-                                self.memories[memory_id] = neighbor_memory
-                                self._save_note(neighbor_memory)
-
-                return should_evolve, note
-
-            except (json.JSONDecodeError, KeyError, Exception) as e:
-                logger.error(f"Error in memory evolution: {str(e)}")
-                return False, note
-
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error(f"Error in memory evolution: {str(e)}")
+            return False, note
         except Exception as e:
-            # For testing purposes, catch all exceptions and return the original note
             logger.error(f"Error in process_memory: {str(e)}")
             return False, note
+
+    def _get_evolution_decision(
+        self, note: MemoryNote, neighbors_text: str, memory_ids: List[str]
+    ) -> dict:
+        """Query LLM for evolution decision and return parsed response."""
+        prompt = self._evolution_system_prompt.format(
+            content=note.content,
+            context=note.context,
+            keywords=note.keywords,
+            nearest_neighbors_memories=neighbors_text,
+            neighbor_number=len(memory_ids),
+        )
+        response = self.llm_controller.llm.get_completion(
+            prompt, response_format=self._EVOLUTION_RESPONSE_FORMAT
+        )
+        return json.loads(response)
+
+    def _apply_evolution_actions(
+        self, note: MemoryNote, response_json: dict, memory_ids: List[str]
+    ) -> None:
+        """Apply evolution actions (strengthen, update_neighbor) from the LLM response."""
+        for action in response_json["actions"]:
+            if action == "strengthen":
+                self._apply_strengthen(note, response_json)
+            elif action == "update_neighbor":
+                self._apply_update_neighbors(response_json, memory_ids)
+
+    def _apply_strengthen(self, note: MemoryNote, response_json: dict) -> None:
+        """Strengthen connections by adding links and updating tags."""
+        connections = response_json["suggested_connections"]
+        if self.max_links is not None:
+            connections = connections[: self.max_links]
+        for conn_id in connections:
+            self.add_link(note.id, conn_id)
+        note.tags = response_json["tags_to_update"]
+
+    def _apply_update_neighbors(
+        self, response_json: dict, memory_ids: List[str]
+    ) -> None:
+        """Update neighbor memories with new context and tags."""
+        new_contexts = response_json["new_context_neighborhood"]
+        new_tags = response_json["new_tags_neighborhood"]
+
+        for i in range(min(len(memory_ids), len(new_tags))):
+            memory_id = memory_ids[i]
+            if memory_id not in self.memories:
+                continue
+
+            neighbor = self.memories[memory_id]
+            if i < len(new_tags):
+                neighbor.tags = new_tags[i]
+            if i < len(new_contexts):
+                neighbor.context = new_contexts[i]
+
+            self.memories[memory_id] = neighbor
+            self._save_note(neighbor)

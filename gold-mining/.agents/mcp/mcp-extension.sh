@@ -157,15 +157,16 @@ cmd_install() {
   local build_type="auto"
 
   while [[ $# -gt 0 ]]; do
-    case "$1" in
+    local arg="$1"
+    case "$arg" in
       --name)        opt_name="$2"; shift 2 ;;
       --branch)      opt_branch="$2"; shift 2 ;;
       --env)         opt_env="$2"; shift 2 ;;
       --http)        build_type="http"; target="$2"; shift 2 ;;
       --header)      opt_headers="${opt_headers:-} $2"; shift 2 ;;
       --project-dir) shift 2 ;;  # already handled globally
-      -*)            warn "Unknown option: $1"; shift ;;
-      *)             target="$1"; shift ;;
+      -*)            warn "Unknown option: $arg"; shift ;;
+      *)             target="$arg"; shift ;;
     esac
   done
 
@@ -802,6 +803,7 @@ with open(opencode_file, 'w') as f:
     json.dump(opencode_config, f, indent=2)
     f.write('\n')
 PYEOF
+  return 0
 }
 
 cmd_sync() {
@@ -846,6 +848,7 @@ cmd_init_project() {
   fi
 
   ok "Project MCP scaffolded at $project_mcp"
+  return 0
 }
 
 # ─── CREDENTIALS ─────────────────────────────────────────────────────────────
@@ -930,6 +933,7 @@ get_vault().delete('$server', '$key')
       exit 1
       ;;
   esac
+  return 0
 }
 
 # ─── MIGRATE ─────────────────────────────────────────────────────────────────

@@ -104,7 +104,7 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:  # noqa: C9
 
     try:
         note = MemoryNote.from_markdown(raw)
-    except (ValueError, json.JSONDecodeError):
+    except ValueError:
         # Hand-written or legacy notes without proper frontmatter — return
         # the raw content untouched so the user can still see it.
         return {

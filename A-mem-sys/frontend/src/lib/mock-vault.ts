@@ -308,12 +308,14 @@ function buildVault() {
       phase: angle,
     });
 
-    links.push({ source: hubId, target: "core-root", strength: 0.76 });
-    links.push({
-      source: hubId,
-      target: group.id === "vault-core" ? "core-memory" : "core-index",
-      strength: 0.68,
-    });
+    links.push(
+      { source: hubId, target: "core-root", strength: 0.76 },
+      {
+        source: hubId,
+        target: group.id === "vault-core" ? "core-memory" : "core-index",
+        strength: 0.68,
+      },
+    );
 
     titles.forEach((title, index) => {
       const ring = 90 + (index % 3) * 20 + (group.id === "vault-core" ? 0 : 12);
