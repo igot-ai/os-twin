@@ -290,7 +290,7 @@ async def get_memory_graph(
     return _build_graph(notes)
 
 
-@router.get("/api/amem/{plan_id}/notes")
+@router.get("/api/amem/{plan_id}/notes", responses={404: {"description": "Not found"}})
 async def list_memory_notes(
     plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
 ) -> list:
@@ -319,7 +319,7 @@ async def get_memory_note(
     raise HTTPException(status_code=404, detail=f"Note {note_id} not found")
 
 
-@router.get("/api/amem/{plan_id}/stats")
+@router.get("/api/amem/{plan_id}/stats", responses={404: {"description": "Not found"}})
 async def get_memory_stats(
     plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
 ) -> dict:

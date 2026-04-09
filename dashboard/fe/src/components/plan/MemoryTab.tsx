@@ -822,26 +822,27 @@ function Splitter({
   };
 
   return (
-    <div
-      role="separator"
-      tabIndex={0}
+    <button
+      type="button"
+      aria-label="Resize panels"
       onMouseDown={handleMouseDown}
-      className="flex-shrink-0 group relative"
+      className="flex-shrink-0 group relative border-0 bg-transparent p-0"
       style={{
         width: 6,
         cursor: 'col-resize',
-        margin: '0 -3px', // negative margin so it overlaps the gap visually
+        margin: '0 -3px',
         zIndex: 10,
       }}
     >
-      <div
+      <span
         className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 transition-colors group-hover:bg-[var(--color-primary)]"
         style={{
           width: 2,
           background: 'transparent',
+          display: 'block',
         }}
       />
-    </div>
+    </button>
   );
 }
 
