@@ -15,6 +15,7 @@ _env_file = Path.home() / ".ostwin" / ".env"
 if _env_file.is_file():
     try:
         from dotenv import load_dotenv
+
         load_dotenv(_env_file, override=False)
     except ImportError:
         # Manual fallback — only set vars not already in the environment
@@ -48,7 +49,24 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
-from dashboard.routes import auth, engagement, plans, rooms, system, mcp, skills, roles, memory, amem, channels, command, threads, tunnel, files
+from dashboard.routes import (
+    auth,
+    engagement,
+    plans,
+    rooms,
+    system,
+    mcp,
+    skills,
+    roles,
+    memory,
+    amem,
+    channels,
+    command,
+    threads,
+    tunnel,
+    files,
+    settings,
+)
 from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
@@ -84,29 +102,38 @@ app = FastAPI(title="OS Twin Command Center", version="0.1.0")
 from fastapi import WebSocket, WebSocketDisconnect
 from dashboard.ws_router import manager
 
+
 @app.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        await websocket.send_json({
-            "event": "connected",
-            "timestamp": "now"
-        })
+        await websocket.send_json({"event": "connected", "timestamp": "now"})
         while True:
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "ping":
                     import time
-                    await websocket.send_json({"type": "pong", "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-            except: pass
+
+                    await websocket.send_json(
+                        {
+                            "type": "pong",
+                            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        }
+                    )
+            except:
+                pass
     except WebSocketDisconnect:
         pass
     finally:
         manager.disconnect(websocket)
 
+
 # --- Middleware ---
-is_dev = os.environ.get("NODE_ENV") == "development" or os.environ.get("OSTWIN_DEV_MODE") == "1"
+is_dev = (
+    os.environ.get("NODE_ENV") == "development"
+    or os.environ.get("OSTWIN_DEV_MODE") == "1"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -134,6 +161,7 @@ app.include_router(channels.router)
 app.include_router(command.router)
 app.include_router(tunnel.router)
 app.include_router(files.router)
+app.include_router(settings.router)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:
@@ -156,6 +184,11 @@ if USE_FE:
 
     @app.api_route("/{path:path}", methods=["GET", "HEAD"])
     async def fe_catch_all(path: str):
+        # Never serve SPA HTML for /api/* paths — return 404 so bugs are visible
+        if path.startswith("api/"):
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail=f"API route not found: /{path}")
         return FileResponse(str(resolve_frontend_file(FE_OUT_DIR, path)))
 
 
@@ -168,6 +201,7 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     from dashboard.tunnel import stop_tunnel
+
     stop_tunnel()
 
 
@@ -180,7 +214,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--project-dir", default=None, help="Project directory to monitor"
     )
-    parser.add_argument("--reindex", action="store_true", help="Force full re-index of vector store")
+    parser.add_argument(
+        "--reindex", action="store_true", help="Force full re-index of vector store"
+    )
     args = parser.parse_args()
 
     if args.project_dir:
@@ -188,7 +224,7 @@ if __name__ == "__main__":
         # We need to manually update these for the print statements since they were imported early
         PROJECT_ROOT = Path(args.project_dir)
         WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
-    
+
     if args.reindex:
         os.environ["OSTWIN_REINDEX"] = "true"
 

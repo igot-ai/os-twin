@@ -114,6 +114,7 @@ export function useEpicRoles(planId: string, ref: string) {
     plan_config: Record<string, any>;
     room_overrides: Record<string, any>;
     candidate_roles: string[];
+    markdown_roles: string[];
   }>(planId && ref ? `/plans/${planId}/epics/${ref}/roles` : null);
 
   const updateRoleConfig = async (roleName: string, updates: any) => {
@@ -126,11 +127,18 @@ export function useEpicRoles(planId: string, ref: string) {
     mutate();
   };
 
+  // Use candidate_roles if manually set, otherwise fall back to markdown Roles: directive
+  const candidateRoles = data?.candidate_roles || [];
+  const markdownRoles = data?.markdown_roles || [];
+  const effectiveRoles = candidateRoles.length > 0 ? candidateRoles : markdownRoles;
+
   return {
     roles: data?.roles || [],
     planConfig: data?.plan_config || {},
     roomOverrides: data?.room_overrides || {},
-    candidateRoles: data?.candidate_roles || [],
+    candidateRoles,
+    markdownRoles,
+    effectiveRoles,
     isLoading,
     isError: error,
     updateRoleConfig,

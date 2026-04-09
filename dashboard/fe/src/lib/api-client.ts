@@ -105,4 +105,4 @@ export async function apiDelete<T>(path: string, options?: RequestInit): Promise
   return request<T>(path, { ...options, method: 'DELETE' });
 }
 
-export const fetcher = (url: string) => apiGet(url);
+export const fetcher = <T = unknown>(url: string): Promise<T> => apiGet<T>(url);

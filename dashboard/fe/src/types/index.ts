@@ -468,3 +468,8 @@ export interface PlanningMessage {
   images?: ImageAttachment[];
 }
 
+// ──────────────────────────────────────────────────
+// Settings (EPIC-004)
+// ──────────────────────────────────────────────────
+export * from './settings';
+

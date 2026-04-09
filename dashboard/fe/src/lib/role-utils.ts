@@ -41,3 +41,24 @@ export function getRoleInitials(role: string): string {
   }
   return role.substring(0, 2).toUpperCase();
 }
+
+/**
+ * Parse role names from `Roles: a, b, c` directives in markdown content.
+ * Matches the same pattern used by the plan engine (Start-Plan.ps1).
+ */
+export function parseRolesFromMarkdown(body: string): string[] {
+  const roles: string[] = [];
+  const re = /^Roles?:\s*(.+)$/gm;
+  let match;
+  while ((match = re.exec(body)) !== null) {
+    const line = match[1].replace(/\(.*$/, ''); // strip trailing comments
+    for (const part of line.split(',')) {
+      const name = part.trim();
+      if (name && /^[a-zA-Z0-9]/.test(name) && !/^<.*>$/.test(name)) {
+        roles.push(name);
+      }
+    }
+  }
+  // dedupe, preserve order
+  return [...new Set(roles)];
+}

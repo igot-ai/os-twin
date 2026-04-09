@@ -637,7 +637,7 @@ ENVSHEOF
         *) info "Skipped API key setup. Please edit $env_file later." ;;
       esac
 
-      for key_name in "${selected_keys[@]}"; do
+      for key_name in ${selected_keys[@]+"${selected_keys[@]}"}; do
         echo -en "    ${CYAN}→${NC} Enter $key_name: "
         read -s -r user_val
         echo ""
@@ -1418,7 +1418,7 @@ install_files
 
 # ─── 4b. macOS host daemon (optional, desktop automation support) ─────────────
 
-if [[ "$OS" == "macos" ]]; then
+if [[ "$OS" == "..." ]]; then
   DAEMON_INSTALL="$INSTALL_DIR/.agents/daemons/macos-host/install.sh"
   if [[ -f "$DAEMON_INSTALL" ]]; then
     if ask "Install macOS host daemon? (enables desktop automation: windows, clicks, screenshots)"; then

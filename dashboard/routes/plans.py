@@ -615,19 +615,76 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
 
     return {"status": "saved", "plan_id": plan_id}
 
+def _resolve_plan_file(plan_id: str) -> Optional[Path]:
+    """Find the plan .md file — checks project-local dir then ~/.ostwin."""
+    local = PLANS_DIR / f"{plan_id}.md"
+    if local.exists():
+        return local
+    global_path = Path.home() / ".ostwin" / ".agents" / "plans" / f"{plan_id}.md"
+    if global_path.exists():
+        return global_path
+    return None
+
+
 @router.get("/api/plans/{plan_id}/roles")
 async def get_plan_roles(plan_id: str, user: dict = Depends(get_current_user)):
-    """Get the roles assigned to a plan, combining registry defaults with per-plan config."""
-    config = get_plan_roles_config(plan_id)
-    roles = build_roles_list(config, include_skills=False)
-    if not roles:
-        from dashboard.routes.roles import load_roles
-        roles = [
-            {"name": r.name, "description": r.description, "default_model": r.version,
-             "timeout_seconds": r.timeout_seconds, "skill_refs": r.skill_refs}
-            for r in load_roles()
-        ]
-    return {"role_defaults": roles}
+    """Get effective roles by parsing Roles: directives from the plan markdown.
+
+    Single file read + JSON config lookup.  No war-room scanning, no vector
+    DB queries, no SKILL.md YAML parsing.
+    """
+    plan_file = _resolve_plan_file(plan_id)
+    if not plan_file:
+        raise HTTPException(status_code=404, detail=f"Plan file not found: {plan_id}")
+
+    effective_names = _parse_roles_from_markdown(plan_file.read_text())
+
+    # Build lightweight role objects from plan config + role registry
+    # (avoids the expensive build_roles_list → SKILL.md YAML scan)
+    plan_config = get_plan_roles_config(plan_id)
+
+    # Quick role lookup from the on-disk role.json files (no skill scanning)
+    role_registry: Dict[str, dict] = {}
+    for roles_root in [AGENTS_DIR / "roles", Path.home() / ".ostwin" / ".agents" / "roles"]:
+        if not roles_root.exists():
+            continue
+        for role_dir in roles_root.iterdir():
+            if not role_dir.is_dir():
+                continue
+            rj = role_dir / "role.json"
+            if rj.exists():
+                try:
+                    data = json.loads(rj.read_text())
+                    role_registry[data.get("name", role_dir.name)] = data
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+    def _build_role(name: str) -> dict:
+        reg = role_registry.get(name, {})
+        cfg = plan_config.get(name, {})
+        return {
+            "name": name,
+            "description": reg.get("description", cfg.get("description", "")),
+            "default_model": cfg.get("default_model", reg.get("default_model", "")),
+            "timeout_seconds": cfg.get("timeout_seconds", reg.get("timeout_seconds", 600)),
+            "temperature": cfg.get("temperature", 0.7),
+            "skill_refs": cfg.get("skill_refs", reg.get("skill_refs", [])),
+            "disabled_skills": cfg.get("disabled_skills", []),
+        }
+
+    if effective_names:
+        role_defaults = [_build_role(n) for n in effective_names]
+    else:
+        # No Roles: directives — return all configured roles
+        all_names = list(dict.fromkeys(
+            list(plan_config.keys()) + list(role_registry.keys())
+        ))
+        role_defaults = [_build_role(n) for n in all_names]
+
+    return {
+        "role_defaults": role_defaults,
+        "effective_roles": effective_names,
+    }
 
 @router.get("/api/plans/{plan_id}/config")
 async def get_plan_config(plan_id: str, user: dict = Depends(get_current_user)):
@@ -1835,9 +1892,27 @@ async def get_epic_config(plan_id: str, task_ref: str, user: dict = Depends(get_
     try: return json.loads(cfg_file.read_text())
     except: return {"error": "JSON parse error"}
 
+def _parse_roles_from_markdown(text: str) -> list[str]:
+    """Extract role names from 'Roles: a, b, c' lines in markdown content."""
+    roles: list[str] = []
+    for m in re.finditer(r"(?m)^Roles?:\s*(.+)$", text):
+        line = m.group(1)
+        line = re.sub(r"\(.*$", "", line)  # strip trailing comments
+        for part in line.split(","):
+            name = part.strip()
+            if name and re.match(r"[a-zA-Z0-9]", name) and not re.match(r"^<.*>$", name):
+                roles.append(name)
+    return list(dict.fromkeys(roles))  # dedupe, preserve order
+
+
 @router.get("/api/plans/{plan_id}/epics/{task_ref}/roles")
 async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_current_user)):
-    """Get roles list for a specific Epic, including overrides from war-room config."""
+    """Get roles list for a specific Epic, including overrides from war-room config.
+    
+    Returns markdown_roles (from Roles: directive in brief.md) alongside
+    candidate_roles (manually assigned). When candidate_roles is empty the
+    frontend should fall back to markdown_roles.
+    """
     room_dir = _resolve_room_dir(plan_id, task_ref)
     if not room_dir: raise HTTPException(status_code=404, detail="Epic room not found")
     
@@ -1851,12 +1926,31 @@ async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_c
             room_overrides = rc.get("roles", {})
             candidate_roles = rc.get("assignment", {}).get("candidate_roles", [])
         except json.JSONDecodeError: pass
-        
+
+    # Parse Roles: directive from brief.md
+    markdown_roles: list[str] = []
+    brief_file = room_dir / "brief.md"
+    if brief_file.exists():
+        try:
+            markdown_roles = _parse_roles_from_markdown(brief_file.read_text())
+        except Exception:
+            pass
+    # Fallback: try epic body from store if brief didn't have roles
+    if not markdown_roles:
+        try:
+            store = global_state.store
+            if store:
+                epics = store.get_epics_for_plan(plan_id)
+                epic = next((e for e in epics if e.get("epic_ref") == task_ref), None)
+                if epic and epic.get("body"):
+                    markdown_roles = _parse_roles_from_markdown(epic["body"])
+        except Exception:
+            pass
+
     merged_config = plan_config.copy()
     for role_name, role_overrides in room_overrides.items():
         if role_name not in merged_config:
              merged_config[role_name] = {}
-        # Deep update if we have nested dicts? Currently roles are flat configs.
         merged_config[role_name].update(role_overrides)
         
     roles = build_roles_list(merged_config, include_skills=True)
@@ -1864,7 +1958,8 @@ async def get_epic_roles(plan_id: str, task_ref: str, user: dict = Depends(get_c
         "roles": roles,
         "plan_config": plan_config,
         "room_overrides": room_overrides,
-        "candidate_roles": candidate_roles
+        "candidate_roles": candidate_roles,
+        "markdown_roles": markdown_roles,
     }
 
 from pydantic import BaseModel
