@@ -1000,6 +1000,65 @@ def _get_notes_dir() -> str:
     return notes_dir
 
 
+_SAFE_GREP_FLAGS = frozenset(
+    {
+        "-i",
+        "-n",
+        "-l",
+        "-c",
+        "-w",
+        "-v",
+        "-E",
+        "-P",
+        "-F",
+        "-o",
+        "-h",
+        "-H",
+        "-m",
+        "-q",
+        "-s",
+        "-x",
+        "-z",
+    }
+)
+_SAFE_GREP_PREFIXED = frozenset({"-A", "-B", "-C", "-m"})
+
+
+def _sanitize_grep_flags(flags: str) -> tuple:
+    """Validate and sanitize grep flags. Returns (sanitized_list, error_msg)."""
+    parsed = flags.split()
+    sanitized: list = []
+    i = 0
+    while i < len(parsed):
+        f = parsed[i]
+        if (
+            f.startswith("--include")
+            or f.startswith("--exclude")
+            or f in {"-r", "-R", "--recursive"}
+        ):
+            return (
+                [],
+                f"Error: flag '{f}' is not allowed — file scope is fixed to .md files in the notes directory.",
+            )
+        if f in _SAFE_GREP_FLAGS:
+            sanitized.append(f)
+        elif f in _SAFE_GREP_PREFIXED:
+            sanitized.append(f)
+            if i + 1 < len(parsed):
+                i += 1
+                sanitized.append(parsed[i])
+        elif (
+            f.startswith("-")
+            and len(f) > 1
+            and all(f"-{ch}" in _SAFE_GREP_FLAGS for ch in f[1:])
+        ):
+            sanitized.append(f)
+        elif f.startswith("-"):
+            return [], f"Error: unsupported grep flag '{f}'."
+        i += 1
+    return sanitized, ""
+
+
 @optional_tool("grep_memory")
 def grep_memory(pattern: str, flags: Optional[str] = None) -> str:
     """Search memory files using grep (full CLI grep).
@@ -1024,66 +1083,10 @@ def grep_memory(pattern: str, flags: Optional[str] = None) -> str:
     notes_dir = _get_notes_dir()
     cmd = ["grep", "-r", "--include=*.md"]
     if flags:
-        # Allowlist of safe grep flags — block --include/--exclude (we set our own)
-        # and anything that could read outside the notes directory
-        _SAFE_GREP_FLAGS = {
-            "-i",
-            "-n",
-            "-l",
-            "-c",
-            "-w",
-            "-v",
-            "-E",
-            "-P",
-            "-F",
-            "-o",
-            "-h",
-            "-H",
-            "-m",
-            "-q",
-            "-s",
-            "-x",
-            "-z",
-        }
-        _SAFE_GREP_PREFIXED = {"-A", "-B", "-C", "-m"}
-        _BLOCKED_GREP_FLAGS = {
-            "--include",
-            "--exclude",
-            "--exclude-dir",
-            "--include-dir",
-            "-r",
-            "-R",
-            "--recursive",
-        }
-        parsed_flags = flags.split()
-        sanitized = []
-        i = 0
-        while i < len(parsed_flags):
-            f = parsed_flags[i]
-            if (
-                f in _BLOCKED_GREP_FLAGS
-                or f.startswith("--include")
-                or f.startswith("--exclude")
-            ):
-                return f"Error: flag '{f}' is not allowed — file scope is fixed to .md files in the notes directory."
-            if f in _SAFE_GREP_FLAGS:
-                sanitized.append(f)
-            elif f in _SAFE_GREP_PREFIXED:
-                sanitized.append(f)
-                # These flags take a numeric argument
-                if i + 1 < len(parsed_flags):
-                    i += 1
-                    sanitized.append(parsed_flags[i])
-            elif f.startswith("-") and len(f) > 1:
-                # Allow combined short flags like -in, -lc by checking each char
-                if all(f"-{ch}" in _SAFE_GREP_FLAGS for ch in f[1:]):
-                    sanitized.append(f)
-                else:
-                    return f"Error: unsupported grep flag '{f}'."
-            i += 1
+        sanitized, err = _sanitize_grep_flags(flags)
+        if err:
+            return err
         cmd.extend(sanitized)
-    # Use -e to explicitly mark the pattern (prevents patterns starting with -)
-    # and -- to separate options from the directory argument
     cmd.extend(["-e", pattern, "--", notes_dir])
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -1096,6 +1099,53 @@ def grep_memory(pattern: str, flags: Optional[str] = None) -> str:
         return "Error: grep timed out after 30 seconds."
     except FileNotFoundError:
         return "Error: grep command not found on this system."
+
+
+_SAFE_FIND_FLAGS = frozenset(
+    {
+        "-name",
+        "-iname",
+        "-type",
+        "-size",
+        "-mtime",
+        "-mmin",
+        "-maxdepth",
+        "-mindepth",
+        "-empty",
+        "-path",
+        "-ipath",
+        "-newer",
+        "-not",
+        "!",
+        "-a",
+        "-o",
+        "(",
+        ")",
+    }
+)
+_DANGEROUS_FIND_PREFIXES = ("-exec", "-delete", "-ok", "-fls", "-fprint", "-fprintf")
+
+
+def _validate_find_args(args: str) -> tuple:
+    """Validate find arguments. Returns (parsed_tokens, error_msg)."""
+    import shlex
+
+    parsed = shlex.split(args)
+    for token in parsed:
+        if token.startswith("/") or token.startswith("~"):
+            return (
+                [],
+                "Error: absolute paths are not allowed — search is restricted to the notes directory.",
+            )
+        if any(token.startswith(dp) for dp in _DANGEROUS_FIND_PREFIXES):
+            return [], f"Error: '{token}' is not allowed for security reasons."
+        if token.startswith("-") and token not in _SAFE_FIND_FLAGS:
+            if not any(token.startswith(sf) for sf in _SAFE_FIND_FLAGS):
+                return (
+                    [],
+                    f"Error: unsupported find flag '{token}'. Allowed: {', '.join(sorted(_SAFE_FIND_FLAGS))}",
+                )
+    return parsed, ""
 
 
 @optional_tool("find_memory")
@@ -1123,44 +1173,9 @@ def find_memory(args: Optional[str] = None) -> str:
     notes_dir = _get_notes_dir()
     cmd = ["find", notes_dir]
     if args:
-        import shlex
-
-        # Allowlist of safe find flags — block -exec, -execdir, -delete, -ok, -okdir
-        _SAFE_FIND_FLAGS = {
-            "-name",
-            "-iname",
-            "-type",
-            "-size",
-            "-mtime",
-            "-mmin",
-            "-maxdepth",
-            "-mindepth",
-            "-empty",
-            "-path",
-            "-ipath",
-            "-newer",
-            "-not",
-            "!",
-            "-a",
-            "-o",
-            "(",
-            ")",
-        }
-        _DANGEROUS_PREFIXES = ("-exec", "-delete", "-ok", "-fls", "-fprint", "-fprintf")
-        parsed = shlex.split(args)
-        for token in parsed:
-            # Block absolute/relative paths that could escape notes dir
-            if token.startswith("/") or token.startswith("~"):
-                return "Error: absolute paths are not allowed — search is restricted to the notes directory."
-            # Block dangerous find actions
-            if any(token.startswith(dp) for dp in _DANGEROUS_PREFIXES):
-                return f"Error: '{token}' is not allowed for security reasons."
-            # Validate flags (tokens starting with -)
-            if token.startswith("-") and token not in _SAFE_FIND_FLAGS:
-                # Allow flags that take numeric/string values like -maxdepth
-                # but block unknown flags
-                if not any(token.startswith(sf) for sf in _SAFE_FIND_FLAGS):
-                    return f"Error: unsupported find flag '{token}'. Allowed: {', '.join(sorted(_SAFE_FIND_FLAGS))}"
+        parsed, err = _validate_find_args(args)
+        if err:
+            return err
         cmd.extend(parsed)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
