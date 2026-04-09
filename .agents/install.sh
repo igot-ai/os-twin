@@ -778,21 +778,44 @@ install_files() {
 
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
   # NOTE: MCP config files are excluded to preserve user's installed extensions and config
+  # User plans live in $INSTALL_DIR/.agents/plans/ — do NOT overwrite them
+  # with whatever happens to be in the source repo's plans/ directory.
+  # PLAN.template.md is seeded separately below if missing.
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
     --exclude='mcp/config.json' --exclude='mcp/.env.mcp' \
+    --exclude='plans/' \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
-      # rsync fallback to cp (exclude mcp/ manually)
-      find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
+      # rsync fallback to cp (exclude mcp/ and plans/ manually)
+      find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name 'plans' -not -name '.' \
         -exec cp -r {} "$INSTALL_DIR/.agents/" \; 2>/dev/null || true
     }
 
-  # ── MCP: seed on first install, never overwrite ────────────────────────────
-  if [[ ! -d "$INSTALL_DIR/.agents/mcp" ]]; then
-    step "Seeding mcp/ directory (first install)..."
-    cp -r "$SCRIPT_DIR/mcp" "$INSTALL_DIR/.agents/mcp"
-    ok "mcp/ seeded"
+  # Seed plans/ on first install (or if PLAN.template.md is missing) — never overwrite
+  mkdir -p "$INSTALL_DIR/.agents/plans"
+  if [[ ! -f "$INSTALL_DIR/.agents/plans/PLAN.template.md" ]] \
+     && [[ -f "$SCRIPT_DIR/plans/PLAN.template.md" ]]; then
+    cp "$SCRIPT_DIR/plans/PLAN.template.md" "$INSTALL_DIR/.agents/plans/PLAN.template.md"
+  fi
+
+  # ── MCP: seed config on first install, never overwrite ─────────────────────
+  # Source of truth file was renamed mcp-config.json → config.json during the
+  # OpenCode migration (April 2026). Honor either name in the source repo.
+  local seed_src=""
+  if [[ -f "$SCRIPT_DIR/mcp/config.json" ]]; then
+    seed_src="$SCRIPT_DIR/mcp/config.json"
+  elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
+    seed_src="$SCRIPT_DIR/mcp/mcp-config.json"
+  fi
+  if [[ ! -f "$INSTALL_DIR/.agents/mcp/config.json" ]]; then
+    if [[ -n "$seed_src" ]]; then
+      step "Seeding mcp/config.json (first install)..."
+      cp "$seed_src" "$INSTALL_DIR/.agents/mcp/config.json"
+      ok "mcp/config.json seeded from $(basename "$seed_src")"
+    else
+      warn "No source mcp config found in $SCRIPT_DIR/mcp/ — skipping seed"
+    fi
   else
     # Always update the builtin template so new built-in servers are available
     if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
@@ -802,11 +825,98 @@ install_files() {
     if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
       cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$INSTALL_DIR/.agents/mcp/mcp-catalog.json"
     fi
+    # Merge new built-in servers into config.json (never overwrite existing)
+    local mcp_cfg="$INSTALL_DIR/.agents/mcp/config.json"
+    local mcp_builtin="$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
+    if [[ -f "$mcp_cfg" ]] && [[ -f "$mcp_builtin" ]]; then
+      python3 - "$mcp_cfg" "$mcp_builtin" <<'MERGE_EOF' && ok "Merged new built-in MCP servers" || true
+import json, sys
+
+cfg_path, builtin_path = sys.argv[1], sys.argv[2]
+
+with open(cfg_path) as f:
+    config = json.load(f)
+with open(builtin_path) as f:
+    builtin = json.load(f)
+
+cfg_servers = config.setdefault("mcp", config.get("mcpServers", {}))
+builtin_servers = builtin.get("mcp", builtin.get("mcpServers", {}))
+
+added = []
+updated = []
+for name, server in builtin_servers.items():
+    if name not in cfg_servers:
+        cfg_servers[name] = server
+        added.append(name)
+        continue
+
+    existing = cfg_servers[name]
+    if not isinstance(existing, dict) or not isinstance(server, dict):
+        continue
+
+    if "environment" in server:
+        env = existing.get("environment")
+        if not isinstance(env, dict):
+            existing["environment"] = server["environment"]
+            updated.append(name)
+        elif not env and server["environment"]:
+            existing["environment"] = server["environment"]
+            updated.append(name)
+
+if added or updated:
+    with open(cfg_path, "w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+    parts = []
+    if added:
+        parts.append(f"added {len(added)} new server(s): {', '.join(added)}")
+    if updated:
+        parts.append(f"updated {len(updated)} existing server(s): {', '.join(updated)}")
+    print(f"    {'; '.join(parts)}")
+else:
+    print("    All built-in servers already present")
+MERGE_EOF
+    fi
     # Sync MCP server scripts (channel-server.py, warroom-server.py, etc.)
     for f in "$SCRIPT_DIR"/mcp/*.py "$SCRIPT_DIR"/mcp/*.sh "$SCRIPT_DIR"/mcp/requirements.txt; do
       [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/.agents/mcp/"
     done
-    ok "mcp/ preserved (scripts + catalog updated, config untouched)"
+    ok "mcp/ preserved (scripts + catalog updated, new servers merged)"
+  fi
+
+  # ── A-mem-sys: copy agentic memory system ─────────────────────────────────
+  local amem_src="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}/A-mem-sys"
+  local amem_dst="$INSTALL_DIR/A-mem-sys"
+  if [[ -d "$amem_src" ]]; then
+    step "Syncing A-mem-sys (agentic memory)..."
+    mkdir -p "$amem_dst"
+    rsync -a --exclude='__pycache__/' --exclude='*.pyc' --exclude='.memory/' \
+      "$amem_src/" "$amem_dst/" 2>/dev/null || {
+      cp -r "$amem_src/"* "$amem_dst/" 2>/dev/null || true
+    }
+    ok "A-mem-sys synced to $amem_dst"
+  fi
+
+  # ── Symlink ~/.ostwin/mcp -> ~/.ostwin/.agents/mcp ────────────────────────
+  local mcp_link="$INSTALL_DIR/mcp"
+  local mcp_real="$INSTALL_DIR/.agents/mcp"
+  if [[ -L "$mcp_link" ]]; then
+    # Already a symlink — update if target changed
+    if [[ "$(readlink "$mcp_link")" != "$mcp_real" ]]; then
+      ln -sfn "$mcp_real" "$mcp_link"
+    fi
+  elif [[ -d "$mcp_link" ]]; then
+    # Legacy real directory — migrate: merge any user files, then replace with symlink
+    step "Migrating $mcp_link to symlink..."
+    # Copy any files from old dir that don't exist in .agents/mcp (preserve user additions)
+    for f in "$mcp_link"/*; do
+      [[ -f "$f" ]] && [[ ! -f "$mcp_real/$(basename "$f")" ]] && cp "$f" "$mcp_real/"
+    done
+    rm -rf "$mcp_link"
+    ln -s "$mcp_real" "$mcp_link"
+    ok "Migrated $mcp_link -> .agents/mcp (symlink)"
+  else
+    ln -s "$mcp_real" "$mcp_link"
   fi
 
   # ── MCP: migrate legacy mcp-config.json → config.json ─────────────────────
@@ -894,8 +1004,11 @@ compute_build_hash() {
     find "$INSTALL_DIR" \
       -type f \
       ! -path "$INSTALL_DIR/.venv/*" \
+      ! -path "*/.venv/*" \
+      ! -path "$INSTALL_DIR/.zvec/*" \
       ! -path "$INSTALL_DIR/logs/*" \
       ! -path "$INSTALL_DIR/node_modules/*" \
+      ! -path "*/node_modules/*" \
       ! -path "*/__pycache__/*" \
       ! -name "*.pid" \
       ! -name ".env" \
@@ -961,6 +1074,7 @@ if not env_vars:
 with open(mcp_path) as f:
     config = json.load(f)
 
+import re
 # Support both OpenCode 'mcp' and legacy 'mcpServers' keys
 servers = config.get('mcp', config.get('mcpServers', {}))
 for name, server in servers.items():
@@ -971,9 +1085,17 @@ for name, server in servers.items():
     env_key = 'environment' if 'environment' in server else 'env' if 'env' in server else 'environment'
     if env_key not in server:
         server[env_key] = {}
-    # Merge .env vars (don't overwrite existing per-server values)
+    # Find ${VAR} or {env:VAR} references in this server's config
+    server_str = json.dumps(server)
+    server_refs = set(re.findall(r'\$\{(\w+)(?:[:-][^}]*)?\}', server_str))
+    server_refs |= set(re.findall(r'\{env:(\w+)\}', server_str))
+    # Only inject vars that this server references, or resolve existing placeholder env values
     for k, v in env_vars.items():
-        if k not in server[env_key]:
+        if k in server[env_key]:
+            cur = server[env_key][k]
+            if isinstance(cur, str) and ('${' in cur or '{env:' in cur) and v:
+                server[env_key][k] = v
+        elif k in server_refs and v:
             server[env_key][k] = v
 
 with open(mcp_path, 'w') as f:
@@ -1018,6 +1140,19 @@ for name, is_valid, errors, warnings in results:
     if not is_valid:
         for e in errors:
             print(f"    [ERROR] '{name}': {e} — skipping", file=sys.stderr)
+
+# Reference-aware filtering: drop any environment entries that still contain
+# unresolved {env:VAR} references so OpenCode never sees a literal placeholder
+# as an env value. (Resolved values were already injected upstream from .env.)
+import re as _re
+_env_ref = _re.compile(r'\{env:\w+\}')
+for _name, _cfg in validated_mcp.items():
+    _envblock = _cfg.get('environment')
+    if isinstance(_envblock, dict):
+        _cfg['environment'] = {
+            k: v for k, v in _envblock.items()
+            if not (isinstance(v, str) and _env_ref.search(v))
+        }
 
 # Build tools deny + agent config:
 #   - Global tools deny: blocks all MCP tools EXCEPT core servers
@@ -1463,8 +1598,11 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
 
   mkdir -p "$INSTALL_DIR/logs"
   step "Starting dashboard on http://localhost:${DASHBOARD_PORT}..."
+  # Pin --project-dir to $INSTALL_DIR so the dashboard's plan registry is
+  # always ~/.ostwin/.agents/plans/, regardless of cwd when install.sh runs.
   nohup bash "$DASHBOARD_SCRIPT" \
     --background --port "$DASHBOARD_PORT" \
+    --project-dir "$INSTALL_DIR" \
     > "$INSTALL_DIR/logs/dashboard.log" 2>&1 &
   DASHBOARD_PID=$!
   echo "$DASHBOARD_PID" > "$INSTALL_DIR/dashboard.pid"

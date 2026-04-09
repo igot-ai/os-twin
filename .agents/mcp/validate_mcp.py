@@ -135,7 +135,12 @@ def normalize_mcp_server(name, cfg):
         out['url'] = _convert_shell_vars(url)
 
     # --- environment / env ---
-    env = cfg.get('environment') or cfg.get('env')
+    if 'environment' in cfg:
+        env = cfg['environment']
+    elif 'env' in cfg:
+        env = cfg['env']
+    else:
+        env = None
     if isinstance(env, dict):
         out['environment'] = {
             k: _convert_shell_vars(v) if isinstance(v, str) else v
@@ -143,7 +148,7 @@ def normalize_mcp_server(name, cfg):
         }
 
     # --- headers ---
-    headers = cfg.get('headers')
+    headers = cfg['headers'] if 'headers' in cfg else None
     if isinstance(headers, dict):
         out['headers'] = {
             k: _convert_shell_vars(v) if isinstance(v, str) else v

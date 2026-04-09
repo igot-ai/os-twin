@@ -22,12 +22,11 @@
     },
     "memory": {
       "type": "local",
-      "command": [
-        "python",
-        "{env:AGENT_DIR}/mcp/memory-server.py"
-      ],
+      "command": ["python", "{env:AGENT_DIR}/A-mem-sys/mcp_server.py"],
       "environment": {
-        "AGENT_OS_ROOT": "{env:PROJECT_DIR}"
+        "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
+        "MEMORY_PERSIST_DIR": "./.memory",
+        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}"
       }
     },
     "chrome-devtools": {
@@ -37,7 +36,9 @@
         "-y",
         "chrome-devtools-mcp@latest"
       ],
-      "environment": {}
+      "environment": {
+        "PATH": "{env:PATH}"
+      }
     },
     "playwright": {
       "type": "local",
@@ -46,7 +47,9 @@
         "-y",
         "@playwright/mcp@latest"
       ],
-      "environment": {}
+      "environment": {
+        "PATH": "{env:PATH}"
+      }
     }
   }
 }

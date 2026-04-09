@@ -1,0 +1,20 @@
+{
+  "name": "frontend-video-engineer",
+  "description": "Build a responsive video watch page with an embedded player, metadata, dynamic comments, recommended videos, and comprehensive unit and integration tests.",
+  "capabilities": [
+    "frontend-development",
+    "single-page-application-routing",
+    "responsive-ui-design",
+    "async-api-integration",
+    "automated-testing"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}

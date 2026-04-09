@@ -196,6 +196,7 @@ Describe "Build-SystemPrompt" {
 
     Context "Error handling" {
         It "fails when no role specified" {
+            $ErrorActionPreference = 'Continue'
             $output = & $script:BuildPrompt 2>&1
             $output | Should -Match "must be specified"
         }

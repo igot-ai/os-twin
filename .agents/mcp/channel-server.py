@@ -41,7 +41,23 @@ MAX_BODY_BYTES = 65536
 
 # ── Module-level state ────────────────────────────────────────────────────────
 
-AGENT_OS_ROOT: str = os.environ.get("AGENT_OS_ROOT", ".")
+def _find_project_root() -> str:
+    """Find project root from env vars, falling back to CWD."""
+    for var in ("AGENT_OS_ROOT", "AGENT_OS_PROJECT_DIR"):
+        val = os.environ.get(var, "")
+        if val and os.path.isabs(val) and os.path.isdir(val):
+            return val
+    return os.getcwd()
+
+AGENT_OS_ROOT: str = _find_project_root()
+
+
+def _resolve_room_dir(room_dir: str) -> str:
+    """Resolve room_dir relative to AGENT_OS_ROOT if not absolute."""
+    if os.path.isabs(room_dir):
+        return room_dir
+    return os.path.join(AGENT_OS_ROOT, room_dir)
+
 
 mcp = FastMCP("ostwin-channel", log_level="CRITICAL")
 
@@ -67,6 +83,7 @@ def post_message(
     if len(body) > MAX_BODY_BYTES:
         body = body[:MAX_BODY_BYTES] + f"\n[TRUNCATED: original {len(body)} bytes, max {MAX_BODY_BYTES}]"
 
+    room_dir = _resolve_room_dir(room_dir)
     os.makedirs(room_dir, exist_ok=True)
     channel_file = os.path.join(room_dir, "channel.jsonl")
 
@@ -125,6 +142,7 @@ def read_messages(
     matching messages. All filter parameters are optional and combinable.
     Returns an empty JSON array ("[]") if the channel file does not exist.
     """
+    room_dir = _resolve_room_dir(room_dir)
     channel_file = os.path.join(room_dir, "channel.jsonl")
 
     if not os.path.exists(channel_file):
@@ -168,6 +186,7 @@ def get_latest(
     Returns the message as a JSON string, or the string "null" if no
     message of that type exists or the file does not exist.
     """
+    room_dir = _resolve_room_dir(room_dir)
     channel_file = os.path.join(room_dir, "channel.jsonl")
 
     if not os.path.exists(channel_file):

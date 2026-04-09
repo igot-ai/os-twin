@@ -126,10 +126,11 @@ if ($env:PLAN_REVIEW_TIMEOUT_SECONDS) {
     $planReviewTimeout = [int]$config.manager.plan_review_timeout_seconds
 }
 
-# --- Resolve war-rooms directory ---
+# --- Resolve war-rooms directory (provisional — finalized after plan parsing) ---
 $warRoomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR }
                else { Join-Path $ProjectDir ".war-rooms" }
 $env:WARROOMS_DIR = $warRoomsDir
+$warRoomsDirFromEnv = [bool]$env:WARROOMS_DIR -and -not ($env:WARROOMS_DIR -eq (Join-Path $ProjectDir ".war-rooms"))
 
 # --- Bootstrap room-000 for plan negotiation ---
 $room000Dir = Join-Path $warRoomsDir "room-000"
@@ -243,6 +244,12 @@ if ($planContent -match '(?m)^working_dir:\s*(.+)$') {
     if ($globalWorkingDir -and (Test-Path $globalWorkingDir)) {
         $ProjectDir = (Resolve-Path $globalWorkingDir).Path
         Write-Host "  Project: $ProjectDir" -ForegroundColor DarkGray
+        # Re-resolve war-rooms dir to follow the plan's working_dir (unless explicitly set via env)
+        if (-not $warRoomsDirFromEnv) {
+            $warRoomsDir = Join-Path $ProjectDir ".war-rooms"
+            $env:WARROOMS_DIR = $warRoomsDir
+            $room000Dir = Join-Path $warRoomsDir "room-000"
+        }
     } elseif ($globalWorkingDir -and $globalWorkingDir -ne '...') {
         Write-Warning "working_dir '$globalWorkingDir' not found. Falling back to ProjectDir: $ProjectDir"
     }
@@ -470,6 +477,68 @@ $planId = $planId -replace '\.refined$', ''
 if (-not $planId -or $planId -eq 'PLAN.template') {
     if ($planContent -match '"plan_id"\s*:\s*"([^"]+)"') {
         $planId = $Matches[1]
+    }
+}
+
+# --- Register plan in the local registry so the dashboard can see it ---
+if (-not $DryRun) {
+    try {
+        $plansDir = Join-Path $agentsDir "plans"
+        if (-not (Test-Path $plansDir)) {
+            New-Item -ItemType Directory -Path $plansDir -Force | Out-Null
+        }
+
+        $registryPlanFile = Join-Path $plansDir "$planId.md"
+        $resolvedPlanFile = (Resolve-Path $PlanFile).Path
+        $resolvedRegistryFile = $null
+        if (Test-Path $registryPlanFile) {
+            $resolvedRegistryFile = (Resolve-Path $registryPlanFile).Path
+        }
+
+        if (-not $resolvedRegistryFile -or $resolvedRegistryFile -ne $resolvedPlanFile) {
+            $shouldCopy = $true
+            if (Test-Path $registryPlanFile) {
+                $srcTime = (Get-Item $PlanFile).LastWriteTimeUtc
+                $dstTime = (Get-Item $registryPlanFile).LastWriteTimeUtc
+                $shouldCopy = $srcTime -gt $dstTime
+            }
+            if ($shouldCopy) {
+                Copy-Item -Path $PlanFile -Destination $registryPlanFile -Force
+            }
+        }
+
+        $metaFile = Join-Path $plansDir "$planId.meta.json"
+        $meta = @{}
+        if (Test-Path $metaFile) {
+            try {
+                $existing = Get-Content $metaFile -Raw | ConvertFrom-Json
+                if ($existing) {
+                    foreach ($prop in $existing.PSObject.Properties) {
+                        $meta[$prop.Name] = $prop.Value
+                    }
+                }
+            } catch {
+                $meta = @{}
+            }
+        }
+
+        $title = $planId
+        if ($planContent -match '(?m)^#\s*(?:Plan|PLAN):\s*(.+)$') {
+            $title = $Matches[1].Trim()
+        }
+
+        $meta["plan_id"] = $planId
+        if ($title) { $meta["title"] = $title }
+        if (-not $meta["created_at"]) { $meta["created_at"] = (Get-Date).ToUniversalTime().ToString("o") }
+        if (-not $meta["status"] -or $meta["status"] -in @("draft","stored")) { $meta["status"] = "active" }
+        if ($ProjectDir) { $meta["working_dir"] = $ProjectDir }
+        if ($ProjectDir) { $meta["warrooms_dir"] = (Join-Path $ProjectDir ".war-rooms") }
+        $meta["launched_at"] = (Get-Date).ToUniversalTime().ToString("o")
+        $meta["source_plan_file"] = $PlanFile
+
+        $meta | ConvertTo-Json -Depth 10 | Out-File -FilePath $metaFile -Encoding utf8
+    } catch {
+        Write-Warning "Failed to register plan for dashboard: $_"
     }
 }
 

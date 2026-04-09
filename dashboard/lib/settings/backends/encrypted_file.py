@@ -42,7 +42,6 @@ except ImportError:
 # machine-specific and the file is already permission-locked).
 _KDF_SALT = b"ostwin-vault-kdf-salt-v1"
 _KDF_ITERATIONS = 480_000
-_DEFAULT_PASSPHRASE = b"ostwin-local-default-passphrase"
 
 
 class EncryptedFileBackend:
@@ -122,8 +121,12 @@ class EncryptedFileBackend:
                 decrypted = self._fernet.decrypt(raw)
                 return json.loads(decrypted)
             else:
-                logger.warning("cryptography not installed -- reading plaintext vault")
-                return json.loads(raw)
+                raise RuntimeError(
+                    "Cannot read encrypted vault: 'cryptography' package not installed. "
+                    "Install it with: pip install cryptography"
+                )
+        except RuntimeError:
+            raise
         except Exception:
             logger.warning("Failed to read vault file at %s", self.path)
             return {}
@@ -134,27 +137,42 @@ class EncryptedFileBackend:
         if self._fernet:
             payload = self._fernet.encrypt(payload)
         else:
-            logger.warning("cryptography not installed -- writing plaintext vault")
-        self.path.write_bytes(payload)
-        # Enforce restrictive file permissions
+            raise RuntimeError(
+                "Cannot write encrypted vault: 'cryptography' package not installed. "
+                "Install it with: pip install cryptography"
+            )
+        # Write with restrictive file permissions (0o600)
+        fd = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
-            self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0o600
-        except OSError:
-            pass  # Windows or permission issue
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+        # Ensure permissions are 0o600 even if the file already existed
+        os.chmod(str(self.path), 0o600)
 
 
 # -- module-level helpers ---------------------------------------------------
 
+
 def _build_fernet():
-    """Derive a Fernet instance from OSTWIN_VAULT_KEY or the default passphrase."""
+    """Derive a Fernet instance from OSTWIN_VAULT_KEY.
+
+    Raises RuntimeError if cryptography is unavailable or no key is set.
+    """
     if not _CRYPTO_AVAILABLE:
         return None
-    passphrase = os.environ.get("OSTWIN_VAULT_KEY", "").encode() or _DEFAULT_PASSPHRASE
+    vault_key = os.environ.get("OSTWIN_VAULT_KEY", "").encode()
+    if not vault_key:
+        logger.warning(
+            "OSTWIN_VAULT_KEY not set -- vault operations will fail until a key is configured. "
+            'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        )
+        return None
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=_KDF_SALT,
         iterations=_KDF_ITERATIONS,
     )
-    derived = kdf.derive(passphrase)
+    derived = kdf.derive(vault_key)
     return Fernet(base64.urlsafe_b64encode(derived))

@@ -10,6 +10,7 @@ Describe "Build-PlanningDAG" {
 
     Context "Input Validation" {
         It "fails when plan file doesn't exist" {
+            $ErrorActionPreference = 'Continue'
             $output = & $script:builder -PlanFile "/nonexistent/plan.md" 2>&1
             ($output -join "`n") | Should -Match "Plan file not found"
         }

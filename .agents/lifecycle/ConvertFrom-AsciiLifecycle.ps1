@@ -170,8 +170,9 @@ function ConvertFrom-AsciiLifecycle {
             $transitions['fail'] = 'manager-triage'
             $transitions['escalate'] = 'manager-triage'
         } else {
-            # Worker stages: done goes to next
+            # Worker stages: done/pass goes to next
             $transitions['done'] = $nextState
+            $transitions['pass'] = $nextState
         }
 
         $states[$stateName] = [ordered]@{

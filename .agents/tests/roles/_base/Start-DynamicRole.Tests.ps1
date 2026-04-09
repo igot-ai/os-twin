@@ -40,6 +40,16 @@ return @{
         New-Item -ItemType Directory -Path $script:roomDir -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:roomDir "pids") -Force | Out-Null
         
+        # Create mock evaluator-role directory so Build-SystemPrompt can find it
+        $agentsDir = (Resolve-Path (Join-Path (Resolve-Path "$PSScriptRoot/../../..").Path ".")).Path
+        $evalRoleDir = Join-Path $agentsDir "roles" "evaluator-role"
+        if (-not (Test-Path $evalRoleDir)) {
+            New-Item -ItemType Directory -Path $evalRoleDir -Force | Out-Null
+            @{ name = "evaluator-role"; instance_type = "evaluator"; skill_refs = @() } | ConvertTo-Json | Out-File (Join-Path $evalRoleDir "role.json") -Encoding utf8
+            "You are an evaluator role for testing." | Out-File (Join-Path $evalRoleDir "ROLE.md") -Encoding utf8
+            $script:createdEvalRole = $true
+        }
+        
         @"
 { "assignment": { "assigned_role": "evaluator-role" } }
 "@ | Out-File (Join-Path $script:roomDir "config.json") -Encoding utf8

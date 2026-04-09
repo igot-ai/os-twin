@@ -2,7 +2,6 @@
   "name": "manager",
   "description": "Manager \u2014 orchestrates war-rooms, routes work, handles retries, skill discovery, and release",
   "capabilities": [
-    "task-routing",
     "retry-management",
     "release-coordination",
     "deadlock-detection",

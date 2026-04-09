@@ -113,7 +113,11 @@ resolve_plan_id() {
   # If it's an existing file, use it directly — backward compat
   if [[ -f "$arg" ]]; then
     RESOLVED_PLAN_FILE="$arg"
-    RESOLVED_WORKING_DIR=""
+    # Parse working_dir from the plan file
+    RESOLVED_WORKING_DIR=$(grep -E "^\s*working_dir:\s*" "$arg" | head -n 1 | awk -F': ' '{print $2}' | xargs)
+    if [[ -z "$RESOLVED_WORKING_DIR" ]]; then
+      RESOLVED_WORKING_DIR=$(grep -E "^>\s*Project:\s*" "$arg" | head -n 1 | sed 's/^>\s*Project:\s*//' | xargs)
+    fi
     return 0
   fi
 
@@ -322,7 +326,7 @@ case "${1:-}" in
     for a in "$@"; do
       if [[ "$PLAN_ARG_RESOLVED" == false && ! "$a" =~ ^-- ]]; then
         if resolve_plan_id "$a"; then
-          RUN_ARGS+=("$RESOLVED_PLAN_FILE")
+          RUN_ARGS+=("--plan-file" "$RESOLVED_PLAN_FILE")
           if [[ -n "$RESOLVED_WORKING_DIR" ]]; then
             RUN_ARGS+=("--working-dir" "$RESOLVED_WORKING_DIR")
           fi
@@ -410,7 +414,7 @@ case "${1:-}" in
       fi
       if [[ ! -d "$RESOLVED_WORKING_DIR/.agents" ]]; then
         echo "🔧 Initializing project with ostwin init..."
-        ( cd "$RESOLVED_WORKING_DIR" && "$0" init . )
+        ( cd "$RESOLVED_WORKING_DIR" && "$AGENTS_DIR/bin/ostwin" init . )
       fi
     fi
 
@@ -604,11 +608,97 @@ else:
           exit 1
         fi
         ;;
+      clear)
+        shift
+        # ── ostwin plan clear [--force] ──
+        # Wipes all plans from the dashboard registry: deletes plan files
+        # in $OSTWIN_HOME/.agents/plans/ (keeping PLAN.template.md) and the
+        # zvec index at $OSTWIN_HOME/.zvec/plans_v2. Restarts the dashboard
+        # if it was running.
+        FORCE=false
+        for a in "$@"; do
+          case "$a" in
+            -f|--force|-y|--yes) FORCE=true ;;
+          esac
+        done
+
+        PLANS_DIR="$OSTWIN_HOME/.agents/plans"
+        ZVEC_PLANS="$OSTWIN_HOME/.zvec/plans_v2"
+
+        # Count what will be removed
+        FILE_COUNT=0
+        if [[ -d "$PLANS_DIR" ]]; then
+          FILE_COUNT=$(find "$PLANS_DIR" -maxdepth 1 -type f ! -name 'PLAN.template.md' 2>/dev/null | wc -l)
+        fi
+        ZVEC_EXISTS=false
+        [[ -d "$ZVEC_PLANS" ]] && ZVEC_EXISTS=true
+
+        if [[ "$FILE_COUNT" -eq 0 && "$ZVEC_EXISTS" == false ]]; then
+          echo "✓ No plans to clear (registry already empty)"
+          exit 0
+        fi
+
+        echo "Will clear:"
+        [[ "$FILE_COUNT" -gt 0 ]] && echo "  • $FILE_COUNT plan file(s) in $PLANS_DIR"
+        [[ "$ZVEC_EXISTS" == true ]] && echo "  • zvec index at $ZVEC_PLANS"
+
+        if [[ "$FORCE" != true ]]; then
+          echo -n "Proceed? [y/N] "
+          read -r REPLY
+          case "$REPLY" in
+            y|Y|yes|YES) ;;
+            *) echo "Cancelled."; exit 0 ;;
+          esac
+        fi
+
+        # Stop dashboard if running (zvec needs exclusive access)
+        DASHBOARD_PID=""
+        if [[ -f "$OSTWIN_HOME/dashboard.pid" ]]; then
+          DASHBOARD_PID=$(cat "$OSTWIN_HOME/dashboard.pid" 2>/dev/null)
+        fi
+        DASHBOARD_WAS_RUNNING=false
+        if [[ -n "$DASHBOARD_PID" ]] && kill -0 "$DASHBOARD_PID" 2>/dev/null; then
+          DASHBOARD_WAS_RUNNING=true
+          echo "→ Stopping dashboard (PID $DASHBOARD_PID)..."
+          kill "$DASHBOARD_PID" 2>/dev/null || true
+          # Wait up to 5s for clean shutdown
+          for _i in 1 2 3 4 5; do
+            kill -0 "$DASHBOARD_PID" 2>/dev/null || break
+            sleep 1
+          done
+          kill -9 "$DASHBOARD_PID" 2>/dev/null || true
+        fi
+
+        # Delete plan files (preserve template)
+        if [[ "$FILE_COUNT" -gt 0 ]]; then
+          find "$PLANS_DIR" -maxdepth 1 -type f ! -name 'PLAN.template.md' -delete
+          echo "✓ Deleted $FILE_COUNT plan file(s)"
+        fi
+
+        # Nuke zvec index
+        if [[ "$ZVEC_EXISTS" == true ]]; then
+          rm -rf "$ZVEC_PLANS"
+          echo "✓ Cleared zvec plans index"
+        fi
+
+        # Restart dashboard if it was running
+        if [[ "$DASHBOARD_WAS_RUNNING" == true ]]; then
+          echo "→ Restarting dashboard..."
+          mkdir -p "$OSTWIN_HOME/logs"
+          nohup bash "$AGENTS_DIR/dashboard.sh" \
+            --background --port 9000 --project-dir "$OSTWIN_HOME" \
+            > "$OSTWIN_HOME/logs/dashboard.log" 2>&1 &
+          echo "  PID $!"
+        fi
+
+        echo "✓ All plans cleared"
+        ;;
       *)
         echo "Unknown plan subcommand: $SUB" >&2
         echo "  Usage: ostwin plan create [Title] [--file FILE]" >&2
         echo "         ostwin plan start [plan-file]" >&2
         echo "         ostwin plan list" >&2
+        echo "         ostwin plan clear [--force]" >&2
         exit 1
         ;;
     esac
@@ -635,9 +725,11 @@ else:
     ;;
   dashboard)
     shift
-    # Default project-dir to cwd if not specified
+    # Default project-dir to $OSTWIN_HOME (~/.ostwin) so the dashboard always
+    # sees the global plan registry. Users can override with --project-dir
+    # to scope it to a specific project's .agents/plans/.
     if ! echo "$*" | grep -q -- "--project-dir"; then
-      exec "$AGENTS_DIR/dashboard.sh" --project-dir "$(pwd)" "$@"
+      exec "$AGENTS_DIR/dashboard.sh" --project-dir "$OSTWIN_HOME" "$@"
     else
       exec "$AGENTS_DIR/dashboard.sh" "$@"
     fi

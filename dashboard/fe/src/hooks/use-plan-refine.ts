@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '/api';
+import { getApiBaseUrl } from '@/lib/runtime-config';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -33,6 +32,7 @@ export function usePlanRefine() {
       abortRef.current = abortController;
 
       try {
+        const BASE_URL = getApiBaseUrl();
         const res = await fetch(`${BASE_URL}/plans/refine/stream`, {
           method: 'POST',
           credentials: 'include',
@@ -96,6 +96,7 @@ export function usePlanRefine() {
         setError(msg);
 
         try {
+          const BASE_URL = getApiBaseUrl();
           const res = await fetch(`${BASE_URL}/plans/refine`, {
             method: 'POST',
             credentials: 'include',

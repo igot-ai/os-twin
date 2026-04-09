@@ -644,6 +644,164 @@ with open('$CONFIG_FILE', 'w') as f:
     json.dump({'mcp': merged_servers}, f, indent=2)
     f.write('\n')
 "
+  # Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} → absolute paths
+  local abs_project_dir
+  abs_project_dir="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
+  local env_mcp_file="$(dirname "$CONFIG_FILE")/.env.mcp"
+
+  export AGENT_DIR="$INSTALL_DIR"
+  export PROJECT_DIR="$abs_project_dir"
+
+  "$PYTHON" - <<PYEOF
+import json, os, re
+
+config_file = '$CONFIG_FILE'
+env_mcp_file = '$env_mcp_file'
+project_dir = '$abs_project_dir'
+
+# Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} in config.json
+with open(config_file) as f:
+    raw = f.read()
+raw = raw.replace('{env:AGENT_DIR}', '$INSTALL_DIR')
+raw = raw.replace('{env:PROJECT_DIR}', '$abs_project_dir')
+with open(config_file, 'w') as f:
+    f.write(raw)
+
+# Load .env.mcp for vault-derived secrets
+env_extra = {}
+if os.path.exists(env_mcp_file):
+    with open(env_mcp_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, _, v = line.partition('=')
+            env_extra[k.strip()] = v.strip()
+env_all = {**os.environ, **env_extra}
+
+def resolve_env_refs(text):
+    return re.sub(r'\{env:(\w+)\}', lambda m: env_all.get(m.group(1), m.group(0)), text)
+
+# Write .opencode/opencode.json
+# - command arrays: resolve ALL {env:*} to literal paths
+# - environment/headers: RESOLVE {env:*} to literal values from current env (drop only if unresolved)
+with open(config_file) as f:
+    config = json.load(f)
+
+import shutil
+python_abs = shutil.which('python') or shutil.which('python3') or 'python'
+
+env_ref_pattern = re.compile(r'\{env:\w+\}')
+resolved_mcp = {}
+for name, cfg in config.get('mcp', {}).items():
+    out = {}
+    for key, val in cfg.items():
+        if key == 'command' and isinstance(val, list):
+            resolved_cmd = []
+            for i, c in enumerate(val):
+                if isinstance(c, str):
+                    c = resolve_env_refs(c)
+                    if i == 0 and c in ('python', 'python3'):
+                        c = python_abs
+                resolved_cmd.append(c)
+            out[key] = resolved_cmd
+        elif key in ('environment', 'headers') and isinstance(val, dict):
+            resolved_env = {}
+            for k, v in val.items():
+                if isinstance(v, str):
+                    rv = resolve_env_refs(v)
+                    # Only drop if still unresolved (env var not in current env)
+                    if env_ref_pattern.search(rv):
+                        continue
+                    resolved_env[k] = rv
+                else:
+                    resolved_env[k] = v
+            if resolved_env:
+                out[key] = resolved_env
+        elif key == 'url' and isinstance(val, str):
+            out[key] = resolve_env_refs(val)
+        else:
+            out[key] = val
+    resolved_mcp[name] = out
+
+opencode_dir = os.path.join(project_dir, '.opencode')
+os.makedirs(opencode_dir, exist_ok=True)
+opencode_file = os.path.join(opencode_dir, 'opencode.json')
+
+# Build permission ruleset that allows access to the parent directory of the project.
+parent_dir = os.path.dirname(project_dir.rstrip('/'))
+
+# Inject opencode agent definitions for every ostwin role.
+# OpenCode looks up agents by name when --agent is passed; if missing it
+# falls back to the default 'build' agent. Generating agent definitions here
+# avoids the "agent X not found" warning and lets each role have its own model.
+agents = {}
+ostwin_config_path = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'config.json')
+if os.path.exists(ostwin_config_path):
+    try:
+        with open(ostwin_config_path) as f:
+            ostwin_cfg = json.load(f)
+        for role_name, role_cfg in ostwin_cfg.items():
+            if not isinstance(role_cfg, dict) or 'default_model' not in role_cfg:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': role_cfg['default_model'],
+                'description': role_cfg.get('description', f'{role_name} agent'),
+            }
+            for inst_name, inst_cfg in role_cfg.get('instances', {}).items():
+                full_name = f'{role_name}-{inst_name}'
+                agents[full_name] = {
+                    'mode': 'primary',
+                    'model': inst_cfg.get('default_model', role_cfg['default_model']),
+                    'description': inst_cfg.get('display_name', f'{role_name} {inst_name}'),
+                }
+    except (json.JSONDecodeError, OSError):
+        pass
+
+# Also pull in roles from ~/.ostwin/.agents/roles/<name>/role.json (covers
+# dynamically-created roles like database-architect that aren't in config.json)
+roles_dir = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'roles')
+if os.path.isdir(roles_dir):
+    for role_name in os.listdir(roles_dir):
+        if role_name.startswith('_') or role_name in agents:
+            continue
+        role_json = os.path.join(roles_dir, role_name, 'role.json')
+        if not os.path.exists(role_json):
+            continue
+        try:
+            with open(role_json) as f:
+                rj = json.load(f)
+            model = rj.get('model') or rj.get('default_model')
+            if not model:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': model,
+                'description': rj.get('description', f'{role_name} agent'),
+            }
+        except (json.JSONDecodeError, OSError):
+            pass
+
+opencode_config = {
+    "\$schema": "https://opencode.ai/config.json",
+    "mcp": resolved_mcp,
+    "permission": {
+        "external_directory": {
+            f"{parent_dir}/*": "allow",
+            f"{parent_dir}/**": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/*": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/**": "allow",
+        },
+    },
+}
+if agents:
+    opencode_config["agent"] = agents
+
+with open(opencode_file, 'w') as f:
+    json.dump(opencode_config, f, indent=2)
+    f.write('\n')
+PYEOF
 }
 
 cmd_sync() {
@@ -998,7 +1156,7 @@ merged_builtin = {"mcp": {}}
 merged_builtin["mcp"].update(normalized_builtin)
 
 resolver = ConfigResolver()
-compiled_config, env_vars = resolver.compile_config(home_config, merged_builtin)
+compiled_config, env_vars = resolver.compile_config(home_config, merged_builtin, project_dir=project_dir)
 
 # Ensure directory exists
 os.makedirs(mcp_dir, exist_ok=True)
@@ -1040,8 +1198,183 @@ print(f'  ✓ Generated {env_mcp_file}')
 print(f'  ✓ Generated {manifest_file}')
 PYEOF
 
-  # MCP servers are loaded to the global config at ~/.config/opencode/opencode.json
-  # by install.sh — no project-local .opencode/opencode.json is created.
+  # ── Resolve placeholders and write .opencode/opencode.json ──
+  # OpenCode does NOT understand {env:VAR} — all placeholders must be resolved
+  # to literal values before writing the final config.
+  local abs_project_dir
+  abs_project_dir="$(cd "$project_dir" 2>/dev/null && pwd || echo "$project_dir")"
+  local env_mcp_file="$project_dir/.agents/mcp/.env.mcp"
+
+  # Export known path vars so the Python resolver can find them
+  export AGENT_DIR="$INSTALL_DIR"
+  export PROJECT_DIR="$abs_project_dir"
+
+  "$PYTHON" - <<PYEOF
+import json, os, re
+
+project_dir = '$abs_project_dir'
+config_file = os.path.join(project_dir, '.agents', 'mcp', 'config.json')
+env_mcp_file = '$env_mcp_file'
+
+# Load .env.mcp (vault-derived secrets) into a lookup dict
+env_extra = {}
+if os.path.exists(env_mcp_file):
+    with open(env_mcp_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, _, v = line.partition('=')
+            env_extra[k.strip()] = v.strip()
+
+# Build unified env: real env + .env.mcp overrides
+env_all = {**os.environ, **env_extra}
+
+def resolve_env_refs(text):
+    """Replace ALL {env:VAR} with resolved values from environment."""
+    def _repl(m):
+        var = m.group(1)
+        return env_all.get(var, m.group(0))
+    return re.sub(r'\{env:(\w+)\}', _repl, text)
+
+# 1. Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} in config.json (internal copy)
+with open(config_file) as f:
+    raw = f.read()
+raw = raw.replace('{env:AGENT_DIR}', '$INSTALL_DIR')
+raw = raw.replace('{env:PROJECT_DIR}', '$abs_project_dir')
+with open(config_file, 'w') as f:
+    f.write(raw)
+
+# 2. Write .opencode/opencode.json
+# - command arrays: resolve ALL {env:*} to literal paths
+# - environment/headers: STRIP {env:*} pass-throughs (server inherits parent env)
+#   to avoid writing secrets (API keys, tokens) to disk
+with open(config_file) as f:
+    config = json.load(f)
+
+import shutil
+
+# Resolve bare "python" to absolute path (from activated venv) so OpenCode can find it
+python_abs = shutil.which('python') or shutil.which('python3') or 'python'
+
+env_ref_pattern = re.compile(r'\{env:\w+\}')
+resolved_mcp = {}
+for name, cfg in config.get('mcp', {}).items():
+    out = {}
+    for key, val in cfg.items():
+        if key == 'command' and isinstance(val, list):
+            # Resolve {env:*} and bare "python" to absolute paths
+            resolved_cmd = []
+            for i, c in enumerate(val):
+                if isinstance(c, str):
+                    c = resolve_env_refs(c)
+                    # Resolve bare executable (first element) to absolute path
+                    if i == 0 and c in ('python', 'python3'):
+                        c = python_abs
+                resolved_cmd.append(c)
+            out[key] = resolved_cmd
+        elif key in ('environment', 'headers') and isinstance(val, dict):
+            # Resolve {env:*} to literal values; drop entries that stay unresolved
+            resolved_env = {}
+            for k, v in val.items():
+                if isinstance(v, str):
+                    rv = resolve_env_refs(v)
+                    if env_ref_pattern.search(rv):
+                        continue
+                    resolved_env[k] = rv
+                else:
+                    resolved_env[k] = v
+            if resolved_env:
+                out[key] = resolved_env
+        elif key == 'url' and isinstance(val, str):
+            out[key] = resolve_env_refs(val)
+        else:
+            out[key] = val
+    resolved_mcp[name] = out
+
+opencode_dir = os.path.join(project_dir, '.opencode')
+opencode_file = os.path.join(opencode_dir, 'opencode.json')
+os.makedirs(opencode_dir, exist_ok=True)
+
+parent_dir = os.path.dirname(project_dir.rstrip('/'))
+
+# Inject opencode agent definitions for every ostwin role.
+agents = {}
+ostwin_config_path = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'config.json')
+if os.path.exists(ostwin_config_path):
+    try:
+        with open(ostwin_config_path) as f:
+            ostwin_cfg = json.load(f)
+        for role_name, role_cfg in ostwin_cfg.items():
+            if not isinstance(role_cfg, dict) or 'default_model' not in role_cfg:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': role_cfg['default_model'],
+                'description': role_cfg.get('description', f'{role_name} agent'),
+            }
+            for inst_name, inst_cfg in role_cfg.get('instances', {}).items():
+                full_name = f'{role_name}-{inst_name}'
+                agents[full_name] = {
+                    'mode': 'primary',
+                    'model': inst_cfg.get('default_model', role_cfg['default_model']),
+                    'description': inst_cfg.get('display_name', f'{role_name} {inst_name}'),
+                }
+    except (json.JSONDecodeError, OSError):
+        pass
+
+roles_dir = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'roles')
+if os.path.isdir(roles_dir):
+    for role_name in os.listdir(roles_dir):
+        if role_name.startswith('_') or role_name in agents:
+            continue
+        role_json = os.path.join(roles_dir, role_name, 'role.json')
+        if not os.path.exists(role_json):
+            continue
+        try:
+            with open(role_json) as f:
+                rj = json.load(f)
+            model = rj.get('model') or rj.get('default_model')
+            if not model:
+                continue
+            agents[role_name] = {
+                'mode': 'primary',
+                'model': model,
+                'description': rj.get('description', f'{role_name} agent'),
+            }
+        except (json.JSONDecodeError, OSError):
+            pass
+
+opencode_config = {
+    "\$schema": "https://opencode.ai/config.json",
+    "mcp": resolved_mcp,
+    "permission": {
+        "external_directory": {
+            f"{parent_dir}/*": "allow",
+            f"{parent_dir}/**": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/*": "allow",
+            f"{os.path.expanduser('~')}/.ostwin/**": "allow",
+        },
+    },
+}
+if agents:
+    opencode_config["agent"] = agents
+
+with open(opencode_file, 'w') as f:
+    json.dump(opencode_config, f, indent=2)
+    f.write('\n')
+
+# Warn about unresolved refs in command arrays
+cmd_unresolved = []
+for name, cfg in resolved_mcp.items():
+    for c in cfg.get('command', []):
+        if isinstance(c, str) and env_ref_pattern.search(c):
+            cmd_unresolved.append(c)
+if cmd_unresolved:
+    print(f'  ⚠ Unresolved in commands (set these vars): {", ".join(sorted(set(cmd_unresolved)))}')
+
+print(f'  ✓ Generated {opencode_file}')
+PYEOF
 }
 
 # ─── HELP ────────────────────────────────────────────────────────────────────

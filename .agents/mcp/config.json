@@ -28,12 +28,10 @@
     },
     "memory": {
       "type": "local",
-      "command": [
-        "python",
-        "{env:HOME}/.ostwin/.agents/mcp/memory-server.py"
-      ],
+      "command": ["python", "{env:HOME}/.ostwin/A-mem-sys/mcp_server.py"],
       "environment": {
         "AGENT_OS_ROOT": "{env:AGENT_OS_PROJECT_DIR}",
+        "MEMORY_PERSIST_DIR": "./.memory",
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
         "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
         "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
@@ -58,6 +56,28 @@
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
         "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
         "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
+      }
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "environment": {
+        "PATH": "{env:PATH}"
+      }
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "environment": {
+        "PATH": "{env:PATH}"
       }
     }
   }

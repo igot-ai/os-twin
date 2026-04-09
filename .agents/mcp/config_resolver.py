@@ -16,6 +16,7 @@ except ImportError:
 # Regex to match ${vault:server/key}
 VAULT_REF_PATTERN = re.compile(r"\$\{vault:([^/]+)/([^}]+)\}")
 
+
 class ConfigResolver:
     def __init__(self):
         self.vault = get_vault()
@@ -35,7 +36,9 @@ class ConfigResolver:
                 server, key = match.groups()
                 secret = self.vault.get(server, key)
                 if secret is None:
-                    raise ValueError(f"Vault reference not found: ${{vault:{server}/{key}}}")
+                    raise ValueError(
+                        f"Vault reference not found: ${{vault:{server}/{key}}}"
+                    )
                 # Replace the entire reference with the secret
                 # Note: this only supports one reference per string for now
                 return obj.replace(match.group(0), secret)
@@ -67,19 +70,157 @@ class ConfigResolver:
             for match in VAULT_REF_PATTERN.finditer(obj):
                 refs.append(match.groups())
 
-    def compile_config(self, home_config: Dict[str, Any], builtin_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    # Simple ${VAR} — no nested braces allowed in the name
+    _SIMPLE_VAR = re.compile(r"\$\{([A-Za-z_]\w*)\}")
+    # ${VAR:-default} where default has NO nested ${...} (already resolved by prior pass)
+    _DEFAULT_VAR = re.compile(r"\$\{([A-Za-z_]\w*):-([^$}]*)\}")
+
+    def compile_config(
+        self,
+        home_config: Dict[str, Any],
+        builtin_config: Dict[str, Any],
+        agent_dir: str = None,
+        project_dir: str = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """
         Compiles home config + builtin config into project config.
-        Replaces ${vault:server/key} with ${ENV_VAR} and returns the env var mapping.
+        Resolves all ${VAR}, ${VAR:-default}, ${vault:server/key}, and {env:VAR} references.
         Uses OpenCode format: top-level "mcp" key, "type"/"command" array/"environment"/"url".
+        Returns the compiled config and env var mapping.
         """
         # Merge configs (OpenCode format uses "mcp" as top-level key)
         # Also accept legacy "mcpServers" key to avoid silently dropping servers during upgrade
         compiled_config = {"mcp": {}}
-        compiled_config["mcp"].update(builtin_config.get("mcp", builtin_config.get("mcpServers", {})))
-        compiled_config["mcp"].update(home_config.get("mcp", home_config.get("mcpServers", {})))
+        compiled_config["mcp"].update(
+            builtin_config.get("mcp", builtin_config.get("mcpServers", {}))
+        )
+        compiled_config["mcp"].update(
+            home_config.get("mcp", home_config.get("mcpServers", {}))
+        )
+
+        # Build known variable values for ${VAR} resolution
+        home = os.path.expanduser("~")
+        if agent_dir is None:
+            agent_dir = os.path.join(home, ".ostwin")
+        # project_dir parameter takes precedence over os.getcwd()
+        # (callers pass --project-dir which becomes the project_dir kwarg)
+        if project_dir is None:
+            project_dir = os.getcwd()
+
+        known_vars = {
+            "HOME": home,
+            "AGENT_DIR": agent_dir,
+            "PROJECT_DIR": project_dir,
+            "AGENT_OS_PROJECT_DIR": project_dir,
+            "OSTWIN_PYTHON": os.path.join(agent_dir, ".venv", "bin", "python"),
+        }
+        # Also pull from actual environment for any other vars
+        for k, v in os.environ.items():
+            if k not in known_vars:
+                known_vars[k] = v
+
+        # Auto-load env vars from .env files so `ostwin init` can resolve
+        # placeholders like {env:GOOGLE_API_KEY} without requiring the user
+        # to export them in their shell. Search order (later wins):
+        #   1. ~/.ostwin/.env (global ostwin secrets)
+        #   2. <agent_dir>/.env (deploy-specific)
+        #   3. <project_dir>/.env (project-specific)
+        #   4. <agent_dir>/mcp/.env.mcp (MCP-specific)
+        def _load_env_file(path):
+            if not os.path.exists(path):
+                return
+            try:
+                with open(path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, _, v = line.partition("=")
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k and k not in known_vars:
+                            known_vars[k] = v
+            except (OSError, IOError):
+                pass
+
+        _load_env_file(os.path.join(home, ".ostwin", ".env"))
+        _load_env_file(os.path.join(agent_dir, ".env"))
+        _load_env_file(os.path.join(project_dir, ".env"))
+        _load_env_file(os.path.join(agent_dir, ".agents", "mcp", ".env.mcp"))
+
+        # Also scan shell rc files for `export VAR=value` lines.
+        # Useful for users who keep secrets in ~/.bashrc / ~/.zshrc instead of .env.
+        _shell_export_re = re.compile(
+            r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)\s*$"
+        )
+
+        def _load_shell_rc(path):
+            if not os.path.exists(path):
+                return
+            try:
+                with open(path) as f:
+                    for line in f:
+                        m = _shell_export_re.match(line)
+                        if not m:
+                            continue
+                        k = m.group(1)
+                        v = m.group(2).strip().strip('"').strip("'")
+                        # Strip inline comments
+                        if " #" in v:
+                            v = v.split(" #")[0].rstrip()
+                        if k and k not in known_vars:
+                            known_vars[k] = v
+            except (OSError, IOError):
+                pass
+
+        for rc in (".bashrc", ".zshrc", ".profile", ".bash_profile"):
+            _load_shell_rc(os.path.join(home, rc))
 
         env_vars = {}
+
+        # OpenCode {env:VAR} pattern
+        opencode_var = re.compile(r"\{env:(\w+)\}")
+
+        def _resolve_bash_vars(s: str) -> str:
+            """Resolve ${VAR}, ${VAR:-default}, and {env:VAR} patterns.
+            Strategy: resolve innermost simple ${VAR} first, then ${VAR:-default} on next pass.
+            Also handles OpenCode-style {env:VAR}."""
+            for _ in range(5):  # max passes
+                prev = s
+
+                # Pass A: resolve simple ${VAR}
+                def _replace_simple(m):
+                    var_name = m.group(1)
+                    value = known_vars.get(var_name)
+                    if value is not None:
+                        return value
+                    return m.group(0)
+
+                s = self._SIMPLE_VAR.sub(_replace_simple, s)
+
+                # Pass B: resolve ${VAR:-default}
+                def _replace_default(m):
+                    var_name = m.group(1)
+                    default = m.group(2)
+                    value = known_vars.get(var_name)
+                    if value is not None:
+                        return value
+                    return default
+
+                s = self._DEFAULT_VAR.sub(_replace_default, s)
+
+                # Pass C: resolve OpenCode {env:VAR}
+                def _replace_opencode(m):
+                    var_name = m.group(1)
+                    value = known_vars.get(var_name)
+                    if value is not None:
+                        return value
+                    return m.group(0)
+
+                s = opencode_var.sub(_replace_opencode, s)
+                if s == prev:
+                    break
+            return s
 
         def _compile_recursive(obj, server_name):
             if isinstance(obj, dict):
@@ -87,25 +228,54 @@ class ConfigResolver:
             elif isinstance(obj, list):
                 return [_compile_recursive(v, server_name) for v in obj]
             elif isinstance(obj, str):
+                # 1. Resolve vault references first
                 match = VAULT_REF_PATTERN.search(obj)
                 if match:
                     server, key = match.groups()
                     secret = self.vault.get(server, key)
-                    if secret is None:
-                        # If we can't find it in vault, we'll leave it as is for now
-                        pass
-
-                    # ENV var naming convention: MCP_{SERVER}_{KEY} (uppercased, sanitized)
+                    # ENV var naming convention: MCP_{SERVER}_{KEY}
                     # Use OpenCode {env:VAR} syntax for variable references
-                    env_name = f"MCP_{server.upper()}_{key.upper()}".replace("-", "_").replace(".", "_")
+                    env_name = f"MCP_{server.upper()}_{key.upper()}".replace(
+                        "-", "_"
+                    ).replace(".", "_")
                     env_vars[env_name] = secret or ""
-                    return obj.replace(match.group(0), f"{{env:{env_name}}}")
+                    obj = obj.replace(match.group(0), f"{{env:{env_name}}}")
+
+                # 2. Resolve ${VAR} and ${VAR:-default} patterns
+                return _resolve_bash_vars(obj)
             return obj
 
         for name, server_cfg in compiled_config["mcp"].items():
             compiled_config["mcp"][name] = _compile_recursive(server_cfg, name)
 
+        # Clean up + resolve relative paths in environment/env values
+        _unresolved_re = re.compile(r"\$\{[^}]+\}|\{env:[^}]+\}")
+        for name, server_cfg in compiled_config["mcp"].items():
+            # Support both "environment" (OpenCode) and "env" (legacy)
+            for env_key in ("environment", "env"):
+                if env_key in server_cfg and isinstance(server_cfg[env_key], dict):
+                    # Drop entries that still contain unresolved ${VAR} or {env:VAR} placeholders
+                    server_cfg[env_key] = {
+                        k: v
+                        for k, v in server_cfg[env_key].items()
+                        if not (isinstance(v, str) and _unresolved_re.search(v))
+                    }
+                    # Resolve relative paths to absolute project_dir
+                    for k, v in server_cfg[env_key].items():
+                        if (
+                            isinstance(v, str)
+                            and not os.path.isabs(v)
+                            and (v == "." or v.startswith("./"))
+                        ):
+                            if v == ".":
+                                server_cfg[env_key][k] = project_dir
+                            else:
+                                server_cfg[env_key][k] = os.path.join(
+                                    project_dir, v[2:]
+                                )
+
         return compiled_config, env_vars
+
 
 if __name__ == "__main__":
     # Test script
@@ -115,10 +285,7 @@ if __name__ == "__main__":
             "test": {
                 "type": "local",
                 "command": ["python", "-m", "server"],
-                "environment": {
-                    "API_KEY": "${vault:test/API_KEY}",
-                    "OTHER": "plain"
-                }
+                "environment": {"API_KEY": "${vault:test/API_KEY}", "OTHER": "plain"},
             }
         }
     }

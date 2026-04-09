@@ -1,0 +1,22 @@
+{
+  "name": "search-recs-engineer",
+  "description": "Develop the video search engine and recommendation system algorithms for the home feed and watch page.",
+  "capabilities": [
+    "machine-learning",
+    "search-algorithms",
+    "python",
+    "recommendation-systems",
+    "data-science",
+    "backend-development"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skills": [
+    "global",
+    "roles"
+  ],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "gemini-3-flash-preview",
+  "timeout": 600
+}
