@@ -228,9 +228,9 @@ def _read_cached_raw() -> Optional[Dict[str, Any]]:
 
 
 def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
-    """Read auth.json + opencode.json to discover configured providers.
+    """Read auth.json + opencode.json + env vars to discover configured providers.
 
-    Returns ``{provider_id: {type, key?, ...}}``.
+    Returns ``{provider_id: {type, source, has_key, ...}}``.
     """
     providers: Dict[str, Dict[str, Any]] = {}
 
@@ -264,14 +264,52 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Failed to read opencode.json: %s", exc)
 
+    # 3. Env-based providers -- Google authenticates via env vars loaded
+    #    from ~/.ostwin/.env, NOT via auth.json.  Detect it here.
+    if "google" not in providers:
+        has_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
+        has_api_key = bool(os.environ.get("GOOGLE_API_KEY"))
+        has_creds = bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+        if has_gcp or has_api_key or has_creds:
+            providers["google"] = {
+                "type": "env",
+                "source": "env",
+                "has_key": True,
+                "deployment_mode": _read_google_deployment_mode(),
+            }
+
     return providers
 
 
-# When a provider is configured, also pull models from these companion
-# provider IDs in models.dev.  The companion models use a prefixed id
-# (e.g. "google-vertex/gemini-...") so they don't collide.
-_COMPANION_PROVIDERS: Dict[str, List[str]] = {
-    "google": ["google-vertex", "google-vertex-anthropic"],
+def _read_google_deployment_mode() -> str:
+    """Read the Google deployment mode from .agents/config.json.
+
+    Returns ``"vertex"`` or ``"gemini"`` (default).
+    """
+    try:
+        from dashboard.api_utils import AGENTS_DIR
+        config_path = AGENTS_DIR / "config.json"
+        if config_path.exists():
+            config = json.loads(config_path.read_text())
+            return config.get("providers", {}).get("google", {}).get(
+                "deployment_mode", "vertex"
+            )
+    except Exception:
+        pass
+    # If GOOGLE_CLOUD_PROJECT is set, assume vertex
+    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        return "vertex"
+    return "gemini"
+
+
+# Companion providers keyed by (provider_id, deployment_mode).
+# When Google is in Vertex mode, pull from google-vertex + google-vertex-anthropic.
+# When Google is in Gemini mode, only the base "google" catalog is used.
+_COMPANION_PROVIDERS: Dict[str, Dict[str, List[str]]] = {
+    "google": {
+        "vertex": ["google-vertex", "google-vertex-anthropic"],
+        "gemini": [],  # base catalog only
+    },
 }
 
 
@@ -366,7 +404,15 @@ def _build_configured_models(
                 }
 
         # ── 2) Ingest companion provider models ───────────────────
-        for companion_id in _COMPANION_PROVIDERS.get(provider_id, []):
+        # Select companions based on deployment mode (e.g. vertex vs gemini)
+        mode = provider_cfg.get("deployment_mode", "")
+        companions_by_mode = _COMPANION_PROVIDERS.get(provider_id, {})
+        companion_ids = companions_by_mode.get(mode, []) if mode else []
+        # If no mode-specific entry, try a flat list fallback
+        if not companion_ids and isinstance(companions_by_mode, list):
+            companion_ids = companions_by_mode
+
+        for companion_id in companion_ids:
             companion = raw_catalog.get(companion_id)
             if companion is None:
                 continue
