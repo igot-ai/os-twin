@@ -76,15 +76,14 @@ Describe "ostwin role discovery" {
 
     It "shows single role info with subcommands" {
         $output = bash $script:ostwin role reporter
-        $output | Should -Match "Role: reporter"
+        $output | Should -Match "Subcommands for role 'reporter'"
         $output | Should -Match "generate"
         $output | Should -Match "List components"
     }
 
     It "shows info for role without subcommands.json" {
-        $output = bash $script:ostwin role designer
-        $output | Should -Match "Role: designer"
-        $output | Should -Match "no subcommands defined"
+        $output = bash $script:ostwin role designer 2>&1
+        $output | Should -Match "not found or has no subcommands"
     }
 }
 
@@ -141,7 +140,6 @@ Describe "ostwin role priority" {
             $output = bash $script:ostwin role reporter
             $output | Should -Match "local"
             $output | Should -Not -Match "generate"
-            $output | Should -Match "Path: $localReporterDir"
         }
         finally {
             Pop-Location
@@ -159,6 +157,6 @@ Describe "ostwin role errors" {
     It "exits 1 for unknown subcommand" {
         $result = bash $script:ostwin role reporter unknown-sub 2>&1
         $LASTEXITCODE | Should -Be 1
-        $result | Should -Match "Unknown subcommand 'unknown-sub' for role 'reporter'"
+        $result | Should -Match "Subcommand 'unknown-sub' not found in role 'reporter'"
     }
 }

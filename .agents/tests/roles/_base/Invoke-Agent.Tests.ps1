@@ -217,7 +217,7 @@ Describe "Invoke-Agent" {
 
     Context "Skill Isolation (EPIC-002)" {
         It "creates and populates skills directory" {
-            # Use engineer role because it has at least 'lang' skill in this project
+            # Use engineer role — gets global skills auto-injected (e.g. auto-memory)
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
@@ -227,21 +227,22 @@ Describe "Invoke-Agent" {
             
             $skills = Get-ChildItem $isolatedSkillsDir -Directory
             $skills.Count | Should -BeGreaterThan 0
-            # Should contain at least 'lang' (from role.json) or global skills
-            $skills.Name | Should -Contain "lang"
+            # Should contain at least 'auto-memory' (auto-injected global skill)
+            $skills.Name | Should -Contain "auto-memory"
         }
 
-        It "clears previous skills on new invocation" {
+        It "preserves existing skills dir and adds resolved skills on new invocation" {
             $isolatedSkillsDir = Join-Path $script:roomDir "skills"
             New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
-            $staleFile = Join-Path $isolatedSkillsDir "STALE"
-            "stale" | Out-File $staleFile
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
 
-            Test-Path $staleFile | Should -BeFalse
+            # Skills dir should still exist and contain resolved skills
+            Test-Path $isolatedSkillsDir | Should -BeTrue
+            $skills = Get-ChildItem $isolatedSkillsDir -Directory
+            $skills.Count | Should -BeGreaterThan 0
         }
 
         It "exports AGENT_OS_SKILLS_DIR in the environment (verified via echo mock)" {

@@ -35,6 +35,11 @@ jobs:
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module Pester -MinimumVersion 5.7.0 -Force -Scope CurrentUser
 
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          pip install httpx
+
       - name: Run all Pester tests
         shell: pwsh
         run: |
