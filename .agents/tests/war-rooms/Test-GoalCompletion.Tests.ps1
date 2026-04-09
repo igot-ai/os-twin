@@ -208,6 +208,7 @@ Describe "Test-GoalCompletion" {
 
     Context "Error handling" {
         It "fails when config.json is missing" {
+            $ErrorActionPreference = 'Continue'
             $badRoom = Join-Path $TestDrive "no-config-room"
             New-Item -ItemType Directory -Path $badRoom -Force | Out-Null
 

@@ -48,6 +48,7 @@ Describe "Wait-ForMessage" {
 
     Context "Timeout" {
         It "exits with error after timeout when no matching message" {
+            $ErrorActionPreference = 'Continue'
             # Post a non-matching message
             & $script:PostMessage -RoomDir $script:roomDir -From "manager" -To "engineer" `
                                   -Type "task" -Ref "TASK-001" -Body "Do something"

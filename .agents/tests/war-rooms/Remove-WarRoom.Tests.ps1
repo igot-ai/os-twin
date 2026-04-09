@@ -34,6 +34,7 @@ Describe "Remove-WarRoom" {
 
     Context "Error handling" {
         It "fails when room doesn't exist" {
+            $ErrorActionPreference = 'Continue'
             $output = & $script:RemoveWarRoom -RoomId "nonexistent" -WarRoomsDir $script:warRoomsDir 2>&1
             $output | Should -Match "not found"
         }

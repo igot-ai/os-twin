@@ -140,11 +140,13 @@ Describe "Get-RoleDefinition" {
 
     Context "Error handling" {
         It "fails when path doesn't exist" {
+            $ErrorActionPreference = 'Continue'
             $output = & $script:GetRoleDef -RolePath "/nonexistent/path" 2>&1
             $output | Should -Match "not found"
         }
 
         It "fails when neither path nor name provided" {
+            $ErrorActionPreference = 'Continue'
             $output = & $script:GetRoleDef 2>&1
             $output | Should -Match "not found"
         }
