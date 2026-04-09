@@ -467,7 +467,7 @@ class AgenticMemorySystem:
             print(f"Error analyzing content: {e}")
             return {"keywords": [], "context": "General", "tags": []}
 
-    def add_note(self, content: str, time: str = None, **kwargs) -> str:
+    def add_note(self, content: str, time: Optional[str] = None, **kwargs) -> str:
         """Add a new memory note"""
         # Create MemoryNote without llm_controller
         if time is not None:

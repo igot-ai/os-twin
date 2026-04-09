@@ -40,6 +40,27 @@ jobs:
         run: |
           pip install httpx
 
+      - name: Debug Build-DependencyGraph
+        shell: pwsh
+        run: |
+          $f = '.agents/plan/Build-DependencyGraph.ps1'
+          Write-Host "Exists: $(Test-Path $f)"
+          Write-Host "Size: $((Get-Item $f).Length)"
+          # Try parsing the file
+          $tokens = $null; $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $f).Path, [ref]$tokens, [ref]$errors
+          )
+          Write-Host "Parse errors: $($errors.Count)"
+          foreach ($e in $errors) { Write-Host "  ERROR: $($e.Message)" }
+          # Try running it
+          try {
+              $result = & (Resolve-Path $f).Path -Nodes @()
+              Write-Host "Run OK, result count: $($result.Count)"
+          } catch {
+              Write-Host "Run FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+          }
+
       - name: Run all Pester tests
         shell: pwsh
         run: |

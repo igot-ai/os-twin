@@ -304,7 +304,7 @@ async def list_memory_notes(
 @router.get("/api/amem/{plan_id}/notes/{note_id}")
 async def get_memory_note(
     plan_id: str, note_id: str, user: dict = Depends(get_current_user)
-):
+) -> dict:
     """Get a single memory note by ID."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
