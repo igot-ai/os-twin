@@ -222,7 +222,20 @@ function Test-PidAlive {
     $pid = [int]$pidStr
     try {
         $proc = Get-Process -Id $pid -ErrorAction Stop
-        return ($null -ne $proc)
+        if ($null -eq $proc) { return $false }
+
+        # On macOS/Linux, Get-Process returns zombie processes (state Z/?).
+        # A zombie has exited but hasn't been reaped — it will never produce
+        # output, so we must treat it as dead to prevent deadlocks.
+        # Check via kill -0 (signal 0 = test if process can receive signals).
+        # Zombies exist in the process table but cannot receive signals on
+        # some platforms, however kill -0 may still succeed for them.
+        # More reliable: check if the process has a valid working set (RSS).
+        if ($proc.WorkingSet64 -eq 0 -and $proc.VirtualMemorySize64 -eq 0) {
+            # Process exists but has no memory — it's a zombie
+            return $false
+        }
+        return $true
     }
     catch {
         return $false

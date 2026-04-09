@@ -29,6 +29,11 @@ node_modules/
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 **/__pycache__/**
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # ── Local data & secrets ──────────────────────────────────────────────────────
 .ostwin/mcp/mcp-config.json

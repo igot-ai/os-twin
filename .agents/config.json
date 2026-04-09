@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "project_name": "ostwin",
   "manager": {
-    "default_model": "google-vertex/gemini-3.1-pro-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "poll_interval_seconds": 5,
     "max_concurrent_rooms": 50,
     "max_engineer_retries": 10,
@@ -21,7 +21,7 @@
     ]
   },
   "architect": {
-    "default_model": "google-vertex/gemini-3.1-pro-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "cli": "agent",
     "shell_allow_list": "all",
     "auto_approve": true,
@@ -31,7 +31,7 @@
   },
   "engineer": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -40,7 +40,7 @@
     "instances": {
       "fe": {
         "display_name": "Frontend Engineer",
-        "default_model": "google-vertex/gemini-3.1-pro-preview",
+        "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
         "timeout_seconds": 2400,
         "working_dir": "dashboard",
         "skills": [
@@ -52,7 +52,7 @@
       },
       "be": {
         "display_name": "Backend Engineer",
-        "default_model": "google-vertex/gemini-3-flash-preview",
+        "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
         "timeout_seconds": 1200,
         "working_dir": "api",
         "skills": [
@@ -66,7 +66,7 @@
   },
   "technical-writer": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -75,7 +75,7 @@
   },
   "tech-artist": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -84,7 +84,7 @@
   },
   "editor": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 600,
@@ -93,7 +93,7 @@
   },
   "reporter": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -101,7 +101,7 @@
   },
   "qa": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3-flash-preview",
+    "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
     "approval_mode": "auto-approve",
     "timeout_seconds": 600,
     "no_mcp": true

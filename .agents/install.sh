@@ -463,62 +463,50 @@ setup_venv() {
   # Always sync requirements — even if the venv was reused.
   # This ensures newly added packages are installed
   # when a user re-runs install.sh after an update.
+  #
+  # Performance: all requirements files are collected and installed in a
+  # single pip/uv call so the resolver runs once instead of N times.
+  # We also keep the default cache (no --no-cache) to skip re-downloads
+  # on repeated runs, and use CPU-only torch to avoid the ~2GB GPU download.
 
-  # Install MCP requirements
+  local req_args=()
+
+  # Collect all requirements files that exist
   local requirements="$INSTALL_DIR/.agents/mcp/requirements.txt"
-  if [[ -f "$requirements" ]]; then
-    step "Syncing MCP dependencies..."
-    if check_uv; then
-      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
-        --python "$VENV_DIR/bin/python" -r "$requirements"
-    else
-      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$requirements"
-    fi
-    ok "MCP dependencies up to date"
-  fi
+  [[ -f "$requirements" ]] && req_args+=(-r "$requirements")
 
-  # Install Dashboard requirements
   local dash_reqs="$INSTALL_DIR/dashboard/requirements.txt"
-  if [[ -f "$dash_reqs" ]]; then
-    step "Syncing dashboard dependencies..."
-    if check_uv; then
-      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
-        --python "$VENV_DIR/bin/python" -r "$dash_reqs"
-    else
-      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$dash_reqs"
-    fi
-    ok "Dashboard dependencies up to date"
-  fi
+  [[ -f "$dash_reqs" ]] && req_args+=(-r "$dash_reqs")
 
-  # Install Memory/indexing requirements (CocoIndex, pgvector, etc.)
   local memory_reqs="$INSTALL_DIR/.agents/memory/requirements.txt"
-  if [[ -f "$memory_reqs" ]]; then
-    step "Syncing memory/indexing dependencies..."
-    if check_uv; then
-      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache \
-        --python "$VENV_DIR/bin/python" -r "$memory_reqs"
-    else
-      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$memory_reqs"
-    fi
-    ok "Memory/indexing dependencies up to date"
-  fi
+  [[ -f "$memory_reqs" ]] && req_args+=(-r "$memory_reqs")
 
-  # Install role-specific requirements (e.g. roles/reporter/requirements.txt)
+  # Collect role-specific requirements
   local roles_dir="$INSTALL_DIR/.agents/roles"
   if [[ -d "$roles_dir" ]]; then
     for role_reqs in "$roles_dir"/*/requirements.txt; do
       [[ -f "$role_reqs" ]] || continue
-      local role_name
-      role_name=$(basename "$(dirname "$role_reqs")")
-      step "Syncing $role_name role dependencies..."
-      if check_uv; then
-        TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache --prerelease=allow \
-          --python "$VENV_DIR/bin/python" -r "$role_reqs"
-      else
-        "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$role_reqs"
-      fi
-      ok "$role_name role dependencies up to date"
+      req_args+=(-r "$role_reqs")
     done
+  fi
+
+  if [[ ${#req_args[@]} -eq 0 ]]; then
+    warn "No requirements files found — skipping dependency sync"
+  else
+    step "Syncing all Python dependencies (single resolver pass)..."
+    if check_uv; then
+      # Use CPU-only PyTorch index to avoid downloading ~2GB GPU builds.
+      # Packages that don't exist in the CPU index fall through to PyPI.
+      TMPDIR=/tmp uv pip install --quiet --upgrade --prerelease=allow \
+        --python "$VENV_DIR/bin/python" \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        "${req_args[@]}"
+    else
+      "$VENV_DIR/bin/pip" install --quiet --upgrade \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        "${req_args[@]}"
+    fi
+    ok "All Python dependencies up to date"
   fi
 }
 
@@ -1448,10 +1436,15 @@ echo ""
 # ─── 3. Build Next.js dashboard ─────────────────────────────────────────────
 
 if ! $DASHBOARD_ONLY; then
-  header "3. Building Next.js dashboard"
-  build_nextjs
-  header "3b. Building dashboard frontend (fe)"
-  build_dashboard_fe
+  header "3. Building dashboards (parallel)"
+  # Run both builds in parallel — each logs its own status via ok()/warn()
+  build_nextjs &
+  pid_nextjs=$!
+  build_dashboard_fe &
+  pid_fe=$!
+  # Wait for both; capture exit codes without aborting (set -e safe)
+  wait "$pid_nextjs" 2>/dev/null && ok "Next.js dashboard build finished" || warn "Next.js dashboard build had issues"
+  wait "$pid_fe"     2>/dev/null && ok "Dashboard FE build finished"      || warn "Dashboard FE build had issues"
 else
   header "3. Building dashboard frontend (fe)"
   build_dashboard_fe
