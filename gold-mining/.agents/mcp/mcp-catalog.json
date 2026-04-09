@@ -1,0 +1,17 @@
+{
+  "catalog_version": "1.1.0",
+  "description": "Predefined MCP extension packages supported by Ostwin. Users install by name: ostwin mcp install <name>",
+  "packages": {
+    "chrome-devtools": {
+      "repo": "https://github.com/ChromeDevTools/chrome-devtools-mcp.git",
+      "branch": "main",
+      "description": "Chrome DevTools for coding agents — inspect, navigate, and debug web pages",
+      "build_type": "npx",
+      "config": {
+        "type": "local",
+        "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+        "environment": {}
+      }
+    }
+  }
+}

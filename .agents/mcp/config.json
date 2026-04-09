@@ -57,6 +57,28 @@
         "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
         "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
       }
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "environment": {
+        "PATH": "{env:PATH}"
+      }
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "environment": {
+        "PATH": "{env:PATH}"
+      }
     }
   }
 }

@@ -839,20 +839,40 @@ with open(cfg_path) as f:
 with open(builtin_path) as f:
     builtin = json.load(f)
 
-cfg_servers = config.setdefault("mcpServers", {})
-builtin_servers = builtin.get("mcpServers", {})
+cfg_servers = config.setdefault("mcp", config.get("mcpServers", {}))
+builtin_servers = builtin.get("mcp", builtin.get("mcpServers", {}))
 
 added = []
+updated = []
 for name, server in builtin_servers.items():
     if name not in cfg_servers:
         cfg_servers[name] = server
         added.append(name)
+        continue
 
-if added:
+    existing = cfg_servers[name]
+    if not isinstance(existing, dict) or not isinstance(server, dict):
+        continue
+
+    if "environment" in server:
+        env = existing.get("environment")
+        if not isinstance(env, dict):
+            existing["environment"] = server["environment"]
+            updated.append(name)
+        elif not env and server["environment"]:
+            existing["environment"] = server["environment"]
+            updated.append(name)
+
+if added or updated:
     with open(cfg_path, "w") as f:
         json.dump(config, f, indent=2)
         f.write("\n")
-    print(f"    Added {len(added)} new server(s): {', '.join(added)}")
+    parts = []
+    if added:
+        parts.append(f"added {len(added)} new server(s): {', '.join(added)}")
+    if updated:
+        parts.append(f"updated {len(updated)} existing server(s): {', '.join(updated)}")
+    print(f"    {'; '.join(parts)}")
 else:
     print("    All built-in servers already present")
 MERGE_EOF
@@ -984,8 +1004,11 @@ compute_build_hash() {
     find "$INSTALL_DIR" \
       -type f \
       ! -path "$INSTALL_DIR/.venv/*" \
+      ! -path "*/.venv/*" \
+      ! -path "$INSTALL_DIR/.zvec/*" \
       ! -path "$INSTALL_DIR/logs/*" \
       ! -path "$INSTALL_DIR/node_modules/*" \
+      ! -path "*/node_modules/*" \
       ! -path "*/__pycache__/*" \
       ! -name "*.pid" \
       ! -name ".env" \

@@ -358,7 +358,7 @@ function MemoryGraph({
         style={{
           borderColor: 'var(--color-border)',
           background: 'var(--color-background)',
-          color: 'var(--color-text-secondary)',
+          color: 'var(--color-text-muted)',
         }}>
         {nodes.length} nodes · {data.links.length} links · {Math.round(zoom * 100)}%
       </div>
@@ -403,7 +403,7 @@ function MemoryGraph({
                 key={linkKey}
                 d={`M ${src.x} ${src.y} Q ${controlX} ${controlY} ${tgt.x} ${tgt.y}`}
                 fill="none"
-                stroke="var(--color-text-secondary)"
+                stroke="var(--color-text-muted)"
                 strokeOpacity={opacity}
                 strokeWidth={strokeWidth}
               />
@@ -500,7 +500,7 @@ const markdownComponents = {
     <h3 className="text-[13px] font-semibold mt-3 mb-1.5" style={{ color: 'var(--color-text-main)' }} {...p}>{children}</h3>
   ),
   h4: ({ children, ...p }: any) => (
-    <h4 className="text-[12px] font-semibold uppercase tracking-wide mt-3 mb-1" style={{ color: 'var(--color-text-secondary)' }} {...p}>{children}</h4>
+    <h4 className="text-[12px] font-semibold uppercase tracking-wide mt-3 mb-1" style={{ color: 'var(--color-text-muted)' }} {...p}>{children}</h4>
   ),
   p: ({ children, ...p }: any) => (
     <p className="text-[13px] leading-relaxed mb-2" style={{ color: 'var(--color-text-main)' }} {...p}>{children}</p>
@@ -526,7 +526,7 @@ const markdownComponents = {
   blockquote: ({ children, ...p }: any) => (
     <blockquote
       className="border-l-2 pl-3 my-2 italic text-[12px]"
-      style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}
+      style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-muted)' }}
       {...p}
     >
       {children}
@@ -589,7 +589,7 @@ function NoteDetail({ note }: { note: GraphNode | null }) {
       <div className="p-8 text-center h-full flex flex-col items-center justify-center"
         style={{ color: 'var(--color-text-muted)' }}>
         <span className="material-symbols-outlined text-[48px] mb-3 opacity-30">psychology</span>
-        <p className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+        <p className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-muted)' }}>
           No memory selected
         </p>
         <p className="text-xs opacity-70">
@@ -666,7 +666,7 @@ function NoteDetail({ note }: { note: GraphNode | null }) {
             style={{
               borderLeftColor: note.color,
               background: 'var(--color-background)',
-              color: 'var(--color-text-secondary)',
+              color: 'var(--color-text-muted)',
             }}>
             <p className="text-[9px] uppercase tracking-widest mb-1 font-medium opacity-70">
               Context
@@ -731,7 +731,7 @@ function NoteDetail({ note }: { note: GraphNode | null }) {
                   className="px-2 py-1 rounded-md text-[10px] border"
                   style={{
                     borderColor: 'var(--color-border)',
-                    color: 'var(--color-text-secondary)',
+                    color: 'var(--color-text-muted)',
                     background: 'var(--color-background)',
                   }}
                 >
@@ -763,7 +763,7 @@ function NoteDetail({ note }: { note: GraphNode | null }) {
         </div>
         {note.category && (
           <span className="px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider"
-            style={{ background: 'var(--color-background)', color: 'var(--color-text-secondary)' }}>
+            style={{ background: 'var(--color-background)', color: 'var(--color-text-muted)' }}>
             {note.category}
           </span>
         )}
@@ -991,11 +991,11 @@ export default function MemoryTab() {
                 {stats.total_notes} notes
               </span>
               <span className="px-2 py-0.5 rounded-md text-[11px] font-medium"
-                style={{ background: 'var(--color-background-alt)', color: 'var(--color-text-secondary)' }}>
+                style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' }}>
                 {stats.total_tags} tags
               </span>
               <span className="px-2 py-0.5 rounded-md text-[11px] font-medium"
-                style={{ background: 'var(--color-background-alt)', color: 'var(--color-text-secondary)' }}>
+                style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' }}>
                 {graphData.links.length} links
               </span>
             </div>
@@ -1022,7 +1022,7 @@ export default function MemoryTab() {
           </div>
           <button
             onClick={fetchData}
-            className="p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-background-alt)]"
+            className="p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-surface-hover)]"
             style={{ borderColor: 'var(--color-border)' }}
             title="Refresh"
           >
@@ -1043,7 +1043,7 @@ export default function MemoryTab() {
             {graphData.groups.map(g => (
               <div key={g.id} className="flex items-center gap-2 px-2 py-1">
                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: g.color }} />
-                <span className="text-[11px] truncate" style={{ color: 'var(--color-text-secondary)' }}>
+                <span className="text-[11px] truncate" style={{ color: 'var(--color-text-muted)' }}>
                   {g.label}
                 </span>
               </div>
@@ -1095,7 +1095,7 @@ export default function MemoryTab() {
 
         {/* Right: detail panel */}
         <div className="flex-shrink-0 rounded-2xl border overflow-hidden ml-2"
-          style={{ borderColor: 'var(--color-border)', background: 'var(--color-background-alt)', width: rightWidth }}>
+          style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-hover)', width: rightWidth }}>
           <NoteDetail note={selectedNode} />
         </div>
       </div>
