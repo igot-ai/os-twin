@@ -27,7 +27,14 @@ completion = None
 
 def _ensure_ml_imports():
     """Import heavy ML libraries on first use."""
-    global SentenceTransformer, AutoModel, AutoTokenizer, word_tokenize, BM25Okapi, cosine_similarity, completion
+    global \
+        SentenceTransformer, \
+        AutoModel, \
+        AutoTokenizer, \
+        word_tokenize, \
+        BM25Okapi, \
+        cosine_similarity, \
+        completion
     if completion is not None:
         return  # already imported
     from sentence_transformers import SentenceTransformer as _ST
@@ -36,6 +43,7 @@ def _ensure_ml_imports():
     from rank_bm25 import BM25Okapi as _BM
     from sklearn.metrics.pairwise import cosine_similarity as _cs
     from litellm import completion as _comp
+
     SentenceTransformer = _ST
     AutoModel = _AM
     AutoTokenizer = _AT
@@ -43,6 +51,7 @@ def _ensure_ml_imports():
     BM25Okapi = _BM
     cosine_similarity = _cs
     completion = _comp
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,28 +62,30 @@ logger = logging.getLogger(__name__)
 
 class AgenticMemorySystem:
     """Core memory system that manages memory notes and their evolution.
-    
+
     This system provides:
     - Memory creation, retrieval, update, and deletion
     - Content analysis and metadata extraction
     - Memory evolution and relationship management
     - Hybrid search capabilities
     """
-    
-    def __init__(self,
-                 model_name: str = 'all-MiniLM-L6-v2',
-                 llm_backend: str = "openai",
-                 llm_model: str = "gpt-4o-mini",
-                 evo_threshold: int = 100,
-                 api_key: Optional[str] = None,
-                 sglang_host: str = "http://localhost",
-                 sglang_port: int = 30000,
-                 persist_dir: Optional[str] = None,
-                 embedding_backend: str = "sentence-transformer",
-                 vector_backend: str = "chroma",
-                 context_aware_analysis: bool = False,
-                 context_aware_tree: bool = False,
-                 max_links: Optional[int] = None):
+
+    def __init__(
+        self,
+        model_name: str = "all-MiniLM-L6-v2",
+        llm_backend: str = "openai",
+        llm_model: str = "gpt-4o-mini",
+        evo_threshold: int = 100,
+        api_key: Optional[str] = None,
+        sglang_host: str = "http://localhost",
+        sglang_port: int = 30000,
+        persist_dir: Optional[str] = None,
+        embedding_backend: str = "sentence-transformer",
+        vector_backend: str = "chroma",
+        context_aware_analysis: bool = False,
+        context_aware_tree: bool = False,
+        max_links: Optional[int] = None,
+    ):
         """Initialize the memory system.
 
         Args:
@@ -120,8 +131,9 @@ class AgenticMemorySystem:
             # In-memory mode: reset old ChromaDB collection
             try:
                 temp = ChromaRetriever(
-                    collection_name="memories", model_name=self.model_name,
-                    embedding_backend=self.embedding_backend
+                    collection_name="memories",
+                    model_name=self.model_name,
+                    embedding_backend=self.embedding_backend,
                 )
                 temp.client.reset()
             except Exception as e:
@@ -133,7 +145,9 @@ class AgenticMemorySystem:
             self._load_notes()
 
         # Initialize LLM controller
-        self.llm_controller = LLMController(llm_backend, llm_model, api_key, sglang_host, sglang_port)
+        self.llm_controller = LLMController(
+            llm_backend, llm_model, api_key, sglang_host, sglang_port
+        )
         self.evo_cnt = 0
         self.evo_threshold = evo_threshold
 
@@ -141,13 +155,17 @@ class AgenticMemorySystem:
         """Create the vector retriever based on configured backend."""
         if self.vector_backend == "zvec":
             return ZvecRetriever(
-                collection_name="memories", model_name=self.model_name,
-                persist_dir=self._vector_dir, embedding_backend=self.embedding_backend
+                collection_name="memories",
+                model_name=self.model_name,
+                persist_dir=self._vector_dir,
+                embedding_backend=self.embedding_backend,
             )
         else:
             return ChromaRetriever(
-                collection_name="memories", model_name=self.model_name,
-                persist_dir=self._vector_dir, embedding_backend=self.embedding_backend
+                collection_name="memories",
+                model_name=self.model_name,
+                persist_dir=self._vector_dir,
+                embedding_backend=self.embedding_backend,
             )
 
     # --- Persistence helpers ---
@@ -221,7 +239,7 @@ class AgenticMemorySystem:
 
     def _initialize_evolution_prompt(self):
         """Initialize the prompt used by the memory evolution flow."""
-        self._evolution_system_prompt = '''
+        self._evolution_system_prompt = """
                                 You are an AI memory evolution agent responsible for managing and evolving a knowledge base.
                                 Analyze the the new memory note according to keywords and context, also with their several nearest neighbors memory.
                                 Make decisions about its evolution.
@@ -251,7 +269,7 @@ class AgenticMemorySystem:
                                     "new_context_neighborhood": ["new context",...,"new context"],
                                     "new_tags_neighborhood": [["tag_1",...,"tag_n"],...["tag_1",...,"tag_n"]],
                                 }}
-                                '''
+                                """
 
     # Approximate word count threshold for generating summary.
     # all-MiniLM-L6-v2 supports 256 tokens; enhanced_document appends
@@ -277,7 +295,7 @@ class AgenticMemorySystem:
             lines = []
             items = list(node.items())
             for i, (name, children) in enumerate(items):
-                last = (i == len(items) - 1)
+                last = i == len(items) - 1
                 connector = "└── " if last else "├── "
                 lines.append(f"{prefix}{connector}{name}")
                 if children:
@@ -302,10 +320,10 @@ class AgenticMemorySystem:
         # 1. Find similar memories via vector search
         try:
             results = self.retriever.search(content, k=5)
-            if results.get('ids') and results['ids'][0]:
+            if results.get("ids") and results["ids"][0]:
                 similar = []
                 similar_tags = set()
-                for doc_id in results['ids'][0]:
+                for doc_id in results["ids"][0]:
                     mem = self.memories.get(doc_id)
                     if mem:
                         similar.append(f"{mem.name} (path: {mem.path})")
@@ -323,9 +341,7 @@ class AgenticMemorySystem:
         else:
             all_paths = sorted(set(m.path for m in self.memories.values() if m.path))
             if all_paths:
-                tree_paths = sorted(set(
-                    "/".join(p.split("/")[:2]) for p in all_paths
-                ))
+                tree_paths = sorted(set("/".join(p.split("/")[:2]) for p in all_paths))
                 lines.append(f"Existing directory tree: {', '.join(tree_paths)}")
 
         return "\n            ".join(lines)
@@ -366,7 +382,9 @@ class AgenticMemorySystem:
 
         context_section = ""
         if self.context_aware_analysis:
-            existing = self._get_existing_context(content, include_tree=self.context_aware_tree)
+            existing = self._get_existing_context(
+                content, include_tree=self.context_aware_tree
+            )
             if existing:
                 context_section = f"""
             IMPORTANT - Existing knowledge base context:
@@ -412,7 +430,7 @@ class AgenticMemorySystem:
                     // several broad categories/themes for classification
                     // Include domain, format, and type tags
                     // At least three tags, but don't be too redundant.
-                ]{', "summary": "..."' if needs_summary else ''}
+                ]{', "summary": "..."' if needs_summary else ""}
             }}
 
             Content for analysis:
@@ -425,28 +443,25 @@ class AgenticMemorySystem:
             "path": {
                 "type": "string",
             },
-            "keywords": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
+            "keywords": {"type": "array", "items": {"type": "string"}},
             "context": {
                 "type": "string",
             },
-            "tags": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
+            "tags": {"type": "array", "items": {"type": "string"}},
         }
         schema_properties.update(summary_schema)
 
         try:
-            response = self.llm_controller.llm.get_completion(prompt, response_format={"type": "json_schema", "json_schema": {
+            response = self.llm_controller.llm.get_completion(
+                prompt,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
                         "name": "response",
-                        "schema": {
-                            "type": "object",
-                            "properties": schema_properties
-                        }
-                    }})
+                        "schema": {"type": "object", "properties": schema_properties},
+                    },
+                },
+            )
             return json.loads(response)
         except Exception as e:
             print(f"Error analyzing content: {e}")
@@ -456,16 +471,16 @@ class AgenticMemorySystem:
         """Add a new memory note"""
         # Create MemoryNote without llm_controller
         if time is not None:
-            kwargs['timestamp'] = time
+            kwargs["timestamp"] = time
         note = MemoryNote(content=content, **kwargs)
-        
+
         # 🔧 LLM Analysis Enhancement: Auto-generate attributes using LLM if they are empty or default values
         needs_analysis = (
-            not note.keywords or  # keywords is empty list
-            note.context == "General" or  # context is default value
-            not note.tags  # tags is empty list
+            not note.keywords  # keywords is empty list
+            or note.context == "General"  # context is default value
+            or not note.tags  # tags is empty list
         )
-        
+
         if needs_analysis:
             analysis = self.analyze_content(content)
 
@@ -482,7 +497,7 @@ class AgenticMemorySystem:
                 note.tags = analysis.get("tags", [])
             if note.summary is None:
                 note.summary = analysis.get("summary")
-        
+
         # Add to memories before evolution so add_link can find it
         self.memories[note.id] = note
         evo_label, note = self.process_memory(note)
@@ -501,16 +516,16 @@ class AgenticMemorySystem:
             "evolution_history": note.evolution_history,
             "category": note.category,
             "tags": note.tags,
-            "summary": note.summary
+            "summary": note.summary,
         }
         self.retriever.add_document(note.content, metadata, note.id)
-        
+
         if evo_label == True:
             self.evo_cnt += 1
             if self.evo_cnt % self.evo_threshold == 0:
                 self.consolidate_memories()
         return note.id
-    
+
     def sync_from_disk(self) -> Dict:
         """Sync: read current persistent files → update in-memory state + vectordb.
 
@@ -633,10 +648,10 @@ class AgenticMemorySystem:
                 "evolution_history": memory.evolution_history,
                 "category": memory.category,
                 "tags": memory.tags,
-                "summary": memory.summary
+                "summary": memory.summary,
             }
             self.retriever.add_document(memory.content, metadata, memory.id)
-    
+
     def find_related_memories(self, query: str, k: int = 5) -> Tuple[str, List[str]]:
         """Find related memories using ChromaDB retrieval
 
@@ -654,11 +669,16 @@ class AgenticMemorySystem:
             memory_str = ""
             memory_ids = []
 
-            if 'ids' in results and results['ids'] and len(results['ids']) > 0 and len(results['ids'][0]) > 0:
-                for i, doc_id in enumerate(results['ids'][0]):
+            if (
+                "ids" in results
+                and results["ids"]
+                and len(results["ids"]) > 0
+                and len(results["ids"][0]) > 0
+            ):
+                for i, doc_id in enumerate(results["ids"][0]):
                     # Get metadata from ChromaDB results
-                    if i < len(results['metadatas'][0]):
-                        metadata = results['metadatas'][0][i]
+                    if i < len(results["metadatas"][0]):
+                        metadata = results["metadatas"][0][i]
                         # Format memory string with actual memory ID
                         memory_str += f"memory_id:{doc_id}\ttalk start time:{metadata.get('timestamp', '')}\tmemory content: {metadata.get('content', '')}\tmemory context: {metadata.get('context', '')}\tmemory keywords: {str(metadata.get('keywords', []))}\tmemory tags: {str(metadata.get('tags', []))}\n"
                         memory_ids.append(doc_id)
@@ -672,44 +692,44 @@ class AgenticMemorySystem:
         """Find related memories using ChromaDB retrieval in raw format"""
         if not self.memories:
             return ""
-            
+
         # Get results from ChromaDB
         results = self.retriever.search(query, k)
-        
+
         # Convert to list of memories
         memory_str = ""
-        
-        if 'ids' in results and results['ids'] and len(results['ids']) > 0:
-            for i, doc_id in enumerate(results['ids'][0][:k]):
-                if i < len(results['metadatas'][0]):
+
+        if "ids" in results and results["ids"] and len(results["ids"]) > 0:
+            for i, doc_id in enumerate(results["ids"][0][:k]):
+                if i < len(results["metadatas"][0]):
                     # Get metadata from ChromaDB results
-                    metadata = results['metadatas'][0][i]
-                    
+                    metadata = results["metadatas"][0][i]
+
                     # Add main memory info
                     memory_str += f"talk start time:{metadata.get('timestamp', '')}\tmemory content: {metadata.get('content', '')}\tmemory context: {metadata.get('context', '')}\tmemory keywords: {str(metadata.get('keywords', []))}\tmemory tags: {str(metadata.get('tags', []))}\n"
-                    
+
                     # Add linked memories if available
-                    links = metadata.get('links', [])
+                    links = metadata.get("links", [])
                     j = 0
                     for link_id in links:
                         if link_id in self.memories and j < k:
                             neighbor = self.memories[link_id]
                             memory_str += f"talk start time:{neighbor.timestamp}\tmemory content: {neighbor.content}\tmemory context: {neighbor.context}\tmemory keywords: {str(neighbor.keywords)}\tmemory tags: {str(neighbor.tags)}\n"
                             j += 1
-                            
+
         return memory_str
 
     def read(self, memory_id: str) -> Optional[MemoryNote]:
         """Retrieve a memory note by its ID.
-        
+
         Args:
             memory_id (str): ID of the memory to retrieve
-            
+
         Returns:
             MemoryNote if found, None otherwise
         """
         return self.memories.get(memory_id)
-    
+
     def update(self, memory_id: str, **kwargs) -> bool:
         """Update a memory note.
 
@@ -736,20 +756,20 @@ class AgenticMemorySystem:
                 setattr(note, key, value)
 
         # Re-analyze all metadata when content changes
-        if 'content' in kwargs:
+        if "content" in kwargs:
             analysis = self.analyze_content(note.content)
             # Only overwrite fields that were NOT explicitly provided in kwargs
-            if 'name' not in kwargs:
+            if "name" not in kwargs:
                 note.name = analysis.get("name", note.name)
-            if 'path' not in kwargs:
+            if "path" not in kwargs:
                 note.path = analysis.get("path", note.path)
-            if 'keywords' not in kwargs:
+            if "keywords" not in kwargs:
                 note.keywords = analysis.get("keywords", note.keywords)
-            if 'context' not in kwargs:
+            if "context" not in kwargs:
                 note.context = analysis.get("context", note.context)
-            if 'tags' not in kwargs:
+            if "tags" not in kwargs:
                 note.tags = analysis.get("tags", note.tags)
-            if 'summary' not in kwargs:
+            if "summary" not in kwargs:
                 note.summary = analysis.get("summary")
 
         # Delete old markdown file if filepath changed
@@ -779,16 +799,18 @@ class AgenticMemorySystem:
             "evolution_history": note.evolution_history,
             "category": note.category,
             "tags": note.tags,
-            "summary": note.summary
+            "summary": note.summary,
         }
 
         # Delete and re-add to update
         self.retriever.delete_document(memory_id)
-        self.retriever.add_document(document=note.content, metadata=metadata, doc_id=memory_id)
+        self.retriever.add_document(
+            document=note.content, metadata=metadata, doc_id=memory_id
+        )
         self._save_note(note)
 
         return True
-    
+
     def add_link(self, from_id: str, to_id: str):
         """Create a forward link from one note to another. Backlink is auto-created."""
         if from_id not in self.memories or to_id not in self.memories:
@@ -815,10 +837,10 @@ class AgenticMemorySystem:
 
     def delete(self, memory_id: str) -> bool:
         """Delete a memory note by its ID.
-        
+
         Args:
             memory_id (str): ID of the memory to delete
-            
+
         Returns:
             bool: True if memory was deleted, False if not found
         """
@@ -839,24 +861,26 @@ class AgenticMemorySystem:
             del self.memories[memory_id]
             return True
         return False
-    
+
     def _search_raw(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Internal search method that returns raw results from ChromaDB.
-        
+
         This is used internally by the memory evolution system to find
         related memories for potential evolution.
-        
+
         Args:
             query (str): The search query text
             k (int): Maximum number of results to return
-            
+
         Returns:
             List[Dict[str, Any]]: Raw search results from ChromaDB
         """
         results = self.retriever.search(query, k)
-        return [{'id': doc_id, 'score': score} 
-                for doc_id, score in zip(results['ids'][0], results['distances'][0])]
-                
+        return [
+            {"id": doc_id, "score": score}
+            for doc_id, score in zip(results["ids"][0], results["distances"][0])
+        ]
+
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Search for memories using a hybrid retrieval approach."""
         # Get results from ChromaDB (only do this once)
@@ -864,20 +888,22 @@ class AgenticMemorySystem:
         memories = []
 
         # Process ChromaDB results
-        for i, doc_id in enumerate(search_results['ids'][0]):
+        for i, doc_id in enumerate(search_results["ids"][0]):
             memory = self.memories.get(doc_id)
             if memory:
-                memories.append({
-                    'id': doc_id,
-                    'content': memory.content,
-                    'context': memory.context,
-                    'keywords': memory.keywords,
-                    'tags': memory.tags,
-                    'score': search_results['distances'][0][i]
-                })
+                memories.append(
+                    {
+                        "id": doc_id,
+                        "content": memory.content,
+                        "context": memory.context,
+                        "keywords": memory.keywords,
+                        "tags": memory.tags,
+                        "score": search_results["distances"][0][i],
+                    }
+                )
 
         return memories[:k]
-    
+
     def _search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Search for memories using a hybrid retrieval approach.
 
@@ -905,36 +931,40 @@ class AgenticMemorySystem:
         memories = []
 
         # Process ChromaDB results
-        for i, doc_id in enumerate(chroma_results['ids'][0]):
+        for i, doc_id in enumerate(chroma_results["ids"][0]):
             memory = self.memories.get(doc_id)
             if memory:
-                memories.append({
-                    'id': doc_id,
-                    'content': memory.content,
-                    'context': memory.context,
-                    'keywords': memory.keywords,
-                    'tags': memory.tags,
-                    'score': chroma_results['distances'][0][i]
-                })
+                memories.append(
+                    {
+                        "id": doc_id,
+                        "content": memory.content,
+                        "context": memory.context,
+                        "keywords": memory.keywords,
+                        "tags": memory.tags,
+                        "score": chroma_results["distances"][0][i],
+                    }
+                )
 
         # Get results from embedding retriever
         embedding_results = self.retriever.search(query, k)
 
         # Combine results with deduplication
-        seen_ids = set(m['id'] for m in memories)
+        seen_ids = set(m["id"] for m in memories)
         for result in embedding_results:
-            memory_id = result.get('id')
+            memory_id = result.get("id")
             if memory_id and memory_id not in seen_ids:
                 memory = self.memories.get(memory_id)
                 if memory:
-                    memories.append({
-                        'id': memory_id,
-                        'content': memory.content,
-                        'context': memory.context,
-                        'keywords': memory.keywords,
-                        'tags': memory.tags,
-                        'score': result.get('score', 0.0)
-                    })
+                    memories.append(
+                        {
+                            "id": memory_id,
+                            "content": memory.content,
+                            "context": memory.context,
+                            "keywords": memory.keywords,
+                            "tags": memory.tags,
+                            "score": result.get("score", 0.0),
+                        }
+                    )
                     seen_ids.add(memory_id)
 
         return memories[:k]
@@ -943,81 +973,93 @@ class AgenticMemorySystem:
         """Search for memories using ChromaDB retrieval."""
         if not self.memories:
             return []
-            
+
         try:
             # Get results from ChromaDB
             results = self.retriever.search(query, k)
-            
+
             # Process results
             memories = []
             seen_ids = set()
-            
+
             # Check if we have valid results
-            if ('ids' not in results or not results['ids'] or 
-                len(results['ids']) == 0 or len(results['ids'][0]) == 0):
+            if (
+                "ids" not in results
+                or not results["ids"]
+                or len(results["ids"]) == 0
+                or len(results["ids"][0]) == 0
+            ):
                 return []
-                
+
             # Process ChromaDB results
-            for i, doc_id in enumerate(results['ids'][0][:k]):
+            for i, doc_id in enumerate(results["ids"][0][:k]):
                 if doc_id in seen_ids:
                     continue
-                    
-                if i < len(results['metadatas'][0]):
-                    metadata = results['metadatas'][0][i]
-                    
+
+                if i < len(results["metadatas"][0]):
+                    metadata = results["metadatas"][0][i]
+
                     # Create result dictionary with all metadata fields
                     memory_dict = {
-                        'id': doc_id,
-                        'content': metadata.get('content', ''),
-                        'context': metadata.get('context', ''),
-                        'keywords': metadata.get('keywords', []),
-                        'tags': metadata.get('tags', []),
-                        'timestamp': metadata.get('timestamp', ''),
-                        'category': metadata.get('category', 'Uncategorized'),
-                        'is_neighbor': False
+                        "id": doc_id,
+                        "content": metadata.get("content", ""),
+                        "context": metadata.get("context", ""),
+                        "keywords": metadata.get("keywords", []),
+                        "tags": metadata.get("tags", []),
+                        "timestamp": metadata.get("timestamp", ""),
+                        "category": metadata.get("category", "Uncategorized"),
+                        "is_neighbor": False,
                     }
-                    
+
                     # Add score if available
-                    if 'distances' in results and len(results['distances']) > 0 and i < len(results['distances'][0]):
-                        memory_dict['score'] = results['distances'][0][i]
-                        
+                    if (
+                        "distances" in results
+                        and len(results["distances"]) > 0
+                        and i < len(results["distances"][0])
+                    ):
+                        memory_dict["score"] = results["distances"][0][i]
+
                     memories.append(memory_dict)
                     seen_ids.add(doc_id)
-            
+
             # Add linked memories (neighbors)
             neighbor_count = 0
-            for memory in list(memories):  # Use a copy to avoid modification during iteration
+            for memory in list(
+                memories
+            ):  # Use a copy to avoid modification during iteration
                 if neighbor_count >= k:
                     break
-                    
+
                 # Get links from metadata
-                links = memory.get('links', [])
-                if not links and 'id' in memory:
+                links = memory.get("links", [])
+                if not links and "id" in memory:
                     # Try to get links from memory object
-                    mem_obj = self.memories.get(memory['id'])
+                    mem_obj = self.memories.get(memory["id"])
                     if mem_obj:
                         links = mem_obj.links
-                        
+
                 for link_id in links:
                     if link_id not in seen_ids and neighbor_count < k:
                         neighbor = self.memories.get(link_id)
                         if neighbor:
-                            memories.append({
-                                'id': link_id,
-                                'content': neighbor.content,
-                                'context': neighbor.context,
-                                'keywords': neighbor.keywords,
-                                'tags': neighbor.tags,
-                                'timestamp': neighbor.timestamp,
-                                'category': neighbor.category,
-                                'is_neighbor': True
-                            })
+                            memories.append(
+                                {
+                                    "id": link_id,
+                                    "content": neighbor.content,
+                                    "context": neighbor.context,
+                                    "keywords": neighbor.keywords,
+                                    "tags": neighbor.tags,
+                                    "timestamp": neighbor.timestamp,
+                                    "category": neighbor.category,
+                                    "is_neighbor": True,
+                                }
+                            )
                             seen_ids.add(link_id)
                             neighbor_count += 1
-            
+
             return memories[:k]
         except Exception as e:
-            logger.error(f"Error in search_agentic: {str(e)}")
+            logger.error(f"Error in search_agentic: {e}")
             return []
 
     def process_memory(self, note: MemoryNote) -> Tuple[bool, MemoryNote]:
@@ -1047,65 +1089,62 @@ class AgenticMemorySystem:
                 context=note.context,
                 keywords=note.keywords,
                 nearest_neighbors_memories=neighbors_text,
-                neighbor_number=len(memory_ids)
+                neighbor_number=len(memory_ids),
             )
-            
+
             try:
                 response = self.llm_controller.llm.get_completion(
                     prompt,
-                    response_format={"type": "json_schema", "json_schema": {
-                        "name": "response",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "should_evolve": {
-                                    "type": "boolean"
-                                },
-                                "actions": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
-                                },
-                                "suggested_connections": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
-                                },
-                                "new_context_neighborhood": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
-                                },
-                                "tags_to_update": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
-                                },
-                                "new_tags_neighborhood": {
-                                    "type": "array",
-                                    "items": {
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "response",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "should_evolve": {"type": "boolean"},
+                                    "actions": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "suggested_connections": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "new_context_neighborhood": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "tags_to_update": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "new_tags_neighborhood": {
                                         "type": "array",
                                         "items": {
-                                            "type": "string"
-                                        }
-                                    }
-                                }
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                    },
+                                },
+                                "required": [
+                                    "should_evolve",
+                                    "actions",
+                                    "suggested_connections",
+                                    "tags_to_update",
+                                    "new_context_neighborhood",
+                                    "new_tags_neighborhood",
+                                ],
+                                "additionalProperties": False,
                             },
-                            "required": ["should_evolve", "actions", "suggested_connections", 
-                                      "tags_to_update", "new_context_neighborhood", "new_tags_neighborhood"],
-                            "additionalProperties": False
+                            "strict": True,
                         },
-                        "strict": True
-                    }}
+                    },
                 )
-                
+
                 response_json = json.loads(response)
                 should_evolve = response_json["should_evolve"]
-                
+
                 if should_evolve:
                     actions = response_json["actions"]
                     for action in actions:
@@ -1113,16 +1152,24 @@ class AgenticMemorySystem:
                             suggest_connections = response_json["suggested_connections"]
                             new_tags = response_json["tags_to_update"]
                             if self.max_links is not None:
-                                suggest_connections = suggest_connections[:self.max_links]
+                                suggest_connections = suggest_connections[
+                                    : self.max_links
+                                ]
                             for conn_id in suggest_connections:
                                 self.add_link(note.id, conn_id)
                             note.tags = new_tags
                         elif action == "update_neighbor":
-                            new_context_neighborhood = response_json["new_context_neighborhood"]
-                            new_tags_neighborhood = response_json["new_tags_neighborhood"]
+                            new_context_neighborhood = response_json[
+                                "new_context_neighborhood"
+                            ]
+                            new_tags_neighborhood = response_json[
+                                "new_tags_neighborhood"
+                            ]
 
                             # Update each neighbor memory using its actual ID
-                            for i in range(min(len(memory_ids), len(new_tags_neighborhood))):
+                            for i in range(
+                                min(len(memory_ids), len(new_tags_neighborhood))
+                            ):
                                 memory_id = memory_ids[i]
 
                                 # Skip if memory doesn't exist
@@ -1138,18 +1185,20 @@ class AgenticMemorySystem:
 
                                 # Update context
                                 if i < len(new_context_neighborhood):
-                                    neighbor_memory.context = new_context_neighborhood[i]
+                                    neighbor_memory.context = new_context_neighborhood[
+                                        i
+                                    ]
 
                                 # Save the updated memory back
                                 self.memories[memory_id] = neighbor_memory
                                 self._save_note(neighbor_memory)
 
                 return should_evolve, note
-                
+
             except (json.JSONDecodeError, KeyError, Exception) as e:
                 logger.error(f"Error in memory evolution: {str(e)}")
                 return False, note
-                
+
         except Exception as e:
             # For testing purposes, catch all exceptions and return the original note
             logger.error(f"Error in process_memory: {str(e)}")

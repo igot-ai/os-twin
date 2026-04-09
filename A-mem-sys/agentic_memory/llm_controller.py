@@ -6,11 +6,15 @@ import requests
 
 # Lazy import: litellm pulls in heavy ML deps at import time (~3s)
 completion = None
+
+
 def _ensure_litellm():
     global completion
     if completion is None:
         from litellm import completion as _c
+
         completion = _c
+
 
 class BaseLLMController(ABC):
     @abstractmethod
@@ -43,32 +47,43 @@ class BaseLLMController(ABC):
         if "properties" in schema:
             for prop_name, prop_schema in schema["properties"].items():
                 result[prop_name] = self._generate_empty_value(
-                    prop_schema["type"],
-                    prop_schema.get("items")
+                    prop_schema["type"], prop_schema.get("items")
                 )
 
         return result
+
 
 class OpenAIController(BaseLLMController):
     def __init__(self, model: str = "gpt-4", api_key: Optional[str] = None):
         try:
             from openai import OpenAI
+
             self.model = model
             if api_key is None:
-                api_key = os.getenv('OPENAI_API_KEY')
+                api_key = os.getenv("OPENAI_API_KEY")
             if api_key is None:
-                raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
+                raise ValueError(
+                    "OpenAI API key not found. Set OPENAI_API_KEY environment variable."
+                )
             self.client = OpenAI(api_key=api_key)
         except ImportError:
-            raise ImportError("OpenAI package not found. Install it with: pip install openai")
+            raise ImportError(
+                "OpenAI package not found. Install it with: pip install openai"
+            )
 
-    def get_completion(self, prompt: str, response_format: dict, temperature: float = 1.0, max_tokens: int = None) -> str:
+    def get_completion(
+        self,
+        prompt: str,
+        response_format: dict,
+        temperature: float = 1.0,
+        max_tokens: Optional[int] = None,
+    ) -> str:
         # Build kwargs dynamically based on model type
         kwargs = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": "You must respond with a JSON object."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             "response_format": response_format,
             "temperature": temperature,
@@ -76,7 +91,11 @@ class OpenAIController(BaseLLMController):
 
         # GPT-5 and newer reasoning models use max_completion_tokens
         if max_tokens is not None:
-            if "gpt-5" in self.model.lower() or "o1" in self.model.lower() or "o3" in self.model.lower():
+            if (
+                "gpt-5" in self.model.lower()
+                or "o1" in self.model.lower()
+                or "o3" in self.model.lower()
+            ):
                 kwargs["max_completion_tokens"] = max_tokens
             else:
                 kwargs["max_tokens"] = max_tokens
@@ -84,19 +103,26 @@ class OpenAIController(BaseLLMController):
         response = self.client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
+
 class OllamaController(BaseLLMController):
     def __init__(self, model: str = "llama2"):
         from ollama import chat
+
         self.model = model
 
-    def get_completion(self, prompt: str, response_format: dict, temperature: float = 1.0) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict, temperature: float = 1.0
+    ) -> str:
         try:
             _ensure_litellm()
             response = completion(
                 model="ollama_chat/{}".format(self.model),
                 messages=[
-                    {"role": "system", "content": "You must respond with a JSON object."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You must respond with a JSON object.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format=response_format,
             )
@@ -104,6 +130,7 @@ class OllamaController(BaseLLMController):
         except Exception as e:
             empty_response = self._generate_empty_response(response_format)
             return json.dumps(empty_response)
+
 
 class SGLangController(BaseLLMController):
     """LLM controller for SGLang server using HTTP requests.
@@ -116,13 +143,21 @@ class SGLangController(BaseLLMController):
         sglang_host: SGLang server host URL (default: "http://localhost")
         sglang_port: SGLang server port (default: 30000)
     """
-    def __init__(self, model: str = "llama2", sglang_host: str = "http://localhost", sglang_port: int = 30000):
+
+    def __init__(
+        self,
+        model: str = "llama2",
+        sglang_host: str = "http://localhost",
+        sglang_port: int = 30000,
+    ):
         self.model = model
         self.sglang_host = sglang_host
         self.sglang_port = sglang_port
         self.base_url = f"{sglang_host}:{sglang_port}"
 
-    def get_completion(self, prompt: str, response_format: dict, temperature: float = 1.0) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict, temperature: float = 1.0
+    ) -> str:
         try:
             json_schema = response_format.get("json_schema", {}).get("schema", {})
             json_schema_str = json.dumps(json_schema)
@@ -132,15 +167,15 @@ class SGLangController(BaseLLMController):
                 "sampling_params": {
                     "temperature": temperature,
                     "max_new_tokens": 1000,
-                    "json_schema": json_schema_str
-                }
+                    "json_schema": json_schema_str,
+                },
             }
 
             response = requests.post(
                 f"{self.base_url}/generate",
                 headers={"Content-Type": "application/json"},
                 json=payload,
-                timeout=60
+                timeout=60,
             )
 
             if response.status_code == 200:
@@ -148,13 +183,16 @@ class SGLangController(BaseLLMController):
                 generated_text = result.get("text", "")
                 return generated_text
             else:
-                print(f"SGLang server returned status {response.status_code}: {response.text}")
+                print(
+                    f"SGLang server returned status {response.status_code}: {response.text}"
+                )
                 raise Exception(f"SGLang server error: {response.status_code}")
 
         except Exception as e:
             print(f"SGLang completion error: {e}")
             empty_response = self._generate_empty_response(response_format)
             return json.dumps(empty_response)
+
 
 class OpenRouterController(BaseLLMController):
     """LLM controller for OpenRouter API using litellm.
@@ -176,7 +214,9 @@ class OpenRouterController(BaseLLMController):
         >>> controller = OpenRouterController("google/gemini-2.0-flash-001:free")
     """
 
-    def __init__(self, model: str = "openai/gpt-4o-mini", api_key: Optional[str] = None):
+    def __init__(
+        self, model: str = "openai/gpt-4o-mini", api_key: Optional[str] = None
+    ):
         # For litellm, prepend "openrouter/" if not already present
         if not model.startswith("openrouter/"):
             self.model = f"openrouter/{model}"
@@ -184,15 +224,19 @@ class OpenRouterController(BaseLLMController):
             self.model = model
 
         if api_key is None:
-            api_key = os.getenv('OPENROUTER_API_KEY')
+            api_key = os.getenv("OPENROUTER_API_KEY")
         if api_key is None:
-            raise ValueError("OpenRouter API key not found. Set OPENROUTER_API_KEY environment variable.")
+            raise ValueError(
+                "OpenRouter API key not found. Set OPENROUTER_API_KEY environment variable."
+            )
 
         # Set the environment variable for litellm to use
-        os.environ['OPENROUTER_API_KEY'] = api_key
+        os.environ["OPENROUTER_API_KEY"] = api_key
         self.api_key = api_key
 
-    def get_completion(self, prompt: str, response_format: dict, temperature: float = 1.0) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict, temperature: float = 1.0
+    ) -> str:
         """Get completion from OpenRouter API.
 
         Args:
@@ -208,17 +252,21 @@ class OpenRouterController(BaseLLMController):
             response = completion(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You must respond with a JSON object."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You must respond with a JSON object.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format=response_format,
-                temperature=temperature
+                temperature=temperature,
             )
             return response.choices[0].message.content
         except Exception as e:
             # Silently fall back to empty response on error
             empty_response = self._generate_empty_response(response_format)
             return json.dumps(empty_response)
+
 
 class GeminiController(BaseLLMController):
     """LLM controller for Google Gemini API using litellm.
@@ -236,24 +284,31 @@ class GeminiController(BaseLLMController):
             self.model = model
 
         if api_key is None:
-            api_key = os.getenv('GOOGLE_API_KEY')
+            api_key = os.getenv("GOOGLE_API_KEY")
         if api_key is None:
-            raise ValueError("Google API key not found. Set GOOGLE_API_KEY environment variable.")
+            raise ValueError(
+                "Google API key not found. Set GOOGLE_API_KEY environment variable."
+            )
 
-        os.environ['GEMINI_API_KEY'] = api_key
+        os.environ["GEMINI_API_KEY"] = api_key
         self.api_key = api_key
 
-    def get_completion(self, prompt: str, response_format: dict, temperature: float = 1.0) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict, temperature: float = 1.0
+    ) -> str:
         try:
             _ensure_litellm()
             response = completion(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You must respond with a JSON object."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You must respond with a JSON object.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format=response_format,
-                temperature=temperature
+                temperature=temperature,
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -266,12 +321,17 @@ class LLMController:
 
     Supports multiple backends: OpenAI, Ollama, SGLang, OpenRouter, and Gemini.
     """
-    def __init__(self,
-                 backend: Literal["openai", "ollama", "sglang", "openrouter", "gemini"] = "openai",
-                 model: str = "gpt-4",
-                 api_key: Optional[str] = None,
-                 sglang_host: str = "http://localhost",
-                 sglang_port: int = 30000):
+
+    def __init__(
+        self,
+        backend: Literal[
+            "openai", "ollama", "sglang", "openrouter", "gemini"
+        ] = "openai",
+        model: str = "gpt-4",
+        api_key: Optional[str] = None,
+        sglang_host: str = "http://localhost",
+        sglang_port: int = 30000,
+    ):
         if backend == "openai":
             self.llm = OpenAIController(model, api_key)
         elif backend == "ollama":
@@ -283,7 +343,11 @@ class LLMController:
         elif backend == "gemini":
             self.llm = GeminiController(model, api_key)
         else:
-            raise ValueError("Backend must be one of: 'openai', 'ollama', 'sglang', 'openrouter', 'gemini'")
+            raise ValueError(
+                "Backend must be one of: 'openai', 'ollama', 'sglang', 'openrouter', 'gemini'"
+            )
 
-    def get_completion(self, prompt: str, response_format: dict = None, temperature: float = 1.0) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
+    ) -> str:
         return self.llm.get_completion(prompt, response_format, temperature)

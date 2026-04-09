@@ -23,7 +23,11 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
     """ChromaDB embedding function using Gemini embedding models via litellm."""
 
     def __init__(self, model_name: str = "gemini-embedding-001"):
-        self.model_name = f"gemini/{model_name}" if not model_name.startswith("gemini/") else model_name
+        self.model_name = (
+            f"gemini/{model_name}"
+            if not model_name.startswith("gemini/")
+            else model_name
+        )
 
     def __call__(self, input: Documents) -> Embeddings:
         response = litellm.embedding(model=self.model_name, input=input)
@@ -40,8 +44,14 @@ def _create_embedding_function(embedding_backend: str, model_name: str):
 
 class ChromaRetriever:
     """Vector database retrieval using ChromaDB"""
-    def __init__(self, collection_name: str = "memories", model_name: str = "all-MiniLM-L6-v2",
-                 persist_dir: str = None, embedding_backend: str = "sentence-transformer"):
+
+    def __init__(
+        self,
+        collection_name: str = "memories",
+        model_name: str = "all-MiniLM-L6-v2",
+        persist_dir: str = None,
+        embedding_backend: str = "sentence-transformer",
+    ):
         """Initialize ChromaDB retriever.
 
         Args:
@@ -56,9 +66,13 @@ class ChromaRetriever:
             self.client = chromadb.Client(Settings(allow_reset=True))
         self.persist_dir = persist_dir
 
-        self.embedding_function = _create_embedding_function(embedding_backend, model_name)
-        self.collection = self.client.get_or_create_collection(name=collection_name, embedding_function=self.embedding_function)
-        
+        self.embedding_function = _create_embedding_function(
+            embedding_backend, model_name
+        )
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name, embedding_function=self.embedding_function
+        )
+
     def add_document(self, document: str, metadata: Dict, doc_id: str):
         """Add a document to ChromaDB with enhanced embedding using metadata.
 
@@ -69,25 +83,33 @@ class ChromaRetriever:
         """
         # Use summary for embedding when available (long content),
         # otherwise use original content
-        summary = metadata.get('summary')
+        summary = metadata.get("summary")
         enhanced_document = summary if summary else document
-        
+
         # Add context information
-        if 'context' in metadata and metadata['context'] != "General":
+        if "context" in metadata and metadata["context"] != "General":
             enhanced_document += f" context: {metadata['context']}"
-        
-        # Add keywords information    
-        if 'keywords' in metadata and metadata['keywords']:
-            keywords = metadata['keywords'] if isinstance(metadata['keywords'], list) else json.loads(metadata['keywords'])
+
+        # Add keywords information
+        if "keywords" in metadata and metadata["keywords"]:
+            keywords = (
+                metadata["keywords"]
+                if isinstance(metadata["keywords"], list)
+                else json.loads(metadata["keywords"])
+            )
             if keywords:
                 enhanced_document += f" keywords: {', '.join(keywords)}"
-        
+
         # Add tags information
-        if 'tags' in metadata and metadata['tags']:
-            tags = metadata['tags'] if isinstance(metadata['tags'], list) else json.loads(metadata['tags'])
+        if "tags" in metadata and metadata["tags"]:
+            tags = (
+                metadata["tags"]
+                if isinstance(metadata["tags"], list)
+                else json.loads(metadata["tags"])
+            )
             if tags:
                 enhanced_document += f" tags: {', '.join(tags)}"
-        
+
         # Convert MemoryNote object to serializable format
         processed_metadata = {}
         for key, value in metadata.items():
@@ -97,17 +119,15 @@ class ChromaRetriever:
                 processed_metadata[key] = json.dumps(value)
             else:
                 processed_metadata[key] = str(value)
-        
+
         # Store enhanced document content for better embedding
-        processed_metadata['enhanced_content'] = enhanced_document
-                
+        processed_metadata["enhanced_content"] = enhanced_document
+
         # Use enhanced document content for embedding generation
         self.collection.add(
-            documents=[enhanced_document],
-            metadatas=[processed_metadata],
-            ids=[doc_id]
+            documents=[enhanced_document], metadatas=[processed_metadata], ids=[doc_id]
         )
-        
+
     def clear(self):
         """Delete all documents and recreate the collection."""
         self.client.delete_collection("memories")
@@ -122,40 +142,46 @@ class ChromaRetriever:
             doc_id: ID of document to delete
         """
         self.collection.delete(ids=[doc_id])
-        
+
     def search(self, query: str, k: int = 5):
         """Search for similar documents.
-        
+
         Args:
             query: Query text
             k: Number of results to return
-            
+
         Returns:
             Dict with documents, metadatas, ids, and distances
         """
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=k
-        )
-        
+        results = self.collection.query(query_texts=[query], n_results=k)
+
         # Convert string metadata back to original types
-        if 'metadatas' in results and results['metadatas'] and len(results['metadatas']) > 0:
+        if (
+            "metadatas" in results
+            and results["metadatas"]
+            and len(results["metadatas"]) > 0
+        ):
             # First level is a list with one item per query
-            for i in range(len(results['metadatas'])):
+            for i in range(len(results["metadatas"])):
                 # Second level is a list of metadata dicts for each result
-                if isinstance(results['metadatas'][i], list):
-                    for j in range(len(results['metadatas'][i])):
+                if isinstance(results["metadatas"][i], list):
+                    for j in range(len(results["metadatas"][i])):
                         # Process each metadata dict
-                        if isinstance(results['metadatas'][i][j], dict):
-                            metadata = results['metadatas'][i][j]
+                        if isinstance(results["metadatas"][i][j], dict):
+                            metadata = results["metadatas"][i][j]
                             for key, value in metadata.items():
                                 try:
                                     # Try to parse JSON for lists and dicts
-                                    if isinstance(value, str) and (value.startswith('[') or value.startswith('{')):
+                                    if isinstance(value, str) and (
+                                        value.startswith("[") or value.startswith("{")
+                                    ):
                                         metadata[key] = json.loads(value)
                                     # Convert numeric strings back to numbers
-                                    elif isinstance(value, str) and value.replace('.', '', 1).isdigit():
-                                        if '.' in value:
+                                    elif (
+                                        isinstance(value, str)
+                                        and value.replace(".", "", 1).isdigit()
+                                    ):
+                                        if "." in value:
                                             metadata[key] = float(value)
                                         else:
                                             metadata[key] = int(value)
@@ -169,8 +195,13 @@ class ChromaRetriever:
 class ZvecRetriever:
     """Vector database retrieval using Zvec."""
 
-    def __init__(self, collection_name: str = "memories", model_name: str = "all-MiniLM-L6-v2",
-                 persist_dir: str = None, embedding_backend: str = "sentence-transformer"):
+    def __init__(
+        self,
+        collection_name: str = "memories",
+        model_name: str = "all-MiniLM-L6-v2",
+        persist_dir: str = None,
+        embedding_backend: str = "sentence-transformer",
+    ):
         """Initialize Zvec retriever.
 
         Args:
@@ -180,16 +211,23 @@ class ZvecRetriever:
             embedding_backend: "sentence-transformer" or "gemini"
         """
         import zvec as _zvec
+
         self._zvec = _zvec
 
-        self.embedding_function = _create_embedding_function(embedding_backend, model_name)
+        self.embedding_function = _create_embedding_function(
+            embedding_backend, model_name
+        )
         self.persist_dir = persist_dir
 
         # Determine embedding dimension by encoding a test string
         test_embedding = self.embedding_function(["test"])
         self._dimension = len(test_embedding[0])
 
-        collection_path = os.path.join(persist_dir, collection_name) if persist_dir else os.path.join("/tmp/zvec", collection_name)
+        collection_path = (
+            os.path.join(persist_dir, collection_name)
+            if persist_dir
+            else os.path.join("/tmp/zvec", collection_name)
+        )
         self._collection_path = collection_path
 
         if os.path.exists(collection_path):
@@ -197,6 +235,7 @@ class ZvecRetriever:
             # try to open the same collection simultaneously when several
             # agents call save_memory concurrently.
             import time
+
             last_err = None
             for attempt in range(30):  # ~30s total wait
                 try:
@@ -209,20 +248,28 @@ class ZvecRetriever:
                         continue
                     raise
             else:
-                raise last_err if last_err else RuntimeError("Failed to open zvec collection")
+                raise (
+                    last_err
+                    if last_err
+                    else RuntimeError("Failed to open zvec collection")
+                )
         else:
             os.makedirs(os.path.dirname(collection_path), exist_ok=True)
             schema = _zvec.CollectionSchema(
                 name=collection_name,
                 fields=[
-                    _zvec.FieldSchema(name="metadata_json", data_type=_zvec.DataType.STRING),
+                    _zvec.FieldSchema(
+                        name="metadata_json", data_type=_zvec.DataType.STRING
+                    ),
                 ],
                 vectors=[
                     _zvec.VectorSchema(
                         name="embedding",
                         data_type=_zvec.DataType.VECTOR_FP32,
                         dimension=self._dimension,
-                        index_param=_zvec.HnswIndexParam(metric_type=_zvec.MetricType.COSINE),
+                        index_param=_zvec.HnswIndexParam(
+                            metric_type=_zvec.MetricType.COSINE
+                        ),
                     ),
                 ],
             )
@@ -234,32 +281,46 @@ class ZvecRetriever:
         schema = self._zvec.CollectionSchema(
             name="memories",
             fields=[
-                self._zvec.FieldSchema(name="metadata_json", data_type=self._zvec.DataType.STRING),
+                self._zvec.FieldSchema(
+                    name="metadata_json", data_type=self._zvec.DataType.STRING
+                ),
             ],
             vectors=[
                 self._zvec.VectorSchema(
                     name="embedding",
                     data_type=self._zvec.DataType.VECTOR_FP32,
                     dimension=self._dimension,
-                    index_param=self._zvec.HnswIndexParam(metric_type=self._zvec.MetricType.COSINE),
+                    index_param=self._zvec.HnswIndexParam(
+                        metric_type=self._zvec.MetricType.COSINE
+                    ),
                 ),
             ],
         )
-        self.collection = self._zvec.create_and_open(path=self._collection_path, schema=schema)
+        self.collection = self._zvec.create_and_open(
+            path=self._collection_path, schema=schema
+        )
 
     def add_document(self, document: str, metadata: dict, doc_id: str):
         """Add a document to Zvec with enhanced embedding using metadata."""
-        summary = metadata.get('summary')
+        summary = metadata.get("summary")
         enhanced_document = summary if summary else document
 
-        if 'context' in metadata and metadata['context'] != "General":
+        if "context" in metadata and metadata["context"] != "General":
             enhanced_document += f" context: {metadata['context']}"
-        if 'keywords' in metadata and metadata['keywords']:
-            keywords = metadata['keywords'] if isinstance(metadata['keywords'], list) else json.loads(metadata['keywords'])
+        if "keywords" in metadata and metadata["keywords"]:
+            keywords = (
+                metadata["keywords"]
+                if isinstance(metadata["keywords"], list)
+                else json.loads(metadata["keywords"])
+            )
             if keywords:
                 enhanced_document += f" keywords: {', '.join(keywords)}"
-        if 'tags' in metadata and metadata['tags']:
-            tags = metadata['tags'] if isinstance(metadata['tags'], list) else json.loads(metadata['tags'])
+        if "tags" in metadata and metadata["tags"]:
+            tags = (
+                metadata["tags"]
+                if isinstance(metadata["tags"], list)
+                else json.loads(metadata["tags"])
+            )
             if tags:
                 enhanced_document += f" tags: {', '.join(tags)}"
 
@@ -279,7 +340,9 @@ class ZvecRetriever:
         doc = self._zvec.Doc(
             id=doc_id,
             vectors={"embedding": embedding},
-            fields={"metadata_json": json.dumps(processed_metadata, ensure_ascii=False)},
+            fields={
+                "metadata_json": json.dumps(processed_metadata, ensure_ascii=False)
+            },
         )
         self.collection.insert(doc)
 
@@ -287,7 +350,7 @@ class ZvecRetriever:
         """Delete a document from Zvec."""
         self.collection.delete(ids=doc_id)
 
-    def search(self, query: str, k: int = 5):
+    def search(self, query: str, k: int = 5) -> dict:
         """Search for similar documents. Returns ChromaDB-compatible result format."""
         embedding = self.embedding_function([query])[0]
 
@@ -310,14 +373,14 @@ class ZvecRetriever:
             for key, value in meta.items():
                 if isinstance(value, str):
                     try:
-                        if value.startswith('[') or value.startswith('{'):
+                        if value.startswith("[") or value.startswith("{"):
                             meta[key] = json.loads(value)
                     except (json.JSONDecodeError, ValueError):
                         pass
             metadatas.append(meta)
 
         return {
-            'ids': [ids],
-            'metadatas': [metadatas],
-            'distances': [distances],
+            "ids": [ids],
+            "metadatas": [metadatas],
+            "distances": [distances],
         }
