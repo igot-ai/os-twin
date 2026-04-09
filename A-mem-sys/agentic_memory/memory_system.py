@@ -848,9 +848,9 @@ class AgenticMemorySystem:
             note = self.memories[memory_id]
 
             # Clean up all links/backlinks via interface
-            for linked_id in list(note.links):
+            for linked_id in note.links[:]:
                 self.remove_link(memory_id, linked_id)
-            for backlinked_id in list(note.backlinks):
+            for backlinked_id in note.backlinks[:]:
                 self.remove_link(backlinked_id, memory_id)
 
             # Delete markdown file first (needs note for filename)

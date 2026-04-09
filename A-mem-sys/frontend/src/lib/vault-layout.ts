@@ -1,5 +1,5 @@
 import type { McpGraphSnapshot } from "@/lib/mcp-types";
-import type { VaultDataset, VaultGroup, VaultNode } from "@/lib/mock-vault";
+import type { VaultDataset, VaultNode } from "@/lib/mock-vault";
 
 export function layoutSnapshot(snapshot: McpGraphSnapshot): VaultDataset {
   const groups = snapshot.groups.map((group) => ({ ...group }));

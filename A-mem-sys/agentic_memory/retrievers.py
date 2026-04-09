@@ -143,6 +143,30 @@ class ChromaRetriever:
         """
         self.collection.delete(ids=[doc_id])
 
+    @staticmethod
+    def _deserialize_metadata_value(value):
+        """Attempt to deserialize a single metadata value from its string representation.
+
+        Converts JSON strings back to lists/dicts and numeric strings back to
+        int/float.  Returns the original value unchanged on failure.
+        """
+        if not isinstance(value, str):
+            return value
+        try:
+            if value.startswith("[") or value.startswith("{"):
+                return json.loads(value)
+            if value.replace(".", "", 1).isdigit():
+                return float(value) if "." in value else int(value)
+        except ValueError:
+            pass
+        return value
+
+    @staticmethod
+    def _deserialize_metadata_dict(metadata: dict) -> None:
+        """Deserialize all values in a single metadata dict in-place."""
+        for key, value in metadata.items():
+            metadata[key] = ChromaRetriever._deserialize_metadata_value(value)
+
     def search(self, query: str, k: int = 5):
         """Search for similar documents.
 
@@ -156,38 +180,13 @@ class ChromaRetriever:
         results = self.collection.query(query_texts=[query], n_results=k)
 
         # Convert string metadata back to original types
-        if (
-            "metadatas" in results
-            and results["metadatas"]
-            and len(results["metadatas"]) > 0
-        ):
-            # First level is a list with one item per query
-            for i in range(len(results["metadatas"])):
-                # Second level is a list of metadata dicts for each result
-                if isinstance(results["metadatas"][i], list):
-                    for j in range(len(results["metadatas"][i])):
-                        # Process each metadata dict
-                        if isinstance(results["metadatas"][i][j], dict):
-                            metadata = results["metadatas"][i][j]
-                            for key, value in metadata.items():
-                                try:
-                                    # Try to parse JSON for lists and dicts
-                                    if isinstance(value, str) and (
-                                        value.startswith("[") or value.startswith("{")
-                                    ):
-                                        metadata[key] = json.loads(value)
-                                    # Convert numeric strings back to numbers
-                                    elif (
-                                        isinstance(value, str)
-                                        and value.replace(".", "", 1).isdigit()
-                                    ):
-                                        if "." in value:
-                                            metadata[key] = float(value)
-                                        else:
-                                            metadata[key] = int(value)
-                                except (json.JSONDecodeError, ValueError):
-                                    # If parsing fails, keep the original string
-                                    pass
+        if results.get("metadatas"):
+            for query_metadatas in results["metadatas"]:
+                if not isinstance(query_metadatas, list):
+                    continue
+                for metadata in query_metadatas:
+                    if isinstance(metadata, dict):
+                        self._deserialize_metadata_dict(metadata)
 
         return results
 
@@ -300,7 +299,7 @@ class ZvecRetriever:
             path=self._collection_path, schema=schema
         )
 
-    def add_document(self, document: str, metadata: dict, doc_id: str):
+    def add_document(self, document: str, metadata: Dict, doc_id: str) -> None:
         """Add a document to Zvec with enhanced embedding using metadata."""
         summary = metadata.get("summary")
         enhanced_document = summary if summary else document
@@ -381,7 +380,7 @@ class ZvecRetriever:
                     try:
                         if value.startswith("[") or value.startswith("{"):
                             meta[key] = json.loads(value)
-                    except (json.JSONDecodeError, ValueError):
+                    except ValueError:
                         pass
             metadatas.append(meta)
 

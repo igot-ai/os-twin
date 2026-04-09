@@ -30,22 +30,23 @@ class MemoryNote:
     - Evolution tracking (history of changes)
     """
 
-    def __init__(self,
-                 content: str,
-                 id: Optional[str] = None,
-                 name: Optional[str] = None,
-                 path: Optional[str] = None,
-                 keywords: Optional[List[str]] = None,
-                 links: Optional[List[str]] = None,
-                 backlinks: Optional[List[str]] = None,
-                 retrieval_count: Optional[int] = None,
-                 timestamp: Optional[str] = None,
-                 last_accessed: Optional[str] = None,
-                 context: Optional[str] = None,
-                 evolution_history: Optional[List] = None,
-                 category: Optional[str] = None,
-                 tags: Optional[List[str]] = None,
-                 summary: Optional[str] = None):
+    def __init__(
+        self,
+        content: str,
+        id: Optional[str] = None,
+        name: Optional[str] = None,
+        path: Optional[str] = None,
+        keywords: Optional[List[str]] = None,
+        links: Optional[List[str]] = None,
+        retrieval_count: Optional[int] = None,
+        timestamp: Optional[str] = None,
+        last_accessed: Optional[str] = None,
+        context: Optional[str] = None,
+        category: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        summary: Optional[str] = None,
+        **kwargs,
+    ):
         """Initialize a new memory note with its associated metadata.
 
         Args:
@@ -56,15 +57,16 @@ class MemoryNote:
                 (e.g. "devops/kubernetes", "backend/database")
             keywords: Key terms extracted from the content
             links: Active references to other memories (can be added/removed)
-            backlinks: Passive references from other memories (auto-maintained)
             retrieval_count: Number of times this memory has been accessed
             timestamp: Creation time in format YYYYMMDDHHMM
             last_accessed: Last access time in format YYYYMMDDHHMM
             context: The broader context or domain of the memory
-            evolution_history: Record of how the memory has evolved
             category: Classification category
             tags: Additional classification tags
             summary: Short summary for embedding when content exceeds token limit
+            **kwargs: Additional fields. Supported keys:
+                backlinks: Passive references from other memories (auto-maintained)
+                evolution_history: Record of how the memory has evolved
         """
         # Core content and ID
         self.content = content
@@ -75,7 +77,7 @@ class MemoryNote:
         # Semantic metadata
         self.keywords = keywords or []
         self.links = links or []
-        self.backlinks = backlinks or []
+        self.backlinks: List[str] = kwargs.get("backlinks") or []
         self.context = context or "General"
         self.category = category or "Uncategorized"
         self.tags = tags or []
@@ -87,7 +89,7 @@ class MemoryNote:
 
         # Usage and evolution data
         self.retrieval_count = retrieval_count or 0
-        self.evolution_history = evolution_history or []
+        self.evolution_history: List = kwargs.get("evolution_history") or []
 
         # Summary for long content embedding
         self.summary = summary
@@ -96,9 +98,9 @@ class MemoryNote:
     def _slugify(text: str) -> str:
         """Convert text to a filesystem-safe slug."""
         slug = text.lower().strip()
-        slug = re.sub(r'[^\w\s-]', '', slug)
-        slug = re.sub(r'[\s_]+', '-', slug)
-        return slug.strip('-')
+        slug = re.sub(r"[^\w\s-]", "", slug)
+        slug = re.sub(r"[\s_]+", "-", slug)
+        return slug.strip("-")
 
     @property
     def filename(self) -> str:
@@ -117,7 +119,9 @@ class MemoryNote:
         name_slug = self.filename
         if self.path:
             # Slugify each segment of the path
-            segments = [self._slugify(s) for s in self.path.strip("/").split("/") if s.strip()]
+            segments = [
+                self._slugify(s) for s in self.path.strip("/").split("/") if s.strip()
+            ]
             segments = [s for s in segments if s]  # remove empty
             if segments:
                 return os.path.join(*segments, f"{name_slug}.md")
@@ -193,4 +197,5 @@ class MemoryNote:
     def from_file(cls, path) -> "MemoryNote":
         """Read a MemoryNote from a markdown file on disk."""
         from pathlib import Path
+
         return cls.from_markdown(Path(path).read_text(encoding="utf-8"))

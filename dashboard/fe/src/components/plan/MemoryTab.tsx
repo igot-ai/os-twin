@@ -91,8 +91,10 @@ function matchesSearch(node: GraphNode, query: string): boolean {
 
 // ── Simple force layout ──────────────────────────────────────────────
 
-function layoutNodes(nodes: GraphNode[], links: GraphLink[], width: number, height: number): GraphNode[] {
-  const positioned = nodes.map((n, i) => ({
+type PositionedNode = GraphNode & { x: number; y: number };
+
+function layoutNodes(nodes: GraphNode[], links: GraphLink[], width: number, height: number): PositionedNode[] {
+  const positioned: PositionedNode[] = nodes.map((n, i) => ({
     ...n,
     x: width / 2 + (Math.cos(i * 2.399) * Math.min(width, height) * 0.35),
     y: height / 2 + (Math.sin(i * 2.399) * Math.min(width, height) * 0.35),
@@ -105,31 +107,31 @@ function layoutNodes(nodes: GraphNode[], links: GraphLink[], width: number, heig
     for (let i = 0; i < positioned.length; i++) {
       for (let j = i + 1; j < positioned.length; j++) {
         const a = positioned[i], b = positioned[j];
-        const dx = b.x! - a.x!, dy = b.y! - a.y!;
-        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.max(Math.hypot(dx, dy), 1);
         const force = 800 / (dist * dist);
-        a.x! -= (dx / dist) * force;
-        a.y! -= (dy / dist) * force;
-        b.x! += (dx / dist) * force;
-        b.y! += (dy / dist) * force;
+        a.x -= (dx / dist) * force;
+        a.y -= (dy / dist) * force;
+        b.x += (dx / dist) * force;
+        b.y += (dy / dist) * force;
       }
     }
     // Attract linked
     for (const link of links) {
       const a = nodeMap.get(link.source), b = nodeMap.get(link.target);
       if (!a || !b) continue;
-      const dx = b.x! - a.x!, dy = b.y! - a.y!;
-      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.max(Math.hypot(dx, dy), 1);
       const force = (dist - 120) * 0.02;
-      a.x! += (dx / dist) * force;
-      a.y! += (dy / dist) * force;
-      b.x! -= (dx / dist) * force;
-      b.y! -= (dy / dist) * force;
+      a.x += (dx / dist) * force;
+      a.y += (dy / dist) * force;
+      b.x -= (dx / dist) * force;
+      b.y -= (dy / dist) * force;
     }
     // Center
     for (const n of positioned) {
-      n.x! += (width / 2 - n.x!) * 0.01;
-      n.y! += (height / 2 - n.y!) * 0.01;
+      n.x += (width / 2 - n.x) * 0.01;
+      n.y += (height / 2 - n.y) * 0.01;
     }
   }
   return positioned;
@@ -583,7 +585,7 @@ const markdownComponents = {
 
 // ── Note detail panel ────────────────────────────────────────────────
 
-function NoteDetail({ note }: { note: GraphNode | null }) {
+function NoteDetail({ note }: Readonly<{ note: GraphNode | null }>) {
   if (!note) {
     return (
       <div className="p-8 text-center h-full flex flex-col items-center justify-center"
@@ -807,11 +809,11 @@ function Splitter({
       dragging.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      globalThis.removeEventListener('mousemove', handleMove);
+      globalThis.removeEventListener('mouseup', handleUp);
     };
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    globalThis.addEventListener('mousemove', handleMove);
+    globalThis.addEventListener('mouseup', handleUp);
   };
 
   return (
@@ -854,9 +856,9 @@ export default function MemoryTab() {
 
   // Load saved widths on mount
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof globalThis.window === 'undefined') return;
     try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
+      const saved = globalThis.window.localStorage.getItem(STORAGE_KEY);
       if (!saved) return;
       const parsed = JSON.parse(saved);
       if (typeof parsed.left === 'number') {
@@ -872,9 +874,9 @@ export default function MemoryTab() {
 
   // Persist widths whenever they change
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof globalThis.window === 'undefined') return;
     try {
-      window.localStorage.setItem(
+      globalThis.window.localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({ left: leftWidth, right: rightWidth })
       );

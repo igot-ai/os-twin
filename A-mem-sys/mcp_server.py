@@ -3,6 +3,8 @@
 Exposes the memory system as MCP tools for LLM agents.
 Run with: python mcp_server.py
 """
+
+
 # --- Self-healing interpreter check (must run BEFORE heavy imports) ---
 # Various MCP launchers (deepagents, opencode, codex) invoke this script with
 # whatever `python` resolves to in their own environment, which often lacks
@@ -28,8 +30,12 @@ def _ensure_correct_interpreter() -> None:
         _os.path.join(here, ".venv", "bin", "python3"),
         _os.path.join(here, "venv", "bin", "python"),
     ]
-    target = next((c for c in candidates if _os.path.isfile(c) and _os.access(c, _os.X_OK)), None)
-    if target is None or _os.path.realpath(target) == _os.path.realpath(_sys.executable):
+    target = next(
+        (c for c in candidates if _os.path.isfile(c) and _os.access(c, _os.X_OK)), None
+    )
+    if target is None or _os.path.realpath(target) == _os.path.realpath(
+        _sys.executable
+    ):
         # No alternative found, or we ARE the alternative — let the import
         # fail naturally with the standard ModuleNotFoundError downstream.
         return
@@ -37,6 +43,7 @@ def _ensure_correct_interpreter() -> None:
     # Verify the candidate actually has `requests` before we re-exec, to
     # avoid an infinite loop if the alternate venv is also broken.
     import subprocess as _sp
+
     probe = _sp.run(
         [target, "-c", "import requests"],
         capture_output=True,
@@ -70,6 +77,7 @@ from mcp.server.fastmcp import FastMCP
 # Lazy import: AgenticMemorySystem loads heavy deps (embeddings, vector DB).
 # Deferring to first tool call keeps MCP startup fast (<1s).
 AgenticMemorySystem = None
+
 
 # --- Configuration via environment variables ---
 # Resolve project root for .memory storage.
@@ -113,6 +121,7 @@ def _find_project_root() -> str:
         pass
     # 5. Fall back to CWD
     return os.getcwd()
+
 
 _project_root = _find_project_root()
 _default_persist = os.path.join(_project_root, ".memory")
@@ -193,9 +202,13 @@ def _patch_mcp_exception_silence() -> None:
                     )
 
         _lowlevel.Server._handle_message = _handle_message_quiet
-        logger.info("Patched mcp.server.lowlevel.Server._handle_message to silence stream errors")
+        logger.info(
+            "Patched mcp.server.lowlevel.Server._handle_message to silence stream errors"
+        )
     except Exception:
-        logger.exception("Failed to patch mcp lowlevel server; stream errors may still spam client")
+        logger.exception(
+            "Failed to patch mcp lowlevel server; stream errors may still spam client"
+        )
 
 
 _patch_mcp_exception_silence()
@@ -213,12 +226,14 @@ AUTO_SYNC_INTERVAL = int(os.getenv("MEMORY_AUTO_SYNC_INTERVAL", "60"))  # second
 # Comma-separated list of tools to disable (hide from MCP clients).
 # Example: MEMORY_DISABLED_TOOLS="unlink_memories,sync_to_disk"
 # To re-enable all: MEMORY_DISABLED_TOOLS=""
-DISABLED_TOOLS = set(
-    t.strip() for t in os.getenv(
+DISABLED_TOOLS = {
+    t.strip()
+    for t in os.getenv(
         "MEMORY_DISABLED_TOOLS",
-        "read_memory,update_memory,delete_memory,link_memories,unlink_memories,memory_stats,sync_from_disk,sync_to_disk,graph_snapshot"
-    ).split(",") if t.strip()
-)
+        "read_memory,update_memory,delete_memory,link_memories,unlink_memories,memory_stats,sync_from_disk,sync_to_disk,graph_snapshot",
+    ).split(",")
+    if t.strip()
+}
 
 
 def tool_enabled(name: str) -> bool:
@@ -231,18 +246,29 @@ def optional_tool(name: str):
     if tool_enabled(name):
         # structured_output=False avoids outputSchema which some clients don't support
         return mcp.tool(structured_output=False)
+
     # Return a no-op decorator that keeps the function but doesn't register it
     def noop(func):
         return func
+
     return noop
 
+
 import sys as _sys
+
 logger.info("=" * 60)
 logger.info("MCP Server starting up (lazy init)")
 logger.info("python=%s (%s)", _sys.executable, _sys.version.split()[0])
 logger.info("script=%s  cwd=%s", os.path.abspath(__file__), os.getcwd())
-logger.info("persist_dir=%s  llm=%s/%s  embedding=%s/%s  vector=%s",
-            PERSIST_DIR, LLM_BACKEND, LLM_MODEL, EMBEDDING_BACKEND, EMBEDDING_MODEL, VECTOR_BACKEND)
+logger.info(
+    "persist_dir=%s  llm=%s/%s  embedding=%s/%s  vector=%s",
+    PERSIST_DIR,
+    LLM_BACKEND,
+    LLM_MODEL,
+    EMBEDDING_BACKEND,
+    EMBEDDING_MODEL,
+    VECTOR_BACKEND,
+)
 logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
 
 # --- Background-initialized memory system ---
@@ -251,7 +277,7 @@ logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
 # the first tool call arrives. The MCP server responds to initialize/tools/list
 # instantly while the background load completes.
 _memory = None
-_memory_init_error: Optional[BaseException] = None
+_memory_init_error: Optional[Exception] = None
 _memory_lock = threading.Lock()
 _memory_ready = threading.Event()
 
@@ -262,6 +288,7 @@ def _init_memory():
     try:
         logger.info("Background: importing agentic_memory...")
         from agentic_memory.memory_system import AgenticMemorySystem as _AMS
+
         AgenticMemorySystem = _AMS
         logger.info("Background: initializing memory system...")
         with _memory_lock:
@@ -276,8 +303,11 @@ def _init_memory():
                 context_aware_tree=CONTEXT_AWARE_TREE,
                 max_links=MAX_LINKS,
             )
-        logger.info("Background: memory system ready (%d memories loaded)", len(_memory.memories))
-    except BaseException as exc:
+        logger.info(
+            "Background: memory system ready (%d memories loaded)",
+            len(_memory.memories),
+        )
+    except Exception as exc:
         _memory_init_error = exc
         logger.exception("Background: failed to initialize memory system")
     finally:
@@ -313,6 +343,7 @@ def get_memory():
                 f"(python={_sys.executable}). See {os.path.join(LOG_DIR, 'mcp_server.log')}."
             )
     return _memory
+
 
 GRAPH_GROUP_COLORS = [
     "#8b5cf6",
@@ -419,35 +450,41 @@ def _build_graph_snapshot() -> dict[str, Any]:
             target = get_memory().memories[target_id]
             overlap = len(set(note.tags) & set(target.tags))
             strength = 0.38 + min(0.5, overlap * 0.08 + len(target.backlinks) * 0.02)
-            links.append({
-                "source": note.id,
-                "target": target_id,
-                "strength": round(strength, 2),
-            })
+            links.append(
+                {
+                    "source": note.id,
+                    "target": target_id,
+                    "strength": round(strength, 2),
+                }
+            )
 
     nodes: list[dict[str, Any]] = []
     for note in notes:
         group_id = _slugify(_note_group_key(note))
         color = group_meta[group_id]["color"]
         connections = len(set(note.links + note.backlinks))
-        weight = round(1.0 + min(2.4, connections * 0.25 + note.retrieval_count * 0.03), 2)
-        nodes.append({
-            "id": note.id,
-            "title": _note_title(note),
-            "path": note.filepath,
-            "pathLabel": note.path,
-            "excerpt": _note_excerpt(note),
-            "content": note.content,
-            "summary": note.summary,
-            "keywords": note.keywords,
-            "tags": note.tags,
-            "groupId": group_id,
-            "color": color,
-            "weight": weight,
-            "connections": connections,
-            "timestamp": note.timestamp,
-            "retrievalCount": note.retrieval_count,
-        })
+        weight = round(
+            1.0 + min(2.4, connections * 0.25 + note.retrieval_count * 0.03), 2
+        )
+        nodes.append(
+            {
+                "id": note.id,
+                "title": _note_title(note),
+                "path": note.filepath,
+                "pathLabel": note.path,
+                "excerpt": _note_excerpt(note),
+                "content": note.content,
+                "summary": note.summary,
+                "keywords": note.keywords,
+                "tags": note.tags,
+                "groupId": group_id,
+                "color": color,
+                "weight": weight,
+                "connections": connections,
+                "timestamp": note.timestamp,
+                "retrievalCount": note.retrieval_count,
+            }
+        )
 
     groups = []
     for group_id in group_order:
@@ -467,6 +504,7 @@ def _build_graph_snapshot() -> dict[str, Any]:
             "transport": "stdio",
         },
     }
+
 
 # --- MCP Server ---
 mcp = FastMCP(
@@ -489,7 +527,7 @@ IMPORTANT GUIDELINES FOR WRITING MEMORIES:
 
 The system automatically generates keywords, tags, directory paths, and links between
 related memories. You can search by natural language — the richer your memories, the
-better search results you'll get."""
+better search results you'll get.""",
 )
 
 
@@ -552,7 +590,11 @@ def save_memory(
 
     logger.info(
         "save_memory: id=%s name=%s path=%s tags=%s content_len=%d",
-        memory_id, name, path, tags, len(content),
+        memory_id,
+        name,
+        path,
+        tags,
+        len(content),
     )
 
     # Resolve the memory system synchronously so we can fail fast with a
@@ -569,23 +611,31 @@ def save_memory(
         if note is not None:
             logger.info(
                 "save_memory: completed id=%s name=%s path=%s",
-                note.id, note.name, note.path,
+                note.id,
+                note.name,
+                note.path,
             )
         else:
             logger.warning("save_memory: note %s not found after add_note", memory_id)
     except Exception:
         logger.exception("save_memory: failed for id=%s", memory_id)
-        return json.dumps({
-            "id": memory_id,
-            "status": "error",
-            "message": "Failed to save memory. See server log for details.",
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "id": memory_id,
+                "status": "error",
+                "message": "Failed to save memory. See server log for details.",
+            },
+            ensure_ascii=False,
+        )
 
-    return json.dumps({
-        "id": memory_id,
-        "status": "saved",
-        "message": "Memory saved to disk with full LLM analysis.",
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "id": memory_id,
+            "status": "saved",
+            "message": "Memory saved to disk with full LLM analysis.",
+        },
+        ensure_ascii=False,
+    )
 
 
 @optional_tool("search_memory")
@@ -646,20 +696,23 @@ def read_memory(memory_id: str) -> str:
         return json.dumps({"error": f"Memory {memory_id} not found"})
 
     logger.info("read_memory: found name=%s", note.name)
-    return json.dumps({
-        "id": note.id,
-        "name": note.name,
-        "path": note.path,
-        "content": note.content,
-        "summary": note.summary,
-        "keywords": note.keywords,
-        "tags": note.tags,
-        "links": note.links,
-        "backlinks": note.backlinks,
-        "timestamp": note.timestamp,
-        "last_accessed": note.last_accessed,
-        "retrieval_count": note.retrieval_count,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "id": note.id,
+            "name": note.name,
+            "path": note.path,
+            "content": note.content,
+            "summary": note.summary,
+            "keywords": note.keywords,
+            "tags": note.tags,
+            "links": note.links,
+            "backlinks": note.backlinks,
+            "timestamp": note.timestamp,
+            "last_accessed": note.last_accessed,
+            "retrieval_count": note.retrieval_count,
+        },
+        ensure_ascii=False,
+    )
 
 
 @optional_tool("update_memory")
@@ -709,14 +762,17 @@ def update_memory(
 
     note = get_memory().read(memory_id)
     logger.info("update_memory: updated id=%s name=%s", note.id, note.name)
-    return json.dumps({
-        "id": note.id,
-        "name": note.name,
-        "path": note.path,
-        "filepath": note.filepath,
-        "tags": note.tags,
-        "has_summary": note.summary is not None,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "id": note.id,
+            "name": note.name,
+            "path": note.path,
+            "filepath": note.filepath,
+            "tags": note.tags,
+            "has_summary": note.summary is not None,
+        },
+        ensure_ascii=False,
+    )
 
 
 @optional_tool("delete_memory")
@@ -763,11 +819,14 @@ def link_memories(from_id: str, to_id: str) -> str:
     if not from_note or not to_note:
         return json.dumps({"error": "One or both memories not found"})
 
-    return json.dumps({
-        "linked": f"{from_note.name} -> {to_note.name}",
-        "from_links": from_note.links,
-        "to_backlinks": to_note.backlinks,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "linked": f"{from_note.name} -> {to_note.name}",
+            "from_links": from_note.links,
+            "to_backlinks": to_note.backlinks,
+        },
+        ensure_ascii=False,
+    )
 
 
 @optional_tool("unlink_memories")
@@ -813,14 +872,17 @@ def memory_stats() -> str:
     total_links = sum(len(m.links) for m in mem.memories.values())
     total_backlinks = sum(len(m.backlinks) for m in mem.memories.values())
 
-    return json.dumps({
-        "total_memories": total,
-        "unique_paths": len(paths),
-        "paths": paths,
-        "total_links": total_links,
-        "total_backlinks": total_backlinks,
-        "persist_dir": PERSIST_DIR,
-    }, ensure_ascii=False)
+    return json.dumps(
+        {
+            "total_memories": total,
+            "unique_paths": len(paths),
+            "paths": paths,
+            "total_links": total_links,
+            "total_backlinks": total_backlinks,
+            "persist_dir": PERSIST_DIR,
+        },
+        ensure_ascii=False,
+    )
 
 
 @optional_tool("sync_from_disk")
@@ -985,6 +1047,7 @@ def find_memory(args: Optional[str] = None) -> str:
     cmd = ["find", notes_dir]
     if args:
         import shlex
+
         cmd.extend(shlex.split(args))
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -1002,10 +1065,17 @@ def find_memory(args: Optional[str] = None) -> str:
 if __name__ == "__main__":
     import argparse
     import sys
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--transport", default="stdio", choices=["stdio", "sse"],
-                        help="MCP transport: stdio (default) or sse (persistent HTTP daemon)")
-    parser.add_argument("--port", type=int, default=6463, help="Port for SSE transport (default: 6463)")
+    parser.add_argument(
+        "--transport",
+        default="stdio",
+        choices=["stdio", "sse"],
+        help="MCP transport: stdio (default) or sse (persistent HTTP daemon)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=6463, help="Port for SSE transport (default: 6463)"
+    )
     parser.add_argument("--host", default="127.0.0.1", help="Host for SSE transport")
     args = parser.parse_args()
 

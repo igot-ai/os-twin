@@ -7,6 +7,8 @@ import requests
 # Lazy import: litellm pulls in heavy ML deps at import time (~3s)
 completion = None
 
+_SYSTEM_JSON_PROMPT = "You must respond with a JSON object."
+
 
 def _ensure_litellm():
     global completion
@@ -82,7 +84,7 @@ class OpenAIController(BaseLLMController):
         kwargs = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You must respond with a JSON object."},
+                {"role": "system", "content": _SYSTEM_JSON_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             "response_format": response_format,
@@ -113,24 +115,26 @@ class OllamaController(BaseLLMController):
         self.model = model
 
     def get_completion(
-        self, prompt: str, response_format: dict, temperature: float = 1.0
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
     ) -> str:
         try:
             _ensure_litellm()
-            response = completion(
-                model="ollama_chat/{}".format(self.model),
-                messages=[
+            kwargs = {
+                "model": "ollama_chat/{}".format(self.model),
+                "messages": [
                     {
                         "role": "system",
-                        "content": "You must respond with a JSON object.",
+                        "content": _SYSTEM_JSON_PROMPT,
                     },
                     {"role": "user", "content": prompt},
                 ],
-                response_format=response_format,
-            )
+            }
+            if response_format is not None:
+                kwargs["response_format"] = response_format
+            response = completion(**kwargs)
             return response.choices[0].message.content
         except Exception as e:
-            empty_response = self._generate_empty_response(response_format)
+            empty_response = self._generate_empty_response(response_format or {})
             return json.dumps(empty_response)
 
 
@@ -256,7 +260,7 @@ class OpenRouterController(BaseLLMController):
                 messages=[
                     {
                         "role": "system",
-                        "content": "You must respond with a JSON object.",
+                        "content": _SYSTEM_JSON_PROMPT,
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -305,7 +309,7 @@ class GeminiController(BaseLLMController):
                 messages=[
                     {
                         "role": "system",
-                        "content": "You must respond with a JSON object.",
+                        "content": _SYSTEM_JSON_PROMPT,
                     },
                     {"role": "user", "content": prompt},
                 ],

@@ -26,12 +26,15 @@ CardHeader.displayName = "CardHeader";
 const CardTitle = React.forwardRef<
   HTMLHeadingElement,
   React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <h3
     ref={ref}
     className={cn("text-sm font-semibold tracking-wide text-foreground", className)}
+    aria-label={typeof children === 'string' ? children : undefined}
     {...props}
-  />
+  >
+    {children}
+  </h3>
 ));
 CardTitle.displayName = "CardTitle";
 
