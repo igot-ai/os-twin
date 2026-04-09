@@ -1,8 +1,29 @@
+export interface TemplateField {
+  id: string;
+  label: string;
+  hint: string;
+  type: 'short' | 'long' | 'choice' | 'checklist';
+  required: boolean;
+  options?: string[];
+  group: string;
+}
+
+export interface TemplateGroup {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 export interface PromptTemplate {
   id: string;
   name: string;
   description: string;
   promptTemplate: string;
+  /** Structured fields parsed from the promptTemplate */
+  fields: TemplateField[];
+  groups: TemplateGroup[];
+  /** Roles the agent should consider when building a plan from this template */
+  suggestedRoles?: string[];
 }
 
 export interface PlanCategory {
@@ -13,13 +34,152 @@ export interface PlanCategory {
   templates: PromptTemplate[];
 }
 
+// ---------------------------------------------------------------------------
+// Field extraction helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Automatically extract structured fields from a {{ }} prompt template string.
+ * Each `{{ }}` or `{{hint text}}` block becomes a TemplateField.
+ * Sections prefixed by `## ` become groups.
+ */
+export function extractFieldsFromTemplate(
+  promptTemplate: string,
+): { fields: TemplateField[]; groups: TemplateGroup[] } {
+  const fields: TemplateField[] = [];
+  const groupsMap = new Map<string, TemplateGroup>();
+  let currentGroup = 'basics';
+  groupsMap.set(currentGroup, { id: 'basics', label: 'The basics' });
+
+  const lines = promptTemplate.split('\n');
+  let fieldIndex = 0;
+
+  for (const line of lines) {
+    // Detect group boundaries from markdown headings
+    const headingMatch = line.match(/^##\s+(.+)/);
+    if (headingMatch) {
+      const label = headingMatch[1].replace(/\s*\(optional\)\s*/i, '').trim();
+      const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
+      if (!groupsMap.has(id)) {
+        groupsMap.set(id, { id, label });
+      }
+      currentGroup = id;
+      continue;
+    }
+
+    // Extract {{ }} placeholders
+    const placeholderRegex = /\{\{([^}]*)\}\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = placeholderRegex.exec(line)) !== null) {
+      const hint = match[1].trim();
+      const isOptional = /\(optional\)/i.test(line) || /optional/i.test(hint);
+
+      // Derive a label from the preceding markdown line content
+      let label = line.replace(placeholderRegex, '').replace(/^[-*#\s]+/, '').replace(/:?\s*$/, '').trim();
+      if (!label || label === '-') {
+        // Use the heading above or the hint
+        label = hint.startsWith('e.g.') ? `Item ${fieldIndex + 1}` : hint.split(',')[0];
+      }
+
+      const id = `field-${fieldIndex}`;
+      const isLong = /\n/.test(hint) || hint.length > 60;
+      const isChecklist = /^\s*-\s*\[/.test(line);
+
+      fields.push({
+        id,
+        label,
+        hint: hint || '',
+        type: isChecklist ? 'checklist' : isLong ? 'long' : 'short',
+        required: !isOptional,
+        group: currentGroup,
+      });
+      fieldIndex++;
+    }
+  }
+
+  return { fields, groups: Array.from(groupsMap.values()) };
+}
+
+/**
+ * Given a promptTemplate string, count total placeholders and how many the user
+ * has filled (i.e. replaced the `{{ }}` markers with real content).
+ */
+export function computeCompleteness(promptTemplate: string, currentValue: string): {
+  total: number;
+  filled: number;
+  percent: number;
+  unfilledLabels: string[];
+} {
+  // Extract original placeholders
+  const originalPlaceholders = promptTemplate.match(/\{\{[^}]*\}\}/g) || [];
+  const total = originalPlaceholders.length;
+  if (total === 0) return { total: 0, filled: 0, percent: 100, unfilledLabels: [] };
+
+  // Count remaining {{ }} in user's current text
+  const remaining = currentValue.match(/\{\{[^}]*\}\}/g) || [];
+  const filled = total - remaining.length;
+  const percent = Math.round((filled / total) * 100);
+
+  // Extract labels for unfilled fields
+  const unfilledLabels: string[] = [];
+  const lines = currentValue.split('\n');
+  for (const line of lines) {
+    if (/\{\{[^}]*\}\}/.test(line)) {
+      const label = line.replace(/\{\{[^}]*\}\}/g, '').replace(/^[-*#\s]+/, '').replace(/:?\s*$/, '').trim();
+      if (label) unfilledLabels.push(label);
+    }
+  }
+
+  return { total, filled, percent, unfilledLabels };
+}
+
+/**
+ * Hydrate a prompt template with field values, replacing {{ }} markers.
+ */
+export function hydrateTemplate(
+  promptTemplate: string,
+  values: Record<string, string>,
+): string {
+  let result = promptTemplate;
+  const placeholders = promptTemplate.match(/\{\{[^}]*\}\}/g) || [];
+  placeholders.forEach((placeholder, idx) => {
+    const fieldId = `field-${idx}`;
+    const val = values[fieldId];
+    if (val && val.trim()) {
+      result = result.replace(placeholder, val);
+    }
+  });
+  return result;
+}
+
 const OSTWIN_INSTRUCTION = `
 ---
 
 Turn the details I've filled in above into an Ostwin plan with epics, roles, lifecycle, tasks, and acceptance criteria.`;
 
+/**
+ * Build a PromptTemplate stub -- fields/groups default to empty arrays.
+ * Call `ensureFieldsExtracted(template)` to populate them on demand.
+ */
+function tpl(
+  raw: Omit<PromptTemplate, 'fields' | 'groups'>,
+): PromptTemplate {
+  return { ...raw, fields: [], groups: [] };
+}
+
+/**
+ * Populate `fields` and `groups` on a template if not already done.
+ * This is called on-demand (e.g. when the user selects a template)
+ * to avoid running regex extraction for all 32 templates at load time.
+ */
+export function ensureFieldsExtracted(t: PromptTemplate): PromptTemplate {
+  if (t.fields.length > 0) return t;
+  const { fields, groups } = extractFieldsFromTemplate(t.promptTemplate);
+  return { ...t, fields, groups };
+}
+
 const engineeringTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'landing-page',
     name: 'Landing page or marketing site',
     description: 'Single page with hero, features, and call to action',
@@ -41,8 +201,8 @@ const engineeringTemplates: PromptTemplate[] = [
 
 ## Vibe / style (optional)
 {{e.g. minimalist, playful, enterprise}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'web-app',
     name: 'Web app with login + database',
     description: 'Multi-user app with auth, persistence, and a dashboard',
@@ -66,8 +226,8 @@ const engineeringTemplates: PromptTemplate[] = [
 
 ## Done when
 {{ }}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'admin-dashboard',
     name: 'Internal tool or admin dashboard',
     description: 'CRUD interface over your data, for you or your team',
@@ -89,8 +249,8 @@ const engineeringTemplates: PromptTemplate[] = [
 
 ## Must-haves vs nice-to-haves
 {{ }}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'browser-extension',
     name: 'Browser extension or integration',
     description: 'Add behavior to web pages or connect two services',
@@ -110,11 +270,11 @@ const engineeringTemplates: PromptTemplate[] = [
 
 ## Browsers to support
 {{e.g. Chrome, Firefox, Edge}}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 const marketingTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'product-launch',
     name: 'Product launch (landing + email + waitlist)',
     description: 'End-to-end launch with the surfaces you need',
@@ -141,8 +301,8 @@ const marketingTemplates: PromptTemplate[] = [
 
 ## Tone
 {{e.g. confident, technical, playful}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'blog-post',
     name: 'Long-form blog post for SEO',
     description: 'Researched article targeting a keyword',
@@ -165,8 +325,8 @@ const marketingTemplates: PromptTemplate[] = [
 
 ## Sources I want cited
 {{e.g. our own data, public studies, none}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'email-campaign',
     name: 'Email campaign or newsletter',
     description: 'One-off email or recurring sequence',
@@ -189,8 +349,8 @@ const marketingTemplates: PromptTemplate[] = [
 
 ## Tone
 {{ }}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'seo-plan',
     name: 'SEO content plan',
     description: 'Multi-article keyword and topic strategy',
@@ -213,11 +373,11 @@ const marketingTemplates: PromptTemplate[] = [
 
 ## Time horizon
 {{e.g. 1 month, quarterly, annual}}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 const salesTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'cold-outreach',
     name: 'Cold outreach sequence',
     description: 'Multi-touch email or LinkedIn campaign',
@@ -240,8 +400,8 @@ const salesTemplates: PromptTemplate[] = [
 
 ## Where the lead list comes from
 {{e.g. I'll upload a CSV, scrape from LinkedIn, generate by ICP}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'lead-list',
     name: 'Lead list from a target ICP',
     description: 'Sourced and enriched prospect list',
@@ -264,8 +424,8 @@ const salesTemplates: PromptTemplate[] = [
 
 ## Sources to use
 {{e.g. LinkedIn, Crunchbase, public web, anywhere}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'sales-proposal',
     name: 'Sales proposal or quote document',
     description: 'Written proposal for a specific prospect',
@@ -291,8 +451,8 @@ const salesTemplates: PromptTemplate[] = [
 
 ## Tone
 {{e.g. formal, founder-to-founder, technical}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'demo-prep',
     name: 'Demo script or call prep',
     description: 'Talk-track and prep notes for a sales call',
@@ -316,11 +476,11 @@ const salesTemplates: PromptTemplate[] = [
 
 ## Next-step ask
 {{ }}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 const supportTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'rag-chatbot',
     name: 'AI chatbot over our docs (RAG)',
     description: 'Chat assistant grounded in your own content',
@@ -341,8 +501,8 @@ const supportTemplates: PromptTemplate[] = [
 
 ## Out of scope
 {{things it shouldn't try to answer}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'chat-support-bot',
     name: 'Telegram / Discord / Slack support bot',
     description: 'Bot that handles questions in a chat platform',
@@ -363,8 +523,8 @@ const supportTemplates: PromptTemplate[] = [
 
 ## Done when
 {{ }}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'help-center',
     name: 'FAQ or help center site',
     description: 'Browsable searchable help content',
@@ -386,8 +546,8 @@ const supportTemplates: PromptTemplate[] = [
 
 ## Where it should be hosted
 {{e.g. our own subdomain, a hosted service, just markdown files}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'auto-responder',
     name: 'Auto-responder for inbound forms or email',
     description: 'Automated reply to incoming messages',
@@ -407,11 +567,11 @@ const supportTemplates: PromptTemplate[] = [
 
 ## When it should NOT respond
 {{e.g. obvious spam, replies from team members}}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 const operationsTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'scheduled-scrape',
     name: 'Scrape data on a schedule',
     description: 'Recurring web scrape with structured output',
@@ -432,8 +592,8 @@ const operationsTemplates: PromptTemplate[] = [
 
 ## What to do when something changes
 {{e.g. notify me on Slack, append to history, just overwrite}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'service-sync',
     name: 'Sync between two services',
     description: 'Move records between two systems on a schedule',
@@ -453,8 +613,8 @@ const operationsTemplates: PromptTemplate[] = [
 
 ## What to skip
 {{e.g. archived items, items older than 30 days}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'form-pipeline',
     name: 'Form submission → CRM pipeline',
     description: 'Capture form data into a CRM or sheet with enrichment',
@@ -475,8 +635,8 @@ const operationsTemplates: PromptTemplate[] = [
 
 ## Notifications (optional)
 {{e.g. Slack alert on new submission}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'recurring-report',
     name: 'Recurring report delivered to a channel',
     description: 'Scheduled summary delivered to chat or email',
@@ -497,11 +657,11 @@ const operationsTemplates: PromptTemplate[] = [
 
 ## Format
 {{e.g. plain summary, table, chart, PDF}}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 const researchTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'competitive-analysis',
     name: 'Competitive analysis',
     description: 'Side-by-side comparison of products or companies',
@@ -522,8 +682,8 @@ const researchTemplates: PromptTemplate[] = [
 
 ## Format I want back
 {{e.g. side-by-side table, written brief, slide deck}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'market-research',
     name: 'Market research with cited sources',
     description: 'Researched brief with citations',
@@ -544,8 +704,8 @@ const researchTemplates: PromptTemplate[] = [
 
 ## Length / depth
 {{e.g. one-pager, 5-page brief, deep dive}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'data-analysis',
     name: 'Data analysis on a CSV or sheet',
     description: 'Analysis and insights from structured data',
@@ -566,8 +726,8 @@ const researchTemplates: PromptTemplate[] = [
 
 ## Decisions this informs
 {{ }}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'survey',
     name: 'Survey design + result analysis',
     description: 'Design a survey and analyze the results',
@@ -588,11 +748,11 @@ const researchTemplates: PromptTemplate[] = [
 
 ## What I want at the end
 {{e.g. summary report, raw data, charts + recommendations}}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 const complianceTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'risk-audit',
     name: 'Risk audit on a process or system',
     description: 'Structured risk assessment with a decision',
@@ -614,8 +774,8 @@ const complianceTemplates: PromptTemplate[] = [
 
 ## Decision I need to make
 {{e.g. approve the vendor, stop the process, file remediation}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'policy-sop',
     name: 'Policy or SOP document',
     description: 'Formal policy or standard operating procedure',
@@ -638,8 +798,8 @@ const complianceTemplates: PromptTemplate[] = [
 
 ## Format
 {{e.g. one-pager, full policy doc, checklist}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'postmortem',
     name: 'Incident postmortem report',
     description: 'Written analysis of what went wrong and what to do',
@@ -662,8 +822,8 @@ const complianceTemplates: PromptTemplate[] = [
 
 ## Audience for the report
 {{e.g. internal eng, exec, customer-facing}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'vendor-review',
     name: 'Vendor or data-privacy review',
     description: "Review of a vendor's data handling",
@@ -686,11 +846,11 @@ const complianceTemplates: PromptTemplate[] = [
 
 ## Decision needed
 {{e.g. approve, reject, conditional}}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 const creativeTemplates: PromptTemplate[] = [
-  {
+  tpl({
     id: 'slide-deck',
     name: 'Slide deck or presentation',
     description: 'Slide deck for any audience or purpose',
@@ -714,8 +874,8 @@ const creativeTemplates: PromptTemplate[] = [
 
 ## Tone / style
 {{e.g. minimalist, data-heavy, narrative}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'internal-doc',
     name: 'Internal doc or handbook page',
     description: 'Document for internal team consumption',
@@ -736,8 +896,8 @@ const creativeTemplates: PromptTemplate[] = [
 
 ## How long
 {{e.g. one-pager, full handbook chapter}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'video-script',
     name: 'Video script or podcast outline',
     description: 'Talk script or outline for video or audio',
@@ -761,8 +921,8 @@ const creativeTemplates: PromptTemplate[] = [
 
 ## Tone
 {{e.g. casual, authoritative, comedic}}${OSTWIN_INSTRUCTION}`,
-  },
-  {
+  }),
+  tpl({
     id: 'creative-brief',
     name: 'Brand or creative brief',
     description: 'Brief for a designer or creative team',
@@ -788,7 +948,7 @@ const creativeTemplates: PromptTemplate[] = [
 
 ## Deadline
 {{ }}${OSTWIN_INSTRUCTION}`,
-  },
+  }),
 ];
 
 export const planCategories: PlanCategory[] = [

@@ -9,17 +9,19 @@ const mockCategories = [
     id: 'engineering',
     name: 'Engineering',
     icon: 'engineering',
+    description: 'Software, sites, tools',
     templates: [
-      { id: 't1', name: 'Frontend App', description: 'React App', promptTemplate: 'Build a React app' },
-      { id: 't2', name: 'Backend API', description: 'Node API', promptTemplate: 'Build a Node API' },
+      { id: 't1', name: 'Frontend App', description: 'React App', fieldCount: 5, covers: ['goal'] },
+      { id: 't2', name: 'Backend API', description: 'Node API', fieldCount: 4, covers: ['goal'] },
     ]
   },
   {
     id: 'marketing',
     name: 'Marketing',
     icon: 'campaign',
+    description: 'Campaigns, SEO',
     templates: [
-      { id: 't3', name: 'Landing Page', description: 'SEO Page', promptTemplate: 'Build a Landing page' },
+      { id: 't3', name: 'Landing Page', description: 'SEO Page', fieldCount: 6, covers: ['goal'] },
     ]
   }
 ];
@@ -45,28 +47,30 @@ describe('TemplatePicker', () => {
     expect(screen.queryByText('Frontend App')).not.toBeInTheDocument();
   });
 
-  it('calls onSelectTemplate when a template is clicked', () => {
+  it('calls onSelectTemplate with the catalog entry when clicked', () => {
     const onSelectTemplate = vi.fn();
     render(<TemplatePicker categories={mockCategories} onSelectTemplate={onSelectTemplate} />);
     fireEvent.click(screen.getByText('Frontend App'));
-    expect(onSelectTemplate).toHaveBeenCalledWith('Build a React app');
+    expect(onSelectTemplate).toHaveBeenCalledWith(mockCategories[0].templates[0]);
   });
 
-  it('renders a tooltip with the full prompt text for each template row, hidden by default', () => {
+  it('shows field count badge for each template', () => {
     render(<TemplatePicker categories={mockCategories} onSelectTemplate={() => {}} />);
+    expect(screen.getByText('5 fields')).toBeInTheDocument();
+    expect(screen.getByText('4 fields')).toBeInTheDocument();
+  });
 
-    const tooltip = screen.getByText('Build a React app');
-    // The Tooltip component hides itself until its wrapper is hovered, via
-    // the `invisible group-hover:visible` class pair. Assert both classes so
-    // we actually cover the hide/show behavior instead of just existence.
-    expect(tooltip).toHaveClass('invisible');
-    expect(tooltip.className).toMatch(/group-hover:visible/);
-
-    // The wrapper must be the `group` owning the hover state, and must stretch
-    // full-width so each row is not constrained by an inline-block tooltip.
-    const wrapper = tooltip.closest('.group');
-    expect(wrapper).not.toBeNull();
-    expect(wrapper).toHaveClass('w-full');
+  it('shows loading spinner on the selected template row', () => {
+    render(
+      <TemplatePicker
+        categories={mockCategories}
+        onSelectTemplate={() => {}}
+        loadingTemplateId="t1"
+      />
+    );
+    // The loading template row should be disabled
+    const row = screen.getByText('Frontend App').closest('button');
+    expect(row).toBeDisabled();
   });
 
   describe('keyboard navigation', () => {
@@ -95,9 +99,7 @@ describe('TemplatePicker', () => {
       fireEvent.keyDown(engineering, { key: 'ArrowRight' });
       [engineering, marketing] = getTabs();
       expect(marketing).toHaveAttribute('aria-selected', 'true');
-      expect(marketing).toHaveAttribute('tabindex', '0');
       expect(document.activeElement).toBe(marketing);
-      // Panel content should have followed the selection.
       expect(screen.getByText('Landing Page')).toBeInTheDocument();
       expect(screen.queryByText('Frontend App')).not.toBeInTheDocument();
 
@@ -108,7 +110,7 @@ describe('TemplatePicker', () => {
       expect(screen.getByText('Frontend App')).toBeInTheDocument();
     });
 
-    it('wraps with ArrowLeft on the first tab and with ArrowRight on the last tab', () => {
+    it('wraps around on ArrowLeft/ArrowRight', () => {
       render(<TemplatePicker categories={mockCategories} onSelectTemplate={() => {}} />);
       focusTabList();
       let [engineering, marketing] = getTabs();

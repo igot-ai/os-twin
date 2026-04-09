@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useHomeData } from '@/hooks/use-home-data';
 import { usePlans } from '@/hooks/use-plans';
 import PlanCard from '@/components/dashboard/PlanCard';
-import { CommandPrompt } from '@/components/ui/CommandPrompt';
+import { CommandPrompt, type AttachedTemplate } from '@/components/ui/CommandPrompt';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { BrandIcon } from '@/components/ui/BrandIcon';
 import { ActivityFeed } from '@/components/chat/ActivityFeed';
 import { TemplatePicker } from '@/components/dashboard/TemplatePicker';
+import { loadTemplateContent, type TemplateCatalogEntry } from '@/data/template-catalog';
 import type { ImageAttachment } from '@/types';
 
 
@@ -20,31 +21,65 @@ export default function DashboardHomePage() {
   const { plans, isLoading: plansLoading } = usePlans();
 
   const [prompt, setPrompt] = useState('');
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [loadingTemplateId, setLoadingTemplateId] = useState<string | null>(null);
   const commandPromptRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleSubmitPrompt = async (submittedPrompt: string, images?: ImageAttachment[]) => {
+  // Template state: stored as metadata, never injected as raw text
+  const [attachedTemplate, setAttachedTemplate] = useState<AttachedTemplate | null>(null);
+  const templateContentRef = useRef<string | null>(null);
+
+  const handleSubmitPrompt = async (userPrompt: string, images?: ImageAttachment[]) => {
+    const templateName = attachedTemplate?.name || null;
+    const templateContent = templateContentRef.current;
+
+    // Compose the message sent to the agent:
+    // - If template attached: structured format with template context + user brief
+    // - If no template: just the user's raw prompt
+    let message: string;
+    if (templateName && templateContent) {
+      const userBrief = userPrompt.trim();
+      message = userBrief
+        ? `@${templateName}\n\n${userBrief}\n\n---\n\n<template>\n${templateContent}\n</template>`
+        : `@${templateName}\n\n---\n\n<template>\n${templateContent}\n</template>`;
+    } else {
+      message = userPrompt;
+    }
+
+    if (!message.trim()) return;
+
+    // Title = template name + user context (or just user prompt)
+    const title = templateName
+      ? userPrompt.trim()
+        ? `${templateName} - ${userPrompt.trim().substring(0, 80)}`
+        : templateName
+      : undefined;
+
     try {
       setIsCreatingThread(true);
-      const body: Record<string, unknown> = { message: submittedPrompt };
+      const body: Record<string, unknown> = { message };
       if (images && images.length > 0) {
         body.images = images.map(img => ({ url: img.url, name: img.name, type: img.type }));
       }
-      const resp = await fetch((process.env.NEXT_PUBLIC_API_BASE_URL || '/api') + '/plans/threads', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(body)
-      });
-
-      if (!resp.ok) {
-        throw new Error('Failed to create thread');
+      if (templateName) {
+        body.template_name = templateName;
+      }
+      if (title) {
+        body.title = title;
       }
 
+      const resp = await fetch((process.env.NEXT_PUBLIC_API_BASE_URL || '/api') + '/plans/threads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) throw new Error('Failed to create thread');
+
       const data = await resp.json();
+      setAttachedTemplate(null);
+      templateContentRef.current = null;
       router.push(`/ideas/${data.thread_id}`);
     } catch (err) {
       console.error(err);
@@ -54,19 +89,26 @@ export default function DashboardHomePage() {
     }
   };
 
-  const handleSuggestionClick = (text: string) => {
-    setPrompt(text);
-  };
-
-  const cycleSuggestion = () => {
-    if (homeData?.suggestions?.length) {
-      setSelectedSuggestionIndex(prev => (prev + 1) % homeData.suggestions.length);
+  // When user clicks a template: load content async, store as metadata (NOT in textarea)
+  const handleSelectTemplate = useCallback(async (entry: TemplateCatalogEntry) => {
+    setLoadingTemplateId(entry.id);
+    try {
+      const content = await loadTemplateContent(entry.id);
+      if (content) {
+        // Store template reference + content separately
+        setAttachedTemplate({ id: entry.id, name: entry.name });
+        templateContentRef.current = content.promptTemplate;
+        // Focus textarea so user can type their additional context
+        setTimeout(() => commandPromptRef.current?.focus(), 0);
+      }
+    } finally {
+      setLoadingTemplateId(null);
     }
-  };
+  }, []);
 
-  const handleSelectTemplate = useCallback((templatePrompt: string) => {
-    setPrompt(templatePrompt);
-    setTimeout(() => commandPromptRef.current?.focus(), 0);
+  const handleRemoveTemplate = useCallback(() => {
+    setAttachedTemplate(null);
+    templateContentRef.current = null;
   }, []);
 
   return (
@@ -96,39 +138,16 @@ export default function DashboardHomePage() {
           onSubmit={handleSubmitPrompt}
           isConversationActive={false}
           isLoading={isCreatingThread}
+          attachedTemplate={attachedTemplate}
+          onRemoveTemplate={handleRemoveTemplate}
         />
-
-        {/* Example Prompts */}
-        <div className="mt-8 flex flex-col items-center">
-          <button
-            onClick={cycleSuggestion}
-            className="text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] flex items-center gap-1 transition-colors mb-4"
-          >
-            Try an example prompt <span className="material-symbols-outlined text-sm">sync</span>
-          </button>
-          <div className="flex justify-center min-h-[40px]">
-            {homeLoading ? (
-              <Skeleton className="h-8 w-64 rounded-[var(--radius-full)]" />
-            ) : homeData?.suggestions && homeData.suggestions.length > 0 ? (
-              <button
-                onClick={() => handleSuggestionClick(homeData.suggestions[selectedSuggestionIndex].text)}
-                className="px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[var(--radius-full)] text-sm text-[var(--color-text-main)] hover:border-[var(--color-primary)] hover:text-primary transition-all shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-card-hover)] flex items-center gap-2 animate-in fade-in duration-300"
-                key={homeData.suggestions[selectedSuggestionIndex].id}
-              >
-                <span className="material-symbols-outlined text-sm text-[var(--color-text-muted)]">
-                  {homeData.suggestions[selectedSuggestionIndex].icon}
-                </span>
-                {homeData.suggestions[selectedSuggestionIndex].text}
-              </button>
-            ) : null}
-          </div>
-        </div>
 
         {/* Template Picker */}
         {!homeLoading && homeData?.categories && homeData.categories.length > 0 && (
           <TemplatePicker
             categories={homeData.categories}
             onSelectTemplate={handleSelectTemplate}
+            loadingTemplateId={loadingTemplateId}
           />
         )}
         {homeLoading && (

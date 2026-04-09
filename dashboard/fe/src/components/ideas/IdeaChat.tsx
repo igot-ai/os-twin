@@ -168,6 +168,19 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
     "What tech stack should we use?"
   ];
 
+  // Detect plan readiness from the conversation: count how many assistant
+  // messages there are (proxy for depth of exploration). The agent's template-
+  // aware system prompt will proactively say "ready to generate" once gaps are
+  // filled, but we also give a visual cue based on conversation depth.
+  const assistantMessages = messages.filter(m => m.role === 'assistant').length;
+  const hasEnoughContext = assistantMessages >= 2 || messages.length >= 3;
+
+  // Check if the latest assistant message signals readiness
+  const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+  const agentSignalsReady = lastAssistantMsg?.content
+    ? /ready to generate|click.*create plan|plan is ready/i.test(lastAssistantMsg.content)
+    : false;
+
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-background)' }}>
       {/* Header */}
@@ -249,12 +262,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                           </div>
                         )}
                         {msg.content && (
-                          <div
-                            className="rounded-2xl px-4 py-2 text-sm text-white"
-                            style={{ background: 'var(--color-primary)', borderBottomRightRadius: '4px' }}
-                          >
-                            {msg.content}
-                          </div>
+                          <UserMessageBubble content={msg.content} />
                         )}
                       </div>
                     ) : (
@@ -291,11 +299,12 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
         </button>
       )}
 
-      {/* Composer Area */}
-      <div className="p-4 border-t shrink-0" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
-        <div className="max-w-4xl mx-auto flex flex-col gap-3">
+      {/* Composer Area — pinned to bottom, never hidden by scroll content */}
+      <div className="border-t shrink-0 relative z-20" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}>
+        <div className="max-w-4xl mx-auto px-4 py-3 flex flex-col gap-2">
+          {/* Suggestion chips (only before first message) */}
           {showChips && (
-            <div className="flex flex-wrap gap-2 mb-2">
+            <div className="flex flex-wrap gap-2">
               {chips.map((chip, i) => (
                 <button
                   key={i}
@@ -323,7 +332,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                   <img
                     src={img.url}
                     alt={img.name}
-                    className="w-16 h-16 object-cover rounded-lg"
+                    className="w-14 h-14 object-cover rounded-lg"
                     style={{ border: '1px solid var(--color-border)' }}
                   />
                   <button
@@ -333,9 +342,6 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
                   </button>
-                  <div className="text-[10px] truncate w-16 mt-0.5 text-center" style={{ color: 'var(--color-text-faint)' }}>
-                    {img.name}
-                  </div>
                 </div>
               ))}
             </div>
@@ -344,16 +350,27 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
             <div className="text-xs" style={{ color: 'var(--color-danger)' }}>{imageError}</div>
           )}
 
-          <div className="relative">
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              multiple
-              className="hidden"
-              onChange={handleFileSelect}
-            />
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+
+          {/* ── Main input row: attach │ textarea │ Create Plan │ send ── */}
+          <div className="flex items-end gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isStreaming || isPromoted || pendingImages.length >= MAX_IMAGES}
+              className="p-2 rounded-lg transition-colors disabled:opacity-30 shrink-0 mb-0.5"
+              style={{ color: 'var(--color-text-muted)' }}
+              title="Attach images"
+            >
+              <span className="material-symbols-outlined text-lg">add_photo_alternate</span>
+            </button>
 
             <textarea
               ref={inputRef}
@@ -362,36 +379,26 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               disabled={isStreaming || isPromoted}
-              placeholder={isPromoted ? "Thread promoted. View plan to continue." : "Type your message... (Shift+Enter for newline)"}
-              className="w-full resize-none rounded-lg pl-11 pr-12 py-3 text-sm focus:outline-none"
+              placeholder={isPromoted ? "Thread promoted to plan." : "Type your message... (Shift+Enter for newline)"}
+              className="flex-1 min-w-0 resize-none rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-muted)]"
               style={{
                 background: 'var(--color-background)',
                 color: 'var(--color-text-main)',
                 border: '1px solid var(--color-border)',
-                minHeight: '52px',
-                maxHeight: '200px'
+                minHeight: '42px',
+                maxHeight: '160px',
               }}
-              rows={Math.min(5, input.split('\n').length || 1)}
+              rows={Math.min(4, input.split('\n').length || 1)}
             />
 
-            {/* Attachment button */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isStreaming || isPromoted || pendingImages.length >= MAX_IMAGES}
-              className="absolute left-2 bottom-2 p-1.5 rounded-md transition-colors disabled:opacity-30"
-              style={{ color: 'var(--color-text-muted)' }}
-              title="Attach images"
-            >
-              <span className="material-symbols-outlined text-lg">add_photo_alternate</span>
-            </button>
-
-            <div className="absolute right-2 bottom-2 flex items-center gap-2">
+            {/* Action buttons — always inline, never overlapping */}
+            <div className="flex items-center gap-1.5 shrink-0 mb-0.5">
               {isStreaming ? (
                 <Button
                   variant="secondary"
                   size="icon"
                   onClick={cancel}
-                  className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className="h-9 w-9 text-red-500 hover:text-red-600"
                 >
                   <span className="material-symbols-outlined text-sm">stop_circle</span>
                 </Button>
@@ -399,10 +406,19 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                 <>
                   {messages.length > 0 && !isPromoted && (
                     <Button
-                      variant="secondary"
+                      variant={agentSignalsReady ? 'primary' : 'secondary'}
                       onClick={handlePromote}
                       disabled={isPromoting}
-                      className="h-8 px-3 gap-1.5 text-xs font-medium"
+                      className={`h-9 px-3 gap-1.5 text-xs font-medium whitespace-nowrap ${
+                        agentSignalsReady ? 'ring-2 ring-[var(--color-primary-muted)]' : ''
+                      }`}
+                      title={
+                        agentSignalsReady
+                          ? 'The agent thinks your plan is ready!'
+                          : hasEnoughContext
+                          ? 'Create a plan from the conversation so far'
+                          : 'Keep chatting to build more context first'
+                      }
                     >
                       {isPromoting ? (
                         <div className="animate-spin rounded-full h-3 w-3 border-b-2" style={{ borderColor: 'var(--color-primary)' }} />
@@ -417,7 +433,7 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
                     size="icon"
                     onClick={handleSend}
                     disabled={(!input.trim() && pendingImages.length === 0) || isPromoted}
-                    className="h-8 w-8"
+                    className="h-9 w-9"
                   >
                     <span className="material-symbols-outlined text-sm" style={{ transform: 'rotate(-45deg)', marginLeft: '2px', marginBottom: '2px' }}>send</span>
                   </Button>
@@ -427,6 +443,57 @@ export function IdeaChat({ threadId: propId }: IdeaChatProps) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UserMessageBubble: renders @template-name as a chip, hides <template> block
+// ---------------------------------------------------------------------------
+
+function UserMessageBubble({ content }: { content: string }) {
+  // Detect template-attached messages: starts with @TemplateName, may contain <template>...</template>
+  const templateMatch = content.match(/^@(.+?)(?:\n|$)/);
+  const hasTemplateBlock = /<template>[\s\S]*<\/template>/.test(content);
+
+  if (templateMatch && hasTemplateBlock) {
+    const templateName = templateMatch[1].trim();
+    // Extract user's additional context (between the @name line and the --- separator or <template>)
+    const afterName = content.substring(templateMatch[0].length).trim();
+    const userContext = afterName
+      .replace(/---[\s\S]*$/, '') // remove everything from --- onwards
+      .trim();
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        {/* Template chip */}
+        <div
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold"
+          style={{ background: 'var(--color-primary)', color: 'white', opacity: 0.85 }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
+          @{templateName}
+        </div>
+        {/* User's additional context */}
+        {userContext && (
+          <div
+            className="rounded-2xl px-4 py-2 text-sm text-white"
+            style={{ background: 'var(--color-primary)', borderBottomRightRadius: '4px' }}
+          >
+            {userContext}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Regular message (no template)
+  return (
+    <div
+      className="rounded-2xl px-4 py-2 text-sm text-white"
+      style={{ background: 'var(--color-primary)', borderBottomRightRadius: '4px' }}
+    >
+      {content}
     </div>
   );
 }

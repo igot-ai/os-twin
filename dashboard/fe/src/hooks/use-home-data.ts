@@ -1,8 +1,8 @@
 import useSWR from 'swr';
 import { apiGet } from '@/lib/api-client';
-import { planCategories, type PlanCategory, type PromptTemplate } from '@/data/prompt-templates';
+import { templateCatalog, type TemplateCategoryMeta } from '@/data/template-catalog';
 
-export type { PlanCategory, PromptTemplate };
+export type { TemplateCategoryMeta };
 
 export interface PromptSuggestion {
   id: string;
@@ -16,7 +16,7 @@ export interface HomeData {
     avatar?: string;
     workspace: string;
   };
-  categories: PlanCategory[];
+  categories: TemplateCategoryMeta[];
   suggestions: PromptSuggestion[];
 }
 
@@ -25,7 +25,7 @@ export const mockHomeData: HomeData = {
     name: 'Alex',
     workspace: 'Ostwin Pro',
   },
-  categories: planCategories,
+  categories: templateCatalog,
   suggestions: [
     { id: 's1', text: 'Build a Next.js landing page with Tailwind CSS', icon: 'auto_awesome' },
     { id: 's2', text: 'Set up a Node.js Express server with MongoDB', icon: 'memory' },

@@ -2,12 +2,20 @@ import React, { useState, useRef, useLayoutEffect, useMemo, forwardRef } from 'r
 import { processImages, MAX_IMAGES, type ProcessedImage } from '@/lib/image-utils';
 import type { ImageAttachment } from '@/types';
 
+export interface AttachedTemplate {
+  id: string;
+  name: string;
+}
+
 interface CommandPromptProps {
   onSubmit: (prompt: string, images?: ImageAttachment[]) => void;
   isConversationActive?: boolean;
   value?: string;
   onChange?: (val: string) => void;
   isLoading?: boolean;
+  /** Attached template shown as a chip inside the prompt area */
+  attachedTemplate?: AttachedTemplate | null;
+  onRemoveTemplate?: () => void;
 }
 
 function useMergedRef<T>(...refs: Array<React.Ref<T> | null | undefined>) {
@@ -24,7 +32,7 @@ function useMergedRef<T>(...refs: Array<React.Ref<T> | null | undefined>) {
   );
 }
 
-export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>(({ onSubmit, isConversationActive = false, value, onChange, isLoading = false }, ref) => {
+export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>(({ onSubmit, isConversationActive = false, value, onChange, isLoading = false, attachedTemplate, onRemoveTemplate }, ref) => {
   const [internalPrompt, setInternalPrompt] = useState('');
   const [pendingImages, setPendingImages] = useState<ProcessedImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -76,7 +84,8 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
   const doSubmit = () => {
     const hasText = prompt.trim().length > 0;
     const hasImages = pendingImages.length > 0;
-    if (!hasText && !hasImages) return;
+    const hasTemplate = !!attachedTemplate;
+    if (!hasText && !hasImages && !hasTemplate) return;
 
     const images: ImageAttachment[] | undefined = hasImages
       ? pendingImages.map(img => ({ url: img.url, name: img.name, type: img.type }))
@@ -117,6 +126,27 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
 
   return (
     <div className={isConversationActive ? 'w-full max-w-4xl mx-auto' : 'w-full max-w-2xl mx-auto mt-8'}>
+      {/* Template chip — isolated above the input box */}
+      {attachedTemplate && (
+        <div className="flex items-center gap-2 mb-2 px-1 animate-in fade-in slide-in-from-top-2 duration-200">
+          <span
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+            style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
+            @{attachedTemplate.name}
+            <button
+              type="button"
+              onClick={onRemoveTemplate}
+              className="ml-1 rounded-full hover:bg-[var(--color-primary)]/20 p-0.5 transition-colors"
+              aria-label="Remove template"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+            </button>
+          </span>
+        </div>
+      )}
+
       {/* Image preview strip */}
       {pendingImages.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2 px-4">
@@ -145,7 +175,7 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
 
       <form
         onSubmit={handleSubmit}
-        className="relative flex items-start bg-surface/80 backdrop-blur-[12px] border border-border rounded-2xl shadow-card transition-all duration-300 focus-within:ring-4 focus-within:ring-primary-muted focus-within:border-primary hover:border-primary-light"
+        className="relative flex items-center bg-surface/80 backdrop-blur-[12px] border border-border rounded-2xl shadow-card transition-all duration-300 focus-within:ring-4 focus-within:ring-primary-muted focus-within:border-primary hover:border-primary-light"
       >
         {/* Hidden file input */}
         <input
@@ -174,7 +204,7 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
           onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           disabled={isLoading}
-          placeholder="What do you want to build?"
+          placeholder={attachedTemplate ? "Add details about your project..." : "What do you want to build?"}
           aria-label="Prompt"
           aria-describedby="command-prompt-hint"
           rows={1}
@@ -182,14 +212,10 @@ export const CommandPrompt = forwardRef<HTMLTextAreaElement, CommandPromptProps>
           style={{ maxHeight: '40vh' }}
         />
 
-        <div className="flex items-center gap-2 pr-4 flex-shrink-0 self-center">
-          <div className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-primary-muted)] text-[var(--color-primary)] rounded-[var(--radius-full)] text-sm font-[var(--font-display)] font-medium">
-            <span className="material-symbols-outlined text-sm">account_tree</span>
-            Plan
-          </div>
+        <div className="flex items-center pr-3 flex-shrink-0">
           <button
             type="submit"
-            disabled={(!prompt.trim() && pendingImages.length === 0) || isLoading}
+            disabled={(!prompt.trim() && pendingImages.length === 0 && !attachedTemplate) || isLoading}
             className="p-2 bg-primary text-white rounded-full hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 flex items-center justify-center min-w-[36px] min-h-[36px]"
             aria-label="Send prompt (Ctrl or Cmd + Enter)"
           >

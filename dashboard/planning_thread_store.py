@@ -25,6 +25,7 @@ class PlanningThread(BaseModel):
     created_at: str
     updated_at: str
     message_count: int = 0
+    template_meta: Optional[dict] = None
 
 class PlanningThreadStore:
     def __init__(self, base_dir: Optional[Path] = None):
@@ -55,7 +56,7 @@ class PlanningThreadStore:
             json.dump(index_data, f, indent=2)
         os.replace(temp_file, self.index_file)
 
-    def create(self, title: str = "New Idea") -> PlanningThread:
+    def create(self, title: str = "New Idea", template_meta: Optional[dict] = None) -> PlanningThread:
         thread_id = f"pt-{uuid.uuid4().hex[:12]}"
         now = self._now_iso()
         
@@ -65,7 +66,8 @@ class PlanningThreadStore:
             status="active",
             created_at=now,
             updated_at=now,
-            message_count=0
+            message_count=0,
+            template_meta=template_meta,
         )
         
         thread_file = self.base_dir / f"{thread_id}.json"

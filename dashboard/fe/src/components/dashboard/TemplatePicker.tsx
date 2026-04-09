@@ -1,31 +1,21 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Tooltip } from '@/components/ui/Tooltip';
-
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  promptTemplate: string;
-}
-
-interface Category {
-  id: string;
-  name: string;
-  icon: string;
-  templates: Template[];
-}
+import type { TemplateCatalogEntry, TemplateCategoryMeta } from '@/data/template-catalog';
 
 interface TemplatePickerProps {
-  categories: Category[];
-  onSelectTemplate: (prompt: string) => void;
+  categories: TemplateCategoryMeta[];
+  onSelectTemplate: (entry: TemplateCatalogEntry) => void;
+  /** ID of the template currently being loaded (shows spinner on that row) */
+  loadingTemplateId?: string | null;
 }
 
-export const TemplatePicker: React.FC<TemplatePickerProps> = ({ categories, onSelectTemplate }) => {
+export const TemplatePicker: React.FC<TemplatePickerProps> = ({
+  categories,
+  onSelectTemplate,
+  loadingTemplateId,
+}) => {
   const [activeTabId, setActiveTabId] = useState(categories[0]?.id ?? '');
   const [focusedTabIndex, setFocusedTabIndex] = useState(0);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  // Tracks whether the next focus-move should come from a keyboard event,
-  // so we don't steal focus on the initial mount or on mouse clicks.
   const shouldFocusTabRef = useRef(false);
 
   const activeCategory = categories.find(c => c.id === activeTabId);
@@ -103,25 +93,32 @@ export const TemplatePicker: React.FC<TemplatePickerProps> = ({ categories, onSe
           aria-labelledby={`tab-${activeCategory.id}`}
           className="flex flex-col gap-1"
         >
-          {activeCategory.templates.map(template => (
-            <Tooltip
-              key={template.id}
-              content={template.promptTemplate.length > 250 ? template.promptTemplate.substring(0, 250) + '...' : template.promptTemplate}
-              position="top"
-              className="w-full"
+          {activeCategory.templates.map(entry => (
+            <button
+              key={entry.id}
+              onClick={() => onSelectTemplate(entry)}
+              disabled={loadingTemplateId === entry.id}
+              className="w-full text-left p-3 hover:bg-[var(--color-surface)] rounded-[var(--radius-lg)] transition-all group flex items-center gap-3 disabled:opacity-60"
             >
-              <button
-                onClick={() => onSelectTemplate(template.promptTemplate)}
-                className="w-full text-left p-3 hover:bg-[var(--color-surface)] rounded-[var(--radius-lg)] transition-all group flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3"
-              >
+              <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 min-w-0">
                 <div className="font-bold text-[var(--color-text-main)] text-sm group-hover:text-[var(--color-primary)] transition-colors shrink-0">
-                  {template.name}
+                  {entry.name}
                 </div>
                 <div className="text-xs text-[var(--color-text-muted)] truncate">
-                  {template.description}
+                  {entry.description}
                 </div>
-              </button>
-            </Tooltip>
+              </div>
+              <div className="shrink-0 flex items-center gap-2">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--color-background)] text-[var(--color-text-faint)] tabular-nums">
+                  {entry.fieldCount} fields
+                </span>
+                {loadingTemplateId === entry.id ? (
+                  <span className="material-symbols-outlined text-sm text-[var(--color-primary)] animate-spin">refresh</span>
+                ) : (
+                  <span className="material-symbols-outlined text-sm text-[var(--color-text-faint)] group-hover:text-[var(--color-primary)] transition-colors">arrow_forward</span>
+                )}
+              </div>
+            </button>
           ))}
         </div>
       )}
