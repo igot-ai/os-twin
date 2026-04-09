@@ -6,7 +6,7 @@ graph snapshots, memory notes, and search results to the frontend.
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 import json
 import os
 import re
@@ -280,7 +280,9 @@ def _build_graph(notes: list) -> dict:
 
 
 @router.get("/api/amem/{plan_id}/graph")
-async def get_memory_graph(plan_id: str, user: dict = Depends(get_current_user)):
+async def get_memory_graph(
+    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
+):
     """Get the memory graph for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -290,7 +292,7 @@ async def get_memory_graph(plan_id: str, user: dict = Depends(get_current_user))
 
 @router.get("/api/amem/{plan_id}/notes")
 async def list_memory_notes(
-    plan_id: str, user: dict = Depends(get_current_user)
+    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
 ) -> list:
     """List all memory notes for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)
@@ -303,7 +305,7 @@ async def list_memory_notes(
 
 @router.get("/api/amem/{plan_id}/notes/{note_id}")
 async def get_memory_note(
-    plan_id: str, note_id: str, user: dict = Depends(get_current_user)
+    plan_id: str, note_id: str, user: Annotated[dict, Depends(get_current_user)] = None
 ) -> dict:
     """Get a single memory note by ID."""
     mem_dir = _resolve_memory_dir(plan_id)
@@ -317,7 +319,7 @@ async def get_memory_note(
 
 @router.get("/api/amem/{plan_id}/stats")
 async def get_memory_stats(
-    plan_id: str, user: dict = Depends(get_current_user)
+    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
 ) -> dict:
     """Get memory statistics for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)

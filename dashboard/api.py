@@ -121,7 +121,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                         }
                     )
-            except:
+            except Exception:
                 pass
     except WebSocketDisconnect:
         pass

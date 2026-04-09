@@ -101,7 +101,9 @@ class OpenAIController(BaseLLMController):
                 kwargs["max_tokens"] = max_tokens
 
         response = self.client.chat.completions.create(**kwargs)
-        return response.choices[0].message.content
+        if not response.choices:
+            raise ValueError("LLM returned empty choices array")
+        return response.choices[0].message.content or ""
 
 
 class OllamaController(BaseLLMController):

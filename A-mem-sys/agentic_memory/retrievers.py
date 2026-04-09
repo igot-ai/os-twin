@@ -352,12 +352,18 @@ class ZvecRetriever:
 
     def search(self, query: str, k: int = 5) -> dict:
         """Search for similar documents. Returns ChromaDB-compatible result format."""
-        embedding = self.embedding_function([query])[0]
+        empty_result: dict = {"ids": [[]], "metadatas": [[]], "distances": [[]]}
+        embeddings = self.embedding_function([query])
+        if not embeddings:
+            return empty_result
+        embedding = embeddings[0]
 
         results = self.collection.query(
             vectors=self._zvec.VectorQuery(field_name="embedding", vector=embedding),
             topk=k,
         )
+        if not results:
+            return empty_result
 
         ids = []
         metadatas = []

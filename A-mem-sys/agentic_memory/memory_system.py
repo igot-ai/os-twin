@@ -322,7 +322,7 @@ class AgenticMemorySystem:
             results = self.retriever.search(content, k=5)
             if results.get("ids") and results["ids"][0]:
                 similar = []
-                similar_tags = set()
+                similar_tags: set = set()
                 for doc_id in results["ids"][0]:
                     mem = self.memories.get(doc_id)
                     if mem:
@@ -332,8 +332,8 @@ class AgenticMemorySystem:
                     lines.append(f"Similar memories: {', '.join(similar)}")
                 if similar_tags:
                     lines.append(f"Their tags: {', '.join(sorted(similar_tags)[:15])}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Vector search during context collection failed: %s", exc)
 
         # 2. Directory structure
         if include_tree:
