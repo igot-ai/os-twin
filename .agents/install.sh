@@ -659,6 +659,75 @@ ENVSHEOF
   fi
 }
 
+# ─── OpenCode permissions ─────────────────────────────────────────────────────
+# Patches ~/.config/opencode/opencode.json so agents can read .env files and
+# operate without interactive prompts when launched from the install pipeline.
+
+setup_opencode_permissions() {
+  local oc_dir="$HOME/.config/opencode"
+  local oc_config="$oc_dir/opencode.json"
+
+  if ! command -v python3 &>/dev/null && ! [[ -x "$VENV_DIR/bin/python" ]]; then
+    warn "Python not available — skipping OpenCode permission patch"
+    return
+  fi
+
+  local py_cmd="python3"
+  [[ -x "$VENV_DIR/bin/python" ]] && py_cmd="$VENV_DIR/bin/python"
+
+  step "Patching OpenCode permissions (allow .env reads)..."
+  mkdir -p "$oc_dir"
+
+  "$py_cmd" - "$oc_config" <<'PYEOF'
+import json, sys, os
+
+config_path = sys.argv[1]
+
+# Load existing config or start fresh
+if os.path.isfile(config_path):
+    with open(config_path) as f:
+        config = json.load(f)
+else:
+    config = {"$schema": "https://opencode.ai/config.json"}
+
+# Ensure "permission" key exists as a dict
+perm = config.get("permission")
+if isinstance(perm, str):
+    # e.g. "allow" — convert to dict, preserving intent
+    config["permission"] = {"*": perm}
+    perm = config["permission"]
+elif not isinstance(perm, dict):
+    config["permission"] = {}
+    perm = config["permission"]
+
+# Ensure "read" sub-key is a dict with .env allowed
+read_perm = perm.get("read")
+if isinstance(read_perm, str):
+    perm["read"] = {"*": read_perm, "*.env": "allow", "*.env.*": "allow", "*.env.example": "allow"}
+elif isinstance(read_perm, dict):
+    read_perm.setdefault("*", "allow")
+    read_perm["*.env"] = "allow"
+    read_perm["*.env.*"] = "allow"
+    read_perm["*.env.example"] = "allow"
+else:
+    perm["read"] = {"*": "allow", "*.env": "allow", "*.env.*": "allow", "*.env.example": "allow"}
+
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+
+print("    Permissions: read *.env → allow")
+PYEOF
+
+  if [[ $? -eq 0 ]]; then
+    ok "OpenCode permissions patched at $oc_config"
+  else
+    warn "Failed to patch OpenCode permissions — agents may not be able to read .env files"
+    info "Manually add to $oc_config:"
+    info '  "permission": { "read": { "*": "allow", "*.env": "allow", "*.env.*": "allow" } }'
+  fi
+}
+
 # ─── Next.js dashboard build ────────────────────────────────────────────────
 
 build_nextjs() {
@@ -1480,6 +1549,11 @@ compute_build_hash
 
 header "5b. Setting up .env"
 setup_env
+
+# ─── 5c. OpenCode permissions ────────────────────────────────────────────────
+
+header "5c. OpenCode agent permissions"
+setup_opencode_permissions
 
 # ─── 6. PowerShell extras ────────────────────────────────────────────────────
 
