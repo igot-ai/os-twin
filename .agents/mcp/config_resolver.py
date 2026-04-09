@@ -16,6 +16,7 @@ except ImportError:
 # Regex to match ${vault:server/key}
 VAULT_REF_PATTERN = re.compile(r"\$\{vault:([^/]+)/([^}]+)\}")
 
+
 class ConfigResolver:
     def __init__(self):
         self.vault = get_vault()
@@ -35,7 +36,9 @@ class ConfigResolver:
                 server, key = match.groups()
                 secret = self.vault.get(server, key)
                 if secret is None:
-                    raise ValueError(f"Vault reference not found: ${{vault:{server}/{key}}}")
+                    raise ValueError(
+                        f"Vault reference not found: ${{vault:{server}/{key}}}"
+                    )
                 # Replace the entire reference with the secret
                 # Note: this only supports one reference per string for now
                 return obj.replace(match.group(0), secret)
@@ -68,12 +71,17 @@ class ConfigResolver:
                 refs.append(match.groups())
 
     # Simple ${VAR} — no nested braces allowed in the name
-    _SIMPLE_VAR = re.compile(r'\$\{([A-Za-z_]\w*)\}')
+    _SIMPLE_VAR = re.compile(r"\$\{([A-Za-z_]\w*)\}")
     # ${VAR:-default} where default has NO nested ${...} (already resolved by prior pass)
-    _DEFAULT_VAR = re.compile(r'\$\{([A-Za-z_]\w*):-([^$}]*)\}')
+    _DEFAULT_VAR = re.compile(r"\$\{([A-Za-z_]\w*):-([^$}]*)\}")
 
-    def compile_config(self, home_config: Dict[str, Any], builtin_config: Dict[str, Any],
-                        agent_dir: str = None, project_dir: str = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    def compile_config(
+        self,
+        home_config: Dict[str, Any],
+        builtin_config: Dict[str, Any],
+        agent_dir: str = None,
+        project_dir: str = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """
         Compiles home config + builtin config into project config.
         Resolves all ${VAR}, ${VAR:-default}, ${vault:server/key}, and {env:VAR} references.
@@ -83,13 +91,19 @@ class ConfigResolver:
         # Merge configs (OpenCode format uses "mcp" as top-level key)
         # Also accept legacy "mcpServers" key to avoid silently dropping servers during upgrade
         compiled_config = {"mcp": {}}
-        compiled_config["mcp"].update(builtin_config.get("mcp", builtin_config.get("mcpServers", {})))
-        compiled_config["mcp"].update(home_config.get("mcp", home_config.get("mcpServers", {})))
+        compiled_config["mcp"].update(
+            builtin_config.get("mcp", builtin_config.get("mcpServers", {}))
+        )
+        compiled_config["mcp"].update(
+            home_config.get("mcp", home_config.get("mcpServers", {}))
+        )
 
         # Build known variable values for ${VAR} resolution
         home = os.path.expanduser("~")
         if agent_dir is None:
             agent_dir = os.path.join(home, ".ostwin")
+        # project_dir parameter takes precedence over os.getcwd()
+        # (callers pass --project-dir which becomes the project_dir kwarg)
         if project_dir is None:
             project_dir = os.getcwd()
 
@@ -136,7 +150,10 @@ class ConfigResolver:
 
         # Also scan shell rc files for `export VAR=value` lines.
         # Useful for users who keep secrets in ~/.bashrc / ~/.zshrc instead of .env.
-        _shell_export_re = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)\s*$")
+        _shell_export_re = re.compile(
+            r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)\s*$"
+        )
+
         def _load_shell_rc(path):
             if not os.path.exists(path):
                 return
@@ -162,7 +179,7 @@ class ConfigResolver:
         env_vars = {}
 
         # OpenCode {env:VAR} pattern
-        opencode_var = re.compile(r'\{env:(\w+)\}')
+        opencode_var = re.compile(r"\{env:(\w+)\}")
 
         def _resolve_bash_vars(s: str) -> str:
             """Resolve ${VAR}, ${VAR:-default}, and {env:VAR} patterns.
@@ -170,6 +187,7 @@ class ConfigResolver:
             Also handles OpenCode-style {env:VAR}."""
             for _ in range(5):  # max passes
                 prev = s
+
                 # Pass A: resolve simple ${VAR}
                 def _replace_simple(m):
                     var_name = m.group(1)
@@ -177,7 +195,9 @@ class ConfigResolver:
                     if value is not None:
                         return value
                     return m.group(0)
+
                 s = self._SIMPLE_VAR.sub(_replace_simple, s)
+
                 # Pass B: resolve ${VAR:-default}
                 def _replace_default(m):
                     var_name = m.group(1)
@@ -186,7 +206,9 @@ class ConfigResolver:
                     if value is not None:
                         return value
                     return default
+
                 s = self._DEFAULT_VAR.sub(_replace_default, s)
+
                 # Pass C: resolve OpenCode {env:VAR}
                 def _replace_opencode(m):
                     var_name = m.group(1)
@@ -194,6 +216,7 @@ class ConfigResolver:
                     if value is not None:
                         return value
                     return m.group(0)
+
                 s = opencode_var.sub(_replace_opencode, s)
                 if s == prev:
                     break
@@ -212,7 +235,9 @@ class ConfigResolver:
                     secret = self.vault.get(server, key)
                     # ENV var naming convention: MCP_{SERVER}_{KEY}
                     # Use OpenCode {env:VAR} syntax for variable references
-                    env_name = f"MCP_{server.upper()}_{key.upper()}".replace("-", "_").replace(".", "_")
+                    env_name = f"MCP_{server.upper()}_{key.upper()}".replace(
+                        "-", "_"
+                    ).replace(".", "_")
                     env_vars[env_name] = secret or ""
                     obj = obj.replace(match.group(0), f"{{env:{env_name}}}")
 
@@ -231,18 +256,26 @@ class ConfigResolver:
                 if env_key in server_cfg and isinstance(server_cfg[env_key], dict):
                     # Drop entries that still contain unresolved ${VAR} or {env:VAR} placeholders
                     server_cfg[env_key] = {
-                        k: v for k, v in server_cfg[env_key].items()
+                        k: v
+                        for k, v in server_cfg[env_key].items()
                         if not (isinstance(v, str) and _unresolved_re.search(v))
                     }
                     # Resolve relative paths to absolute project_dir
                     for k, v in server_cfg[env_key].items():
-                        if isinstance(v, str) and not os.path.isabs(v) and (v == "." or v.startswith("./")):
+                        if (
+                            isinstance(v, str)
+                            and not os.path.isabs(v)
+                            and (v == "." or v.startswith("./"))
+                        ):
                             if v == ".":
                                 server_cfg[env_key][k] = project_dir
                             else:
-                                server_cfg[env_key][k] = os.path.join(project_dir, v[2:])
+                                server_cfg[env_key][k] = os.path.join(
+                                    project_dir, v[2:]
+                                )
 
         return compiled_config, env_vars
+
 
 if __name__ == "__main__":
     # Test script
@@ -252,10 +285,7 @@ if __name__ == "__main__":
             "test": {
                 "type": "local",
                 "command": ["python", "-m", "server"],
-                "environment": {
-                    "API_KEY": "${vault:test/API_KEY}",
-                    "OTHER": "plain"
-                }
+                "environment": {"API_KEY": "${vault:test/API_KEY}", "OTHER": "plain"},
             }
         }
     }

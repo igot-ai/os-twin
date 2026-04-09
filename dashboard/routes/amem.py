@@ -60,6 +60,25 @@ def _resolve_memory_dir(plan_id: str) -> Path:
     raise HTTPException(status_code=404, detail=f"No .memory/ found for plan {plan_id}")
 
 
+def _parse_legacy_metadata(text: str) -> tuple[list[str], list[str], list[str]]:
+    """Extract Tags/Keywords/Links from **bold-label**: lines in raw markdown."""
+    tags: list[str] = []
+    keywords: list[str] = []
+    links: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        for label, target in [
+            ("**Tags**:", tags),
+            ("**Keywords**:", keywords),
+            ("**Links**:", links),
+        ]:
+            if stripped.startswith(label):
+                value = stripped[len(label) :].strip()
+                items = [v.strip() for v in value.split(",") if v.strip()]
+                target.extend(items)
+    return tags, keywords, links
+
+
 def _stub_note_dict(
     md_file: Path,
     rel_path: str,
@@ -68,6 +87,7 @@ def _stub_note_dict(
     raw: str,
 ) -> dict:
     """Build a minimal note dict when frontmatter parsing is unavailable."""
+    tags, keywords, links = _parse_legacy_metadata(raw)
     return {
         "id": md_file.stem,
         "filename": md_file.name,
@@ -77,9 +97,9 @@ def _stub_note_dict(
         "body": body,
         "content": raw,
         "excerpt": body[:280],
-        "tags": [],
-        "keywords": [],
-        "links": [],
+        "tags": tags,
+        "keywords": keywords,
+        "links": links,
         "context": None,
         "summary": None,
         "category": None,

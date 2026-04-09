@@ -1156,7 +1156,7 @@ merged_builtin = {"mcp": {}}
 merged_builtin["mcp"].update(normalized_builtin)
 
 resolver = ConfigResolver()
-compiled_config, env_vars = resolver.compile_config(home_config, merged_builtin)
+compiled_config, env_vars = resolver.compile_config(home_config, merged_builtin, project_dir=project_dir)
 
 # Ensure directory exists
 os.makedirs(mcp_dir, exist_ok=True)

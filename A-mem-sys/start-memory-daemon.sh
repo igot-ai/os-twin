@@ -47,9 +47,15 @@ if [[ "$ACTION" == "stop-all" ]]; then
     pid=$(cat "$pid_file" 2>/dev/null)
     project=$(dirname "$(dirname "$pid_file")")
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null
-      echo "Stopped daemon for $project (PID $pid)"
-      count=$((count + 1))
+      # Verify PID belongs to mcp_server.py before killing
+      pid_cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+      if echo "$pid_cmd" | grep -q "mcp_server.py"; then
+        kill "$pid" 2>/dev/null
+        echo "Stopped daemon for $project (PID $pid)"
+        count=$((count + 1))
+      else
+        echo "Warning: PID $pid does not belong to mcp_server.py (cmd: $pid_cmd), skipping"
+      fi
     fi
     rm -f "$pid_file"
   done
@@ -93,8 +99,14 @@ if [[ "$ACTION" == "stop" ]]; then
   if [[ -f "$PID_FILE" ]]; then
     pid=$(cat "$PID_FILE")
     if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null
-      echo "Stopped memory daemon for $PROJECT_DIR (PID $pid)"
+      # Verify PID belongs to mcp_server.py before killing
+      pid_cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+      if echo "$pid_cmd" | grep -q "mcp_server.py"; then
+        kill "$pid" 2>/dev/null
+        echo "Stopped memory daemon for $PROJECT_DIR (PID $pid)"
+      else
+        echo "Warning: PID $pid does not belong to mcp_server.py (cmd: $pid_cmd), skipping"
+      fi
     else
       echo "Daemon not running (stale PID $pid)"
     fi

@@ -1,6 +1,6 @@
 # Backend Test Notes
 
-SGLang behavior is covered in [`test_llm_controller.py`](/home/tcuong1000/os-twin/A-mem-sys/tests/unit/test_llm_controller.py):
+SGLang behavior is covered in [`test_llm_controller.py`](./unit/test_llm_controller.py):
 
 - request payload construction
 - JSON schema stringification

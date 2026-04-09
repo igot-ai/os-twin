@@ -147,6 +147,8 @@ class EncryptedFileBackend:
             os.write(fd, payload)
         finally:
             os.close(fd)
+        # Ensure permissions are 0o600 even if the file already existed
+        os.chmod(str(self.path), 0o600)
 
 
 # -- module-level helpers ---------------------------------------------------

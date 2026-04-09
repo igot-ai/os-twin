@@ -13,4 +13,4 @@ The suite is intentionally deterministic:
 - no real Ollama, OpenAI, or SGLang servers
 - no sentence-transformer downloads during test execution
 
-Core test doubles live in [`helpers.py`](/home/tcuong1000/os-twin/A-mem-sys/tests/helpers.py).
+Core test doubles live in [`helpers.py`](./helpers.py).
