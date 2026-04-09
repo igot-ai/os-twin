@@ -246,21 +246,17 @@ Describe "Invoke-Agent" {
         }
 
         It "exports AGENT_OS_SKILLS_DIR in the environment (verified via echo mock)" {
-            # We can't easily check the wrapper because it's deleted,
-            # but we can make the mock echo the env var.
-            
-            # Create a mock bash script that echoes AGENT_OS_SKILLS_DIR
+            # Create a mock bash script that echoes AGENT_OS_SKILLS_DIR with a tag
             $echoMock = Join-Path $TestDrive "echo-env.sh"
-            "#!/bin/bash`necho `$AGENT_OS_SKILLS_DIR" | Out-File $echoMock -Encoding utf8
+            "#!/bin/bash`necho SKILLS_DIR_IS:`$AGENT_OS_SKILLS_DIR" | Out-File $echoMock -Encoding utf8
             chmod +x $echoMock
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd $echoMock -TimeoutSeconds 5
 
-            $result.Output | Should -Match "/skills"
-            # Ensure it's an absolute path (starts with / or [Drive]:\)
-            $result.Output | Should -Match "^(/|[a-zA-Z]:\\)"
+            # Output contains wrapper logs + our echo; find the tagged line
+            $result.Output | Should -Match "SKILLS_DIR_IS:.*/skills"
         }
 
         It "handles empty skills array gracefully" {

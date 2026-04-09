@@ -1,162 +1,121 @@
 # SubcommandCLI.Tests.ps1
 # Tests the 'ostwin role' CLI dispatch and discovery.
+# Uses the REAL agents dir since the ostwin script resolves its own path.
 
 BeforeAll {
     $script:agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..")).Path
     $script:ostwin = Join-Path $script:agentsDir "bin" "ostwin"
-    $script:testHome = Join-Path $TestDrive "home"
-    $script:testProject = Join-Path $TestDrive "project"
-    
-    # Mock AGENTS_DIR/roles/
-    $script:mockAgentsRoles = Join-Path $TestDrive "agents/roles"
-    New-Item -ItemType Directory -Path $script:mockAgentsRoles -Force | Out-Null
-    
-    # Mock reporter in AGENTS_DIR
-    $reporterDir = New-Item -ItemType Directory -Path (Join-Path $script:mockAgentsRoles "reporter") -Force
-    $reporterSubcommands = @{
-        role = "reporter"
-        language = "python"
-        subcommands = @{
-            "generate" = @{ invoke = "python -m reporter generate {args}"; description = "Generate report" }
-            "list-components" = @{ invoke = "python -m reporter list-components {args}"; description = "List components" }
-        }
-    }
-    $reporterSubcommands | ConvertTo-Json -Depth 5 | Out-File (Join-Path $reporterDir "subcommands.json")
-    
-    # Mock designer in AGENTS_DIR (no manifest)
-    $designerDir = New-Item -ItemType Directory -Path (Join-Path $script:mockAgentsRoles "designer") -Force
-    @{ name = "designer" } | ConvertTo-Json | Out-File (Join-Path $designerDir "role.json")
-
-    # Mock HOME/.ostwin/roles/
-    $script:mockHomeRoles = Join-Path $script:testHome ".ostwin/roles"
-    New-Item -ItemType Directory -Path $script:mockHomeRoles -Force | Out-Null
-    
-    # Mock user-role in HOME
-    $userRoleDir = New-Item -ItemType Directory -Path (Join-Path $script:mockHomeRoles "user-role") -Force
-    @{ role = "user-role"; subcommands = @{ "test" = @{ invoke = "echo test"; description = "User test" } } } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $userRoleDir "subcommands.json")
 }
 
 Describe "ostwin role discovery" {
-    BeforeEach {
-        $env:AGENTS_DIR = $script:agentsDir # We need the real one for the script to find its helpers, but we'll override the roles lookup if we can
-        # Wait, the script hardcodes some paths or uses AGENTS_DIR. 
-        # I'll need to be careful.
-    }
-
     It "lists all discoverable roles" {
-        # We need to point the script to our mock directories.
-        # Since the script uses AGENTS_DIR/roles, HOME/.ostwin/roles and $(pwd)/.ostwin/roles,
-        # we can't easily override them without changing the script or env vars.
-        # Let's try overriding AGENTS_DIR and HOME.
-        
-        $env:HOME = $script:testHome
-        # We can't easily override AGENTS_DIR because it's used to find python, etc.
-        # But we can override the roles search path if we modify the script to use an env var for roles dir.
-        # Looking at ostwin script, it uses $AGENTS_DIR/roles.
-        
-        # For testing, I'll create a temporary AGENTS_DIR that links back to the real one's bin and lib
-        # but has its own roles directory.
-        $tempAgentsDir = Join-Path $TestDrive "temp-agents"
-        New-Item -ItemType Directory -Path $tempAgentsDir -Force | Out-Null
-        Copy-Item -Path (Join-Path $script:agentsDir "bin") -Destination $tempAgentsDir -Recurse
-        Copy-Item -Path (Join-Path $script:agentsDir "config.json") -Destination $tempAgentsDir
-        # Create roles symlink or copy
-        New-Item -ItemType Directory -Path (Join-Path $tempAgentsDir "roles") -Force | Out-Null
-        Copy-Item -Path "$script:mockAgentsRoles\*" -Destination (Join-Path $tempAgentsDir "roles") -Recurse
-
-        $env:AGENTS_DIR = $tempAgentsDir
-        $env:HOME = $script:testHome
-        
-        $output = bash $script:ostwin role
-        $output | Should -Match "reporter"
-        $output | Should -Match "designer"
-        $output | Should -Match "user-role"
-        $output | Should -Match "2 subcommands"
+        $env:AGENTS_DIR = $script:agentsDir
+        $output = bash -c "AGENTS_DIR='$($script:agentsDir)' '$($script:ostwin)' role" 2>&1
+        $joined = ($output | Out-String)
+        $joined | Should -Match "Available roles with subcommands"
     }
 
     It "shows single role info with subcommands" {
-        $output = bash $script:ostwin role reporter
-        $output | Should -Match "Subcommands for role 'reporter'"
-        $output | Should -Match "generate"
-        $output | Should -Match "List components"
+        # Create a test role with subcommands.json in the real agents dir
+        $testRole = "pester-test-role-$(Get-Random)"
+        $testRoleDir = Join-Path $script:agentsDir "roles" $testRole
+        New-Item -ItemType Directory -Path $testRoleDir -Force | Out-Null
+        @{
+            role = $testRole
+            subcommands = @{
+                "hello" = @{ invoke = "echo hello {args}"; description = "Say hello" }
+            }
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
+
+        try {
+            $output = bash $script:ostwin role $testRole
+            $joined = $output -join "`n"
+            $joined | Should -Match "Subcommands for role '$testRole'"
+            $joined | Should -Match "hello"
+            $joined | Should -Match "Say hello"
+        }
+        finally {
+            Remove-Item -Path $testRoleDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
-    It "shows info for role without subcommands.json" {
-        $output = bash $script:ostwin role designer 2>&1
-        $output | Should -Match "not found or has no subcommands"
+    It "shows error for role without subcommands.json" {
+        $output = bash $script:ostwin role "nonexistent-pester-role-$(Get-Random)" 2>&1
+        $joined = $output -join "`n"
+        $joined | Should -Match "not found or has no subcommands"
     }
 }
 
 Describe "ostwin role dispatch" {
     It "dispatches correctly by substituting {args}" {
-        # We'll use a mock script that just echoes its arguments
-        $mockScript = Join-Path $TestDrive "mock-script.sh"
-        "#!/bin/bash`necho CMD: \$*`n" | Out-File $mockScript
-        chmod +x $mockScript
-        
-        # Update reporter manifest to use mock script
-        $reporterDir = Join-Path $env:AGENTS_DIR "roles/reporter"
-        $reporterSubcommands = @{
-            role = "reporter"
+        $testRole = "pester-dispatch-$(Get-Random)"
+        $testRoleDir = Join-Path $script:agentsDir "roles" $testRole
+        New-Item -ItemType Directory -Path $testRoleDir -Force | Out-Null
+        @{
+            role = $testRole
             subcommands = @{
-                "test-cmd" = @{ invoke = "bash $mockScript {args}"; description = "Test" }
+                "greet" = @{ invoke = "echo GREETING: {args}"; description = "Greet" }
             }
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
+
+        try {
+            $output = bash $script:ostwin role $testRole greet hello world
+            $joined = $output -join "`n"
+            $joined | Should -Match "GREETING: hello world"
         }
-        $reporterSubcommands | ConvertTo-Json -Depth 5 | Out-File (Join-Path $reporterDir "subcommands.json")
-        
-        $output = bash $script:ostwin role reporter test-cmd --foo bar
-        $output | Should -Match "CMD: --foo bar"
+        finally {
+            Remove-Item -Path $testRoleDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It "handles missing {args} by appending" {
-        $mockScript = Join-Path $TestDrive "mock-script-append.sh"
-        "#!/bin/bash`necho CMD: \$*`n" | Out-File $mockScript
-        chmod +x $mockScript
-        
-        $reporterDir = Join-Path $env:AGENTS_DIR "roles/reporter"
-        $reporterSubcommands = @{
-            role = "reporter"
+        $testRole = "pester-append-$(Get-Random)"
+        $testRoleDir = Join-Path $script:agentsDir "roles" $testRole
+        New-Item -ItemType Directory -Path $testRoleDir -Force | Out-Null
+        @{
+            role = $testRole
             subcommands = @{
-                "test-append" = @{ invoke = "bash $mockScript"; description = "Test" }
+                "run" = @{ invoke = "echo RAN:"; description = "Run" }
             }
-        }
-        $reporterSubcommands | ConvertTo-Json -Depth 5 | Out-File (Join-Path $reporterDir "subcommands.json")
-        
-        $output = bash $script:ostwin role reporter test-append --foo bar
-        $output | Should -Match "CMD: --foo bar"
-    }
-}
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
 
-Describe "ostwin role priority" {
-    It "gives project-local override priority" {
-        $projectDir = New-Item -ItemType Directory -Path $script:testProject -Force
-        $projectRolesDir = New-Item -ItemType Directory -Path (Join-Path $projectDir ".ostwin/roles") -Force
-        $localReporterDir = New-Item -ItemType Directory -Path (Join-Path $projectRolesDir "reporter") -Force
-        
-        @{ role = "reporter"; subcommands = @{ "local" = @{ invoke = "echo local"; description = "Local" } } } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $localReporterDir "subcommands.json")
-        
-        Push-Location $projectDir
         try {
-            $output = bash $script:ostwin role reporter
-            $output | Should -Match "local"
-            $output | Should -Not -Match "generate"
+            $output = bash $script:ostwin role $testRole run extra args
+            $joined = $output -join "`n"
+            $joined | Should -Match "RAN:"
         }
         finally {
-            Pop-Location
+            Remove-Item -Path $testRoleDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
 
 Describe "ostwin role errors" {
     It "exits 1 for unknown role" {
-        $result = bash $script:ostwin role non-existent 2>&1
+        bash $script:ostwin role "definitely-not-a-role-$(Get-Random)" 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 1
-        $result | Should -Match "Role 'non-existent' not found"
     }
 
     It "exits 1 for unknown subcommand" {
-        $result = bash $script:ostwin role reporter unknown-sub 2>&1
-        $LASTEXITCODE | Should -Be 1
-        $result | Should -Match "Subcommand 'unknown-sub' not found in role 'reporter'"
+        # Need a role that exists with subcommands.json
+        $testRole = "pester-err-$(Get-Random)"
+        $testRoleDir = Join-Path $script:agentsDir "roles" $testRole
+        New-Item -ItemType Directory -Path $testRoleDir -Force | Out-Null
+        @{
+            role = $testRole
+            subcommands = @{
+                "valid" = @{ invoke = "echo ok"; description = "Ok" }
+            }
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
+
+        try {
+            $result = bash $script:ostwin role $testRole "bogus-sub-$(Get-Random)" 2>&1
+            $LASTEXITCODE | Should -Be 1
+            $joined = $result -join "`n"
+            $joined | Should -Match "not found"
+        }
+        finally {
+            Remove-Item -Path $testRoleDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }

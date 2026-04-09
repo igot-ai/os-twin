@@ -86,3 +86,5 @@ test_ws.py
 tsc_output.txt
 tsc_output_final.txt
 docs/opencode-vertex-ai-partner-models.md
+.pytest_cache/
+.ruff_cache/

@@ -63,7 +63,7 @@ process {
         foreach ($rd in $roomDirs) {
             $configFile = Join-Path $rd.FullName "config.json"
             if (-not (Test-Path $configFile)) {
-                Write-Warning "No config.json in $($rd.Name) -- skipping"
+                Write-Warning "No config.json in $($rd.Name) — skipping"
                 continue
             }
             $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
