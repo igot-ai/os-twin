@@ -40,20 +40,37 @@ jobs:
         run: |
           pip install httpx
 
-      - name: Run all Pester tests
+      - name: Run plan tests (isolated to avoid cross-test module pollution)
         shell: pwsh
         run: |
           $config = New-PesterConfiguration
-          $config.Run.Path = '.agents/tests/'
+          $config.Run.Path = '.agents/tests/plan/'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'JUnitXml'
+          $config.TestResult.OutputPath = 'test-results/pester-plan-results.xml'
+          New-Item -ItemType Directory -Path 'test-results' -Force | Out-Null
+          Invoke-Pester -Configuration $config
+
+      - name: Run all other Pester tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = @(
+            '.agents/tests/channel/',
+            '.agents/tests/dynamic_roles/',
+            '.agents/tests/lib/',
+            '.agents/tests/lifecycle/',
+            '.agents/tests/roles/',
+            '.agents/tests/war-rooms/'
+          )
           $config.Run.Exit = $true
           $config.Output.Verbosity = 'Detailed'
           $config.TestResult.Enabled = $true
           $config.TestResult.OutputFormat = 'JUnitXml'
           $config.TestResult.OutputPath = 'test-results/pester-results.xml'
-
-          # Ensure output directory exists
           New-Item -ItemType Directory -Path 'test-results' -Force | Out-Null
-
           Invoke-Pester -Configuration $config
 
       - name: Upload test results
@@ -61,7 +78,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pester-test-results
-          path: test-results/pester-results.xml
+          path: test-results/
           retention-days: 30
 
       - name: Publish test report
@@ -69,6 +86,6 @@ jobs:
         uses: dorny/test-reporter@v1
         with:
           name: Pester Test Report
-          path: test-results/pester-results.xml
+          path: test-results/*.xml
           reporter: java-junit
           fail-on-error: true
