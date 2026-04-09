@@ -60,7 +60,7 @@ def _resolve_memory_dir(plan_id: str) -> Path:
     raise HTTPException(status_code=404, detail=f"No .memory/ found for plan {plan_id}")
 
 
-def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
+def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:  # noqa: C901
     """Read a single markdown file and convert it to the dashboard's wire shape.
 
     Delegates frontmatter parsing to ``MemoryNote.from_markdown`` so we share
@@ -72,14 +72,21 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
     except OSError:
         return None
 
+    try:
+        rel_path = str(md_file.parent.relative_to(notes_dir))
+        rel_file = str(md_file.relative_to(notes_dir))
+    except ValueError:
+        rel_path = md_file.parent.name
+        rel_file = md_file.name
+
     if MemoryNote is None:
         # Defensive fallback — A-mem-sys not on the path. Return enough so
         # the file is at least listed.
         return {
             "id": md_file.stem,
             "filename": md_file.name,
-            "path": str(md_file.parent.relative_to(notes_dir)),
-            "relativePath": str(md_file.relative_to(notes_dir)),
+            "path": rel_path,
+            "relativePath": rel_file,
             "title": md_file.stem.replace("-", " ").title(),
             "body": raw,
             "content": raw,
@@ -103,8 +110,8 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
         return {
             "id": md_file.stem,
             "filename": md_file.name,
-            "path": str(md_file.parent.relative_to(notes_dir)),
-            "relativePath": str(md_file.relative_to(notes_dir)),
+            "path": rel_path,
+            "relativePath": rel_file,
             "title": md_file.stem.replace("-", " ").title(),
             "body": raw.strip(),
             "content": raw,
@@ -126,7 +133,11 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
     title = (note.name or "").strip()
     if not title:
         h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
-        title = h1.group(1).strip() if h1 else md_file.stem.replace("-", " ").replace("_", " ").title()
+        title = (
+            h1.group(1).strip()
+            if h1
+            else md_file.stem.replace("-", " ").replace("_", " ").title()
+        )
 
     # Short excerpt from body, skipping headings and code fences
     excerpt_lines = []
@@ -148,8 +159,8 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
         # actually resolve against other notes.
         "id": note.id,
         "filename": md_file.name,
-        "path": str(md_file.parent.relative_to(notes_dir)),
-        "relativePath": str(md_file.relative_to(notes_dir)),
+        "path": rel_path,
+        "relativePath": rel_file,
         "title": title,
         "body": body,
         "content": raw,  # raw markdown w/ frontmatter for clients that want it
@@ -159,7 +170,9 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
         "links": list(note.links or []),
         "context": note.context if note.context and note.context != "General" else None,
         "summary": note.summary or None,
-        "category": note.category if note.category and note.category != "Uncategorized" else None,
+        "category": note.category
+        if note.category and note.category != "Uncategorized"
+        else None,
         "timestamp": note.timestamp,
         "last_accessed": note.last_accessed,
         "retrieval_count": int(note.retrieval_count or 0),
@@ -184,8 +197,14 @@ def _load_notes(notes_dir: Path) -> list:
 
 
 GRAPH_GROUP_COLORS = [
-    "#8b5cf6", "#facc15", "#2563eb", "#d4d4d8",
-    "#16a34a", "#ff5d5d", "#14b8a6", "#f97316",
+    "#8b5cf6",
+    "#facc15",
+    "#2563eb",
+    "#d4d4d8",
+    "#16a34a",
+    "#ff5d5d",
+    "#14b8a6",
+    "#f97316",
 ]
 
 
@@ -214,35 +233,39 @@ def _build_graph(notes: list) -> dict:
         color = groups[group_key]["color"]
         connections = len(note.get("links", []))
 
-        nodes.append({
-            "id": note["id"],
-            "title": note["title"],
-            "path": note["relativePath"],
-            "pathLabel": note["path"],
-            "excerpt": note["excerpt"],
-            "body": note.get("body", ""),
-            "content": note["content"],
-            "summary": note.get("summary") or note["excerpt"][:150],
-            "context": note.get("context"),
-            "category": note.get("category"),
-            "timestamp": note.get("timestamp"),
-            "last_accessed": note.get("last_accessed"),
-            "retrieval_count": note.get("retrieval_count", 0),
-            "keywords": note["keywords"],
-            "tags": note["tags"],
-            "groupId": group_key,
-            "color": color,
-            "weight": 1.0 + min(2.0, connections * 0.3),
-            "connections": connections,
-        })
+        nodes.append(
+            {
+                "id": note["id"],
+                "title": note["title"],
+                "path": note["relativePath"],
+                "pathLabel": note["path"],
+                "excerpt": note["excerpt"],
+                "body": note.get("body", ""),
+                "content": note["content"],
+                "summary": note.get("summary") or note["excerpt"][:150],
+                "context": note.get("context"),
+                "category": note.get("category"),
+                "timestamp": note.get("timestamp"),
+                "last_accessed": note.get("last_accessed"),
+                "retrieval_count": note.get("retrieval_count", 0),
+                "keywords": note["keywords"],
+                "tags": note["tags"],
+                "groupId": group_key,
+                "color": color,
+                "weight": 1.0 + min(2.0, connections * 0.3),
+                "connections": connections,
+            }
+        )
 
         for link_id in note.get("links", []):
             if link_id in note_ids:
-                links.append({
-                    "source": note["id"],
-                    "target": link_id,
-                    "strength": 0.5,
-                })
+                links.append(
+                    {
+                        "source": note["id"],
+                        "target": link_id,
+                        "strength": 0.5,
+                    }
+                )
 
     return {
         "groups": list(groups.values()),
@@ -266,7 +289,9 @@ async def get_memory_graph(plan_id: str, user: dict = Depends(get_current_user))
 
 
 @router.get("/api/amem/{plan_id}/notes")
-async def list_memory_notes(plan_id: str, user: dict = Depends(get_current_user)):
+async def list_memory_notes(
+    plan_id: str, user: dict = Depends(get_current_user)
+) -> list:
     """List all memory notes for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -277,7 +302,9 @@ async def list_memory_notes(plan_id: str, user: dict = Depends(get_current_user)
 
 
 @router.get("/api/amem/{plan_id}/notes/{note_id}")
-async def get_memory_note(plan_id: str, note_id: str, user: dict = Depends(get_current_user)):
+async def get_memory_note(
+    plan_id: str, note_id: str, user: dict = Depends(get_current_user)
+):
     """Get a single memory note by ID."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -289,7 +316,9 @@ async def get_memory_note(plan_id: str, note_id: str, user: dict = Depends(get_c
 
 
 @router.get("/api/amem/{plan_id}/stats")
-async def get_memory_stats(plan_id: str, user: dict = Depends(get_current_user)):
+async def get_memory_stats(
+    plan_id: str, user: dict = Depends(get_current_user)
+) -> dict:
     """Get memory statistics for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"

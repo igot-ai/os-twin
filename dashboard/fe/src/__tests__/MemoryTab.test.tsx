@@ -10,11 +10,12 @@ import '@testing-library/jest-dom';
 import React from 'react';
 
 // Polyfill ResizeObserver for jsdom
-global.ResizeObserver = class ResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-} as any;
+class MockResizeObserver implements ResizeObserver {
+  observe() { /* noop */ }
+  unobserve() { /* noop */ }
+  disconnect() { /* noop */ }
+}
+global.ResizeObserver = MockResizeObserver;
 
 // ── Mock api-client ──────────────────────────────────────────────────
 

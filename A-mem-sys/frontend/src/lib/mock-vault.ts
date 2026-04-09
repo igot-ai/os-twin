@@ -373,7 +373,9 @@ function buildVault() {
 
   const uniqueLinks = new Map<string, VaultLink>();
   for (const link of links) {
-    const key = [link.source, link.target].sort().join("::");
+    const key = link.source < link.target
+      ? `${link.source}::${link.target}`
+      : `${link.target}::${link.source}`;
     const existing = uniqueLinks.get(key);
     if (!existing || link.strength > existing.strength) {
       uniqueLinks.set(key, link);
