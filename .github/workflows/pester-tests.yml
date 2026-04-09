@@ -13,6 +13,10 @@ on:
       - '.github/workflows/pester-tests.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   pester-tests:
     name: Run Pester Unit Tests
@@ -83,10 +87,9 @@ jobs:
 
       - name: Publish test report
         if: always()
-        continue-on-error: true
         uses: dorny/test-reporter@v1
         with:
           name: Pester Test Report
           path: test-results/*.xml
           reporter: java-junit
-          fail-on-error: false
+          fail-on-error: true
