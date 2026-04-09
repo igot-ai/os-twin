@@ -48,16 +48,15 @@ if [[ ! -f "$PLAN_FILE" ]]; then
   exit 1
 fi
 
-# Register plan in ~/.ostwin/plans/ so the dashboard can discover it
-GLOBAL_PLANS_DIR="$HOME/.ostwin/plans"
+# Register plan in the local .agents/plans registry so the dashboard can discover it
+AGENTS_DIR=$(dirname "$0")
+GLOBAL_PLANS_DIR="$AGENTS_DIR/plans"
 mkdir -p "$GLOBAL_PLANS_DIR"
 
 PLAN_BASENAME=$(basename "$PLAN_FILE")
-# Derive a clean plan_id: strip .plan.md or .md extension
-PLAN_ID="${PLAN_BASENAME%.plan.md}"
-if [[ "$PLAN_ID" == "$PLAN_BASENAME" ]]; then
-  PLAN_ID="${PLAN_BASENAME%.md}"
-fi
+# Derive a clean plan_id: strip .md then optional .refined suffix
+PLAN_ID="${PLAN_BASENAME%.md}"
+PLAN_ID="${PLAN_ID%.refined}"
 
 REGISTERED_PLAN="$GLOBAL_PLANS_DIR/$PLAN_ID.md"
 REGISTERED_META="$GLOBAL_PLANS_DIR/$PLAN_ID.meta.json"
@@ -71,6 +70,7 @@ fi
 WARROOMS_DIR="$PROJECT_DIR/.war-rooms"
 cat > "$REGISTERED_META" <<METAEOF
 {
+  "plan_id": "$PLAN_ID",
   "working_dir": "$PROJECT_DIR",
   "warrooms_dir": "$WARROOMS_DIR",
   "launched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -80,7 +80,5 @@ cat > "$REGISTERED_META" <<METAEOF
 METAEOF
 
 # Execute Start-Plan.ps1
-AGENTS_DIR=$(dirname "$0")
 pwsh -NoProfile -File "$AGENTS_DIR/plan/Start-Plan.ps1" -PlanFile "$PLAN_FILE" -ProjectDir "$PROJECT_DIR" "${@:2}"
 exit $?
-

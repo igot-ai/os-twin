@@ -350,8 +350,8 @@ describe('MemoryTab', () => {
     it('calls API with correct plan_id', async () => {
       render(<MemoryTab />);
       await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith('/api/amem/test-plan/graph');
-        expect(mockApiGet).toHaveBeenCalledWith('/api/amem/test-plan/stats');
+        expect(mockApiGet).toHaveBeenCalledWith('/amem/test-plan/graph');
+        expect(mockApiGet).toHaveBeenCalledWith('/amem/test-plan/stats');
       });
     });
 
@@ -399,8 +399,8 @@ describe('MemoryTab', () => {
     it('renders link lines', async () => {
       const { container } = render(<MemoryTab />);
       await waitFor(() => {
-        const lines = container.querySelectorAll('line');
-        expect(lines.length).toBeGreaterThanOrEqual(1);
+        const paths = container.querySelectorAll('svg g path');
+        expect(paths.length).toBeGreaterThanOrEqual(1);
       });
     });
 

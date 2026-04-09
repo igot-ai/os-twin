@@ -778,21 +778,44 @@ install_files() {
 
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
   # NOTE: MCP config files are excluded to preserve user's installed extensions and config
+  # User plans live in $INSTALL_DIR/.agents/plans/ — do NOT overwrite them
+  # with whatever happens to be in the source repo's plans/ directory.
+  # PLAN.template.md is seeded separately below if missing.
   rsync -a \
     --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
     --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
     --exclude='mcp/config.json' --exclude='mcp/.env.mcp' \
+    --exclude='plans/' \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
-      # rsync fallback to cp (exclude mcp/ manually)
-      find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name '.' \
+      # rsync fallback to cp (exclude mcp/ and plans/ manually)
+      find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name 'plans' -not -name '.' \
         -exec cp -r {} "$INSTALL_DIR/.agents/" \; 2>/dev/null || true
     }
 
+  # Seed plans/ on first install (or if PLAN.template.md is missing) — never overwrite
+  mkdir -p "$INSTALL_DIR/.agents/plans"
+  if [[ ! -f "$INSTALL_DIR/.agents/plans/PLAN.template.md" ]] \
+     && [[ -f "$SCRIPT_DIR/plans/PLAN.template.md" ]]; then
+    cp "$SCRIPT_DIR/plans/PLAN.template.md" "$INSTALL_DIR/.agents/plans/PLAN.template.md"
+  fi
+
   # ── MCP: seed config on first install, never overwrite ─────────────────────
-  if [[ ! -f "$INSTALL_DIR/.agents/mcp/mcp-config.json" ]]; then
-    step "Seeding mcp-config.json (first install)..."
-    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$INSTALL_DIR/.agents/mcp/mcp-config.json"
-    ok "mcp-config.json seeded"
+  # Source of truth file was renamed mcp-config.json → config.json during the
+  # OpenCode migration (April 2026). Honor either name in the source repo.
+  local seed_src=""
+  if [[ -f "$SCRIPT_DIR/mcp/config.json" ]]; then
+    seed_src="$SCRIPT_DIR/mcp/config.json"
+  elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
+    seed_src="$SCRIPT_DIR/mcp/mcp-config.json"
+  fi
+  if [[ ! -f "$INSTALL_DIR/.agents/mcp/config.json" ]]; then
+    if [[ -n "$seed_src" ]]; then
+      step "Seeding mcp/config.json (first install)..."
+      cp "$seed_src" "$INSTALL_DIR/.agents/mcp/config.json"
+      ok "mcp/config.json seeded from $(basename "$seed_src")"
+    else
+      warn "No source mcp config found in $SCRIPT_DIR/mcp/ — skipping seed"
+    fi
   else
     # Always update the builtin template so new built-in servers are available
     if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
@@ -802,8 +825,8 @@ install_files() {
     if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
       cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$INSTALL_DIR/.agents/mcp/mcp-catalog.json"
     fi
-    # Merge new built-in servers into mcp-config.json (never overwrite existing)
-    local mcp_cfg="$INSTALL_DIR/.agents/mcp/mcp-config.json"
+    # Merge new built-in servers into config.json (never overwrite existing)
+    local mcp_cfg="$INSTALL_DIR/.agents/mcp/config.json"
     local mcp_builtin="$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
     if [[ -f "$mcp_cfg" ]] && [[ -f "$mcp_builtin" ]]; then
       python3 - "$mcp_cfg" "$mcp_builtin" <<'MERGE_EOF' && ok "Merged new built-in MCP servers" || true
@@ -1552,8 +1575,11 @@ if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; the
 
   mkdir -p "$INSTALL_DIR/logs"
   step "Starting dashboard on http://localhost:${DASHBOARD_PORT}..."
+  # Pin --project-dir to $INSTALL_DIR so the dashboard's plan registry is
+  # always ~/.ostwin/.agents/plans/, regardless of cwd when install.sh runs.
   nohup bash "$DASHBOARD_SCRIPT" \
     --background --port "$DASHBOARD_PORT" \
+    --project-dir "$INSTALL_DIR" \
     > "$INSTALL_DIR/logs/dashboard.log" 2>&1 &
   DASHBOARD_PID=$!
   echo "$DASHBOARD_PID" > "$INSTALL_DIR/dashboard.pid"

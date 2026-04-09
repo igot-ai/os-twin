@@ -10,9 +10,27 @@ from typing import Optional
 import json
 import os
 import re
+import sys
 
 from dashboard.api_utils import PLANS_DIR
 from dashboard.auth import get_current_user
+
+# Reuse the canonical note parser from A-mem-sys instead of duplicating the
+# YAML/frontmatter logic in the dashboard. We import from `memory_note`
+# (not `memory_system`) to avoid pulling in the heavy retriever stack
+# (sentence_transformers, chromadb, nltk, litellm) at dashboard startup.
+_AMEM_PATH_CANDIDATES = [
+    Path.home() / ".ostwin" / "A-mem-sys",
+    Path(__file__).resolve().parent.parent.parent / "A-mem-sys",
+]
+for _p in _AMEM_PATH_CANDIDATES:
+    if _p.is_dir() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+try:
+    from agentic_memory.memory_note import MemoryNote  # type: ignore
+except ImportError:
+    MemoryNote = None  # type: ignore
 
 router = APIRouter(tags=["amem"])
 
@@ -42,61 +60,126 @@ def _resolve_memory_dir(plan_id: str) -> Path:
     raise HTTPException(status_code=404, detail=f"No .memory/ found for plan {plan_id}")
 
 
-def _load_notes(notes_dir: Path) -> list:
-    """Load all markdown notes from the notes directory."""
-    notes = []
-    if not notes_dir.exists():
-        return notes
+def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
+    """Read a single markdown file and convert it to the dashboard's wire shape.
 
-    for md_file in sorted(notes_dir.rglob("*.md")):
-        try:
-            content = md_file.read_text(encoding="utf-8")
-            rel_path = str(md_file.relative_to(notes_dir))
+    Delegates frontmatter parsing to ``MemoryNote.from_markdown`` so we share
+    one parser with the rest of A-mem-sys. Falls back to a minimal stub if
+    the import is unavailable (shouldn't happen at runtime, but defensive).
+    """
+    try:
+        raw = md_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
-            note = {
-                "id": md_file.stem,
-                "filename": md_file.name,
-                "path": str(md_file.parent.relative_to(notes_dir)),
-                "relativePath": rel_path,
-                "content": content,
-                "title": md_file.stem.replace("-", " ").title(),
-                "tags": [],
-                "keywords": [],
-                "links": [],
-                "excerpt": "",
-            }
+    if MemoryNote is None:
+        # Defensive fallback — A-mem-sys not on the path. Return enough so
+        # the file is at least listed.
+        return {
+            "id": md_file.stem,
+            "filename": md_file.name,
+            "path": str(md_file.parent.relative_to(notes_dir)),
+            "relativePath": str(md_file.relative_to(notes_dir)),
+            "title": md_file.stem.replace("-", " ").title(),
+            "body": raw,
+            "content": raw,
+            "excerpt": raw[:280],
+            "tags": [],
+            "keywords": [],
+            "links": [],
+            "context": None,
+            "summary": None,
+            "category": None,
+            "timestamp": None,
+            "last_accessed": None,
+            "retrieval_count": 0,
+        }
 
-            # Extract title from first H1
-            title_match = re.search(r"^#\s+(.+)", content, re.MULTILINE)
-            if title_match:
-                note["title"] = title_match.group(1).strip()
+    try:
+        note = MemoryNote.from_markdown(raw)
+    except (ValueError, json.JSONDecodeError):
+        # Hand-written or legacy notes without proper frontmatter — return
+        # the raw content untouched so the user can still see it.
+        return {
+            "id": md_file.stem,
+            "filename": md_file.name,
+            "path": str(md_file.parent.relative_to(notes_dir)),
+            "relativePath": str(md_file.relative_to(notes_dir)),
+            "title": md_file.stem.replace("-", " ").title(),
+            "body": raw.strip(),
+            "content": raw,
+            "excerpt": raw.strip()[:280],
+            "tags": [],
+            "keywords": [],
+            "links": [],
+            "context": None,
+            "summary": None,
+            "category": None,
+            "timestamp": None,
+            "last_accessed": None,
+            "retrieval_count": 0,
+        }
 
-            # Extract tags
-            tags_match = re.search(r"\*\*Tags\*\*:\s*(.+)", content)
-            if tags_match:
-                note["tags"] = [t.strip().lstrip("#") for t in tags_match.group(1).split(",")]
+    body = (note.content or "").strip()
 
-            # Extract keywords
-            kw_match = re.search(r"\*\*Keywords\*\*:\s*(.+)", content)
-            if kw_match:
-                note["keywords"] = [k.strip() for k in kw_match.group(1).split(",")]
+    # Title: frontmatter `name` → first H1 → filename slug
+    title = (note.name or "").strip()
+    if not title:
+        h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+        title = h1.group(1).strip() if h1 else md_file.stem.replace("-", " ").replace("_", " ").title()
 
-            # Extract links
-            links_match = re.search(r"\*\*Links\*\*:\s*(.+)", content)
-            if links_match:
-                raw = links_match.group(1).strip()
-                if raw and raw != "None":
-                    note["links"] = [l.strip() for l in raw.split(",") if l.strip()]
-
-            # Build excerpt
-            lines = content.split("\n")
-            body_lines = [l for l in lines if not l.startswith("**") and not l.startswith("#") and l.strip()]
-            note["excerpt"] = " ".join(body_lines)[:250]
-
-            notes.append(note)
-        except Exception:
+    # Short excerpt from body, skipping headings and code fences
+    excerpt_lines = []
+    in_code = False
+    for ln in body.split("\n"):
+        stripped = ln.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
             continue
+        if in_code or not stripped or stripped.startswith("#"):
+            continue
+        excerpt_lines.append(stripped)
+        if sum(len(s) for s in excerpt_lines) > 280:
+            break
+    excerpt = " ".join(excerpt_lines)[:280]
 
+    return {
+        # Use the UUID from frontmatter so graph links (which reference IDs)
+        # actually resolve against other notes.
+        "id": note.id,
+        "filename": md_file.name,
+        "path": str(md_file.parent.relative_to(notes_dir)),
+        "relativePath": str(md_file.relative_to(notes_dir)),
+        "title": title,
+        "body": body,
+        "content": raw,  # raw markdown w/ frontmatter for clients that want it
+        "excerpt": excerpt,
+        "tags": list(note.tags or []),
+        "keywords": list(note.keywords or []),
+        "links": list(note.links or []),
+        "context": note.context if note.context and note.context != "General" else None,
+        "summary": note.summary or None,
+        "category": note.category if note.category and note.category != "Uncategorized" else None,
+        "timestamp": note.timestamp,
+        "last_accessed": note.last_accessed,
+        "retrieval_count": int(note.retrieval_count or 0),
+    }
+
+
+def _load_notes(notes_dir: Path) -> list:
+    """Load all markdown notes from the notes directory.
+
+    Each note's frontmatter is parsed by ``MemoryNote.from_markdown`` (the
+    same code path A-mem-sys uses to write the file), so the dashboard sees
+    exactly the structured fields the MCP server intended.
+    """
+    if not notes_dir.exists():
+        return []
+    notes = []
+    for md_file in sorted(notes_dir.rglob("*.md")):
+        d = _note_to_dict(md_file, notes_dir)
+        if d is not None:
+            notes.append(d)
     return notes
 
 
@@ -137,8 +220,14 @@ def _build_graph(notes: list) -> dict:
             "path": note["relativePath"],
             "pathLabel": note["path"],
             "excerpt": note["excerpt"],
+            "body": note.get("body", ""),
             "content": note["content"],
-            "summary": note["excerpt"][:150],
+            "summary": note.get("summary") or note["excerpt"][:150],
+            "context": note.get("context"),
+            "category": note.get("category"),
+            "timestamp": note.get("timestamp"),
+            "last_accessed": note.get("last_accessed"),
+            "retrieval_count": note.get("retrieval_count", 0),
             "keywords": note["keywords"],
             "tags": note["tags"],
             "groupId": group_key,

@@ -480,6 +480,68 @@ if (-not $planId -or $planId -eq 'PLAN.template') {
     }
 }
 
+# --- Register plan in the local registry so the dashboard can see it ---
+if (-not $DryRun) {
+    try {
+        $plansDir = Join-Path $agentsDir "plans"
+        if (-not (Test-Path $plansDir)) {
+            New-Item -ItemType Directory -Path $plansDir -Force | Out-Null
+        }
+
+        $registryPlanFile = Join-Path $plansDir "$planId.md"
+        $resolvedPlanFile = (Resolve-Path $PlanFile).Path
+        $resolvedRegistryFile = $null
+        if (Test-Path $registryPlanFile) {
+            $resolvedRegistryFile = (Resolve-Path $registryPlanFile).Path
+        }
+
+        if (-not $resolvedRegistryFile -or $resolvedRegistryFile -ne $resolvedPlanFile) {
+            $shouldCopy = $true
+            if (Test-Path $registryPlanFile) {
+                $srcTime = (Get-Item $PlanFile).LastWriteTimeUtc
+                $dstTime = (Get-Item $registryPlanFile).LastWriteTimeUtc
+                $shouldCopy = $srcTime -gt $dstTime
+            }
+            if ($shouldCopy) {
+                Copy-Item -Path $PlanFile -Destination $registryPlanFile -Force
+            }
+        }
+
+        $metaFile = Join-Path $plansDir "$planId.meta.json"
+        $meta = @{}
+        if (Test-Path $metaFile) {
+            try {
+                $existing = Get-Content $metaFile -Raw | ConvertFrom-Json
+                if ($existing) {
+                    foreach ($prop in $existing.PSObject.Properties) {
+                        $meta[$prop.Name] = $prop.Value
+                    }
+                }
+            } catch {
+                $meta = @{}
+            }
+        }
+
+        $title = $planId
+        if ($planContent -match '(?m)^#\s*(?:Plan|PLAN):\s*(.+)$') {
+            $title = $Matches[1].Trim()
+        }
+
+        $meta["plan_id"] = $planId
+        if ($title) { $meta["title"] = $title }
+        if (-not $meta["created_at"]) { $meta["created_at"] = (Get-Date).ToUniversalTime().ToString("o") }
+        if (-not $meta["status"] -or $meta["status"] -in @("draft","stored")) { $meta["status"] = "active" }
+        if ($ProjectDir) { $meta["working_dir"] = $ProjectDir }
+        if ($ProjectDir) { $meta["warrooms_dir"] = (Join-Path $ProjectDir ".war-rooms") }
+        $meta["launched_at"] = (Get-Date).ToUniversalTime().ToString("o")
+        $meta["source_plan_file"] = $PlanFile
+
+        $meta | ConvertTo-Json -Depth 10 | Out-File -FilePath $metaFile -Encoding utf8
+    } catch {
+        Write-Warning "Failed to register plan for dashboard: $_"
+    }
+}
+
 # --- Manager Pre-flight skill coverage check ---
 $testSkillCoverage = Join-Path $agentsDir "plan" "Test-SkillCoverage.ps1"
 if (Test-Path $testSkillCoverage) {
