@@ -141,13 +141,13 @@ export function GraphCanvas({
     }
 
     let frameId = 0;
-    const animateFrame = (time: number) => {
-      setTick(time / 1000);
-      frameId = window.requestAnimationFrame(animateFrame);
+    const animateFrame = (timestamp: number) => {
+      setTick(timestamp / 1000);
+      frameId = requestAnimationFrame(animateFrame);
     };
 
-    frameId = window.requestAnimationFrame(animateFrame);
-    return () => window.cancelAnimationFrame(frameId);
+    frameId = requestAnimationFrame(animateFrame);
+    return () => cancelAnimationFrame(frameId);
   }, [settings.animate]);
 
   /**

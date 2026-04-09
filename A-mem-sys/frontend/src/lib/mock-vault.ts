@@ -264,9 +264,9 @@ const coreNotes = [
 function slugify(input: string) {
   return input
     .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
     .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
+    .replace(/-{2,}/g, "-")
     .trim();
 }
 

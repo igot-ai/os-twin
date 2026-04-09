@@ -421,8 +421,10 @@ function MemoryGraph({
             const inNeighborhood = !activeId || neighborIds.has(node.id);
             const isSearchMatch = !query || searchMatches.has(node.id);
             const r = 6 + node.weight * 3;
-            const opacity = isSearchMatch ? (inNeighborhood ? 1 : 0.35) : 0.12;
-            const labelOpacity = isSearchMatch ? (inNeighborhood ? 0.9 : 0.35) : 0.1;
+            let opacity = 0.12;
+            if (isSearchMatch) { opacity = inNeighborhood ? 1 : 0.35; }
+            let labelOpacity = 0.1;
+            if (isSearchMatch) { labelOpacity = inNeighborhood ? 0.9 : 0.35; }
             return (
               <g
                 key={node.id}
@@ -474,16 +476,17 @@ function MemoryGraph({
   );
 }
 
-/** Format A-mem-sys timestamp ("202604081932") → "Apr 8, 2026 · 19:32" */
+/** Format A-mem-sys timestamp ("202604081932") to "Apr 8, 2026 - 19:32" */
 function formatTimestamp(ts?: string | null): string | null {
   if (!ts || !/^\d{12}$/.test(ts)) return null;
   const y = ts.slice(0, 4);
-  const m = parseInt(ts.slice(4, 6), 10) - 1;
+  const monthIndex = parseInt(ts.slice(4, 6), 10) - 1;
   const d = parseInt(ts.slice(6, 8), 10);
   const hh = ts.slice(8, 10);
   const mm = ts.slice(10, 12);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[m]} ${d}, ${y} · ${hh}:${mm}`;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+  if (monthIndex < 0 || monthIndex > 11) return null;
+  return `${months[monthIndex]} ${d}, ${y} · ${hh}:${mm}`;
 }
 
 // ── Markdown renderer config ─────────────────────────────────────────
@@ -627,7 +630,7 @@ function NoteDetail({ note }: Readonly<{ note: GraphNode | null }>) {
           <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider truncate"
             style={{ color: 'var(--color-text-muted)' }}>
             {pathParts.map((part, i) => (
-              <React.Fragment key={i}>
+              <React.Fragment key={`${part}-${i}`}>
                 {i > 0 && <span className="opacity-50">/</span>}
                 <span>{part}</span>
               </React.Fragment>

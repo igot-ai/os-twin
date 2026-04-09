@@ -78,14 +78,13 @@ function VaultHeader({
   onRefresh: () => void;
   deferredSearchQuery: string;
 }>) {
-  const connectionLabel =
-    connectionMode === "mcp"
-      ? "stdio MCP live"
-      : connectionMode === "loading"
-        ? "Connecting..."
-        : connectionMode === "demo"
-          ? "Demo fallback"
-          : "MCP error";
+  const connectionLabels: Record<ConnectionMode, string> = {
+    mcp: "stdio MCP live",
+    loading: "Connecting...",
+    demo: "Demo fallback",
+    error: "MCP error",
+  };
+  const connectionLabel = connectionLabels[connectionMode];
 
   return (
     <header className="flex flex-col gap-3 rounded-[24px] border border-border/70 bg-white/4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">

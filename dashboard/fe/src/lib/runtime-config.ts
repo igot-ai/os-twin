@@ -1,7 +1,11 @@
 const browserApiBase = '/api';
 
+function isBrowser(): boolean {
+  return typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined';
+}
+
 export function getApiBaseUrl(): string {
-  if (typeof window !== 'undefined') {
+  if (isBrowser()) {
     return browserApiBase;
   }
 
@@ -9,7 +13,7 @@ export function getApiBaseUrl(): string {
 }
 
 export function getWebSocketUrl(): string {
-  if (typeof globalThis.window !== 'undefined') {
+  if (isBrowser()) {
     return globalThis.window.location.origin.replace(/^http/, 'ws') + '/api/ws';
   }
 

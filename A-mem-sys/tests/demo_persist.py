@@ -76,7 +76,7 @@ for mid in ids:
         print(f"  [{mid[:8]}] MISSING!")
 
 # === Phase 3: Search on reloaded data ===
-print(f"\n--- Search tests ---")
+print("\n--- Search tests ---")
 queries = ["container orchestration", "database storage", "version control"]
 for q in queries:
     print(f'\nQuery: "{q}"')
@@ -85,7 +85,7 @@ for q in queries:
         print(f"  [{i + 1}] {r['content'][:70]}...")
 
 # === Phase 4: Add more, delete one, verify ===
-print(f"\n--- Add + Delete test ---")
+print("\n--- Add + Delete test ---")
 new_id = ms2.add_note("Nginx reverse proxy handles SSL termination and load balancing.")
 print(f"Added new note: {new_id[:8]}...")
 

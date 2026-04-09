@@ -20,9 +20,10 @@ def _ensure_litellm():
 
 class BaseLLMController(ABC):
     @abstractmethod
-    def get_completion(self, prompt: str) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
+    ) -> str:
         """Get completion from LLM"""
-        pass
 
     def _generate_empty_value(self, schema_type: str, schema_items: dict = None) -> Any:
         """Generate empty value based on JSON schema type."""
@@ -76,7 +77,7 @@ class OpenAIController(BaseLLMController):
     def get_completion(
         self,
         prompt: str,
-        response_format: dict,
+        response_format: dict = None,
         temperature: float = 1.0,
         max_tokens: Optional[int] = None,
     ) -> str:
@@ -87,9 +88,10 @@ class OpenAIController(BaseLLMController):
                 {"role": "system", "content": _SYSTEM_JSON_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            "response_format": response_format,
             "temperature": temperature,
         }
+        if response_format is not None:
+            kwargs["response_format"] = response_format
 
         # GPT-5 and newer reasoning models use max_completion_tokens
         if max_tokens is not None:
@@ -162,10 +164,11 @@ class SGLangController(BaseLLMController):
         self.base_url = f"{sglang_host}:{sglang_port}"
 
     def get_completion(
-        self, prompt: str, response_format: dict, temperature: float = 1.0
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
     ) -> str:
+        fmt = response_format or {}
         try:
-            json_schema = response_format.get("json_schema", {}).get("schema", {})
+            json_schema = fmt.get("json_schema", {}).get("schema", {})
             json_schema_str = json.dumps(json_schema)
 
             payload = {
@@ -188,15 +191,15 @@ class SGLangController(BaseLLMController):
                 result = response.json()
                 generated_text = result.get("text", "")
                 return generated_text
-            else:
-                print(
-                    f"SGLang server returned status {response.status_code}: {response.text}"
-                )
-                raise Exception(f"SGLang server error: {response.status_code}")
+
+            print(
+                f"SGLang server returned status {response.status_code}: {response.text}"
+            )
+            raise RuntimeError(f"SGLang server error: {response.status_code}")
 
         except Exception as e:
             print(f"SGLang completion error: {e}")
-            empty_response = self._generate_empty_response(response_format)
+            empty_response = self._generate_empty_response(fmt)
             return json.dumps(empty_response)
 
 
@@ -241,7 +244,7 @@ class OpenRouterController(BaseLLMController):
         self.api_key = api_key
 
     def get_completion(
-        self, prompt: str, response_format: dict, temperature: float = 1.0
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
     ) -> str:
         """Get completion from OpenRouter API.
 
@@ -255,22 +258,24 @@ class OpenRouterController(BaseLLMController):
         """
         try:
             _ensure_litellm()
-            response = completion(
-                model=self.model,
-                messages=[
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {
                         "role": "system",
                         "content": _SYSTEM_JSON_PROMPT,
                     },
                     {"role": "user", "content": prompt},
                 ],
-                response_format=response_format,
-                temperature=temperature,
-            )
+                "temperature": temperature,
+            }
+            if response_format is not None:
+                kwargs["response_format"] = response_format
+            response = completion(**kwargs)
             return response.choices[0].message.content
-        except Exception as e:
+        except Exception:
             # Silently fall back to empty response on error
-            empty_response = self._generate_empty_response(response_format)
+            empty_response = self._generate_empty_response(response_format or {})
             return json.dumps(empty_response)
 
 
@@ -300,25 +305,27 @@ class GeminiController(BaseLLMController):
         self.api_key = api_key
 
     def get_completion(
-        self, prompt: str, response_format: dict, temperature: float = 1.0
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
     ) -> str:
         try:
             _ensure_litellm()
-            response = completion(
-                model=self.model,
-                messages=[
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {
                         "role": "system",
                         "content": _SYSTEM_JSON_PROMPT,
                     },
                     {"role": "user", "content": prompt},
                 ],
-                response_format=response_format,
-                temperature=temperature,
-            )
+                "temperature": temperature,
+            }
+            if response_format is not None:
+                kwargs["response_format"] = response_format
+            response = completion(**kwargs)
             return response.choices[0].message.content
-        except Exception as e:
-            empty_response = self._generate_empty_response(response_format)
+        except Exception:
+            empty_response = self._generate_empty_response(response_format or {})
             return json.dumps(empty_response)
 
 

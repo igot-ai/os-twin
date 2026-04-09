@@ -35,7 +35,9 @@ _port_from_path() {
   local path="$1"
   local hash
   hash=$(echo -n "$path" | cksum | awk '{print $1}')
-  echo $(( 6400 + (hash % 1000) ))
+  local port=$(( 6400 + (hash % 1000) ))
+  echo "$port"
+  return 0
 }
 
 # Stop all daemons
@@ -120,9 +122,9 @@ fi
 if command -v ss &>/dev/null; then
   if ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
     echo "Port $PORT in use. Trying next available..."
-    for i in $(seq 1 10); do
+    for _i in $(seq 1 10); do
       PORT=$((PORT + 1))
-      if ! ss -tlnp 2>/dev/null | grep -q ":$PORT "; then
+      if ! ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
         break
       fi
     done

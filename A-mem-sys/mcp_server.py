@@ -393,25 +393,8 @@ def _group_query(note, group_key: str) -> str:
     return 'path:"unfiled/"'
 
 
-def _build_graph_snapshot() -> dict[str, Any]:
-    notes = sorted(
-        get_memory().memories.values(),
-        key=lambda note: ((note.path or ""), _note_title(note), note.id),
-    )
-
-    if not notes:
-        return {
-            "groups": [],
-            "nodes": [],
-            "links": [],
-            "stats": {
-                "total_memories": 0,
-                "total_links": 0,
-                "persist_dir": PERSIST_DIR,
-                "transport": "stdio",
-            },
-        }
-
+def _collect_groups(notes) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Assign each note to a group, returning group order and metadata."""
     group_order: list[str] = []
     group_meta: dict[str, dict[str, Any]] = {}
 
@@ -434,20 +417,26 @@ def _build_graph_snapshot() -> dict[str, Any]:
             group_order.append(group_id)
         group_meta[group_id]["_count"] += 1
 
+    return group_order, group_meta
+
+
+def _collect_links(notes) -> tuple[list[dict[str, Any]], int]:
+    """Build deduplicated link list and count total forward links."""
     links: list[dict[str, Any]] = []
     link_pairs: set[tuple[str, str]] = set()
     total_forward_links = 0
+    memories = get_memory().memories
 
     for note in notes:
         for target_id in note.links:
-            if target_id not in get_memory().memories:
+            if target_id not in memories:
                 continue
             total_forward_links += 1
             pair = (note.id, target_id)
             if pair in link_pairs:
                 continue
             link_pairs.add(pair)
-            target = get_memory().memories[target_id]
+            target = memories[target_id]
             overlap = len(set(note.tags) & set(target.tags))
             strength = 0.38 + min(0.5, overlap * 0.08 + len(target.backlinks) * 0.02)
             links.append(
@@ -457,7 +446,11 @@ def _build_graph_snapshot() -> dict[str, Any]:
                     "strength": round(strength, 2),
                 }
             )
+    return links, total_forward_links
 
+
+def _collect_nodes(notes, group_meta) -> list[dict[str, Any]]:
+    """Build node list with group colors and weights."""
     nodes: list[dict[str, Any]] = []
     for note in notes:
         group_id = _slugify(_note_group_key(note))
@@ -485,10 +478,35 @@ def _build_graph_snapshot() -> dict[str, Any]:
                 "retrievalCount": note.retrieval_count,
             }
         )
+    return nodes
+
+
+def _build_graph_snapshot() -> dict[str, Any]:
+    notes = sorted(
+        get_memory().memories.values(),
+        key=lambda note: ((note.path or ""), _note_title(note), note.id),
+    )
+
+    if not notes:
+        return {
+            "groups": [],
+            "nodes": [],
+            "links": [],
+            "stats": {
+                "total_memories": 0,
+                "total_links": 0,
+                "persist_dir": PERSIST_DIR,
+                "transport": "stdio",
+            },
+        }
+
+    group_order, group_meta = _collect_groups(notes)
+    links, total_forward_links = _collect_links(notes)
+    nodes = _collect_nodes(notes, group_meta)
 
     groups = []
-    for group_id in group_order:
-        group = dict(group_meta[group_id])
+    for gid in group_order:
+        group = dict(group_meta[gid])
         group["description"] = f"{group['_count']} notes in {group['label'].lower()}"
         del group["_count"]
         groups.append(group)
@@ -868,7 +886,7 @@ def memory_stats() -> str:
     """
     mem = get_memory()
     total = len(mem.memories)
-    paths = sorted(set(m.path for m in mem.memories.values() if m.path))
+    paths = sorted({m.path for m in mem.memories.values() if m.path})
     total_links = sum(len(m.links) for m in mem.memories.values())
     total_backlinks = sum(len(m.backlinks) for m in mem.memories.values())
 

@@ -291,7 +291,7 @@ class AgenticMemorySystem:
             for part in parts:
                 node = node.setdefault(part, {})
 
-        def _render(node, prefix="", is_last=True):
+        def _render(node, prefix=""):
             lines = []
             items = list(node.items())
             for i, (name, children) in enumerate(items):
@@ -300,7 +300,7 @@ class AgenticMemorySystem:
                 lines.append(f"{prefix}{connector}{name}")
                 if children:
                     extension = "    " if last else "│   "
-                    lines.extend(_render(children, prefix + extension, last))
+                    lines.extend(_render(children, prefix + extension))
             return lines
 
         return "\n".join(_render(root))
@@ -346,9 +346,9 @@ class AgenticMemorySystem:
         if include_tree:
             lines.append(f"Full memory tree:\n{self.tree()}")
             return
-        all_paths = sorted(set(m.path for m in self.memories.values() if m.path))
+        all_paths = sorted({m.path for m in self.memories.values() if m.path})
         if all_paths:
-            tree_paths = sorted(set("/".join(p.split("/")[:2]) for p in all_paths))
+            tree_paths = sorted({"/".join(p.split("/")[:2]) for p in all_paths})
             lines.append(f"Existing directory tree: {', '.join(tree_paths)}")
 
     def analyze_content(self, content: str) -> Dict:
@@ -472,44 +472,30 @@ class AgenticMemorySystem:
             print(f"Error analyzing content: {e}")
             return {"keywords": [], "context": "General", "tags": []}
 
-    def add_note(self, content: str, time: Optional[str] = None, **kwargs) -> str:
-        """Add a new memory note"""
-        # Create MemoryNote without llm_controller
-        if time is not None:
-            kwargs["timestamp"] = time
-        note = MemoryNote(content=content, **kwargs)
+    def _apply_llm_analysis(self, note: MemoryNote) -> None:
+        """Run LLM analysis on a note and fill in missing metadata."""
+        needs_analysis = not note.keywords or note.context == "General" or not note.tags
+        if not needs_analysis:
+            return
 
-        # 🔧 LLM Analysis Enhancement: Auto-generate attributes using LLM if they are empty or default values
-        needs_analysis = (
-            not note.keywords  # keywords is empty list
-            or note.context == "General"  # context is default value
-            or not note.tags  # tags is empty list
-        )
+        analysis = self.analyze_content(note.content)
+        if note.name is None:
+            note.name = analysis.get("name")
+        if note.path is None:
+            note.path = analysis.get("path")
+        if not note.keywords:
+            note.keywords = analysis.get("keywords", [])
+        if note.context == "General":
+            note.context = analysis.get("context", "General")
+        if not note.tags:
+            note.tags = analysis.get("tags", [])
+        if note.summary is None:
+            note.summary = analysis.get("summary")
 
-        if needs_analysis:
-            analysis = self.analyze_content(content)
-
-            # Only update attributes that are not provided or have default values
-            if note.name is None:
-                note.name = analysis.get("name")
-            if note.path is None:
-                note.path = analysis.get("path")
-            if not note.keywords:
-                note.keywords = analysis.get("keywords", [])
-            if note.context == "General":
-                note.context = analysis.get("context", "General")
-            if not note.tags:
-                note.tags = analysis.get("tags", [])
-            if note.summary is None:
-                note.summary = analysis.get("summary")
-
-        # Add to memories before evolution so add_link can find it
-        self.memories[note.id] = note
-        evo_label, note = self.process_memory(note)
-        self._save_note(note)
-
-        # Add to ChromaDB with complete metadata
-        metadata = {
+    @staticmethod
+    def _build_note_metadata(note: MemoryNote) -> dict:
+        """Build a metadata dict suitable for the vector store."""
+        return {
             "id": note.id,
             "content": note.content,
             "keywords": note.keywords,
@@ -523,9 +509,24 @@ class AgenticMemorySystem:
             "tags": note.tags,
             "summary": note.summary,
         }
+
+    def add_note(self, content: str, time: Optional[str] = None, **kwargs) -> str:
+        """Add a new memory note"""
+        if time is not None:
+            kwargs["timestamp"] = time
+        note = MemoryNote(content=content, **kwargs)
+
+        self._apply_llm_analysis(note)
+
+        # Add to memories before evolution so add_link can find it
+        self.memories[note.id] = note
+        evo_label, note = self.process_memory(note)
+        self._save_note(note)
+
+        metadata = self._build_note_metadata(note)
         self.retriever.add_document(note.content, metadata, note.id)
 
-        if evo_label == True:
+        if evo_label is True:
             self.evo_cnt += 1
             if self.evo_cnt % self.evo_threshold == 0:
                 self.consolidate_memories()
@@ -762,52 +763,13 @@ class AgenticMemorySystem:
 
         # Re-analyze all metadata when content changes
         if "content" in kwargs:
-            analysis = self.analyze_content(note.content)
-            # Only overwrite fields that were NOT explicitly provided in kwargs
-            if "name" not in kwargs:
-                note.name = analysis.get("name", note.name)
-            if "path" not in kwargs:
-                note.path = analysis.get("path", note.path)
-            if "keywords" not in kwargs:
-                note.keywords = analysis.get("keywords", note.keywords)
-            if "context" not in kwargs:
-                note.context = analysis.get("context", note.context)
-            if "tags" not in kwargs:
-                note.tags = analysis.get("tags", note.tags)
-            if "summary" not in kwargs:
-                note.summary = analysis.get("summary")
+            self._reanalyze_note_metadata(note, kwargs)
 
         # Delete old markdown file if filepath changed
-        if self._notes_dir and old_filepath != note.filepath:
-            old_full_path = os.path.join(self._notes_dir, old_filepath)
-            if os.path.exists(old_full_path):
-                os.remove(old_full_path)
-                # Clean up empty parent dirs
-                parent = os.path.dirname(old_full_path)
-                while parent != self._notes_dir:
-                    if os.path.isdir(parent) and not os.listdir(parent):
-                        os.rmdir(parent)
-                        parent = os.path.dirname(parent)
-                    else:
-                        break
+        self._cleanup_old_note_file(old_filepath, note.filepath)
 
         # Update in ChromaDB
-        metadata = {
-            "id": note.id,
-            "content": note.content,
-            "keywords": note.keywords,
-            "links": note.links,
-            "retrieval_count": note.retrieval_count,
-            "timestamp": note.timestamp,
-            "last_accessed": note.last_accessed,
-            "context": note.context,
-            "evolution_history": note.evolution_history,
-            "category": note.category,
-            "tags": note.tags,
-            "summary": note.summary,
-        }
-
-        # Delete and re-add to update
+        metadata = self._build_note_metadata(note)
         self.retriever.delete_document(memory_id)
         self.retriever.add_document(
             document=note.content, metadata=metadata, doc_id=memory_id
@@ -815,6 +777,38 @@ class AgenticMemorySystem:
         self._save_note(note)
 
         return True
+
+    def _reanalyze_note_metadata(self, note: MemoryNote, kwargs: dict) -> None:
+        """Re-generate LLM-derived fields that were not explicitly provided."""
+        analysis = self.analyze_content(note.content)
+        if "name" not in kwargs:
+            note.name = analysis.get("name", note.name)
+        if "path" not in kwargs:
+            note.path = analysis.get("path", note.path)
+        if "keywords" not in kwargs:
+            note.keywords = analysis.get("keywords", note.keywords)
+        if "context" not in kwargs:
+            note.context = analysis.get("context", note.context)
+        if "tags" not in kwargs:
+            note.tags = analysis.get("tags", note.tags)
+        if "summary" not in kwargs:
+            note.summary = analysis.get("summary")
+
+    def _cleanup_old_note_file(self, old_filepath: str, new_filepath: str) -> None:
+        """Remove old markdown file and empty parent dirs if filepath changed."""
+        if not self._notes_dir or old_filepath == new_filepath:
+            return
+        old_full_path = os.path.join(self._notes_dir, old_filepath)
+        if not os.path.exists(old_full_path):
+            return
+        os.remove(old_full_path)
+        parent = os.path.dirname(old_full_path)
+        while parent != self._notes_dir:
+            if os.path.isdir(parent) and not os.listdir(parent):
+                os.rmdir(parent)
+                parent = os.path.dirname(parent)
+            else:
+                break
 
     def add_link(self, from_id: str, to_id: str):
         """Create a forward link from one note to another. Backlink is auto-created."""
@@ -954,7 +948,7 @@ class AgenticMemorySystem:
         embedding_results = self.retriever.search(query, k)
 
         # Combine results with deduplication
-        seen_ids = set(m["id"] for m in memories)
+        seen_ids = {m["id"] for m in memories}
         for result in embedding_results:
             memory_id = result.get("id")
             if memory_id and memory_id not in seen_ids:

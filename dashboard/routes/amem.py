@@ -60,7 +60,53 @@ def _resolve_memory_dir(plan_id: str) -> Path:
     raise HTTPException(status_code=404, detail=f"No .memory/ found for plan {plan_id}")
 
 
-def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:  # noqa: C901
+def _stub_note_dict(
+    md_file: Path,
+    rel_path: str,
+    rel_file: str,
+    body: str,
+    raw: str,
+) -> dict:
+    """Build a minimal note dict when frontmatter parsing is unavailable."""
+    return {
+        "id": md_file.stem,
+        "filename": md_file.name,
+        "path": rel_path,
+        "relativePath": rel_file,
+        "title": md_file.stem.replace("-", " ").title(),
+        "body": body,
+        "content": raw,
+        "excerpt": body[:280],
+        "tags": [],
+        "keywords": [],
+        "links": [],
+        "context": None,
+        "summary": None,
+        "category": None,
+        "timestamp": None,
+        "last_accessed": None,
+        "retrieval_count": 0,
+    }
+
+
+def _extract_excerpt(body: str) -> str:
+    """Build a short excerpt from body text, skipping headings and code fences."""
+    excerpt_lines: list[str] = []
+    in_code = False
+    for ln in body.split("\n"):
+        stripped = ln.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code or not stripped or stripped.startswith("#"):
+            continue
+        excerpt_lines.append(stripped)
+        if sum(len(s) for s in excerpt_lines) > 280:
+            break
+    return " ".join(excerpt_lines)[:280]
+
+
+def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
     """Read a single markdown file and convert it to the dashboard's wire shape.
 
     Delegates frontmatter parsing to ``MemoryNote.from_markdown`` so we share
@@ -80,56 +126,16 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:  # noqa: C9
         rel_file = md_file.name
 
     if MemoryNote is None:
-        # Defensive fallback — A-mem-sys not on the path. Return enough so
-        # the file is at least listed.
-        return {
-            "id": md_file.stem,
-            "filename": md_file.name,
-            "path": rel_path,
-            "relativePath": rel_file,
-            "title": md_file.stem.replace("-", " ").title(),
-            "body": raw,
-            "content": raw,
-            "excerpt": raw[:280],
-            "tags": [],
-            "keywords": [],
-            "links": [],
-            "context": None,
-            "summary": None,
-            "category": None,
-            "timestamp": None,
-            "last_accessed": None,
-            "retrieval_count": 0,
-        }
+        return _stub_note_dict(md_file, rel_path, rel_file, raw, raw)
 
     try:
         note = MemoryNote.from_markdown(raw)
     except ValueError:
-        # Hand-written or legacy notes without proper frontmatter — return
-        # the raw content untouched so the user can still see it.
-        return {
-            "id": md_file.stem,
-            "filename": md_file.name,
-            "path": rel_path,
-            "relativePath": rel_file,
-            "title": md_file.stem.replace("-", " ").title(),
-            "body": raw.strip(),
-            "content": raw,
-            "excerpt": raw.strip()[:280],
-            "tags": [],
-            "keywords": [],
-            "links": [],
-            "context": None,
-            "summary": None,
-            "category": None,
-            "timestamp": None,
-            "last_accessed": None,
-            "retrieval_count": 0,
-        }
+        return _stub_note_dict(md_file, rel_path, rel_file, raw.strip(), raw)
 
     body = (note.content or "").strip()
 
-    # Title: frontmatter `name` → first H1 → filename slug
+    # Title: frontmatter `name` -> first H1 -> filename slug
     title = (note.name or "").strip()
     if not title:
         h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
@@ -139,40 +145,27 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:  # noqa: C9
             else md_file.stem.replace("-", " ").replace("_", " ").title()
         )
 
-    # Short excerpt from body, skipping headings and code fences
-    excerpt_lines = []
-    in_code = False
-    for ln in body.split("\n"):
-        stripped = ln.strip()
-        if stripped.startswith("```"):
-            in_code = not in_code
-            continue
-        if in_code or not stripped or stripped.startswith("#"):
-            continue
-        excerpt_lines.append(stripped)
-        if sum(len(s) for s in excerpt_lines) > 280:
-            break
-    excerpt = " ".join(excerpt_lines)[:280]
+    category = note.category
+    if category and category != "Uncategorized":
+        category_val = category
+    else:
+        category_val = None
 
     return {
-        # Use the UUID from frontmatter so graph links (which reference IDs)
-        # actually resolve against other notes.
         "id": note.id,
         "filename": md_file.name,
         "path": rel_path,
         "relativePath": rel_file,
         "title": title,
         "body": body,
-        "content": raw,  # raw markdown w/ frontmatter for clients that want it
-        "excerpt": excerpt,
+        "content": raw,
+        "excerpt": _extract_excerpt(body),
         "tags": list(note.tags or []),
         "keywords": list(note.keywords or []),
         "links": list(note.links or []),
         "context": note.context if note.context and note.context != "General" else None,
         "summary": note.summary or None,
-        "category": note.category
-        if note.category and note.category != "Uncategorized"
-        else None,
+        "category": category_val,
         "timestamp": note.timestamp,
         "last_accessed": note.last_accessed,
         "retrieval_count": int(note.retrieval_count or 0),

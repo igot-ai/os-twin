@@ -257,7 +257,7 @@ class ZvecRetriever:
         import time
 
         last_err = None
-        for attempt in range(30):  # ~30s total wait
+        for _attempt in range(30):  # ~30s total wait
             try:
                 return _zvec.open(path=collection_path)
             except RuntimeError as e:
