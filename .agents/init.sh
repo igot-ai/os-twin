@@ -176,25 +176,39 @@ fi
 # ─── Update .gitignore ────────────────────────────────────────────────────────
 
 GITIGNORE="$TARGET_DIR/.gitignore"
-GITIGNORE_ENTRIES=(".opencode/opencode.json")
+
+# The block we want present in .gitignore.
+# .agents/* (not .agents/) so git still checks negation rules inside it.
+OSTWIN_GITIGNORE_BLOCK=$(cat <<'BLOCK'
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+.agents/*
+!.agents/memory/
+BLOCK
+)
+
 if [[ -f "$GITIGNORE" ]]; then
-  for entry in "${GITIGNORE_ENTRIES[@]}"; do
-    if ! grep -q "$entry" "$GITIGNORE"; then
-      echo "" >> "$GITIGNORE"
-      echo "# Ostwin generated" >> "$GITIGNORE"
-      echo "$entry" >> "$GITIGNORE"
-      ok "Added $entry to .gitignore"
-    else
-      ok "$entry already in .gitignore"
-    fi
-  done
+  if grep -qF "# Ostwin generated" "$GITIGNORE"; then
+    # Replace existing Ostwin block (delete old lines between marker and next blank/EOF)
+    # Safe approach: remove old marker + known entries, then re-append
+    tmp_gi=$(mktemp)
+    # Strip any previous Ostwin-managed lines
+    grep -vE '^# Ostwin generated$|^\.opencode/opencode\.json$|^\.war-rooms/$|^\.agents/\*$|^!\.agents/memory/$|^\.agents/$' \
+      "$GITIGNORE" > "$tmp_gi" || true
+    # Remove trailing blank lines
+    sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp_gi" > "$GITIGNORE"
+    rm -f "$tmp_gi"
+    echo "" >> "$GITIGNORE"
+    echo "$OSTWIN_GITIGNORE_BLOCK" >> "$GITIGNORE"
+    ok "Updated Ostwin entries in .gitignore"
+  else
+    echo "" >> "$GITIGNORE"
+    echo "$OSTWIN_GITIGNORE_BLOCK" >> "$GITIGNORE"
+    ok "Added Ostwin entries to .gitignore"
+  fi
 else
-  {
-    echo "# Ostwin generated"
-    for entry in "${GITIGNORE_ENTRIES[@]}"; do
-      echo "$entry"
-    done
-  } > "$GITIGNORE"
+  echo "$OSTWIN_GITIGNORE_BLOCK" > "$GITIGNORE"
   ok "Created .gitignore with Ostwin entries"
 fi
 

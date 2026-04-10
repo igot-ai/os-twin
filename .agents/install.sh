@@ -691,7 +691,16 @@ else:
     config = {"$schema": "https://opencode.ai/config.json"}
 
 # Ensure "permission" key exists as a dict
+read_perm = {
+    "*": "allow",
+    "*.env": "allow",
+    "*.env.*": "allow",
+    "*.env.example": "allow"
+}
 perm = config.get("permission")
+if perm is None:
+    config["permission"] = {}
+    config["permission"] = read_perm
 if isinstance(perm, str):
     # e.g. "allow" — convert to dict, preserving intent
     config["permission"] = {"*": perm}

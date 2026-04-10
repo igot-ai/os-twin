@@ -106,6 +106,32 @@ process {
                 $n.DependsOn = $expandedDeps
             }
         }
+
+        # --- Resolve room-ID references in depends_on ---
+        # AI agents sometimes write depends_on using room IDs (e.g. "room-001")
+        # instead of task-ref IDs (e.g. "EPIC-001"). Build a roomId→nodeId map
+        # and silently fix these references so the graph stays valid.
+        $roomIdToNodeId = @{}
+        foreach ($n in $Nodes) {
+            if ($n.RoomId) {
+                $roomIdToNodeId[$n.RoomId] = $n.Id
+            }
+        }
+        if ($roomIdToNodeId.Count -gt 0) {
+            foreach ($n in $Nodes) {
+                $fixedDeps = @()
+                foreach ($dep in $n.DependsOn) {
+                    if ($roomIdToNodeId.ContainsKey($dep)) {
+                        $resolved = $roomIdToNodeId[$dep]
+                        Write-Warning "[DAG] Resolved room-ID dependency '$dep' -> '$resolved' in node '$($n.Id)'"
+                        $fixedDeps += $resolved
+                    } else {
+                        $fixedDeps += $dep
+                    }
+                }
+                $n.DependsOn = $fixedDeps
+            }
+        }
     }
 
     if (-not $Nodes -or $Nodes.Count -eq 0) {
