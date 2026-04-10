@@ -80,10 +80,74 @@ echo ""
 echo -e "  ${DIM}Project:${NC} $TARGET_DIR"
 echo ""
 
-# ─── MCP configuration ────────────────────────────────────────────────────────
-# MCP config lives globally at ~/.ostwin/.agents/mcp/ and is compiled into
-# .opencode/opencode.json by `ostwin mcp compile`. No .agents/mcp folder is
-# created in the project directory.
+# ─── Ensure .agents/mcp exists ────────────────────────────────────────────────
+
+step "Scaffolding MCP directory..."
+
+mkdir -p "$TARGET_AGENTS/mcp"
+
+# Seed extensions.json if not present
+if [[ ! -f "$TARGET_AGENTS/mcp/extensions.json" ]]; then
+  echo '{"extensions":[]}' > "$TARGET_AGENTS/mcp/extensions.json"
+fi
+
+# Copy catalog from source if not present or outdated
+if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
+  cp "$SCRIPT_DIR/mcp/mcp-catalog.json" "$TARGET_AGENTS/mcp/mcp-catalog.json" 2>/dev/null || true
+fi
+
+# Copy builtin config from source
+if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
+  cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json" 2>/dev/null || true
+fi
+
+# Note: mcp-config.json is the deploy template — it's read by the compile step
+# from the source repo, but we don't copy it into the project (only config.json
+# is the canonical compiled output). Avoid leaving unresolved {env:VAR} files.
+
+# Copy extension manager script
+if [[ -f "$SCRIPT_DIR/mcp/mcp-extension.sh" ]]; then
+  local_src="$(realpath "$SCRIPT_DIR/mcp/mcp-extension.sh" 2>/dev/null || echo "$SCRIPT_DIR/mcp/mcp-extension.sh")"
+  local_dst="$(realpath "$TARGET_AGENTS/mcp/mcp-extension.sh" 2>/dev/null || echo "$TARGET_AGENTS/mcp/mcp-extension.sh")"
+  if [[ "$local_src" != "$local_dst" ]]; then
+    cp "$SCRIPT_DIR/mcp/mcp-extension.sh" "$TARGET_AGENTS/mcp/mcp-extension.sh"
+  fi
+  chmod +x "$TARGET_AGENTS/mcp/mcp-extension.sh"
+fi
+
+# Copy vault.py and config_resolver.py (required by mcp-extension.sh)
+for _py_file in vault.py config_resolver.py; do
+  if [[ -f "$SCRIPT_DIR/mcp/$_py_file" ]]; then
+    cp "$SCRIPT_DIR/mcp/$_py_file" "$TARGET_AGENTS/mcp/$_py_file" 2>/dev/null || true
+  fi
+done
+
+PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/config.json"
+LEGACY_PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/mcp-config.json"
+
+if [[ ! -f "$PROJECT_MCP_CONFIG" ]]; then
+  # Priority: mcp-config.json (deployed format with {env:OSTWIN_PYTHON}/{env:HOME})
+  #         > legacy mcp-config.json
+  #         > mcp-builtin.json (dev format with {env:AGENT_DIR})
+  if [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
+    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$PROJECT_MCP_CONFIG"
+  elif [[ -f "$LEGACY_PROJECT_MCP_CONFIG" ]]; then
+    cp "$LEGACY_PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG"
+  elif [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
+    cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$PROJECT_MCP_CONFIG"
+  else
+    echo '{"mcp":{}}' > "$PROJECT_MCP_CONFIG"
+  fi
+  ok "MCP config seeded"
+else
+  ok "MCP config exists (will recompile)"
+fi
+
+echo -e "    ${DIM}Config: $PROJECT_MCP_CONFIG${NC}"
+
+# ─── Interactive MCP install ──────────────────────────────────────────────────
+# Note: MCP config also lives globally at ~/.ostwin/.agents/mcp/ and is compiled
+# into .opencode/opencode.json by `ostwin mcp compile`.
 
 PYTHON="python3"
 MCP_EXTENSION_SCRIPT="$SCRIPT_DIR/mcp/mcp-extension.sh"

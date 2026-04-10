@@ -169,29 +169,35 @@ class OSTwinStore:
                 schema = col.schema
                 has_time_id = any(f.name == "time_id" for f in schema.fields)
                 has_enabled = any(f.name == "enabled" for f in schema.fields)
-                
-                # Check vector dimension mismatch (Harrier migration)
+
+                # Check vector dimension mismatch (Harrier migration).
+                # zvec exposes `schema.vectors` as either a list of VectorSchema
+                # or a single VectorSchema object depending on version. Handle
+                # both shapes and capture the current dim for later logging.
                 dim_mismatch = False
+                current_dim: Optional[int] = None
                 vectors = schema.vectors
                 if isinstance(vectors, list) and len(vectors) > 0:
                     current_dim = vectors[0].dimension
-                    if current_dim != EMBEDDING_DIM:
-                        dim_mismatch = True
                 elif hasattr(vectors, 'dimension'):
-                    if vectors.dimension != EMBEDDING_DIM:
-                        dim_mismatch = True
-                
-                # To be safe, we need the collection to be closed. 
+                    current_dim = vectors.dimension
+                if current_dim is not None and current_dim != EMBEDDING_DIM:
+                    dim_mismatch = True
+
+                # To be safe, we need the collection to be closed.
                 # In current zvec, dropping the ref usually works.
                 col = None
-                
+
                 needs_enabled = (name == SKILLS_COLLECTION and not has_enabled)
                 if not has_time_id or dim_mismatch or needs_enabled:
+                    reasons = []
                     if dim_mismatch:
-                        logger.info("Migrating collection %s (dimension mismatch %d -> %d)", 
-                                    name, schema.vectors.dimension, EMBEDDING_DIM)
-                    else:
-                        logger.info("Migrating collection %s (missing time_id)", name)
+                        reasons.append(f"dim {current_dim} → {EMBEDDING_DIM}")
+                    if not has_time_id:
+                        reasons.append("missing time_id")
+                    if needs_enabled:
+                        reasons.append("missing enabled")
+                    logger.info("Migrating collection %s (%s)", name, ", ".join(reasons))
                     shutil.rmtree(str(path))
                     stats["migrated"].append(name)
                 else:
@@ -199,6 +205,17 @@ class OSTwinStore:
             except Exception as e:
                 logger.warning("Failed to check/migrate collection %s: %s", name, e)
                 stats["errors"].append(f"{name}: {str(e)}")
+                # If we couldn't even read the schema, the collection is
+                # likely from an incompatible zvec version. Nuke it so the
+                # subsequent _open_or_create call rebuilds it with the
+                # current schema. Better to lose the index than to leave
+                # the dashboard stuck in a permanent re-index loop.
+                try:
+                    shutil.rmtree(str(path))
+                    logger.info("Removed unreadable collection %s — will rebuild", name)
+                    stats["migrated"].append(name)
+                except Exception as rm_err:
+                    logger.error("Failed to remove unreadable collection %s: %s", name, rm_err)
                 
         if stats["migrated"]:
             logger.info("Collections migrated: %s", ", ".join(stats["migrated"]))

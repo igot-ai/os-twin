@@ -1,5 +1,5 @@
 {
-  "model": "gpt-4o",
+  "model": "openai/gpt-4o",
   "skill_refs": [],
   "timeout": 300,
   "description": ""

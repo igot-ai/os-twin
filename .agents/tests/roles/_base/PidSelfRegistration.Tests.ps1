@@ -172,8 +172,10 @@ echo "done"
                 # Should contain AGENT_OS_PID_FILE export
                 $wrapperContent | Should -Match "export AGENT_OS_PID_FILE="
 
-                # Should NOT contain the old echo $$ pattern
-                $wrapperContent | Should -Not -Match "echo .* > .*\.pid"
+                # Wrapper now writes PID as fallback for non-bin/agent commands
+                # (echo "$$" > pidfile). This is intentional — bin/agent may also
+                # write it (harmless overwrite).
+                $wrapperContent | Should -Match 'echo.*\$\$.*\.pid'
             }
 
             $job | Wait-Job -Timeout 15 | Out-Null

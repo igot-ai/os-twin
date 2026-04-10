@@ -372,6 +372,26 @@ if ($RoomDir) {
     }
 }
 
+# --- Always include global forced skills (auto-memory, etc.) ---
+$forcedGlobalSkills = @("auto-memory")
+foreach ($forced in $forcedGlobalSkills) {
+    if (-not $resolvedSkills.ContainsKey($forced)) {
+        # Search in global/ subdirectory first, then top-level skills/
+        $globalPath = Join-Path $SkillsBaseDir "global" $forced "SKILL.md"
+        $topPath = Join-Path $SkillsBaseDir $forced "SKILL.md"
+        $skillPath = if (Test-Path $globalPath) { $globalPath } elseif (Test-Path $topPath) { $topPath } else { $null }
+
+        if ($skillPath -and (Test-SkillPlatform -SkillMdPath $skillPath)) {
+            $resolvedSkills[$forced] = [PSCustomObject]@{
+                Name = $forced
+                Path = $skillPath
+                Tier = "Global"
+            }
+            Write-Verbose "Auto-injected global skill '$forced' from $skillPath"
+        }
+    }
+}
+
 # --- Auto-include role-private skills ---
 # Any skill living under skills/roles/<RoleName>/*/SKILL.md is treated as
 # private to this role and is automatically loaded whenever the role is

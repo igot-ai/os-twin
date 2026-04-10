@@ -411,13 +411,15 @@ exit 0
 
     Context "Error handling" {
         It "fails when plan file doesn't exist" {
+            $ErrorActionPreference = 'Continue'
             $output = & $script:StartPlan -PlanFile "/nonexistent/plan.md" `
                 -ProjectDir $script:projectDir -DryRun *>&1
             # Script writes error and exits 1
             ($output -join "`n") | Should -Match "(not found|Plan file)"
         }
 
-        It "fails when plan has no epics, no tasks, and no goal title" {
+        It "fails when plan has no epics or tasks" {
+            $ErrorActionPreference = 'Continue'
             $emptyPlan = Join-Path $TestDrive "empty-plan.md"
             "No epics here. No goal either." | Out-File $emptyPlan -Encoding utf8
 

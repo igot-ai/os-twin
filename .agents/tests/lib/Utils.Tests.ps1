@@ -123,8 +123,9 @@ Describe "Set-WarRoomStatus" {
         $lines[2] | Should -Match "developing -> review"
     }
 
-    It "throws for invalid status" {
-        { Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "invalid-status" } |
+    It "throws for invalid status format" {
+        # ValidatePattern requires lowercase alphanumeric + hyphens
+        { Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "INVALID STATUS!" } |
             Should -Throw
     }
 

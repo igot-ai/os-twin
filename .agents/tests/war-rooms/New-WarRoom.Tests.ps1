@@ -163,6 +163,7 @@ Describe "New-WarRoom" {
 
     Context "Error handling" {
         It "prevents overwriting existing room" {
+            $ErrorActionPreference = 'Continue'
             & $script:NewWarRoom -RoomId "room-dup" -TaskRef "TASK-001" `
                                  -TaskDescription "First" -WarRoomsDir $script:warRoomsDir
 

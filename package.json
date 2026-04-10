@@ -31,6 +31,7 @@
     "diff": "8.0.3"
   },
   "dependencies": {
+    "@nestjs/serve-static": "^5.0.4",
     "emitter-io": "^1.39.0",
     "express": "^5.2.1",
     "pg": "^8.20.0"

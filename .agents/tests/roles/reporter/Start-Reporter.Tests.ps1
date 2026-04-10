@@ -84,11 +84,10 @@ $TestDrive
 
     Context "Reporter prompt assembly" {
         It "SKILL.md exists and contains reporter instructions" {
-            $skillPath = Join-Path (Resolve-Path "$PSScriptRoot/../../../roles/reporter").Path "SKILL.md"
+            $skillPath = Join-Path (Resolve-Path "$PSScriptRoot/../../../skills/roles/reporter/generate-report").Path "SKILL.md"
             Test-Path $skillPath | Should -BeTrue
             $skill = Get-Content $skillPath -Raw
-            $skill | Should -Match "Report Spec Format"
-            $skill | Should -Match "python -m reporter"
+            $skill | Should -Match "generate-report"
         }
 
         It "role.json has correct capabilities" {

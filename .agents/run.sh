@@ -27,6 +27,11 @@ if [[ -z "$PROJECT_DIR" ]]; then
   fi
 fi
 
+# Ensure PROJECT_DIR exists (create automatically for non-interactive use)
+if [[ ! -d "$PROJECT_DIR" ]]; then
+  mkdir -p "$PROJECT_DIR" && echo "Created $PROJECT_DIR"
+fi
+
 # Check for pwsh
 if ! command -v pwsh &> /dev/null; then
   echo "Error: 'pwsh' (PowerShell) is not installed or not in PATH."
@@ -39,8 +44,37 @@ if [[ ! -f "$PLAN_FILE" ]]; then
   exit 1
 fi
 
-# Execute Start-Plan.ps1
+# Register plan in the local .agents/plans registry so the dashboard can discover it
 AGENTS_DIR=$(dirname "$0")
+GLOBAL_PLANS_DIR="$AGENTS_DIR/plans"
+mkdir -p "$GLOBAL_PLANS_DIR"
+
+PLAN_BASENAME=$(basename "$PLAN_FILE")
+# Derive a clean plan_id: strip .md then optional .refined suffix
+PLAN_ID="${PLAN_BASENAME%.md}"
+PLAN_ID="${PLAN_ID%.refined}"
+
+REGISTERED_PLAN="$GLOBAL_PLANS_DIR/$PLAN_ID.md"
+REGISTERED_META="$GLOBAL_PLANS_DIR/$PLAN_ID.meta.json"
+
+# Copy plan file if not already registered (or source is newer)
+if [[ ! -f "$REGISTERED_PLAN" ]] || [[ "$PLAN_FILE" -nt "$REGISTERED_PLAN" ]]; then
+  cp "$PLAN_FILE" "$REGISTERED_PLAN"
+fi
+
+# Write meta.json with working_dir so dashboard can find war-rooms
+WARROOMS_DIR="$PROJECT_DIR/.war-rooms"
+cat > "$REGISTERED_META" <<METAEOF
+{
+  "plan_id": "$PLAN_ID",
+  "working_dir": "$PROJECT_DIR",
+  "warrooms_dir": "$WARROOMS_DIR",
+  "launched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "status": "active",
+  "source_plan_file": "$PLAN_FILE"
+}
+METAEOF
+
+# Execute Start-Plan.ps1
 pwsh -NoProfile -File "$AGENTS_DIR/plan/Start-Plan.ps1" -PlanFile "$PLAN_FILE" -ProjectDir "$PROJECT_DIR" "${@:2}"
 exit $?
-

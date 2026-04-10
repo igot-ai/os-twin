@@ -184,6 +184,21 @@ if (Test-Path $configPath) {
         }
     }
 
+    # Normalize model: auto-prefix bare model names with their provider so opencode
+    # can resolve them. Many dynamically-created role.json files store just
+    # "gemini-3-flash-preview" without the "google-vertex/" prefix.
+    if ($Model -and ($Model -notmatch '/')) {
+        if ($Model -match '^gemini') {
+            $Model = "google-vertex/$Model"
+        }
+        elseif ($Model -match '^claude') {
+            $Model = "anthropic/$Model"
+        }
+        elseif ($Model -match '^gpt|^o1|^o3|^o4') {
+            $Model = "openai/$Model"
+        }
+    }
+
     # Timeout fallback chain (plan roles already applied above): instance → role
     if (-not $timeoutWasExplicit) {
         if ($instanceConfig -and $instanceConfig.timeout_seconds) {
