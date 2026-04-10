@@ -23,7 +23,9 @@ import { routeCommand, routeCallback, handleStatefulText, BotResponse, Button } 
 import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { transcribeAndLaunch } from '../audio-transcript';
-import { mdConvert, chunk } from './utils';
+import { mdConvert, chunk, detectEpicRef, guessAssetType } from './utils';
+import api, { PlanAsset } from '../api';
+import { stageAttachments, flushStagedAttachments, getStagedCount } from '../asset-staging';
 
 // Voice command imports
 import * as pingCommand from '../commands/ping';
@@ -182,32 +184,116 @@ export class DiscordConnector implements Connector {
       fsp.appendFile(logFile, JSON.stringify(entry) + EOL)
         .catch(err => console.warn('[LOG] Failed to persist:', err.message));
 
-      if (this.client?.user && message.mentions.has(this.client.user.id)) {
+      const userId = String(message.author.id);
+      const session = getSession(userId, 'discord');
+      
+      // Update activeEpicRef if found in message content
+      const msgEpic = detectEpicRef(message.content);
+      if (msgEpic) {
+        session.activeEpicRef = msgEpic;
+      }
+
+      const botUserId = this.client?.user?.id;
+      const isMention = !!(botUserId && message.mentions.has(botUserId));
+      const attachments = message.attachments ? Array.from(message.attachments.values()) : [];
+      const isStateful = ['drafting', 'editing', 'awaiting_idea'].includes(session.mode);
+
+      // ── Handle attachments: save immediately or stage for later ──
+      const hasAttachments = attachments.length > 0;
+      const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
+        && ['drafting', 'editing'].includes(session.mode);
+
+      if (hasAttachments) {
+        if (canSaveNow) {
+          // Plan exists → save immediately (existing fast path)
+          const assetResponses: BotResponse[] = [];
+          const uploadResult = await this.persistAttachments(session.activePlanId!, attachments, message.content, session.activeEpicRef);
+          if (uploadResult.saved.length > 0) {
+            assetResponses.push({ text: this.formatSavedAssets(session.activePlanId!, uploadResult.saved) });
+          }
+          if (uploadResult.failures.length > 0) {
+            assetResponses.push({ text: this.formatFailedAssets(uploadResult.failures) });
+          }
+          if (assetResponses.length > 0) {
+            await this.sendToChannel(message.channel as TextChannel, assetResponses);
+          }
+        } else {
+          // No plan yet → download from CDN and stage in session buffer
+          const epicRef = detectEpicRef(message.content) || session.activeEpicRef;
+          const stageResult = await stageAttachments(userId, 'discord',
+            attachments.map(a => ({ url: a.url, name: a.name || 'attachment', contentType: a.contentType })),
+            epicRef,
+          );
+
+          if (stageResult.rejected) {
+            await this.sendToChannel(message.channel as TextChannel, [{
+              text: '⚠️ Staged files exceed the 50MB limit. Upload large files via the dashboard.',
+            }]);
+          } else if (stageResult.staged > 0) {
+            const noun = stageResult.staged === 1 ? 'file' : 'files';
+            await this.sendToChannel(message.channel as TextChannel, [{
+              text: `📎 Holding ${stageResult.staged} ${noun} — processing your request...`,
+            }]);
+          }
+          if (stageResult.failedNames.length > 0) {
+            await this.sendToChannel(message.channel as TextChannel, [{
+              text: this.formatFailedAssets(stageResult.failedNames.map(n => `${n}: download failed`)),
+            }]);
+          }
+        }
+      }
+
+      // ── @mention: route to plan refine when editing, otherwise Q&A ──
+      if (isMention) {
         const question = message.content
-          .replace(new RegExp(`<@!?${this.client.user.id}>`, 'g'), '')
+          .replace(new RegExp(`<@!?${this.client!.user!.id}>`, 'g'), '')
           .trim();
 
-        if (!question) return;
+        if (!question && attachments.length === 0) return;
 
-        (message.channel as TextChannel).sendTyping().catch(() => {});
-        console.log(`🤖 [AGENT] ${entry.username} asked: ${question}`);
+        // If user is editing a plan, treat @mention text as a plan instruction
+        if (isStateful && question) {
+          const textResponses = await handleStatefulText(userId, 'discord', question);
+          if (textResponses.length > 0) {
+            await this.sendToChannel(message.channel as TextChannel, textResponses);
+          }
+          return;
+        }
 
-        try {
-          const answer = await askAgent(question);
-          await message.reply(answer);
-        } catch (err: any) {
-          console.error('❌ [AGENT] Bridge error:', err);
-          await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});
+        // Otherwise: AI agent with tool-calling (can create plans, check status, etc.)
+        if (question) {
+          (message.channel as TextChannel).sendTyping().catch(() => {});
+          console.log(`🤖 [AGENT] ${entry.username} asked: ${question}`);
+
+          try {
+            const answer = await askAgent(question, { userId, platform: 'discord' });
+            await message.reply(answer);
+          } catch (err: any) {
+            console.error('❌ [AGENT] Bridge error:', err);
+            await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});
+          }
+
+          // Flush staged attachments if plan was created by the agent
+          await this.flushStagedIfReady(userId, message.channel as TextChannel);
         }
         return;
       }
 
-      const userId = String(message.author.id);
-      const session = getSession(userId, 'discord');
-      if (['drafting', 'editing', 'awaiting_idea'].includes(session.mode)) {
+      // ── Stateful text: refine/draft plan ──
+      if (isStateful) {
         const msgText = message.content.trim();
+        const responses: BotResponse[] = [];
+
         if (msgText && !msgText.startsWith('/')) {
-          const responses = await handleStatefulText(userId, 'discord', msgText);
+          const textResponses = await handleStatefulText(userId, 'discord', msgText);
+          responses.push(...textResponses);
+        }
+
+        // After draft/refine, the plan may now exist — flush staged attachments
+        const flushResponses = await this.flushStagedIfReady(userId);
+        responses.push(...flushResponses);
+
+        if (responses.length > 0) {
           await this.sendToChannel(message.channel as TextChannel, responses);
         }
       }
@@ -314,6 +400,122 @@ export class DiscordConnector implements Connector {
     };
   }
 
+  /**
+   * Flush staged attachments if a plan now exists in the session.
+   * Optionally sends confirmation/failure messages to the given channel.
+   * Returns BotResponse[] for inline use.
+   */
+  private async flushStagedIfReady(userId: string, channel?: TextChannel): Promise<BotResponse[]> {
+    const session = getSession(userId, 'discord');
+    const responses: BotResponse[] = [];
+
+    if (getStagedCount(userId, 'discord') > 0 && session.activePlanId && session.activePlanId !== 'new') {
+      const flushResult = await flushStagedAttachments(userId, 'discord', session.activePlanId);
+      if (flushResult.saved.length > 0) {
+        responses.push({ text: this.formatSavedAssets(session.activePlanId, flushResult.saved as PlanAsset[]) });
+      }
+      if (flushResult.failures.length > 0) {
+        responses.push({ text: this.formatFailedAssets(flushResult.failures) });
+      }
+      if (channel && responses.length > 0) {
+        await this.sendToChannel(channel, responses);
+      }
+    }
+
+    return responses;
+  }
+
+  private async persistAttachments(
+    planId: string,
+    attachments: Array<{ url?: string; name?: string; contentType?: string | null }>,
+    messageContent?: string,
+    contextEpicRef?: string
+  ): Promise<{ saved: PlanAsset[]; failures: string[] }> {
+    const failures: string[] = [];
+    const downloadable: Array<{ name: string; contentType?: string; data: Uint8Array }> = [];
+
+    // Detect epic ref from current message content or fallback to session context
+    const msgEpic = messageContent ? detectEpicRef(messageContent) : undefined;
+    const epicRef = msgEpic || contextEpicRef;
+
+    for (const attachment of attachments) {
+      const displayName = attachment.name || 'attachment';
+      if (!attachment.url) {
+        failures.push(`${displayName}: missing download URL`);
+        continue;
+      }
+
+      try {
+        const response = await fetch(attachment.url);
+        if (!response.ok) {
+          failures.push(`${displayName}: download failed (${response.status})`);
+          continue;
+        }
+
+        downloadable.push({
+          name: displayName,
+          contentType: attachment.contentType || response.headers.get('content-type') || undefined,
+          data: new Uint8Array(await response.arrayBuffer()),
+        });
+      } catch (error: any) {
+        failures.push(`${displayName}: ${error.message}`);
+      }
+    }
+
+    if (!downloadable.length) {
+      return { saved: [], failures };
+    }
+
+    // Guess asset type from the first file in the batch (they usually share context)
+    const firstFile = downloadable[0];
+    const assetType = guessAssetType(firstFile.name, firstFile.contentType);
+
+    const uploadResult = await api.uploadPlanAssets(planId, downloadable, {
+      epicRef,
+      assetType,
+    });
+    if (uploadResult.error) {
+      failures.push(uploadResult.error);
+      return { saved: [], failures };
+    }
+
+    return { saved: uploadResult.assets, failures };
+  }
+
+  private formatSavedAssets(planId: string, assets: PlanAsset[]): string {
+    const first = assets[0];
+    const epicLabel = (first.bound_epics && first.bound_epics.length > 0)
+      ? ` for ${first.bound_epics[0]}`
+      : '';
+    const typeLabel = (first.asset_type && first.asset_type !== 'other')
+      ? ` as ${first.asset_type}`
+      : '';
+
+    if (assets.length === 1) {
+      return `✅ Saved \`${first.original_name}\`${typeLabel}${epicLabel}.`;
+    }
+
+    const lines = [`🖼 *Saved ${assets.length} asset(s) to \`${planId}\`${epicLabel}:*`];
+    for (const asset of assets.slice(0, 10)) {
+      lines.push(`• \`${asset.original_name}\` → \`${asset.filename}\``);
+    }
+    if (assets.length > 10) {
+      lines.push(`…and ${assets.length - 10} more asset(s).`);
+    }
+    return lines.join('\n');
+  }
+
+  private formatFailedAssets(failures: string[]): string {
+    const lines = ['⚠️ *Some attachments could not be saved:*'];
+    for (const failure of failures.slice(0, 10)) {
+      lines.push(`• ${failure}`);
+    }
+    if (failures.length > 10) {
+      lines.push(`…and ${failures.length - 10} more issue(s).`);
+    }
+    return lines.join('\n');
+  }
+
   private buildButtons(buttons: Button[][]): ActionRowBuilder<ButtonBuilder>[] {
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
     const dangerPrefixes = ['menu:launch_confirm', 'cmd:restart', 'cmd:new'];
@@ -395,6 +597,7 @@ export class DiscordConnector implements Connector {
         .setDescription('Draft a new Plan with AI')
         .addStringOption(opt => opt.setName('idea').setDescription('Your project idea').setRequired(false)),
       new SlashCommandBuilder().setName('edit').setDescription('Select a plan to edit with AI'),
+      new SlashCommandBuilder().setName('assets').setDescription('List assets saved for the active or selected plan'),
       new SlashCommandBuilder().setName('viewplan').setDescription('View a plan\'s content'),
       new SlashCommandBuilder().setName('startplan').setDescription('Select and launch a plan'),
       new SlashCommandBuilder().setName('cancel').setDescription('Exit current editing session'),

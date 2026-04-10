@@ -93,6 +93,31 @@ $gateList
 # This keeps the system prompt lean and avoids duplicating skill content.
 $agentsDir = Split-Path (Split-Path $PSScriptRoot)
 
+# Section 4b: Workspace boundary rules
+$sections.Add(@"
+
+## Workspace Boundaries (MANDATORY)
+
+You MUST follow these rules when exploring the filesystem:
+
+1. **NEVER list or read files inside `.war-rooms/`** — these are infrastructure
+   directories for the orchestration system, not project source code.
+   The only exceptions are files explicitly referenced in your prompt
+   (e.g. brief.md, TASKS.md, channel.jsonl).
+2. **NEVER list or read files inside `.agents/`** — these are system configuration
+   files. Use the ``memory`` MCP tools instead to discover what other agents built.
+3. **NEVER traverse above your working directory** — do not ``ls ..``, ``ls ../..``,
+   or ``find`` in parent directories. Your scope is the project working directory only.
+4. **NEVER use ``ls -R`` or ``ls -Ra`` on the project root** — this dumps hundreds
+   of infrastructure files and wastes your context window. Instead, list only the
+   specific directories you need (e.g. ``ls src/``, ``ls app/``).
+5. **Assets**: If the brief references image or data files, their locations are
+   specified in the brief. Do not search the entire filesystem for them.
+6. **Focus on project source code only**: ``src/``, ``app/``, ``lib/``, ``public/``,
+   ``pages/``, ``components/``, ``prisma/``, ``package.json``, ``tsconfig.json``,
+   and similar project files.
+"@)
+
 # Section 5: War-room context
 if ($RoomDir -and (Test-Path $RoomDir)) {
     # Task brief

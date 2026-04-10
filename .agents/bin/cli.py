@@ -74,7 +74,7 @@ async def _resilient_stream_agent(agent, stream_input, config, state, console, f
 
     _logger = _log.getLogger("agent_os.resilient_stream")
 
-    max_retries = 3
+    max_retries = 6
     max_tool_failures = 10  # circuit-breaker for runaway tool errors
     _original_input = stream_input  # preserve for fresh-run retries
     tool_failure_count = 0
@@ -98,9 +98,9 @@ async def _resilient_stream_agent(agent, stream_input, config, state, console, f
                 or "ReadError" in err_str
                 or "WriteError" in err_str
             )
-            if is_transient and connection_attempt < max_retries - 1:
+            if is_transient and connection_attempt < max_retries:
                 connection_attempt += 1
-                wait = 2 ** connection_attempt
+                wait = 5 * connection_attempt  # 5s, 10s, 15s, 20s, 25s, 30s
                 console.print(
                     f"[yellow]\u26a0 Remote connection lost ({exc_type}), "
                     f"retrying in {wait}s ({connection_attempt}/{max_retries})\u2026[/yellow]"

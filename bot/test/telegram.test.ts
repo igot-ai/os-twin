@@ -328,10 +328,15 @@ describe('telegram integration', () => {
     afterEach(() => { captured.length = 0; sessions.clearSession('123', 'telegram'); });
     after(() => { restoreCallApi(); config.TELEGRAM_BOT_TOKEN = origToken; });
 
-    it('ignores text when session is idle', async () => {
+    it('routes idle text to agent bridge (tool-calling AI)', async function () {
+      this.timeout(10000); // Agent bridge may take a few seconds with API calls
+      // Since the upgrade, idle-mode text is sent to the AI agent bridge
+      // which can create plans, list status, etc. With an invalid API key,
+      // it will reply with an error message rather than staying silent.
       await bot.handleUpdate(makeTextUpdate('hello world'));
       const msgs = captured.filter(c => c.method === 'sendMessage');
-      expect(msgs).to.have.lengthOf(0);
+      // Agent bridge responds (either with an AI answer or error message)
+      expect(msgs.length).to.be.greaterThan(0);
     });
 
     it('processes text when in awaiting_idea mode', async () => {

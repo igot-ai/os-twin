@@ -126,6 +126,13 @@ async def poll_war_rooms():
                                 logger.warning(
                                     "Failed to sync skills for room %s: %s", room_id, e
                                 )
+                            # EPIC-004: Inject assets into war room
+                            epic_ref = room.get("task_ref", "")
+                            if epic_ref:
+                                try:
+                                    EpicSkillsManager.inject_room_assets(room_parent / room_id, plan_id, epic_ref)
+                                except Exception as e:
+                                    logger.warning("Failed to inject assets for room %s: %s", room_id, e)
 
                     if room_parent and room["message_count"] > 0:
                         messages = read_channel(room_parent / room_id)

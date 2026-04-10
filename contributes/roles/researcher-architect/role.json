@@ -1,0 +1,21 @@
+{
+  "name": "researcher-architect",
+  "description": "Analyze provided coffee and tea assets, define the technical stack, data models, and interactive feature specifications, and produce foundational architecture documentation.",
+  "capabilities": [
+    "asset-analysis",
+    "system-architecture",
+    "data-modeling",
+    "interactive-design"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skill_refs": [
+    "research",
+    "create-architecture",
+    "write-adr"
+  ],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

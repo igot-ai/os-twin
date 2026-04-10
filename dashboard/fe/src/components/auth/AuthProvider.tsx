@@ -66,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function bootstrap() {
       try {
         const API_BASE = getApiBaseUrl();
+
         const meRes = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
         if (meRes.ok) {
           const me = await meRes.json();
