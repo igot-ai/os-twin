@@ -217,7 +217,7 @@ Describe "Invoke-Agent" {
 
     Context "Skill Isolation (EPIC-002)" {
         It "creates and populates skills directory" {
-            # Use engineer role — gets global skills auto-injected (e.g. auto-memory)
+            # Use engineer role — gets role-private skills auto-loaded from skills/roles/engineer/
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
@@ -227,8 +227,8 @@ Describe "Invoke-Agent" {
             
             $skills = Get-ChildItem $isolatedSkillsDir -Directory
             $skills.Count | Should -BeGreaterThan 0
-            # Should contain at least 'auto-memory' (auto-injected global skill)
-            $skills.Name | Should -Contain "auto-memory"
+            # Should contain at least 'implement-epic' (auto-loaded role-private skill)
+            $skills.Name | Should -Contain "implement-epic"
         }
 
         It "preserves existing skills dir and adds resolved skills on new invocation" {

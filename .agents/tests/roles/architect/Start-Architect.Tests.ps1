@@ -28,7 +28,7 @@ $TestDrive
 2026-01-01T00:00:00Z
 "@ | Out-File (Join-Path $script:roomDir "brief.md") -Encoding utf8
 
-        "architect-review" | Out-File (Join-Path $script:roomDir "status") -NoNewline
+        "review" | Out-File (Join-Path $script:roomDir "status") -NoNewline
         New-Item -ItemType File -Path (Join-Path $script:roomDir "channel.jsonl") -Force | Out-Null
 
         # Create a config with mock that ignores the prompt and prints MOCK_OUT

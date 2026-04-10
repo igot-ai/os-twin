@@ -174,10 +174,10 @@ Describe 'Get-RoomsByStatus helper' {
         New-Item -Path $r1 -ItemType Directory -Force | Out-Null
         Set-Content -Path (Join-Path $r1 "status") -Value "pending"
 
-        # room-002: engineering
+        # room-002: developing (canonical state name; replaces legacy "engineering")
         $r2 = Join-Path $script:tempBase "room-002"
         New-Item -Path $r2 -ItemType Directory -Force | Out-Null
-        Set-Content -Path (Join-Path $r2 "status") -Value "engineering"
+        Set-Content -Path (Join-Path $r2 "status") -Value "developing"
 
         # room-003: passed
         $r3 = Join-Path $script:tempBase "room-003"

@@ -81,7 +81,7 @@ function Get-StatusData {
         pending     = 0
         developing  = 0
         optimize    = 0
-        qa_review   = 0
+        review      = 0
         fixing      = 0
         passed      = 0
         failed      = 0
@@ -176,16 +176,17 @@ function Get-StatusData {
             catch { Write-Verbose "Failed to parse goal-verification.json in $($dir.Name): $($_.Exception.Message)" }
         }
 
-        # Count by status
-        switch ($status) {
-            'pending'      { $summary.pending++ }
-            'engineering'  { $summary.developing++ }
-            'developing'   { $summary.developing++ }
-            'optimize'     { $summary.optimize++ }
-            'review'       { $summary.qa_review++ }
-            'fixing'       { $summary.fixing++ }
-            'passed'       { $summary.passed++ }
-            'failed-final' { $summary.failed++ }
+        # Count by status — canonical state names (principle 5)
+        # 'engineering' is a legacy alias for 'developing'; both map to the same counter.
+        # 'review', 'review-2', 'review-3' are position-based evaluator states.
+        switch -Regex ($status) {
+            '^pending$'         { $summary.pending++ }
+            '^(engineering|developing)$' { $summary.developing++ }
+            '^optimize$'        { $summary.optimize++ }
+            '^review(-\d+)?$'   { $summary.review++ }
+            '^fixing$'          { $summary.fixing++ }
+            '^passed$'          { $summary.passed++ }
+            '^failed-final$'    { $summary.failed++ }
         }
 
         $rooms += [PSCustomObject]@{
@@ -225,18 +226,17 @@ function Show-FormattedStatus {
     Write-Host ($fmt -f "----", "---", "------", "-------", "----", "-----", "----", "-------------") -ForegroundColor DarkGray
 
     foreach ($room in $Data.rooms) {
-        $statusColor = switch ($room.status) {
-            'pending'      { 'DarkGray' }
-            'engineering'  { 'Yellow' }
-            'developing'   { 'Yellow' }
-            'optimize'     { 'DarkYellow' }
-            'review'       { 'Cyan' }
-            'fixing'       { 'DarkYellow' }
-            'passed'       { 'Green' }
-            'failed-final' { 'Red' }
-            'failed'       { 'Red' }
-            'triage'       { 'Magenta' }
-            default        { 'White' }
+        $statusColor = switch -Regex ($room.status) {
+            '^pending$'         { 'DarkGray' }
+            '^(engineering|developing)$' { 'Yellow' }
+            '^optimize$'        { 'DarkYellow' }
+            '^review(-\d+)?$'   { 'Cyan' }
+            '^fixing$'          { 'DarkYellow' }
+            '^passed$'          { 'Green' }
+            '^failed-final$'    { 'Red' }
+            '^failed$'          { 'Red' }
+            '^triage$'          { 'Magenta' }
+            default             { 'White' }
         }
 
         $line = $fmt -f $room.room_id, $room.task_ref, $room.status, $room.retries, $room.messages, $room.goals, $room.active_pids, $room.last_activity
@@ -246,7 +246,7 @@ function Show-FormattedStatus {
     $s = $Data.summary
     $active = $s.developing + $s.optimize
     Write-Host ""
-    Write-Host "  Summary: $($s.total) total | $($s.pending) pending | $active active | $($s.qa_review) review | $($s.fixing) fixing | $($s.passed) passed | $($s.failed) failed" -ForegroundColor White
+    Write-Host "  Summary: $($s.total) total | $($s.pending) pending | $active active | $($s.review) review | $($s.fixing) fixing | $($s.passed) passed | $($s.failed) failed" -ForegroundColor White
     Write-Host ""
 }
 
