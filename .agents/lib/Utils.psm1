@@ -6,6 +6,9 @@
 # Replaces: lib/utils.sh
 # Provides: config reading, status management, PID tracking, text truncation
 
+# Import the Lock module for file-based concurrency control
+Import-Module (Join-Path $PSScriptRoot "Lock.psm1") -Force
+
 function Read-OstwinConfig {
     <#
     .SYNOPSIS
@@ -176,31 +179,41 @@ function Set-WarRoomStatus {
     }
 
     $statusFile = Join-Path $RoomDir "status"
-    $oldStatus = if (Test-Path $statusFile) { (Get-Content $statusFile -Raw).Trim() } else { 'unknown' }
+    $lockPath = Join-Path $RoomDir ".status.lock"
 
-    # Write new status
-    $NewStatus | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
+    # Wrap the read-modify-write in an exclusive file lock to prevent TOCTOU races
+    Invoke-WithFileLock -LockFile $lockPath -ScriptBlock {
+        $oldStatus = if (Test-Path $statusFile) { (Get-Content $statusFile -Raw).Trim() } else { 'unknown' }
 
-    # Write state_changed_at (Unix epoch)
-    $epoch = [int][double]::Parse((Get-Date -UFormat %s))
-    $epoch.ToString() | Out-File -FilePath (Join-Path $RoomDir "state_changed_at") -Encoding utf8 -NoNewline
+        # Write new status
+        $NewStatus | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
 
-    # Append to audit trail
-    $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    $auditLine = "$ts STATUS $oldStatus -> $NewStatus"
-    $auditLine | Out-File -Append -FilePath (Join-Path $RoomDir "audit.log") -Encoding utf8
+        # Write state_changed_at (Unix epoch)
+        $epoch = [int][double]::Parse((Get-Date -UFormat %s))
+        $epoch.ToString() | Out-File -FilePath (Join-Path $RoomDir "state_changed_at") -Encoding utf8 -NoNewline
+
+        # Append to audit trail
+        $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        $auditLine = "$ts STATUS $oldStatus -> $NewStatus"
+        $auditLine | Out-File -Append -FilePath (Join-Path $RoomDir "audit.log") -Encoding utf8
+    }
 }
 
 function Test-PidAlive {
     <#
     .SYNOPSIS
         Checks if a PID (read from a .pid file) is still running.
+    .DESCRIPTION
+        Reads a PID from the specified file and checks if a process with that PID
+        is alive. If a companion .start file exists (written by Write-PidFile),
+        the process start time is cross-checked to detect PID reuse.
     .PARAMETER PidFile
         Path to the .pid file.
     .OUTPUTS
-        [bool] True if the process is alive.
+        [bool] True if the process is alive and matches the expected start time.
     #>
     [CmdletBinding()]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory)]
         [string]$PidFile
@@ -215,17 +228,92 @@ function Test-PidAlive {
         return $false
     }
     $pidStr = $pidStr.Trim()
-    if (-not $pidStr -or -not ($pidStr -match '^\d+$')) {
+    if ($pidStr -notmatch '^\d+$') {
         return $false
     }
 
-    $pid = [int]$pidStr
+    # NOTE: renamed from $pid to $targetPid to avoid shadowing the automatic $PID variable
+    $targetPid = [int]$pidStr
     try {
-        $proc = Get-Process -Id $pid -ErrorAction Stop
+        $proc = Get-Process -Id $targetPid -ErrorAction Stop
+
+        # Cross-check start time if a companion .start file exists
+        $startFile = [System.IO.Path]::ChangeExtension($PidFile, '.start')
+        if (Test-Path $startFile) {
+            $expectedStart = (Get-Content $startFile -Raw).Trim()
+            $actualStart = $proc.StartTime.ToUniversalTime().ToString('o')
+            if ($expectedStart -and $actualStart -ne $expectedStart) {
+                return $false  # PID was reused by a different process
+            }
+        }
+
         return ($null -ne $proc)
     }
     catch {
         return $false
+    }
+}
+
+function Write-PidFile {
+    <#
+    .SYNOPSIS
+        Writes a PID file and a companion .start file with the process start time.
+    .DESCRIPTION
+        Stores the process ID in a .pid file and the process start time (UTC, ISO 8601)
+        in a companion .start file. This allows Test-PidAlive to detect PID reuse.
+    .PARAMETER PidFile
+        Path to the .pid file to write.
+    .PARAMETER ProcessId
+        The process ID to write.
+    .EXAMPLE
+        Write-PidFile -PidFile "/tmp/agent.pid" -ProcessId $PID
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$PidFile,
+
+        [Parameter(Mandatory)]
+        [int]$ProcessId
+    )
+
+    $ProcessId.ToString() | Out-File -FilePath $PidFile -Encoding utf8 -NoNewline
+    $startFile = [System.IO.Path]::ChangeExtension($PidFile, '.start')
+    try {
+        $proc = Get-Process -Id $ProcessId -ErrorAction Stop
+        $proc.StartTime.ToUniversalTime().ToString('o') | Out-File -FilePath $startFile -Encoding utf8 -NoNewline
+    }
+    catch {
+        # Process may have already exited; .start file won't be written
+    }
+}
+
+function Write-ChannelLine {
+    <#
+    .SYNOPSIS
+        Appends a single JSON line to a channel.jsonl file under an exclusive file lock.
+    .DESCRIPTION
+        Uses Invoke-WithFileLock to ensure concurrent writers do not interleave
+        or corrupt JSONL lines in the channel file.
+    .PARAMETER ChannelFile
+        Path to the channel.jsonl file.
+    .PARAMETER JsonLine
+        The JSON string to append (should be a single line, no trailing newline).
+    .EXAMPLE
+        Write-ChannelLine -ChannelFile "/rooms/room-001/channel.jsonl" -JsonLine '{"type":"task","body":"hello"}'
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ChannelFile,
+
+        [Parameter(Mandatory)]
+        [string]$JsonLine
+    )
+
+    $lockFile = "$ChannelFile.lock"
+    Invoke-WithFileLock -LockFile $lockFile -ScriptBlock {
+        $JsonLine | Out-File -Append -FilePath $ChannelFile -Encoding utf8
     }
 }
 
@@ -308,4 +396,4 @@ function Get-OstwinApiHeaders {
     return @{}
 }
 
-Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Get-TruncatedText, Get-OstwinAgentsDir, Test-Underspecified, Test-SingleEpicUnderspecified, Get-OstwinApiHeaders
+Export-ModuleMember -Function Read-OstwinConfig, Set-WarRoomStatus, Test-PidAlive, Write-PidFile, Write-ChannelLine, Get-TruncatedText, Get-OstwinAgentsDir, Test-Underspecified, Test-SingleEpicUnderspecified, Get-OstwinApiHeaders

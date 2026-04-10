@@ -87,9 +87,9 @@ Describe "Set-WarRoomStatus" {
     }
 
     It "writes the status file" {
-        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "engineering"
+        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "developing"
         $status = (Get-Content (Join-Path $script:roomDir "status") -Raw).Trim()
-        $status | Should -Be "engineering"
+        $status | Should -Be "developing"
     }
 
     It "writes state_changed_at as unix epoch" {
@@ -102,9 +102,9 @@ Describe "Set-WarRoomStatus" {
     It "appends to audit.log with old -> new status" {
         # Set initial status
         "pending" | Out-File -FilePath (Join-Path $script:roomDir "status") -NoNewline
-        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "engineering"
+        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "developing"
         $auditContent = Get-Content (Join-Path $script:roomDir "audit.log") -Raw
-        $auditContent | Should -Match "pending -> engineering"
+        $auditContent | Should -Match "pending -> developing"
     }
 
     It "records the correct old status as 'unknown' when status file is missing" {
@@ -115,12 +115,12 @@ Describe "Set-WarRoomStatus" {
 
     It "tracks multiple status transitions" {
         Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "pending"
-        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "engineering"
-        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "qa-review"
+        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "developing"
+        Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "review"
         Set-WarRoomStatus -RoomDir $script:roomDir -NewStatus "passed"
         $lines = Get-Content (Join-Path $script:roomDir "audit.log")
         $lines.Count | Should -Be 4
-        $lines[2] | Should -Match "engineering -> qa-review"
+        $lines[2] | Should -Match "developing -> review"
     }
 
     It "throws for invalid status" {

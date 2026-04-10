@@ -31,7 +31,6 @@ from mcp.server.fastmcp import FastMCP
 StatusType = Literal[
     "pending",
     "developing",
-    "engineering",
     "review",
     "fixing",
     "optimize",
@@ -58,7 +57,7 @@ def _get_lifecycle_states(room_dir: str) -> set[str] | None:
 @mcp.tool()
 def update_status(
     room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
-    status: Annotated[str, Field(description="New status matching a non-terminal state from the room's lifecycle.json (e.g. developing, review, review, engineering, fixing, optimize). Terminal states (passed, failed-final) are manager-only.")],
+    status: Annotated[str, Field(description="New status matching a non-terminal state from the room's lifecycle.json (e.g. developing, review, fixing, optimize). Terminal states (passed, failed-final) are manager-only.")],
 ) -> str:
     """Update the war-room status file.
 

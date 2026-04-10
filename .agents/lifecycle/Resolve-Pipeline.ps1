@@ -43,8 +43,8 @@ $defaultLifecyclePath = Join-Path $AgentsDir "lifecycle" "default.json"
 # V2 LIFECYCLE BUILDER — signal-based, role-per-state state machine
 #
 # Position-based role assignment:
-#   Roles[0]    = worker     → "developing" + "optimize" states
-#   Roles[1..N] = evaluators → "{role}-review" states
+#   Roles[0]    = worker     → "developing" + "optimize" + "fixing" states
+#   Roles[1..N] = evaluators → "review", "review-2", … states
 #   No evaluators? → inject default QA review as "review" state
 # ------------------------------------------------------------------
 function Build-LifecycleV2 {
@@ -68,10 +68,14 @@ function Build-LifecycleV2 {
         $evaluatorRoles = @($Roles[1..($Roles.Count - 1)])
     }
 
-    # Compute evaluator state names: {role}-review
+    # Compute evaluator state names: review, review-2, review-3, ...
     $evaluatorStateNames = @()
-    foreach ($evalRole in $evaluatorRoles) {
-        $evaluatorStateNames += "$evalRole-review"
+    for ($i = 0; $i -lt $evaluatorRoles.Count; $i++) {
+        if ($i -eq 0) {
+            $evaluatorStateNames += "review"
+        } else {
+            $evaluatorStateNames += "review-$($i + 1)"
+        }
     }
 
     # First evaluator target (or injected QA "review" when no evaluators)
@@ -82,7 +86,7 @@ function Build-LifecycleV2 {
         'review'
     }
 
-    # --- Worker states: developing + optimize ---
+    # --- Worker states: developing + optimize + fixing ---
     $states['developing'] = [ordered]@{
         role    = $workerRole
         type    = 'work'
@@ -99,8 +103,16 @@ function Build-LifecycleV2 {
             error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
         }
     }
+    $states['fixing'] = [ordered]@{
+        role    = $workerRole
+        type    = 'work'
+        signals = [ordered]@{
+            done  = [ordered]@{ target = $firstEvalTarget }
+            error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+        }
+    }
 
-    # --- Evaluator states: {role}-review ---
+    # --- Evaluator states: review, review-2, ... ---
     for ($i = 0; $i -lt $evaluatorRoles.Count; $i++) {
         $evalRole = $evaluatorRoles[$i]
         $stateName = $evaluatorStateNames[$i]

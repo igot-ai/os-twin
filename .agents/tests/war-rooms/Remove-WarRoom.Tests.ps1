@@ -48,7 +48,7 @@ Describe "Remove-WarRoom" {
 
             # Add some audit entries
             $roomDir = Join-Path $script:warRoomsDir "room-arch"
-            "2026-01-01T00:00:00Z STATUS pending -> engineering" |
+            "2026-01-01T00:00:00Z STATUS pending -> developing" |
                 Out-File -Append -FilePath (Join-Path $roomDir "audit.log")
         }
 

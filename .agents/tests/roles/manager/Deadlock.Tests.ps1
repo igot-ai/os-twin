@@ -75,7 +75,7 @@ BeforeAll {
             }
         }
 
-        if ($status -in @('engineering', 'fixing', 'developing', 'optimize')) {
+        if ($status -in @('developing', 'fixing', 'optimize')) {
             # Simulate Risk 2 fix: Clean stale PIDs before transition
             Remove-Item -Path (Join-Path $RoomDir "pids\*") -Force -Recurse -ErrorAction SilentlyContinue
             
@@ -118,7 +118,7 @@ Describe "Deadlock Exploitation Tests" {
             & $script:NewWarRoom -RoomId "room-dl3" -TaskRef "DL-003" `
                 -TaskDescription "Deadlock test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-dl3"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # BEFORE: expected = 0 + 1 = 1
             $before = Invoke-DoneCountCheck -RoomDir $roomDir -ReadMessagesScript $script:ReadMessages
@@ -147,7 +147,7 @@ Describe "Deadlock Exploitation Tests" {
             & $script:NewWarRoom -RoomId "room-dl3b" -TaskRef "DL-003B" `
                 -TaskDescription "Compound deadlock" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-dl3b"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             for ($i = 0; $i -lt 3; $i++) {
                 Invoke-DeadlockRecovery -RoomDir $roomDir -PostMessageScript $script:PostMessage -MaxRetries 10
@@ -174,12 +174,12 @@ Describe "Deadlock Exploitation Tests" {
     # ========================================================================
     Context "Risk 4: QA deadlock recovery cascade" {
 
-        It "qa-review with exhausted qa_retries cascades into fixing deadlock" {
+        It "review with exhausted qa_retries cascades into fixing deadlock" {
             & $script:NewWarRoom -RoomId "room-dl4" -TaskRef "DL-004" `
                 -TaskDescription "QA cascade test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-dl4"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                 -Type "error" -Ref "DL-004" -Body "QA verdict parse failure"
@@ -218,9 +218,9 @@ Describe "Deadlock Exploitation Tests" {
             $roomDir = Join-Path $script:warRoomsDir "room-dl6"
 
             $lifecycle = @{
-                initial_state = "engineering"
+                initial_state = "developing"
                 states = [ordered]@{
-                    engineering = @{ type = "agent"; role = "engineer"; transitions = @{ done = "reporting" } }
+                    developing = @{ type = "agent"; role = "engineer"; transitions = @{ done = "reporting" } }
                     reporting   = @{ type = "agent"; role = "reporter"; transitions = @{ done = "passed" } }
                     "manager-triage" = @{ type = "builtin"; role = "manager"; transitions = @{} }
                     fixing      = @{ type = "agent"; role = "engineer"; transitions = @{ done = "reporting" } }
@@ -271,7 +271,7 @@ Describe "Deadlock Exploitation Tests" {
             & $script:NewWarRoom -RoomId "room-dl2" -TaskRef "DL-002" `
                 -TaskDescription "Stale PID test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-dl2"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             $pidsDir = Join-Path $roomDir "pids"
             "99999" | Out-File -FilePath (Join-Path $pidsDir "engineer.pid") -NoNewline
@@ -360,7 +360,7 @@ Describe "Deadlock Exploitation Tests" {
             & $script:NewWarRoom -RoomId "room-repro" -TaskRef "EPIC-REPRO" `
                 -TaskDescription "Full deadlock reproduction" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-repro"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             for ($round = 0; $round -lt 7; $round++) {
                 & $script:PostMessage -RoomDir $roomDir -From "manager" -To "engineer" `

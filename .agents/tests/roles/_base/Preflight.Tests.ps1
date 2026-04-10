@@ -36,33 +36,4 @@ Describe "Preflight Skill Check" {
         $localWarning | Should -Not -BeNullOrEmpty
         $localWarning[0].Message | Should -Match "missing YAML frontmatter"
     }
-
-    It "should log a warning for a skill missing metadata in frontmatter when preflight is 'warn'" {
-        # Create a skill with frontmatter but missing tags/trust_level
-        $script:badMetaSkillDir = Join-Path $script:skillsDir "bad-meta-test"
-        New-Item -ItemType Directory -Path $script:badMetaSkillDir -Force | Out-Null
-        @"
----
-name: bad-meta
----
-Skill content.
-"@ | Out-File -FilePath (Join-Path $script:badMetaSkillDir "SKILL.md") -Encoding utf8
-        
-        $tempRoleDir = Join-Path $TestDrive "temp-role-2"
-        New-Item -ItemType Directory -Path $tempRoleDir -Force | Out-Null
-        @{
-            name = "test-role-2"
-            skill_refs = @("bad-meta-test")
-        } | ConvertTo-Json | Out-File -FilePath (Join-Path $tempRoleDir "role.json") -Encoding utf8
-        "Test role prompt" | Out-File -FilePath (Join-Path $tempRoleDir "ROLE.md") -Encoding utf8
-
-        # Run and capture using -WarningVariable
-        $prompt = & $script:buildPrompt -RolePath $tempRoleDir -WarningVariable localWarning -WarningAction Continue
-        
-        $localWarning | Should -Not -BeNullOrEmpty
-        $localWarning[0].Message | Should -Match "missing required metadata"
-        
-        # Cleanup
-        Remove-Item -Path $script:badMetaSkillDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
 }

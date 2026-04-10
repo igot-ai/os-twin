@@ -77,13 +77,13 @@ Describe "Get-WarRoomStatus" {
                                  -TaskDescription "Status test" -WarRoomsDir $script:warRoomsDir
         }
 
-        It "reflects engineering status" {
+        It "reflects developing status" {
             $roomDir = Join-Path $script:warRoomsDir "room-010"
-            "engineering" | Out-File -FilePath (Join-Path $roomDir "status") -NoNewline
+            "developing" | Out-File -FilePath (Join-Path $roomDir "status") -NoNewline
 
             $result = & $script:GetStatus -WarRoomsDir $script:warRoomsDir -JsonOutput
             $data = $result | ConvertFrom-Json
-            $data.summary.engineering | Should -Be 1
+            $data.summary.developing | Should -Be 1
             $data.summary.pending | Should -Be 0
         }
 

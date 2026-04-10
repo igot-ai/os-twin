@@ -90,6 +90,9 @@ def temp_config(tmp_path):
     warrooms = tmp_path / ".war-rooms"
     warrooms.mkdir()
 
+    plans_dir = config_file.parent / "plans"
+    plans_dir.mkdir()
+
     from dashboard.lib.settings.vault import SettingsVault
     from dashboard.lib.settings.backends.base import VaultBackendType, VaultHealthStatus
 
@@ -115,6 +118,8 @@ def temp_config(tmp_path):
         "dashboard.api_utils.AGENTS_DIR", config_file.parent
     ), patch(
         "dashboard.api_utils.WARROOMS_DIR", warrooms
+    ), patch(
+        "dashboard.api_utils.PLANS_DIR", plans_dir
     ), patch(
         "dashboard.lib.settings.resolver.get_settings_resolver", _make_resolver
     ), patch(
@@ -229,11 +234,11 @@ def test_reset_namespace(client, temp_config, mock_broadcaster):
 
 
 def test_patch_plan_role(client, temp_config, mock_broadcaster):
-    """PUT /api/settings/plan/{plan_id}/role/{role} updates plan config."""
-    _, _, _, warrooms = temp_config
-    plan_dir = warrooms / "plan-001"
-    plan_dir.mkdir(parents=True, exist_ok=True)
-    (plan_dir / "config.json").write_text("{}")
+    """PUT /api/settings/plan/{plan_id}/role/{role} updates plan roles.json."""
+    config_file, _, _, _ = temp_config
+    plans_dir = config_file.parent / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    (plans_dir / "plan-001.roles.json").write_text("{}")
 
     payload = {"default_model": "gpt-4o"}
     response = client.put(

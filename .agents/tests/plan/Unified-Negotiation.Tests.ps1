@@ -88,16 +88,16 @@ Describe "Unified Plan Negotiation" {
         }
         Test-Path $status000 | Should -BeTrue
 
-        # Wait for the manager loop to start and room-000 to move to engineering or qa-review
-        # (It will move to engineering because architect role is assigned)
+        # Wait for the manager loop to start and room-000 to move to developing or review
+        # (It will move to developing because architect role is assigned)
         $waited = 0
         $s = ""
-        while ($s -ne "engineering" -and $s -ne "qa-review" -and $waited -lt $maxWaits) {
+        while ($s -ne "developing" -and $s -ne "review" -and $waited -lt $maxWaits) {
             if (Test-Path $status000) { $s = (Get-Content $status000 -Raw).Trim() }
             Start-Sleep -Milliseconds 500
             $waited++
         }
-        $s | Should -BeIn @("engineering", "qa-review", "pending")
+        $s | Should -BeIn @("developing", "review", "pending")
 
         # Post plan-approve to room-000
         & $script:PostMessage -RoomDir $room000 -From "team" -To "manager" -Type "plan-approve" -Ref "PLAN-REVIEW" -Body "Approved" | Out-Null

@@ -5,14 +5,26 @@
 #
 # Provides: config loading, validation, schema enforcement, run-config copy-on-write
 
-function Get-OstwinConfig {
+function Resolve-OstwinConfigPath {
     <#
     .SYNOPSIS
-        Loads and returns the full Agent OS configuration as a PSCustomObject.
+        Resolves the path to the Agent OS config.json file.
+    .DESCRIPTION
+        Canonical config-file resolution logic. Checks, in order:
+          1. Explicit $ConfigPath parameter
+          2. AGENT_OS_CONFIG environment variable
+          3. AGENTS_DIR environment variable + /config.json
+          4. Relative to this module's parent directory
+        Throws if the resolved path does not exist.
+        This function is the SINGLE SOURCE OF TRUTH for config path resolution.
+        Utils.psm1:Read-OstwinConfig should delegate here in a future refactor.
     .PARAMETER ConfigPath
-        Optional path to config.json. Defaults to AGENT_OS_CONFIG env var or .agents/config.json.
+        Optional explicit path. If provided and non-empty, used as-is.
+    .OUTPUTS
+        [string] — The resolved, validated path to config.json.
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [string]$ConfigPath = ''
     )
@@ -30,6 +42,22 @@ function Get-OstwinConfig {
         throw "Config file not found: $ConfigPath"
     }
 
+    return $ConfigPath
+}
+
+function Get-OstwinConfig {
+    <#
+    .SYNOPSIS
+        Loads and returns the full Agent OS configuration as a PSCustomObject.
+    .PARAMETER ConfigPath
+        Optional path to config.json. Defaults to AGENT_OS_CONFIG env var or .agents/config.json.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$ConfigPath = ''
+    )
+
+    $ConfigPath = Resolve-OstwinConfigPath -ConfigPath $ConfigPath
     $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
     return $config
 }
@@ -160,4 +188,4 @@ function New-RunConfig {
     return $OutputPath
 }
 
-Export-ModuleMember -Function Get-OstwinConfig, Test-OstwinConfig, New-RunConfig
+Export-ModuleMember -Function Resolve-OstwinConfigPath, Get-OstwinConfig, Test-OstwinConfig, New-RunConfig

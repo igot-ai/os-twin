@@ -64,15 +64,15 @@ Describe "Test-DependenciesReady" {
         }
     }
 
-    Context "Dependency engineering (in progress)" {
-        It "returns Ready=false, Reason=waiting when dep is engineering" {
+    Context "Dependency developing (in progress)" {
+        It "returns Ready=false, Reason=waiting when dep is developing" {
             & $script:NewWarRoom -RoomId "room-001" -TaskRef "TASK-001" `
                                  -TaskDescription "Auth" -WarRoomsDir $script:warRoomsDir
             & $script:NewWarRoom -RoomId "room-002" -TaskRef "TASK-002" `
                                  -TaskDescription "Dashboard" -WarRoomsDir $script:warRoomsDir `
                                  -DependsOn @("TASK-001")
 
-            "engineering" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-001" "status") -NoNewline
+            "developing" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-001" "status") -NoNewline
             & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             $roomDir = Join-Path $script:warRoomsDir "room-002"

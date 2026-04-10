@@ -30,7 +30,7 @@ async def list_rooms(user: dict = Depends(get_current_user)):
     # Summary counts
     summary = {"total": len(rooms)}
     statuses = (
-        "pending", "engineering", "qa-review", 
+        "pending", "developing", "review", 
         "fixing", "passed", "failed-final"
     )
     for status in statuses:

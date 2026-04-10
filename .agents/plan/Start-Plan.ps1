@@ -76,6 +76,7 @@ $newWarRoom = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
 $managerLoop = Join-Path $agentsDir "roles" "manager" "Start-ManagerLoop.ps1"
 $buildDag = Join-Path $agentsDir "plan" "Build-DependencyGraph.ps1"
 $buildPlanningDag = Join-Path $agentsDir "plan" "Build-PlanningDAG.ps1"
+$invokeAgent = Join-Path $agentsDir "roles" "_base" "Invoke-Agent.ps1"
 $postMessage = Join-Path $agentsDir "channel" "Post-Message.ps1"
 $waitForMessage = Join-Path $agentsDir "channel" "Wait-ForMessage.ps1"
 
@@ -94,6 +95,11 @@ $configModule = Join-Path $agentsDir "lib" "Config.psm1"
 if (Test-Path $configModule) { 
     $configModule = (Resolve-Path $configModule).Path
     Import-Module $configModule -Force 
+}
+$planParserModule = Join-Path $agentsDir "lib" "PlanParser.psm1"
+if (Test-Path $planParserModule) {
+    $planParserModule = (Resolve-Path $planParserModule).Path
+    Import-Module $planParserModule -Force
 }
 
 # --- Helper Functions ---
@@ -186,23 +192,6 @@ if ((-not $Expand) -and (Test-Path $refinedFile) -and ($PlanFile -notmatch '\.re
     $PlanFile = $refinedFile
 }
 
-# --- Patterns for parsing ---
-# Pattern: ## EPIC-NNN - Description (supports ## and ###)
-$epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–?]\s*(.+)$'
-$taskPattern = '(?m)^\s*[-*]\s+\[[ x]\]\s+(TASK-\d+)\s*[-—–]\s*(.+)$'
-$dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
-$acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
-$depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
-
-# Patterns for per-epic metadata (accept both singular Role: and plural Roles:)
-$rolesPattern = '(?m)^Roles?:\s*(.+)$'
-$objectivePattern = '(?m)^Objective:\s*(.+)$'
-$workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
-$pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
-$capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
-$descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–?]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
-$lifecyclePattern = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*?)\r?\n[^\S\r\n]*```'
-
 # --- Plan Expansion Logic (Requirement 6) ---
 $planContent = Get-Content $PlanFile -Raw
 $isUnderspecified = Test-Underspecified -Content $planContent
@@ -248,171 +237,124 @@ if ($planContent -match '(?m)^working_dir:\s*(.+)$') {
     }
 }
 
-$parsed = [System.Collections.Generic.List[PSObject]]::new()
-$roomIndex = 1
+# --- Parse plan: extract ALL epics and tasks via PlanParser module (Requirement 1) ---
+$parsed = ConvertFrom-PlanMarkdown -Content $planContent
 
-
-# Extract epics
-$epicMatches = [regex]::Matches($planContent, $epicPattern)
-
-foreach ($em in $epicMatches) {
-    $epicRef = $em.Groups[1].Value
-    $epicDesc = $em.Groups[2].Value.Trim()
-
-    # Find the epic section content
-    $epicStart = $em.Index
-    $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-    
-    # EPIC-END should be the next EPIC header or the next level 2 header (e.g. ## Tasks)
-    $nextSectionMatch = [regex]::Matches($planContent, '(?m)^##\s+') | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-    
-    $epicEnd = $planContent.Length
-    if ($nextEpicMatch) {
-        $epicEnd = $nextEpicMatch.Index
-    } elseif ($nextSectionMatch) {
-        $epicEnd = $nextSectionMatch.Index
-    }
-    
-    $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
-
-    # Extract Roles (comma-separated or multiple lines, stripping comments and placeholders)
-    # Supports both singular "Role:" and plural "Roles:"
-    $roles = @()
-    $hasExplicitRoles = $false
-    $roleMatches = [regex]::Matches($epicSection, $rolesPattern)
-    if ($roleMatches.Count -gt 0) {
-        $hasExplicitRoles = $true
-    }
-    foreach ($rm in $roleMatches) {
-        $line = $rm.Groups[1].Value
-        $line = $line -replace '\(.*$', ''
-        $roles += ($line -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '[a-zA-Z0-9]' -and $_ -notmatch '^<.*>$' }
-    }
-    $roles = $roles | Select-Object -Unique | Where-Object { $_ }
-    if ($roles.Count -eq 0) { $roles = @("engineer") }
-
-    # Extract Objective (per-epic mission directive)
-    $epicObjective = ""
-    if ($epicSection -match $objectivePattern) {
-        $epicObjective = $Matches[1].Trim()
-    }
-
-    # Extract per-epic working directory override
-    $epicWorkingDir = ""
-    if ($epicSection -match $workingDirPattern) {
-        $epicWorkingDir = $Matches[1].Trim()
-    }
-
-    # Extract description body
-    $descBody = ""
-    $descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
-    if ($epicSection -match $descPattern) {
-        $descBody = $Matches[1].Trim()
-    }
-
-    # Extract Pipeline directive
-    $epicPipeline = ""
-    if ($epicSection -match $pipelinePattern) {
-        $epicPipeline = $Matches[1].Trim()
-    }
-
-    # Extract Capabilities directive
-    $epicCapabilities = @()
-    if ($epicSection -match $capabilitiesPattern) {
-        $epicCapabilities = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-    }
-
-    # Extract Lifecycle directive
-    $epicLifecycle = ""
-    if ($epicSection -match $lifecyclePattern) {
-        $epicLifecycle = $Matches[1].Trim()
-    }
-
-    # Extract DoD
-    $dod = @()
-    if ($epicSection -match $dodPattern) {
-        $dodBlock = $Matches[1]
-        $dod = [regex]::Matches($dodBlock, '(?m)^[-*] \[[ x]\]\s*(.+)') | ForEach-Object { $_.Groups[1].Value.Trim() }
-    }
-
-    # Extract AC
-    $ac = @()
-    if ($epicSection -match $acPattern) {
-        $acBlock = $Matches[1]
-        $ac = [regex]::Matches($acBlock, '(?m)^[-*] \[[ x]\]\s*(.+)') | ForEach-Object { $_.Groups[1].Value.Trim() }
-    }
-
-    # Extract depends_on
-    $depsOn = @()
-    if ($epicSection -match $depsPattern) {
-        $rawDeps = $Matches[1]
-        if ($rawDeps.Trim()) {
-            $depsOn = ($rawDeps -split ',') | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ }
-        }
-    }
-    
-    $parsed.Add([PSCustomObject]@{
-        RoomId           = "room-$('{0:D3}' -f $roomIndex)"
-        TaskRef          = $epicRef
-        Description      = $epicDesc
-        DescBody         = $descBody
-        Objective        = $epicObjective
-        DoD              = $dod
-        AC               = $ac
-        DependsOn        = $depsOn
-        Type             = 'epic'
-        Roles            = $roles
-        HasExplicitRoles = $hasExplicitRoles
-        EpicWorkingDir   = $epicWorkingDir
-        Pipeline         = $epicPipeline
-        Capabilities     = $epicCapabilities
-        Lifecycle        = $epicLifecycle
-    })
-    $roomIndex++
-}
-
-# Extract standalone tasks (Requirement 1)
-$taskMatches = [regex]::Matches($planContent, $taskPattern)
-foreach ($tm in $taskMatches) {
-    # Skip if the task is inside an epic block
-    $isInsideEpic = $false
-    foreach ($em in $epicMatches) {
-        $epicStart = $em.Index
-        $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-        
-        $nextSec = [regex]::Matches($planContent, '(?m)^##\s+') | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-        $epicEnd = $planContent.Length
-        if ($nextEpicMatch) { $epicEnd = $nextEpicMatch.Index }
-        elseif ($nextSec) { $epicEnd = $nextSec.Index }
-
-        if ($tm.Index -ge $epicStart -and $tm.Index -lt $epicEnd) {
-            $isInsideEpic = $true
-            break
-        }
-    }
-
-    if (-not $isInsideEpic) {
-        $taskRef = $tm.Groups[1].Value
-        # Avoid duplicates if already parsed as an epic
-        if (-not ($parsed | Where-Object { $_.TaskRef -eq $taskRef })) {
-            $parsed.Add([PSCustomObject]@{
-                RoomId      = "room-$('{0:D3}' -f $roomIndex)"
-                TaskRef     = $taskRef
-                Description = $tm.Groups[2].Value.Trim()
-                DescBody    = ""
-                DoD         = @()
-                AC          = @()
-                DependsOn   = @()
-                Type        = 'task'
-            })
-            $roomIndex++
-        }
-    }
-}
-
+# --- Auto-generate EPICs when plan has only a goal ---
 if ($parsed.Count -eq 0) {
-    Write-Error "No epics or tasks found in plan file: $PlanFile"
-    exit 1
+    # Extract goal from plan title or content
+    $goalTitle = ""
+    if ($planContent -match '(?m)^#\s+(?:Plan|PLAN):\s*(.+)$') {
+        $goalTitle = $Matches[1].Trim()
+    }
+    $goalBody = $planContent -replace '(?s)^#\s+.*?\n', '' `
+                             -replace '(?m)^##\s+Config\b.*?(?=^##|\z)', '' `
+                             -replace '(?m)^>\s+.*$', '' `
+                             -replace '(?m)^working_dir:\s*.*$', ''
+    $goalBody = $goalBody.Trim()
+
+    if (-not $goalTitle -and -not $goalBody) {
+        Write-Error "No epics, tasks, or goal found in plan file: $PlanFile"
+        exit 1
+    }
+
+    Write-Host ""
+    Write-Host "[PLAN] No EPICs found — generating from goal: $goalTitle" -ForegroundColor Cyan
+
+    if ($DryRun) {
+        Write-Host "  [DRY RUN] Would generate EPICs from goal via AI architect." -ForegroundColor Yellow
+        exit 0
+    }
+
+    $generatePrompt = @"
+You are a Senior Software Architect. Given a project goal, generate a structured set of EPICs that fully implement it.
+
+## Project Goal
+$goalTitle
+
+## Context
+$goalBody
+
+## Instructions
+1. Break this goal into 2-6 concrete EPICs — each independently deliverable.
+2. For each EPIC include:
+   - A descriptive title
+   - 2-3 sentence description
+   - Definition of Done (5+ checkboxes)
+   - Acceptance Criteria (5+ checkboxes)
+   - depends_on: [] (use real dependencies only if one EPIC truly needs another to finish first)
+3. Prefer parallel EPICs — only add depends_on when genuinely required.
+
+## Format
+Return ONLY the EPIC sections in markdown. Use this exact format:
+
+## EPIC-001 - Title Here
+
+Description paragraph.
+
+#### Definition of Done
+- [ ] Item 1
+- [ ] Item 2
+...
+
+#### Acceptance Criteria
+- [ ] Scenario 1
+- [ ] Scenario 2
+...
+
+depends_on: []
+
+## EPIC-002 - Next Title
+...
+"@
+
+    $genResult = & $invokeAgent -RoomDir $room000Dir -RoleName "architect" `
+                                -Prompt $generatePrompt -TimeoutSeconds 300
+
+    if ($genResult.ExitCode -ne 0) {
+        Write-Error "Epic generation failed: $($genResult.Output)"
+        exit 1
+    }
+
+    $generatedEpics = $genResult.Output.Trim()
+    # Strip markdown fences if AI wrapped output
+    $generatedEpics = $generatedEpics -replace '(?s)^```(?:markdown|md)?\s*', '' -replace '(?s)\s*```$', ''
+
+    # Verify at least one EPIC was generated
+    if ($generatedEpics -notmatch '(?m)^#{2,3}\s+EPIC-\d+') {
+        Write-Error "AI did not generate valid EPICs. Output: $($generatedEpics.Substring(0, [Math]::Min(200, $generatedEpics.Length)))"
+        exit 1
+    }
+
+    # Append generated EPICs to the plan file
+    $separator = "`n`n---`n`n"
+    $updatedPlan = $planContent.TrimEnd() + $separator + $generatedEpics + "`n"
+    $updatedPlan | Out-File -FilePath $PlanFile -Encoding utf8
+    Write-Host "[PLAN] Generated EPICs appended to: $PlanFile" -ForegroundColor Green
+
+    # Sync to dashboard
+    $resolvedPlanId = [IO.Path]::GetFileNameWithoutExtension($PlanFile) -replace '\.refined$', ''
+    $dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { 'http://localhost:9000' }
+    $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
+    try {
+        $saveBody = @{ content = $updatedPlan; change_source = 'epic_generation' } | ConvertTo-Json -Depth 5
+        Invoke-RestMethod -Uri "$dashboardUrl/api/plans/$resolvedPlanId/save" `
+            -Method Post -ContentType 'application/json' -Body $saveBody -Headers $apiHeaders -ErrorAction Stop | Out-Null
+        Write-Host "[PLAN] Synced generated EPICs to dashboard." -ForegroundColor Cyan
+    } catch {
+        Write-Host "[PLAN] Dashboard not reachable — plan updated locally only." -ForegroundColor Yellow
+    }
+
+    # Re-parse the plan with generated EPICs via PlanParser module
+    $planContent = Get-Content $PlanFile -Raw
+    $parsed = ConvertFrom-PlanMarkdown -Content $planContent
+
+    if ($parsed.Count -eq 0) {
+        Write-Error "Epic generation produced no parseable EPICs. Check AI output."
+        exit 1
+    }
+
+    Write-Host "[PLAN] Generated $($parsed.Count) EPICs from goal." -ForegroundColor Green
 }
 
 # --- Auto-inject PLAN-REVIEW as a dependency (Requirement 2) ---
@@ -572,128 +514,11 @@ if ($DryRun) {
 function New-PlanWarRooms {
     param($PlanFile, $ProjectDir, $warRoomsDir, $agentsDir, $parsed, $planId)
     
-    # --- Re-parse plan in case it changed during negotiation ---
+    # --- Re-parse plan in case it changed during negotiation (uses PlanParser module) ---
     $planContent = Get-Content $PlanFile -Raw
-    $parsed = [System.Collections.Generic.List[PSObject]]::new()
-    $roomIndex = 1
-    # Patterns needed for re-parsing
-    $epicPattern = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-—–?]\s*(.+)$'
-    $taskPattern = '(?m)^\s*[-*]\s+\[[ x]\]\s+(TASK-\d+)\s*[-—–]\s*(.+)$'
-    $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
-    $acPattern = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
-    $depsPattern = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
-    $rolesPattern = '(?m)^Roles?:\s*(.+)$'
-    $workingDirPattern = '(?m)^Working_dir:\s*(.+)$'
-    $objectivePattern = '(?m)^Objective:\s*(.+)$'
-    $pipelinePattern = '(?m)^Pipeline:\s*(.+)$'
-    $capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
-    $descPattern = '(?s)^#{2,3}\s+EPIC-\d+\s*[-—–?]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
-    $lifecyclePattern = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*?)\r?\n[^\S\r\n]*```'
+    $parsed = ConvertFrom-PlanMarkdown -Content $planContent
 
-    $epicMatches = [regex]::Matches($planContent, $epicPattern)
-    foreach ($em in $epicMatches) {
-        $epicRef = $em.Groups[1].Value
-        $epicDesc = $em.Groups[2].Value.Trim()
-        $epicStart = $em.Index
-        $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-        $epicEnd = if ($nextEpicMatch) { $nextEpicMatch.Index } else { $planContent.Length }
-        $epicSection = $planContent.Substring($epicStart, $epicEnd - $epicStart)
-        $roles = @()
-        $roleMatches = [regex]::Matches($epicSection, $rolesPattern)
-        foreach ($rm in $roleMatches) {
-            $line = $rm.Groups[1].Value
-            $line = $line -replace '\(.*$', ''
-            $roles += ($line -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '[a-zA-Z0-9]' -and $_ -notmatch '^<.*>$' }
-        }
-        $roles = $roles | Select-Object -Unique | Where-Object { $_ }
-        if ($roles.Count -eq 0) { $roles = @("engineer") }
-        $epicWorkingDir = ""
-        if ($epicSection -match $workingDirPattern) { $epicWorkingDir = $Matches[1].Trim() }
-        $epicObjective = ""
-        if ($epicSection -match $objectivePattern) { $epicObjective = $Matches[1].Trim() }
-        $epicPipeline = ""
-        if ($epicSection -match $pipelinePattern) { $epicPipeline = $Matches[1].Trim() }
-        $epicCapabilities = @()
-        if ($epicSection -match $capabilitiesPattern) {
-            $epicCapabilities = ($Matches[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-        }
-        $descBody = ""
-        if ($epicSection -match $descPattern) { $descBody = $Matches[1].Trim() }
-        $epicLifecycle = ""
-        if ($epicSection -match $lifecyclePattern) { $epicLifecycle = $Matches[1].Trim() }
-        $dod = @()
-        if ($epicSection -match $dodPattern) {
-            $dodBlock = $Matches[1]
-            $dod = [regex]::Matches($dodBlock, '(?m)^[-*] \[[ x]\]\s*(.+)') | ForEach-Object { $_.Groups[1].Value.Trim() }
-        }
-        $ac = @()
-        if ($epicSection -match $acPattern) {
-            $acBlock = $Matches[1]
-            $ac = [regex]::Matches($acBlock, '(?m)^[-*] \[[ x]\]\s*(.+)') | ForEach-Object { $_.Groups[1].Value.Trim() }
-        }
-        $depsOn = @()
-        if ($epicSection -match $depsPattern) {
-            $rawDeps = $Matches[1]
-            if ($rawDeps.Trim()) {
-                $depsOn = ($rawDeps -split ',') | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ }
-            }
-        }
-        $parsed.Add([PSCustomObject]@{
-            RoomId      = "room-$('{0:D3}' -f $roomIndex)"
-            TaskRef     = $epicRef
-            Description = $epicDesc
-            DescBody    = $descBody
-            DoD         = $dod
-            AC          = $ac
-            DependsOn   = $depsOn
-            Type        = 'epic'
-            Roles       = $roles
-            EpicWorkingDir = $epicWorkingDir
-            Objective   = $epicObjective
-            Pipeline    = $epicPipeline
-            Capabilities = $epicCapabilities
-            Lifecycle   = $epicLifecycle
-        })
-        $roomIndex++
-    }
-    # Extract standalone tasks
-    $taskMatches = [regex]::Matches($planContent, $taskPattern)
-    foreach ($tm in $taskMatches) {
-        $isInsideEpic = $false
-        foreach ($em in $epicMatches) {
-            $epicStart = $em.Index
-            $nextEpicMatch = $epicMatches | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-            
-            $nextSec = [regex]::Matches($planContent, '(?m)^##\s+') | Where-Object { $_.Index -gt $epicStart } | Select-Object -First 1
-            $epicEnd = $planContent.Length
-            if ($nextEpicMatch) { $epicEnd = $nextEpicMatch.Index }
-            elseif ($nextSec) { $epicEnd = $nextSec.Index }
-
-            if ($tm.Index -ge $epicStart -and $tm.Index -lt $epicEnd) {
-                $isInsideEpic = $true
-                break
-            }
-        }
-
-        if (-not $isInsideEpic) {
-            $taskRef = $tm.Groups[1].Value
-            # Avoid duplicates if already parsed as an epic
-            if (-not ($parsed | Where-Object { $_.TaskRef -eq $taskRef })) {
-                $parsed.Add([PSCustomObject]@{
-                    RoomId      = "room-$('{0:D3}' -f $roomIndex)"
-                    TaskRef     = $taskRef
-                    Description = $tm.Groups[2].Value.Trim()
-                    DescBody    = ""
-                    DoD         = @()
-                    AC          = @()
-                    DependsOn   = @()
-                    Type        = 'task'
-                })
-                $roomIndex++
-            }
-        }
-    }
-    # Auto-inject PLAN-REVIEW dependency
+    # Auto-inject PLAN-REVIEW dependency (orchestration logic, not parsing)
     foreach ($item in $parsed) {
         if ($item.DependsOn -notcontains "PLAN-REVIEW") {
             $item.DependsOn = @("PLAN-REVIEW") + $item.DependsOn
@@ -808,11 +633,36 @@ function New-PlanWarRooms {
     $null = & $buildDag -WarRoomsDir $warRoomsDir
 }
 
+# ===========================================================================
+# Phase A: Create/reconcile war-rooms and rebuild DAG
+# ===========================================================================
+# Always called — even in Resume mode. New-PlanWarRooms skips existing rooms
+# internally (reconcile only) but MUST rebuild DAG.json so the manager loop
+# sees all rooms, not just room-000.
+New-PlanWarRooms -PlanFile $PlanFile -ProjectDir $ProjectDir -warRoomsDir $warRoomsDir -agentsDir $agentsDir -parsed $parsed -planId $planId
+
+# ===========================================================================
+# Phase B: Dependency review (reads actual brief.md from each war-room)
+# ===========================================================================
+$reviewDeps = Join-Path $agentsDir "plan" "Review-Dependencies.ps1"
+if (-not $Resume -and -not $DryRun -and (Test-Path $reviewDeps)) {
+    $depReviewArgs = @{
+        WarRoomsDir = $warRoomsDir
+        PlanFile    = $PlanFile
+    }
+    if ($config.manager -and $config.manager.auto_approve_deps -eq $true) {
+        $depReviewArgs['AutoApprove'] = $true
+    }
+    & $reviewDeps @depReviewArgs
+    # Non-fatal: if user rejects or analysis fails, original deps are preserved
+}
+
+# ===========================================================================
+# Phase C: Unified or Legacy plan negotiation (content review, not deps)
+# ===========================================================================
+
 # --- Unified Negotiation Handoff ---
 if ($Unified -and ($Review -or $Expand) -and -not $Resume) {
-    # In Unified mode, we create the rooms UPFRONT because the handoff exits
-    New-PlanWarRooms -PlanFile $PlanFile -ProjectDir $ProjectDir -warRoomsDir $warRoomsDir -agentsDir $agentsDir -parsed $parsed -planId $planId
-    
     Write-Host "[UNIFIED] Handing off plan negotiation to Manager Loop." -ForegroundColor Cyan
     $env:PLAN_FILE = $PlanFile
     & $managerLoop -WarRoomsDir $warRoomsDir -Review -PlanFile $PlanFile
@@ -824,20 +674,15 @@ if ($Unified -and -not ($Review -or $Expand) -and -not $Resume) {
     "passed" | Out-File -FilePath (Join-Path $room000Dir "status") -Encoding utf8 -NoNewline
 }
 
-# --- Unified Negotiation Loop (Legacy / Blocking) ---
+# --- Legacy Negotiation Loop (blocking) ---
 $shouldNegotiate = -not $Resume -and -not $Unified
 
 while ($shouldNegotiate) {
-    # Decide if we need review
-    if (-not $Review) {
-        break
-    }
+    if (-not $Review) { break }
 
-    # Post for review
     $reviewMsgId = & $postMessage -RoomDir $room000Dir -From "manager" -To "architect" -Type "review" -Ref "PLAN-REVIEW" -Body $planContent
     Write-Host "Plan posted to room-000 for review. Waiting for approval (timeout: ${planReviewTimeout}s)..." -ForegroundColor Cyan
 
-    # Wait for plan-approve, plan-reject, or plan-update
     $waitResultRaw = & $waitForMessage -RoomDir $room000Dir -WaitType "plan-approve", "plan-reject", "plan-update" -After $reviewMsgId -TimeoutSeconds $planReviewTimeout
     
     if ($LASTEXITCODE -ne 0 -or -not $waitResultRaw) {
@@ -859,14 +704,12 @@ while ($shouldNegotiate) {
         if ($waitResult.body.Trim()) {
             $waitResult.body.Trim() | Out-File -FilePath $PlanFile -Encoding utf8
         }
-        # loop back to re-read it
         continue
     } else {
-        # plan-reject
+        # plan-reject — apply feedback via expander, then re-review
         $feedback = $waitResult.body
         Write-Host "Plan rejected with feedback: $feedback" -ForegroundColor Yellow
         
-        # --- Apply feedback via Unified Plan Expander ---
         Write-Host "Applying feedback via AI architect..." -ForegroundColor Cyan
         $expandScript = Join-Path $agentsDir "plan" "Expand-Plan.ps1"
         & $expandScript -PlanFile $PlanFile -OutFile $PlanFile -Feedback $feedback -RoomDir $room000Dir -DryRun:$DryRun
@@ -877,45 +720,13 @@ while ($shouldNegotiate) {
             Write-Host "Plan updated with feedback." -ForegroundColor Green
         }
         
-        $Review = $true # Ensure we keep reviewing if it was rejected once
+        $Review = $true
     }
 }
 
-# --- Pre-flight: Index project codebase for semantic search ---
-# TEMPORARILY DISABLED — requires GEMINI_API_KEY
-# $codeIndexScript = Join-Path $agentsDir "memory" "code_index.py"
-# if (Test-Path $codeIndexScript) {
-#     Write-Host ""
-#     Write-Host "[INDEX] Indexing project codebase for semantic search..." -ForegroundColor Cyan
-#     $indexPython = Join-Path $agentsDir ".venv" "bin" "python"
-#     if (-not (Test-Path $indexPython)) {
-#         $indexPython = Join-Path $HOME ".ostwin" ".venv" "bin" "python"
-#     }
-#     if (-not (Test-Path $indexPython)) { $indexPython = "python3" }
-#     $memoryEnv = Join-Path $ProjectDir ".env"
-#     if (Test-Path $memoryEnv) {
-#         Get-Content $memoryEnv | ForEach-Object {
-#             if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$' -and $_ -notmatch '^\s*#') {
-#                 $envKey = $Matches[1]; $envVal = $Matches[2].Trim('"').Trim("'")
-#                 if (-not [Environment]::GetEnvironmentVariable($envKey)) {
-#                     [Environment]::SetEnvironmentVariable($envKey, $envVal)
-#                 }
-#             }
-#         }
-#     }
-#     try {
-#         & $indexPython $codeIndexScript build --path $ProjectDir
-#         Write-Host "[INDEX] ✓ Code index updated." -ForegroundColor Green
-#     } catch {
-#         Write-Warning "[INDEX] Code indexing failed (non-fatal): $_"
-#     }
-# }
-Write-Host "[INDEX] Skipped (temporarily disabled)" -ForegroundColor Yellow
-
-# --- Create missing war-rooms (after negotiation) ---
-New-PlanWarRooms -PlanFile $PlanFile -ProjectDir $ProjectDir -warRoomsDir $warRoomsDir -agentsDir $agentsDir -parsed $parsed -planId $planId
-
-# --- Start the manager loop ---
+# ===========================================================================
+# Phase D: Start the manager loop
+# ===========================================================================
 if (-not $SkipLoop) {
     Write-Host ""
     Write-Host "[STARTING] Manager loop..." -ForegroundColor Green

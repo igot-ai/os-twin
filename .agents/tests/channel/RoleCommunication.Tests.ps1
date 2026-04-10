@@ -288,7 +288,7 @@ Describe "Full Lifecycle — Happy Path" {
         # 1. Manager assigns task
         & $script:PostMessage -RoomDir $roomDir -From "manager" -To "engineer" `
             -Type "task" -Ref "EPIC-001" -Body "Build a React dashboard"
-        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
         # 2. Engineer completes work
         & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
@@ -298,7 +298,7 @@ Describe "Full Lifecycle — Happy Path" {
         # 3. Manager detects done → routes to QA
         $doneMsgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "done" -AsObject
         $doneMsgs.Count | Should -BeGreaterOrEqual 1
-        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
         # 4. QA passes
         & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
@@ -315,9 +315,9 @@ Describe "Full Lifecycle — Happy Path" {
 
         # Verify audit trail
         $audit = Get-Content (Join-Path $roomDir "audit.log")
-        $audit | Should -Contain ($audit | Where-Object { $_ -match "pending -> engineering" })
-        $audit | Should -Contain ($audit | Where-Object { $_ -match "engineering -> qa-review" })
-        $audit | Should -Contain ($audit | Where-Object { $_ -match "qa-review -> passed" })
+        $audit | Should -Contain ($audit | Where-Object { $_ -match "pending -> developing" })
+        $audit | Should -Contain ($audit | Where-Object { $_ -match "developing -> review" })
+        $audit | Should -Contain ($audit | Where-Object { $_ -match "review -> passed" })
     }
 }
 
@@ -333,14 +333,14 @@ Describe "Full Lifecycle — Retry Path" {
         # 1. Manager assigns
         & $script:PostMessage -RoomDir $roomDir -From "manager" -To "engineer" `
             -Type "task" -Ref "TASK-500" -Body "Implement login"
-        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
         # 2. Engineer submits
         & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
             -Type "done" -Ref "TASK-500" -Body "Login implemented"
 
         # 3. QA fails
-        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
         & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
             -Type "fail" -Ref "TASK-500" -Body "VERDICT: FAIL`nNo password hashing"
 
@@ -358,7 +358,7 @@ Describe "Full Lifecycle — Retry Path" {
             -Type "done" -Ref "TASK-500" -Body "Added bcrypt hashing"
 
         # 6. QA passes on retry
-        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
         & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
             -Type "pass" -Ref "TASK-500" -Body "VERDICT: PASS"
 
@@ -387,7 +387,7 @@ Describe "Full Lifecycle — Max Retries Exhausted" {
         $roomDir = New-TestRoom -TaskRef "TASK-600"
         $maxRetries = 3
 
-        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+        Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
         for ($i = 0; $i -lt $maxRetries; $i++) {
             # Engineer done

@@ -417,13 +417,32 @@ exit 0
             ($output -join "`n") | Should -Match "(not found|Plan file)"
         }
 
-        It "fails when plan has no epics or tasks" {
+        It "fails when plan has no epics, no tasks, and no goal title" {
             $emptyPlan = Join-Path $TestDrive "empty-plan.md"
-            "# Empty plan`nNo epics here." | Out-File $emptyPlan -Encoding utf8
+            "No epics here. No goal either." | Out-File $emptyPlan -Encoding utf8
 
             $output = & $script:StartPlan -PlanFile $emptyPlan `
                 -ProjectDir $script:projectDir -DryRun *>&1
-            ($output -join "`n") | Should -Match "(No epics|not found|No .* tasks)"
+            ($output -join "`n") | Should -Match "(No epics|not found|No .* tasks|no goal)"
+        }
+
+        It "shows DryRun message when goal-only plan runs with -DryRun" {
+            $goalOnlyPlan = Join-Path $TestDrive "goal-only-plan.md"
+            @"
+# Plan: Build a chat application
+
+## Config
+working_dir: .
+
+## Goal
+Build a real-time chat application with WebSocket support.
+"@ | Out-File $goalOnlyPlan -Encoding utf8
+
+            $output = & $script:StartPlan -PlanFile $goalOnlyPlan `
+                -ProjectDir $script:projectDir -DryRun *>&1
+            $outputStr = $output -join "`n"
+            $outputStr | Should -Match "No EPICs found.*generating"
+            $outputStr | Should -Match "DRY RUN.*generate EPICs"
         }
     }
 
@@ -652,6 +671,112 @@ working_dir: $script:projectDir
         It "triggers Update-Progress after resets" {
             $output = & $script:StartPlan -PlanFile $script:resumePlan -ProjectDir $script:projectDir -Resume -DryRun:$false -SkipLoop *>&1
             ($output -join "`n") | Should -Match "Progress updated"
+        }
+    }
+
+    Context "Epic auto-generation from goal-only plan" {
+        BeforeEach {
+            $script:goalPlan = Join-Path $TestDrive "goal-plan-$(Get-Random).md"
+            @"
+# Plan: Build a Chat App
+
+## Config
+working_dir: $($script:projectDir)
+
+## Goal
+Build a real-time chat application with WebSocket support, user authentication, and message persistence.
+"@ | Out-File $script:goalPlan -Encoding utf8
+
+            # Create mock Invoke-Agent.ps1 in the project's .agents dir
+            $invokeDir = Join-Path $script:projectDir ".agents" "roles" "_base"
+            New-Item -ItemType Directory -Path $invokeDir -Force | Out-Null
+            @'
+param($RoomDir, $RoleName, $Prompt, $TimeoutSeconds)
+# Mock: return generated EPICs
+$output = @"
+## EPIC-001 - User Authentication
+
+Implement JWT-based authentication with login, register, and token refresh.
+
+#### Definition of Done
+- [ ] JWT token generation
+- [ ] Login endpoint
+- [ ] Register endpoint
+- [ ] Token refresh
+- [ ] Password hashing
+
+#### Acceptance Criteria
+- [ ] POST /login returns JWT
+- [ ] POST /register creates user
+- [ ] Invalid credentials return 401
+- [ ] Expired tokens are rejected
+- [ ] Refresh tokens work
+
+depends_on: []
+
+## EPIC-002 - WebSocket Chat
+
+Build real-time messaging with WebSocket connections.
+
+#### Definition of Done
+- [ ] WebSocket server
+- [ ] Message broadcasting
+- [ ] Connection management
+- [ ] Message persistence
+- [ ] Typing indicators
+
+#### Acceptance Criteria
+- [ ] Messages delivered in real-time
+- [ ] Offline messages queued
+- [ ] Connection recovery works
+- [ ] Message history loads
+- [ ] Typing status shows
+
+depends_on: ["EPIC-001"]
+"@
+[PSCustomObject]@{ ExitCode = 0; Output = $output }
+'@ | Out-File (Join-Path $invokeDir "Invoke-Agent.ps1") -Encoding utf8
+        }
+
+        It "generates EPICs from goal and appends to plan file" {
+            $output = & $script:StartPlan -PlanFile $script:goalPlan `
+                -ProjectDir $script:projectDir -SkipLoop *>&1
+            $outputStr = $output -join "`n"
+
+            # Should detect no EPICs and trigger generation
+            $outputStr | Should -Match "No EPICs found.*generating"
+            $outputStr | Should -Match "Generated.*EPICs"
+
+            # Plan file should now contain generated EPICs
+            $updatedContent = Get-Content $script:goalPlan -Raw
+            $updatedContent | Should -Match "## EPIC-001 - User Authentication"
+            $updatedContent | Should -Match "## EPIC-002 - WebSocket Chat"
+            $updatedContent | Should -Match "depends_on:"
+        }
+
+        It "preserves original plan content after generation" {
+            $null = & $script:StartPlan -PlanFile $script:goalPlan `
+                -ProjectDir $script:projectDir -SkipLoop *>&1
+
+            $updatedContent = Get-Content $script:goalPlan -Raw
+            # Original goal should still be there
+            $updatedContent | Should -Match "# Plan: Build a Chat App"
+            $updatedContent | Should -Match "real-time chat application"
+        }
+
+        It "parses generated EPICs and injects PLAN-REVIEW dependency" {
+            $output = & $script:StartPlan -PlanFile $script:goalPlan `
+                -ProjectDir $script:projectDir -DryRun *>&1
+            # DryRun exits before room creation — but after generation,
+            # it would show the parsed EPICs with PLAN-REVIEW injected.
+            # Since DryRun exits at "Would generate EPICs", we test non-DryRun.
+            $output2 = & $script:StartPlan -PlanFile $script:goalPlan `
+                -ProjectDir $script:projectDir -SkipLoop *>&1
+            $outputStr = $output2 -join "`n"
+
+            $outputStr | Should -Match "PLAN-REVIEW"
+            $outputStr | Should -Match "EPIC-001"
+            $outputStr | Should -Match "EPIC-002"
         }
     }
 }

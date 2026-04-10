@@ -39,7 +39,7 @@ done
 ```
 
 - [ ] Every war-room is in `passed` state
-- [ ] No war-rooms are in `fixing`, `triage`, or `engineering` state
+- [ ] No war-rooms are in `fixing`, `triage`, or `developing` state
 - [ ] QA report exists for every war-room
 
 ### 2. Gather Release Content

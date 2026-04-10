@@ -39,7 +39,7 @@ def test_read_room_extended():
     lifecycle = room_data["lifecycle"]
     assert "initial_state" in lifecycle
     assert "states" in lifecycle
-    assert "engineering" in lifecycle["states"]
+    assert "developing" in lifecycle["states"]
     
     # Check roles content
     roles = room_data["roles"]

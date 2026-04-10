@@ -164,24 +164,24 @@ Describe "Message Protocol" {
 
 Describe "Manager State Machine — Routing Decisions" {
 
-    Context "pending → engineering (team allocation)" {
+    Context "pending → developing (team allocation)" {
         It "pending room with active count below max should be picked up" {
             $roomDir = New-OrcTestRoom -RoomId "room-sm-01" -TaskRef "TASK-201"
 
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
             $status | Should -Be "pending"
 
-            # Simulate manager decision: set to engineering
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            # Simulate manager decision: set to developing
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "engineering"
+            $status | Should -Be "developing"
         }
     }
 
-    Context "engineering → qa-review (done message triggers QA recruitment)" {
+    Context "developing → review (done message triggers QA recruitment)" {
         It "done message count ≥ expected triggers QA transition" {
             $roomDir = New-OrcTestRoom -RoomId "room-sm-02" -TaskRef "TASK-202"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Simulate engineer posting done
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
@@ -195,9 +195,9 @@ Describe "Manager State Machine — Routing Decisions" {
             $doneMsgs.Count | Should -BeGreaterOrEqual $expected
 
             # Transition
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             $status = (Get-Content (Join-Path $roomDir "status") -Raw).Trim()
-            $status | Should -Be "qa-review"
+            $status | Should -Be "review"
         }
 
         It "done count less than expected does NOT trigger QA" {
@@ -216,10 +216,10 @@ Describe "Manager State Machine — Routing Decisions" {
         }
     }
 
-    Context "qa-review → passed (QA PASS verdict)" {
+    Context "review → passed (QA PASS verdict)" {
         It "pass message triggers passed status" {
             $roomDir = New-OrcTestRoom -RoomId "room-sm-04" -TaskRef "TASK-204"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "pass" -Ref "TASK-204" -Body "VERDICT: PASS"
@@ -233,10 +233,10 @@ Describe "Manager State Machine — Routing Decisions" {
         }
     }
 
-    Context "qa-review → fixing (QA FAIL with retries)" {
+    Context "review → fixing (QA FAIL with retries)" {
         It "fail message + retries < max triggers fix cycle" {
             $roomDir = New-OrcTestRoom -RoomId "room-sm-05" -TaskRef "TASK-205"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "fail" -Ref "TASK-205" -Body "Missing input validation"
@@ -263,10 +263,10 @@ Describe "Manager State Machine — Routing Decisions" {
         }
     }
 
-    Context "qa-review → failed-final (retries exhausted)" {
+    Context "review → failed-final (retries exhausted)" {
         It "fail message + retries ≥ max triggers failed-final" {
             $roomDir = New-OrcTestRoom -RoomId "room-sm-06" -TaskRef "TASK-206"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             "3" | Out-File -FilePath (Join-Path $roomDir "retries") -NoNewline
 
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
@@ -300,15 +300,15 @@ Describe "Full Room Lifecycle" {
             $initialTask | Should -Not -BeNullOrEmpty
             $initialTask.from | Should -Be "manager"
 
-            # Step 2: Manager picks up → engineering
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            # Step 2: Manager picks up → developing
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Step 3: Engineer completes → posts done
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                                   -Type "done" -Ref "TASK-301" -Body "Auth system implemented with JWT"
 
-            # Step 4: Manager routes to QA → qa-review
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            # Step 4: Manager routes to QA → review
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             # Step 5: QA reviews → posts pass
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
@@ -327,7 +327,7 @@ Describe "Full Room Lifecycle" {
             # VERIFICATION: Status trail
             $audit = Get-Content (Join-Path $roomDir "audit.log")
             $audit.Count | Should -Be 3  # pending→eng, eng→qa, qa→passed
-            $audit[-1] | Should -Match "qa-review -> passed"
+            $audit[-1] | Should -Match "review -> passed"
         }
     }
 
@@ -337,12 +337,12 @@ Describe "Full Room Lifecycle" {
                                        -Description "Implement API endpoint"
 
             # Phase 1: First attempt
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                                   -Type "done" -Ref "TASK-302" -Body "API endpoint created"
 
             # Phase 2: QA fails
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "fail" -Ref "TASK-302" -Body "VERDICT: FAIL - No input validation"
 
@@ -357,7 +357,7 @@ Describe "Full Room Lifecycle" {
                                   -Type "done" -Ref "TASK-302" -Body "Added validation, all tests pass"
 
             # Phase 5: QA passes on retry
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                                   -Type "pass" -Ref "TASK-302" -Body "VERDICT: PASS"
 
@@ -386,14 +386,14 @@ Describe "Full Room Lifecycle" {
                                        -Description "Complex feature"
             $maxRetries = 3
 
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Simulate 3 fail cycles
             for ($i = 1; $i -le $maxRetries; $i++) {
                 & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
                     -Type "done" -Ref "TASK-303" -Body "Attempt $i done"
 
-                Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+                Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
                 & $script:PostMessage -RoomDir $roomDir -From "qa" -To "manager" `
                     -Type "fail" -Ref "TASK-303" -Body "VERDICT: FAIL - Attempt $i still failing"
@@ -404,7 +404,7 @@ Describe "Full Room Lifecycle" {
                     & $script:PostMessage -RoomDir $roomDir -From "manager" -To "engineer" `
                         -Type "fix" -Ref "TASK-303" -Body "Fix attempt $i"
                     Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
-                    Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+                    Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
                 }
             }
 
@@ -464,15 +464,15 @@ Describe "Multi-Room Team Allocation" {
                 -TaskDescription "C" -WarRoomsDir $wd | Out-Null
 
             # Set different statuses
-            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-a01") -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-a02") -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-a01") -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-a02") -NewStatus "review"
             # room-a03 stays pending
 
-            # Count active (engineering, qa-review, fixing)
+            # Count active (developing, review, fixing)
             $activeCount = 0
             Get-ChildItem $wd -Directory -Filter "room-*" | ForEach-Object {
                 $s = (Get-Content (Join-Path $_.FullName "status") -Raw).Trim()
-                if ($s -in @('engineering', 'qa-review', 'fixing')) { $activeCount++ }
+                if ($s -in @('developing', 'review', 'fixing')) { $activeCount++ }
             }
             $activeCount | Should -Be 2
         }
@@ -528,7 +528,7 @@ Describe "Done-Count Gate Logic" {
     Context "First attempt (retries=0, expects done≥1)" {
         It "routes to QA on first done message" {
             $roomDir = New-OrcTestRoom -RoomId "room-gate-01" -TaskRef "TASK-G01"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             $retries = [int](Get-Content (Join-Path $roomDir "retries") -Raw).Trim()
             $retries | Should -Be 0
@@ -575,7 +575,7 @@ Describe "State Timeout Detection" {
     Context "state_changed_at file mechanics" {
         It "Set-WarRoomStatus writes state_changed_at epoch" {
             $roomDir = New-OrcTestRoom -RoomId "room-to-01" -TaskRef "TASK-TO1"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             $changedFile = Join-Path $roomDir "state_changed_at"
             Test-Path $changedFile | Should -BeTrue
@@ -587,7 +587,7 @@ Describe "State Timeout Detection" {
 
         It "detects timeout when state_changed_at is old" {
             $roomDir = New-OrcTestRoom -RoomId "room-to-02" -TaskRef "TASK-TO2"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Backdate state_changed_at by 1000 seconds
             $oldEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 1000
@@ -601,7 +601,7 @@ Describe "State Timeout Detection" {
 
         It "does NOT detect timeout for fresh state" {
             $roomDir = New-OrcTestRoom -RoomId "room-to-03" -TaskRef "TASK-TO3"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
             $now = [int][double]::Parse((Get-Date -UFormat %s))
@@ -627,7 +627,7 @@ Describe "Deadlock Detection" {
             & $script:NewWarRoom -RoomId "room-dl-02" -TaskRef "TASK-DL2" `
                 -TaskDescription "B" -WarRoomsDir $wd | Out-Null
 
-            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-dl-01") -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-dl-01") -NewStatus "developing"
             Set-WarRoomStatus -RoomDir (Join-Path $wd "room-dl-02") -NewStatus "fixing"
 
             # Count active rooms and check PIDs
@@ -637,7 +637,7 @@ Describe "Deadlock Detection" {
             Get-ChildItem $wd -Directory -Filter "room-*" | ForEach-Object {
                 $rd = $_.FullName
                 $s = (Get-Content (Join-Path $rd "status") -Raw).Trim()
-                if ($s -in @('engineering', 'qa-review', 'fixing')) {
+                if ($s -in @('developing', 'review', 'fixing')) {
                     $totalActive++
                     # No PID files exist → no agent running
                     $pidDir = Join-Path $rd "pids"
@@ -660,7 +660,7 @@ Describe "Deadlock Detection" {
             & $script:NewWarRoom -RoomId "room-ndl-01" -TaskRef "TASK-NDL1" `
                 -TaskDescription "A" -WarRoomsDir $wd | Out-Null
 
-            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-ndl-01") -NewStatus "engineering"
+            Set-WarRoomStatus -RoomDir (Join-Path $wd "room-ndl-01") -NewStatus "developing"
 
             # Write a PID file (use current PID so it's alive)
             $PID.ToString() | Out-File -FilePath (Join-Path $wd "room-ndl-01" "pids" "engineer.pid") -NoNewline
@@ -730,23 +730,23 @@ Describe "Audit Trail" {
         It "records every status transition with timestamp" {
             $roomDir = New-OrcTestRoom -RoomId "room-audit-01" -TaskRef "TASK-AUD"
 
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "fixing"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "engineering"
-            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "qa-review"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
+            Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "passed"
 
             $audit = @(Get-Content (Join-Path $roomDir "audit.log"))
             $audit.Count | Should -Be 6
 
             # Verify ordering
-            $audit[0] | Should -Match "pending -> engineering"
-            $audit[1] | Should -Match "engineering -> qa-review"
-            $audit[2] | Should -Match "qa-review -> fixing"
-            $audit[3] | Should -Match "fixing -> engineering"
-            $audit[4] | Should -Match "engineering -> qa-review"
-            $audit[5] | Should -Match "qa-review -> passed"
+            $audit[0] | Should -Match "pending -> developing"
+            $audit[1] | Should -Match "developing -> review"
+            $audit[2] | Should -Match "review -> fixing"
+            $audit[3] | Should -Match "fixing -> developing"
+            $audit[4] | Should -Match "developing -> review"
+            $audit[5] | Should -Match "review -> passed"
 
             # Verify timestamps
             foreach ($line in $audit) {

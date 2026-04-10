@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 <#
 .SYNOPSIS
     Creates a new development plan with AI-assisted ideation.
@@ -55,8 +57,7 @@ if (-not $PlanFile) {
 $initContent = ''
 if ($InitFile) {
     if (-not (Test-Path $InitFile)) {
-        Write-Error "File not found: $InitFile"
-        exit 1
+        throw "File not found: $InitFile"
     }
     $initContent = Get-Content -Path $InitFile -Raw
 
@@ -81,8 +82,7 @@ if (-not $Goal -and -not $InitFile -and -not $NonInteractive) {
 }
 
 if (-not $Goal) {
-    Write-Error "No goal provided. Use -Goal parameter, -InitFile, or interactive mode."
-    exit 1
+    throw "No goal provided. Use -Goal parameter, -InitFile, or interactive mode."
 }
 
 # --- Generate plan file name ---

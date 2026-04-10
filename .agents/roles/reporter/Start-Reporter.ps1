@@ -325,7 +325,7 @@ $invokeArgs = @{
 if ($roleInstanceModel) { $invokeArgs['Model'] = $roleInstanceModel }
 
 # Grant shell access so the agent can run python -m reporter
-$invokeArgs['ExtraArgs'] = @("--shell-allow-list", "all")
+$invokeArgs['ExtraArgs'] = @("--dangerously-skip-permissions")
 
 $result = & $invokeAgent @invokeArgs
 

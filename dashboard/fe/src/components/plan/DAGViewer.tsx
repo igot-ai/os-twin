@@ -275,6 +275,17 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
 
   const handleConnect = (sourceRef: string, targetRef: string) => {
     if (!parsedPlan) return;
+
+    // Check for duplicate dependency
+    const existing = parsedPlan.epics.find(e => e.ref === targetRef);
+    if (existing && existing.depends_on.includes(sourceRef)) {
+      addToast({
+        type: 'info',
+        title: 'Already Connected',
+        message: `${sourceRef} → ${targetRef} dependency already exists`
+      });
+      return;
+    }
     
     updateParsedPlan((doc) => {
       const targetEpic = doc.epics.find(e => e.ref === targetRef);
@@ -304,7 +315,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
     addToast({
       type: 'success',
       title: 'Dependency Removed',
-      message: `${from} → ${to}`
+      message: `${from} → ${to} — press ⌘Z to undo`
     });
   };
 
@@ -600,18 +611,29 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
             })}
 
             {/* Ghost edge during drag */}
-            {dragState.type === 'dragging' && nodePositions && (
-              <line
-                x1={nodePositions[dragState.sourceRef].x + NODE_W}
-                y1={nodePositions[dragState.sourceRef].y + NODE_H / 2}
-                x2={(dragState.cursorX - (containerRef.current?.getBoundingClientRect().left || 0)) / scale - translate.x}
-                y2={(dragState.cursorY - (containerRef.current?.getBoundingClientRect().top || 0)) / scale - translate.y}
-                stroke={dragState.targetRef ? (dragState.isValid ? "#10b981" : "#ef4444") : "#6366f1"}
-                strokeWidth={2}
-                strokeDasharray="5,5"
-                markerEnd="url(#arrowhead-normal)"
-              />
-            )}
+            {dragState.type === 'dragging' && nodePositions && (() => {
+              const gx1 = nodePositions[dragState.sourceRef].x + NODE_W;
+              const gy1 = nodePositions[dragState.sourceRef].y + NODE_H / 2;
+              const snapTarget = dragState.targetRef && dragState.isValid && nodePositions[dragState.targetRef];
+              const gx2 = snapTarget
+                ? nodePositions[dragState.targetRef!].x
+                : (dragState.cursorX - (containerRef.current?.getBoundingClientRect().left || 0)) / scale - translate.x;
+              const gy2 = snapTarget
+                ? nodePositions[dragState.targetRef!].y + NODE_H / 2
+                : (dragState.cursorY - (containerRef.current?.getBoundingClientRect().top || 0)) / scale - translate.y;
+              const gdx = Math.max(Math.abs(gx2 - gx1) * 0.4, 40);
+              const ghostPath = `M ${gx1},${gy1} C ${gx1 + gdx},${gy1} ${gx2 - gdx},${gy2} ${gx2},${gy2}`;
+              return (
+                <path
+                  d={ghostPath}
+                  fill="none"
+                  stroke={dragState.targetRef ? (dragState.isValid ? "#10b981" : "#ef4444") : "#6366f1"}
+                  strokeWidth={2}
+                  strokeDasharray="5,5"
+                  markerEnd="url(#arrowhead-normal)"
+                />
+              );
+            })()}
 
             {/* Nodes */}
             {filteredNodes.map((node) => (
@@ -626,6 +648,8 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
                 roleInitial={node.roleInitial}
                 roleColor={node.roleColor}
                 mode={mode}
+                isDragging={dragState.type === 'dragging'}
+                dragSourceRef={dragState.type === 'dragging' ? dragState.sourceRef : undefined}
                 onStartDrag={handleStartDrag}
                 onEnterPort={handleEnterPort}
                 onLeavePort={handleLeavePort}

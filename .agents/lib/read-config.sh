@@ -1,4 +1,8 @@
 #!/bin/bash
+# DEPRECATED: This Bash shim is superseded by Config.psm1 / Utils.psm1.
+# It remains for backward compatibility but receives no new features.
+# Use Get-OstwinConfig or Read-OstwinConfig from PowerShell instead.
+#
 # `.agents/lib/read-config.sh`
 # Bash shim for reading values from .agents/config.json with vault reference support.
 # Usage: source this file, then call read_config() or read_secret()

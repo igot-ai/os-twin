@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 <#
 .SYNOPSIS
     Runtime dependency gate — checks if a room's dependencies are satisfied.
@@ -99,7 +101,7 @@ foreach ($depRef in $depsOn) {
             }
         }
         default {
-            # pending, engineering, developing, optimize, qa-review, review, fixing, triage — still in progress
+            # pending, developing, optimize, review, fixing, triage — still in progress
             return @{
                 Ready     = $false
                 Reason    = 'waiting'
