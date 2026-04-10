@@ -28,10 +28,14 @@ node_modules/
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
-**/__pycache__/**
+**/__pycache__/
+*.pyc
+*.pyo
 .pytest_cache/
+**/.pytest_cache/
 .ruff_cache/
 .coverage
+*/.coverage
 coverage.xml
 htmlcov/
 
@@ -72,6 +76,7 @@ dashboard/fe/pnpm-lock.yaml
 
 # ── OS / IDE ───────────────────────────────────────────────────────────────────
 .DS_Store
+**/.DS_Store
 .idea/
 coverage/
 bk/
@@ -90,11 +95,11 @@ CLAUDE.md
 .codex/
 .cursor/
 
-# ── Scratch / temp files ──────────────────────────────────────────────────────
+# ── Archives / temp files ─────────────────────────────────────────────────────
+war-room.zip
+unused-code.txt
 run_tsc.py
 test_ws.py
 tsc_output.txt
 tsc_output_final.txt
 docs/opencode-vertex-ai-partner-models.md
-.pytest_cache/
-.ruff_cache/
