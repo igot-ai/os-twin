@@ -59,6 +59,24 @@ export interface Epic {
   working_dir?: string;
 }
 
+// ──────────────────────────────────────────────────
+// Plan Asset
+// ──────────────────────────────────────────────────
+export interface PlanAsset {
+  plan_id?: string;
+  filename: string;
+  original_name: string;
+  mime_type: string;
+  uploaded_at: string;
+  size_bytes?: number;
+  path?: string;
+  bound_epics?: string[];
+  asset_type?: string;
+  tags?: string[];
+  description?: string;
+  binding?: 'plan' | 'epic';
+}
+
 export type EpicStatus =
   // V2 lifecycle states (from Resolve-Pipeline.ps1)
   | 'pending' | 'developing' | 'optimize' | 'review'

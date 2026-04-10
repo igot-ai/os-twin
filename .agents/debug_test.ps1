@@ -1,1 +1,2 @@
-python3 /Users/paulaan/PycharmProjects/agent-os/.agents/mcp/test_vault.py
+$AgentsDir = $PSScriptRoot
+python3 "$AgentsDir/mcp/test_vault.py"

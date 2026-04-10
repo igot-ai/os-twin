@@ -11,6 +11,14 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface StagedAttachment {
+  data: Uint8Array;
+  name: string;
+  mimeType: string;
+  stagedAt: number;
+  epicRef?: string;
+}
+
 export interface Session {
   userId: string;
   platform: string;
@@ -20,6 +28,8 @@ export interface Session {
   lastActivity: number;
   lastTranscription?: string;
   workingDir?: string;
+  activeEpicRef?: string;
+  pendingAttachments: StagedAttachment[];
 }
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -38,6 +48,7 @@ function _newSession(userId: string | number, platform: string): Session {
     mode: 'idle',
     chatHistory: [],
     lastActivity: Date.now(),
+    pendingAttachments: [],
   };
 }
 

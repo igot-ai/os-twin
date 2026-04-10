@@ -67,6 +67,7 @@ class RefineRequest(BaseModel):
     model: str = ""
     chat_history: list = Field(default_factory=list)
     working_dir: str = ""  # Target project directory for this plan
+    asset_context: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class UpdatePlanRoleConfigRequest(BaseModel):

@@ -236,8 +236,9 @@ function Test-PidAlive {
     $targetPid = [int]$pidStr
     try {
         $proc = Get-Process -Id $targetPid -ErrorAction Stop
+        if ($null -eq $proc) { return $false }
 
-        # Cross-check start time if a companion .start file exists
+        # Cross-check start time if a companion .start file exists (PID reuse detection)
         $startFile = [System.IO.Path]::ChangeExtension($PidFile, '.start')
         if (Test-Path $startFile) {
             $expectedStart = (Get-Content $startFile -Raw).Trim()
@@ -247,7 +248,16 @@ function Test-PidAlive {
             }
         }
 
-        return ($null -ne $proc)
+        # On macOS/Linux, Get-Process returns zombie processes (state Z/?).
+        # A zombie has exited but hasn't been reaped — it will never produce
+        # output, so we must treat it as dead to prevent deadlocks.
+        # More reliable: check if the process has a valid working set (RSS).
+        if ($proc.WorkingSet64 -eq 0 -and $proc.VirtualMemorySize64 -eq 0) {
+            # Process exists but has no memory — it's a zombie
+            return $false
+        }
+
+        return $true
     }
     catch {
         return $false

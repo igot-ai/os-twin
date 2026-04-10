@@ -3,6 +3,8 @@ import { Telegraf, Markup, Context } from 'telegraf';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
 import { routeCommand, routeCallback, handleStatefulText, BotResponse } from '../commands';
 import { getSession } from '../sessions';
+import { askAgent } from '../agent-bridge';
+import { flushStagedAttachments, getStagedCount } from '../asset-staging';
 
 // Force IPv4 — IPv6 to Telegram's servers is unreachable on many networks,
 // and Node 20's Happy Eyeballs fallback can stall instead of recovering.
@@ -99,7 +101,7 @@ export class TelegramConnector implements Connector {
       await this.sendResponsesChat(userId, responses);
     });
 
-    // ── Free text (stateful AI editing) ───────────────────────────
+    // ── Free text (stateful editing OR agent Q&A with tool-calling) ──
     this.bot.on('text', async (ctx) => {
       const userId = String(ctx.chat.id);
       const msgText = ctx.message.text.trim();
@@ -109,10 +111,109 @@ export class TelegramConnector implements Connector {
 
       const session = getSession(userId, 'telegram');
       if (['drafting', 'editing', 'awaiting_idea'].includes(session.mode)) {
+        // Stateful: refine/draft plan
         const responses = await handleStatefulText(userId, 'telegram', msgText);
         await this.sendResponses(ctx, responses);
+      } else {
+        // Idle: use AI agent with tool-calling (can create plans, check status, etc.)
+        try {
+          const answer = await askAgent(msgText, { userId, platform: 'telegram' });
+          await ctx.reply(answer, { parse_mode: 'Markdown' });
+        } catch (err: any) {
+          console.warn('[TELEGRAM] Agent bridge error:', err.message);
+          await ctx.reply('⚠️ Failed to process your request.', { parse_mode: 'Markdown' });
+        }
+      }
+
+      // After text routing: flush staged attachments if plan now exists
+      const updatedSession = getSession(userId, 'telegram');
+      if (getStagedCount(userId, 'telegram') > 0 && updatedSession.activePlanId && updatedSession.activePlanId !== 'new') {
+        const flushResult = await flushStagedAttachments(userId, 'telegram', updatedSession.activePlanId);
+        if (flushResult.saved.length > 0) {
+          const names = flushResult.saved.map(a => `\`${a.original_name}\``).join(', ');
+          await ctx.reply(`📎 Saved ${flushResult.saved.length} asset(s): ${names}`, { parse_mode: 'Markdown' });
+        }
+        if (flushResult.failures.length > 0) {
+          await ctx.reply(`⚠️ Some assets could not be saved: ${flushResult.failures.join(', ')}`, { parse_mode: 'Markdown' });
+        }
       }
     });
+
+    // ── EPIC-005: File/Document handling (with staging support) ────
+    const handleTelegramFiles = async (ctx: Context) => {
+      if (!ctx.chat) return;
+      const userId = String(ctx.chat.id);
+      const msg = ctx.message as any;
+      const session = getSession(userId, 'telegram');
+      const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
+        && ['drafting', 'editing'].includes(session.mode);
+
+      const files: any[] = [];
+      
+      if (msg.document) {
+        files.push(msg.document);
+      } else if (msg.photo) {
+        // Take the largest photo
+        files.push(msg.photo[msg.photo.length - 1]);
+      } else if (msg.audio) {
+        files.push(msg.audio);
+      } else if (msg.voice) {
+        files.push(msg.voice);
+      }
+
+      if (!files.length) return;
+
+      const downloadable: any[] = [];
+      for (const f of files) {
+        const fileId = f.file_id;
+        const link = await ctx.telegram.getFileLink(fileId);
+        const fileName = f.file_name || `file_${fileId.slice(-8)}`;
+        const mimeType = f.mime_type || 'application/octet-stream';
+        
+        try {
+          const res = await fetch(link.href);
+          if (!res.ok) continue;
+          const buffer = await res.arrayBuffer();
+          downloadable.push({
+            name: fileName,
+            contentType: mimeType,
+            data: new Uint8Array(buffer),
+          });
+        } catch (err) {
+          console.warn(`[TELEGRAM] Failed to download ${fileName}:`, err);
+        }
+      }
+
+      if (downloadable.length > 0) {
+        if (canSaveNow) {
+          // Plan exists → save immediately
+          const { handleFileAttachments } = await import('../commands');
+          const responses = await handleFileAttachments(userId, 'telegram', downloadable);
+          await this.sendResponses(ctx, responses);
+        } else {
+          // No plan yet → stage in session buffer
+          // Files are already downloaded, put directly into session
+          for (const d of downloadable) {
+            session.pendingAttachments.push({
+              data: d.data,
+              name: d.name,
+              mimeType: d.contentType || 'application/octet-stream',
+              stagedAt: Date.now(),
+            });
+          }
+          const noun = downloadable.length === 1 ? 'file' : 'files';
+          await ctx.reply(
+            `📎 Holding ${downloadable.length} ${noun}. Send me your idea or use /edit to attach them to a plan.`,
+            { parse_mode: 'Markdown' },
+          );
+        }
+      }
+    };
+
+    this.bot.on('document', handleTelegramFiles);
+    this.bot.on('photo', handleTelegramFiles);
+    this.bot.on('audio', handleTelegramFiles);
+    this.bot.on('voice', handleTelegramFiles);
 
     // ── Register command menu with Telegram ───────────────────────
     await this.bot.telegram.setMyCommands([

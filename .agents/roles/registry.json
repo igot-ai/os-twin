@@ -29,7 +29,7 @@
         "lint-clean",
         "no-hardcoded-secrets"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "qa",
@@ -52,7 +52,7 @@
         "verdict-required",
         "evidence-based-review"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "architect",
@@ -77,7 +77,7 @@
         "scalability-check",
         "security-review"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "manager",
@@ -121,7 +121,7 @@
         "report-renders",
         "no-empty-pages"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "audit",
@@ -172,7 +172,7 @@
         "axbridge"
       ],
       "quality_gates": [],
-      "default_model": "google-vertex/gemini-3-flash-preview",
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
       "platform": [
         "macos"
       ]
@@ -283,7 +283,7 @@
         "gdd-validates-pillars",
         "stories-have-acceptance-criteria"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "game-producer",
@@ -333,7 +333,7 @@
         "build-reproducible",
         "distribution-verified"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "game-ui-analyst",
@@ -386,7 +386,7 @@
         "tutorial-teaches-all-mechanics",
         "reward-pacing-validated"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "narrative-designer",
@@ -411,7 +411,7 @@
         "dialogue-localization-ready",
         "character-voices-consistent"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "sound-designer",
@@ -435,7 +435,7 @@
         "no-clipping",
         "compression-appropriate"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "tech-artist",
@@ -484,7 +484,7 @@
         "findings-actionable",
         "recommendations-prioritized"
       ],
-      "default_model": "google-vertex/gemini-3-flash-preview"
+      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
     },
     {
       "name": "technical-writer",

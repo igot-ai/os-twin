@@ -1,13 +1,17 @@
 import json
+import logging
 import re
+import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dashboard.api_utils import (
-    AGENTS_DIR, SKILLS_DIRS, get_plan_roles_config, 
+    AGENTS_DIR, SKILLS_DIRS, get_plan_roles_config,
     parse_skill_md
 )
 from dashboard.routes.plans import _resolve_room_dir
 from dashboard.constants import ROLE_DEFAULTS
+
+logger = logging.getLogger(__name__)
 
 class EpicSkillsManager:
     @staticmethod
@@ -82,6 +86,92 @@ class EpicSkillsManager:
             config["skill_refs"] = sorted(skill_refs)
             config_file.write_text(json.dumps(config, indent=2))
 
+    @staticmethod
+    def inject_room_assets(room_dir: Path, plan_id: str, epic_ref: str) -> None:
+        """Copy relevant assets into a war room's assets/ directory and write manifest into TASKS.md."""
+        from dashboard.routes.plans import (
+            list_epic_assets, _plan_assets_dir,
+        )
+
+        assets = list_epic_assets(plan_id, epic_ref, validate=False)
+        if not assets:
+            return
+
+        src_dir = _plan_assets_dir(plan_id)
+        dest_dir = room_dir / "assets"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10 MB
+
+        injected = []
+        for asset in assets:
+            src_file = src_dir / asset["filename"]
+            if not src_file.exists():
+                logger.warning("Asset file missing, skipping: %s", src_file)
+                continue
+            dest_file = dest_dir / asset["filename"]
+            file_size = src_file.stat().st_size
+            if file_size > LARGE_FILE_THRESHOLD:
+                # Symlink large files to save disk space
+                try:
+                    dest_file.symlink_to(src_file.resolve())
+                    logger.info("Symlinked large asset (%d bytes): %s", file_size, src_file.name)
+                except OSError:
+                    # Fallback to copy if symlink fails (e.g. cross-device)
+                    shutil.copy2(src_file, dest_file)
+                    logger.info("Copied large asset (symlink failed): %s", src_file.name)
+            else:
+                shutil.copy2(src_file, dest_file)
+            injected.append(asset)
+
+        if not injected:
+            return
+
+        # Write manifest into TASKS.md
+        tasks_file = room_dir / "TASKS.md"
+        manifest_lines = [
+            "\n## Available Assets\n",
+            "The following files are available in the `assets/` directory.\n",
+            "| Filename | Type | Description | Path |",
+            "| --- | --- | --- | --- |",
+        ]
+        for asset in injected:
+            fname = asset.get("original_name", asset["filename"])
+            atype = asset.get("asset_type", "unspecified")
+            desc = asset.get("description", "")
+            path = str(dest_dir / asset["filename"])
+            manifest_lines.append(f"| {fname} | {atype} | {desc} | `{path}` |")
+
+        manifest = "\n".join(manifest_lines) + "\n"
+
+        if tasks_file.exists():
+            content = tasks_file.read_text()
+            content = content.rstrip() + "\n" + manifest
+            tasks_file.write_text(content)
+        else:
+            tasks_file.write_text(manifest)
+
+    @staticmethod
+    def build_asset_context(plan_id: str, epic_ref: str) -> str:
+        """Build a text block describing available assets for inclusion in system prompts."""
+        from dashboard.routes.plans import list_epic_assets
+
+        assets = list_epic_assets(plan_id, epic_ref, validate=False)
+        if not assets:
+            return ""
+
+        lines = ["# Available Assets\n"]
+        for asset in assets:
+            fname = asset.get("original_name", asset["filename"])
+            atype = asset.get("asset_type", "unspecified")
+            desc = asset.get("description", "")
+            line = f"- **{fname}** ({atype})"
+            if desc:
+                line += f" — {desc}"
+            lines.append(line)
+
+        return "\n".join(lines)
+
     @classmethod
     def resolve_config(cls, plan_id: str, task_ref: str, role_name: str) -> Dict[str, Any]:
         from dashboard.lib.settings import get_settings_resolver
@@ -126,5 +216,10 @@ class EpicSkillsManager:
         if skills_instr:
             prompt.append("\n# Available Skills\n")
             prompt.extend(skills_instr)
-            
+
+        # EPIC-004: Inject asset context
+        asset_context = cls.build_asset_context(plan_id, task_ref)
+        if asset_context:
+            prompt.append("\n" + asset_context)
+
         return "\n\n".join(prompt)

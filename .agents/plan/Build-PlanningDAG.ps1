@@ -62,6 +62,7 @@ if (-not (Test-Path $PlanFile)) {
 
 $planContent = Get-Content $PlanFile -Raw
 $planDir = Split-Path $PlanFile
+if (-not $planDir) { $planDir = "." }
 if (-not $OutFile) {
     $OutFile = Join-Path $planDir ".planning-DAG.json"
 }

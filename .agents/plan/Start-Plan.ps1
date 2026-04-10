@@ -372,7 +372,9 @@ foreach ($item in $parsed) {
 }
 
 # --- Generate / load planning-DAG.json for advisory role assignment ---
-$planningDagFile = Join-Path (Split-Path $PlanFile) ".planning-DAG.json"
+$planDir = Split-Path $PlanFile
+if (-not $planDir) { $planDir = "." }
+$planningDagFile = Join-Path $planDir ".planning-DAG.json"
 if (-not $DryRun -and (Test-Path $buildPlanningDag)) {
     if (-not (Test-Path $planningDagFile) -or $Expand) {
         Write-Host "[PLANNING-DAG] Generating advisory DAG from plan content..." -ForegroundColor Cyan
@@ -587,6 +589,45 @@ function New-PlanWarRooms {
     $planContent = Get-Content $PlanFile -Raw
     $parsed = ConvertFrom-PlanMarkdown -Content $planContent
 
+    # --- Enrich parsed entries with asset bindings from plan metadata ---
+    $planMetaFile = Join-Path (Split-Path $PlanFile) "$planId.meta.json"
+    $planMeta = $null
+    if (Test-Path $planMetaFile) {
+        try {
+            $planMeta = Get-Content $planMetaFile -Raw | ConvertFrom-Json
+        } catch {
+            Write-Warning "Failed to read plan metadata for assets: $planMetaFile"
+        }
+    }
+    if ($planMeta -and $planMeta.assets) {
+        $allPlanAssets = @($planMeta.assets)
+        $epicAssetsMap = $planMeta.epic_assets
+        $plansDir = Split-Path $PlanFile
+
+        foreach ($entry in $parsed) {
+            $boundFilenames = if ($epicAssetsMap -and $epicAssetsMap.($entry.TaskRef)) {
+                @($epicAssetsMap.($entry.TaskRef))
+            } else { @() }
+
+            $entryAssets = @()
+            foreach ($asset in $allPlanAssets) {
+                $isBound = $boundFilenames -contains $asset.filename
+                $isPlanLevel = -not $asset.bound_epics -or @($asset.bound_epics).Count -eq 0
+
+                if ($isBound -or $isPlanLevel) {
+                    $sourcePath = Join-Path (Join-Path $plansDir "assets") $planId $asset.filename
+                    $entryAssets += [PSCustomObject]@{
+                        Path        = $sourcePath
+                        Filename    = $asset.filename
+                        Description = $asset.description
+                        AssetType   = $asset.asset_type
+                    }
+                }
+            }
+            $entry | Add-Member -NotePropertyName Assets -NotePropertyValue $entryAssets -Force
+        }
+    }
+
     # Auto-inject PLAN-REVIEW dependency (orchestration logic, not parsing)
     foreach ($item in $parsed) {
         if ($item.DependsOn -notcontains "PLAN-REVIEW") {
@@ -595,7 +636,9 @@ function New-PlanWarRooms {
     }
 
     # --- Merge advisory deps from planning-DAG.json (mirrors first-parse logic) ---
-    $planningDagFile = Join-Path (Split-Path $PlanFile) ".planning-DAG.json"
+    $planDir2 = Split-Path $PlanFile
+    if (-not $planDir2) { $planDir2 = "." }
+    $planningDagFile = Join-Path $planDir2 ".planning-DAG.json"
     if (Test-Path $planningDagFile) {
         try {
             $planningDag = Get-Content $planningDagFile -Raw | ConvertFrom-Json
@@ -691,6 +734,9 @@ function New-PlanWarRooms {
         }
         if ($entry.Lifecycle) {
             $roomArgs['Lifecycle'] = $entry.Lifecycle
+        }
+        if ($entry.Assets) {
+            $roomArgs['Assets'] = $entry.Assets
         }
 
         & $newWarRoom @roomArgs

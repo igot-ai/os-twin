@@ -19,9 +19,9 @@ memory_tree()
 This tells you existing schemas, API contracts, and conventions to follow.
 
 ### Phase 1 — Planning
-1. Read the Epic brief and understand the high-level goal
+1. Read the Epic brief and understand the high-level goal. Check the `assets/` directory for any pre-injected project assets or reference materials mentioned in the manifest.
 2. Break the Epic into concrete, independently testable sub-tasks
-3. Create `TASKS.md` in the war-room directory with your plan:
+3. Create `TASKS.md` in the war-room directory with your plan (if a skeleton `TASKS.md` exists, append to it but preserve the asset manifest):
    ```markdown
    # Tasks for EPIC-001
 
