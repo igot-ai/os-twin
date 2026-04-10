@@ -787,12 +787,14 @@ else:
         shift
         # Determine source dir: --from DIR or current directory
         FROM_DIR=""
+        AGENT_ROLE=""
         EXTRA_ARGS=()
         CLAWHUB_SLUG=""
         while [[ $# -gt 0 ]]; do
           case "$1" in
-            --from) FROM_DIR="$2"; shift 2 ;;
-            *)      EXTRA_ARGS+=("$1"); shift ;;
+            --from)  FROM_DIR="$2"; shift 2 ;;
+            --agent) AGENT_ROLE="$2"; shift 2 ;;
+            *)       EXTRA_ARGS+=("$1"); shift ;;
           esac
         done
         # If no --from and first extra arg doesn't look like a path, check for
@@ -892,8 +894,15 @@ else:
                 _skill_name="$_dir_name"
               fi
 
-              DEST_1="$HOME/.ostwin/.agents/skills/global/$_skill_name"
-              DEST_2="$HOME/.ostwin/skills/global/$_skill_name"
+              # Route to roles/<agent>/ when --agent is set, otherwise global/
+              if [[ -n "$AGENT_ROLE" ]]; then
+                _skill_subdir="roles/$AGENT_ROLE/$_skill_name"
+              else
+                _skill_subdir="global/$_skill_name"
+              fi
+
+              DEST_1="$HOME/.ostwin/.agents/skills/$_skill_subdir"
+              DEST_2="$HOME/.ostwin/skills/$_skill_subdir"
 
               for dest in "$DEST_1" "$DEST_2"; do
                 mkdir -p "$dest"
@@ -905,6 +914,7 @@ else:
   "source": "github",
   "url": "$GH_URL",
   "commit": "$GH_COMMIT",
+  "agent": "${AGENT_ROLE:-}",
   "installed_at": "$INSTALL_TS"
 }
 ORIGINEOF
@@ -914,6 +924,31 @@ ORIGINEOF
               echo "    ${DEST_1/#$HOME/~}"
               echo "    ${DEST_2/#$HOME/~}"
               GH_INSTALLED=$((GH_INSTALLED + 1))
+
+              # Add to role's skill_refs if --agent was specified
+              if [[ -n "$AGENT_ROLE" ]]; then
+                _role_json="$HOME/.ostwin/.agents/roles/$AGENT_ROLE/role.json"
+                if [[ -f "$_role_json" ]]; then
+                  # Add skill_ref if not already present (uses python for safe JSON editing)
+                  python3 - "$_role_json" "$_skill_name" <<'PYADD' 2>/dev/null && \
+                    echo "  Added '$_skill_name' to $AGENT_ROLE skill_refs" || true
+import json, sys
+path, skill = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = json.load(f)
+refs = data.get("skill_refs", [])
+if skill not in refs:
+    refs.append(skill)
+    data["skill_refs"] = refs
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    print("added")
+else:
+    print("already present")
+PYADD
+                fi
+              fi
             done
 
             rm -rf "$GH_TMP"
@@ -1010,15 +1045,20 @@ else:
       *)
         echo "Unknown skills subcommand: $SUB" >&2
         echo "  Usage: ostwin skills sync" >&2
-        echo "         ostwin skills install [<slug>|<github-url>|--from DIR]" >&2
+        echo "         ostwin skills install [<slug>|<github-url>|--from DIR] [--agent <role>]" >&2
         echo "         ostwin skills search <query>" >&2
         echo "         ostwin skills update [--all|<slug>]" >&2
         echo "         ostwin skills remove <slug>" >&2
         echo "         ostwin skills list" >&2
         echo "" >&2
-        echo "  GitHub install examples:" >&2
-        echo "         ostwin skills install https://github.com/user/skill-repo" >&2
-        echo "         ostwin skills install https://github.com/user/skill-repo.git" >&2
+        echo "  Options:" >&2
+        echo "    --agent <role>   Install to a specific role (e.g. engineer, qa, architect)" >&2
+        echo "                     Without --agent, skills install to global/" >&2
+        echo "" >&2
+        echo "  Examples:" >&2
+        echo "    ostwin skills install https://github.com/user/skill-repo" >&2
+        echo "    ostwin skills install https://github.com/user/repo --agent engineer" >&2
+        echo "    ostwin skills install https://github.com/user/repo.git --agent qa" >&2
         exit 1
         ;;
     esac

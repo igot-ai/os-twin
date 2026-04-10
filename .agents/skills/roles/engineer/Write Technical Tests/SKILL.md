@@ -1,8 +1,13 @@
 ---
-name: write-tests
-description: "Use this skill to write unit and integration tests -- covers framework conventions, coverage thresholds, and quality gate compliance."
-tags: [engineer, testing, quality-assurance]
+name: Write Technical Tests
+description: Write unit and integration tests across multiple frameworks (pytest, jest, pester) with coverage targets.
+version: 1.0.0
+category: Quality Assurance
+applicable_roles: [engineer, game-engineer, qa]
+tags: [engineer, implementation, testing, qa, coverage]
 trust_level: core
+source: project
+author: Agent OS Core
 ---
 
 # write-tests
@@ -46,16 +51,16 @@ For each function/module under test:
 
 ```
 test_<function_name>_<scenario>
-   Arrange -- set up inputs, mocks, fixtures
-   Act    -- call the function
-   Assert -- verify output, side effects, exceptions
+  ├── Arrange — set up inputs, mocks, fixtures
+  ├── Act    — call the function
+  └── Assert — verify output, side effects, exceptions
 ```
 
 **Coverage targets:**
-- Happy path -- normal input  expected output
-- Edge cases -- empty inputs, boundary values, nulls
-- Error cases -- invalid inputs  expected errors/exceptions
-- Integration points -- mock external dependencies
+- Happy path — normal input → expected output
+- Edge cases — empty inputs, boundary values, nulls
+- Error cases — invalid inputs → expected errors/exceptions
+- Integration points — mock external dependencies
 
 ### 3. Write Integration Tests (When Needed)
 
@@ -82,7 +87,7 @@ Invoke-Pester -Path ./tests -CodeCoverage <source-files>
 go test -cover ./...
 ```
 
-**Quality gate: `unit-tests`** -- All tests must pass. Target 80% line coverage for new code.
+**Quality gate: `unit-tests`** — All tests must pass. Target ≥80% line coverage for new code.
 
 ### 5. Review Test Quality
 
@@ -90,13 +95,13 @@ Self-check before reporting:
 - [ ] Tests are deterministic (no flaky timing dependencies)
 - [ ] Tests are independent (order doesn't matter)
 - [ ] Test names clearly describe what is being tested
-- [ ] Mocks are minimal -- don't mock what you don't have to
+- [ ] Mocks are minimal — don't mock what you don't have to
 - [ ] No hardcoded file paths or environment-specific values
 
 ## Verification
 
 After writing tests:
 1. Full test suite passes: `0 failures`
-2. New code has 80% coverage
+2. New code has ≥80% coverage
 3. Tests follow project naming conventions
 4. No existing tests were broken
