@@ -517,9 +517,10 @@ else:
         fi
 
         # Build JSON payload (include content only if --file was given)
-        JSON_PAYLOAD=$("$PYTHON" -c "
-import json, sys
-payload = {'path': '$PROJECT_DIR', 'title': '''$PLAN_TITLE'''}
+        # Pass title and path via env vars to avoid shell injection from special characters
+        JSON_PAYLOAD=$(PLAN_TITLE_VAR="$PLAN_TITLE" PROJECT_DIR_VAR="$PROJECT_DIR" "$PYTHON" -c "
+import json, sys, os
+payload = {'path': os.environ['PROJECT_DIR_VAR'], 'title': os.environ['PLAN_TITLE_VAR']}
 content = sys.stdin.read()
 if content.strip():
     payload['content'] = content

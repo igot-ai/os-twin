@@ -60,11 +60,11 @@ step()    { echo -e "  ${CYAN}→${NC} $1"; }
 ask() {
   local prompt="$1"
   if $AUTO_YES; then
-    return 1  # Skip interactive prompts in --yes mode
+    return 0  # Auto-approve in --yes mode
   fi
-  echo -en "    ${YELLOW}?${NC} $prompt ${DIM}[y/N]${NC} "
+  echo -en "    ${YELLOW}?${NC} $prompt ${DIM}[Y/n]${NC} "
   read -r answer
-  case "${answer:-n}" in
+  case "${answer:-y}" in
     [Yy]*) return 0 ;;
     *)     return 1 ;;
   esac

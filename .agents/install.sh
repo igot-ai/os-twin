@@ -490,19 +490,6 @@ setup_venv() {
     ok "Dashboard dependencies up to date"
   fi
 
-  # Install Memory/indexing requirements (CocoIndex, pgvector, etc.)
-  local memory_reqs="$INSTALL_DIR/.agents/memory/requirements.txt"
-  if [[ -f "$memory_reqs" ]]; then
-    step "Syncing memory/indexing dependencies..."
-    if check_uv; then
-      TMPDIR=/tmp uv pip install --quiet --upgrade --no-cache \
-        --python "$VENV_DIR/bin/python" -r "$memory_reqs"
-    else
-      "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$memory_reqs"
-    fi
-    ok "Memory/indexing dependencies up to date"
-  fi
-
   # Install role-specific requirements (e.g. roles/reporter/requirements.txt)
   local roles_dir="$INSTALL_DIR/.agents/roles"
   if [[ -d "$roles_dir" ]]; then
@@ -829,7 +816,10 @@ install_files() {
     local mcp_cfg="$INSTALL_DIR/.agents/mcp/config.json"
     local mcp_builtin="$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
     if [[ -f "$mcp_cfg" ]] && [[ -f "$mcp_builtin" ]]; then
-      python3 - "$mcp_cfg" "$mcp_builtin" <<'MERGE_EOF' && ok "Merged new built-in MCP servers" || true
+      # Prefer the managed venv python (exists on re-installs); fall back to system python
+      local _merge_py="$VENV_DIR/bin/python"
+      [[ -x "$_merge_py" ]] || _merge_py="${PYTHON_CMD:-python3}"
+      "$_merge_py" - "$mcp_cfg" "$mcp_builtin" <<'MERGE_EOF' && ok "Merged new built-in MCP servers" || true
 import json, sys
 
 cfg_path, builtin_path = sys.argv[1], sys.argv[2]
