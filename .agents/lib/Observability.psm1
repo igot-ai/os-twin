@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 <#
 .SYNOPSIS
     Observability module — distributed tracing, metrics, and structured event logging.
@@ -23,12 +25,14 @@
 # --- Trace ID Generation ---
 function New-TraceId {
     [CmdletBinding()]
+    [OutputType([string])]
     param()
     return [guid]::NewGuid().ToString("N").Substring(0, 16)
 }
 
 function New-SpanId {
     [CmdletBinding()]
+    [OutputType([string])]
     param()
     return [guid]::NewGuid().ToString("N").Substring(0, 8)
 }
@@ -36,6 +40,7 @@ function New-SpanId {
 # --- Trace Management ---
 function New-Trace {
     [CmdletBinding()]
+    [OutputType([PSCustomObject])]
     param(
         [Parameter(Mandatory)]
         [string]$Name,
@@ -63,6 +68,7 @@ function New-Trace {
 # --- Span Management ---
 function Start-Span {
     [CmdletBinding()]
+    [OutputType([PSCustomObject])]
     param(
         [Parameter(Mandatory)]
         [PSObject]$Trace,
@@ -94,6 +100,7 @@ function Start-Span {
 
 function Complete-Span {
     [CmdletBinding()]
+    [OutputType([void])]
     param(
         [Parameter(Mandatory)]
         [PSObject]$Span,
@@ -115,6 +122,7 @@ function Complete-Span {
 # --- Event Logging with Trace Context ---
 function Write-TraceEvent {
     [CmdletBinding()]
+    [OutputType([void])]
     param(
         [PSObject]$Span = $null,
         [PSObject]$Trace = $null,
@@ -164,6 +172,7 @@ function Write-TraceEvent {
 # --- Metrics ---
 function Add-Metric {
     [CmdletBinding()]
+    [OutputType([void])]
     param(
         [Parameter(Mandatory)]
         [PSObject]$Trace,
@@ -194,6 +203,7 @@ function Add-Metric {
 
 function Get-MetricValue {
     [CmdletBinding()]
+    [OutputType([double])]
     param(
         [Parameter(Mandatory)]
         [PSObject]$Trace,
@@ -212,6 +222,7 @@ function Get-MetricValue {
 # --- Report Generation ---
 function Export-TraceReport {
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)]
         [PSObject]$Trace,

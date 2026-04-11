@@ -14,7 +14,7 @@ This skill guides you through handling QA rejection feedback. The goal is to add
 ## When to Use
 
 - When you receive a `fix` message from the manager (routed from QA)
-- When re-entering the `engineering` state after a `fixing` triage
+- When re-entering the `developing` state after a `fixing` triage
 - When QA posts a `fail` verdict with specific issues
 
 ## Artifacts Produced

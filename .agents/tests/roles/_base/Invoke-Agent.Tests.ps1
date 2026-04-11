@@ -217,7 +217,7 @@ Describe "Invoke-Agent" {
 
     Context "Skill Isolation (EPIC-002)" {
         It "creates and populates skills directory" {
-            # Use engineer role — gets global skills auto-injected (e.g. auto-memory)
+            # Use engineer role — gets role-private skills auto-loaded from skills/roles/engineer/
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
@@ -227,8 +227,8 @@ Describe "Invoke-Agent" {
             
             $skills = Get-ChildItem $isolatedSkillsDir -Directory
             $skills.Count | Should -BeGreaterThan 0
-            # Should contain at least 'auto-memory' (auto-injected global skill)
-            $skills.Name | Should -Contain "auto-memory"
+            # Should contain at least 'implement-epic' (auto-loaded role-private skill)
+            $skills.Name | Should -Contain "implement-epic"
         }
 
         It "preserves existing skills dir and adds resolved skills on new invocation" {
@@ -289,15 +289,17 @@ for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
             chmod +x $script:argsMock
         }
 
-        It "passes 'start' as positional message and prompt via --file" {
+        It "passes a short positional message and prompt via --file" {
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "Hello world test" `
                 -AgentCmd $script:argsMock -TimeoutSeconds 5
 
             if (Test-Path $script:argsDump) {
                 $capturedArgs = Get-Content $script:argsDump
-                # First arg should be 'start' (the positional message)
-                $capturedArgs[0] | Should -Be "start"
+                # First arg should be the short positional message (required by opencode run)
+                $capturedArgs[0] | Should -Match "Execute the task"
+                # Legacy 'start' positional must NOT be present
+                $capturedArgs | Should -Not -Contain "start"
                 # Prompt should NOT appear as inline text on the command line
                 $capturedArgs | Should -Not -Contain "Hello world test"
                 # Prompt file should be attached via --file
@@ -482,7 +484,7 @@ for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
             }
         }
 
-        It "uses 'start' as positional message, not inline prompt text" {
+        It "passes short message positional, not legacy 'start' or inline prompt" {
             $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).sh"
             @"
 #!/bin/bash
@@ -495,10 +497,14 @@ echo "ARGS: `$@"
                 -AgentCmd $captureMock -TimeoutSeconds 5
 
             if ($result.Output) {
-                # Should see 'start' as the message, not inline prompt
-                $result.Output | Should -Match "ARGS: start"
+                # Should contain the short positional message
+                $result.Output | Should -Match "Execute the task"
+                # Legacy 'start' positional must NOT be present
+                $result.Output | Should -Not -Match "ARGS: start "
                 # Should NOT contain the raw prompt text inline
                 $result.Output | Should -Not -Match "test positional prompt"
+                # Should contain --file (prompt passed via file)
+                $result.Output | Should -Match "--file"
             }
         }
     }

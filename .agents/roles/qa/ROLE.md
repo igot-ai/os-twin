@@ -26,7 +26,7 @@ trust_level: core
 When reviewing an Epic, you assess the full feature holistically:
 
 1. Read the Engineer's `done` message and the original Epic brief
-2. Review `TASKS.md` — verify all sub-tasks are checked off
+2. Review `TASKS.md` — verify all sub-tasks are checked off. Check the `assets/` directory and its manifest for any requirements or reference materials that should be used for verification.
 3. Verify each sub-task was actually implemented (not just checked off)
 4. Review ALL code changes across the full epic as a cohesive deliverable
 5. Run the project's full test suite

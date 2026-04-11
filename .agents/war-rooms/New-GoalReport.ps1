@@ -29,8 +29,7 @@ param(
 $testGoalCompletion = Join-Path $PSScriptRoot "Test-GoalCompletion.ps1"
 
 if (-not (Test-Path $testGoalCompletion)) {
-    Write-Error "Test-GoalCompletion.ps1 not found at: $testGoalCompletion"
-    exit 1
+    throw "Test-GoalCompletion.ps1 not found at: $testGoalCompletion"
 }
 
 # --- Run goal verification ---

@@ -58,9 +58,9 @@ Determine whether the failure is:
 
 | Verdict | When | Next State |
 |---------|------|-----------|
-| **FIX** | Implementation bug, design is sound | → `fixing` → `engineering` |
-| **REDESIGN** | Design flaw, but scope is correct | → `fixing` with new design spec → `engineering` |
-| **REPLAN** | Requirements gap, brief needs updating | → `plan-revision` → update `brief.md` → `engineering` |
+| **FIX** | Implementation bug, design is sound | → `fixing` → `developing` |
+| **REDESIGN** | Design flaw, but scope is correct | → `fixing` with new design spec → `developing` |
+| **REPLAN** | Requirements gap, brief needs updating | → `plan-revision` → update `brief.md` → `developing` |
 
 ### 5. Write design-guidance.md
 

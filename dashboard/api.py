@@ -204,6 +204,11 @@ async def on_shutdown():
 
     stop_tunnel()
 
+    # Stop the bot process if it was started
+    import dashboard.global_state as gs
+    if gs.bot_manager and gs.bot_manager.is_running:
+        await gs.bot_manager.stop()
+
 
 if __name__ == "__main__":
     import argparse

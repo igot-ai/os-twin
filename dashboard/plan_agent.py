@@ -133,8 +133,12 @@ def get_system_prompt(
         if template_path.exists():
             plan_format_spec = template_path.read_text()
         else:
-            logger.warning(f"Plan template not found at {template_path}")
-            plan_format_spec = f"Template not found at {template_path}"
+            template_path = agents_dir / ".ostwin/plans/PLAN.template.md"
+            if template_path.exists():
+                plan_format_spec = template_path.read_text()
+            else:
+                logger.warning(f"Plan template not found at {template_path}")
+                plan_format_spec = f"Template not found at {template_path}"
     else:
         logger.warning("plans_dir not provided, cannot load PLAN.template.md")
         plan_format_spec = "Plans directory not configured."
@@ -316,6 +320,7 @@ def create_plan_agent(
 
     # Resolve agents_dir from plans_dir
     agents_dir = plans_dir.parent if plans_dir else None
+
     logger.info(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
     print(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
 

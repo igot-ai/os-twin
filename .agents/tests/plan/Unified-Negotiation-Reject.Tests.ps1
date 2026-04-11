@@ -57,7 +57,7 @@ Describe "Unified Plan Negotiation Rejection" {
         $lines | Out-File $script:planFile -Encoding utf8
     }
 
-    It "handles plan-reject by resetting room-000 to pending" -Skip:$true -ForEach @{reason = "Flaky: externally-set qa-review status races with manager loop's internal state"} {
+    It "handles plan-reject by resetting room-000 to pending" -Skip:$true -ForEach @{reason = "Flaky: externally-set review status races with manager loop's internal state"} {
         $env:WARROOMS_DIR = $script:warRoomsDir
 
         # Run Start-Plan in unified mode
@@ -80,17 +80,17 @@ Describe "Unified Plan Negotiation Rejection" {
         
         if (-not (Test-Path $status000)) { throw "room-000 not created" }
 
-        # Wait for manager to pick it up (engineering or qa-review)
+        # Wait for manager to pick it up (developing or review)
         $waited = 0
         $s = ""
-        while ($s -ne "engineering" -and $s -ne "qa-review" -and $waited -lt $maxWaits) {
+        while ($s -ne "developing" -and $s -ne "review" -and $waited -lt $maxWaits) {
             $s = (Get-Content $status000 -Raw).Trim()
             Start-Sleep -Milliseconds 500
             $waited++
         }
 
-        # Change status to qa-review so manager checks for plan-reject/plan-approve
-        "qa-review" | Out-File -FilePath $status000 -Encoding utf8 -NoNewline
+        # Change status to review so manager checks for plan-reject/plan-approve
+        "review" | Out-File -FilePath $status000 -Encoding utf8 -NoNewline
 
         # Give the manager loop time to detect the new status before posting the message
         Start-Sleep -Seconds 2

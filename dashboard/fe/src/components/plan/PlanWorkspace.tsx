@@ -6,6 +6,7 @@ import { usePlan } from '@/hooks/use-plans';
 import { useEpics, useDAG } from '@/hooks/use-epics';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { usePlanRefine } from '@/hooks/use-plan-refine';
+import { useAssets } from '@/hooks/use-assets';
 import { apiPost } from '@/lib/api-client';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
 import { Plan, Epic, EpicStatus, WarRoomProgress } from '@/types';
@@ -48,6 +49,8 @@ interface PlanContextType {
   canUndo: boolean;
   canRedo: boolean;
   refreshProgress: () => void;
+  uploadAssets: (files: FileList | File[], epicRef?: string) => Promise<unknown>;
+  isUploadingAssets: boolean;
 }
 
 export const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -79,6 +82,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const { epics: apiEpics, isLoading: epicsLoading, isError: epicsError, updateEpicState } = useEpics(planId);
   const { dag } = useDAG(planId);
   const { progress, isLoading: isProgressLoading, refresh: refreshProgress } = useWarRoomProgress(planId);
+  const { uploadAssets, uploading: isUploadingAssets } = useAssets(planId);
   
   const [selectedEpicRef, setSelectedEpicRef] = useState<string | null>(null);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
@@ -88,6 +92,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const [planContent, setPlanContent] = useState('');
   const [parsedPlan, setParsedPlan] = useState<EpicDocument | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   // Undo/Redo Stack
   const [undoStack, setUndoStack] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
@@ -98,6 +103,34 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
       future: []
     }));
   }, []);
+
+  const handleGlobalDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      setIsDraggingFile(true);
+    }
+  }, []);
+
+  const handleGlobalDragLeave = useCallback((e: React.DragEvent) => {
+    // Only set to false if we're leaving the window/container
+    if (e.currentTarget === e.target) {
+      setIsDraggingFile(false);
+    }
+  }, []);
+
+  const handleGlobalDrop = useCallback(async (e: React.DragEvent) => {
+    if (e.dataTransfer.files.length > 0) {
+      e.preventDefault();
+      setIsDraggingFile(false);
+      try {
+        await uploadAssets(e.dataTransfer.files);
+        setActiveTab('assets'); // Switch to assets tab to show the upload
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        alert(`Upload failed: ${message}`);
+      }
+    }
+  }, [uploadAssets]);
 
   const undo = useCallback(() => {
     if (undoStack.past.length === 0) return;
@@ -307,6 +340,8 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     canUndo: undoStack.past.length > 0,
     canRedo: undoStack.future.length > 0,
     refreshProgress: () => refreshProgress(),
+    uploadAssets,
+    isUploadingAssets,
   };
 
   if (planLoading && !plan) {
@@ -325,7 +360,20 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
 
   return (
     <PlanContext.Provider value={contextValue}>
-      <div className="flex flex-col h-[calc(100vh-56px)] bg-background">
+      <div 
+        className={`flex flex-col h-[calc(100vh-56px)] bg-background relative transition-all duration-300 ${
+          isDraggingFile ? 'ring-4 ring-primary/20 ring-inset' : ''
+        }`}
+        onDragOver={handleGlobalDragOver}
+        onDragLeave={handleGlobalDragLeave}
+        onDrop={handleGlobalDrop}
+      >
+        {isDraggingFile && (
+          <div className="absolute top-4 right-4 bg-primary text-white px-4 py-2 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-in slide-in-from-top-4 duration-300 pointer-events-none">
+            <span className="material-symbols-outlined text-[20px] animate-bounce">upload</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Drop anywhere to upload to Plan</span>
+          </div>
+        )}
         {/* Breadcrumb Header */}
         <div className="px-6 py-2 border-b bg-surface border-border shrink-0">
           <PlanBreadcrumb />

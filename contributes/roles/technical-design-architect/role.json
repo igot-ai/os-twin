@@ -1,0 +1,22 @@
+{
+  "name": "technical-design-architect",
+  "description": "Define the technical architecture, database schema, and visual identity including custom assets for the interactive blog.",
+  "capabilities": [
+    "architecture-design",
+    "database-modeling",
+    "ui-design",
+    "asset-creation"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skill_refs": [
+    "create-architecture",
+    "write-adr",
+    "design-md",
+    "stitch-design"
+  ],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

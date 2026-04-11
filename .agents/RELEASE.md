@@ -1,11 +1,11 @@
-# Release: v0.1.0-20260402
+# Release: v0.1.0-20260407
 
-**Date**: 2026-04-02 21:16:01 UTC
+**Date**: 2026-04-07 08:02:30 UTC
 **Status**: Approved
 
 ## Summary
 
-3 task(s) completed and reviewed by QA.
+8 task(s) completed and reviewed by QA.
 
 ## Tasks Completed
 
@@ -14,15 +14,16 @@
 
 - **Room**: room-000
 - **Status**: passed
-- **QA Verdict**: I have reviewed the project plan at `/home/tcuong1000/ostwin-workingdir/memory-test.plan.md`. 
-The epics and tasks are extremely well-specified. The API contracts, endpoint definitions (`POST /auth/magic-link` and `GET /auth/verify/:token`), request payloads, response shapes, and project structure are all clear and explicitly documented. The scope is appropriately limited to in-memory persistence for testing, and the success criteria explicitly check for strict conformance.
-No further in-place refinement is necessary, as the plan is ready for engineering implementation.
-```bash
-# Publishing API contracts and technical stack to shared memory so other agents can access them
-memory publish interface "POST /auth/magic-link — Request magic link for authentication" --tags api,auth --ref EPIC-001 --detail "Request: { email: string }. Response: { token: string, expiresAt: number, refreshUrl: string }"
-memory publish interface "GET /auth/verify/:token — Verify an authentication token" --tags api,auth --ref EPIC-001 --detail "Request params: { token: string }. Response: { valid: boolean, email?: string }"
-memory publish code "Tech stack and project structure" --tags stack,architecture --ref EPIC-001 --detail "Node.js (Express) for Backend, Vanilla HTML/JS or React for Frontend. Persistence: In-memory. Project Directory: /home/tcuong1000/ostwin-workingdir/memory-test"
-VERDICT: PASS
+- **QA Verdict**: ### Architectural Review
+**1. Architectural Compliance Check**
+The plan follows the system's design well. It extends the existing file-based persistence (`meta.json`) and leverages the existing `planning_thread_store.py` for conversational state. 
+*Improvement Made:* I reviewed `EPIC-001` and noticed that serializing both `bound_epics[]` (on the asset) and an `epic_assets` mapping (top-level) into `meta.json` creates a dual-source of truth that risks synchronization bugs. I updated the plan in-place to calculate `epic_assets` strictly as a runtime index rather than persisting it twice in JSON.
+**2. Scalability Concerns**
+The plan originally stated "No limit" on asset sizes. While local storage may tolerate this, bots like Discord (25MB limit) and Telegram (20MB without a local API server) have strict attachment limits. 
+*Improvement Made:* I have updated the Open Questions in the plan to reflect that large files will hit bot payload limits and the bot should gracefully direct users to the dashboard upload UI for files that exceed these limits.
+**3. Security Review**
+The plan incorporates solid security practices:
+- **Path Traversal:** Explicitly mentioned in `EPIC-002` to validate `filename` and `plan_id`.
 
 ### EPIC-001 — EPIC-001
 
@@ -34,23 +35,46 @@ VERDICT: PASS
 
 - **Room**: room-002
 - **Status**: passed
-- **QA Verdict**: VERDICT: PASS
-The implementation of **EPIC-002** (Login Frontend Page) successfully meets all acceptance criteria and quality requirements.
-### Acceptance Criteria Verification
-- **Endpoint**: The login page correctly calls `POST /auth/magic-link` as specified in the EPIC-001 API contract.
-- **Payload**: The frontend sends the correct payload format `{ email: string }`.
-- **Response Handling**: The implementation correctly extracts and displays the `token`, `expiresAt`, and `refreshUrl` from the magic link response.
-- **Form UI**: The login form includes the required email input and a submit button with a message container for feedback.
-### Testing and Quality
-- **Test Suite**: All 7 tests (Auth API and Login Integration) passed successfully.
-- **Test Coverage**: Achieved 100% code coverage across `src/login/page.js` and the `src/auth/` module.
+- **QA Verdict**: No QA verdict recorded
+
+### EPIC-003 — EPIC-003
+
+- **Room**: room-003
+- **Status**: passed
+- **QA Verdict**: No QA verdict recorded
+
+### EPIC-004 — EPIC-004
+
+- **Room**: room-004
+- **Status**: passed
+- **QA Verdict**: No QA verdict recorded
+
+### EPIC-005 — EPIC-005
+
+- **Room**: room-005
+- **Status**: passed
+- **QA Verdict**: No QA verdict recorded
+
+### EPIC-006 — EPIC-006
+
+- **Room**: room-006
+- **Status**: passed
+- **QA Verdict**: No QA verdict recorded
+
+### EPIC-007 — EPIC-007
+
+- **Room**: room-007
+- **Status**: passed
+- **QA Verdict**: No QA verdict recorded
 
 
 ## Sign-offs
 
 | Role     | Status  | Timestamp |
 |----------|---------|-----------|
-| Manager | Approved | 2026-04-02T21:16:01Z |
+| Engineer | Approved | 2026-04-07T08:02:30Z |
+| Qa | Approved | 2026-04-07T08:02:30Z |
+| Manager | Approved | 2026-04-07T08:02:30Z |
 
 ---
 

@@ -14,7 +14,7 @@ This skill helps you define and scaffold the **lifecycle** of an epic inside an 
 ## War-Room State Machine Reference
 
 ```
-pending → engineering → qa-review ─┬─► passed
+pending → developing → qa-review ─┬─► passed
               ▲                     │
               │               ┌─────┘ (on fail/escalate)
               │               ▼
@@ -58,7 +58,7 @@ Create `<war-room>/lifecycle/lifecycle.md`:
 **Artifacts required:**
 - [ ] `brief.md` — Epic description, scope, and acceptance criteria
 
-### 2. Engineering
+### 2. Developing
 
 **Entry:** Engineer begins implementation.
 **Exit criteria:** Engineer posts a `done` message with all deliverables.
@@ -113,7 +113,7 @@ Create `<war-room>/lifecycle/lifecycle.md`:
 ### 5c. Plan Revision
 
 **Entry:** Architect recommends REPLAN.
-**Exit criteria:** `brief.md` is updated → engineering restarts.
+**Exit criteria:** `brief.md` is updated → developing restarts.
 
 ### 6. Failed-Final ❌
 
@@ -133,7 +133,7 @@ Create `<war-room>/lifecycle/phase-checklist.md` — a lightweight tracker agent
 | # | Phase | Status | Agent | Entered | Exited | Artifacts |
 |---|-------|--------|-------|---------|--------|-----------|
 | 1 | Pending | ⬜ | — | — | — | brief.md |
-| 2 | Engineering | ⬜ | engineer | — | — | TASKS.md, code, tests |
+| 2 | Developing | ⬜ | engineer | — | — | TASKS.md, code, tests |
 | 3 | QA Review | ⬜ | qa | — | — | qa-report.md |
 | 4 | Passed / Triage | ⬜ | manager | — | — | triage-context.md |
 | 5 | Fixing / Architect | ⬜ | — | — | — | varies |
@@ -153,8 +153,8 @@ Create `<war-room>/lifecycle/quality-gates.md`:
 
 | Gate | Phase Transition | Criteria |
 |------|-----------------|----------|
-| **Brief Approved** | pending → engineering | Brief has clear scope, acceptance criteria, and role assignment |
-| **Code Complete** | engineering → qa-review | All TASKS.md items checked, tests pass, done message posted |
+| **Brief Approved** | pending → developing | Brief has clear scope, acceptance criteria, and role assignment |
+| **Code Complete** | developing → qa-review | All TASKS.md items checked, tests pass, done message posted |
 | **QA Passed** | qa-review → passed | All acceptance criteria verified, no blocking issues |
 | **Triage Complete** | qa-review → fixing/architect | Failure classified, context documented, next action clear |
 | **Fix Verified** | fixing → qa-review | Fix addresses all QA feedback points, no new regressions |
@@ -163,7 +163,7 @@ Create `<war-room>/lifecycle/quality-gates.md`:
 
 ## Mandatory Checks Per Phase
 
-### Before Leaving Engineering
+### Before Leaving Developing
 - [ ] All sub-tasks in TASKS.md are checked off
 - [ ] No compilation/parse errors
 - [ ] Unit test coverage ≥ 80% (if applicable)

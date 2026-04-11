@@ -368,10 +368,30 @@ while (-not $script:shuttingDown) {
                     'decision' {
                         $allPassed = $false; $allTerminal = $false; $totalActive++
                         if ($retries -lt $v2MaxRetries) {
-                            Write-Log "INFO" "[$taskRef] Decision: retries ($retries) < max ($v2MaxRetries). Retrying."
-                            Write-RoomStatus $roomDir $v2StateDef.signals.retry.target
+                            # Increment retries so the retry/exhaust guard makes progress.
+                            # Without this, crash-respawn cycles that never produce a
+                            # lifecycle signal (done/pass/fail) would loop indefinitely
+                            # between failed→developing because retries stays at 0.
+                            $newRetries = $retries + 1
+                            $newRetries.ToString() | Out-File -FilePath (Join-Path $roomDir "retries") -Encoding utf8 -NoNewline
+                            $retryTarget = $v2StateDef.signals.retry.target
+                            Write-Log "INFO" "[$taskRef] Decision: retries ($newRetries/$v2MaxRetries). Retrying → $retryTarget."
+                            Write-RoomStatus $roomDir $retryTarget
+
+                            # Spawn the target state's worker immediately so the next
+                            # poll iteration doesn't miscount it as a crash-respawn.
+                            $retryStateDef = if ($lifecycle.states.$retryTarget) { $lifecycle.states.$retryTarget } else { $null }
+                            if ($retryStateDef -and $retryStateDef.role -and $retryStateDef.type -in @('work', 'review')) {
+                                $retryRole = $retryStateDef.role -replace ':.*$', ''
+                                if (Test-Path $resolveRoleScript) {
+                                    $retryResolved = & $resolveRoleScript -RoleName $retryStateDef.role -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
+                                    Start-WorkerJob -RoomDir $roomDir -Role $retryRole -Script $retryResolved.Runner -TaskRef $taskRef -SkipLockCheck
+                                } else {
+                                    Start-WorkerJob -RoomDir $roomDir -Role $retryRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                                }
+                            }
                         } else {
-                            Write-Log "ERROR" "[$taskRef] Decision: retries exhausted. Failing."
+                            Write-Log "ERROR" "[$taskRef] Decision: retries exhausted ($retries/$v2MaxRetries). Failing."
                             Write-RoomStatus $roomDir $v2StateDef.signals.exhaust.target
                             Set-BlockedDescendants $taskRef
                         }
@@ -775,6 +795,12 @@ while (-not $script:shuttingDown) {
         }
         $script:lastProgressUpdate = $nowEpoch
     }
+
+    # Prune completed PowerShell background jobs to prevent memory accumulation.
+    # Start-WorkerJob uses Start-Job which creates job objects that persist until
+    # removed. Without cleanup, long-running plans accumulate hundreds of stale jobs.
+    Get-Job -State Completed -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+    Get-Job -State Failed    -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
 
     Start-Sleep -Seconds $pollInterval
 }

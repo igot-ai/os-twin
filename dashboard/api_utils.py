@@ -68,6 +68,26 @@ def resolve_plans_dir(
 
 PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
 
+# Global plans store (always ~/.ostwin/.agents/plans) — plans created via the
+# installed dashboard or bot land here.  Used as a fallback when a plan file
+# is not found in the project-local PLANS_DIR.
+GLOBAL_PLANS_DIR = Path.home() / ".ostwin" / ".agents" / "plans"
+
+
+def find_plan_file(plan_id: str) -> Optional[Path]:
+    """Locate a plan file by ID, checking project-local first, then global store.
+
+    Returns the Path to the .md file, or None if not found in either location.
+    """
+    local = PLANS_DIR / f"{plan_id}.md"
+    if local.exists():
+        return local
+    if GLOBAL_PLANS_DIR != PLANS_DIR:
+        global_path = GLOBAL_PLANS_DIR / f"{plan_id}.md"
+        if global_path.exists():
+            return global_path
+    return None
+
 # Global roles storage
 GLOBAL_ROLES_DIR = _ostwin_home / ".agents" / "roles"
 

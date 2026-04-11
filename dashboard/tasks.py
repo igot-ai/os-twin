@@ -126,6 +126,13 @@ async def poll_war_rooms():
                                 logger.warning(
                                     "Failed to sync skills for room %s: %s", room_id, e
                                 )
+                            # EPIC-004: Inject assets into war room
+                            epic_ref = room.get("task_ref", "")
+                            if epic_ref:
+                                try:
+                                    EpicSkillsManager.inject_room_assets(room_parent / room_id, plan_id, epic_ref)
+                                except Exception as e:
+                                    logger.warning("Failed to inject assets for room %s: %s", room_id, e)
 
                     if room_parent and room["message_count"] > 0:
                         messages = read_channel(room_parent / room_id)
@@ -301,6 +308,22 @@ async def startup_all():
     except Exception as e:
         logger.error(f"zvec init failed: {e}")
         global_state.store = None
+
+    # Auto-start the bot process if bot/ directory exists
+    try:
+        from dashboard.bot_manager import BotProcessManager, BOT_DIR
+
+        if BOT_DIR.exists():
+            global_state.bot_manager = BotProcessManager()
+            started = await global_state.bot_manager.start()
+            if started:
+                logger.info("Bot process started successfully")
+            else:
+                logger.warning("Bot process failed to start (missing tsx or entry point)")
+        else:
+            logger.info("Bot directory not found — skipping bot auto-start")
+    except Exception as e:
+        logger.error("Bot auto-start failed: %s", e)
 
     # Auto-start ngrok tunnel if NGROK_AUTHTOKEN is set
     auth_token = os.environ.get("NGROK_AUTHTOKEN")

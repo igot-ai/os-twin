@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Epic } from '@/types';
 import { usePlanContext } from './PlanWorkspace';
 import { useDraggable } from '@dnd-kit/core';
@@ -57,10 +57,36 @@ interface EpicCardProps {
 }
 
 export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCardProps) {
-  const { selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen } = usePlanContext();
+  const { selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen, uploadAssets } = usePlanContext();
+  const [isHoveringFile, setIsHoveringFile] = useState(false);
+
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: epic.epic_ref,
   });
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsHoveringFile(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setIsHoveringFile(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsHoveringFile(false);
+    if (e.dataTransfer.files.length > 0) {
+      try {
+        await uploadAssets(e.dataTransfer.files, epic.epic_ref);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        alert(`Upload failed: ${message}`);
+      }
+    }
+  }, [uploadAssets, epic.epic_ref]);
 
   const style = transform ? {
     transform: CSS.Translate.toString(transform),
@@ -92,8 +118,11 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
     <div
       ref={setNodeRef}
       onClick={handleClick}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className={`group relative p-3 rounded-lg border bg-surface transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5 ${isSelected ? 'border-primary ring-1 ring-primary/20 shadow-md' : 'border-border hover:border-text-faint'
-        }`}
+        } ${isHoveringFile ? 'ring-2 ring-primary bg-primary/5 scale-[1.02] shadow-lg z-10' : ''}`}
       style={{ ...style, borderLeftWidth: '3px', borderLeftColor: stateColor }}
       role="button"
       aria-pressed={isSelected}
@@ -106,6 +135,12 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
         }
       }}
     >
+      {isHoveringFile && (
+        <div className="absolute inset-0 bg-primary/10 flex flex-col items-center justify-center rounded-lg backdrop-blur-[1px] z-[30] border-2 border-primary border-dashed">
+          <span className="material-symbols-outlined text-primary text-3xl animate-bounce">upload</span>
+          <span className="text-[10px] font-bold text-primary uppercase tracking-wider">Drop to Bind Asset</span>
+        </div>
+      )}
       {/* Drag Handle */}
       <div
         {...attributes}

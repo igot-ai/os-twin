@@ -9,6 +9,7 @@ class UserSession:
     mode: str = "idle"  # "idle", "editing", "drafting"
     chat_history: List[Dict[str, str]] = field(default_factory=list)
     last_activity: float = field(default_factory=time.time)
+    active_epic_ref: Optional[str] = None
 
 # In-memory session store: chat_id -> UserSession
 _sessions: Dict[int, UserSession] = {}

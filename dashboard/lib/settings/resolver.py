@@ -141,10 +141,10 @@ class SettingsResolver:
                 effective[key] = value
             provenance[key] = "global"
         
-        # 3. Plan-level override
+        # 3. Plan-level override (from {plan_id}.roles.json — flat structure)
         if plan_id:
             plan_config = self._load_plan_config(plan_id)
-            plan_role_config = plan_config.get("roles", {}).get(role, {})
+            plan_role_config = plan_config.get(role, {})
             # Also pick up plan-level attached_skills
             attached_skills = plan_config.get("attached_skills", [])
             for key, value in plan_role_config.items():
@@ -216,7 +216,10 @@ class SettingsResolver:
     def patch_plan_role(
         self, plan_id: str, role: str, value: Dict[str, Any]
     ) -> None:
-        """Patch plan-level role override.
+        """Patch plan-level role override in {plan_id}.roles.json.
+        
+        Updates the role config directly under the role key (flat structure),
+        matching the format used by update_plan_config in plans.py.
         
         Args:
             plan_id: Plan ID
@@ -224,11 +227,9 @@ class SettingsResolver:
             value: Settings to patch
         """
         plan_config = self._load_plan_config(plan_id)
-        if "roles" not in plan_config:
-            plan_config["roles"] = {}
-        if role not in plan_config["roles"]:
-            plan_config["roles"][role] = {}
-        plan_config["roles"][role].update(value)
+        if role not in plan_config:
+            plan_config[role] = {}
+        plan_config[role].update(value)
         self._save_plan_config(plan_id, plan_config)
     
     def patch_room_role(
@@ -363,18 +364,28 @@ class SettingsResolver:
         return self._safe_model(ObservabilitySettings, config.get("observability", {}))
     
     def _load_plan_config(self, plan_id: str) -> Dict[str, Any]:
-        """Load plan config from .plans/{plan_id}/config.json."""
-        from dashboard.api_utils import WARROOMS_DIR
-        config_file = WARROOMS_DIR / plan_id / "config.json"
-        if config_file.exists():
-            return json.loads(config_file.read_text())
+        """Load per-plan role config from {plan_id}.roles.json in PLANS_DIR.
+        
+        Falls back to global config.json if the plan-specific file doesn't exist.
+        The returned dict has role names as top-level keys (flat structure).
+        """
+        from dashboard.api_utils import PLANS_DIR
+        roles_file = PLANS_DIR / f"{plan_id}.roles.json"
+        if roles_file.exists():
+            try:
+                return json.loads(roles_file.read_text())
+            except json.JSONDecodeError:
+                pass
+        # Fallback to global config
+        if self.config_path.exists():
+            return json.loads(self.config_path.read_text())
         return {}
     
     def _save_plan_config(self, plan_id: str, config: Dict[str, Any]) -> None:
-        """Save plan config atomically."""
-        from dashboard.api_utils import WARROOMS_DIR
-        config_file = WARROOMS_DIR / plan_id / "config.json"
-        self._atomic_write_json(config_file, config)
+        """Save per-plan role config atomically to {plan_id}.roles.json in PLANS_DIR."""
+        from dashboard.api_utils import PLANS_DIR
+        roles_file = PLANS_DIR / f"{plan_id}.roles.json"
+        self._atomic_write_json(roles_file, config)
     
     def _load_room_config(self, plan_id: str, task_ref: str) -> Dict[str, Any]:
         """Load room config from .war-rooms/{plan_id}/{task_ref}/config.json."""

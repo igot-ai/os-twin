@@ -71,7 +71,9 @@ param(
  
     [string[]]$RequiredCapabilities = @(),
 
-    [string]$Lifecycle = ''
+    [string]$Lifecycle = '',
+
+    [PSCustomObject[]]$Assets = @()
 )
 
 # --- Resolve war-rooms directory ---
@@ -84,8 +86,7 @@ $roomDir = Join-Path $WarRoomsDir $RoomId
 
 # --- Prevent overwriting existing room ---
 if (Test-Path $roomDir) {
-    Write-Error "War-room '$RoomId' already exists at $roomDir"
-    exit 1
+    throw "War-room '$RoomId' already exists at $roomDir"
 }
 
 # --- Create room directory structure ---
@@ -93,8 +94,32 @@ New-Item -ItemType Directory -Path $roomDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $roomDir "contexts") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $roomDir "assets") -Force | Out-Null
+
+# --- Inject Assets ---
+$assetManifest = ""
+if ($Assets -and $Assets.Count -gt 0) {
+    $assetManifest = "## Available Assets`n`n"
+    foreach ($asset in $Assets) {
+        $sourcePath = $asset.Path
+        $targetFilename = $asset.Filename
+        $targetPath = Join-Path $roomDir "assets" $targetFilename
+        
+        if (Test-Path $sourcePath) {
+            # Copy asset (read-only in the room)
+            Copy-Item -Path $sourcePath -Destination $targetPath -Force
+            $assetManifest += "- ``assets/$targetFilename`` — $($asset.Description) (Type: $($asset.AssetType))`n"
+        } else {
+            Write-Warning "Asset file not found: $sourcePath"
+            $assetManifest += "- [WARNING: MISSING ON DISK] ``assets/$targetFilename`` — $($asset.Description)`n"
+        }
+    }
+    $assetManifest += "`n"
+}
 
 # --- Initialize channel ---
+# NOTE: All subsequent writes to channel.jsonl MUST go through Write-ChannelLine
+# (from Utils.psm1) which uses Invoke-WithFileLock to prevent concurrent-append corruption.
 New-Item -ItemType File -Path (Join-Path $roomDir "channel.jsonl") -Force | Out-Null
 
 # --- Detect Epic vs Task ---
@@ -272,6 +297,7 @@ $TaskDescription
 $dodSection
 $acSection
 
+$assetManifest
 ## Working Directory
 $($config.working_dir)
 
@@ -279,6 +305,18 @@ $($config.working_dir)
 $ts
 "@
 $briefContent | Out-File -FilePath (Join-Path $roomDir "brief.md") -Encoding utf8
+
+# --- Create skeleton TASKS.md for Epics ---
+if ($assignmentType -eq 'epic') {
+    $tasksContent = @"
+# Tasks for $TaskRef
+
+$assetManifest
+- [ ] TASK-001 — Planning and context gathering
+- [ ] TASK-002 — Core implementation
+"@
+    $tasksContent | Out-File -FilePath (Join-Path $roomDir "TASKS.md") -Encoding utf8
+}
 
 # --- Generate per-room lifecycle (if Pipeline or Capabilities provided) ---
 if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)) {
@@ -298,7 +336,7 @@ if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)
 }
 
 # --- FALLBACK: Generate default lifecycle from CandidateRoles ---
-# AssignedRole is the authoritative primary worker for the engineering stage.
+# AssignedRole is the authoritative primary worker for the developing stage.
 # Review stages are derived from CandidateRoles minus the AssignedRole.
 # Only roles present in candidate_roles appear in the lifecycle.
 $lifecyclePath = Join-Path $roomDir "lifecycle.json"

@@ -38,6 +38,7 @@ const commands = [
     .setDescription('Draft a new Plan with AI')
     .addStringOption(opt => opt.setName('idea').setDescription('Your project idea').setRequired(false)),
   new SlashCommandBuilder().setName('edit').setDescription('Select a plan to edit with AI'),
+  new SlashCommandBuilder().setName('assets').setDescription('List assets saved for the active or selected plan'),
   new SlashCommandBuilder().setName('viewplan').setDescription('View a plan\'s content'),
   new SlashCommandBuilder().setName('startplan').setDescription('Select and launch a plan'),
   new SlashCommandBuilder().setName('cancel').setDescription('Exit current editing session'),

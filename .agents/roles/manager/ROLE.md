@@ -27,18 +27,16 @@ The Manager treats both identically: one war-room per item, same lifecycle.
 
 Each war-room follows this lifecycle:
 ```
-pending → engineering → qa-review ─┬─► passed
-              ▲                     │
-              │               ┌─────┘ (on fail/escalate)
-              │               ▼
-              │         manager-triage
-              │          ┌────┼──────────────┬──────────────┬──────────────┐
-              │          ▼    ▼              ▼              ▼              ▼
-              │      fixing  architect-review  plan-revision  subcommand-redesign
-              │          │        │    │            │               │
-              └──────────┴────────┴────┴────────────┴───────────────┴─ engineering (retry)
-                                  ▼                                  ↓
-                                fixing                        failed-final (if max hit)
+pending → developing → review ─┬─► passed
+              ▲                 │
+              │           ┌─────┘ (on fail/escalate)
+              │           ▼
+              │       triage
+              │        ┌──┼────────────┬──────────────┐
+              │        ▼  ▼            ▼              ▼
+              │    fixing  optimize  plan-revision  failed-final
+              │        │     │            │
+              └────────┴─────┴────────────┘ (retry → developing)
 ```
 
 If max retries exceeded: `failed-final` (escalate to human)
@@ -55,8 +53,8 @@ The manager can trigger a `subcommand-redesign` state when a role's subcommand f
 | `environment-error` | module-not-found, file-missing, permission-denied | → subcommand-redesign |
 | `input-error` | invalid-args, schema-fail | → subcommand-redesign |
 | `implementation-bug` | Default | → fixing |
-| `design-issue` | architecture, design, scope, interface | → architect-review |
-| `plan-gap` | specification, acceptance criteria, requirements | → plan-revision |
+| `design-issue` | architecture, design, scope, interface | → triage (architect) |
+| `plan-gap` | specification, acceptance criteria, requirements | → triage (plan-revision) |
 
 #### Redesign Workflow
 1. **Detection**: Manager identifies a subcommand failure from the agent's output.
@@ -66,7 +64,7 @@ The manager can trigger a `subcommand-redesign` state when a role's subcommand f
    - Check project-local override: `.ostwin/roles/<role>/subcommands.json`
    - Check global: `.agents/roles/<role>/subcommands.json`
 4. **Trigger Redesign**: If classified as a subcommand-related error, the manager executes `Redesign-Subcommand.ps1`.
-5. **Verification**: After redesign, the manager returns the war-room to the `engineering` state to retry.
+5. **Verification**: After redesign, the manager returns the war-room to the `developing` state to retry.
 
 #### CLI Examples
 - Redesign a buggy subcommand:
@@ -78,7 +76,7 @@ The manager can trigger a `subcommand-redesign` state when a role's subcommand f
 When QA fails or escalates, the manager classifies the failure:
 - **implementation-bug** → route to engineer with fix instructions
 - **design-issue** → route to architect for review, then to engineer with guidance
-- **plan-gap** → route to architect, then update brief.md and restart engineering
+- **plan-gap** → route to architect, then update brief.md and restart developing
 
 ### Classification Rules
 1. **Keyword matching**: feedback containing "architecture", "design", "scope", "interface" → `design-issue`

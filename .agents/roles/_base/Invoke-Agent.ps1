@@ -317,7 +317,7 @@ $resolveSkillsScript = Join-Path $PSScriptRoot "Resolve-RoleSkills.ps1"
 
 if (Test-Path $resolveSkillsScript) {
     try {
-        $skills = & $resolveSkillsScript -RoleName $RoleName -RolePath $rolePath -ErrorAction Stop
+        $skills = & $resolveSkillsScript -RoleName $RoleName -RolePath $rolePath -RoomDir $absRoomDir -ErrorAction Stop
         foreach ($skill in $skills) {
             if ($skill.Path -and (Test-Path $skill.Path)) {
                 # Copy the entire skill directory content to the isolated location
@@ -371,8 +371,9 @@ $debugPromptFile = Join-Path $artifactsDir "$RoleName-prompt-debug.md"
 $Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
 
 # Build non-prompt CLI args safely (opencode run flags)
-# Prompt is passed as --file <path> to avoid ARG_MAX limits with large prompts
-$extraCliArgs = @()
+# Prompt is passed as --file <path> to avoid ARG_MAX limits with large prompts.
+# A short positional message is required by opencode run — the full prompt is in the file.
+$extraCliArgs = @("Execute the task described in the attached prompt file.")
 if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
 if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
 if ($Format) { $extraCliArgs += "--format"; $extraCliArgs += $Format }
@@ -451,8 +452,8 @@ echo "`$$" > '$safePidFile'
 # Log diagnostic info before exec
 echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> '$safeOutput'
 echo "[wrapper] PROMPT_FILE='$safePrompt' (exists: `$(test -f '$safePrompt' && echo yes || echo no), size: `$(wc -c < '$safePrompt' 2>/dev/null || echo 0) bytes)" >> '$safeOutput'
-echo "[wrapper] EXEC: $AgentCmd 'start' $argsLine" >> '$safeOutput'
-exec $AgentCmd 'start' $argsLine >> '$safeOutput' 2>&1
+echo "[wrapper] EXEC: $AgentCmd $argsLine" >> '$safeOutput'
+exec $AgentCmd $argsLine >> '$safeOutput' 2>&1
 # If exec fails, this line runs:
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
 "@

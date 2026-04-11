@@ -17,6 +17,29 @@ export interface Plan {
   content?: string;
 }
 
+export interface PlanEpic {
+  room_id: string;
+  task_ref: string;
+  title: string;
+  body?: string;
+  working_dir?: string;
+}
+
+export interface PlanAsset {
+  plan_id?: string;
+  filename: string;
+  original_name: string;
+  mime_type: string;
+  uploaded_at: string;
+  size_bytes?: number;
+  path?: string;
+  bound_epics?: string[];
+  asset_type?: string;
+  tags?: string[];
+  description?: string;
+  binding?: 'plan' | 'epic';
+}
+
 export interface Room {
   room_id: string;
   status: string;
@@ -86,19 +109,30 @@ export interface CreateResult {
   _error?: string;
 }
 
+export interface PlanAssetsResult {
+  plan_id?: string;
+  assets: PlanAsset[];
+  count?: number;
+  error?: string;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+function getHeaders(contentType: string | null = 'application/json'): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (contentType) h['Content-Type'] = contentType;
   if (config.OSTWIN_API_KEY) h['X-API-Key'] = config.OSTWIN_API_KEY;
   return h;
 }
 
 async function fetchJSON(path: string, options: RequestInit = {}): Promise<any> {
   try {
+    const { headers: customHeaders, ...restOptions } = options;
     const res = await fetch(`${config.DASHBOARD_URL}${path}`, {
-      headers: getHeaders(),
-      ...options,
+      ...restOptions,
+      headers: customHeaders
+        ? { ...getHeaders(null), ...(customHeaders as Record<string, string>) }
+        : getHeaders(),
     });
     if (!res.ok) {
       console.warn(`[API] ${path} returned ${res.status}`);
@@ -149,12 +183,19 @@ export async function getPlan(planId: string): Promise<any> {
   return fetchJSON(`/api/plans/${planId}`);
 }
 
+export async function getPlanEpics(planId: string): Promise<{ epics: PlanEpic[]; count: number; error?: string }> {
+  const data = await fetchJSON(`/api/plans/${planId}/epics`);
+  if (data?._error) return { error: data._error, epics: [], count: 0 };
+  return { epics: data.epics || [], count: data.count || 0 };
+}
+
 export async function refinePlan(params: {
   message: string;
   planContent?: string;
   planId?: string;
   chatHistory?: Array<{ role: string; content: string }>;
   workingDir?: string;
+  assetContext?: PlanAsset[];
 }): Promise<RefineResult> {
   return postJSON('/api/plans/refine', {
     message: params.message,
@@ -162,6 +203,7 @@ export async function refinePlan(params: {
     plan_id: params.planId || '',
     chat_history: params.chatHistory || [],
     working_dir: params.workingDir || '',
+    asset_context: params.assetContext || [],
   });
 }
 
@@ -183,6 +225,81 @@ export async function savePlan(planId: string, content: string): Promise<any> {
     content,
     change_source: 'bot',
   });
+}
+
+export async function getPlanAssets(planId: string): Promise<PlanAssetsResult> {
+  const data = await fetchJSON(`/api/plans/${planId}/assets`);
+  if (data?._error) return { error: data._error, assets: [] };
+  return {
+    plan_id: data.plan_id,
+    assets: data.assets || [],
+    count: data.count || 0,
+  };
+}
+
+export async function uploadPlanAssets(
+  planId: string,
+  files: Array<{ name: string; contentType?: string; data: ArrayBuffer | Uint8Array }>,
+  metadata?: { epicRef?: string; assetType?: string; tags?: string[] },
+): Promise<PlanAssetsResult> {
+  const form = new FormData();
+  for (const file of files) {
+    const bytes = file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
+    const arrayBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(arrayBuffer).set(bytes);
+    const blob = new Blob([arrayBuffer], { type: file.contentType || 'application/octet-stream' });
+    form.append('files', blob, file.name);
+  }
+
+  // FIX-4: Forward epic/type/tags metadata so assets land on the right epic
+  if (metadata?.epicRef) form.append('epic_ref', metadata.epicRef);
+  if (metadata?.assetType) form.append('asset_type', metadata.assetType);
+  if (metadata?.tags?.length) form.append('tags', metadata.tags.join(','));
+
+  const data = await fetchJSON(`/api/plans/${planId}/assets`, {
+    method: 'POST',
+    headers: getHeaders(null),
+    body: form,
+  });
+  if (data?._error) return { error: data._error, assets: [] };
+  return {
+    plan_id: data.plan_id,
+    assets: data.assets || [],
+    count: data.count || 0,
+  };
+}
+
+// ── EPIC-002/003: Asset management endpoints ────────────────────
+
+export async function bindAsset(
+  planId: string, filename: string, epicRef: string
+): Promise<any> {
+  return postJSON(`/api/plans/${planId}/assets/${encodeURIComponent(filename)}/bind`, { epic_ref: epicRef });
+}
+
+export async function unbindAsset(
+  planId: string, filename: string, epicRef: string
+): Promise<any> {
+  return fetchJSON(`/api/plans/${planId}/assets/${encodeURIComponent(filename)}/bind/${epicRef}`, { method: 'DELETE' });
+}
+
+export async function getEpicAssets(planId: string, epicRef: string): Promise<PlanAssetsResult> {
+  const data = await fetchJSON(`/api/plans/${planId}/epics/${epicRef}/assets`);
+  if (data?._error) return { error: data._error, assets: [] };
+  return { plan_id: data.plan_id, assets: data.assets || [], count: data.count || 0 };
+}
+
+export async function updateAssetMetadata(
+  planId: string, filename: string, updates: { asset_type?: string; tags?: string[]; description?: string }
+): Promise<any> {
+  return fetchJSON(`/api/plans/${planId}/assets/${encodeURIComponent(filename)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function generatePlanFromAssets(planId: string): Promise<any> {
+  return postJSON(`/api/plans/${planId}/generate-from-assets`, {});
 }
 
 export async function launchPlan(planId: string, planContent: string): Promise<any> {
@@ -246,9 +363,17 @@ const api = {
   getBaseUrl,
   getPlans,
   getPlan,
+  getPlanEpics,
   refinePlan,
   createPlan,
   savePlan,
+  getPlanAssets,
+  uploadPlanAssets,
+  bindAsset,
+  unbindAsset,
+  getEpicAssets,
+  updateAssetMetadata,
+  generatePlanFromAssets,
   launchPlan,
   getRooms,
   getRoomChannel,

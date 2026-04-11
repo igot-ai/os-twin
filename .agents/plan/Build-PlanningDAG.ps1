@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 <#
 .SYNOPSIS
     Generates a planning-DAG.json from a plan markdown using AI analysis.
@@ -60,6 +62,7 @@ if (-not (Test-Path $PlanFile)) {
 
 $planContent = Get-Content $PlanFile -Raw
 $planDir = Split-Path $PlanFile
+if (-not $planDir) { $planDir = "." }
 if (-not $OutFile) {
     $OutFile = Join-Path $planDir ".planning-DAG.json"
 }

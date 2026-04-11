@@ -2236,7 +2236,7 @@ export OSTWIN_HOME='/Users/test/.ostwin'
 export AGENT_OS_PROJECT_DIR='/Users/test/project'
 echo "`$`$" > '$pidFile'
 echo "[wrapper] PID=`$`$, CMD=opencode, CWD=`$(pwd)" >> '$outputFile'
-exec opencode run 'start' --model $Model --agent $Role --file '$promptFile' >> '$outputFile' 2>&1
+exec opencode run 'Execute the task described in the attached prompt file.' --model $Model --agent $Role --file '$promptFile' >> '$outputFile' 2>&1
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
 "@
                 $scriptPath = Join-Path $artifactsDir "run-agent.sh"

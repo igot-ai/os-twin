@@ -23,6 +23,10 @@ export default function DAGEdge({ edge, fromPos, toPos, mode, onDelete }: DAGEdg
   
   const midX = (x1 + x2) / 2;
   const midY = (y1 + y2) / 2;
+
+  // Cubic bezier control points for smooth horizontal curves
+  const dx = Math.max(Math.abs(x2 - x1) * 0.4, 40);
+  const pathD = `M ${x1},${y1} C ${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
   
   const strokeColor = is_critical ? '#2563eb' : '#94a3b8'; // primary-600 vs slate-400
   const strokeWidth = is_critical ? 3 : 1.5;
@@ -34,29 +38,25 @@ export default function DAGEdge({ edge, fromPos, toPos, mode, onDelete }: DAGEdg
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <line
-        x1={x1}
-        y1={y1}
-        x2={x2}
-        y2={y2}
+      <path
+        d={pathD}
+        fill="none"
         stroke={strokeColor}
         strokeWidth={strokeWidth}
         strokeDasharray={strokeDasharray}
         markerEnd={`url(#arrowhead-${is_critical ? 'critical' : 'normal'})`}
         className="transition-all duration-300"
       />
-      {/* Invisible thicker line for better hover area */}
-      <line
-        x1={x1}
-        y1={y1}
-        x2={x2}
-        y2={y2}
+      {/* Invisible thicker path for better hover area */}
+      <path
+        d={pathD}
+        fill="none"
         stroke="transparent"
-        strokeWidth={10}
+        strokeWidth={12}
         className="cursor-pointer"
       >
         <title>{`Dependency: ${edge.from} → ${edge.to}${is_critical ? ' (Critical Path)' : ''}`}</title>
-      </line>
+      </path>
 
       {/* Delete button (only in authoring mode on hover) */}
       {mode === 'authoring' && isHovered && (

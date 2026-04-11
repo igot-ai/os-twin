@@ -15,6 +15,8 @@ interface StateNodeProps {
   roleInitial?: string;
   roleColor?: string;
   mode?: 'live' | 'authoring';
+  isDragging?: boolean;
+  dragSourceRef?: string;
   onStartDrag?: (nodeId: string, x: number, y: number) => void;
   onEnterPort?: (nodeId: string, type: 'input' | 'output') => void;
   onLeavePort?: () => void;
@@ -37,10 +39,12 @@ const statusLabels: Record<string, string> = {
 
 export default function StateNode({
   id, label, status, x, y, role, roleInitial, roleColor, mode,
+  isDragging, dragSourceRef,
   onStartDrag, onEnterPort, onLeavePort, onClick, onContextMenu
 }: StateNodeProps) {
   const { selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen } = usePlanContext();
   const isSelected = selectedEpicRef === id;
+  const isSource = dragSourceRef === id;
   const stateColor = stateColors[status] || stateColors.pending;
   const statusLabel = statusLabels[status] || status.replace(/-/g, ' ').toUpperCase();
 
@@ -70,7 +74,8 @@ export default function StateNode({
   };
 
   return (
-    <foreignObject x={x} y={y} width="180" height="80" className="overflow-visible">
+    <g style={{ transform: `translate(${x}px, ${y}px)`, transition: 'transform 300ms ease-out' }}>
+    <foreignObject x={0} y={0} width="180" height="80" className="overflow-visible">
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenuInternal}
@@ -83,7 +88,11 @@ export default function StateNode({
           <>
             {/* Input port (Left) - dependency target */}
             <div
-              className="absolute left-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 border-indigo-500 bg-white opacity-0 group-hover:opacity-100 transition-opacity cursor-crosshair z-20 hover:scale-125"
+              className={`absolute left-[-8px] top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 transition-all cursor-crosshair z-20 ${
+                isDragging && !isSource
+                  ? 'border-emerald-400 bg-emerald-100 scale-150 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse opacity-100'
+                  : 'border-indigo-400 bg-white/90 hover:scale-125 hover:border-indigo-600 opacity-60 hover:opacity-100'
+              }`}
               data-port="input"
               data-node-id={id}
               title="Drag here to add dependency"
@@ -92,7 +101,7 @@ export default function StateNode({
             />
             {/* Output port (Right) - dependency source */}
             <div
-              className="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 border-indigo-500 bg-white opacity-0 group-hover:opacity-100 transition-opacity cursor-crosshair z-20 hover:scale-125"
+              className="absolute right-[-8px] top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-indigo-400 bg-white/90 transition-all cursor-crosshair z-20 opacity-60 hover:opacity-100 hover:scale-125 hover:border-indigo-600"
               data-port="output"
               data-node-id={id}
               title="Drag to create dependency"
@@ -152,5 +161,6 @@ export default function StateNode({
         </div>
       </div>
     </foreignObject>
+    </g>
   );
 }

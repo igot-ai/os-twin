@@ -320,8 +320,10 @@ Short desc.
         (Test-Path $hitFile) | Should -BeFalse -Because "DryRun must not call the save API"
     }
 
-    It "runs holistic dependency analysis on multi-EPIC plan and updates depends_on" {
-        # Plan with TWO underspecified EPICs
+    It "does not run holistic dependency analysis (moved to Review-Dependencies.ps1)" {
+        # Expand-Plan no longer runs dependency analysis — that responsibility
+        # moved to Review-Dependencies.ps1 which runs AFTER war-rooms are created.
+        # This test verifies Expand-Plan does NOT output dep analysis messages.
         $content = @"
 # Plan: Multi-EPIC Dep Test
 
@@ -341,27 +343,16 @@ Short desc.
 "@
         $content | Out-File -FilePath $script:planFile -Encoding utf8
 
-        # Mock agent that returns per-EPIC expansion AND dependency analysis JSON
+        # Mock agent that returns per-EPIC expansion only
         $depMockAgent = Join-Path $script:tempDir "dep-mock-agent.sh"
         @'
 #!/bin/bash
 PROMPT="$*"
 
-# Dependency analysis prompt (contains "Dependency Analyst")
-if [[ "$PROMPT" == *"Dependency Analyst"* ]]; then
-  echo '{"edges": [{"from": "EPIC-001", "to": "EPIC-002", "reason": "API needs DB schema"}], "parallel_groups": [["EPIC-001"], ["EPIC-002"]]}'
-  exit 0
-fi
-
-# Per-EPIC expansion: check EPIC-002 FIRST (EPIC-001 glob would match both)
 if [[ "$PROMPT" == *"## EPIC-002"* ]]; then
   echo "## EPIC-002 - API Layer
 
 This builds REST APIs on top of the database.
-
-#### Implementation Strategy
-1. Define routes
-2. Implement controllers
 
 #### Definition of Done
 - [ ] REST endpoints implemented
@@ -385,10 +376,6 @@ if [[ "$PROMPT" == *"EPIC-001"* ]]; then
   echo "## EPIC-001 - Database Schema
 
 This builds the database foundation.
-
-#### Implementation Strategy
-1. Design schema
-2. Create migrations
 
 #### Definition of Done
 - [ ] Schema migrations created
@@ -416,24 +403,12 @@ exit 1
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$depMockAgent'" 2>&1
         $outputStr = $output -join "`n"
 
-        # Verify the dep analysis ran
-        $outputStr | Should -Match "DEP-ANALYSIS.*Analyzing dependencies"
-        $outputStr | Should -Match "EPIC-002 depends_on EPIC-001"
+        # Expand-Plan should NOT run dep analysis
+        $outputStr | Should -Not -Match "DEP-ANALYSIS"
+        $outputStr | Should -Not -Match "Analyzing dependencies"
 
-        # Verify the plan file has updated depends_on
-        $updatedContent = Get-Content $script:planFile -Raw
-        $updatedContent | Should -Match 'depends_on:.*EPIC-001'
-
-        # Verify .planning-DAG.json was created
+        # .planning-DAG.json should NOT be created by Expand-Plan
         $dagFile = Join-Path $script:tempDir ".planning-DAG.json"
-        Test-Path $dagFile | Should -BeTrue
-
-        $dag = Get-Content $dagFile -Raw | ConvertFrom-Json
-        $dag.total_nodes | Should -Be 2
-        $dag.stage | Should -Be "planning"
-
-        # Verify the EPIC-002 node has EPIC-001 as dependency
-        $epic2Node = $dag.nodes | Where-Object { $_.task_ref -eq 'EPIC-002' }
-        $epic2Node.depends_on | Should -Contain 'EPIC-001'
+        Test-Path $dagFile | Should -BeFalse
     }
 }

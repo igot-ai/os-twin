@@ -1,10 +1,14 @@
 import subprocess
 import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+AGENTS_DIR = PROJECT_ROOT / ".agents"
 
 print("Running manual test for plan refinement...")
 cmd = [
     "pwsh", "-c",
-    ". /Users/paulaan/PycharmProjects/agent-os/.agents/plan/Start-Plan.ps1 -PlanFile /Users/paulaan/PycharmProjects/agent-os/.agents/plans/test-qa.md -ProjectDir /Users/paulaan/PycharmProjects/agent-os -DryRun"
+    f". {AGENTS_DIR / 'plan' / 'Start-Plan.ps1'} -PlanFile {AGENTS_DIR / 'plans' / 'test-qa.md'} -ProjectDir {PROJECT_ROOT} -DryRun"
 ]
 res = subprocess.run(cmd, capture_output=True, text=True)
 print(res.stdout)

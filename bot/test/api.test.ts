@@ -21,6 +21,7 @@ describe('api', () => {
     fetchStub.resolves({
       ok: status >= 200 && status < 300,
       status,
+      headers: { get: (name: string) => name === 'content-type' ? 'application/json' : null },
       json: async () => data,
     });
   }
@@ -78,6 +79,30 @@ describe('api', () => {
 
       const result = await api.getPlan('missing');
       expect(result._error).to.include('404');
+    });
+  });
+
+  // ── getPlanEpics ──────────────────────────────────────────────
+
+  describe('getPlanEpics', () => {
+    it('returns epics on success', async () => {
+      const epics = [
+        { room_id: 'room-001', task_ref: 'EPIC-001', title: 'Epic One' },
+        { room_id: 'room-002', task_ref: 'EPIC-002', title: 'Epic Two' },
+      ];
+      mockFetch({ epics, count: 2 });
+
+      const result = await api.getPlanEpics('p1');
+      expect(result.epics).to.have.lengthOf(2);
+      expect(result.epics[0].task_ref).to.equal('EPIC-001');
+      expect(result.count).to.equal(2);
+    });
+
+    it('returns empty epics on error', async () => {
+      mockFetch({}, 500);
+      const result = await api.getPlanEpics('p1');
+      expect(result.epics).to.have.lengthOf(0);
+      expect(result.error).to.include('500');
     });
   });
 

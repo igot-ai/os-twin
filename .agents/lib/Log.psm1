@@ -119,7 +119,8 @@ function Write-OstwinLog {
         $line | Out-File -Append -FilePath $logFile -Encoding utf8
     }
     catch {
-        # Silently ignore file write failures
+        # Log file write failure to stderr only (avoid infinite recursion)
+        Write-Warning "Log file write failed: $($_.Exception.Message)"
     }
 }
 
@@ -161,7 +162,7 @@ function Write-OstwinJsonLog {
         ($entry | ConvertTo-Json -Compress -Depth 5) | Out-File -Append -FilePath $jsonlFile -Encoding utf8
     }
     catch {
-        # Silently ignore
+        Write-Warning "JSON log file write failed: $($_.Exception.Message)"
     }
 }
 

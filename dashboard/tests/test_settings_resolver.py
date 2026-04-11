@@ -39,22 +39,22 @@ def temp_project(tmp_path):
     warrooms = tmp_path / ".war-rooms"
     warrooms.mkdir()
 
-    # Plan-level config
-    plan_dir = warrooms / "plan-001"
-    plan_dir.mkdir()
-    plan_config = {
-        "roles": {
-            "engineer": {
-                "default_model": "plan-model",
-                "temperature": 0.5,
-                "skill_refs": ["plan-skill"],
-            }
+    # Plan-level role config in PLANS_DIR/{plan_id}.roles.json (flat structure)
+    plans_dir = agents_dir / "plans"
+    plans_dir.mkdir()
+    plan_roles_config = {
+        "engineer": {
+            "default_model": "plan-model",
+            "temperature": 0.5,
+            "skill_refs": ["plan-skill"],
         },
         "attached_skills": ["attached-skill"],
     }
-    (plan_dir / "config.json").write_text(json.dumps(plan_config))
+    (plans_dir / "plan-001.roles.json").write_text(json.dumps(plan_roles_config))
 
-    # Room-level config
+    # Room-level config (still in war-rooms)
+    plan_dir = warrooms / "plan-001"
+    plan_dir.mkdir()
     room_dir = plan_dir / "EPIC-001"
     room_dir.mkdir()
     room_config = {
@@ -134,6 +134,7 @@ def test_resolve_role_layered_overrides(resolver, temp_project):
     defaults = {"engineer": {"default_model": "default-model", "timeout_seconds": 300}}
 
     with patch("dashboard.constants.ROLE_DEFAULTS", defaults), \
+         patch("dashboard.api_utils.PLANS_DIR", temp_project / ".agents" / "plans"), \
          patch("dashboard.api_utils.WARROOMS_DIR", temp_project / ".war-rooms"), \
          patch("dashboard.api_utils.build_skills_list", return_value=[]):
         res = resolver.resolve_role("engineer", plan_id="plan-001", task_ref="EPIC-001")
@@ -175,6 +176,7 @@ def test_skill_refs_union_across_layers(resolver, temp_project):
     ]
 
     with patch("dashboard.constants.ROLE_DEFAULTS", defaults), \
+         patch("dashboard.api_utils.PLANS_DIR", temp_project / ".agents" / "plans"), \
          patch("dashboard.api_utils.WARROOMS_DIR", temp_project / ".war-rooms"), \
          patch("dashboard.api_utils.build_skills_list", return_value=enabled):
         res = resolver.resolve_role("engineer", plan_id="plan-001", task_ref="EPIC-001")
@@ -184,12 +186,13 @@ def test_skill_refs_union_across_layers(resolver, temp_project):
 
 
 def test_skill_refs_disabled_subtracted(resolver, temp_project):
-    # Add disabled_skills at plan level
+    # Add disabled_skills at plan level in the roles.json file
+    plans_dir = temp_project / ".agents" / "plans"
     plan_cfg = json.loads(
-        (temp_project / ".war-rooms" / "plan-001" / "config.json").read_text()
+        (plans_dir / "plan-001.roles.json").read_text()
     )
-    plan_cfg["roles"]["engineer"]["disabled_skills"] = ["engine-skill"]
-    (temp_project / ".war-rooms" / "plan-001" / "config.json").write_text(
+    plan_cfg["engineer"]["disabled_skills"] = ["engine-skill"]
+    (plans_dir / "plan-001.roles.json").write_text(
         json.dumps(plan_cfg)
     )
     resolver._cache = None  # invalidate
@@ -199,7 +202,7 @@ def test_skill_refs_disabled_subtracted(resolver, temp_project):
                _skill_mock("plan-skill"), _skill_mock("attached-skill")]
 
     with patch("dashboard.constants.ROLE_DEFAULTS", defaults), \
-         patch("dashboard.api_utils.WARROOMS_DIR", temp_project / ".war-rooms"), \
+         patch("dashboard.api_utils.PLANS_DIR", plans_dir), \
          patch("dashboard.api_utils.build_skills_list", return_value=enabled):
         res = resolver.resolve_role("engineer", plan_id="plan-001")
 
@@ -270,13 +273,14 @@ def test_reset_namespace(resolver, temp_project):
 
 
 def test_patch_plan_role(resolver, temp_project):
-    with patch("dashboard.api_utils.WARROOMS_DIR", temp_project / ".war-rooms"):
+    plans_dir = temp_project / ".agents" / "plans"
+    with patch("dashboard.api_utils.PLANS_DIR", plans_dir):
         resolver.patch_plan_role("plan-001", "engineer", {"temperature": 1.5})
 
     plan_cfg = json.loads(
-        (temp_project / ".war-rooms" / "plan-001" / "config.json").read_text()
+        (plans_dir / "plan-001.roles.json").read_text()
     )
-    assert plan_cfg["roles"]["engineer"]["temperature"] == 1.5
+    assert plan_cfg["engineer"]["temperature"] == 1.5
 
 
 def test_patch_room_role(resolver, temp_project):
