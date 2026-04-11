@@ -495,6 +495,118 @@
       "prompt": "roles/technical-writer/ROLE.md",
       "default_assignment": false,
       "capabilities": []
+    },
+    {
+      "name": "requirement-analyst",
+      "description": "Analyze user requirements for a new notification system and produce acceptance criteria and architecture recommendations.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/requirement-analyst/role.json",
+      "prompt": "roles/requirement-analyst/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "architecture-advisor",
+      "description": "Analyze user requirements for a new notification system and produce acceptance criteria and architecture recommendations.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/architecture-advisor/role.json",
+      "prompt": "roles/architecture-advisor/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "code-generator",
+      "description": "Generate boilerplate code from the specification and implement the notification service with code review.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/code-generator/role.json",
+      "prompt": "roles/code-generator/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "code-reviewer",
+      "description": "Generate boilerplate code from the specification and implement the notification service with code review.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/code-reviewer/role.json",
+      "prompt": "roles/code-reviewer/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "qa-test-planner",
+      "description": "Generate comprehensive test suite including unit tests, integration tests, and UI test plan with Playwright.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/qa-test-planner/role.json",
+      "prompt": "roles/qa-test-planner/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "bug-hunter",
+      "description": "Perform root cause analysis on known issues and refactor legacy notification code to reduce technical debt.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/bug-hunter/role.json",
+      "prompt": "roles/bug-hunter/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "refactoring-agent",
+      "description": "Perform root cause analysis on known issues and refactor legacy notification code to reduce technical debt.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/refactoring-agent/role.json",
+      "prompt": "roles/refactoring-agent/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "security-scanner",
+      "description": "Perform SAST/DAST security scan and review the notification service for vulnerabilities.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/security-scanner/role.json",
+      "prompt": "roles/security-scanner/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "devops-agent",
+      "description": "Create deployment infrastructure and generate comprehensive API documentation.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/devops-agent/role.json",
+      "prompt": "roles/devops-agent/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "documentation-agent",
+      "description": "Create deployment infrastructure and generate comprehensive API documentation.",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/documentation-agent/role.json",
+      "prompt": "roles/documentation-agent/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "test-engineer",
+      "description": "Test engineer — generates unit tests, integration tests, and end-to-end tests automatically",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "contributes/roles/test-engineer/role.json",
+      "prompt": "contributes/roles/test-engineer/ROLE.md",
+      "default_assignment": false,
+      "capabilities": [
+        "unit-test-generation",
+        "integration-test-generation",
+        "e2e-test-generation",
+        "test-coverage-analysis",
+        "test-data-generation"
+      ],
+      "quality_gates": [
+        "tests-pass",
+        "coverage-threshold-met",
+        "edge-cases-covered",
+        "no-flaky-tests"
+      ],
+      "default_model": "google-vertex/gemini-3-flash-preview"
     }
   ],
   "assignment_rules": {

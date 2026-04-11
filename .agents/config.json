@@ -34,7 +34,7 @@
     "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
-    "timeout_seconds": 1200,
+    "timeout_seconds": 2400,
     "max_prompt_bytes": 102400,
     "no_mcp": false,
     "instances": {
@@ -99,7 +99,7 @@
     "auto_draft": true
   },
   "test-engineer": {
-    "default_model": "claude-3-5-sonnet-20241022",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "timeout_seconds": 600,
     "skill_refs": [
       "web-research"
@@ -119,5 +119,20 @@
   },
   "runtime": {
     "max_concurrent_rooms": 9999
+  },
+  "providers": {
+    "openai": null,
+    "anthropic": null,
+    "google": {
+      "api_key_ref": null,
+      "base_url": null,
+      "org_id": null,
+      "enabled": true,
+      "deployment_mode": "gemini",
+      "project_id": null,
+      "enabled_models": []
+    },
+    "byteplus": null,
+    "custom": {}
   }
 }

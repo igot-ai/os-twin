@@ -1,8 +1,24 @@
 {
-  "model": "claude-3-5-sonnet-20241022",
-  "skill_refs": [
-    "web-research"
+  "name": "test-engineer",
+  "description": "Test engineer — generates unit tests, integration tests, and end-to-end tests automatically",
+  "capabilities": [
+    "unit-test-generation",
+    "integration-test-generation",
+    "e2e-test-generation",
+    "test-coverage-analysis",
+    "test-data-generation"
   ],
-  "timeout": 600,
-  "description": ""
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "tests-pass",
+    "coverage-threshold-met",
+    "edge-cases-covered",
+    "no-flaky-tests"
+  ],
+  "skill_refs": [],
+  "mcp_refs": ["playwright", "chrome-devtools"],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
 }
