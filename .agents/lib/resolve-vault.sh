@@ -1,4 +1,8 @@
 #!/bin/bash
+# DEPRECATED: This Bash shim is superseded by Config.psm1 / Utils.psm1.
+# It remains for backward compatibility but receives no new features.
+# Use Get-OstwinConfig or Read-OstwinConfig from PowerShell instead.
+#
 # .agents/lib/resolve-vault.sh
 # Bash shim that resolves ${vault:scope/key} references.
 #

@@ -42,8 +42,7 @@ if (-not $WarRoomsDir) {
 $roomDir = Join-Path $WarRoomsDir $RoomId
 
 if (-not (Test-Path $roomDir)) {
-    Write-Error "War-room '$RoomId' not found at $roomDir"
-    exit 1
+    throw "War-room '$RoomId' not found at $roomDir"
 }
 
 Write-Output "[TEARDOWN] Shutting down war-room '$RoomId'..."
@@ -69,7 +68,7 @@ if (Test-Path $pidDir) {
                 }
             }
             catch {
-                # Process already dead — ignore
+                Write-Verbose "PID $processId in room '$RoomId' already exited"
             }
         }
         Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
@@ -88,7 +87,7 @@ if (-not $Force) {
                 try {
                     Stop-Process -Id ([int]$pidVal) -Force -ErrorAction SilentlyContinue
                 }
-                catch { }
+                catch { Write-Verbose "Force-kill of PID $pidVal failed (process likely already exited)" }
             }
             Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
         }

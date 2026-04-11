@@ -3,8 +3,11 @@
     Resolves a set of skills for a specific role following a hierarchical resolution strategy.
 
 .DESCRIPTION
-    Always loads role.json from HOME ~/.ostwin/roles/{RoleName}/role.json (authoritative source).
-    Searches both 'capabilities' and 'skill_refs' fields from the role definition.
+    Skill refs are collected from multiple sources in priority order:
+      1. Plan-level override: ~/.ostwin/.agents/plans/{plan_id}.roles.json → {role}.skill_refs
+      2. War-room config:    {RoomDir}/config.json → skill_refs
+      3. Global role.json:   ~/.ostwin/roles/{RoleName}/role.json → skill_refs + capabilities
+      4. Brief-based match:  {RoomDir}/brief.md keywords matched against available skill names/tags
 
     Resolution strategy (for each ref):
     1. Registry lookup: from ~/.ostwin/roles/registry.json
@@ -18,6 +21,11 @@
 .PARAMETER RolePath
     Legacy parameter — no longer used for role.json loading.
     Role.json is always loaded from ~/.ostwin/roles/{RoleName}/.
+.PARAMETER RoomDir
+    Optional. War-room directory path — used to read config.json (for plan_id
+    and room-level skill_refs) and brief.md (for keyword-based skill matching).
+.PARAMETER PlanId
+    Optional. Explicit plan ID. If omitted, derived from {RoomDir}/config.json.
 .PARAMETER SkillsBaseDir
     Optional. Override for the base skills directory (defaults to ../../skills).
 .PARAMETER DashboardUrl
@@ -35,6 +43,10 @@ param(
 
     [Parameter(Mandatory=$true)]
     [string]$RolePath,
+
+    [string]$RoomDir = '',
+
+    [string]$PlanId = '',
 
     [string]$SkillsBaseDir = '',
 
@@ -92,10 +104,48 @@ function Test-SkillEnabled {
     return $true
 }
 
-# --- Load role.json from HOME ~/.ostwin/roles/{RoleName}/ (authoritative source) ---
-$ostwinHome = Join-Path $env:HOME ".ostwin"
+# --- Resolve OSTWIN_HOME ---
+$ostwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+
+# --- Derive PlanId from room config if not provided ---
+$roomCfg = $null
+if ($RoomDir -and (Test-Path (Join-Path $RoomDir "config.json"))) {
+    try {
+        $roomCfg = Get-Content (Join-Path $RoomDir "config.json") -Raw | ConvertFrom-Json
+        if (-not $PlanId -and $roomCfg.plan_id) {
+            $PlanId = $roomCfg.plan_id
+            Write-Verbose "Derived PlanId='$PlanId' from room config.json"
+        }
+    } catch { Write-Verbose "Failed to parse room config.json: $_" }
+}
+
+# --- Collect skill refs from all sources (priority order) ---
+$allRefs = @()
+
+# Priority 1: Plan-level role override — ~/.ostwin/.agents/plans/{plan_id}.roles.json
+if ($PlanId) {
+    $planRolesFile = Join-Path $ostwinHome ".agents" "plans" "$PlanId.roles.json"
+    if (Test-Path $planRolesFile) {
+        try {
+            $planRoles = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+            if ($planRoles.$RoleName -and $planRoles.$RoleName.skill_refs) {
+                $allRefs += @($planRoles.$RoleName.skill_refs)
+                Write-Verbose "Plan-level skill_refs for '$RoleName': $($planRoles.$RoleName.skill_refs -join ', ')"
+            }
+        } catch { Write-Verbose "Failed to parse plan roles file: $_" }
+    }
+}
+
+# Priority 2: War-room config.json skill_refs (set by manager during assignment)
+if ($roomCfg -and $roomCfg.skill_refs) {
+    $allRefs += @($roomCfg.skill_refs)
+    Write-Verbose "Room config skill_refs: $($roomCfg.skill_refs -join ', ')"
+}
+
+# Priority 3: Global role.json — ~/.ostwin/roles/{RoleName}/role.json (base definition)
 $homeRolePath = Join-Path $ostwinHome "roles" $RoleName
 $jsonFile = Join-Path $homeRolePath "role.json"
+$roleData = $null
 
 Write-Verbose "Loading role.json from HOME: $jsonFile"
 
@@ -103,134 +153,125 @@ if (Test-Path $jsonFile) {
     try {
         $roleData = Get-Content $jsonFile -Raw | ConvertFrom-Json
 
-        # Collect refs from both capabilities and skill_refs
-        $allRefs = @()
         if ($roleData.skill_refs) {
             $allRefs += @($roleData.skill_refs)
         }
         if ($roleData.capabilities) {
             $allRefs += @($roleData.capabilities)
         }
-        # Deduplicate
-        $allRefs = $allRefs | Select-Object -Unique
+    }
+    catch {
+        Write-Warning "Failed to parse role.json: $_"
+    }
+}
 
-        if ($allRefs.Count -gt 0) {
-            # Registry always from HOME ~/.ostwin/roles/registry.json
-            $registryFile = Join-Path $ostwinHome "roles" "registry.json"
-            $registry = if (Test-Path $registryFile) { Get-Content $registryFile -Raw | ConvertFrom-Json } else { $null }
+# Deduplicate across all sources
+$allRefs = @($allRefs | Select-Object -Unique)
+Write-Verbose "Combined skill refs ($($allRefs.Count)): $($allRefs -join ', ')"
 
-            foreach ($ref in $allRefs) {
-                # Look for ref in registry first
-                $skillFromRegistry = if ($registry) { $registry.skills.available | Where-Object { $_.name -eq $ref } } else { $null }
-                $registryPath = $null
-                
-                if ($skillFromRegistry) {
-                    $registryPath = Join-Path (Split-Path $registryFile -Parent) ".." $skillFromRegistry.path
-                    if (Test-Path $registryPath) {
-                        if (-not (Test-SkillPlatform -SkillMdPath $registryPath)) {
-                            Write-Verbose "Skipping platform-incompatible skill '$ref' (registry)"
-                            continue
-                        }
-                        if (-not (Test-SkillEnabled -SkillMdPath $registryPath)) {
-                            Write-Verbose "Skipping disabled skill '$ref' (registry)"
-                            continue
-                        }
-                        $resolvedSkills[$ref] = [PSCustomObject]@{
-                            Name = $ref
-                            Path = $registryPath
-                            Tier = "Explicit"
-                        }
-                        continue
-                    }
-                }
+if ($allRefs.Count -gt 0) {
+    # Registry always from HOME ~/.ostwin/roles/registry.json
+    $registryFile = Join-Path $ostwinHome "roles" "registry.json"
+    $registry = if (Test-Path $registryFile) { Get-Content $registryFile -Raw | ConvertFrom-Json } else { $null }
 
-                # Check if already resolved
-                if ($resolvedSkills.ContainsKey($ref)) {
+    foreach ($ref in $allRefs) {
+        # Look for ref in registry first
+        $skillFromRegistry = if ($registry) { $registry.skills.available | Where-Object { $_.name -eq $ref } } else { $null }
+        $registryPath = $null
+
+        if ($skillFromRegistry) {
+            $registryPath = Join-Path (Split-Path $registryFile -Parent) ".." $skillFromRegistry.path
+            if (Test-Path $registryPath) {
+                if (-not (Test-SkillPlatform -SkillMdPath $registryPath)) {
+                    Write-Verbose "Skipping platform-incompatible skill '$ref' (registry)"
                     continue
                 }
+                if (-not (Test-SkillEnabled -SkillMdPath $registryPath)) {
+                    Write-Verbose "Skipping disabled skill '$ref' (registry)"
+                    continue
+                }
+                $resolvedSkills[$ref] = [PSCustomObject]@{
+                    Name = $ref
+                    Path = $registryPath
+                    Tier = "Explicit"
+                }
+                continue
+            }
+        }
 
-                # Fallback: hierarchical search matching Test-SkillCoverage.ps1 pattern
-                # Search order (own-role wins over flat to avoid surprises):
-                #   1. skills/roles/<RoleName>/<ref>/SKILL.md   (own role — highest priority)
-                #   2. skills/<ref>/SKILL.md                    (flat)
-                #   3. skills/global/<ref>/SKILL.md             (global)
-                #   4. skills/roles/*/<ref>/SKILL.md            (any role)
-                $fallbackPath = $null
-                # Own role's directory first (highest priority — role-specific overrides win)
-                $ownRolePath = Join-Path $SkillsBaseDir "roles" $RoleName $ref "SKILL.md"
-                $searchPaths = @(
-                    $ownRolePath
-                    (Join-Path $SkillsBaseDir $ref "SKILL.md")
-                )
-                # Global directory
-                $searchPaths += (Join-Path $SkillsBaseDir "global" $ref "SKILL.md")
-                # All other role directories
-                $rolesSkillDir = Join-Path $SkillsBaseDir "roles"
-                if (Test-Path $rolesSkillDir) {
-                    Get-ChildItem -Path $rolesSkillDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-                        if ($_.Name -ne $RoleName) {
-                            $searchPaths += Join-Path $_.FullName $ref "SKILL.md"
+        # Check if already resolved
+        if ($resolvedSkills.ContainsKey($ref)) { continue }
+
+        # Fallback: hierarchical search matching Test-SkillCoverage.ps1 pattern
+        # Search order (own-role wins over flat to avoid surprises):
+        #   1. skills/roles/<RoleName>/<ref>/SKILL.md   (own role — highest priority)
+        #   2. skills/<ref>/SKILL.md                    (flat)
+        #   3. skills/global/<ref>/SKILL.md             (global)
+        #   4. skills/roles/*/<ref>/SKILL.md            (any role)
+        $fallbackPath = $null
+        $ownRolePath = Join-Path $SkillsBaseDir "roles" $RoleName $ref "SKILL.md"
+        $searchPaths = @(
+            $ownRolePath
+            (Join-Path $SkillsBaseDir $ref "SKILL.md")
+        )
+        $searchPaths += (Join-Path $SkillsBaseDir "global" $ref "SKILL.md")
+        $rolesSkillDir = Join-Path $SkillsBaseDir "roles"
+        if (Test-Path $rolesSkillDir) {
+            Get-ChildItem -Path $rolesSkillDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.Name -ne $RoleName) {
+                    $searchPaths += Join-Path $_.FullName $ref "SKILL.md"
+                }
+            }
+        }
+
+        foreach ($candidate in $searchPaths) {
+            if (Test-Path $candidate) {
+                $fallbackPath = $candidate
+                break
+            }
+        }
+
+        if ($fallbackPath) {
+            if (-not (Test-SkillPlatform -SkillMdPath $fallbackPath)) {
+                Write-Verbose "Skipping platform-incompatible skill '$ref' (fallback)"
+                continue
+            }
+            if (-not (Test-SkillEnabled -SkillMdPath $fallbackPath)) {
+                Write-Verbose "Skipping disabled skill '$ref' (fallback)"
+                continue
+            }
+            $resolvedSkills[$ref] = [PSCustomObject]@{
+                Name = $ref
+                Path = $fallbackPath
+                Tier = "Explicit"
+            }
+        }
+        else {
+            # --- Backend Fallback: search dashboard API ---
+            $fetched = $false
+            if ($ApiKey) {
+                try {
+                    $headers = @{ "X-API-Key" = $ApiKey }
+                    $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($ref))&role=$([uri]::EscapeDataString($RoleName))"
+                    $response = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop
+
+                    $matchedSkill = $null
+                    if ($response -is [array] -and $response.Count -gt 0) {
+                        $matchedSkill = $response | Where-Object { $_.name -eq $ref } | Select-Object -First 1
+                        if (-not $matchedSkill) { $matchedSkill = $response[0] }
+                    }
+
+                    if ($matchedSkill -and $matchedSkill.relative_path -and $matchedSkill.content -and (Test-SkillPlatform -SkillMdPath (Join-Path $SkillsBaseDir ($matchedSkill.relative_path -replace '^skills/', '') "SKILL.md"))) {
+                        $relPath = $matchedSkill.relative_path
+                        $subPath = $relPath -replace '^skills/', ''
+                        $localSkillDir = Join-Path $SkillsBaseDir $subPath
+                        $localSkillMd = Join-Path $localSkillDir "SKILL.md"
+
+                        if (-not (Test-Path $localSkillDir)) {
+                            New-Item -ItemType Directory -Path $localSkillDir -Force | Out-Null
                         }
-                    }
-                }
 
-                foreach ($candidate in $searchPaths) {
-                    if (Test-Path $candidate) {
-                        $fallbackPath = $candidate
-                        break
-                    }
-                }
-
-                if ($fallbackPath) {
-                    if (-not (Test-SkillPlatform -SkillMdPath $fallbackPath)) {
-                        Write-Verbose "Skipping platform-incompatible skill '$ref' (fallback)"
-                        continue
-                    }
-                    if (-not (Test-SkillEnabled -SkillMdPath $fallbackPath)) {
-                        Write-Verbose "Skipping disabled skill '$ref' (fallback)"
-                        continue
-                    }
-                    $resolvedSkills[$ref] = [PSCustomObject]@{
-                        Name = $ref
-                        Path = $fallbackPath
-                        Tier = "Explicit"
-                    }
-                }
-                else {
-                    # --- 4. Backend Fallback: search dashboard API ---
-                    $fetched = $false
-                    if ($ApiKey) {
-                        try {
-                            $headers = @{ "X-API-Key" = $ApiKey }
-                            $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($ref))&role=$([uri]::EscapeDataString($RoleName))"
-                            $response = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop
-
-                            # Find matching skill from search results
-                            $matchedSkill = $null
-                            if ($response -is [array] -and $response.Count -gt 0) {
-                                # Prefer exact name match, then first result
-                                $matchedSkill = $response | Where-Object { $_.name -eq $ref } | Select-Object -First 1
-                                if (-not $matchedSkill) {
-                                    $matchedSkill = $response[0]
-                                }
-                            }
-
-                            if ($matchedSkill -and $matchedSkill.relative_path -and $matchedSkill.content -and (Test-SkillPlatform -SkillMdPath (Join-Path $SkillsBaseDir ($matchedSkill.relative_path -replace '^skills/', '') "SKILL.md"))) {
-                                # Determine local destination using relative_path
-                                # relative_path is like "skills/roles/engineer/write-tests"
-                                $relPath = $matchedSkill.relative_path
-                                # Strip leading "skills/" prefix to get path relative to SkillsBaseDir
-                                $subPath = $relPath -replace '^skills/', ''
-                                $localSkillDir = Join-Path $SkillsBaseDir $subPath
-                                $localSkillMd = Join-Path $localSkillDir "SKILL.md"
-
-                                # Create directory and write SKILL.md
-                                if (-not (Test-Path $localSkillDir)) {
-                                    New-Item -ItemType Directory -Path $localSkillDir -Force | Out-Null
-                                }
-
-                                # Reconstruct full SKILL.md with frontmatter
-                                $frontmatter = @"
+                        $frontmatter = @"
 ---
 name: $($matchedSkill.name)
 description: "$($matchedSkill.description)"
@@ -238,111 +279,96 @@ tags: [$($matchedSkill.tags -join ', ')]
 trust_level: $($matchedSkill.trust_level)
 ---
 "@
-                                $fullContent = "$frontmatter`n`n$($matchedSkill.content)"
-                                $fullContent | Out-File -FilePath $localSkillMd -Encoding utf8 -Force
+                        $fullContent = "$frontmatter`n`n$($matchedSkill.content)"
+                        $fullContent | Out-File -FilePath $localSkillMd -Encoding utf8 -Force
 
-                                $resolvedSkills[$ref] = [PSCustomObject]@{
-                                    Name = $matchedSkill.name
-                                    Path = $localSkillMd
-                                    Tier = "Backend"
-                                }
-                                Write-Verbose "Fetched skill '$ref' from backend → $localSkillMd"
-                                $fetched = $true
-                            }
+                        $resolvedSkills[$ref] = [PSCustomObject]@{
+                            Name = $matchedSkill.name
+                            Path = $localSkillMd
+                            Tier = "Backend"
                         }
-                        catch {
-                            Write-Verbose "Backend skill search failed for '$ref': $_"
-                        }
-                    }
-
-                    if (-not $fetched) {
-                        $errorMsg = "Skill Not Found: Explicitly referenced skill '$ref' not found."
-                        if ($registryPath) {
-                            $errorMsg += " Registry path tried: $registryPath."
-                        }
-                        $errorMsg += " Hierarchical paths tried: $($searchPaths -join '; ')."
-                        if ($ApiKey) {
-                            $errorMsg += " Backend search also failed."
-                        }
-                        throw $errorMsg
+                        Write-Verbose "Fetched skill '$ref' from backend -> $localSkillMd"
+                        $fetched = $true
                     }
                 }
+                catch {
+                    Write-Verbose "Backend skill search failed for '$ref': $_"
+                }
+            }
+
+            if (-not $fetched) {
+                $errorMsg = "Skill Not Found: Explicitly referenced skill '$ref' not found."
+                if ($registryPath) { $errorMsg += " Registry path tried: $registryPath." }
+                $errorMsg += " Hierarchical paths tried: $($searchPaths -join '; ')."
+                if ($ApiKey) { $errorMsg += " Backend search also failed." }
+                throw $errorMsg
             }
         }
     }
-    catch {
-        if ($_.ToString() -match "Skill Not Found") {
-            throw $_
-        }
-        Write-Warning "Failed to parse role.json for skills: $_"
-    }
 }
 
-# --- Auto-include role-private skills ---
-# Any skill living under skills/roles/<RoleName>/*/SKILL.md is treated as
-# private to this role and is automatically loaded whenever the role is
-# resolved, even when not declared in skill_refs/capabilities. This lets
-# users drop a skill folder into their role's private bucket and have it
-# picked up without editing role.json. Both the project-local skills tree
-# and the user-global ~/.ostwin/.agents/skills tree are scanned.
-#
-# Opt-out: set "auto_load_skills": false in role.json to disable auto-loading.
-# Individual skills can also be excluded via "skip_auto_skills": ["skill-name"].
-$skipAutoLoad = $false
-$skipAutoSkills = @()
-if ($roleData) {
-    if ($roleData.PSObject.Properties['auto_load_skills'] -and $roleData.auto_load_skills -eq $false) {
-        $skipAutoLoad = $true
-    }
-    if ($roleData.PSObject.Properties['skip_auto_skills'] -and $roleData.skip_auto_skills) {
-        $skipAutoSkills = @($roleData.skip_auto_skills)
-    }
-}
+# --- Priority 4: Brief-based skill discovery ---
+# Extract keywords from brief.md and match against available skill names/tags.
+# Only runs when $RoomDir is provided and brief.md exists.
+if ($RoomDir) {
+    $briefFile = Join-Path $RoomDir "brief.md"
+    if (Test-Path $briefFile) {
+        $briefContent = (Get-Content $briefFile -Raw).ToLower()
 
-if ($skipAutoLoad) {
-    Write-Verbose "Auto-loading of role-private skills disabled for role '$RoleName' via role.json"
-    return $resolvedSkills.Values | Sort-Object Tier, Name
-}
-
-$autoLoadDirs = [System.Collections.Generic.List[string]]::new()
-$projectRolePrivate = Join-Path $SkillsBaseDir "roles" $RoleName
-if (Test-Path $projectRolePrivate) {
-    $autoLoadDirs.Add($projectRolePrivate)
-}
-$homeRolePrivate = Join-Path $ostwinHome ".agents" "skills" "roles" $RoleName
-if ((Test-Path $homeRolePrivate) -and (-not ($autoLoadDirs -contains $homeRolePrivate))) {
-    $autoLoadDirs.Add($homeRolePrivate)
-}
-
-foreach ($autoDir in $autoLoadDirs) {
-    Get-ChildItem -Path $autoDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $skillMd = Join-Path $_.FullName "SKILL.md"
-        if (-not (Test-Path $skillMd)) { return }
-
-        $skillName = $_.Name
-        # Explicit refs (already in $resolvedSkills) win over auto-discovery.
-        if ($resolvedSkills.ContainsKey($skillName)) { return }
-        # Skip skills listed in skip_auto_skills from role.json
-        if ($skipAutoSkills -contains $skillName) {
-            Write-Verbose "Skipping auto-load of '$skillName' (listed in skip_auto_skills)"
-            return
+        # Build a searchable index of all available skills (name + tags)
+        $skillCandidates = @()
+        $scanDirs = @(
+            @{ Dir = (Join-Path $SkillsBaseDir "roles" $RoleName); Label = "own-role" }
+            @{ Dir = (Join-Path $SkillsBaseDir "global"); Label = "global" }
+        )
+        foreach ($scan in $scanDirs) {
+            if (-not (Test-Path $scan.Dir)) { continue }
+            Get-ChildItem -Path $scan.Dir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                $md = Join-Path $_.FullName "SKILL.md"
+                if (Test-Path $md) {
+                    $skillCandidates += @{ Name = $_.Name; Path = $md; Source = $scan.Label }
+                }
+            }
         }
 
-        if (-not (Test-SkillPlatform -SkillMdPath $skillMd)) {
-            Write-Verbose "Skipping platform-incompatible role-private skill '$skillName'"
-            return
-        }
-        if (-not (Test-SkillEnabled -SkillMdPath $skillMd)) {
-            Write-Verbose "Skipping disabled role-private skill '$skillName'"
-            return
-        }
+        foreach ($sc in $skillCandidates) {
+            if ($resolvedSkills.ContainsKey($sc.Name)) { continue }
 
-        $resolvedSkills[$skillName] = [PSCustomObject]@{
-            Name = $skillName
-            Path = $skillMd
-            Tier = "RoleAuto"
+            $mdContent = Get-Content $sc.Path -Raw -ErrorAction SilentlyContinue
+            if (-not $mdContent) { continue }
+
+            # Extract tags from YAML frontmatter
+            $tags = @()
+            if ($mdContent -match '(?m)^tags:\s*\[([^\]]+)\]') {
+                $tags = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().Trim('"').Trim("'").ToLower() })
+            }
+            # Extract description
+            $desc = ''
+            if ($mdContent -match '(?m)^description:\s*["\u0027]?(.+?)["\u0027]?\s*$') {
+                $desc = $Matches[1].ToLower()
+            }
+
+            # Match: at least 2 tag words found in brief, or skill name segments match
+            $nameWords = @($sc.Name -split '-' | Where-Object { $_.Length -ge 3 })
+            $tagHits = @($tags | Where-Object { $_.Length -ge 3 -and $briefContent -match [regex]::Escape($_) })
+            $nameHits = @($nameWords | Where-Object { $briefContent -match [regex]::Escape($_) })
+
+            $isMatch = ($tagHits.Count -ge 2) -or
+                       ($nameHits.Count -ge 2) -or
+                       ($tagHits.Count -ge 1 -and $nameHits.Count -ge 1)
+
+            if ($isMatch) {
+                if (-not (Test-SkillPlatform -SkillMdPath $sc.Path)) { continue }
+                if (-not (Test-SkillEnabled -SkillMdPath $sc.Path)) { continue }
+
+                $resolvedSkills[$sc.Name] = [PSCustomObject]@{
+                    Name = $sc.Name
+                    Path = $sc.Path
+                    Tier = "BriefAuto"
+                }
+                Write-Verbose "Brief-matched skill '$($sc.Name)' (tags: $($tagHits -join ',') names: $($nameHits -join ','))"
+            }
         }
-        Write-Verbose "Auto-loaded role-private skill '$skillName' for role '$RoleName' from $skillMd"
     }
 }
 

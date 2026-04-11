@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 <#
 .SYNOPSIS
     Generates a planning-DAG.json from a plan markdown using AI analysis.

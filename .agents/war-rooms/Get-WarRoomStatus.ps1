@@ -33,6 +33,36 @@ param(
     [string]$ProjectDir = ''
 )
 
+# --- Status index helper: efficient room-by-status lookup ---
+function Get-RoomsByStatus {
+    <#
+    .SYNOPSIS
+        Returns room directories that match a given status, without loading full room data.
+    .DESCRIPTION
+        Reads only the lightweight 'status' file in each room directory to filter rooms.
+        Rooms without a status file are treated as 'unknown'.
+        This avoids the overhead of loading config.json, channel.jsonl, and other files
+        when you only need to know which rooms are in a particular state.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.IO.DirectoryInfo[]])]
+    param(
+        [Parameter(Mandatory)][string]$BaseDir,
+        [Parameter(Mandatory)][string[]]$Status
+    )
+
+    Get-ChildItem -Path $BaseDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $statusFile = Join-Path $_.FullName "status"
+            if (Test-Path $statusFile) {
+                $roomStatus = (Get-Content $statusFile -Raw).Trim()
+                $roomStatus -in $Status
+            } else {
+                'unknown' -in $Status
+            }
+        }
+}
+
 # --- Resolve war-rooms directory ---
 if ($ProjectDir) {
     $WarRoomsDir = Join-Path $ProjectDir ".war-rooms"
@@ -49,10 +79,9 @@ function Get-StatusData {
     $summary = @{
         total       = 0
         pending     = 0
-        engineering = 0
         developing  = 0
         optimize    = 0
-        qa_review   = 0
+        review      = 0
         fixing      = 0
         passed      = 0
         failed      = 0
@@ -75,19 +104,38 @@ function Get-StatusData {
             (Get-Content (Join-Path $roomPath "retries") -Raw).Trim()
         } else { "0" }
 
-        # Message count
+        # Message count and last activity - efficient streaming approach
+        # Uses StreamReader to avoid loading entire channel.jsonl into memory.
+        # For rooms with thousands of messages this prevents large RAM spikes.
         $msgCount = 0
         $lastActivity = "N/A"
         $channelFile = Join-Path $roomPath "channel.jsonl"
         if (Test-Path $channelFile) {
-            $lines = Get-Content $channelFile | Where-Object { $_.Trim() }
-            $msgCount = $lines.Count
-            if ($msgCount -gt 0) {
+            $fileInfo = [System.IO.FileInfo]::new($channelFile)
+            if ($fileInfo.Length -gt 0) {
+                # Count lines without loading entire file
+                $reader = [System.IO.StreamReader]::new($channelFile)
+                $lastLine = $null
                 try {
-                    $lastMsg = $lines[-1] | ConvertFrom-Json
-                    $lastActivity = $lastMsg.ts
+                    while ($null -ne ($line = $reader.ReadLine())) {
+                        if ($line.Trim()) {
+                            $msgCount++
+                            $lastLine = $line
+                        }
+                    }
+                } finally {
+                    $reader.Close()
+                    $reader.Dispose()
                 }
-                catch { }
+                # Parse only the last line for timestamp
+                if ($lastLine) {
+                    try {
+                        $lastMsg = $lastLine | ConvertFrom-Json
+                        $lastActivity = $lastMsg.ts
+                    } catch {
+                        Write-Verbose "Failed to parse last channel message in $($dir.Name): $($_.Exception.Message)"
+                    }
+                }
             }
         }
 
@@ -102,7 +150,7 @@ function Get-StatusData {
                         $proc = Get-Process -Id ([int]$pidVal) -ErrorAction Stop
                         if ($proc) { $activePids += $pidVal }
                     }
-                    catch { }
+                    catch { Write-Verbose "PID $pidVal in $($dir.Name) is no longer running" }
                 }
             }
         }
@@ -117,7 +165,7 @@ function Get-StatusData {
                 $roomConfig = Get-Content $configFile -Raw | ConvertFrom-Json
                 $goalsTotal = $roomConfig.goals.definition_of_done.Count
             }
-            catch { }
+            catch { Write-Verbose "Failed to parse config.json in $($dir.Name): $($_.Exception.Message)" }
         }
         $goalVerifFile = Join-Path $roomPath "goal-verification.json"
         if (Test-Path $goalVerifFile) {
@@ -125,20 +173,20 @@ function Get-StatusData {
                 $goalReport = Get-Content $goalVerifFile -Raw | ConvertFrom-Json
                 $goalsMet = ($goalReport.goals | Where-Object { $_.status -eq "met" }).Count
             }
-            catch { }
+            catch { Write-Verbose "Failed to parse goal-verification.json in $($dir.Name): $($_.Exception.Message)" }
         }
 
-        # Count by status
-        switch ($status) {
-            'pending'      { $summary.pending++ }
-            'engineering'  { $summary.engineering++ }
-            'developing'   { $summary.developing++ }
-            'optimize'     { $summary.optimize++ }
-            'qa-review'    { $summary.qa_review++ }
-            'review'       { $summary.qa_review++ }
-            'fixing'       { $summary.fixing++ }
-            'passed'       { $summary.passed++ }
-            'failed-final' { $summary.failed++ }
+        # Count by status — canonical state names (principle 5)
+        # 'engineering' is a legacy alias for 'developing'; both map to the same counter.
+        # 'review', 'review-2', 'review-3' are position-based evaluator states.
+        switch -Regex ($status) {
+            '^pending$'         { $summary.pending++ }
+            '^(engineering|developing)$' { $summary.developing++ }
+            '^optimize$'        { $summary.optimize++ }
+            '^review(-\d+)?$'   { $summary.review++ }
+            '^fixing$'          { $summary.fixing++ }
+            '^passed$'          { $summary.passed++ }
+            '^failed-final$'    { $summary.failed++ }
         }
 
         $rooms += [PSCustomObject]@{
@@ -178,19 +226,17 @@ function Show-FormattedStatus {
     Write-Host ($fmt -f "----", "---", "------", "-------", "----", "-----", "----", "-------------") -ForegroundColor DarkGray
 
     foreach ($room in $Data.rooms) {
-        $statusColor = switch ($room.status) {
-            'pending'      { 'DarkGray' }
-            'engineering'  { 'Yellow' }
-            'developing'   { 'Yellow' }
-            'optimize'     { 'DarkYellow' }
-            'qa-review'    { 'Cyan' }
-            'review'       { 'Cyan' }
-            'fixing'       { 'DarkYellow' }
-            'passed'       { 'Green' }
-            'failed-final' { 'Red' }
-            'failed'       { 'Red' }
-            'triage'       { 'Magenta' }
-            default        { 'White' }
+        $statusColor = switch -Regex ($room.status) {
+            '^pending$'         { 'DarkGray' }
+            '^(engineering|developing)$' { 'Yellow' }
+            '^optimize$'        { 'DarkYellow' }
+            '^review(-\d+)?$'   { 'Cyan' }
+            '^fixing$'          { 'DarkYellow' }
+            '^passed$'          { 'Green' }
+            '^failed-final$'    { 'Red' }
+            '^failed$'          { 'Red' }
+            '^triage$'          { 'Magenta' }
+            default             { 'White' }
         }
 
         $line = $fmt -f $room.room_id, $room.task_ref, $room.status, $room.retries, $room.messages, $room.goals, $room.active_pids, $room.last_activity
@@ -198,9 +244,9 @@ function Show-FormattedStatus {
     }
 
     $s = $Data.summary
-    $active = $s.engineering + $s.developing + $s.optimize
+    $active = $s.developing + $s.optimize
     Write-Host ""
-    Write-Host "  Summary: $($s.total) total | $($s.pending) pending | $active active | $($s.qa_review) review | $($s.fixing) fixing | $($s.passed) passed | $($s.failed) failed" -ForegroundColor White
+    Write-Host "  Summary: $($s.total) total | $($s.pending) pending | $active active | $($s.review) review | $($s.fixing) fixing | $($s.passed) passed | $($s.failed) failed" -ForegroundColor White
     Write-Host ""
 }
 

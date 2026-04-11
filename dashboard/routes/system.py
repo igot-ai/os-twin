@@ -292,6 +292,59 @@ async def save_env(request: dict, user: dict = Depends(get_current_user)):
     return {"status": "saved", "path": str(_ENV_FILE)}
 
 
+# ── Bot Process Management ────────────────────────────────────────────
+
+@router.get("/bot/status")
+async def bot_status(user: dict = Depends(get_current_user)):
+    """Get the bot process status."""
+    import dashboard.global_state as gs
+    if gs.bot_manager is None:
+        return {"running": False, "pid": None, "started_at": None, "available": False}
+    status = gs.bot_manager.status()
+    status["available"] = True
+    return status
+
+
+@router.post("/bot/start")
+async def bot_start(user: dict = Depends(get_current_user)):
+    """Start the bot process."""
+    import dashboard.global_state as gs
+    if gs.bot_manager is None:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    started = await gs.bot_manager.start()
+    return {"started": started, **gs.bot_manager.status()}
+
+
+@router.post("/bot/stop")
+async def bot_stop(user: dict = Depends(get_current_user)):
+    """Stop the bot process."""
+    import dashboard.global_state as gs
+    if gs.bot_manager is None:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    stopped = await gs.bot_manager.stop()
+    return {"stopped": stopped}
+
+
+@router.post("/bot/restart")
+async def bot_restart(user: dict = Depends(get_current_user)):
+    """Restart the bot process (stop + start)."""
+    import dashboard.global_state as gs
+    if gs.bot_manager is None:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+    restarted = await gs.bot_manager.restart()
+    return {"restarted": restarted, **gs.bot_manager.status()}
+
+
+@router.get("/bot/logs")
+async def bot_logs(limit: int = 100, user: dict = Depends(get_current_user)):
+    """Get recent bot process logs."""
+    import dashboard.global_state as gs
+    if gs.bot_manager is None:
+        return {"logs": [], "count": 0}
+    logs = gs.bot_manager.get_logs(limit)
+    return {"logs": logs, "count": len(logs)}
+
+
 @router.get("/fs/browse")
 async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_current_user)):
     if not path:

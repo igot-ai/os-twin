@@ -134,7 +134,7 @@ async function cmdStatus(): Promise<BotResponse> {
   if (error) return text(`⚠️ ${error}`);
   if (!rooms.length) return text('ℹ️ No War-Rooms found.');
 
-  const emoji: Record<string, string> = { passed: '✅', running: '🏃‍♂️', engineering: '🏃‍♂️', pending: '⏳', 'qa-review': '👀', review: '👀', fixing: '🔧', 'failed-final': '❌' };
+  const emoji: Record<string, string> = { passed: '✅', running: '🏃‍♂️', engineering: '🏃‍♂️', pending: '⏳', review: '👀', fixing: '🔧', 'failed-final': '❌' };
   const lines = ['📋 *War-Rooms Status:*', '`─────────────────────────────`'];
   for (const r of rooms) {
     const e = r.status.includes('fail') ? '❌' : (emoji[r.status] || '❓');

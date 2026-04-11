@@ -35,8 +35,7 @@ param(
 # --- Load config.json goal contract ---
 $configFile = Join-Path $RoomDir "config.json"
 if (-not (Test-Path $configFile)) {
-    Write-Error "No config.json found in war-room: $RoomDir"
-    exit 1
+    throw "No config.json found in war-room: $RoomDir"
 }
 
 $config = Get-Content $configFile -Raw | ConvertFrom-Json
@@ -72,7 +71,7 @@ if (Test-Path $channelFile) {
                 $channelEvidence += "$($msg.body)`n"
             }
         }
-        catch { }
+        catch { Write-Verbose "Skipping malformed channel line: $($_.Exception.Message)" }
     }
 }
 
@@ -86,27 +85,70 @@ if (Test-Path $tasksFile) {
 # Combined evidence corpus for searching
 $allEvidence = @($EngineerOutput, $qaOutput, $channelEvidence, $tasksMd) -join "`n"
 
-# --- Goal evaluation function ---
+# --- Negation context detection ---
+function Test-NegationContext {
+    <#
+    .SYNOPSIS
+        Checks if a match in text appears within a negation context.
+    .DESCRIPTION
+        Looks for negation words (not, no, never, cannot, didn't, won't, etc.)
+        within a window of ~80 characters before the match position.
+        80 chars ≈ 5 average English words, giving enough context to catch
+        "was not implemented" or "hasn't been completed" while avoiding
+        false positives from negations in a different clause.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][int]$MatchIndex,
+        [Parameter(Mandatory)][int]$MatchLength
+    )
+
+    $negationWords = @('not', 'no', 'never', 'neither', 'cannot', 'cant', "can't",
+                       "couldn't", "didn't", "doesn't", "don't", "hasn't", "haven't",
+                       "hadn't", "isn't", "aren't", "wasn't", "weren't", "won't",
+                       "wouldn't", "shouldn't", "mustn't", 'without', 'unable',
+                       'failed', 'failing', 'fail', 'missing', 'lack', 'lacks')
+
+    # Get the ~80 chars before the match
+    $windowStart = [Math]::Max(0, $MatchIndex - 80)
+    $beforeText = $Text.Substring($windowStart, $MatchIndex - $windowStart)
+
+    # Check if any negation word appears in the preceding context
+    foreach ($neg in $negationWords) {
+        if ($beforeText -match "\b$([regex]::Escape($neg))\b") {
+            return $true
+        }
+    }
+    return $false
+}
+
+# --- Goal evaluation function with negation awareness ---
 function Test-GoalMet {
     param(
         [string]$Goal,
         [string]$Evidence
     )
 
-    # Normalize for comparison
     $goalLower = $Goal.ToLower().Trim()
     $evidenceLower = $Evidence.ToLower()
 
-    # Strategy 1: Exact or near-exact match in evidence
-    if ($evidenceLower -match [regex]::Escape($goalLower)) {
-        return [PSCustomObject]@{
-            Status   = "met"
-            Evidence = "Exact match found in evidence"
-            Score    = 1.0
+    # --- Strategy 1: Exact or near-exact phrase match ---
+    $escapedGoal = [regex]::Escape($goalLower)
+    if ($evidenceLower -match $escapedGoal) {
+        # Check for negation near the match
+        $matchIdx = $evidenceLower.IndexOf($goalLower)
+        if (-not (Test-NegationContext -Text $evidenceLower -MatchIndex $matchIdx -MatchLength $goalLower.Length)) {
+            return [PSCustomObject]@{
+                Status   = "met"
+                Evidence = "Exact phrase match found in evidence"
+                Score    = 1.0
+            }
         }
     }
 
-    # Strategy 2: Key terms matching — extract significant words from goal
+    # --- Strategy 2: Key term matching with negation awareness ---
     $stopWords = @('the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
                    'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would',
                    'could', 'should', 'may', 'might', 'must', 'shall', 'can',
@@ -131,32 +173,50 @@ function Test-GoalMet {
     }
 
     $matchedTerms = @()
+    $negatedTerms = @()
     foreach ($term in $keyTerms) {
-        if ($evidenceLower -match "\b$([regex]::Escape($term))\b") {
-            $matchedTerms += $term
+        $termPattern = "\b$([regex]::Escape($term))\b"
+        $termMatches = [regex]::Matches($evidenceLower, $termPattern)
+        if ($termMatches.Count -gt 0) {
+            # Check if ANY occurrence is in a non-negated context
+            $hasPositiveMatch = $false
+            foreach ($tm in $termMatches) {
+                if (-not (Test-NegationContext -Text $evidenceLower -MatchIndex $tm.Index -MatchLength $tm.Length)) {
+                    $hasPositiveMatch = $true
+                    break
+                }
+            }
+            if ($hasPositiveMatch) {
+                $matchedTerms += $term
+            } else {
+                $negatedTerms += $term
+            }
         }
     }
 
     $matchRatio = $matchedTerms.Count / $keyTerms.Count
 
+    # Penalize if key terms were found but negated
+    $negationPenalty = if ($negatedTerms.Count -gt 0) { " (negated: $($negatedTerms -join ', '))" } else { "" }
+
     if ($matchRatio -ge 0.7) {
         return [PSCustomObject]@{
             Status   = "met"
-            Evidence = "Key terms matched: $($matchedTerms -join ', ') ($([math]::Round($matchRatio * 100))%)"
+            Evidence = "Key terms matched: $($matchedTerms -join ', ') ($([math]::Round($matchRatio * 100))%)$negationPenalty"
             Score    = $matchRatio
         }
     }
     elseif ($matchRatio -ge 0.4) {
         return [PSCustomObject]@{
             Status   = "partial"
-            Evidence = "Partial key terms: $($matchedTerms -join ', ') ($([math]::Round($matchRatio * 100))%)"
+            Evidence = "Partial key terms: $($matchedTerms -join ', ') ($([math]::Round($matchRatio * 100))%)$negationPenalty"
             Score    = $matchRatio
         }
     }
     else {
         return [PSCustomObject]@{
             Status   = "not_met"
-            Evidence = "Low match: $($matchedTerms -join ', ') ($([math]::Round($matchRatio * 100))%)"
+            Evidence = "Low match: $($matchedTerms -join ', ') ($([math]::Round($matchRatio * 100))%)$negationPenalty"
             Score    = $matchRatio
         }
     }

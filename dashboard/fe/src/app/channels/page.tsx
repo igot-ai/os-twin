@@ -177,10 +177,36 @@ function Instructions({ text, className }: { text: string, className?: string })
 function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (config: { credentials: Record<string, string> }) => void }) {
   const { setupSteps = [], isLoading } = useChannelSetup(platform);
   const [token, setToken] = useState('');
+  // Discord-specific
   const [clientId, setClientId] = useState('');
   const [guildId, setGuildId] = useState('');
+  // Slack-specific
+  const [appToken, setAppToken] = useState('');
+  const [signingSecret, setSigningSecret] = useState('');
 
   if (isLoading) return <div className="animate-pulse space-y-4"><div className="h-4 bg-slate-200 rounded w-3/4" /><div className="h-20 bg-slate-100 rounded" /></div>;
+
+  const buildCredentials = (): Record<string, string> => {
+    if (platform === 'discord') {
+      return { token, client_id: clientId, guild_id: guildId };
+    }
+    if (platform === 'slack') {
+      return {
+        token,
+        app_token: appToken,
+        ...(signingSecret ? { signing_secret: signingSecret } : {}),
+      };
+    }
+    // Telegram and others — token only
+    return { token };
+  };
+
+  const isValid = (): boolean => {
+    if (!token) return false;
+    if (platform === 'discord' && (!clientId || !guildId)) return false;
+    if (platform === 'slack' && !appToken) return false;
+    return true;
+  };
 
   return (
     <div className="space-y-6">
@@ -202,15 +228,17 @@ function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (
 
       <div className="space-y-3 pt-2">
         <div className="space-y-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">API Token</label>
+          <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">Bot Token</label>
           <input 
             type="password" 
             value={token}
             onChange={(e) => setToken(e.target.value)}
             className="w-full p-2 text-xs bg-background border border-border rounded-lg focus:ring-1 focus:ring-primary outline-none"
-            placeholder="Paste token here..."
+            placeholder={platform === 'slack' ? 'xoxb-... (Bot User OAuth Token)' : 'Paste token here...'}
           />
         </div>
+
+        {/* Discord-specific fields */}
         {platform === 'discord' && (
           <>
             <div className="space-y-1">
@@ -224,20 +252,49 @@ function SetupWizard({ platform, onComplete }: { platform: string, onComplete: (
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">Guild ID (Optional)</label>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">Server ID</label>
               <input 
                 type="text" 
                 value={guildId}
                 onChange={(e) => setGuildId(e.target.value)}
                 className="w-full p-2 text-xs bg-background border border-border rounded-lg focus:ring-1 focus:ring-primary outline-none"
-                placeholder="For instant slash command updates"
+                placeholder="Discord Server ID (right-click server → Copy ID)"
               />
             </div>
           </>
         )}
+
+        {/* Slack-specific fields */}
+        {platform === 'slack' && (
+          <>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">App-Level Token</label>
+              <input 
+                type="password" 
+                value={appToken}
+                onChange={(e) => setAppToken(e.target.value)}
+                className="w-full p-2 text-xs bg-background border border-border rounded-lg focus:ring-1 focus:ring-primary outline-none"
+                placeholder="xapp-... (Socket Mode token with connections:write)"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-text-faint">
+                Signing Secret <span className="normal-case tracking-normal font-normal text-text-faint/60">(optional)</span>
+              </label>
+              <input 
+                type="password" 
+                value={signingSecret}
+                onChange={(e) => setSigningSecret(e.target.value)}
+                className="w-full p-2 text-xs bg-background border border-border rounded-lg focus:ring-1 focus:ring-primary outline-none"
+                placeholder="Found in Basic Information → App Credentials"
+              />
+            </div>
+          </>
+        )}
+
         <button 
-          onClick={() => onComplete({ credentials: { token, client_id: clientId, guild_id: guildId } })}
-          disabled={!token}
+          onClick={() => onComplete({ credentials: buildCredentials() })}
+          disabled={!isValid()}
           className="w-full py-2.5 bg-emerald-600 disabled:opacity-50 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:brightness-105 transition-all shadow-lg shadow-emerald-600/20"
         >
           Finish Setup

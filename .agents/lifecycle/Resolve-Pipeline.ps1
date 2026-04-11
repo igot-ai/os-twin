@@ -41,89 +41,111 @@ $defaultLifecyclePath = Join-Path $AgentsDir "lifecycle" "default.json"
  
 # ------------------------------------------------------------------
 # V2 LIFECYCLE BUILDER — signal-based, role-per-state state machine
+#
+# Position-based role assignment:
+#   Roles[0]    = worker     → "developing" + "optimize" + "fixing" states
+#   Roles[1..N] = evaluators → "review", "review-2", … states
+#   No evaluators? → inject default QA review as "review" state
 # ------------------------------------------------------------------
 function Build-LifecycleV2 {
     param(
-        [PSCustomObject[]]$RoleOverrides, # Array of @{ Name, InstanceType }
+        [string[]]$Roles,              # Ordered list: [0] = worker, [1..N] = evaluators
+        [PSCustomObject[]]$RoleOverrides,  # Backward-compat: array of @{ Name; InstanceType }
         [int]$MaxRetries = 3
     )
 
-    $states = [ordered]@{}
-    $firstState = $null
-    $lastWorkerOptimize = $null
+    # --- Backward compatibility: normalize -RoleOverrides to -Roles ---
+    if (-not $Roles -and $RoleOverrides) {
+        $Roles = @($RoleOverrides | ForEach-Object { $_.Name })
+    }
 
-    # Pre-compute state names
-    $stateNames = @()
-    $hasReview = $false
-    for ($i = 0; $i -lt $RoleOverrides.Count; $i++) {
-        $type = $RoleOverrides[$i].InstanceType
-        $roleName = $RoleOverrides[$i].Name
-        if ($i -eq 0 -and $type -ne 'evaluator') {
-            $stateNames += "developing"
-        } elseif ($type -eq 'evaluator') {
-            if (-not $hasReview) {
-                $stateNames += "review"
-                $hasReview = $true
-            } else {
-                $stateNames += "review-$roleName"
-            }
+    $states = [ordered]@{}
+
+    # Position-based: first role is always the worker
+    $workerRole = $Roles[0]
+    $evaluatorRoles = @()
+    if ($Roles.Count -gt 1) {
+        $evaluatorRoles = @($Roles[1..($Roles.Count - 1)])
+    }
+
+    # Compute evaluator state names: review, review-2, review-3, ...
+    $evaluatorStateNames = @()
+    for ($i = 0; $i -lt $evaluatorRoles.Count; $i++) {
+        if ($i -eq 0) {
+            $evaluatorStateNames += "review"
         } else {
-            $stateNames += $roleName
+            $evaluatorStateNames += "review-$($i + 1)"
         }
     }
 
-    for ($i = 0; $i -lt $RoleOverrides.Count; $i++) {
-        $roleInfo = $RoleOverrides[$i]
-        $roleName = $roleInfo.Name
-        $type = $roleInfo.InstanceType
+    # First evaluator target (or injected QA "review" when no evaluators)
+    $hasExplicitEvaluators = $evaluatorRoles.Count -gt 0
+    $firstEvalTarget = if ($hasExplicitEvaluators) {
+        $evaluatorStateNames[0]
+    } else {
+        'review'
+    }
 
-        $isFirstWorker = ($i -eq 0 -and $type -ne 'evaluator')
-        $stateName = $stateNames[$i]
-        if (-not $firstState) { $firstState = $stateName }
+    # --- Worker states: developing + optimize + fixing ---
+    $states['developing'] = [ordered]@{
+        role    = $workerRole
+        type    = 'work'
+        signals = [ordered]@{
+            done  = [ordered]@{ target = $firstEvalTarget }
+            error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+        }
+    }
+    $states['optimize'] = [ordered]@{
+        role    = $workerRole
+        type    = 'work'
+        signals = [ordered]@{
+            done  = [ordered]@{ target = $firstEvalTarget }
+            error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+        }
+    }
+    $states['fixing'] = [ordered]@{
+        role    = $workerRole
+        type    = 'work'
+        signals = [ordered]@{
+            done  = [ordered]@{ target = $firstEvalTarget }
+            error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
+        }
+    }
 
-        $nextTarget = 'passed'
-        if ($i -lt ($RoleOverrides.Count - 1)) {
-            $nextTarget = $stateNames[$i + 1]
+    # --- Evaluator states: review, review-2, ... ---
+    for ($i = 0; $i -lt $evaluatorRoles.Count; $i++) {
+        $evalRole = $evaluatorRoles[$i]
+        $stateName = $evaluatorStateNames[$i]
+        $nextTarget = if ($i -lt ($evaluatorRoles.Count - 1)) {
+            $evaluatorStateNames[$i + 1]
+        } else {
+            'passed'
         }
 
-        if ($type -eq 'worker') {
-            # worker state
-            $optimizeState = if ($isFirstWorker) { "optimize" } else { "optimize-$roleName" }
-            $lastWorkerOptimize = $optimizeState
-
-            $states[$stateName] = [ordered]@{
-                role    = $roleName
-                type    = 'work'
-                signals = [ordered]@{
-                    done  = [ordered]@{ target = $nextTarget }
-                    pass  = [ordered]@{ target = $nextTarget }
-                    error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
-                }
+        $states[$stateName] = [ordered]@{
+            role    = $evalRole
+            type    = 'review'
+            signals = [ordered]@{
+                pass     = [ordered]@{ target = $nextTarget }
+                done     = [ordered]@{ target = 'passed' }
+                fail     = [ordered]@{ target = 'optimize'; actions = @('increment_retries', 'post_fix') }
+                escalate = [ordered]@{ target = 'triage' }
+                error    = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
             }
+        }
+    }
 
-            # optimize state
-            $states[$optimizeState] = [ordered]@{
-                role    = $roleName
-                type    = 'work'
-                signals = [ordered]@{
-                    done  = [ordered]@{ target = $nextTarget }
-                    pass  = [ordered]@{ target = $nextTarget }
-                    error = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
-                }
-            }
-        } else {
-            # evaluator state
-            $failTarget = if ($lastWorkerOptimize) { $lastWorkerOptimize } else { "failed" }
-
-            $states[$stateName] = [ordered]@{
-                role    = $roleName
-                type    = 'review'
-                signals = [ordered]@{
-                    pass     = [ordered]@{ target = $nextTarget }
-                    done     = [ordered]@{ target = 'passed' }
-                    fail     = [ordered]@{ target = $failTarget; actions = @('increment_retries', 'post_fix') }
-                    escalate = [ordered]@{ target = 'triage' }
-                }
+    # --- Injected QA review (when no evaluators in candidate list) ---
+    if (-not $hasExplicitEvaluators) {
+        $states['review'] = [ordered]@{
+            role    = 'qa'
+            type    = 'review'
+            signals = [ordered]@{
+                pass     = [ordered]@{ target = 'passed' }
+                done     = [ordered]@{ target = 'passed' }
+                fail     = [ordered]@{ target = 'optimize'; actions = @('increment_retries', 'post_fix') }
+                escalate = [ordered]@{ target = 'triage' }
+                error    = [ordered]@{ target = 'failed'; actions = @('increment_retries') }
             }
         }
     }
@@ -133,8 +155,8 @@ function Build-LifecycleV2 {
         role    = 'manager'
         type    = 'triage'
         signals = [ordered]@{
-            fix      = [ordered]@{ target = if ($lastWorkerOptimize) { $lastWorkerOptimize } else { 'failed' }; actions = @('increment_retries') }
-            redesign = [ordered]@{ target = if ($firstState) { $firstState } else { 'failed' }; actions = @('increment_retries', 'revise_brief') }
+            fix      = [ordered]@{ target = 'optimize'; actions = @('increment_retries') }
+            redesign = [ordered]@{ target = 'developing'; actions = @('increment_retries', 'revise_brief') }
             reject   = [ordered]@{ target = 'failed-final' }
         }
     }
@@ -145,7 +167,7 @@ function Build-LifecycleV2 {
         type            = 'decision'
         auto_transition = $true
         signals         = [ordered]@{
-            retry   = [ordered]@{ target = if ($firstState) { $firstState } else { 'failed-final' }; guard = 'retries < max_retries' }
+            retry   = [ordered]@{ target = 'developing'; guard = 'retries < max_retries' }
             exhaust = [ordered]@{ target = 'failed-final'; guard = 'retries >= max_retries' }
         }
     }
@@ -156,7 +178,7 @@ function Build-LifecycleV2 {
 
     return [ordered]@{
         version       = 2
-        initial_state = if ($firstState) { $firstState } else { 'passed' }
+        initial_state = 'developing'
         max_retries   = $MaxRetries
         states        = $states
     }
@@ -205,29 +227,9 @@ else {
 }
 
 if (-not $resolvedLifecycle -and $candidateList.Count -gt 0) {
-    $roleOverrides = @()
-    foreach ($role in $candidateList) {
-        $baseRole = $role -replace ':.*$', ''
-        $roleJsonPath = Join-Path $AgentsDir "roles" $baseRole "role.json"
-        $instanceType = 'worker'
-
-        if (Test-Path $roleJsonPath) {
-            $roleConfig = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
-            if ($roleConfig.instance_type) { $instanceType = $roleConfig.instance_type }
-        } else {
-            $contribPath = Join-Path $AgentsDir "contributes" $baseRole "role.json"
-            if (Test-Path $contribPath) {
-                $roleConfig = Get-Content $contribPath -Raw | ConvertFrom-Json
-                if ($roleConfig.instance_type) { $instanceType = $roleConfig.instance_type }
-            }
-        }
-
-        $roleOverrides += [PSCustomObject]@{
-            Name         = $role
-            InstanceType = $instanceType
-        }
-    }
-    $resolvedLifecycle = Build-LifecycleV2 -RoleOverrides $roleOverrides -MaxRetries $MaxRetries
+    # Strip instance suffixes (e.g. "engineer:fe" → "engineer") for state naming
+    $roleNames = @($candidateList | ForEach-Object { $_ -replace ':.*$', '' })
+    $resolvedLifecycle = Build-LifecycleV2 -Roles $roleNames -MaxRetries $MaxRetries
 }
 
 # ------------------------------------------------------------------

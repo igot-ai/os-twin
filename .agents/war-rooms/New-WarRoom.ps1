@@ -86,8 +86,7 @@ $roomDir = Join-Path $WarRoomsDir $RoomId
 
 # --- Prevent overwriting existing room ---
 if (Test-Path $roomDir) {
-    Write-Error "War-room '$RoomId' already exists at $roomDir"
-    exit 1
+    throw "War-room '$RoomId' already exists at $roomDir"
 }
 
 # --- Create room directory structure ---
@@ -119,6 +118,8 @@ if ($Assets -and $Assets.Count -gt 0) {
 }
 
 # --- Initialize channel ---
+# NOTE: All subsequent writes to channel.jsonl MUST go through Write-ChannelLine
+# (from Utils.psm1) which uses Invoke-WithFileLock to prevent concurrent-append corruption.
 New-Item -ItemType File -Path (Join-Path $roomDir "channel.jsonl") -Force | Out-Null
 
 # --- Detect Epic vs Task ---
@@ -335,7 +336,7 @@ if ($Pipeline -or ($RequiredCapabilities -and $RequiredCapabilities.Count -gt 0)
 }
 
 # --- FALLBACK: Generate default lifecycle from CandidateRoles ---
-# AssignedRole is the authoritative primary worker for the engineering stage.
+# AssignedRole is the authoritative primary worker for the developing stage.
 # Review stages are derived from CandidateRoles minus the AssignedRole.
 # Only roles present in candidate_roles appear in the lifecycle.
 $lifecyclePath = Join-Path $roomDir "lifecycle.json"

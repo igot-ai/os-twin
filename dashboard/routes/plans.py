@@ -1935,9 +1935,12 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     if not plan:
         raise HTTPException(status_code=422, detail="Plan content is empty")
 
-    # Quick pre-flight: must contain at least one ## Epic: or ## Task: section
-    if not _re_mod.search(r"^#{2,3} (?:EPIC-|Task:|Epic:)", plan, _re_mod.MULTILINE):
-        raise HTTPException(status_code=400, detail="Plan contains no epics or tasks. Add at least one '## EPIC-XXX - Title' section.")
+    # Quick pre-flight: must contain a goal (# Plan: title) or at least one EPIC/Task.
+    # Plans without EPICs are allowed — Start-Plan.ps1 will auto-generate them from the goal.
+    has_epics = bool(_re_mod.search(r"^#{2,3} (?:EPIC-|Task:|Epic:)", plan, _re_mod.MULTILINE))
+    has_goal = bool(_re_mod.search(r"^#\s+(?:Plan|PLAN):\s*.+", plan, _re_mod.MULTILINE))
+    if not has_epics and not has_goal:
+        raise HTTPException(status_code=400, detail="Plan must contain a '# Plan: Title' goal or at least one '## EPIC-XXX - Title' section.")
 
     run_sh = AGENTS_DIR / "run.sh"
     if not run_sh.exists():
@@ -2708,7 +2711,7 @@ async def update_epic_state(plan_id: str, epic_ref: str, body: dict, user: dict 
     if not new_status:
         raise HTTPException(status_code=422, detail="Missing 'status' in request body")
 
-    ALLOWED_STATUSES = {"passed", "developing", "pending", "engineering", "blocked", "failed-final", "signoff"}
+    ALLOWED_STATUSES = {"passed", "developing", "pending", "blocked", "failed-final", "signoff"}
     if new_status not in ALLOWED_STATUSES:
         raise HTTPException(status_code=422, detail=f"Invalid status '{new_status}'. Allowed: {sorted(ALLOWED_STATUSES)}")
 

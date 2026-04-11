@@ -422,7 +422,7 @@ Describe "QA Epic Review — TASKS.md Consumption" {
         New-Item -ItemType File -Path (Join-Path $script:roomDir "channel.jsonl") -Force | Out-Null
 
         "EPIC-001" | Out-File (Join-Path $script:roomDir "task-ref") -NoNewline
-        "qa-review" | Out-File (Join-Path $script:roomDir "status") -NoNewline
+        "review" | Out-File (Join-Path $script:roomDir "status") -NoNewline
 
         # Write the Sky Fighter brief
         @"

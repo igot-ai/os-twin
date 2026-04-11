@@ -1,7 +1,7 @@
 {
-  "initial_state": "engineering",
+  "initial_state": "developing",
   "states": {
-    "engineering": {
+    "developing": {
       "type": "agent",
       "role": "manager",
       "transitions": {
