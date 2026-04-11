@@ -1,0 +1,134 @@
+---
+title: Installation
+description: Install OSTwin and configure your environment.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+## Prerequisites
+
+| Requirement | Version | Check command |
+|------------|---------|---------------|
+| **PowerShell** | 7.4+ | `pwsh --version` |
+| **Node.js** | 20+ | `node --version` |
+| **Python** | 3.11+ | `python3 --version` |
+| **Git** | 2.40+ | `git --version` |
+| **pnpm** | 9+ | `pnpm --version` |
+
+:::tip
+On macOS, install PowerShell with `brew install powershell/tap/powershell`. On Linux, follow the [Microsoft docs](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-linux).
+:::
+
+## Install OSTwin
+
+<Tabs>
+  <TabItem label="Full Install">
+    The install script sets up all dependencies, creates virtual environments, and configures the runtime:
+
+    ```bash
+    git clone https://github.com/igot-ai/os-twin.git
+    cd os-twin
+    pwsh Install.ps1
+    ```
+
+    This will:
+    - Create a Python virtual environment at `.venv/`
+    - Install Python dependencies for MCP servers
+    - Install Node.js dependencies for the bot and dashboard
+    - Validate all prerequisites are met
+    - Set up the `.agents/` directory structure
+  </TabItem>
+  <TabItem label="Source Mode">
+    If you want to set up components individually:
+
+    ```bash
+    git clone https://github.com/igot-ai/os-twin.git
+    cd os-twin
+
+    # Python MCP servers
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+
+    # Dashboard (Next.js frontend)
+    cd dashboard && pnpm install && cd ..
+
+    # Dashboard (FastAPI backend)
+    cd api && pip install -r requirements.txt && cd ..
+
+    # Bot
+    cd bot && pnpm install && cd ..
+    ```
+  </TabItem>
+</Tabs>
+
+## API Key Setup
+
+OSTwin needs at least one LLM provider key. Set the key for the provider you plan to use:
+
+<Tabs>
+  <TabItem label="Anthropic (recommended)">
+    ```bash
+    export ANTHROPIC_API_KEY="sk-ant-..."
+    ```
+  </TabItem>
+  <TabItem label="OpenAI">
+    ```bash
+    export OPENAI_API_KEY="sk-..."
+    ```
+  </TabItem>
+  <TabItem label="Google">
+    ```bash
+    export GOOGLE_API_KEY="AI..."
+    ```
+  </TabItem>
+</Tabs>
+
+:::caution
+API keys are read from environment variables at runtime. Never commit them to your plan files or role configs. The engine will fail fast if the required key is missing.
+:::
+
+For persistent configuration, add the export to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.).
+
+## Runtime File Locations
+
+After installation, OSTwin uses the following directory structure:
+
+| Path | Purpose |
+|------|---------|
+| `.agents/skills/` | Skill definitions organized by role |
+| `.agents/roles/` | Role definitions (`role.json` + `ROLE.md`) |
+| `.agents/war-rooms/` | Active war-room directories (created at runtime) |
+| `.agents/memory/` | Shared memory ledger |
+| `.agents/registry.json` | Role registry mapping |
+| `Engine.ps1` | Main orchestration engine |
+| `api/` | FastAPI dashboard backend |
+| `dashboard/` | Next.js dashboard frontend |
+| `bot/` | TypeScript conversational bot |
+
+## Verify Installation
+
+Run the built-in verification:
+
+```bash
+pwsh -Command "& { . ./Engine.ps1 -Verify }"
+```
+
+This checks that all prerequisites are installed, API keys are set, and the directory structure is correct.
+
+## Uninstall
+
+To remove OSTwin completely:
+
+```bash
+# Remove the cloned repository and all runtime data
+rm -rf os-twin
+```
+
+Since OSTwin is fully self-contained in its repository directory, removing it cleans up everything. No global packages or system-level changes are made during installation.
+
+## Next Steps
+
+With OSTwin installed, run your first plan in the [Quick Start](/getting-started/quick-start/).

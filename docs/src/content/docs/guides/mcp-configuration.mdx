@@ -1,0 +1,198 @@
+---
+title: MCP Configuration
+description: MCP server configuration — config files, 4-tier priority, vault secrets, per-room MCP, adding custom servers, audit logging, and token optimization.
+sidebar:
+  order: 8
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+MCP (Model Context Protocol) servers provide **tool access** to agents. Each war-room gets its own MCP server instances, creating isolated tool boundaries.
+
+## Config files
+
+MCP configuration lives in `.agents/mcp/`:
+
+| File | Purpose |
+|------|---------|
+| `config.json` | User/project config (highest priority) |
+| `mcp-builtin.json` | Built-in servers shipped with OSTwin |
+| `mcp-catalog.json` | Available but inactive servers |
+| `extensions.json` | Third-party extension configs |
+| `config_resolver.py` | Resolution engine |
+| `vault.py` | Secret management |
+
+## Config format
+
+```json
+{
+  "mcp": {
+    "server-name": {
+      "type": "local",
+      "command": ["python", "path/to/server.py"],
+      "environment": {
+        "API_KEY": "{env:MY_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+### Server types
+
+<Tabs>
+  <TabItem label="Local">
+    Runs as a child process:
+
+    ```json
+    {"channel": {"type": "local", "command": ["python", "{env:HOME}/.ostwin/.agents/mcp/channel-server.py"], "environment": {"AGENT_OS_ROOT": "."}}}
+    ```
+  </TabItem>
+  <TabItem label="Remote">
+    Connects via HTTP:
+
+    ```json
+    {"stitch": {"type": "remote", "url": "https://stitch.googleapis.com/mcp", "headers": {"X-Goog-Api-Key": "{env:MCP_STITCH_API_KEY}"}}}
+    ```
+  </TabItem>
+</Tabs>
+
+## 4-tier priority
+
+Configs merge in priority order (highest wins):
+
+| Priority | Source | File |
+|----------|--------|------|
+| 1 | Per-room | `war-rooms/room-001/mcp.json` |
+| 2 | Project | `.agents/mcp/config.json` |
+| 3 | User | `~/.ostwin/.agents/mcp/config.json` |
+| 4 | Built-in | `.agents/mcp/mcp-builtin.json` |
+
+Higher-priority sources override lower ones per server name. A server set to `null` in a higher tier disables it.
+
+:::tip
+Use the built-in config as your base and only override what you need. You automatically get updates to built-in servers.
+:::
+
+## Variable resolution
+
+Environment variables use `{env:VAR}` syntax with optional defaults:
+
+```json
+{
+  "environment": {
+    "API_KEY": "{env:ANTHROPIC_API_KEY}",
+    "PORT": "{env:MCP_PORT:-8080}",
+    "LOG_LEVEL": "{env:MCP_LOG_LEVEL:-info}"
+  }
+}
+```
+
+## Vault secrets
+
+For sensitive values, use vault references instead of env vars:
+
+```json
+{"environment": {"API_KEY": "${vault:github/token}", "DB_PASSWORD": "${vault:database/password}"}}
+```
+
+<Steps>
+
+1. **Add a secret:** `python dashboard/scripts/vault_get.py set github token "ghp_your_token"`
+
+2. **Reference it** in MCP config using `${vault:server/key}` syntax.
+
+3. **Verify.** The resolver validates all vault refs at startup and errors on missing secrets.
+
+</Steps>
+
+:::caution
+Unresolved vault references cause MCP servers to fail at startup. Verify secrets exist before adding vault refs.
+:::
+
+## Per-room MCP
+
+Override servers for specific war-rooms with `mcp.json` in the room directory:
+
+```json
+{
+  "mcp": {
+    "database": {
+      "type": "local",
+      "command": ["python", "tools/db-server.py"],
+      "environment": {"DB_URL": "postgresql://localhost/room001_db"}
+    }
+  }
+}
+```
+
+This gives `room-001` a database server no other room can access.
+
+## Adding custom servers
+
+<Steps>
+
+1. **Write the server** following MCP protocol:
+
+   ```python
+   from mcp.server import Server
+   server = Server("my-tools")
+   @server.tool()
+   async def my_tool(param: str) -> str:
+       """What this tool does."""
+       return f"Result for {param}"
+   if __name__ == "__main__":
+       server.run()
+   ```
+
+2. **Add to config.json:**
+
+   ```json
+   {"mcp": {"my-tools": {"type": "local", "command": ["python", "tools/my-server.py"], "environment": {"AGENT_OS_ROOT": "."}}}}
+   ```
+
+3. **Validate:** `python .agents/mcp/validate_mcp.py`
+
+</Steps>
+
+## Built-in servers
+
+| Server | File | Tools |
+|--------|------|-------|
+| `channel` | `channel-server.py` | `post_message`, `read_messages`, `get_latest` |
+| `warroom` | `warroom-server.py` | `update_status`, `report_progress`, `list_artifacts` |
+| `memory` | `memory-core.py` | `publish`, `query`, `search`, `get_context` |
+
+## Audit logging
+
+Tool calls are logged to `.agents/mcp/logs/`. Watch with `tail -f .agents/mcp/logs/channel-server.log`. Entries include timestamp, tool name, parameters, and result status.
+
+## Token optimization
+
+MCP tool definitions consume context tokens. Minimize overhead:
+
+<Tabs>
+  <TabItem label="Disable unused servers">
+    ```json
+    {"mcp": {"playwright": null, "chrome-devtools": null}}
+    ```
+    Setting a server to `null` removes it from resolution.
+  </TabItem>
+  <TabItem label="Per-room scoping">
+    Give each room only the servers it needs. A database epic does not need browser tools.
+  </TabItem>
+</Tabs>
+
+:::note
+Built-in servers add ~2-3K tokens of tool definitions. Third-party servers like `playwright` or `github` can add 5-10K tokens each. Be intentional about what you enable.
+:::
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| "Vault reference not found" | Add the secret via vault script |
+| Server fails to start | Verify path uses `{env:HOME}` correctly |
+| Tools not visible | Add server to `config.json` |
+| Env variable empty | Add to `~/.ostwin/.env` |
+| Resolver error | Validate JSON: `python -m json.tool < config.json` |

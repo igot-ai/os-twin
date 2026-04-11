@@ -1,0 +1,197 @@
+---
+title: Community Roles
+description: Overview of the 57 community-contributed roles across game, data, frontend, and platform categories.
+sidebar:
+  order: 4
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+OSTwin ships with a growing library of community-contributed roles alongside the core built-in roles. This page catalogs the role ecosystem, quality standards, and the 5-tier discovery system.
+
+## Role Categories
+
+<Tabs>
+<TabItem label="Game Development">
+
+Roles for Unity game development pipelines:
+
+| Role | Description |
+|------|-------------|
+| `game-engineer` | Unity C# code generation, scene building, animation |
+| `game-qa` | Playtest validation, code review, performance testing |
+| `game-architect` | System architecture, ADRs, project context |
+| `game-designer` | Game briefs, GDDs, UX design, epics, stories |
+| `game-producer` | Sprint planning, milestone tracking, coordination |
+| `game-devops` | CI/CD pipelines, Unity Cloud Build, distribution |
+| `game-ui-analyst` | UI detection from screenshots, animation extraction |
+| `level-designer` | Level layouts, difficulty curves, progression tuning |
+| `narrative-designer` | Dialogue, lore, story arcs, localization |
+| `sound-designer` | SFX, audio middleware, music integration |
+| `tech-artist` | Shaders, VFX, animation polish, art pipeline |
+| `ux-researcher` | Playtesting, user research, analytics |
+
+</TabItem>
+<TabItem label="Data & Analytics">
+
+Roles for data processing and analysis:
+
+| Role | Description |
+|------|-------------|
+| `data-scientist` | ML models, search engines, recommendation systems |
+| `database-architect` | Schema design, query optimization, migrations |
+| `audit` | Risk investigation, data analysis, compliance review |
+| `reporter` | Structured PDF reports, data visualization |
+
+</TabItem>
+<TabItem label="Frontend & Design">
+
+Roles for web and mobile interfaces:
+
+| Role | Description |
+|------|-------------|
+| `engineer` | Full-stack implementation (instances: fe, be) |
+| `technical-writer` | Documentation, gameplay instructions |
+| `macos-automation-engineer` | macOS app control, window management, input |
+
+</TabItem>
+<TabItem label="Platform & Ops">
+
+Roles for orchestration and infrastructure:
+
+| Role | Description |
+|------|-------------|
+| `manager` | War-room orchestration, retry management, release |
+| `qa` | Code review, requirement verification, quality |
+| `architect` | System design, technical decisions, ADRs |
+
+</TabItem>
+</Tabs>
+
+## 5-Tier Discovery System
+
+OSTwin uses a 5-tier system to match roles to tasks:
+
+<Steps>
+1. **Exact Name Match**
+
+   If a plan specifies `Roles: game-engineer`, the system looks up `game-engineer` directly in the registry.
+
+2. **Capability Matching**
+
+   When `capability_matching` is enabled, the system scores roles against task requirements:
+
+   ```
+   Score = count(role.capabilities ∩ task.requirements) / count(task.requirements)
+   ```
+
+   The highest-scoring role wins.
+
+3. **Alias Resolution**
+
+   Capability aliases normalize common terms:
+
+   ```json
+   {
+     "sql": "database",
+     "react": "frontend",
+     "ci-cd": "infrastructure",
+     "a11y": "accessibility"
+   }
+   ```
+
+4. **Assignment Rules**
+
+   Default fallbacks for common task types:
+
+   | Task Type | Default Role |
+   |-----------|-------------|
+   | `task` | `engineer` |
+   | `review` | `qa` |
+   | `design` | `architect` |
+   | `orchestration` | `manager` |
+   | `investigation` | `audit` |
+
+5. **Dynamic Role Creation**
+
+   If no existing role matches, the system can auto-create a dynamic role using `auto_create_role.sh`. This generates a minimal `role.json` and `ROLE.md` from the task description.
+</Steps>
+
+## Quality Standards
+
+All community roles must meet these standards:
+
+### Required
+
+- Valid `role.json` with all required fields
+- `ROLE.md` prompt file with clear identity and responsibilities
+- Unique role name not conflicting with existing registrations
+- At least one capability tag
+- Registration in `registry.json`
+
+### Recommended
+
+- Descriptive `quality_gates` that guide agent behavior
+- Platform restrictions if applicable (e.g., `"platform": ["macos"]`)
+- `supported_task_types` limiting the role to appropriate work
+- A README.md explaining the role's purpose and usage
+
+### Quality Gates by Category
+
+<Tabs>
+<TabItem label="Engineering Roles">
+- `compiles-in-unity` or `builds-clean`
+- `unit-tests` or `tests-pass`
+- `lint-clean`
+- `no-hardcoded-secrets`
+- Performance targets (e.g., `60fps-non-negotiable`)
+</TabItem>
+<TabItem label="Review Roles">
+- `verdict-required` — must produce a clear pass/fail
+- `evidence-based-review` — findings must cite specific code
+- `acceptance-criteria-met` — check against definition of done
+</TabItem>
+<TabItem label="Design Roles">
+- `design-review` — architecture must be reviewable
+- `scalability-check` — design must address growth
+- Output-specific gates (e.g., `brief-has-core-loop`)
+</TabItem>
+</Tabs>
+
+## Submitting Community Roles
+
+<Steps>
+1. **Develop your role** following the [Creating Custom Roles](/contributing/custom-roles/) guide
+
+2. **Place files under `contributes/roles/`**
+
+   ```
+   contributes/roles/my-role/
+   ├── role.json
+   └── ROLE.md
+   ```
+
+3. **Add the registry entry** with `contributes/` prefix
+
+4. **Write tests** that verify your role handles its expected task types
+
+5. **Open a PR** with the `role` label against `develop`
+</Steps>
+
+## Built-in vs Community
+
+| Aspect | Built-in | Community |
+|--------|----------|-----------|
+| Location | `.agents/roles/` | `contributes/roles/` |
+| Stability | Guaranteed backward-compatible | Best-effort |
+| Runner | Dedicated PowerShell script | Usually `Start-DynamicRole.ps1` |
+| Review | Core team | Community review |
+| Model defaults | Configured centrally | Role-defined |
+
+:::note
+The role count (57) reflects the combined built-in and community registry as of the latest release. New roles are added regularly via community contributions.
+:::
+
+:::tip
+Use `external_roles_dirs` in config to register roles from outside the project directory, useful for organization-wide shared roles.
+:::

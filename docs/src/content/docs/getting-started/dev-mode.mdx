@@ -1,0 +1,175 @@
+---
+title: Dev Mode
+description: Set up the full OSTwin development environment with dashboard, API, and live monitoring.
+sidebar:
+  order: 4
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Dev mode runs all OSTwin components locally — the FastAPI backend, the Next.js dashboard, and the engine — so you can monitor agent execution in real-time, inspect war-rooms, and search memory.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Browser → http://localhost:3000                    │
+│  Next.js Dashboard                                  │
+│    ├── Plan overview + status                       │
+│    ├── War-room inspector (channels, progress)      │
+│    └── Memory search (semantic full-text)            │
+└─────────────┬───────────────────────────────────────┘
+              │ REST API calls
+┌─────────────▼───────────────────────────────────────┐
+│  FastAPI Backend → http://localhost:8000             │
+│    ├── /api/plans         plan CRUD + status         │
+│    ├── /api/war-rooms     room state + channels      │
+│    ├── /api/memory        publish / query / search   │
+│    └── /api/dashboard     aggregate stats            │
+└─────────────┬───────────────────────────────────────┘
+              │ reads filesystem
+┌─────────────▼───────────────────────────────────────┐
+│  .agents/                                           │
+│    ├── war-rooms/room-001/  channel.jsonl, status    │
+│    ├── memory/ledger.jsonl  shared memory            │
+│    └── roles/, skills/      agent definitions        │
+└─────────────────────────────────────────────────────┘
+```
+
+## Setup
+
+<Steps>
+
+1. **Install all dependencies**
+
+   If you haven't run the full install yet:
+
+   ```bash
+   pwsh Install.ps1
+   ```
+
+2. **Set environment variables**
+
+   ```bash
+   export ANTHROPIC_API_KEY="sk-ant-..."
+   export OSTWIN_ENV="development"
+   ```
+
+3. **Verify the setup**
+
+   ```bash
+   pwsh -Command "& { . ./Engine.ps1 -Verify }"
+   ```
+
+</Steps>
+
+## Running the Stack
+
+Open three terminal windows and start each component:
+
+<Tabs>
+  <TabItem label="Terminal 1: API">
+    ```bash
+    cd api
+    source ../.venv/bin/activate
+    uvicorn main:app --reload --port 8000
+    ```
+
+    The FastAPI backend serves the REST API. The `--reload` flag enables hot-reloading during development.
+  </TabItem>
+  <TabItem label="Terminal 2: Dashboard">
+    ```bash
+    cd dashboard
+    pnpm dev
+    ```
+
+    The Next.js dashboard starts on `http://localhost:3000`. It polls the API for real-time updates.
+  </TabItem>
+  <TabItem label="Terminal 3: Engine">
+    ```bash
+    pwsh Engine.ps1 -PlanPath ./my-plan/PLAN.md
+    ```
+
+    Run your plan in this terminal. The dashboard will reflect status changes in real-time.
+  </TabItem>
+</Tabs>
+
+## Custom Ports
+
+Override default ports with environment variables:
+
+```bash
+# API on port 9000
+uvicorn main:app --reload --port 9000
+
+# Dashboard pointing to custom API
+NEXT_PUBLIC_API_URL=http://localhost:9000 pnpm dev
+```
+
+## Execution Modes
+
+OSTwin supports three execution modes depending on your needs:
+
+| Mode | Command | When to use |
+|------|---------|-------------|
+| **Headless** | `pwsh Engine.ps1 -PlanPath ./plan.md` | CI/CD, unattended runs. No dashboard needed. |
+| **Dev** | All three terminals | Active development. Full monitoring and debugging. |
+| **Single-room** | `pwsh Engine.ps1 -PlanPath ./plan.md -Room room-001` | Re-run a specific epic without re-running the full plan. |
+
+## Memory System
+
+The memory system allows agents to publish and query knowledge across war-rooms. Use these commands to inspect it:
+
+```bash
+# List all memory entries
+cat .agents/memory/ledger.jsonl | python3 -m json.tool
+
+# Search memory for a term
+pwsh -Command "& { . ./Engine.ps1 -MemorySearch 'authentication' }"
+```
+
+Memory entries have five kinds: `artifact`, `decision`, `interface`, `convention`, `warning`. Agents publish memory when they produce something other rooms need to know about.
+
+:::note
+Memory is append-only. Entries can be superseded (replaced) but never deleted. This gives you a full audit trail of agent decisions.
+:::
+
+## MCP Inspector
+
+To debug MCP tool calls, enable verbose logging:
+
+```bash
+export MCP_LOG_LEVEL="debug"
+pwsh Engine.ps1 -PlanPath ./plan.md -Verbose
+```
+
+This logs every tool invocation, its parameters, and return values. Useful for debugging skill execution or tool permission issues.
+
+## Dashboard Features
+
+| Feature | Description |
+|---------|-------------|
+| **Plan overview** | See all epics, their status, and the dependency DAG |
+| **War-room inspector** | Read channel messages, check progress, view lifecycle state |
+| **Memory browser** | Full-text search across the shared memory ledger |
+| **Agent timeline** | See which agents ran, when, and what they produced |
+| **Artifact viewer** | Browse files created by agents in each war-room |
+
+## Troubleshooting
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Dashboard shows no data | API not running | Start the FastAPI server in Terminal 1 |
+| `Connection refused` on port 8000 | Port conflict | Use a custom port: `--port 9000` |
+| Engine hangs on first epic | Missing API key | Check `echo $ANTHROPIC_API_KEY` is set |
+| `ModuleNotFoundError` in API | Wrong venv | Run `source .venv/bin/activate` before starting |
+| War-room stuck in `developing` | Agent error | Check `channel.jsonl` for error messages |
+| Memory search returns nothing | Empty ledger | Memory is populated during plan execution |
+
+:::caution
+Never run two engine instances against the same plan directory simultaneously. War-room files use file-level locking (`fcntl.LOCK_EX`), but concurrent engines writing to the same plan can cause race conditions.
+:::
+
+## Next Steps
+
+Learn how to write detailed, production-quality plans in [Your First Plan](/getting-started/first-plan/).

@@ -1,0 +1,187 @@
+---
+title: Writing Skills
+description: Authoring SKILL.md files — structure, frontmatter, linking via skill_refs, testing, versioning, publishing, and the sub-skills pattern.
+sidebar:
+  order: 3
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Skills define **what** an agent knows. A `SKILL.md` file is a portable chunk of domain expertise injected into an agent's context when needed.
+
+## SKILL.md structure
+
+<Tabs>
+  <TabItem label="Minimal">
+    ```markdown
+    # My Skill
+    Brief description of what this skill teaches.
+    ## When to use
+    Describe the trigger conditions.
+    ## Workflow
+    1. Step one
+    2. Step two
+    3. Step three
+    ## Rules
+    - Non-negotiable constraint
+    - Another constraint
+    ```
+  </TabItem>
+  <TabItem label="Full">
+    ```markdown
+    # Database Migration Skill
+    Guides agents through safe database schema migrations
+    using Prisma ORM with zero-downtime patterns.
+    ## When to use
+    Trigger on: 'add migration', 'change schema',
+    'alter table', 'database change'.
+    ## Pre-flight checks
+    1. Verify current schema compiles
+    2. Check for pending migrations
+    ## Workflow
+    1. Design the migration
+    2. Generate migration file
+    3. Test with shadow database
+    4. Apply to development
+    5. Verify rollback works
+    ## Anti-patterns
+    - Never DROP COLUMN without deprecation
+    - Always make migrations backward-compatible
+    ```
+  </TabItem>
+</Tabs>
+
+## Linking skills to roles
+
+### Static: `skill_refs` in role.json
+
+Skills in `skill_refs` load for every session of that role:
+
+```json
+{
+  "name": "database-engineer",
+  "skill_refs": ["database-migration", "prisma-patterns"]
+}
+```
+
+### Dynamic: on-demand loading
+
+The engine scans available skills and injects them when the agent's task matches trigger conditions defined in the skill's "When to use" section.
+
+## Creating a skill
+
+<Steps>
+
+1. **Create the directory.** `mkdir -p .agents/skills/roles/engineer/api-design`
+
+2. **Write the SKILL.md.** Focus on actionable instructions, not theory.
+
+   ```markdown
+   # API Design Skill
+   Design RESTful APIs following OpenAPI 3.0 conventions.
+   ## When to use
+   Trigger on: 'design API', 'REST endpoint', 'API contract'.
+   ## Workflow
+   1. Define resource nouns (plural: /users, /projects)
+   2. Map CRUD to HTTP methods
+   3. Design error response envelope
+   4. Add cursor pagination for list endpoints
+   5. Publish contract to memory for other rooms
+   ## Rules
+   - Always use plural nouns for resources
+   - Return 201 for POST, 200 for GET/PUT, 204 for DELETE
+   ```
+
+3. **Link it.** Add to a role's `skill_refs` or let the scanner find it.
+
+4. **Test it.** Run a focused plan that triggers the skill and verify output.
+
+</Steps>
+
+## The sub-skills pattern
+
+For complex domains, use sub-skills in a `references/` directory:
+
+```
+.agents/skills/roles/engineer/unity-ui/
+├── SKILL.md                    # Parent: routes to sub-skills
+└── references/
+    ├── button-patterns/
+    │   └── SKILL.md
+    └── layout-systems/
+        └── SKILL.md
+```
+
+The parent SKILL.md lists available sub-skills so the agent loads only what it needs:
+
+```markdown
+# Unity UI Skill
+## Available sub-skills
+- **button-patterns** — Button component creation and styling
+- **layout-systems** — Grid, vertical, horizontal layout groups
+Load the relevant sub-skill based on the current task.
+```
+
+:::tip
+Sub-skills keep context windows lean. Instead of loading 5000 lines of UI knowledge, the agent loads only the 200-line sub-skill it needs.
+:::
+
+## Skill scope: global vs role-scoped
+
+<Tabs>
+  <TabItem label="Global">
+    Placed in `.agents/skills/global/`. Available to all roles.
+
+    Use for cross-cutting concerns: communication protocols, memory patterns, lifecycle management.
+  </TabItem>
+  <TabItem label="Role-scoped">
+    Placed in `.agents/skills/roles/<role>/`. Available only to that role.
+
+    Use for role-specific expertise: coding patterns, review checklists, design frameworks.
+  </TabItem>
+</Tabs>
+
+## Publishing to ClawhHub
+
+<Steps>
+
+1. **Ensure proper metadata.** SKILL.md needs a clear title and description.
+
+2. **Validate structure.** Directory must contain at minimum a `SKILL.md`.
+
+3. **Publish via the dashboard.** Navigate to **Skills > Publish** and select the directory.
+
+4. **Version updates.** Each publish creates a new version. Users get the latest by default.
+
+</Steps>
+
+:::caution
+Published skills are public by default. Do not include API keys, internal URLs, or proprietary workflows.
+:::
+
+## Testing skills
+
+Create a minimal plan that triggers the skill:
+
+```markdown
+# Skill Test Plan
+## Config
+provider: anthropic
+model: claude-sonnet-4-20250514
+## Goal
+Test the api-design skill.
+## Epic 1: Design Users API
+### Tasks
+- TASK-001: Design a /users REST API with CRUD + pagination
+```
+
+Check that the agent follows the skill's workflow and rules.
+
+## Authoring checklist
+
+- Clear "When to use" section with trigger phrases
+- Numbered, actionable workflow steps
+- Rules are constraints, not suggestions
+- Realistic examples, not `foo/bar`
+- Sub-skills used when content exceeds 300 lines
+- No secrets or credentials in skill content

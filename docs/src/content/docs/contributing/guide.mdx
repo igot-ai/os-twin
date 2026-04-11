@@ -1,0 +1,209 @@
+---
+title: Contribution Guide
+description: How to contribute to OSTwin — setup, branching, PR process, code style, and testing.
+sidebar:
+  order: 1
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers the end-to-end process for contributing to OSTwin, from local setup through pull request approval.
+
+## Prerequisites
+
+- Git 2.40+
+- PowerShell 7+ (`pwsh`)
+- Python 3.11+
+- Node.js 20+
+- pnpm 9+
+
+## Local Setup
+
+<Steps>
+1. **Fork and clone the repository**
+
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/os-twin.git
+   cd os-twin
+   ```
+
+2. **Run the install script**
+
+   ```bash
+   .agents/install.sh
+   ```
+
+   This creates the directory structure, installs Python dependencies, and validates prerequisites.
+
+3. **Install dashboard dependencies**
+
+   <Tabs>
+   <TabItem label="Frontend">
+   ```bash
+   cd dashboard/fe
+   pnpm install
+   ```
+   </TabItem>
+   <TabItem label="Backend">
+   ```bash
+   cd dashboard
+   pip install -r requirements.txt
+   ```
+   </TabItem>
+   </Tabs>
+
+4. **Verify the installation**
+
+   ```bash
+   .agents/health.sh
+   ```
+
+5. **Run the test suite to confirm everything works**
+
+   <Tabs>
+   <TabItem label="PowerShell">
+   ```bash
+   pwsh -Command "Invoke-Pester .agents/tests/ -Output Detailed"
+   ```
+   </TabItem>
+   <TabItem label="Python">
+   ```bash
+   pytest .agents/tests/ -v
+   ```
+   </TabItem>
+   <TabItem label="Cypress">
+   ```bash
+   cd cypress
+   npx cypress run
+   ```
+   </TabItem>
+   </Tabs>
+</Steps>
+
+## Branching Strategy
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Stable release branch |
+| `develop` | Integration branch |
+| `feat/description` | New features |
+| `fix/description` | Bug fixes |
+| `docs/description` | Documentation changes |
+
+Always branch from `develop`:
+
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b feat/my-feature
+```
+
+## PR Process
+
+<Steps>
+1. **Create your feature branch and make changes**
+
+2. **Run all tests before pushing**
+
+   <Tabs>
+   <TabItem label="Full Suite">
+   ```bash
+   pwsh -Command "Invoke-Pester .agents/tests/ -Output Detailed"
+   pytest .agents/tests/ -v
+   ```
+   </TabItem>
+   <TabItem label="Quick Check">
+   ```bash
+   pytest .agents/tests/ -x --tb=short
+   ```
+   </TabItem>
+   </Tabs>
+
+3. **Push and open a pull request against `develop`**
+
+   ```bash
+   git push origin feat/my-feature
+   ```
+
+4. **Fill in the PR template** — include a summary, test evidence, and link to any related issues
+
+5. **Address review feedback** — maintainers will review within 48 hours
+</Steps>
+
+## Code Style
+
+### PowerShell
+
+- Use `PascalCase` for function names and parameters
+- Use approved verbs (`Get-`, `Set-`, `Start-`, `Stop-`)
+- Include comment-based help for public functions
+- Maximum line length: 120 characters
+
+### Python
+
+- Follow PEP 8
+- Use type hints for all function signatures
+- Docstrings in Google style
+- Format with `black`, lint with `ruff`
+
+### TypeScript
+
+- Strict mode enabled
+- Use `camelCase` for variables, `PascalCase` for types
+- Prefer `const` over `let`
+- Format with Prettier
+
+## Testing
+
+<Tabs>
+<TabItem label="Pester">
+PowerShell tests use Pester 5+. Tests live alongside source files or in `.agents/tests/`:
+
+```bash
+pwsh -Command "Invoke-Pester .agents/tests/ -Output Detailed"
+```
+
+Naming convention: `*.Tests.ps1`
+</TabItem>
+<TabItem label="pytest">
+Python tests use pytest. Tests live in `.agents/tests/` and `dashboard/tests/`:
+
+```bash
+pytest .agents/tests/ -v --cov=.agents
+pytest dashboard/tests/ -v
+```
+
+Naming convention: `test_*.py`
+</TabItem>
+<TabItem label="Cypress">
+E2E tests for the dashboard use Cypress:
+
+```bash
+cd cypress
+npx cypress run
+npx cypress open  # interactive mode
+```
+
+Tests live in `cypress/e2e/`.
+</TabItem>
+</Tabs>
+
+## Documentation
+
+Documentation uses Astro Starlight. To preview locally:
+
+```bash
+cd docs
+pnpm install
+pnpm dev
+```
+
+Write documentation in `.md` for reference pages and `.mdx` for interactive pages.
+
+:::note
+All PRs that change behavior must include updated documentation.
+:::
+
+:::tip
+Run `pwsh -Command "Invoke-Pester -Tag 'Unit'" .agents/tests/` to run only unit tests for faster iteration.
+:::

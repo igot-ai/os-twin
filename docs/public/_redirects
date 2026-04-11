@@ -1,0 +1,10 @@
+# Redirect old doc paths to new structure
+/roles-and-zero-agent /concepts/zero-agent-pattern/ 301
+/skills /concepts/skills/ 301
+/mcp-isolation /concepts/mcp-isolation/ 301
+/war-rooms /concepts/war-rooms/ 301
+/memory /concepts/memory/ 301
+/plan-epic-dag /concepts/plans-epics-dag/ 301
+/lifecycle /concepts/lifecycle/ 301
+/architecture-overview /concepts/architecture/ 301
+/run-at-dev-mode /getting-started/dev-mode/ 301

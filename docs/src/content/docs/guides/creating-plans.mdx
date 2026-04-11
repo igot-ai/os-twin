@@ -1,0 +1,171 @@
+---
+title: Creating Plans
+description: Advanced plan authoring — multi-epic plans, dependency graphs, wave optimization, conditional pipelines, model overrides, and real-world examples.
+sidebar:
+  order: 1
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Plans are the entry point to every OSTwin run. A `PLAN.md` file describes **what** you want built, broken into epics with dependencies, and the engine handles the rest.
+
+## Plan anatomy
+
+Every plan has three sections: **Config**, **Goal**, and one or more **Epics**.
+
+```markdown
+# My Plan
+## Config
+provider: anthropic
+model: claude-sonnet-4-20250514
+## Goal
+Build a full-stack task manager with auth and React frontend.
+## Epic 1: Database Schema
+### DoD
+- PostgreSQL schema with users, tasks, projects tables
+### Tasks
+- TASK-001: Create migration files and seed data
+## Epic 2: Auth System
+### Dependencies
+- Epic 1
+### DoD
+- JWT auth with login, register, refresh endpoints
+### Tasks
+- TASK-001: Implement auth routes and middleware
+```
+
+## Config options
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `provider` | `anthropic` | LLM provider: `anthropic`, `openai`, `google-vertex` |
+| `model` | `claude-sonnet-4-20250514` | Model identifier for agent sessions |
+| `max_retries` | `3` | QA fix cycles before failing |
+| `timeout` | `900` | Seconds per lifecycle state |
+| `working_dir` | `.` | Project root for file operations |
+| `parallel` | `true` | Whether independent epics run in parallel |
+
+## Dependency graphs and waves
+
+Dependencies between epics create a DAG. The engine resolves it into **waves** — groups of epics that execute in parallel.
+
+```markdown
+## Epic 1: Schema Design
+### Tasks
+- TASK-001: Design database schema
+## Epic 2: API Layer
+### Dependencies
+- Epic 1
+## Epic 3: Frontend Shell
+## Epic 4: Integration
+### Dependencies
+- Epic 2
+- Epic 3
+```
+
+This produces: **Wave 1** `[Epic 1, Epic 3]` → **Wave 2** `[Epic 2]` → **Wave 3** `[Epic 4]`.
+
+:::tip
+Put independent work (scaffolding, CI, docs) in separate epics with no dependencies. They run in Wave 1 alongside your foundation epic, saving time.
+:::
+
+## Wave optimization
+
+<Steps>
+
+1. **Identify the critical path.** The longest dependency chain determines minimum execution time. Optimize those epics first.
+
+2. **Split wide epics.** An epic with 10 tasks should become 2-3 smaller epics for more parallelism.
+
+3. **Minimize cross-epic dependencies.** Each dependency edge forces sequential execution.
+
+4. **Front-load schema and interfaces.** Put data models and API contracts in Wave 1 so downstream epics can consume them via memory.
+
+</Steps>
+
+## Model and working directory overrides
+
+Override plan-level settings per epic using `### Config`:
+
+```markdown
+## Config
+working_dir: ./backend
+
+## Epic 1: API Server
+### Tasks
+- TASK-001: Implement REST endpoints
+
+## Epic 2: Frontend
+### Config
+working_dir: ./frontend
+model: claude-sonnet-4-20250514
+### Tasks
+- TASK-001: Build React components
+```
+
+## Conditional pipelines
+
+Assign specific roles to epics for specialized pipelines:
+
+```markdown
+## Epic 5: Code Review
+### Dependencies
+- Epic 2
+### Roles
+- qa
+### DoD
+- All code reviewed, no critical issues
+### Tasks
+- TASK-001: Review API code for quality and security
+```
+
+:::caution
+Circular dependencies are rejected at parse time. The engine errors with a clear message showing the cycle.
+:::
+
+## Real-world example
+
+```markdown
+# SaaS Starter Kit
+## Config
+provider: anthropic
+model: claude-sonnet-4-20250514
+working_dir: ./saas-app
+## Goal
+Production-ready SaaS with multi-tenancy, Stripe billing, and admin dashboard.
+## Epic 1: Database Foundation
+### DoD
+- Prisma schema with tenants, users, subscriptions
+### Tasks
+- TASK-001: Design and implement Prisma schema
+## Epic 2: Auth + Multi-tenancy
+### Dependencies
+- Epic 1
+### Tasks
+- TASK-001: Implement auth with tenant isolation
+## Epic 3: Stripe Integration
+### Dependencies
+- Epic 1
+### Tasks
+- TASK-001: Implement Stripe billing flow
+## Epic 4: Admin Dashboard
+### Dependencies
+- Epic 2
+- Epic 3
+### Tasks
+- TASK-001: Build admin UI with data tables
+```
+
+Result: **Wave 1** `[Epic 1]` → **Wave 2** `[Epic 2, Epic 3]` → **Wave 3** `[Epic 4]`.
+
+## Running your plan
+
+```bash
+pwsh .agents/plan/Start-Plan.ps1 -PlanPath ./my-plan/PLAN.md
+```
+
+Monitor progress via the [dashboard](/guides/dashboard-setup/) or by inspecting war-room files directly.
+
+:::note
+Plan files are parsed fresh on every run. Edit `PLAN.md` between runs to adjust epics, dependencies, or config without any migration step.
+:::
