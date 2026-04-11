@@ -88,11 +88,9 @@ for lib in "$SOURCE_AGENTS/lib/"*.psm1; do
 done
 echo "  [synced] libraries"
 
-# Sync CLI entry point and Python scripts
-for bin_file in ostwin chat.py cli.py; do
-  [[ -f "$SOURCE_AGENTS/bin/$bin_file" ]] && cp "$SOURCE_AGENTS/bin/$bin_file" "$TARGET_AGENTS/bin/$bin_file"
-done
-echo "  [synced] CLI entry points"
+# Sync CLI entry point
+[[ -f "$SOURCE_AGENTS/bin/ostwin" ]] && cp "$SOURCE_AGENTS/bin/ostwin" "$TARGET_AGENTS/bin/ostwin"
+echo "  [synced] CLI entry point"
 
 # Sync plan template (but NOT user plans)
 [[ -f "$SOURCE_AGENTS/plans/PLAN.template.md" ]] && cp "$SOURCE_AGENTS/plans/PLAN.template.md" "$TARGET_AGENTS/plans/PLAN.template.md"

@@ -193,12 +193,8 @@ Usage:
 
 Commands:
   agent [args...]    Run the Agent OS agent (opencode run wrapper)
-  chat [options]    Interactive AI chat session
-                    Options: -a AGENT, -M MODEL, -m MSG, --auto-approve, -r [ID]
   run <plan_id|file> Execute a plan by ID or file path
                     Options: --dry-run, --resume, --expand, --working-dir PATH
-  resume <plan_id|file>  Resume a previously failed/stopped plan run
-                    Shortcut for: ostwin run <arg> --resume
   plan <sub>        Plan management (AI-assisted)
                     Subcommands: create [Title|file.md] [--file FILE], start, list
   init [directory]  Scaffold Agent OS into a project
@@ -240,7 +236,6 @@ Commands:
 Examples:
   ostwin run plans/my-feature.md
   ostwin run plans/my-feature.md --dry-run
-  ostwin resume plans/my-feature.md
   ostwin run plans/my-feature.md --resume --expand
   ostwin status --watch
   ostwin logs room-001 --follow
@@ -314,10 +309,6 @@ case "${1:-}" in
       exec "$OSTWIN_HOME/.agents/bin/agent" "$@"
     fi
     ;;
-  chat)
-    shift
-    exec "$PYTHON" "$AGENTS_DIR/bin/chat.py" "$@"
-    ;;
   run)
     shift
     # First non-flag argument may be a plan_id — resolve it
@@ -349,7 +340,7 @@ case "${1:-}" in
       PROJECT_ROOT="$(cd "$AGENTS_DIR/.." && pwd)"
       for r in $NEEDED_ROLES; do
         if [[ "$r" == "<role-name>" || -z "$r" ]]; then continue; fi
-        if [[ ! -d "$AGENTS_DIR/roles/$r" && ! -d "$HOME/.ostwin/roles/$r" && ! -d "$PROJECT_ROOT/contributes/roles/$r" ]]; then
+        if [[ ! -d "$AGENTS_DIR/roles/$r" && ! -d "$HOME/.ostwin/.agents/roles/$r" && ! -d "$PROJECT_ROOT/contributes/roles/$r" ]]; then
           MISSING_ROLES+=("$r")
         fi
       done
@@ -379,7 +370,7 @@ case "${1:-}" in
             # Verify creation
             FAILED_ROLES=()
             for mr in "${MISSING_ROLES[@]}"; do
-              if [[ ! -d "$AGENTS_DIR/roles/$mr" && ! -d "$HOME/.ostwin/roles/$mr" && ! -d "$PROJECT_ROOT/contributes/roles/$mr" ]]; then
+              if [[ ! -d "$AGENTS_DIR/roles/$mr" && ! -d "$HOME/.ostwin/.agents/roles/$mr" && ! -d "$PROJECT_ROOT/contributes/roles/$mr" ]]; then
                 FAILED_ROLES+=("$mr")
               fi
             done
@@ -421,28 +412,6 @@ case "${1:-}" in
     # Note: code indexing is handled by Start-Plan.ps1 pre-flight
 
     ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" "${RUN_ARGS[@]}"
-    ;;
-  resume)
-    shift
-    # First non-flag argument may be a plan_id — resolve it
-    RESUME_ARGS=()
-    RESUME_ARG_RESOLVED=false
-    for a in "$@"; do
-      if [[ "$RESUME_ARG_RESOLVED" == false && ! "$a" =~ ^-- ]]; then
-        if resolve_plan_id "$a"; then
-          RESUME_ARGS+=("$RESOLVED_PLAN_FILE")
-          if [[ -n "$RESOLVED_WORKING_DIR" ]]; then
-            RESUME_ARGS+=("--working-dir" "$RESOLVED_WORKING_DIR")
-          fi
-        else
-          exit 1
-        fi
-        RESUME_ARG_RESOLVED=true
-      else
-        RESUME_ARGS+=("$a")
-      fi
-    done
-    ps_dispatch "$AGENTS_DIR/plan/Start-Plan.ps1" "$AGENTS_DIR/run.sh" --resume "${RESUME_ARGS[@]}"
     ;;
   plan)
     shift
@@ -1178,8 +1147,8 @@ print(f'{len(names)} sub-commands: {", ".join(names)}')
 " 2>/dev/null || echo "")
         printf "  %-30s %s\n" "$rname" "$desc"
       done
-      # Also check ~/.ostwin/roles
-      for manifest in "$HOME"/.ostwin/roles/*/subcommands.json; do
+      # Also check ~/.ostwin/.agents/roles
+      for manifest in "$HOME"/.ostwin/.agents/roles/*/subcommands.json; do
         [[ -f "$manifest" ]] || continue
         rname=$(basename "$(dirname "$manifest")")
         desc=$($PYTHON -c "
@@ -1199,7 +1168,7 @@ print(f'{len(names)} sub-commands: {", ".join(names)}')
     ROLE_MANIFEST=""
     for candidate in \
       "$AGENTS_DIR/roles/$ROLE_NAME/subcommands.json" \
-      "$HOME/.ostwin/roles/$ROLE_NAME/subcommands.json"; do
+      "$HOME/.ostwin/.agents/roles/$ROLE_NAME/subcommands.json"; do
       if [[ -f "$candidate" ]]; then
         ROLE_MANIFEST="$candidate"
         break
@@ -1208,7 +1177,7 @@ print(f'{len(names)} sub-commands: {", ".join(names)}')
     if [[ -z "$ROLE_MANIFEST" ]]; then
       echo "✗ Role '$ROLE_NAME' not found or has no subcommands.json" >&2
       echo "  Searched: $AGENTS_DIR/roles/$ROLE_NAME/" >&2
-      echo "            $HOME/.ostwin/roles/$ROLE_NAME/" >&2
+      echo "            $HOME/.ostwin/.agents/roles/$ROLE_NAME/" >&2
       exit 1
     fi
     ROLE_DIR="$(dirname "$ROLE_MANIFEST")"
