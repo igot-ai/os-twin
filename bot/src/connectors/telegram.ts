@@ -1,7 +1,7 @@
 import https from 'https';
 import { Telegraf, Markup, Context } from 'telegraf';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse } from '../commands';
+import { routeCommand, routeCallback, handleStatefulText, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS } from '../commands';
 import { getSession } from '../sessions';
 import { askAgent } from '../agent-bridge';
 import { flushStagedAttachments, getStagedCount } from '../asset-staging';
@@ -63,27 +63,22 @@ export class TelegramConnector implements Connector {
       }
     });
 
-    // ── Slash commands ────────────────────────────────────────────
-    const COMMANDS = [
-      'menu', 'dashboard', 'status', 'compact', 'plans', 'errors',
-      'skills', 'usage', 'help', 'start', 'cancel', 'edit',
-      'feedback', 'preferences', 'subscriptions', 'progress',
-    ] as const;
-
-    for (const cmd of COMMANDS) {
-      this.bot.command(cmd, async (ctx) => {
+    // ── Slash commands (no arguments) — driven by COMMAND_REGISTRY
+    for (const def of COMMANDS_NO_ARGS) {
+      this.bot.command(def.name, async (ctx) => {
         const userId = String(ctx.chat.id);
-        const responses = await routeCommand(userId, 'telegram', cmd);
+        const responses = await routeCommand(userId, 'telegram', def.name);
         await this.sendResponses(ctx, responses);
       });
     }
 
-    // Commands with inline arguments
-    for (const cmd of ['draft', 'setdir', 'feedback'] as const) {
-      this.bot.command(cmd, async (ctx) => {
+    // Commands with inline arguments — driven by COMMAND_REGISTRY
+    for (const def of COMMANDS_WITH_ARGS) {
+      const cmdName = def.name;
+      this.bot.command(cmdName, async (ctx) => {
         const userId = String(ctx.chat.id);
-        const args = ctx.message.text.replace(new RegExp(`^\\/${cmd}(@\\S+)?`), '').trim();
-        const responses = await routeCommand(userId, 'telegram', cmd, args);
+        const args = ctx.message.text.replace(new RegExp(`^\\/${cmdName}(@\\S+)?`), '').trim();
+        const responses = await routeCommand(userId, 'telegram', cmdName, args);
         await this.sendResponses(ctx, responses);
       });
     }
@@ -216,14 +211,13 @@ export class TelegramConnector implements Connector {
     this.bot.on('voice', handleTelegramFiles);
 
     // ── Register command menu with Telegram ───────────────────────
-    await this.bot.telegram.setMyCommands([
-      { command: 'menu', description: '🏢 Main Control Center' },
-      { command: 'dashboard', description: '📊 Real-time War-Room progress' },
-      { command: 'setdir', description: '📂 Set target project directory' },
-      { command: 'draft', description: '📝 Draft a new Plan with AI' },
-      { command: 'status', description: '💻 List running War-Rooms' },
-      { command: 'help', description: '❓ Detailed user guide' },
-    ]).catch(err => console.warn('[TELEGRAM] Failed to register commands:', err.message));
+    // Register ALL platform commands with Telegram's autocomplete menu
+    await this.bot.telegram.setMyCommands(
+      ALL_PLATFORM_COMMANDS.map(def => ({
+        command: def.name,
+        description: def.telegramMenu || def.description,
+      })),
+    ).catch(err => console.warn('[TELEGRAM] Failed to register commands:', err.message));
 
     // bot.launch() never resolves — it runs the polling loop forever.
     // Fire-and-forget so the connector start() can complete.

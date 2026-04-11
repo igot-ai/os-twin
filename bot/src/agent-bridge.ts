@@ -84,6 +84,61 @@ const toolDeclarations: FunctionDeclaration[] = [
       properties: {},
     },
   },
+  {
+    name: 'resume_plan',
+    description:
+      'Resume a previously failed or stopped plan. Use this when the user asks to resume, retry, or re-run a plan that has failed.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        plan_id: {
+          type: SchemaType.STRING,
+          description: 'The plan ID to resume',
+        },
+      },
+      required: ['plan_id'],
+    },
+  },
+  {
+    name: 'get_logs',
+    description: 'Read the latest messages from a war-room channel. Useful for checking what agents are saying or debugging issues.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        room_id: {
+          type: SchemaType.STRING,
+          description: 'The war-room ID to read logs from (e.g. "room-001")',
+        },
+        limit: {
+          type: SchemaType.NUMBER,
+          description: 'Number of messages to retrieve (default 10)',
+        },
+      },
+      required: ['room_id'],
+    },
+  },
+  {
+    name: 'get_health',
+    description: 'Check the overall system health: manager status, bot status, and war-room summary.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {},
+    },
+  },
+  {
+    name: 'search_skills',
+    description: 'Search the ClawHub marketplace for available AI skills that can be installed.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: {
+          type: SchemaType.STRING,
+          description: 'Search query (e.g. "web search", "code review", "testing")',
+        },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 // ── Tool execution handlers ───────────────────────────────────────────────
@@ -249,6 +304,106 @@ async function executeTool(
       };
     }
 
+    case 'resume_plan': {
+      const planId = (args as any).plan_id;
+      const plan = await api.getPlan(planId);
+      if ((plan as any)?._error) {
+        return { name, response: { success: false, error: `Plan "${planId}" not found.` } };
+      }
+      const content = (plan as any).content || '';
+      const result = await api.resumePlan(planId, content);
+      if (result?._error) {
+        return { name, response: { success: false, error: result._error } };
+      }
+      return {
+        name,
+        response: {
+          success: true,
+          plan_id: planId,
+          message: `Plan "${planId}" is being resumed. Existing war-rooms will continue from where they left off.`,
+        },
+      };
+    }
+
+    case 'get_logs': {
+      const roomId = (args as any).room_id;
+      const limit = (args as any).limit || 10;
+      const data = await api.getRoomChannel(roomId, limit);
+      if (data?._error) {
+        return { name, response: { success: false, error: data._error } };
+      }
+      const msgs = data?.messages || data || [];
+      return {
+        name,
+        response: {
+          success: true,
+          room_id: roomId,
+          messages: Array.isArray(msgs)
+            ? msgs.map((m: any) => ({
+                from: m.from,
+                type: m.type,
+                body: (m.body || '').slice(0, 300),
+              }))
+            : [],
+          count: Array.isArray(msgs) ? msgs.length : 0,
+        },
+      };
+    }
+
+    case 'get_health': {
+      const [managerStatus, botStatus, roomsData] = await Promise.all([
+        api.getManagerStatus(),
+        api.getBotStatus(),
+        api.getRooms(),
+      ]);
+      return {
+        name,
+        response: {
+          success: true,
+          manager: {
+            running: managerStatus?.running ?? false,
+            pid: managerStatus?.pid,
+          },
+          bot: {
+            running: botStatus?.running ?? false,
+            pid: botStatus?.pid,
+            available: botStatus?.available ?? false,
+          },
+          war_rooms: {
+            total: roomsData.summary?.total || 0,
+            passed: roomsData.summary?.passed || 0,
+            failed: roomsData.summary?.failed_final || 0,
+            active:
+              (roomsData.summary?.total || 0) -
+              (roomsData.summary?.passed || 0) -
+              (roomsData.summary?.failed_final || 0),
+          },
+        },
+      };
+    }
+
+    case 'search_skills': {
+      const query = (args as any).query;
+      const results = await api.searchSkillsClawhub(query);
+      return {
+        name,
+        response: {
+          success: true,
+          query,
+          skills: results.slice(0, 10).map((s: any) => ({
+            slug: s.slug || s.name,
+            description: s.description,
+            author: s.author,
+            downloads: s.downloads,
+          })),
+          total: results.length,
+          message: results.length
+            ? `Found ${results.length} skill(s). Install with: /skillinstall <slug>`
+            : `No skills found for "${query}".`,
+        },
+      };
+    }
+
     default:
       return { name, response: { error: `Unknown tool: ${name}` } };
   }
@@ -292,12 +447,18 @@ export async function askAgent(
 
 You have TWO capabilities:
 1. **Answer questions** about existing projects, plans, war-rooms, and agent status.
-2. **Take actions** by calling the available tools: create plans, list plans, check status, and launch plans.
+2. **Take actions** by calling the available tools.
+
+Available tools: create plans, list plans, check status, launch plans, resume failed plans, read war-room logs, check system health, and search for installable skills.
 
 IMPORTANT RULES:
 - When the user asks to BUILD, MAKE, CREATE, or DEVELOP something → call create_plan with their idea.
 - When the user asks about STATUS, PROGRESS, or WHAT'S RUNNING → call list_plans or get_war_room_status.
 - When the user asks to LAUNCH, RUN, START, or EXECUTE a plan → call launch_plan.
+- When the user asks to RESUME, RETRY, or RE-RUN a failed plan → call resume_plan.
+- When the user asks about LOGS, MESSAGES, or what agents are SAYING → call get_logs.
+- When the user asks about HEALTH, SYSTEM STATUS, or if things are RUNNING → call get_health.
+- When the user asks to FIND, SEARCH, or DISCOVER skills → call search_skills.
 - When answering questions, be concise (1-3 paragraphs for chat).
 - Always present tool results in a user-friendly format with relevant details.
 - After creating a plan, mention that the user can now send further instructions to refine it, upload assets, or run /cancel.

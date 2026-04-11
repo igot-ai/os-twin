@@ -184,7 +184,7 @@ describe('telegram integration', () => {
       expect(msgs[0].text).to.include('Control Center');
       expect(msgs[0].reply_markup).to.exist;
       expect(msgs[0].reply_markup.inline_keyboard).to.be.an('array');
-      expect(msgs[0].reply_markup.inline_keyboard.length).to.equal(3);
+      expect(msgs[0].reply_markup.inline_keyboard.length).to.equal(4);
     });
 
     it('sends Markdown parse_mode', async () => {
