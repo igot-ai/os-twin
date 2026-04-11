@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import secrets
 from pathlib import Path
@@ -6,10 +7,21 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, Depends
 from dashboard.auth import get_current_user
+import dashboard.global_state as global_state
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/channels", tags=["channels"])
 
 CHANNELS_CONFIG_PATH = Path.home() / ".ostwin" / "channels.json"
+
+
+def _notify_bot_restart() -> None:
+    """Schedule a debounced bot restart after channel config changes."""
+    if global_state.bot_manager is not None:
+        logger.info("[CHANNELS] Config changed — scheduling bot restart")
+        global_state.bot_manager.schedule_restart()
+    else:
+        logger.debug("[CHANNELS] No bot_manager — skipping restart signal")
 
 class NotificationPreferences(BaseModel):
     events: List[str] = Field(default_factory=list)
@@ -122,6 +134,7 @@ async def connect_channel(platform: str, config_update: Optional[Dict[str, Any]]
         config.pairing_code = secrets.token_hex(4)
         
     save_channels_config(configs)
+    _notify_bot_restart()
     return {"status": "ok", "message": f"{platform} connector enabled"}
 
 @router.post("/{platform}/disconnect")
@@ -132,6 +145,7 @@ async def disconnect_channel(platform: str, user: dict = Depends(get_current_use
     if config:
         config.enabled = False
         save_channels_config(configs)
+        _notify_bot_restart()
         return {"status": "ok", "message": f"{platform} connector disabled"}
     
     raise HTTPException(status_code=404, detail="Channel not found")
@@ -161,6 +175,7 @@ async def update_settings(platform: str, settings: Dict[str, Any], user: dict = 
         config.settings.update(settings["settings"])
         
     save_channels_config(configs)
+    _notify_bot_restart()
     return {"status": "ok", "config": config}
 
 @router.get("/{platform}/pairing")
@@ -192,36 +207,36 @@ async def get_setup(platform: str, user: dict = Depends(get_current_user)):
             SetupStep(
                 title="Create a Bot",
                 description="Talk to [@BotFather](https://t.me/BotFather) on Telegram to create a new bot.",
-                instructions="1. Send /newbot to [@BotFather](https://t.me/BotFather)\n2. Follow the prompts to name your bot\n3. Copy the API Token provided."
+                instructions="1. Send /newbot to [@BotFather](https://t.me/BotFather)\n2. Follow the prompts to name your bot\n3. Copy the Bot Token provided."
             ),
             SetupStep(
                 title="Configure Token",
-                description="Add your bot token to the configuration.",
-                instructions="Paste the token into the 'token' field in credentials."
+                description="Paste the bot token into the field below.",
+                instructions="The token looks like: 123456:ABC-DEF1234ghIkl-zyx57W2v..."
             )
         ],
         "discord": [
             SetupStep(
                 title="Create Application",
                 description="Go to [Discord Developer Portal](https://discord.com/developers/applications).",
-                instructions="1. Create a New Application.\n2. Go to Bot section and reset/copy Token.\n3. Enable Message Content Intent."
+                instructions="1. Create a New Application.\n2. Go to Bot section and reset/copy the Bot Token.\n3. Copy the Client ID from General Information.\n4. Enable Message Content Intent under Bot settings."
             ),
             SetupStep(
                 title="Add to Server",
-                description="Generate invite link.",
-                instructions="1. Go to OAuth2 -> URL Generator.\n2. Select 'bot' and 'Administrator' (or specific perms).\n3. Use the link to add bot to your server."
+                description="Generate an invite link and get your Server ID.",
+                instructions="1. Go to OAuth2 → URL Generator.\n2. Select 'bot' and 'Administrator' (or specific perms).\n3. Use the link to add bot to your server.\n4. Right-click your server name → Copy Server ID."
             )
         ],
         "slack": [
             SetupStep(
-                title="Create App",
-                description="Go to [api.slack.com](https://api.slack.com/apps).",
-                instructions="1. Create New App -> From Scratch.\n2. Go to Socket Mode and Enable it.\n3. Generate an App-Level Token (xapp-...) with connections:write."
+                title="Create App & Enable Socket Mode",
+                description="Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app.",
+                instructions="1. Create New App → From Scratch.\n2. Go to Socket Mode and Enable it.\n3. Generate an App-Level Token (xapp-...) with connections:write scope.\n4. Copy the App-Level Token for the field below."
             ),
             SetupStep(
-                title="Configure Bot Token",
-                description="Get Bot User OAuth Token.",
-                instructions="1. Go to OAuth & Permissions.\n2. Add scopes (chat:write, etc.).\n3. Install to Workspace and copy xoxb- token."
+                title="Get Bot Token & Install",
+                description="Configure bot permissions and install to your workspace.",
+                instructions="1. Go to OAuth & Permissions.\n2. Add Bot Token Scopes: chat:write, commands, im:history.\n3. Install App to Workspace.\n4. Copy the Bot User OAuth Token (xoxb-...) for the field below."
             )
         ]
     }

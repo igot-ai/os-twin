@@ -34,3 +34,6 @@ broadcaster = Broadcaster()
 store = None
 planning_store = None
 tunnel_url: str | None = None
+
+# Bot process manager — initialized in tasks.py startup_all()
+bot_manager = None
