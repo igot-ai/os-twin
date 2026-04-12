@@ -676,7 +676,16 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
         latency = int((time.time() - start) * 1000)
 
         if returncode == 0:
-            return {"status": "ok", "latency_ms": latency, "output": stdout[-200:] if stdout else ""}
+            output_snippet = stdout[-200:] if stdout else ""
+            # The model must actually respond with "YES" to confirm connectivity
+            if "YES" in (stdout or "").upper():
+                return {"status": "ok", "latency_ms": latency, "output": output_snippet}
+            else:
+                return {
+                    "status": "fail",
+                    "latency_ms": latency,
+                    "error": f"Model responded but did not confirm (expected YES): {stdout}",
+                }
         else:
             error_msg = stderr[-300:] if stderr else stdout[-300:] if stdout else "Unknown error"
             return {"status": "fail", "latency_ms": latency, "error": error_msg}

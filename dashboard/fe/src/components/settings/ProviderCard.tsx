@@ -48,6 +48,7 @@ export function ProviderCard({
   const defaultModel = safeProvider.default_model ?? '';
   const deploymentMode: GoogleDeploymentMode = (safeProvider.deployment_mode as GoogleDeploymentMode) || 'gemini';
   const projectId = safeProvider.project_id ?? '';
+  const vertexLocation = safeProvider.vertex_location ?? 'global';
 
   const [testing, setTesting] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
@@ -219,6 +220,26 @@ export function ProviderCard({
                   disabled={!isEnabled}
                   className="w-full bg-slate-50 border border-slate-200 rounded p-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-600 text-slate-900 placeholder:text-slate-400"
                 />
+              </div>
+            )}
+
+            {/* Vertex AI: Location */}
+            {deploymentMode === 'vertex' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block">
+                  Vertex Location
+                </label>
+                <input
+                  type="text"
+                  value={vertexLocation}
+                  onChange={(e) => onSettingsChange?.({ vertex_location: e.target.value })}
+                  placeholder="global"
+                  disabled={!isEnabled}
+                  className="w-full bg-slate-50 border border-slate-200 rounded p-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-600 text-slate-900 placeholder:text-slate-400"
+                />
+                <p className="text-[10px] text-slate-400">
+                  Region for Vertex AI. Defaults to &quot;global&quot;.
+                </p>
               </div>
             )}
           </div>

@@ -154,26 +154,8 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
           </button>
         </div>
 
-        {/* Tabs */}
-        {role && (
-          <div className="flex px-6 border-b" style={{ borderColor: 'var(--color-border)' }}>
-            <button 
-              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
-              onClick={() => setActiveTab('config')}
-            >
-              Configuration
-            </button>
-            <button 
-              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'dependencies' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
-              onClick={() => setActiveTab('dependencies')}
-            >
-              Where Used
-              {dependencies && ((dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)) > 0 && (
-                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/10 text-[10px]">{(dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)}</span>
-              )}
-            </button>
-          </div>
-        )}
+
+        {/* Tabs — Where Used tab hidden for now, coming in a future release */}
 
         {/* Form Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-24">
