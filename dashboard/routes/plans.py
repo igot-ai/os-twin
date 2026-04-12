@@ -13,12 +13,12 @@ from typing import Optional, List, Dict, Any
 import subprocess
 _re_mod = re
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from dashboard.models import CreatePlanRequest, SavePlanRequest, RefineRequest, UpdatePlanRoleConfigRequest, RunRequest
 from dashboard.api_utils import (
-    AGENTS_DIR, PROJECT_ROOT, WARROOMS_DIR, PLANS_DIR,
-    get_plan_roles_config, build_roles_list, resolve_plan_warrooms_dir,
+    AGENTS_DIR, PROJECT_ROOT, PLANS_DIR,
+    get_plan_roles_config, build_roles_list,
     resolve_runtime_plan_warrooms_dir,
     process_notification
 )
@@ -2754,7 +2754,6 @@ def _recalculate_progress(warrooms_dir: Path):
     Mirrors the logic from ``.agents/plan/Update-Progress.ps1``.
     """
     from datetime import datetime, timezone
-    import re as _re
 
     total = passed = failed = blocked = active = pending = 0
     rooms = []

@@ -1,4 +1,4 @@
-import React from 'react';
+
 import PlanWorkspace from '@/components/plan/PlanWorkspace';
 
 // Only generate one template page for the static export.

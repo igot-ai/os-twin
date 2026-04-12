@@ -4,11 +4,10 @@ Reads .memory/ directory from the plan's working_dir to serve
 graph snapshots, memory notes, and search results to the frontend.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pathlib import Path
 from typing import Annotated, Optional
 import json
-import os
 import re
 import sys
 

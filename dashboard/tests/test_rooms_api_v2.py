@@ -1,5 +1,4 @@
 import json
-import pytest
 from pathlib import Path
 from dashboard.api_utils import read_channel
 

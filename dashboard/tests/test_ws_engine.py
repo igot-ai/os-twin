@@ -1,14 +1,12 @@
 import pytest
 import asyncio
 import json
-from pathlib import Path
 from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
 from dashboard.api import app
 from dashboard.tasks import poll_war_rooms
 from dashboard.global_state import broadcaster
-from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR
 import dashboard.api_utils as api_utils
 
 client = TestClient(app)

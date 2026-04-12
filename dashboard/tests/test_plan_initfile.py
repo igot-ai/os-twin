@@ -14,7 +14,6 @@ Usage:
 
 import os
 import sys
-import json
 import httpx
 from fastapi.testclient import TestClient
 from dashboard.api import app

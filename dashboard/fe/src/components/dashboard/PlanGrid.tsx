@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { usePlans } from '@/hooks/use-plans';
 import PlanCard, { PlanCardSkeleton } from './PlanCard';
 import FilterBar, { SortOption } from './FilterBar';

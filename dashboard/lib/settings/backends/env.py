@@ -14,7 +14,7 @@ import logging
 import os
 from typing import Dict, List, Optional
 
-from .base import VaultBackend, VaultBackendType, VaultHealthStatus
+from .base import VaultBackendType, VaultHealthStatus
 
 logger = logging.getLogger(__name__)
 

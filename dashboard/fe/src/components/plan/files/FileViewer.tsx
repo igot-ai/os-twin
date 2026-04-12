@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { useFileContent } from '@/hooks/use-files';
 
 interface FileViewerProps {

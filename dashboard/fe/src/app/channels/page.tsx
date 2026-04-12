@@ -402,7 +402,7 @@ function SettingsView({ config, onUpdate, onRegenerate, onBack }: { config: Conn
   );
 }
 
-function ConnectedView({ channel, onShowSettings, onTest }: { channel: ChannelStatus, onShowSettings: () => void, onTest: () => void }) {
+function ConnectedView({ channel, onShowSettings, onTest: _onTest }: { channel: ChannelStatus, onShowSettings: () => void, onTest: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center h-full py-6 text-center">
       <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center mb-4 border border-emerald-100">

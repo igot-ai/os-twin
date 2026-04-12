@@ -1,6 +1,5 @@
 import os
 import pytest
-from pathlib import Path
 
 @pytest.fixture(autouse=True)
 def isolated_test_env(tmp_path):

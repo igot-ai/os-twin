@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { DoDItem, ACItem } from '@/types';
 
 interface QAPanelProps {

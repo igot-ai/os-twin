@@ -41,9 +41,7 @@ if _dashboard_dir not in sys.path:
 
 from dashboard.api_utils import (
     PROJECT_ROOT,
-    AGENTS_DIR,
     WARROOMS_DIR,
-    DEMO_DIR,
     USE_FE,
     FE_OUT_DIR,
 )
@@ -67,7 +65,6 @@ from dashboard.routes import (
     files,
     settings,
 )
-from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
 # All dashboard logs are written to ~/.ostwin/dashboard/debug.log (DEBUG level)

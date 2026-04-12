@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { ProvenanceChip } from './ProvenanceChip';
 import type { ProviderSettings, GoogleDeploymentMode, ModelInfo } from '@/types/settings';
 
 const PROVIDER_ICONS: Record<string, { icon: string; color: string }> = {
@@ -31,9 +30,9 @@ export function ProviderCard({
   name,
   provider,
   variant = 'compact',
-  provenance,
-  onToggle,
-  onModelChange,
+  provenance: _provenance,
+  onToggle: _onToggle,
+  onModelChange: _onModelChange,
   onSettingsChange,
   onTest,
   onVaultClick,
@@ -105,10 +104,6 @@ export function ProviderCard({
   // ── Google Primary variant with Deployment Mode ───────────────────
   if (variant === 'primary' && name === 'google') {
     // Filter models by deployment mode from registry
-    const modeModels = modelRegistry.length > 0
-      ? modelRegistry.filter((m) => !m.mode || m.mode === deploymentMode)
-      : [];
-
     return (
       <section className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
         {/* Header */}
@@ -324,10 +319,6 @@ export function ProviderCard({
 
   // ── Generic Primary variant (non-Google) ──────────────────────────
   if (variant === 'primary') {
-    const displayModels = modelRegistry.length > 0
-      ? modelRegistry
-      : models.map((m) => ({ id: m, label: m }));
-
     return (
       <section className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">

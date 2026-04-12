@@ -2,7 +2,6 @@
 from fastapi.testclient import TestClient
 import os
 import sys
-from pathlib import Path
 
 # Setup paths
 _dashboard_dir = os.path.dirname(os.path.abspath(__file__))

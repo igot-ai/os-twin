@@ -1,10 +1,9 @@
-import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
 import RoleEditorPanel from '../components/roles/RoleEditorPanel';
 import { Role } from '../types';
-import { apiPost, apiPut } from '../lib/api-client';
+import { apiPost } from '../lib/api-client';
 import useSWR from 'swr';
 import { useModelRegistry, useRoleDependencies } from '../hooks/use-roles';
 

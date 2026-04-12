@@ -11,8 +11,7 @@ Covers:
 
 import json
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 from dashboard.api import app
@@ -359,7 +358,7 @@ def test_provider_test_endpoint(client, temp_config):
     with patch("dashboard.routes.roles.test_model_connection") as mock_test:
         mock_test.return_value = {"status": "ok", "latency_ms": 123}
 
-        response = client.post("/api/settings/test/openai")
+        _response = client.post("/api/settings/test/openai")
         mock_test.assert_called_once()
 
 

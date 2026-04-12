@@ -1,9 +1,6 @@
 import pytest
-import os
 import json
-import asyncio
-from pathlib import Path
-from dashboard.planning_thread_store import PlanningThreadStore, PlanningThread, PlanningMessage
+from dashboard.planning_thread_store import PlanningThreadStore
 
 @pytest.fixture
 def temp_store(tmp_path):
@@ -75,8 +72,8 @@ async def test_append_and_get_messages(temp_store):
     assert msg1.role == "user"
     assert msg1.content == "Hello"
     
-    msg2 = await temp_store.append_message(thread.id, "assistant", "World")
-    msg3 = await temp_store.append_message(thread.id, "user", "unicode 🤖")
+    _msg2 = await temp_store.append_message(thread.id, "assistant", "World")
+    _msg3 = await temp_store.append_message(thread.id, "user", "unicode 🤖")
     
     # Get messages
     messages = temp_store.get_messages(thread.id)

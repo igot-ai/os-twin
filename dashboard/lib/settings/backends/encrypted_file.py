@@ -20,17 +20,16 @@ import base64
 import json
 import logging
 import os
-import stat
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .base import VaultBackend, VaultBackendType, VaultHealthStatus
+from .base import VaultBackendType, VaultHealthStatus
 
 logger = logging.getLogger(__name__)
 
 # Try to import cryptography -- graceful degradation when missing
 try:
-    from cryptography.fernet import Fernet, InvalidToken
+    from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 

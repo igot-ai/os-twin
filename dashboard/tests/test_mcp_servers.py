@@ -1,5 +1,4 @@
 import sys
-import asyncio
 from pathlib import Path
 import json
 import pytest
@@ -49,9 +48,9 @@ def mock_mcp_configs(tmp_path):
     return builtin_file, home_file
 
 def test_list_mcp_servers():
-    with patch("dashboard.routes.mcp.BUILTIN_CONFIG_FILE") as mock_builtin, \
-         patch("dashboard.routes.mcp.HOME_CONFIG_FILE") as mock_home, \
-         patch("dashboard.routes.mcp.ConfigResolver") as mock_resolver, \
+    with patch("dashboard.routes.mcp.BUILTIN_CONFIG_FILE") as _mock_builtin, \
+         patch("dashboard.routes.mcp.HOME_CONFIG_FILE") as _mock_home, \
+         patch("dashboard.routes.mcp.ConfigResolver") as _mock_resolver, \
          patch("dashboard.routes.mcp._read_json") as mock_read:
 
         mock_read.side_effect = [

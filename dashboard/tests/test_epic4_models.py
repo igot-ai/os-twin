@@ -1,6 +1,5 @@
 import unittest
-from dashboard.models import Skill, SkillSearchResponse
-from pydantic import ValidationError
+from dashboard.models import Skill
 
 class TestSkillModels(unittest.TestCase):
     def test_skill_defaults(self):

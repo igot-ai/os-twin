@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from pathlib import Path
 from typing import Callable, Dict, Optional
 
 from .base import VaultBackend, VaultBackendType

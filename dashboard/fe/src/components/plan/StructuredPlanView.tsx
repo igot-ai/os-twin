@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 import { EpicCardPreview } from './EpicCardPreview';
 import { EpicNode } from '@/lib/epic-parser';

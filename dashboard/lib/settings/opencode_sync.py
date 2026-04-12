@@ -32,7 +32,6 @@ from typing import Any, Dict, List, Optional
 
 from .models_registry import (
     AUTH_JSON_PROVIDERS,
-    AuthJsonProviderDef,
     OPENCODE_PROVIDERS,
     OpenCodeProviderDef,
     build_opencode_models,

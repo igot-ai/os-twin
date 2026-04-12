@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { McpServersTable } from '@/components/mcp/McpServersTable';
 import { AddServerDialog } from '@/components/mcp/AddServerDialog';
 

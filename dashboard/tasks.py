@@ -2,14 +2,12 @@ import asyncio
 import os
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.api_utils import (
     WARROOMS_DIR,
     AGENTS_DIR,
     PLANS_DIR,
-    PROJECT_ROOT,
     read_room,
     read_channel,
     process_notification,

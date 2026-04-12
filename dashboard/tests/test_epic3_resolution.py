@@ -6,8 +6,7 @@ resolver consolidation (settings_manager.py -> lib/settings/).
 
 import json
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 
 from dashboard.epic_manager import EpicSkillsManager
 

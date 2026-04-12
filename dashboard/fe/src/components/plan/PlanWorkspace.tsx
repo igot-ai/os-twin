@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { usePlan } from '@/hooks/use-plans';
 import { useEpics, useDAG } from '@/hooks/use-epics';
@@ -14,7 +14,7 @@ import { parseEpicMarkdown, serializeEpicMarkdown, EpicDocument } from '@/lib/ep
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
 import ContextPanel from './ContextPanel';
-import AIChatPanel from './AIChatPanel';
+
 import PlanBreadcrumb from './PlanBreadcrumb';
 import ProgressFooter from './ProgressFooter';
 
@@ -208,13 +208,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const addToast = useNotificationStore((state) => state.addToast);
 
   const {
-    chatHistory,
     isRefining,
-    streamedResponse,
-    error: aiError,
-    refine,
-    cancelRefine,
-    clearHistory,
   } = usePlanRefine();
 
   useEffect(() => {
@@ -244,11 +238,6 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
       setIsSaving(false);
     }
   }, [planId, planContent, addToast]);
-
-  const handleApplyAI = useCallback((newContent: string) => {
-    setPlanContent(newContent);
-    setActiveTab('editor');
-  }, []);
 
   // Synthesize epics from progress + DAG when the /epics API returns empty
   const epics = useMemo(() => {

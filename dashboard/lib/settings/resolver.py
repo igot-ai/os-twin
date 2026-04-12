@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import threading
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List
 from pathlib import Path
 from copy import deepcopy
 
@@ -18,7 +18,7 @@ from dashboard.models import (
     ProvidersNamespace,
     ChannelsNamespace,
 )
-from dashboard.api_utils import AGENTS_DIR, PROJECT_ROOT
+from dashboard.api_utils import AGENTS_DIR
 from .vault import get_vault
 
 logger = logging.getLogger(__name__)

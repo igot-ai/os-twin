@@ -1,4 +1,3 @@
-import os
 import json
 import shutil
 import logging
@@ -18,7 +17,7 @@ from dashboard.models import (
     SkillDuplicateCheckRequest, SkillDuplicateCheckResponse
 )
 from dashboard.api_utils import (
-    SKILLS_DIRS, AGENTS_DIR, PROJECT_ROOT, 
+    SKILLS_DIRS, 
     parse_skill_md, build_skills_list, save_skill_md,
     get_active_epics_using_skill
 )
@@ -814,5 +813,5 @@ async def clawhub_install(
         except FileNotFoundError:
             raise HTTPException(
                 status_code=500,
-                detail="clawhub CLI not found. Run: npm install -g clawhub",
+                detail="clawhub CLI not found. Run: pnpm add -g clawhub",
             )

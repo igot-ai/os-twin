@@ -78,7 +78,7 @@ Create integration tests for workflows that span multiple components:
 python -m pytest --cov=<module> --cov-report=term-missing
 
 # JavaScript
-npm test -- --coverage
+pnpm test -- --coverage
 
 # PowerShell
 Invoke-Pester -Path ./tests -CodeCoverage <source-files>

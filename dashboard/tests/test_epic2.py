@@ -1,6 +1,5 @@
 import asyncio
 import httpx
-import os
 import sys
 
 async def test_epic2():

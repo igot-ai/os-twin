@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { useDAG } from '@/hooks/use-epics';

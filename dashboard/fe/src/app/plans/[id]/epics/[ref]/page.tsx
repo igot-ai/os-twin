@@ -1,4 +1,4 @@
-import React from "react";
+
 import EpicDetail from "@/components/epic/EpicDetailPage";
 
 // Only generate one template page for the static export.

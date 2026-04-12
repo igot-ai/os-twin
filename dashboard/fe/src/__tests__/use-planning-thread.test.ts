@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { usePlanningThread } from '../hooks/use-planning-thread';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as swr from 'swr';

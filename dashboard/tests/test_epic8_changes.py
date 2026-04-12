@@ -1,11 +1,9 @@
 import os
 import sys
-import json
 import httpx
-import time
 import subprocess
 from pathlib import Path
-from datetime import datetime, timezone
+
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
 API_KEY = os.environ.get("OSTWIN_API_KEY", "")

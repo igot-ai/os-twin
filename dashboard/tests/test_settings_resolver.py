@@ -7,10 +7,9 @@ skill_refs union, vault deref (success + not-found), atomic writes.
 
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
-from dashboard.lib.settings.resolver import SettingsResolver, VAULT_REF_PATTERN
+from dashboard.lib.settings.resolver import SettingsResolver
 from dashboard.models import MasterSettings
 
 

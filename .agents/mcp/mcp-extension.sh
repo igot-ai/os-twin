@@ -266,11 +266,11 @@ cmd_install() {
         rm -rf "$ext_path"
         exit 1
       fi
-      step "Building (npm install && npm run build)..."
+      step "Building (pnpm install && pnpm run build)..."
       (
         cd "$ext_path"
-        npm install --silent 2>/dev/null || npm install
-        grep -q '"build"' package.json 2>/dev/null && { npm run build 2>/dev/null || npm run build; }
+        pnpm install --silent 2>/dev/null || pnpm install
+        grep -q '"build"' package.json 2>/dev/null && { pnpm run build 2>/dev/null || pnpm run build; }
       ) && ok "Build complete" || { fail "Build failed"; rm -rf "$ext_path"; exit 1; }
       ;;
     python)

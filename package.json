@@ -1,5 +1,5 @@
 {
-  "name": "youtube-app",
+  "name": "os-twin",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,9 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@nestjs/serve-static": "^5.0.4",
     "clsx": "^2.1.1",
+    "emitter-io": "^1.39.0",
+    "express": "^5.2.1",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",
+    "pg": "^8.20.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.2",
@@ -39,7 +43,6 @@
     "vite": "^8.0.3",
     "vitest": "^4.1.2"
   },
-  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
   "main": "cypress.config.js",
   "directories": {
     "doc": "docs"
@@ -58,11 +61,5 @@
   "overrides": {
     "serialize-javascript": "7.0.4",
     "diff": "8.0.3"
-  },
-  "dependencies": {
-    "@nestjs/serve-static": "^5.0.4",
-    "emitter-io": "^1.39.0",
-    "express": "^5.2.1",
-    "pg": "^8.20.0"
   }
 }

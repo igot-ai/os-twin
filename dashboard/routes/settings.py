@@ -19,7 +19,7 @@ from dashboard.global_state import broadcaster
 from dashboard.models import MasterSettings, EffectiveResolution
 from dashboard.lib.settings import get_settings_resolver
 from dashboard.lib.settings.vault import get_vault
-from dashboard.lib.settings.opencode_sync import sync_opencode_config, SyncResult
+from dashboard.lib.settings.opencode_sync import sync_opencode_config
 
 logger = logging.getLogger(__name__)
 

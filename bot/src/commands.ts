@@ -184,7 +184,7 @@ function cmdSubmenuSystem(): BotResponse {
 // ── Monitoring commands ───────────────────────────────────────────
 
 async function cmdDashboard(): Promise<BotResponse> {
-  const [{ rooms, summary }, baseUrl] = await Promise.all([
+  const [{ summary }, baseUrl] = await Promise.all([
     api.getRooms(),
     api.getBaseUrl(),
   ]);
@@ -1082,7 +1082,7 @@ async function cmdFeedback(userId: string, platform: string, args: string): Prom
   }
 }
 
-async function cmdPreferences(userId: string, platform: string): Promise<BotResponse[]> {
+async function cmdPreferences(_userId: string, platform: string): Promise<BotResponse[]> {
   const config = registry.getConfig(platform as any);
   if (!config) return [text('❌ Connector configuration not found.')];
 
@@ -1101,7 +1101,7 @@ async function cmdPreferences(userId: string, platform: string): Promise<BotResp
   return [menu(`⚙️ *Notification Preferences*\n\nStatus: ${status}\n\nYou can toggle global notifications or subscribe to specific events.`, buttons)];
 }
 
-async function cmdSubscriptions(userId: string, platform: string): Promise<BotResponse[]> {
+async function cmdSubscriptions(_userId: string, platform: string): Promise<BotResponse[]> {
   const config = registry.getConfig(platform as any);
   if (!config) return [text('❌ Connector configuration not found.')];
 

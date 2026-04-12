@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useMcpServers, McpServer, TestAllResult } from '@/hooks/use-mcp';
+import { Fragment, useState } from 'react';
+import { useMcpServers, TestAllResult } from '@/hooks/use-mcp';
 import { CredentialManager } from './CredentialManager';
 
 const typeBranding: Record<string, { bg: string; text: string; icon: string }> = {
@@ -197,7 +197,7 @@ export const McpServersTable: React.FC = () => {
               const isFailed = failedServerNames.has(server.name);
 
               return (
-                <React.Fragment key={server.name}>
+                <Fragment key={server.name}>
                   <tr className={`transition-all duration-200 group ${isFailed ? 'bg-red-50/40' : 'hover:bg-slate-50/80'}`}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -300,7 +300,7 @@ export const McpServersTable: React.FC = () => {
                       </td>
                     </tr>
                   )}
-                </React.Fragment>
+                </Fragment>
               );
             })}
           </tbody>

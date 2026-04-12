@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { IdeaChat } from '../components/ideas/IdeaChat';
 import { usePlanningThread } from '../hooks/use-planning-thread';

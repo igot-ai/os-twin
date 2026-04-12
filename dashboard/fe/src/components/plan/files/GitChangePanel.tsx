@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { useFileChanges } from '@/hooks/use-files';
 
 interface GitChangePanelProps {
