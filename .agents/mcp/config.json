@@ -8,9 +8,10 @@
       ],
       "environment": {
         "AGENT_OS_ROOT": ".",
-        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
+        "GOOGLE_API_KEY": "AQ.Ab8RN6KsFKCqS-zLUvhXwevr4xfZwMH2aMVSL7YwEx35QoOdmA",
+        "ANTHROPIC_API_KEY": "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",
+        "OSTWIN_API_KEY": "ostwin_YZtU147RW9Ht55NCc0agryiRsU0kLk5X",
+        "OSTWIN_PYTHON": "/Users/paulaan/.ostwin/.venv/bin/python"
       }
     },
     "warroom": {
@@ -21,20 +22,25 @@
       ],
       "environment": {
         "AGENT_OS_ROOT": ".",
-        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
+        "GOOGLE_API_KEY": "AQ.Ab8RN6KsFKCqS-zLUvhXwevr4xfZwMH2aMVSL7YwEx35QoOdmA",
+        "ANTHROPIC_API_KEY": "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",
+        "OSTWIN_API_KEY": "ostwin_YZtU147RW9Ht55NCc0agryiRsU0kLk5X",
+        "OSTWIN_PYTHON": "/Users/paulaan/.ostwin/.venv/bin/python"
       }
     },
     "memory": {
       "type": "local",
-      "command": ["python", "{env:HOME}/.ostwin/A-mem-sys/mcp_server.py"],
+      "command": [
+        "python",
+        "{env:HOME}/.ostwin/A-mem-sys/mcp_server.py"
+      ],
       "environment": {
         "AGENT_OS_ROOT": "{env:AGENT_OS_PROJECT_DIR}",
         "MEMORY_PERSIST_DIR": "./.memory",
-        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
+        "GOOGLE_API_KEY": "AQ.Ab8RN6KsFKCqS-zLUvhXwevr4xfZwMH2aMVSL7YwEx35QoOdmA",
+        "ANTHROPIC_API_KEY": "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",
+        "OSTWIN_API_KEY": "ostwin_YZtU147RW9Ht55NCc0agryiRsU0kLk5X",
+        "OSTWIN_PYTHON": "/Users/paulaan/.ostwin/.venv/bin/python"
       }
     },
     "stitch": {
@@ -53,9 +59,10 @@
       ],
       "environment": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:MCP_GITHUB_GITHUB_PERSONAL_ACCESS_TOKEN}",
-        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
-        "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
-        "OSTWIN_API_KEY": "{env:OSTWIN_API_KEY}"
+        "GOOGLE_API_KEY": "AQ.Ab8RN6KsFKCqS-zLUvhXwevr4xfZwMH2aMVSL7YwEx35QoOdmA",
+        "ANTHROPIC_API_KEY": "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",
+        "OSTWIN_API_KEY": "ostwin_YZtU147RW9Ht55NCc0agryiRsU0kLk5X",
+        "OSTWIN_PYTHON": "/Users/paulaan/.ostwin/.venv/bin/python"
       }
     },
     "chrome-devtools": {
@@ -66,7 +73,11 @@
         "chrome-devtools-mcp@latest"
       ],
       "environment": {
-        "PATH": "{env:PATH}"
+        "PATH": "{env:PATH}",
+        "GOOGLE_API_KEY": "AQ.Ab8RN6KsFKCqS-zLUvhXwevr4xfZwMH2aMVSL7YwEx35QoOdmA",
+        "ANTHROPIC_API_KEY": "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",
+        "OSTWIN_API_KEY": "ostwin_YZtU147RW9Ht55NCc0agryiRsU0kLk5X",
+        "OSTWIN_PYTHON": "/Users/paulaan/.ostwin/.venv/bin/python"
       }
     },
     "playwright": {
@@ -77,7 +88,11 @@
         "@playwright/mcp@latest"
       ],
       "environment": {
-        "PATH": "{env:PATH}"
+        "PATH": "{env:PATH}",
+        "GOOGLE_API_KEY": "AQ.Ab8RN6KsFKCqS-zLUvhXwevr4xfZwMH2aMVSL7YwEx35QoOdmA",
+        "ANTHROPIC_API_KEY": "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",
+        "OSTWIN_API_KEY": "ostwin_YZtU147RW9Ht55NCc0agryiRsU0kLk5X",
+        "OSTWIN_PYTHON": "/Users/paulaan/.ostwin/.venv/bin/python"
       }
     }
   }
