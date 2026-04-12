@@ -1,6 +1,6 @@
 ---
 name: extract
-description: "DEPRECATED: This skill has been folded into 'impeccable extract'. Run /impeccable extract instead."
+description: DEPRECATED: This skill has been folded into 'impeccable extract'. Run /impeccable extract instead."
 ---
 
 This skill has been folded into **impeccable extract**. Run `{{command_prefix}}impeccable extract` instead.

@@ -1,6 +1,6 @@
 ---
 name: refactor-code
-description: "Use this skill to safely restructure code -- extract functions, rename, reduce duplication -- while keeping all tests green."
+description: Use this skill to safely restructure code -- extract functions, rename, reduce duplication -- while keeping all tests green."
 tags: [engineer, refactoring, code-quality]
 trust_level: core
 ---

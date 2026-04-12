@@ -1,13 +1,13 @@
 ---
 name: unity-ugui
-description: ""
+description: "
 tags: []
 trust_level: experimental
 ---
 
 ---
 name: unity-ugui
-description: "Professional Unity UI (uGUI) assistant. Masters responsive layouts, TextMeshPro, reactive UI patterns (UniRx/UniTask), UI animation via Animator + PrimeTween, TextMeshPro (merged), and the Event System. Use for building screens, HUDs, popups, or optimizing UI performance. Always uses `unity-editor` sub-skills for for all Editor operations and `unity-code-review` for script changes.
+description: Professional Unity UI (uGUI) assistant. Masters responsive layouts, TextMeshPro, reactive UI patterns (UniRx/UniTask), UI animation via Animator + PrimeTween, TextMeshPro (merged), and the Event System. Use for building screens, HUDs, popups, or optimizing UI performance. Always uses `unity-editor` sub-skills for for all Editor operations and `unity-code-review` for script changes.
 ---
 
 # Unity uGUI 2.0 Skill

@@ -1,6 +1,6 @@
 ---
 name: arrange
-description: "DEPRECATED: This skill has been renamed to 'layout'. Run /layout instead."
+description: DEPRECATED: This skill has been renamed to 'layout'. Run /layout instead."
 tags: []
 trust_level: experimental
 ---
