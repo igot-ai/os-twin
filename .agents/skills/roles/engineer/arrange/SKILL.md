@@ -1,6 +1,8 @@
 ---
 name: arrange
 description: "DEPRECATED: This skill has been renamed to 'layout'. Run /layout instead."
+tags: []
+trust_level: experimental
 ---
 
 This skill has been renamed to **layout**. Run `{{command_prefix}}layout` instead.

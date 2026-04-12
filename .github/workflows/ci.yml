@@ -1,0 +1,426 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Agent OS — Cross-Platform CI/CD
+#
+# Validates the modularized bash installer (EPIC-001), Windows installer
+# (EPIC-002), and the full Pester test suite on all three platforms.
+#
+# Matrix: ubuntu-latest, macos-latest, windows-latest
+# Trigger: any push/PR touching .agents/ or this workflow
+#
+# EPIC-005 — Cross-Platform CI/CD and Test Harness
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Agent OS — CI
+
+on:
+  push:
+    branches: [main, hotfix/*, feature/*]
+    paths:
+      - '.agents/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.agents/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 1: BATS tests for bash installer modules (macOS + Linux only)
+# Runs the 16 BATS test files created by EPIC-001.
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  bats-installer-tests:
+    name: "BATS Installer Tests (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install BATS
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq bats
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install bats-core
+          fi
+          bats --version
+
+      - name: Run BATS installer tests
+        shell: bash
+        run: |
+          mkdir -p test-results
+          bats \
+            --formatter junit \
+            .agents/installer/tests/test_*.bats \
+            > test-results/bats-installer-results.xml 2>&1 || {
+              EXIT_CODE=$?
+              echo "::error::BATS tests failed with exit code $EXIT_CODE"
+              exit $EXIT_CODE
+            }
+
+      - name: Upload BATS test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bats-installer-results-${{ matrix.os }}
+          path: test-results/
+          retention-days: 30
+
+      - name: Publish BATS test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: "BATS Installer Tests — ${{ matrix.os }}"
+          path: test-results/bats-installer-results.xml
+          reporter: java-junit
+          fail-on-error: true
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 2: Pester installer tests (all 3 platforms)
+  # Runs the 15 Pester test files for .agents/installer/*.ps1 (EPIC-002).
+  # Windows-only tests are auto-skipped on macOS/Linux.
+  # ─────────────────────────────────────────────────────────────────────────
+  pester-installer-tests:
+    name: "Pester Installer Tests (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure PowerShell is available
+        shell: bash
+        run: pwsh --version
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.7.0 -Force -Scope CurrentUser
+
+      - name: Run Pester installer tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = '.agents/installer/tests/windows/'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'JUnitXml'
+          $config.TestResult.OutputPath = 'test-results/pester-installer-results.xml'
+          New-Item -ItemType Directory -Path 'test-results' -Force | Out-Null
+          Invoke-Pester -Configuration $config
+
+      - name: Upload Pester installer test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-installer-results-${{ matrix.os }}
+          path: test-results/
+          retention-days: 30
+
+      - name: Publish Pester installer test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: "Pester Installer Tests — ${{ matrix.os }}"
+          path: test-results/pester-installer-results.xml
+          reporter: java-junit
+          fail-on-error: true
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 3: Existing Pester test suite (all 3 platforms)
+  # Runs the 50+ existing Pester tests from .agents/tests/.
+  # Plan tests are isolated to prevent cross-test module pollution.
+  # ─────────────────────────────────────────────────────────────────────────
+  pester-core-tests:
+    name: "Pester Core Tests (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure PowerShell is available
+        shell: bash
+        run: pwsh --version
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.7.0 -Force -Scope CurrentUser
+
+      - name: Install Python dependencies
+        shell: bash
+        run: pip install httpx || pip3 install httpx || true
+
+      - name: Run plan tests (isolated)
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = '.agents/tests/plan/'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'JUnitXml'
+          $config.TestResult.OutputPath = 'test-results/pester-plan-results.xml'
+          New-Item -ItemType Directory -Path 'test-results' -Force | Out-Null
+          Invoke-Pester -Configuration $config
+
+      - name: Run all other Pester tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = @(
+            '.agents/tests/channel/',
+            '.agents/tests/dynamic_roles/',
+            '.agents/tests/lib/',
+            '.agents/tests/lifecycle/',
+            '.agents/tests/roles/',
+            '.agents/tests/war-rooms/'
+          )
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'JUnitXml'
+          $config.TestResult.OutputPath = 'test-results/pester-core-results.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Run standalone Pester tests
+        shell: pwsh
+        run: |
+          $rootTests = Get-ChildItem -Path '.agents/tests/' -Filter '*.Tests.ps1' -File
+          if ($rootTests.Count -gt 0) {
+            $config = New-PesterConfiguration
+            $config.Run.Path = $rootTests.FullName
+            $config.Run.Exit = $true
+            $config.Output.Verbosity = 'Detailed'
+            $config.TestResult.Enabled = $true
+            $config.TestResult.OutputFormat = 'JUnitXml'
+            $config.TestResult.OutputPath = 'test-results/pester-standalone-results.xml'
+            Invoke-Pester -Configuration $config
+          } else {
+            Write-Host "No standalone test files found — skipping"
+          }
+
+      - name: Run MCP tests
+        shell: pwsh
+        run: |
+          if (Test-Path '.agents/tests/mcp/') {
+            $config = New-PesterConfiguration
+            $config.Run.Path = '.agents/tests/mcp/'
+            $config.Run.Exit = $true
+            $config.Output.Verbosity = 'Detailed'
+            $config.TestResult.Enabled = $true
+            $config.TestResult.OutputFormat = 'JUnitXml'
+            $config.TestResult.OutputPath = 'test-results/pester-mcp-results.xml'
+            Invoke-Pester -Configuration $config
+          } else {
+            Write-Host "No MCP test directory found — skipping"
+          }
+
+      - name: Run observe tests
+        shell: pwsh
+        run: |
+          if (Test-Path '.agents/tests/observe/') {
+            $config = New-PesterConfiguration
+            $config.Run.Path = '.agents/tests/observe/'
+            $config.Run.Exit = $true
+            $config.Output.Verbosity = 'Detailed'
+            $config.TestResult.Enabled = $true
+            $config.TestResult.OutputFormat = 'JUnitXml'
+            $config.TestResult.OutputPath = 'test-results/pester-observe-results.xml'
+            Invoke-Pester -Configuration $config
+          } else {
+            Write-Host "No observe test directory found — skipping"
+          }
+
+      - name: Upload Pester core test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-core-results-${{ matrix.os }}
+          path: test-results/
+          retention-days: 30
+
+      - name: Publish Pester core test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: "Pester Core Tests — ${{ matrix.os }}"
+          path: test-results/*.xml
+          reporter: java-junit
+          fail-on-error: true
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 4: Smoke test — install.sh (Linux only)
+  # Validates the bash installer completes without error in CI.
+  # Uses --yes --skip-optional to avoid interactive prompts and heavy deps.
+  # ─────────────────────────────────────────────────────────────────────────
+  smoke-test-bash:
+    name: "Smoke Test — install.sh (Linux)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make installer executable
+        run: chmod +x .agents/install.sh
+
+      - name: Run install.sh --yes --skip-optional (smoke test)
+        shell: bash
+        run: |
+          export SOURCE_DIR="$(pwd)"
+          .agents/install.sh --yes --skip-optional 2>&1 | tee install-output.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          if [[ $EXIT_CODE -ne 0 ]]; then
+            echo "::error::install.sh exited with code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
+          echo "::notice::install.sh completed successfully"
+
+      - name: Dashboard health check (post-install)
+        shell: bash
+        run: |
+          VENV_PYTHON="$HOME/.ostwin/.venv/bin/python"
+          if [[ -f "$VENV_PYTHON" ]]; then
+            REPO_DIR="$(pwd)" $VENV_PYTHON -c "
+          import sys, os
+          repo = os.environ.get('REPO_DIR', '.')
+          sys.path.insert(0, repo)
+          sys.path.insert(0, os.path.join(repo, 'dashboard'))
+          from dashboard.api import app
+          print('Dashboard API app created. Routes: %d' % len(app.routes))
+          assert len(app.routes) > 0, 'No routes registered'
+          print('Health check: PASS')
+          "
+          else
+            echo "::warning::Venv not found at $VENV_PYTHON — running fallback syntax check"
+            python3 -c 'import ast; ast.parse(open("dashboard/api.py").read()); print("dashboard/api.py parses OK")'
+          fi
+
+      - name: Upload install log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-bash-log
+          path: install-output.log
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 5: Smoke test — install.ps1 (Windows only)
+  # Validates the PowerShell installer completes without error in CI.
+  # Uses -Yes -SkipOptional for non-interactive mode.
+  # ─────────────────────────────────────────────────────────────────────────
+  smoke-test-powershell:
+    name: "Smoke Test — install.ps1 (Windows)"
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run install.ps1 -Yes -SkipOptional (smoke test)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:SOURCE_DIR = $PWD.Path
+          try {
+            & .\.agents\install.ps1 -Yes -SkipOptional -SourceDir $PWD.Path 2>&1 |
+              Tee-Object -FilePath install-output.log
+            Write-Host "::notice::install.ps1 completed successfully"
+          }
+          catch {
+            Write-Host "::error::install.ps1 failed: $_"
+            exit 1
+          }
+
+      - name: Dashboard health check (post-install, Windows)
+        shell: pwsh
+        run: |
+          $venvPython = Join-Path $HOME ".ostwin\.venv\Scripts\python.exe"
+          if (Test-Path $venvPython) {
+            $env:REPO_DIR = $PWD.Path
+            & $venvPython -c "import sys, os; repo = os.environ.get('REPO_DIR', '.'); sys.path.insert(0, repo); sys.path.insert(0, os.path.join(repo, 'dashboard')); from dashboard.api import app; print('Dashboard API: %d routes' % len(app.routes)); assert len(app.routes) > 0; print('Health check: PASS')"
+          }
+          else {
+            Write-Host "::warning::Venv not found — running fallback syntax check"
+            python -c "import ast; ast.parse(open('dashboard/api.py').read()); print('dashboard/api.py parses OK')"
+          }
+
+      - name: Upload install log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-powershell-log
+          path: install-output.log
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 6: CI gate — all jobs must pass for merge
+  # This is a synthetic "required check" job that depends on all other jobs.
+  # Configure branch protection to require "CI Gate — All Checks" to pass.
+  # ─────────────────────────────────────────────────────────────────────────
+  ci-gate:
+    name: "CI Gate — All Checks"
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - bats-installer-tests
+      - pester-installer-tests
+      - pester-core-tests
+      - smoke-test-bash
+      - smoke-test-powershell
+
+    steps:
+      - name: Check all jobs passed
+        run: |
+          echo "Job results:"
+          echo "  bats-installer-tests:    ${{ needs.bats-installer-tests.result }}"
+          echo "  pester-installer-tests:  ${{ needs.pester-installer-tests.result }}"
+          echo "  pester-core-tests:       ${{ needs.pester-core-tests.result }}"
+          echo "  smoke-test-bash:         ${{ needs.smoke-test-bash.result }}"
+          echo "  smoke-test-powershell:   ${{ needs.smoke-test-powershell.result }}"
+          FAILED=false
+          for result in \
+            "${{ needs.bats-installer-tests.result }}" \
+            "${{ needs.pester-installer-tests.result }}" \
+            "${{ needs.pester-core-tests.result }}" \
+            "${{ needs.smoke-test-bash.result }}" \
+            "${{ needs.smoke-test-powershell.result }}"; do
+            if [[ "$result" == "failure" ]]; then
+              FAILED=true
+            fi
+          done
+          if [[ "$FAILED" == "true" ]]; then
+            echo "::error::One or more CI jobs failed — merge blocked"
+            exit 1
+          fi
+          echo "::notice::All CI checks passed — merge allowed"
