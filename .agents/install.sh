@@ -111,9 +111,10 @@ if [[ "$OS" == "..." ]]; then
 fi
 
 header "5. Setting up Python environment"
-setup_venv; patch_mcp_config; sync_opencode_agents; compute_build_hash
+setup_venv
 header "5b. Setting up .env"
 setup_env
+patch_mcp_config; sync_opencode_agents; compute_build_hash
 header "5c. OpenCode agent permissions"
 setup_opencode_permissions
 
