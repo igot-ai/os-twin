@@ -1,0 +1,19 @@
+{
+  "name": "qa-test-planner",
+  "description": "QA test planner -- designs comprehensive test plans with unit tests, integration tests, and UI tests using Playwright and DevTool MCP",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "test-plan-complete",
+    "coverage-targets-defined",
+    "all-acceptance-criteria-covered"
+  ],
+  "skill_refs": [],
+  "mcp_refs": [
+    "playwright",
+    "chrome-devtools"
+  ],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 900
+}

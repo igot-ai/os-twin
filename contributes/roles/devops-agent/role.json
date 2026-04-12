@@ -1,0 +1,16 @@
+{
+  "name": "devops-agent",
+  "description": "DevOps agent \u2014 creates Dockerfiles, Kubernetes manifests, CI/CD pipelines, and Infrastructure as Code templates",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "manifests-valid",
+    "security-hardened",
+    "resource-limits-set",
+    "no-secrets-in-plaintext"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

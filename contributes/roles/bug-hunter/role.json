@@ -1,0 +1,15 @@
+{
+  "name": "bug-hunter",
+  "description": "Bug hunter \u2014 detects bugs, performs root cause analysis, and identifies failure patterns",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "root-cause-identified",
+    "reproduction-steps-provided",
+    "fix-recommendation-included"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

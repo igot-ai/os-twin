@@ -1,0 +1,15 @@
+{
+  "name": "requirement-analyst",
+  "description": "Requirement analyst \u2014 analyzes user stories, creates acceptance criteria, validates completeness",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "criteria-completeness",
+    "ambiguity-check",
+    "testability-validation"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

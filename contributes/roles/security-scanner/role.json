@@ -1,0 +1,16 @@
+{
+  "name": "security-scanner",
+  "description": "Security scanner \u2014 performs SAST/DAST analysis, checks dependency vulnerabilities, and identifies security risks",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "all-critical-reported",
+    "cwe-classified",
+    "remediation-provided",
+    "false-positive-minimized"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 900
+}

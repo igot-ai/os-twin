@@ -1,0 +1,16 @@
+{
+  "name": "refactoring-agent",
+  "description": "Refactoring agent \u2014 optimizes source code structure, reduces technical debt, improves maintainability",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "behavior-preserved",
+    "tests-still-pass",
+    "complexity-reduced",
+    "no-regressions"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

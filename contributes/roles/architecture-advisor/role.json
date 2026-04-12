@@ -1,0 +1,15 @@
+{
+  "name": "architecture-advisor",
+  "description": "Architecture advisor \u2014 suggests system architecture, recommends design patterns, evaluates trade-offs",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "multi-option-analysis",
+    "trade-off-documented",
+    "scalability-validated"
+  ],
+  "skill_refs": [],
+  "cli": "agent",
+  "instance_type": "evaluator",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 900
+}

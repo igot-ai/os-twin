@@ -1,0 +1,20 @@
+{
+  "name": "test-engineer",
+  "description": "Test engineer \u2014 generates unit tests, integration tests, and end-to-end tests automatically",
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "tests-pass",
+    "coverage-threshold-met",
+    "edge-cases-covered",
+    "no-flaky-tests"
+  ],
+  "skill_refs": [],
+  "mcp_refs": [
+    "playwright",
+    "chrome-devtools"
+  ],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}
