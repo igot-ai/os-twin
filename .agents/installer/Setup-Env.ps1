@@ -104,6 +104,9 @@ MEMORY_AUTO_SYNC_INTERVAL=60
         Write-Host -NoNewline "    → Enter NGROK_AUTHTOKEN for dashboard port-forwarding (or press Enter to skip): " -ForegroundColor Cyan
         $ngrokToken = Read-Host
         if ($ngrokToken) {
+            # Ensure ngrok is installed before saving the token
+            Install-Ngrok
+
             $content = Get-Content $envFile -Raw
             $content = $content -replace '^# NGROK_AUTHTOKEN=.*', "NGROK_AUTHTOKEN=$ngrokToken"
             Set-Content -Path $envFile -Value $content -Encoding UTF8

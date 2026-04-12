@@ -16,10 +16,11 @@ interface AvailableProvider {
 /**
  * Provider IDs that can be added through this modal.
  * All others are shown greyed-out with a "coming soon" label.
+ *
+ * google, anthropic, and openai are excluded because they have
+ * dedicated primary cards on the settings page.
  */
 const ALLOWED_PROVIDER_IDS = new Set([
-  'openai',
-  'anthropic',
   'zai',
   'lmstudio',
   'moonshotai',
@@ -28,6 +29,13 @@ const ALLOWED_PROVIDER_IDS = new Set([
   'xai',
   'azure',
 ]);
+
+/**
+ * Provider IDs that have dedicated configuration cards on the settings page.
+ * These are hidden entirely from the "Add Provider" browser.
+ * 'gemini' is the opencode.json alias for google.
+ */
+const DEFAULT_PROVIDER_IDS = new Set(['google', 'gemini', 'anthropic', 'openai']);
 
 export interface AddProviderModalProps {
   isOpen: boolean;
@@ -67,7 +75,8 @@ export function AddProviderModal({ isOpen, onClose, onProviderAdded }: AddProvid
   }, [isOpen]);
 
   const filtered = useMemo(() => {
-    let list = providers;
+    // Exclude default providers (google, anthropic, openai) -- they have dedicated cards
+    let list = providers.filter((p) => !DEFAULT_PROVIDER_IDS.has(p.id));
 
     // Text filter
     if (search.trim()) {
@@ -217,7 +226,7 @@ export function AddProviderModal({ isOpen, onClose, onProviderAdded }: AddProvid
             </div>
 
             <div className="px-6 py-3 border-t border-slate-100 text-[10px] text-slate-400 text-center">
-              {providers.filter((p) => ALLOWED_PROVIDER_IDS.has(p.id)).length} supported providers &middot; {providers.filter((p) => p.already_configured).length} already configured
+              {providers.filter((p) => ALLOWED_PROVIDER_IDS.has(p.id)).length} supported providers &middot; {providers.filter((p) => p.already_configured && !DEFAULT_PROVIDER_IDS.has(p.id)).length} already configured
             </div>
           </>
         )}

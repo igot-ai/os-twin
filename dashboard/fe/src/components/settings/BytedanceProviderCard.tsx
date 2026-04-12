@@ -13,7 +13,6 @@ export interface BytedanceProviderCardProps {
 }
 
 const REGIONS = [
-  { id: 'cn-beijing-1', label: 'Mainland China', code: 'CN' },
   { id: 'ap-southeast-1', label: 'Singapore', code: 'SG' },
 ] as const;
 
@@ -124,11 +123,10 @@ export function BytedanceProviderCard({
                   key={region.id}
                   type="button"
                   onClick={() => onSettingsChange({ base_url: region.id })}
-                  className={`flex-1 py-3 px-4 border rounded text-xs font-bold flex items-center justify-center gap-2 transition-colors ${
-                    selectedRegion === region.id
+                  className={`flex-1 py-3 px-4 border rounded text-xs font-bold flex items-center justify-center gap-2 transition-colors ${selectedRegion === region.id
                       ? 'border-slate-300 bg-slate-50 text-slate-900'
                       : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                  }`}
+                    }`}
                 >
                   <span className="text-xs font-mono text-slate-400">{region.code}</span>
                   {region.label}
@@ -166,9 +164,14 @@ export function BytedanceProviderCard({
               Deploying to Bytedance Ark requires valid enterprise verification for the selected region.
             </p>
           </div>
-          <button className="px-6 py-2 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded hover:bg-slate-800 transition-colors">
+          <a
+            href="https://docs.byteplus.com/en/docs/ModelArk/1099455"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-2 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded hover:bg-slate-800 transition-colors inline-block"
+          >
             Learn More
-          </button>
+          </a>
         </div>
       </div>
     </section>
