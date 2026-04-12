@@ -81,7 +81,7 @@ class AgenticMemorySystem:
         sglang_port: int = 30000,
         persist_dir: Optional[str] = None,
         embedding_backend: str = "sentence-transformer",
-        vector_backend: str = "chroma",
+        vector_backend: str = "zvec",
         context_aware_analysis: bool = False,
         context_aware_tree: bool = False,
         max_links: Optional[int] = None,
@@ -491,11 +491,12 @@ class AgenticMemorySystem:
         if note.path is None:
             note.path = analysis.get("path")
         if not note.keywords:
-            note.keywords = analysis.get("keywords", [])
+            note.keywords = self._coerce_str_list(analysis.get("keywords", []))
         if note.context == "General":
-            note.context = analysis.get("context", "General")
+            ctx = analysis.get("context", "General")
+            note.context = ctx if isinstance(ctx, str) else str(ctx)
         if not note.tags:
-            note.tags = analysis.get("tags", [])
+            note.tags = self._coerce_str_list(analysis.get("tags", []))
         if note.summary is None:
             note.summary = analysis.get("summary")
 
@@ -1201,6 +1202,28 @@ class AgenticMemorySystem:
             elif action == "update_neighbor":
                 self._apply_update_neighbors(response_json, memory_ids)
 
+    @staticmethod
+    def _coerce_str_list(items: list) -> List[str]:
+        """Ensure every element in *items* is a plain string.
+
+        Small local models sometimes return tags/keywords as dicts or nested
+        structures.  This normalises them so downstream code (e.g. the
+        retriever's ``', '.join(tags)``) never crashes on non-string elements.
+        """
+        out: List[str] = []
+        for item in items:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                # {"tag": "value"} → take the first string value
+                for v in item.values():
+                    if isinstance(v, str):
+                        out.append(v)
+                        break
+            else:
+                out.append(str(item))
+        return out
+
     def _apply_strengthen(self, note: MemoryNote, response_json: dict) -> None:
         """Strengthen connections by adding links and updating tags."""
         connections = response_json["suggested_connections"]
@@ -1208,7 +1231,7 @@ class AgenticMemorySystem:
             connections = connections[: self.max_links]
         for conn_id in connections:
             self.add_link(note.id, conn_id)
-        note.tags = response_json["tags_to_update"]
+        note.tags = self._coerce_str_list(response_json["tags_to_update"])
 
     def _apply_update_neighbors(
         self, response_json: dict, memory_ids: List[str]
@@ -1224,9 +1247,10 @@ class AgenticMemorySystem:
 
             neighbor = self.memories[memory_id]
             if i < len(new_tags):
-                neighbor.tags = new_tags[i]
+                neighbor.tags = self._coerce_str_list(new_tags[i])
             if i < len(new_contexts):
-                neighbor.context = new_contexts[i]
+                ctx = new_contexts[i]
+                neighbor.context = ctx if isinstance(ctx, str) else str(ctx)
 
             self.memories[memory_id] = neighbor
             self._save_note(neighbor)

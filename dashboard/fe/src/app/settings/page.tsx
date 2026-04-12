@@ -385,13 +385,10 @@ export default function SettingsPage() {
 
       case 'memory':
         return (
-          <div>
-            <h2 className="text-lg font-bold text-on-surface mb-4">Memory</h2>
-            <MemoryPanel
-              memory={settings.memory || {}}
-              onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
-            />
-          </div>
+          <MemoryPanel
+            memory={settings.memory || {}}
+            onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
+          />
         );
 
       default:

@@ -62,11 +62,11 @@ def _build_enhanced_document(document: str, metadata: Dict) -> str:
 
     keywords = _parse_json_field(metadata, "keywords")
     if keywords:
-        enhanced += f" keywords: {', '.join(keywords)}"
+        enhanced += f" keywords: {', '.join(str(k) for k in keywords)}"
 
     tags = _parse_json_field(metadata, "tags")
     if tags:
-        enhanced += f" tags: {', '.join(tags)}"
+        enhanced += f" tags: {', '.join(str(t) for t in tags)}"
 
     return enhanced
 

@@ -558,6 +558,33 @@ OSTWIN_API_KEY=${generated_api_key}
 
 # ── Agent OS settings ───────────────────────────────────────────────────────
 # OSTWIN_LOG_LEVEL=INFO
+
+# ── Agentic Memory Platform ────────────────────────────────────────────────
+# Processing LLM — the model that analyses, summarises, and evolves memories.
+# Backend: huggingface | gemini | openai | ollama | openrouter | sglang
+MEMORY_LLM_BACKEND=huggingface
+MEMORY_LLM_MODEL=LiquidAI/LFM2-1.2B-Extract
+
+# Embedding — converts text into vectors for similarity search.
+# Backend: sentence-transformer | gemini
+MEMORY_EMBEDDING_BACKEND=sentence-transformer
+MEMORY_EMBEDDING_MODEL=microsoft/harrier-oss-v1-0.6b
+
+# Vector store: zvec (recommended) | chroma
+MEMORY_VECTOR_BACKEND=zvec
+
+# Behaviour
+MEMORY_CONTEXT_AWARE=true
+MEMORY_AUTO_SYNC=true
+MEMORY_AUTO_SYNC_INTERVAL=60
+
+# ── Gemini override ────────────────────────────────────────────────────────
+# To use Gemini for memory instead of local HuggingFace, uncomment below
+# (requires GOOGLE_API_KEY to be set above):
+# MEMORY_LLM_BACKEND=gemini
+# MEMORY_LLM_MODEL=gemini-3-flash-preview
+# MEMORY_EMBEDDING_BACKEND=gemini
+# MEMORY_EMBEDDING_MODEL=gemini-embedding-001
 ENVEOF
 
   chmod 600 "$env_file"   # Protect API keys
@@ -580,6 +607,17 @@ ENVEOF
 if command -v gcloud >/dev/null 2>&1; then
   VERTEX_API_KEY="$(gcloud auth print-access-token 2>/dev/null)"
   export VERTEX_API_KEY
+fi
+
+# Auto-promote memory backend to Gemini when a Google API key is available
+# and the user hasn't explicitly overridden the LLM backend.
+# This gives cloud-connected installs faster, higher-quality memory analysis
+# while keeping the default local-first for offline/privacy-sensitive setups.
+if [ -n "${GOOGLE_API_KEY:-}" ] && [ "${MEMORY_LLM_BACKEND:-huggingface}" = "huggingface" ]; then
+  export MEMORY_LLM_BACKEND=gemini
+  export MEMORY_LLM_MODEL="${MEMORY_LLM_MODEL:-gemini-3-flash-preview}"
+  export MEMORY_EMBEDDING_BACKEND=gemini
+  export MEMORY_EMBEDDING_MODEL="${MEMORY_EMBEDDING_MODEL:-gemini-embedding-001}"
 fi
 ENVSHEOF
     chmod 600 "$env_sh"
