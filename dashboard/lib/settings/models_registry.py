@@ -74,7 +74,7 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
         # Vertex AI mode
         ModelEntry("google-vertex/gemini-3.1-pro-preview", "Vertex Gemini 3.1 Pro", "1M", "flagship", mode="vertex"),
         ModelEntry("google-vertex/gemini-3-flash-preview", "Vertex Gemini 3 Flash", "1M", "balanced", mode="vertex"),
-        ModelEntry("google-vertex-anthropic/claude-opus-4-6@default", "Claude Opus 4.6", "200K", "flagship", mode="vertex"),
+        ModelEntry("google-vertex/gemini-3.1-flash-preview", "Claude Opus 4.6", "200K", "flagship", mode="vertex"),
         ModelEntry("google-vertex-anthropic/claude-sonnet-4-6@default", "Claude Sonnet 4.6", "200K", "balanced", mode="vertex"),
         ModelEntry("google-vertex-anthropic/claude-haiku-4-5@20251001", "Claude Haiku 4.5", "200K", "fast", mode="vertex"),
         ModelEntry("google-vertex/zai-org/glm-5-maas", "GLM-5", "128K", "balanced", mode="vertex"),
