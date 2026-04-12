@@ -257,7 +257,7 @@ sync_home_skills() {
     # Install via API
     local json_payload="{\"path\": \"$skill_dir\", \"name\": \"$safe_name\", \"description\": \"$safe_desc\", \"tags\": \"$safe_tags\"}"
     local result=""
-    result=$(curl -sf -X POST "${CURL_AUTH[@]}" \
+    result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
       -H "Content-Type: application/json" \
       -d "$json_payload" \
       "${DASHBOARD_URL}/api/skills/install" 2>&1) || true
@@ -291,7 +291,7 @@ sync_home_skills() {
   # Final sync to ensure vector store is consistent
   step "Finalizing vector store sync..."
   local sync_result=""
-  sync_result=$(curl -sf -X POST "${CURL_AUTH[@]}" \
+  sync_result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
     "${DASHBOARD_URL}/api/skills/sync" 2>&1) || true
 
   if [[ -n "$sync_result" ]]; then
