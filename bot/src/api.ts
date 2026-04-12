@@ -79,6 +79,39 @@ export interface Stats {
 export interface Skill {
   name: string;
   tags?: string[];
+  description?: string;
+  category?: string;
+}
+
+export interface ChannelStatus {
+  platform: string;
+  status: string;
+  config?: any;
+  health?: { status: string; message?: string };
+}
+
+export interface RoleInfo {
+  id?: string;
+  name: string;
+  description?: string;
+  version?: string;
+  default_model?: string;
+}
+
+export interface HealthResult {
+  manager: { running: boolean; pid: number | null };
+  bot: { running: boolean; pid: number | null; available: boolean };
+  config: any;
+  error?: string;
+}
+
+export interface ClawhubSkill {
+  name: string;
+  slug: string;
+  description?: string;
+  author?: string;
+  downloads?: number;
+  version?: string;
 }
 
 export interface PlansResult {
@@ -358,6 +391,111 @@ export async function getEngagement(entityId: string): Promise<any> {
   return fetchJSON(`/api/engagement/${entityId}`);
 }
 
+// ── Resume / Re-launch ───────────────────────────────────────────
+
+export async function resumePlan(planId: string, planContent: string): Promise<any> {
+  return postJSON('/api/run', {
+    plan: planContent,
+    plan_id: planId,
+    resume: true,
+  });
+}
+
+// ── Room actions ─────────────────────────────────────────────────
+
+export async function roomAction(roomId: string, action: string): Promise<any> {
+  return postJSON(`/api/rooms/${roomId}/action?action=${encodeURIComponent(action)}`, {});
+}
+
+// ── Health & System ──────────────────────────────────────────────
+
+export async function getManagerStatus(): Promise<any> {
+  return fetchJSON('/api/status');
+}
+
+export async function getBotStatus(): Promise<any> {
+  return fetchJSON('/api/bot/status');
+}
+
+export async function getConfig(): Promise<any> {
+  return fetchJSON('/api/config');
+}
+
+export async function getSettings(): Promise<any> {
+  return fetchJSON('/api/settings');
+}
+
+export async function updateSettings(namespace: string, settings: Record<string, unknown>): Promise<any> {
+  return fetchJSON(`/api/settings/${namespace}`, {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
+// ── Channels ─────────────────────────────────────────────────────
+
+export async function getChannels(): Promise<ChannelStatus[]> {
+  const data = await fetchJSON('/api/channels');
+  if (data?._error) return [];
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getChannel(platform: string): Promise<any> {
+  return fetchJSON(`/api/channels/${platform}`);
+}
+
+export async function testChannel(platform: string): Promise<any> {
+  return postJSON(`/api/channels/${platform}/test`, {});
+}
+
+export async function connectChannel(platform: string, credentials?: any): Promise<any> {
+  return postJSON(`/api/channels/${platform}/connect`, credentials ? { credentials } : {});
+}
+
+export async function disconnectChannel(platform: string): Promise<any> {
+  return postJSON(`/api/channels/${platform}/disconnect`, {});
+}
+
+export async function getChannelPairing(platform: string): Promise<any> {
+  return fetchJSON(`/api/channels/${platform}/pairing`);
+}
+
+export async function regenerateChannelPairing(platform: string): Promise<any> {
+  return postJSON(`/api/channels/${platform}/pairing/regenerate`, {});
+}
+
+// ── Skills (extended) ────────────────────────────────────────────
+
+export async function searchSkillsClawhub(query: string, limit = 25): Promise<ClawhubSkill[]> {
+  const data = await fetchJSON(`/api/skills/clawhub-search?q=${encodeURIComponent(query)}&limit=${limit}`);
+  if (data?._error) return [];
+  return Array.isArray(data) ? data : [];
+}
+
+export async function installSkillClawhub(skillName: string): Promise<any> {
+  return fetchJSON('/api/skills/clawhub-install', {
+    method: 'POST',
+    headers: { ...getHeaders(), 'X-Confirm-Install': 'true' },
+    body: JSON.stringify({ skill_name: skillName }),
+  });
+}
+
+export async function removeSkill(name: string, force = false): Promise<any> {
+  return fetchJSON(`/api/skills/${encodeURIComponent(name)}?force=${force}`, { method: 'DELETE' });
+}
+
+export async function syncSkills(): Promise<any> {
+  return postJSON('/api/skills/sync', {});
+}
+
+// ── Roles ────────────────────────────────────────────────────────
+
+export async function getRoles(): Promise<RoleInfo[]> {
+  const data = await fetchJSON('/api/roles');
+  if (data?._error) return [];
+  return Array.isArray(data) ? data : [];
+}
+
 // Default export as a mutable object for testability (sinon stubs)
 const api = {
   getBaseUrl,
@@ -375,10 +513,29 @@ const api = {
   updateAssetMetadata,
   generatePlanFromAssets,
   launchPlan,
+  resumePlan,
+  roomAction,
   getRooms,
   getRoomChannel,
   getStats,
   getSkills,
+  searchSkillsClawhub,
+  installSkillClawhub,
+  removeSkill,
+  syncSkills,
+  getRoles,
+  getManagerStatus,
+  getBotStatus,
+  getConfig,
+  getSettings,
+  updateSettings,
+  getChannels,
+  getChannel,
+  testChannel,
+  connectChannel,
+  disconnectChannel,
+  getChannelPairing,
+  regenerateChannelPairing,
   semanticSearch,
   stopDashboard,
   shellCommand,

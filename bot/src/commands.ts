@@ -7,7 +7,7 @@
  * Platform adapters translate these into native API calls.
  */
 
-import api, { PlanAsset } from './api';
+import api, { PlanAsset, ClawhubSkill, RoleInfo } from './api';
 import { registry } from './connectors/registry';
 import { getSession, clearSession, setMode, setPlan, setWorkingDir } from './sessions';
 import { listRecordings, transcribeAudio } from './audio-transcript';
@@ -25,6 +25,86 @@ export interface BotResponse {
   buttons?: Button[][];
   file?: { path: string; name: string };
 }
+
+// ── Command registry (single source of truth) ───────────────────
+//
+// Every connector imports this to auto-register commands.
+// - `arg`: if set, this command accepts a string argument with that name
+// - `argRequired`: whether the argument is mandatory (Discord only)
+// - `argDescription`: hint text shown to users for the argument
+// - `deferReply`: if true, Discord will defer (show "thinking…") before running
+// - `discordOnly`: if true, skip registration on Telegram/Slack (voice commands)
+// - `telegramMenu`: if set, shows in Telegram's /command quick-list
+
+export interface CommandDef {
+  name: string;
+  description: string;
+  arg?: string;
+  argDescription?: string;
+  argRequired?: boolean;
+  deferReply?: boolean;
+  discordOnly?: boolean;
+  telegramMenu?: string; // description shown in Telegram's setMyCommands
+}
+
+export const COMMAND_REGISTRY: CommandDef[] = [
+  // ── Plans & AI ──────────────────────────────────────────────────
+  { name: 'menu',            description: 'Main Control Center',                                 telegramMenu: '🏢 Main Control Center' },
+  { name: 'help',            description: 'Detailed user guide',                                 telegramMenu: '❓ Detailed user guide' },
+  { name: 'start',           description: 'Start / Help (Telegram convention)' },
+  { name: 'draft',           description: 'Draft a new Plan with AI',                            arg: 'idea',     argDescription: 'Your project idea',                   deferReply: true, telegramMenu: '📝 Draft a new Plan with AI' },
+  { name: 'edit',            description: 'Select a plan to edit with AI',                       deferReply: true },
+  { name: 'viewplan',        description: "View a plan's content",                               deferReply: true },
+  { name: 'startplan',       description: 'Select and launch a plan',                            deferReply: true },
+  { name: 'resume',          description: 'Resume a failed or stopped plan',                     deferReply: true },
+  { name: 'assets',          description: 'List assets for the active or selected plan',         deferReply: true },
+  { name: 'transcribe',      description: 'Transcribe a voice recording and draft a plan',       deferReply: true },
+  { name: 'setdir',          description: 'Set target project directory for new plans',          arg: 'path',     argDescription: 'Absolute path to project directory' },
+  { name: 'cancel',          description: 'Exit current editing session' },
+  { name: 'feedback',        description: 'Send feedback to the dashboard',                      arg: 'text',     argDescription: 'Your feedback message',   argRequired: true, deferReply: true },
+
+  // ── Monitoring ──────────────────────────────────────────────────
+  { name: 'dashboard',       description: 'Real-time War-Room progress',                         telegramMenu: '📊 Real-time War-Room progress' },
+  { name: 'status',          description: 'List running War-Rooms',                              telegramMenu: '💻 List running War-Rooms' },
+  { name: 'compact',         description: 'Latest messages from agents' },
+  { name: 'errors',          description: 'Error summary with root causes' },
+  { name: 'logs',            description: 'View war-room channel messages',                      arg: 'room_id',  argDescription: 'War-room ID (e.g. room-001)',          deferReply: true, telegramMenu: '📜 View war-room logs' },
+  { name: 'health',          description: 'System health check',                                 deferReply: true, telegramMenu: '🏥 System health check' },
+  { name: 'progress',        description: 'Plan progress bars',                                  deferReply: true },
+  { name: 'plans',           description: 'List all project Plans' },
+
+  // ── Skills & Roles ──────────────────────────────────────────────
+  { name: 'skills',          description: 'View installed AI skills',                             telegramMenu: '🧠 List AI skills' },
+  { name: 'skillsearch',     description: 'Search ClawHub skill marketplace',                    arg: 'query',    argDescription: 'Search query',                         argRequired: true, deferReply: true },
+  { name: 'skillinstall',    description: 'Install a skill from ClawHub',                        arg: 'slug',     argDescription: 'Skill slug (e.g. steipete/web-search)', argRequired: true, deferReply: true },
+  { name: 'skillremove',     description: 'Remove an installed skill',                           arg: 'name',     argDescription: 'Skill name to remove',                  argRequired: true, deferReply: true },
+  { name: 'skillsync',       description: 'Sync skills with dashboard',                          deferReply: true },
+  { name: 'roles',           description: 'List all agent roles',                                deferReply: true },
+  { name: 'clonerole',       description: 'Clone a role for project-local override',             arg: 'role',     argDescription: 'Role name to clone',                    argRequired: true, deferReply: true },
+
+  // ── System ──────────────────────────────────────────────────────
+  { name: 'usage',           description: 'Stats report' },
+  { name: 'config',          description: 'View system configuration',                           arg: 'key',      argDescription: 'Config key in dot notation (e.g. manager.poll_interval_seconds)', deferReply: true },
+  { name: 'triage',          description: 'Triage a failed war-room',                            arg: 'room_id',  argDescription: 'War-room ID to triage',                 deferReply: true },
+  { name: 'clearplans',      description: 'Wipe all plan data',                                  deferReply: true },
+  { name: 'new',             description: 'Wipe old War-Room data to start fresh',               deferReply: true },
+  { name: 'restart',         description: 'Reboot the Command Center background process',        deferReply: true },
+  { name: 'launchdashboard', description: 'Dashboard access info',                               deferReply: true },
+  { name: 'preferences',     description: 'Notification preferences',                            deferReply: true },
+  { name: 'subscriptions',   description: 'Event subscription toggles',                          deferReply: true },
+
+  // ── Discord-only (voice) ────────────────────────────────────────
+  { name: 'join',            description: 'Join your voice channel and stream live audio',       discordOnly: true },
+  { name: 'leave',           description: 'Disconnect and save all recordings',                  discordOnly: true },
+  { name: 'ping',            description: 'Check bot latency',                                   discordOnly: true },
+];
+
+// Pre-computed views for connectors
+export const COMMANDS_WITH_ARGS = COMMAND_REGISTRY.filter(c => c.arg && !c.discordOnly);
+export const COMMANDS_NO_ARGS = COMMAND_REGISTRY.filter(c => !c.arg && !c.discordOnly);
+export const ALL_PLATFORM_COMMANDS = COMMAND_REGISTRY.filter(c => !c.discordOnly);
+export const TELEGRAM_MENU_COMMANDS = COMMAND_REGISTRY.filter(c => c.telegramMenu);
+export const DEFERRED_COMMANDS = new Set(COMMAND_REGISTRY.filter(c => c.deferReply).map(c => c.name));
 
 // ── Response helpers ──────────────────────────────────────────────
 
@@ -48,6 +128,7 @@ function cmdMenu(): BotResponse {
   return menu('*Main Control Center*\nSelect a category:', [
     [{ label: '📊 Monitoring', callbackData: 'menu:cat:monitoring' }],
     [{ label: '📝 Plans & AI', callbackData: 'menu:cat:plans' }],
+    [{ label: '🧠 Skills & Roles', callbackData: 'menu:cat:skills' }],
     [{ label: '⚙️ System', callbackData: 'menu:cat:system' }],
   ]);
 }
@@ -59,6 +140,8 @@ function cmdSubmenuMonitoring(): BotResponse {
     [{ label: '💻 Status', callbackData: 'cmd:status' }],
     [{ label: '💬 Compact View', callbackData: 'cmd:compact' }],
     [{ label: '⚠️ Errors', callbackData: 'cmd:errors' }],
+    [{ label: '📜 Logs', callbackData: 'cmd:logs' }],
+    [{ label: '🏥 Health', callbackData: 'cmd:health' }],
     [{ label: '⬅️ Back', callbackData: 'menu:main' }],
   ]);
 }
@@ -71,7 +154,18 @@ function cmdSubmenuPlans(): BotResponse {
     [{ label: '✏️ Edit Plan', callbackData: 'cmd:edit' }],
     [{ label: '🖼 Assets', callbackData: 'cmd:assets' }],
     [{ label: '🚀 Launch Plan', callbackData: 'cmd:startplan' }],
+    [{ label: '🔄 Resume Plan', callbackData: 'cmd:resume' }],
     [{ label: '📂 All Plans', callbackData: 'menu:plans' }],
+    [{ label: '⬅️ Back', callbackData: 'menu:main' }],
+  ]);
+}
+
+function cmdSubmenuSkills(): BotResponse {
+  return menu('🧠 *Skills & Roles*\nManage AI skills and agent roles:', [
+    [{ label: '🧠 Installed Skills', callbackData: 'cmd:skills' }],
+    [{ label: '🔍 Search Skills', callbackData: 'cmd:skillsearch_prompt' }],
+    [{ label: '🔄 Sync Skills', callbackData: 'cmd:skillsync' }],
+    [{ label: '👥 Roles', callbackData: 'cmd:roles' }],
     [{ label: '⬅️ Back', callbackData: 'menu:main' }],
   ]);
 }
@@ -79,8 +173,10 @@ function cmdSubmenuPlans(): BotResponse {
 function cmdSubmenuSystem(): BotResponse {
   return menu('⚙️ *System*\nSystem operations & resources:', [
     [{ label: '📈 Token Usage', callbackData: 'cmd:usage' }],
-    [{ label: '🧠 Skills', callbackData: 'cmd:skills' }],
+    [{ label: '🏥 Health', callbackData: 'cmd:health' }],
+    [{ label: '⚙️ Config', callbackData: 'cmd:config' }],
     [{ label: '🔔 Notifications', callbackData: 'cmd:preferences' }],
+    [{ label: '🧹 Clear Plans', callbackData: 'cmd:clearplans' }],
     [{ label: '⬅️ Back', callbackData: 'menu:main' }],
   ]);
 }
@@ -188,6 +284,224 @@ async function cmdErrors(): Promise<BotResponse> {
   return text(lines.join('\n'));
 }
 
+// ── Tier 1: Resume, Logs, Health, Config, Channels ───────────────
+
+async function cmdResumeMenu(): Promise<BotResponse> {
+  const { plans } = await api.getPlans();
+  const resumable = plans.filter(p => p.status === 'failed' || p.status === 'stopped' || p.status === 'running');
+  if (!resumable.length) return text('ℹ️ No plans available to resume. Only failed/stopped plans can be resumed.');
+  const buttons = resumable.slice(0, 10).map(p => {
+    let title = p.title || p.plan_id;
+    if (title.length > 25) title = title.slice(0, 22) + '...';
+    return [{ label: `🔄 ${title}`, callbackData: `menu:resume_confirm:${p.plan_id}` }];
+  });
+  return menu('🔄 *Select a Plan to Resume:*', buttons);
+}
+
+async function cmdResumePlan(planId: string): Promise<BotResponse[]> {
+  const data = await api.getPlan(planId);
+  if (data?._error) return [text(`❌ Plan \`${planId}\` not found.`)];
+  const planContent = data.plan?.content || data.content || '';
+  const result = await api.resumePlan(planId, planContent);
+  if (result?._error) return [text(`❌ Failed to resume plan: ${result._error}`)];
+  return [text(`🔄 *Plan Resumed!* \`${planId}\`\n\nExisting war-rooms will be continued. Use /dashboard or /status to monitor progress.`)];
+}
+
+async function cmdClearPlans(): Promise<BotResponse> {
+  const result = await api.shellCommand('ostwin plan clear --force');
+  if (result?._error) return text(`❌ Failed to clear plans: ${result._error}`);
+  const output = result?.stdout || '';
+  return text(`🧹 *All plans cleared.*\n${output ? `\`\`\`\n${output.slice(0, 500)}\n\`\`\`` : 'Ready to create new plans.'}`);
+}
+
+async function cmdLogs(args: string): Promise<BotResponse> {
+  const parts = args.trim().split(/\s+/);
+  const roomId = parts[0] || '';
+
+  if (!roomId) {
+    // Show room selection
+    const { rooms } = await api.getRooms();
+    if (!rooms.length) return text('ℹ️ No war-rooms found.');
+    const buttons = rooms.slice(0, 10).map(r => {
+      const emoji = r.status.includes('fail') ? '❌' : r.status === 'passed' ? '✅' : '🏃‍♂️';
+      return [{ label: `${emoji} ${r.room_id}`, callbackData: `menu:logs:${r.room_id}` }];
+    });
+    return menu('📜 *Select a War-Room to view logs:*', buttons);
+  }
+
+  const limit = parts[1] ? parseInt(parts[1], 10) || 10 : 10;
+  const data = await api.getRoomChannel(roomId, limit);
+  if (data?._error) return text(`⚠️ ${data._error}`);
+
+  const msgs = data?.messages || data || [];
+  if (!Array.isArray(msgs) || !msgs.length) return text(`📜 No messages in \`${roomId}\`.`);
+
+  const lines = [`📜 *Logs for \`${roomId}\`* (last ${msgs.length}):`];
+  for (const m of msgs.slice(-15)) {
+    const role = m.from || '?';
+    const type = m.type ? `[${m.type}]` : '';
+    let body = (m.body || '').slice(0, 120).replace(/\n/g, ' ').replace(/[*_`]/g, '');
+    lines.push(`\`${role}\` ${type}: ${body}`);
+  }
+  if (msgs.length > 15) lines.push(`_…${msgs.length - 15} more messages. Use the dashboard for full logs._`);
+  return text(lines.join('\n'));
+}
+
+async function cmdHealth(): Promise<BotResponse> {
+  const [managerStatus, botStatus] = await Promise.all([
+    api.getManagerStatus(),
+    api.getBotStatus(),
+  ]);
+
+  const mgrRunning = managerStatus?.running ?? false;
+  const mgrPid = managerStatus?.pid;
+  const botRunning = botStatus?.running ?? false;
+  const botPid = botStatus?.pid;
+  const botAvail = botStatus?.available ?? false;
+
+  const { rooms, summary } = await api.getRooms();
+  const total = summary?.total || 0;
+  const passed = summary?.passed || 0;
+  const failed = summary?.failed_final || 0;
+  const active = total - passed - failed;
+
+  return text(`🏥 *System Health*
+\`─────────────────────────────\`
+⚙️ *Manager:*     ${mgrRunning ? `🟢 Running (PID ${mgrPid})` : '🔴 Stopped'}
+🤖 *Bot:*          ${botRunning ? `🟢 Running (PID ${botPid})` : '🔴 Stopped'}${botAvail ? '' : ' ⚠️ Unavailable'}
+📦 *War-Rooms:*    \`${total}\` total, \`${active}\` active, \`${passed}\` passed, \`${failed}\` failed
+\`─────────────────────────────\``);
+}
+
+async function cmdConfig(args: string): Promise<BotResponse> {
+  const key = args.trim();
+  if (!key) {
+    const cfg = await api.getConfig();
+    if (cfg?._error) return text(`⚠️ ${cfg._error}`);
+    const preview = JSON.stringify(cfg, null, 2);
+    const truncated = preview.length > 3000 ? preview.slice(0, 3000) + '\n...[truncated]' : preview;
+    return text(`⚙️ *Configuration:*\n\`\`\`json\n${truncated}\n\`\`\``);
+  }
+  // Show a specific key from the config
+  const cfg = await api.getConfig();
+  if (cfg?._error) return text(`⚠️ ${cfg._error}`);
+  const parts = key.split('.');
+  let val: any = cfg;
+  for (const p of parts) {
+    val = val?.[p];
+    if (val === undefined) return text(`⚠️ Config key \`${key}\` not found.`);
+  }
+  const display = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val);
+  return text(`⚙️ \`${key}\` = \`\`\`\n${display}\n\`\`\``);
+}
+
+// ── Tier 2: Skills management ────────────────────────────────────
+
+async function cmdSkillSearch(args: string): Promise<BotResponse> {
+  const query = args.trim();
+  if (!query) return text('⚠️ Usage: `/skillsearch <query>`\nExample: `/skillsearch web search`');
+
+  const results = await api.searchSkillsClawhub(query);
+  if (!results.length) return text(`ℹ️ No skills found for \`${query}\`.`);
+
+  const lines = [`🔍 *Skill Search: "${query}"*`];
+  for (const s of results.slice(0, 15)) {
+    const desc = s.description ? ` — ${s.description.slice(0, 80)}` : '';
+    const dl = s.downloads ? ` (${s.downloads} downloads)` : '';
+    lines.push(`• \`${s.slug || s.name}\`${desc}${dl}`);
+  }
+  if (results.length > 15) lines.push(`_…${results.length - 15} more results_`);
+  lines.push('\n_Install with:_ `/skillinstall <slug>`');
+  return text(lines.join('\n'));
+}
+
+async function cmdSkillInstall(args: string): Promise<BotResponse> {
+  const slug = args.trim();
+  if (!slug) return text('⚠️ Usage: `/skillinstall <slug>`\nExample: `/skillinstall steipete/web-search`');
+
+  const result = await api.installSkillClawhub(slug);
+  if (result?._error) return text(`❌ Failed to install \`${slug}\`: ${result._error}`);
+  return text(`✅ *Skill installed:* \`${slug}\`\n${result?.output ? `\`\`\`\n${String(result.output).slice(0, 500)}\n\`\`\`` : ''}`);
+}
+
+async function cmdSkillRemove(args: string): Promise<BotResponse> {
+  const name = args.trim();
+  if (!name) return text('⚠️ Usage: `/skillremove <name>`');
+
+  const result = await api.removeSkill(name, true);
+  if (result?._error) return text(`❌ Failed to remove \`${name}\`: ${result._error}`);
+  return text(`✅ *Skill removed:* \`${name}\``);
+}
+
+async function cmdSkillSync(): Promise<BotResponse> {
+  const result = await api.syncSkills();
+  if (result?._error) return text(`❌ Sync failed: ${result._error}`);
+  return text(`🔄 *Skills synced.* ${result?.message || ''}`);
+}
+
+// ── Tier 2: Roles & Triage ───────────────────────────────────────
+
+async function cmdRoles(): Promise<BotResponse> {
+  const roles = await api.getRoles();
+  if (!roles.length) return text('ℹ️ No roles found.');
+
+  const lines = ['👥 *Available Roles:*', '`─────────────────────────────`'];
+  for (const r of roles.slice(0, 30)) {
+    const model = r.default_model ? ` (${r.default_model})` : '';
+    const desc = r.description ? ` — ${r.description.slice(0, 60)}` : '';
+    lines.push(`• \`${r.name}\`${model}${desc}`);
+  }
+  if (roles.length > 30) lines.push(`_…${roles.length - 30} more roles_`);
+  lines.push('`─────────────────────────────`');
+  return text(lines.join('\n'));
+}
+
+async function cmdTriage(args: string): Promise<BotResponse> {
+  const roomId = args.trim();
+  if (!roomId) {
+    // Show failed rooms for triage selection
+    const { rooms } = await api.getRooms();
+    const failed = rooms.filter(r => r.status.includes('fail') || r.status === 'error');
+    if (!failed.length) return text('✅ No failed rooms to triage.');
+    const buttons = failed.slice(0, 10).map(r => [
+      { label: `🔧 ${r.room_id}`, callbackData: `menu:triage:${r.room_id}` },
+    ]);
+    return menu('🔧 *Select a room to triage:*', buttons);
+  }
+
+  const result = await api.roomAction(roomId, 'resume');
+  if (result?._error) return text(`❌ Triage failed for \`${roomId}\`: ${result._error}`);
+  return text(`🔧 *Triage initiated for \`${roomId}\`*\nAction: resume\nThe room will be re-evaluated by the manager.`);
+}
+
+async function cmdCloneRole(args: string): Promise<BotResponse> {
+  const role = args.trim();
+  if (!role) return text('⚠️ Usage: `/clonerole <role>`\nExample: `/clonerole engineer`');
+
+  const result = await api.shellCommand(`ostwin clone-role ${role}`);
+  if (result?._error) return text(`❌ Failed to clone role \`${role}\`: ${result._error}`);
+  const output = result?.stdout || '';
+  return text(`✅ *Role cloned:* \`${role}\`\n${output ? `\`\`\`\n${output.slice(0, 500)}\n\`\`\`` : 'Role is now available for project-local override.'}`);
+}
+
+async function cmdLaunchDashboard(): Promise<BotResponse> {
+  const [baseUrl, botStatus] = await Promise.all([
+    api.getBaseUrl(),
+    api.getBotStatus(),
+  ]);
+
+  // Dashboard is already running if the bot can reach the API
+  const buttons: Button[][] = [];
+  if (baseUrl.startsWith('https')) {
+    buttons.push([{ label: '🔗 Open Dashboard', callbackData: '_', url: baseUrl }]);
+  }
+
+  return {
+    text: `🖥 *Dashboard*\n\nThe dashboard is accessible at: \`${baseUrl}\`\n\nIf the dashboard is not running, start it from the CLI with:\n\`ostwin dashboard --background\``,
+    buttons: buttons.length ? buttons : undefined,
+  };
+}
+
 // ── Plan commands ─────────────────────────────────────────────────
 
 async function cmdPlans(): Promise<BotResponse> {
@@ -245,31 +559,45 @@ export function cmdHelp(): BotResponse {
   return text(`*OS Twin Command Center — Help Menu*
 \`─────────────────────────────\`
 
-*Interactive AI Agent*
+*Plans & AI*
   /menu — Main interactive command menu.
-  /setdir <path> — Set the target project directory for new plans.
   /draft <idea> — Create a new plan from a text prompt.
-  /transcribe — Transcribe a voice recording with AI.
   /edit — Select a plan to edit and refine with AI.
-  /assets — List assets attached to the active or selected plan.
-  /startplan — Select and launch a plan.
   /viewplan — Select and read a plan.
+  /startplan — Select and launch a plan.
+  /resume — Resume a failed or stopped plan.
+  /assets — List assets attached to the active or selected plan.
+  /transcribe — Transcribe a voice recording with AI.
+  /setdir <path> — Set the target project directory.
   /cancel — Exit current editing/drafting session.
 
 *Monitoring & Insights*
   /dashboard — Visual UI with real-time progress bars.
   /status — Detailed breakdown of every active War-Room.
-  /compact — Sneak peek at the latest messages from agents.
-  /errors — Extracts the root cause of any failed War-Rooms.
+  /compact — Latest messages from agents.
+  /errors — Root cause of any failed War-Rooms.
+  /logs [room_id] — View war-room channel messages.
+  /health — System health check.
+  /progress — Plan progress bars.
 
-*Project & AI Resources*
-  /plans — List all project Plans and their current status.
-  /skills — View the library of tools the AI is permitted to use.
-  /usage — Stats report.
+*Skills & Roles*
+  /skills — View installed AI skills.
+  /skillsearch <query> — Search ClawHub marketplace.
+  /skillinstall <slug> — Install a skill from ClawHub.
+  /skillremove <name> — Remove an installed skill.
+  /skillsync — Sync skills with dashboard.
+  /roles — List all agent roles.
+  /clonerole <role> — Clone a role for project override.
 
 *System Operations*
-  /new — Wipe old War-Room data safely to start fresh.
-  /restart — Reboot the Command Center background process.`);
+  /plans — List all project plans.
+  /usage — Stats report.
+  /config [key] — View system configuration.
+  /triage [room_id] — Triage a failed war-room.
+  /clearplans — Wipe all plan data.
+  /new — Wipe old War-Room data to start fresh.
+  /restart — Reboot the Command Center.
+  /launchdashboard — Dashboard access info.`);
 }
 
 // ── System commands ───────────────────────────────────────────────
@@ -898,6 +1226,23 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'preferences': return await cmdPreferences(userId, platform);
     case 'subscriptions': return await cmdSubscriptions(userId, platform);
     case 'progress':    return await cmdProgress();
+
+    // ── Tier 1 commands ─────────────────────────────────────────
+    case 'resume':          return [await cmdResumeMenu()];
+    case 'clearplans':      return [await cmdClearPlans()];
+    case 'logs':            return [await cmdLogs(args)];
+    case 'health':          return [await cmdHealth()];
+    case 'config':          return [await cmdConfig(args)];
+    // ── Tier 2 commands ─────────────────────────────────────────
+    case 'skillsearch':     return [await cmdSkillSearch(args)];
+    case 'skillinstall':    return [await cmdSkillInstall(args)];
+    case 'skillremove':     return [await cmdSkillRemove(args)];
+    case 'skillsync':       return [await cmdSkillSync()];
+    case 'roles':           return [await cmdRoles()];
+    case 'triage':          return [await cmdTriage(args)];
+    case 'clonerole':       return [await cmdCloneRole(args)];
+    case 'launchdashboard': return [await cmdLaunchDashboard()];
+
     default:            return [text('⚠️ Unknown command. Type /help for a list of commands.')];
   }
 }
@@ -906,12 +1251,16 @@ export async function routeCallback(userId: string, platform: string, callbackDa
   if (callbackData === 'menu:plans')             return [await cmdPlans()];
   if (callbackData === 'menu:cat:monitoring')     return [cmdSubmenuMonitoring()];
   if (callbackData === 'menu:cat:plans')          return [cmdSubmenuPlans()];
+  if (callbackData === 'menu:cat:skills')         return [cmdSubmenuSkills()];
   if (callbackData === 'menu:cat:system')         return [cmdSubmenuSystem()];
   if (callbackData === 'menu:main')               return [cmdMenu()];
   if (callbackData === 'menu:launch_cancel')      return [text('🛑 Launch cancelled.')];
 
   if (callbackData === 'cmd:draft_prompt')
     return [text('✨ Send /draft <your idea> to create a new plan.')];
+
+  if (callbackData === 'cmd:skillsearch_prompt')
+    return [text('🔍 Send `/skillsearch <query>` to search the ClawHub marketplace.')];
 
   if (callbackData.startsWith('cmd:')) {
     const cmd = callbackData.slice(4);
@@ -1007,6 +1356,20 @@ export async function routeCallback(userId: string, platform: string, callbackDa
     if (result?._error) return [text(`Failed: ${result._error}`)];
     return [text(`Set type of \`${filename}\` to ${assetType}.`)];
   }
+  // ── Resume, Logs, Triage callbacks ──
+  if (callbackData.startsWith('menu:resume_confirm:')) {
+    const planId = callbackData.split(':')[2];
+    return cmdResumePlan(planId);
+  }
+  if (callbackData.startsWith('menu:logs:')) {
+    const roomId = callbackData.split(':')[2];
+    return [await cmdLogs(roomId)];
+  }
+  if (callbackData.startsWith('menu:triage:')) {
+    const roomId = callbackData.split(':')[2];
+    return [await cmdTriage(roomId)];
+  }
+
   if (callbackData.startsWith('asset:generate_plan:')) {
     const parts = callbackData.split(':');
     const planId = parts[2];
