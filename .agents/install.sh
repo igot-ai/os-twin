@@ -22,51 +22,40 @@
 #
 # Supports: macOS (arm64/x86_64), Ubuntu/Debian, Fedora/RHEL/CentOS
 # ──────────────────────────────────────────────────────────────────────────────
-
 set -euo pipefail
 
-# ─── Configuration ────────────────────────────────────────────────────────────
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALLER_DIR="$SCRIPT_DIR/installer"
 INSTALL_DIR="${HOME}/.ostwin"
-# SOURCE_DIR: root of the agent-os repo (to locate dashboard/ source).
-# Auto-detected as SCRIPT_DIR parent; override with --source-dir.
+# shellcheck disable=SC2034  # consumed by sourced modules
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
-AUTO_YES=false
-SKIP_OPTIONAL=false
-DASHBOARD_ONLY=false
-START_CHANNEL=true
-DASHBOARD_PORT=9000
-MIN_PYTHON_VERSION="3.10"
-MIN_PWSH_VERSION="7"
+# shellcheck disable=SC2034
+AUTO_YES=false; SKIP_OPTIONAL=false; DASHBOARD_ONLY=false
+START_CHANNEL=true; DASHBOARD_PORT=9000
+# shellcheck disable=SC2034
 PYTHON_VERSION=""
+# shellcheck disable=SC2034
 PWSH_VERSION=""
 
-# ─── Argument parsing ────────────────────────────────────────────────────────
-
+# shellcheck disable=SC2034  # globals are consumed by sourced modules
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --yes|-y)        AUTO_YES=true; shift ;;
-    --dir)           INSTALL_DIR="$2"; shift 2 ;;
-    --source-dir)    SOURCE_DIR="$2"; shift 2 ;;
-    --port)          DASHBOARD_PORT="$2"; shift 2 ;;
-    --skip-optional) SKIP_OPTIONAL=true; shift ;;
+    --yes|-y)         AUTO_YES=true; shift ;;
+    --dir)            INSTALL_DIR="$2"; shift 2 ;;
+    --source-dir)     SOURCE_DIR="$2"; shift 2 ;;
+    --port)           DASHBOARD_PORT="$2"; shift 2 ;;
+    --skip-optional)  SKIP_OPTIONAL=true; shift ;;
     --dashboard-only) DASHBOARD_ONLY=true; AUTO_YES=true; shift ;;
-    --channel)       START_CHANNEL=true; shift ;;
-    --help|-h)
-      head -22 "$0" | tail -20
-      exit 0
-      ;;
-    *)
-      echo "[ERROR] Unknown option: $1" >&2
-      echo "Run './install.sh --help' for usage." >&2
-      exit 1
-      ;;
+    --channel)        START_CHANNEL=true; shift ;;
+    --help|-h)        head -22 "$0" | tail -20; exit 0 ;;
+    *)  echo "[ERROR] Unknown option: $1" >&2
+        echo "Run './install.sh --help' for usage." >&2; exit 1 ;;
   esac
 done
-
+# shellcheck disable=SC2034
 VENV_DIR="$INSTALL_DIR/.venv"
 
+<<<<<<< Updated upstream
 # ─── Colors & formatting ─────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -1386,11 +1375,20 @@ setup_path() {
   # Export for current session
   export PATH="$INSTALL_DIR/.agents/bin:$PATH"
 }
+=======
+# Source all modules
+for _mod in lib.sh versions.conf detect-os.sh check-deps.sh install-deps.sh \
+            install-files.sh setup-venv.sh setup-env.sh patch-mcp.sh \
+            build-frontend.sh setup-path.sh setup-opencode.sh sync-agents.sh \
+            start-dashboard.sh start-channels.sh verify.sh; do
+  # shellcheck disable=SC1090
+  source "$INSTALLER_DIR/$_mod"
+done
+>>>>>>> Stashed changes
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
-
 echo ""
 echo -e "  ${BOLD}╔══════════════════════════════════════════════════╗${NC}"
 echo -e "  ${BOLD}║     ${CYAN}Ostwin${NC}${BOLD} — Agent OS Installer                   ║${NC}"
@@ -1398,529 +1396,71 @@ echo -e "  ${BOLD}║     Multi-Agent War-Room Orchestrator            ║${NC}"
 echo -e "  ${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ─── 1. Detect OS ────────────────────────────────────────────────────────────
-
 header "1. Detecting platform"
 detect_os
-
 case "$OS" in
   macos) ok "macOS ($ARCH)" ;;
   linux) ok "Linux — $DISTRO ($ARCH) [pkg: $PKG_MGR]" ;;
   *)     fail "Unsupported OS: $(uname -s)"; exit 1 ;;
 esac
 
-# ─── 2. Check & install dependencies ─────────────────────────────────────────
-
-if $DASHBOARD_ONLY; then
-  header "2. Checking dependencies (dashboard-only — minimal)"
-  # Only ensure uv + Python are available (needed for dashboard venv)
-  BASH_VER=$(bash --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
-  ok "bash $BASH_VER"
-  if ! check_uv; then
-    install_uv
-  fi
-  PYTHON_CMD=$(check_python)
-  if [[ -z "$PYTHON_CMD" ]]; then
-    install_python
-    PYTHON_CMD=$(check_python)
-    [[ -z "$PYTHON_CMD" ]] && { fail "Python required for dashboard"; exit 1; }
-  fi
-  ok "Python $PYTHON_VERSION ($PYTHON_CMD)"
-
-  # --- Node.js ---
-  if ! check_node; then
-    install_node
-  fi
-  if check_node; then
-    NODE_VERSION=$(node --version 2>&1 | head -1)
-    ok "Node.js $NODE_VERSION"
-    if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
-      step "Installing pnpm..."
-      npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
-    fi
-    if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
-      step "Installing clawhub CLI..."
-      npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
-    fi
-  else
-    fail "Node.js required for dashboard"
-    exit 1
-  fi
-else
-
-header "2. Checking dependencies"
-
-# --- Bash ---
-BASH_VER=$(bash --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
-ok "bash $BASH_VER"
-
-# --- uv ---
-if check_uv; then
-  UV_VERSION=$(uv --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-  ok "uv $UV_VERSION"
-else
-  warn "uv not found"
-  if ask "Install uv? (recommended — fast Python package manager)"; then
-    install_uv
-  else
-    info "Skipping uv — will use pip fallback"
-  fi
-fi
-
-# --- Python ---
-PYTHON_CMD=$(check_python)
-if [[ -n "$PYTHON_CMD" ]]; then
-  ok "Python $PYTHON_VERSION ($PYTHON_CMD)"
-else
-  warn "Python $MIN_PYTHON_VERSION+ not found"
-  if ask "Install Python?"; then
-    install_python
-    PYTHON_CMD=$(check_python)
-    if [[ -n "$PYTHON_CMD" ]]; then
-      ok "Python $PYTHON_VERSION installed"
-    else
-      fail "Python installation failed"
-      exit 1
-    fi
-  else
-    fail "Python $MIN_PYTHON_VERSION+ is required"
-    exit 1
-  fi
-fi
-
-# --- PowerShell ---
-if check_pwsh; then
-  ok "PowerShell $PWSH_VERSION"
-else
-  warn "PowerShell 7+ not found"
-  if ask "Install PowerShell? (required for PS modules)"; then
-    install_pwsh
-    if check_pwsh; then
-      ok "PowerShell $PWSH_VERSION installed"
-    else
-      warn "PowerShell installation may need a shell restart"
-    fi
-  else
-    warn "Skipping PowerShell — bash-only mode (some features unavailable)"
-  fi
-fi
-
-# --- opencode ---
-if check_opencode; then
-  OC_VERSION=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
-  ok "opencode $OC_VERSION"
-else
-  install_opencode
-fi
-
-# --- Node.js ---
-if check_node; then
-  NODE_VERSION=$(node --version 2>&1 | head -1)
-  ok "Node.js $NODE_VERSION"
-  if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
-    step "Installing pnpm..."
-    npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
-  fi
-  if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
-    step "Installing clawhub CLI..."
-    npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
-  fi
-else
-  warn "Node.js not found"
-  if ask "Install Node.js? (required for Dashboard UI)"; then
-    install_node
-    if check_node; then
-      NODE_VERSION=$(node --version 2>&1 | head -1)
-      ok "Node.js $NODE_VERSION installed"
-      if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
-        step "Installing pnpm..."
-        npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
-      fi
-      if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
-        step "Installing clawhub CLI..."
-        npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
-      fi
-    else
-      warn "Node.js installation failed"
-    fi
-  else
-    warn "Skipping Node.js — dashboard UI will not be built"
-  fi
-fi
-
-fi  # end: ! DASHBOARD_ONLY
-
+# shellcheck disable=SC1091
+source "$INSTALLER_DIR/_orchestrate-deps.sh"
 echo ""
-
-# ─── 3. Build Next.js dashboard ─────────────────────────────────────────────
 
 if ! $DASHBOARD_ONLY; then
   header "3. Building dashboards (parallel)"
-  # Run both builds in parallel — each logs its own status via ok()/warn()
-  build_nextjs &
-  pid_nextjs=$!
-  build_dashboard_fe &
-  pid_fe=$!
-  # Wait for both; capture exit codes without aborting (set -e safe)
-  wait "$pid_nextjs" 2>/dev/null && ok "Next.js dashboard build finished" || warn "Next.js dashboard build had issues"
-  wait "$pid_fe"     2>/dev/null && ok "Dashboard FE build finished"      || warn "Dashboard FE build had issues"
+  build_frontend "dashboard/nextjs" "Next.js dashboard" & pid_nextjs=$!
+  build_frontend "dashboard/fe" "Dashboard FE" & pid_fe=$!
+  # shellcheck disable=SC2015  # intentional: ok() is side-effect-free
+  wait "$pid_nextjs" 2>/dev/null && ok "Next.js build finished" || warn "Next.js build had issues"
+  # shellcheck disable=SC2015
+  wait "$pid_fe"     2>/dev/null && ok "FE build finished"      || warn "FE build had issues"
 else
   header "3. Building dashboard frontend (fe)"
-  build_dashboard_fe
+  build_frontend "dashboard/fe" "Dashboard FE"
 fi
-
-# ─── 4. Install files ────────────────────────────────────────────────────────
 
 header "4. Installing Agent OS"
 install_files
-
-# ─── 4b. macOS host daemon (optional, desktop automation support) ─────────────
-
 if [[ "$OS" == "..." ]]; then
   DAEMON_INSTALL="$INSTALL_DIR/.agents/daemons/macos-host/install.sh"
-  if [[ -f "$DAEMON_INSTALL" ]]; then
-    if ask "Install macOS host daemon? (enables desktop automation: windows, clicks, screenshots)"; then
-      bash "$DAEMON_INSTALL"
-    else
-      info "Skipped macOS daemon. Run manually later: bash $DAEMON_INSTALL"
-    fi
-  fi
+  # shellcheck disable=SC2015
+  [[ -f "$DAEMON_INSTALL" ]] && {
+    ask "Install macOS host daemon? (desktop automation)" && bash "$DAEMON_INSTALL" \
+      || info "Skipped macOS daemon. Run manually later: bash $DAEMON_INSTALL"
+  }
 fi
 
-# ─── 5. Python environment ───────────────────────────────────────────────────
-
 header "5. Setting up Python environment"
-setup_venv
-patch_mcp_config
-sync_opencode_agents
-compute_build_hash
-
-# ─── 5b. Environment variables (.env) ────────────────────────────────────────
-
+setup_venv; patch_mcp_config; sync_opencode_agents; compute_build_hash
 header "5b. Setting up .env"
 setup_env
-
-# ─── 5c. OpenCode permissions ────────────────────────────────────────────────
-
 header "5c. OpenCode agent permissions"
 setup_opencode_permissions
 
-# ─── 6. PowerShell extras ────────────────────────────────────────────────────
-
 if $DASHBOARD_ONLY; then
-  header "6. PowerShell modules (skipped — dashboard-only)"
-  info "Skipping in dashboard-only mode"
+  header "6. PowerShell modules (skipped — dashboard-only)"; info "Skipping in dashboard-only mode"
 elif ! $SKIP_OPTIONAL && command -v pwsh &>/dev/null; then
-  header "6. PowerShell modules"
-  install_pester
+  header "6. PowerShell modules"; install_pester
 else
-  header "6. PowerShell modules (skipped)"
-  info "PowerShell not available or --skip-optional set"
+  header "6. PowerShell modules (skipped)"; info "PowerShell not available or --skip-optional set"
 fi
 
-# ─── 7. PATH ─────────────────────────────────────────────────────────────────
-
 if ! $DASHBOARD_ONLY; then
-  header "7. Configuring PATH"
-  setup_path
+  header "7. Configuring PATH"; setup_path
 else
-  header "7. PATH (skipped — dashboard-only)"
-  info "Skipping PATH setup in dashboard-only mode"
-  # Still ensure INSTALL_DIR/bin is in current session
+  header "7. PATH (skipped — dashboard-only)"; info "Skipping PATH setup in dashboard-only mode"
   export PATH="$INSTALL_DIR/.agents/bin:$PATH"
 fi
 
-# ─── 8. Verification ─────────────────────────────────────────────────────────
-
 header "8. Verification"
-
-echo ""
-if $DASHBOARD_ONLY; then
-  echo -e "  ${BOLD}Dashboard-Only Component Status:${NC}"
-  PYTHON_CMD=$(check_python)
-  if [[ -n "$PYTHON_CMD" ]]; then
-    echo -e "    python:           ${GREEN}✅ $PYTHON_VERSION${NC}"
-  else
-    echo -e "    python:           ${RED}❌ not found${NC}"
-  fi
-  if [[ -d "$VENV_DIR" ]]; then
-    echo -e "    venv:             ${GREEN}✅ $VENV_DIR${NC}"
-  else
-    echo -e "    venv:             ${RED}❌ not created${NC}"
-  fi
-  if [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; then
-    echo -e "    dashboard api:    ${GREEN}✅ installed${NC}"
-  else
-    echo -e "    dashboard api:    ${RED}❌ not found${NC}"
-  fi
-else
-  echo -e "  ${BOLD}Component Status:${NC}"
-  echo -e "    bash:             ${GREEN}✅ $BASH_VER${NC}"
-
-  PYTHON_CMD=$(check_python)
-  if [[ -n "$PYTHON_CMD" ]]; then
-    echo -e "    python:           ${GREEN}✅ $PYTHON_VERSION${NC}"
-  else
-    echo -e "    python:           ${RED}❌ not found${NC}"
-  fi
-
-  if check_pwsh; then
-    echo -e "    powershell:       ${GREEN}✅ $PWSH_VERSION${NC}"
-  else
-    echo -e "    powershell:       ${YELLOW}⚠️  not installed${NC}"
-  fi
-
-  if check_uv; then
-    echo -e "    uv:               ${GREEN}✅ $(uv --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)${NC}"
-  else
-    echo -e "    uv:               ${YELLOW}⚠️  not installed${NC}"
-  fi
-
-  if check_opencode; then
-    echo -e "    opencode:         ${GREEN}✅ $(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'installed')${NC}"
-  else
-    echo -e "    opencode:         ${YELLOW}⚠️  not in PATH${NC}"
-  fi
-
-  if [[ -d "$VENV_DIR" ]]; then
-    echo -e "    venv:             ${GREEN}✅ $VENV_DIR${NC}"
-  else
-    echo -e "    venv:             ${RED}❌ not created${NC}"
-  fi
-fi
-
-# ─── 8. Start Dashboard ──────────────────────────────────────────────────────
-
+verify_components
 header "9. Starting dashboard"
-
-DASHBOARD_SCRIPT="$INSTALL_DIR/.agents/dashboard.sh"
-if [[ -f "$DASHBOARD_SCRIPT" ]] && [[ -f "$INSTALL_DIR/dashboard/api.py" ]]; then
-
-  # Stop any existing process on the dashboard port
-  local_pids=$(lsof -ti:"$DASHBOARD_PORT" 2>/dev/null || true)
-  if [[ -n "$local_pids" ]]; then
-    step "Stopping existing process on :$DASHBOARD_PORT..."
-    echo "$local_pids" | xargs kill 2>/dev/null || true
-    sleep 1
-  fi
-
-  # Source .env so the dashboard process inherits API keys
-  ENV_FILE="$INSTALL_DIR/.env"
-  if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    # shellcheck source=/dev/null
-    source "$ENV_FILE"
-    set +a
-  fi
-
-  mkdir -p "$INSTALL_DIR/logs"
-  step "Starting dashboard on http://localhost:${DASHBOARD_PORT}..."
-  # Pin --project-dir to $INSTALL_DIR so the dashboard's plan registry is
-  # always ~/.ostwin/.agents/plans/, regardless of cwd when install.sh runs.
-  nohup bash "$DASHBOARD_SCRIPT" \
-    --background --port "$DASHBOARD_PORT" \
-    --project-dir "$INSTALL_DIR" \
-    > "$INSTALL_DIR/logs/dashboard.log" 2>&1 &
-  DASHBOARD_PID=$!
-  echo "$DASHBOARD_PID" > "$INSTALL_DIR/dashboard.pid"
-
-  # Read OSTWIN_API_KEY for auth headers
-  OSTWIN_API_KEY="${OSTWIN_API_KEY:-}"
-
-  # Health-check: poll /api/status up to 60s
-  step "Waiting for dashboard to be healthy (up to 60s)..."
-  DASH_OK=false
-  for _i in $(seq 1 60); do
-    if [[ -n "$OSTWIN_API_KEY" ]]; then
-      curl -sf -H "X-API-Key: $OSTWIN_API_KEY" "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1 && DASH_OK=true
-    else
-      curl -sf "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1 && DASH_OK=true
-    fi
-    if $DASH_OK; then break; fi
-    sleep 1
-  done
-
-  if $DASH_OK; then
-    ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
-    # Check for ngrok tunnel URL
-    TUNNEL_URL=""
-    TUNNEL_ERROR=""
-    PYTHON_FOR_TUNNEL="$VENV_DIR/bin/python"
-    [[ -x "$PYTHON_FOR_TUNNEL" ]] || PYTHON_FOR_TUNNEL="python3"
-    TUNNEL_JSON=""
-    if [[ -n "$OSTWIN_API_KEY" ]]; then
-      TUNNEL_JSON=$(curl -sf -H "X-API-Key: $OSTWIN_API_KEY" \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
-    else
-      TUNNEL_JSON=$(curl -sf \
-        "http://localhost:${DASHBOARD_PORT}/api/tunnel/status" 2>/dev/null || true)
-    fi
-    if [[ -n "$TUNNEL_JSON" ]]; then
-      TUNNEL_URL=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('url') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
-      TUNNEL_ERROR=$("$PYTHON_FOR_TUNNEL" -c "import sys,json; print(json.load(sys.stdin).get('error') or '')" <<< "$TUNNEL_JSON" 2>/dev/null || true)
-    fi
-    if [[ -n "$TUNNEL_URL" ]]; then
-      ok "Tunnel active: $TUNNEL_URL"
-    elif [[ -n "$TUNNEL_ERROR" ]]; then
-      warn "Tunnel failed: $TUNNEL_ERROR"
-    elif [[ -z "${NGROK_AUTHTOKEN:-}" ]]; then
-      info "Tunnel not configured — set NGROK_AUTHTOKEN in ~/.ostwin/.env to enable port forwarding"
-    else
-      warn "Tunnel not active — check dashboard logs at $INSTALL_DIR/logs/dashboard.log"
-    fi
-  else
-    warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"
-    info "Start manually: bash $DASHBOARD_SCRIPT"
-  fi
-
-  # ─── 9b. Publish skills to backend ───────────────────────────────────────
-  header "9b. Publishing skills to backend"
-  SYNC_SCRIPT="$INSTALL_DIR/.agents/sync-skills.sh"
-  if [[ -x "$SYNC_SCRIPT" ]]; then
-    OSTWIN_HOME="$INSTALL_DIR" DASHBOARD_PORT="$DASHBOARD_PORT" \
-      bash "$SYNC_SCRIPT" --install-from "$INSTALL_DIR/.agents"
-  else
-    warn "sync-skills.sh not found — skipping skill sync"
-    info "Expected at $SYNC_SCRIPT"
-  fi
-else
-  warn "Dashboard not found — skipping auto-start"
-  info "Re-run: ./install.sh --source-dir /path/to/agent-os"
-fi
-
-# ─── 9c. Install channel dependencies ────────────────────────────────────
-
+start_dashboard; publish_skills
 header "9c. Installing channel dependencies (Telegram + Discord + Slack)"
-
-# Locate the channel connector directory
-CHAN_DIR=""
-for candidate in \
-  "${SOURCE_DIR}/bot" \
-  "${SCRIPT_DIR}/../bot"; do
-  if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
-    CHAN_DIR="$(cd "$candidate" && pwd)"
-    break
-  fi
-done
-
-if [[ -z "$CHAN_DIR" ]]; then
-  warn "channel connector dir (bot/) not found — skipping"
-  info "Expected at bot/package.json relative to the repo root"
-elif ! check_node; then
-  warn "Node.js not found — cannot install channel connectors"
-  info "Install Node.js and re-run"
-elif ! command -v pnpm &>/dev/null; then
-  warn "pnpm not found — cannot install channel connectors"
-  info "Install pnpm and re-run"
-else
-  step "Installing channel dependencies in $CHAN_DIR with pnpm..."
-  (cd "$CHAN_DIR" && pnpm install) \
-    && ok "Channel dependencies installed" || warn "Channel dependency install failed"
-
-  # tsx should come from bot/package.json devDependencies after install.
-  if [[ ! -f "$CHAN_DIR/node_modules/.bin/tsx" ]]; then
-    warn "tsx not found after pnpm install"
-  else
-    ok "tsx available"
-  fi
-
-  ok "Channel connector dir: $CHAN_DIR"
-  info "Start with: (cd \"$CHAN_DIR\" && npm start)"
-fi
-
-# ─── 9d. Start channel connectors (optional, --channel flag) ─────────────────
-
+install_channels
 if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
-  header "9d. Starting channel connectors"
-
-  ENV_FILE="$INSTALL_DIR/.env"
-  PROJECT_ROOT_ENV="$(cd "$CHAN_DIR/.." && pwd)/.env"
-  [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
-  [[ -f "$PROJECT_ROOT_ENV" ]] && { set -a; source "$PROJECT_ROOT_ENV"; set +a; }
-
-  CHAN_PID_FILE="$INSTALL_DIR/.agents/channel.pid"
-  if [[ -f "$CHAN_PID_FILE" ]]; then
-    OLD_PID=$(cat "$CHAN_PID_FILE" 2>/dev/null || true)
-    if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
-      step "Stopping previous channel process (PID $OLD_PID)..."
-      kill "$OLD_PID" 2>/dev/null || true; sleep 1
-    fi
-  fi
-
-  if [[ -n "${DISCORD_TOKEN:-}" ]] && [[ -n "${DISCORD_CLIENT_ID:-}" ]]; then
-    step "Registering Discord slash commands..."
-    (cd "$CHAN_DIR" && npx tsx src/deploy-commands.ts 2>/dev/null) \
-      && ok "Discord commands registered" || warn "Discord command registration failed (non-critical)"
-  fi
-
-  mkdir -p "$INSTALL_DIR/logs"
-  step "Starting channels from $CHAN_DIR..."
-  (
-    cd "$CHAN_DIR"
-    [[ -f "$PROJECT_ROOT_ENV" ]] && { set -a; source "$PROJECT_ROOT_ENV"; set +a; }
-    nohup npm start > "$INSTALL_DIR/logs/channel.log" 2>&1 &
-    echo $! > "$CHAN_PID_FILE"
-    echo "$!"
-  ) | { read -r CHAN_PID; ok "Channels started (PID $CHAN_PID) — log: $INSTALL_DIR/logs/channel.log"; }
-
-  [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && ok "Telegram: enabled" || info "Telegram: disabled (set TELEGRAM_BOT_TOKEN)"
-  [[ -n "${DISCORD_TOKEN:-}" ]] && ok "Discord: enabled" || info "Discord: disabled (set DISCORD_TOKEN)"
-  [[ -n "${SLACK_BOT_TOKEN:-}" ]] && ok "Slack: enabled" || info "Slack: disabled (set SLACK_BOT_TOKEN)"
+  header "9d. Starting channel connectors"; start_channels
 fi
-
-# ─── Done! ────────────────────────────────────────────────────────────────────
-
-SHELL_NAME=$(basename "${SHELL:-/bin/bash}")
-SHELL_RC="$HOME/.${SHELL_NAME}rc"
-
-echo ""
-echo -e "  ${GREEN}${BOLD}Installation complete! ✅${NC}"
-echo ""
-echo -e "  ${BOLD}Next steps:${NC}"
-echo ""
-echo -e "    ${CYAN}1.${NC} Reload your shell:        ${DIM}source $SHELL_RC${NC}"
-echo -e "    ${CYAN}2.${NC} Verify installation:       ${DIM}ostwin health${NC}"
-echo -e "    ${CYAN}3.${NC} Initialize a project:      ${DIM}ostwin init ~/my-project${NC}"
-echo -e "    ${CYAN}4.${NC} Set your API key:          ${DIM}export GOOGLE_API_KEY=\"your-key\"${NC}"
-echo -e "    ${CYAN}5.${NC} Run your first plan:       ${DIM}ostwin run plans/my-plan.md${NC}"
-echo ""
-echo -e "  ${BOLD}Dashboard:${NC}"
-if [[ -n "${TUNNEL_URL:-}" ]]; then
-  echo -e "    ${DIM}Local:  http://localhost:${DASHBOARD_PORT}${NC}"
-  echo -e "    ${DIM}Public: ${TUNNEL_URL}${NC}"
-else
-  echo -e "    ${DIM}Dashboard running at http://localhost:${DASHBOARD_PORT}${NC}"
-fi
-echo -e "    ${DIM}Stop with: ostwin stop${NC}"
-if $START_CHANNEL; then
-echo -e ""
-echo -e "  ${BOLD}Channels (Telegram + Discord + Slack):${NC}"
-echo -e "    ${DIM}Running in background — log: $INSTALL_DIR/logs/channel.log${NC}"
-echo -e "    ${DIM}Stop with: ostwin channel stop${NC}"
-fi
-echo ""
-
-# Display OSTWIN_API_KEY for frontend authentication
-OSTWIN_API_KEY="${OSTWIN_API_KEY:-}"
-if [[ -z "$OSTWIN_API_KEY" ]]; then
-  # Try reading from .env
-  OSTWIN_API_KEY=$(grep -E '^OSTWIN_API_KEY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d'=' -f2-)
-fi
-if [[ -n "$OSTWIN_API_KEY" ]]; then
-  echo -e "  ${BOLD}🔑 Dashboard Authentication Key:${NC}"
-  echo ""
-  echo -e "    ${YELLOW}${BOLD}${OSTWIN_API_KEY}${NC}"
-  echo ""
-  echo -e "    ${DIM}Use this key to authenticate with the dashboard frontend.${NC}"
-  echo -e "    ${DIM}The frontend will prompt you to enter this key on first visit.${NC}"
-  echo -e "    ${DIM}Stored in: ${INSTALL_DIR}/.env${NC}"
-  echo ""
-fi
-
-echo -e "  ${BOLD}AI Provider Keys:${NC}"
-echo -e "    ${DIM}Edit your .env file (keys auto-migrated if already in shell):${NC}"
-echo -e "    nano ${INSTALL_DIR}/.env"
-echo -e "    ${DIM}Then restart dashboard: ostwin stop && ostwin start${NC}"
-echo -e "    ${DIM}# Or export directly (not persisted): export GOOGLE_API_KEY=\"your-key\"${NC}"
-echo -e "    ${DIM}# Or use OpenAI/Anthropic — see: ostwin config${NC}"
-echo ""
+print_completion_banner
