@@ -2,7 +2,7 @@ import https from 'https';
 import { Telegraf, Markup, Context } from 'telegraf';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
 import { routeCommand, routeCallback, handleStatefulText, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS } from '../commands';
-import { getSession } from '../sessions';
+import { getSession, getStagedFiles } from '../sessions';
 import { askAgent } from '../agent-bridge';
 import { flushStagedAttachments, getStagedCount } from '../asset-staging';
 
@@ -112,7 +112,12 @@ export class TelegramConnector implements Connector {
       } else {
         // Idle: use AI agent with tool-calling (can create plans, check status, etc.)
         try {
-          const answer = await askAgent(msgText, { userId, platform: 'telegram' });
+          // Include staged file metadata so the agent knows assets are available
+          const stagedFiles = getStagedFiles(userId, 'telegram');
+          const attachments = stagedFiles.length > 0
+            ? stagedFiles.map(f => ({ name: f.name, contentType: f.contentType, sizeBytes: f.sizeBytes }))
+            : undefined;
+          const answer = await askAgent(msgText, { userId, platform: 'telegram', attachments });
           await ctx.reply(answer, { parse_mode: 'Markdown' });
         } catch (err: any) {
           console.warn('[TELEGRAM] Agent bridge error:', err.message);
@@ -197,10 +202,34 @@ export class TelegramConnector implements Connector {
             });
           }
           const noun = downloadable.length === 1 ? 'file' : 'files';
-          await ctx.reply(
-            `📎 Holding ${downloadable.length} ${noun}. Send me your idea or use /edit to attach them to a plan.`,
-            { parse_mode: 'Markdown' },
-          );
+
+          // If caption text is provided, route to agent immediately with attachment info
+          const caption = (msg.caption || '').trim();
+          if (caption) {
+            try {
+              const attachments = downloadable.map(d => ({ name: d.name, contentType: d.contentType, sizeBytes: d.data.byteLength }));
+              const answer = await askAgent(caption, { userId, platform: 'telegram', attachments });
+              await ctx.reply(answer, { parse_mode: 'Markdown' });
+            } catch (err: any) {
+              console.warn('[TELEGRAM] Agent bridge error:', err.message);
+              await ctx.reply('⚠️ Failed to process your request.', { parse_mode: 'Markdown' });
+            }
+
+            // Flush staged attachments if plan was created
+            const updatedSession = getSession(userId, 'telegram');
+            if (getStagedCount(userId, 'telegram') > 0 && updatedSession.activePlanId && updatedSession.activePlanId !== 'new') {
+              const flushResult = await flushStagedAttachments(userId, 'telegram', updatedSession.activePlanId);
+              if (flushResult.saved.length > 0) {
+                const names = flushResult.saved.map(a => `\`${a.original_name}\``).join(', ');
+                await ctx.reply(`📎 Saved ${flushResult.saved.length} asset(s): ${names}`, { parse_mode: 'Markdown' });
+              }
+            }
+          } else {
+            await ctx.reply(
+              `📎 Holding ${downloadable.length} ${noun}. Send me your idea or use /edit to attach them to a plan.`,
+              { parse_mode: 'Markdown' },
+            );
+          }
         }
       }
     };

@@ -3,11 +3,17 @@ import sys
 import httpx
 import subprocess
 from pathlib import Path
+import pytest
 
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
 API_KEY = os.environ.get("OSTWIN_API_KEY", "")
 HEADERS = {"X-API-Key": API_KEY}
+
+requires_running_dashboard = pytest.mark.skipif(
+    os.environ.get("RUN_INTEGRATION_TESTS") != "1",
+    reason="Integration test requires RUN_INTEGRATION_TESTS=1 and running dashboard"
+)
 
 def setup_git_repo(path: Path):
     """Set up a temporary git repo with some commits."""
@@ -28,9 +34,10 @@ def setup_git_repo(path: Path):
     subprocess.run(["git", "commit", "-m", "Updated file1 and added file2"], cwd=path, check=True)
     
     # Uncommitted change
-    (path / "file3.txt").write_text("Untracked file\n")
+    (path | "file3.txt").write_text("Untracked file\n")
     (path / "file1.txt").write_text("Hello World\nModified content\nUncommitted change\n")
 
+@requires_running_dashboard
 def test_unified_changes_timeline():
     print("Testing unified changes timeline (EPIC-008)...")
     

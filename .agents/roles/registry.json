@@ -29,7 +29,7 @@
         "lint-clean",
         "no-hardcoded-secrets"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     },
     {
       "name": "qa",
@@ -52,7 +52,7 @@
         "verdict-required",
         "evidence-based-review"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     },
     {
       "name": "architect",
@@ -77,7 +77,7 @@
         "scalability-check",
         "security-review"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     },
     {
       "name": "manager",
@@ -98,7 +98,7 @@
         "skill-install"
       ],
       "quality_gates": [],
-      "default_model": "google-vertex/gemini-3.1-pro-preview"
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     },
     {
       "name": "reporter",
@@ -121,7 +121,7 @@
         "report-renders",
         "no-empty-pages"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     },
     {
       "name": "audit",
@@ -148,7 +148,7 @@
         "validation-complete",
         "risk-decision-recorded"
       ],
-      "default_model": "google-vertex/gemini-3.1-pro-preview"
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     },
     {
       "name": "macos-automation-engineer",
@@ -172,7 +172,7 @@
         "axbridge"
       ],
       "quality_gates": [],
-      "default_model": "google-vertex/gemini-3.1-flash-preview",
+      "default_model": "google-vertex/gemini-3-flash-preview",
       "platform": [
         "macos"
       ]
@@ -205,7 +205,7 @@
         "60fps-non-negotiable",
         "story-acs-satisfied"
       ],
-      "default_model": "google-vertex/gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-qa",
@@ -232,7 +232,7 @@
         "acceptance-criteria-met",
         "code-review-clean"
       ],
-      "default_model": "google-vertex/gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-architect",
@@ -257,7 +257,7 @@
         "60fps-constraints-covered",
         "project-context-exists"
       ],
-      "default_model": "google-vertex/gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-designer",
@@ -283,7 +283,7 @@
         "gdd-validates-pillars",
         "stories-have-acceptance-criteria"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-producer",
@@ -308,7 +308,7 @@
         "milestones-trackable",
         "risks-documented"
       ],
-      "default_model": "google-vertex/gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-devops",
@@ -333,7 +333,7 @@
         "build-reproducible",
         "distribution-verified"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "game-ui-analyst",
@@ -360,7 +360,7 @@
         "id-consistency",
         "temporal-consistency"
       ],
-      "default_model": "openai:seed-2-0-pro-260328"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "level-designer",
@@ -386,7 +386,7 @@
         "tutorial-teaches-all-mechanics",
         "reward-pacing-validated"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "narrative-designer",
@@ -411,7 +411,7 @@
         "dialogue-localization-ready",
         "character-voices-consistent"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "sound-designer",
@@ -435,7 +435,7 @@
         "no-clipping",
         "compression-appropriate"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "tech-artist",
@@ -459,7 +459,7 @@
         "vfx-within-drawcall-budget",
         "60fps-maintained"
       ],
-      "default_model": "google-vertex/gemini-3.1-pro-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "ux-researcher",
@@ -484,7 +484,7 @@
         "findings-actionable",
         "recommendations-prioritized"
       ],
-      "default_model": "google-vertex/gemini-3.1-flash-preview"
+      "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
       "name": "technical-writer",

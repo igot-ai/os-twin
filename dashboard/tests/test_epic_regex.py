@@ -330,6 +330,18 @@ def test_title_in_full_plan_h3():
     print("  ✓ Title extracted from full plan (### EPIC-XXX format)")
 
 
+def test_title_colon_only_no_match():
+    """: My Title (no # Plan:) should NOT match the title regex.
+    
+    This proves the need for header normalization - the regex only matches
+    '# Plan:' or '# PLAN:' prefixes. Content starting with just ': Title'
+    will fall back to default.
+    """
+    m = re.search(TITLE_RE, ": My Title\n\n## EPIC-001\n", re.MULTILINE)
+    assert m is None, f"': Title' should not match title regex, got: {m}"
+    print("  ✓ ': My Title' does NOT match (proves need for normalization)")
+
+
 # ──────────────────────────────────────────────────
 # 5. Tests: Run Validation Regex
 # ──────────────────────────────────────────────────
@@ -519,6 +531,7 @@ def main():
             test_title_from_h2_plan,
             test_title_in_full_plan_h2,
             test_title_in_full_plan_h3,
+            test_title_colon_only_no_match,
         ]),
         ("Run Validation Regex", [
             test_validation_h2_epic,

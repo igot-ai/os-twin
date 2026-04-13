@@ -15,7 +15,7 @@
         "audio-video-sync"
     ],
     "cli": "agent",
-    "model": "openai:seed-2-0-pro-260328",
+    "model": "google-vertex/gemini-3-flash-preview",
     "timeout": 900,
     "skill_refs": [
         "generate-script",

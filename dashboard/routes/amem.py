@@ -73,7 +73,7 @@ def _parse_legacy_metadata(text: str) -> tuple[list[str], list[str], list[str]]:
         ]:
             if stripped.startswith(label):
                 value = stripped[len(label) :].strip()
-                items = [v.strip() for v in value.split(",") if v.strip()]
+                items = [v.strip().lstrip("#") for v in value.split(",") if v.strip()]
                 target.extend(items)
     return tags, keywords, links
 
@@ -87,12 +87,13 @@ def _stub_note_dict(
 ) -> dict:
     """Build a minimal note dict when frontmatter parsing is unavailable."""
     tags, keywords, links = _parse_legacy_metadata(raw)
+    title = _resolve_title(None, body, md_file)
     return {
         "id": md_file.stem,
         "filename": md_file.name,
         "path": rel_path,
         "relativePath": rel_file,
-        "title": md_file.stem.replace("-", " ").title(),
+        "title": title,
         "body": body,
         "content": raw,
         "excerpt": body[:280],

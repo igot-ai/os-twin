@@ -1,5 +1,5 @@
 {
-  "model": "openai/gpt-4o",
+  "model": "google-vertex/gemini-3-flash-preview",
   "skill_refs": [],
   "timeout": 300,
   "description": ""

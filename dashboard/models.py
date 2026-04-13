@@ -68,6 +68,7 @@ class RefineRequest(BaseModel):
     chat_history: list = Field(default_factory=list)
     working_dir: str = ""  # Target project directory for this plan
     asset_context: List[Dict[str, Any]] = Field(default_factory=list)
+    images: List[Dict[str, Any]] = Field(default_factory=list)  # [{url: "data:image/...;base64,...", name, contentType}]
 
 
 class UpdatePlanRoleConfigRequest(BaseModel):

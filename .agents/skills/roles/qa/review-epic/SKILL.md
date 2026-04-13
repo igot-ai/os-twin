@@ -49,7 +49,31 @@ For each changed file:
 4. **Check edge cases** — are boundary conditions handled?
 5. **Check security** — no hardcoded secrets, no injection vectors
 
-### 4. Run the Test Suite
+### 4. Verify Code is Runnable (CRITICAL)
+
+**Load the `runnable-verify` skill first.** This ensures the codebase can actually run before testing.
+
+```
+/runnable-verify
+```
+
+This will:
+1. Audit dependencies for conflicts
+2. Clean install from lockfile
+3. Build the application
+4. **Attempt to start the application** (runtime verification)
+5. Generate fix instructions if anything fails
+
+**If runnable verification FAILS:**
+- Stop and post a `fail` message with the fix instructions
+- Do NOT proceed to test suite until code is runnable
+- The engineer must fix dependency/runtime issues first
+
+**If runnable verification PASSES:**
+- Include results in the QA report
+- Proceed to test suite
+
+### 5. Run the Test Suite
 
 ```bash
 # Run the full test suite
@@ -62,7 +86,7 @@ Verify:
 - [ ] Tests cover both happy path and error cases
 - [ ] Coverage meets the ≥80% threshold for new code
 
-### 5. Validate Acceptance Criteria
+### 6. Validate Acceptance Criteria
 
 For **each** acceptance criterion in `brief.md`:
 
@@ -71,7 +95,7 @@ For **each** acceptance criterion in `brief.md`:
 | 1 | <criterion text> | ✅ / ❌ | <how you verified — command output, test name, manual check> |
 | 2 | <criterion text> | ✅ / ❌ | <evidence> |
 
-### 6. Write the QA Report
+### 7. Write the QA Report
 
 Create `<war-room>/qa-report.md`:
 
@@ -86,6 +110,14 @@ Create `<war-room>/qa-report.md`:
 - Total sub-tasks: <N>
 - Completed: <N>
 - Missing/incomplete: <list or "none">
+
+## Runnable Verification
+- Ecosystem: <detected>
+- Dependencies: ✅ / ❌ <issue if failed>
+- Install: ✅ / ❌
+- Build: ✅ / ❌
+- Runtime: ✅ / ❌ <error if failed>
+- Details: `<war-room>/dependency-audit.md`
 
 ## Code Review Summary
 - Files reviewed: <N>
@@ -113,7 +145,7 @@ Create `<war-room>/qa-report.md`:
 - <non-blocking suggestions for improvement>
 ```
 
-### 7. Post the Verdict
+### 8. Post the Verdict
 
 - **PASS** → `post_message(type="pass", body=<qa-report summary>)`
 - **FAIL** → `post_message(type="fail", body=<numbered issues list>)`

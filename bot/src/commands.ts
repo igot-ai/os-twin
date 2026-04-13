@@ -9,7 +9,7 @@
 
 import api, { PlanAsset, ClawhubSkill, RoleInfo } from './api';
 import { registry } from './connectors/registry';
-import { getSession, clearSession, setMode, setPlan, setWorkingDir } from './sessions';
+import { getSession, clearSession, setMode, setPlan, setWorkingDir, persistAfterMessage } from './sessions';
 import { listRecordings, transcribeAudio } from './audio-transcript';
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -64,17 +64,17 @@ export const COMMAND_REGISTRY: CommandDef[] = [
   { name: 'feedback',        description: 'Send feedback to the dashboard',                      arg: 'text',     argDescription: 'Your feedback message',   argRequired: true, deferReply: true },
 
   // ── Monitoring ──────────────────────────────────────────────────
-  { name: 'dashboard',       description: 'Real-time War-Room progress',                         telegramMenu: '📊 Real-time War-Room progress' },
-  { name: 'status',          description: 'List running War-Rooms',                              telegramMenu: '💻 List running War-Rooms' },
-  { name: 'compact',         description: 'Latest messages from agents' },
-  { name: 'errors',          description: 'Error summary with root causes' },
+  { name: 'dashboard',       description: 'Real-time War-Room progress',                         deferReply: true, telegramMenu: '📊 Real-time War-Room progress' },
+  { name: 'status',          description: 'List running War-Rooms',                              deferReply: true, telegramMenu: '💻 List running War-Rooms' },
+  { name: 'compact',         description: 'Latest messages from agents',                         deferReply: true },
+  { name: 'errors',          description: 'Error summary with root causes',                      deferReply: true },
   { name: 'logs',            description: 'View war-room channel messages',                      arg: 'room_id',  argDescription: 'War-room ID (e.g. room-001)',          deferReply: true, telegramMenu: '📜 View war-room logs' },
   { name: 'health',          description: 'System health check',                                 deferReply: true, telegramMenu: '🏥 System health check' },
   { name: 'progress',        description: 'Plan progress bars',                                  deferReply: true },
-  { name: 'plans',           description: 'List all project Plans' },
+  { name: 'plans',           description: 'List all project Plans',                             deferReply: true },
 
   // ── Skills & Roles ──────────────────────────────────────────────
-  { name: 'skills',          description: 'View installed AI skills',                             telegramMenu: '🧠 List AI skills' },
+  { name: 'skills',          description: 'View installed AI skills',                            deferReply: true, telegramMenu: '🧠 List AI skills' },
   { name: 'skillsearch',     description: 'Search ClawHub skill marketplace',                    arg: 'query',    argDescription: 'Search query',                         argRequired: true, deferReply: true },
   { name: 'skillinstall',    description: 'Install a skill from ClawHub',                        arg: 'slug',     argDescription: 'Skill slug (e.g. steipete/web-search)', argRequired: true, deferReply: true },
   { name: 'skillremove',     description: 'Remove an installed skill',                           arg: 'name',     argDescription: 'Skill name to remove',                  argRequired: true, deferReply: true },
@@ -83,7 +83,7 @@ export const COMMAND_REGISTRY: CommandDef[] = [
   { name: 'clonerole',       description: 'Clone a role for project-local override',             arg: 'role',     argDescription: 'Role name to clone',                    argRequired: true, deferReply: true },
 
   // ── System ──────────────────────────────────────────────────────
-  { name: 'usage',           description: 'Stats report' },
+  { name: 'usage',           description: 'Stats report',                                        deferReply: true },
   { name: 'config',          description: 'View system configuration',                           arg: 'key',      argDescription: 'Config key in dot notation (e.g. manager.poll_interval_seconds)', deferReply: true },
   { name: 'triage',          description: 'Triage a failed war-room',                            arg: 'room_id',  argDescription: 'War-room ID to triage',                 deferReply: true },
   { name: 'clearplans',      description: 'Wipe all plan data',                                  deferReply: true },
@@ -897,6 +897,7 @@ export async function handleStatefulText(userId: string, platform: string, userT
 
   try {
     session.chatHistory.push({ role: 'user', content: userText });
+    persistAfterMessage();
     let assetContext: PlanAsset[] = [];
     if (planId !== 'new') {
       const assetResult = await api.getPlanAssets(planId);
@@ -925,6 +926,7 @@ export async function handleStatefulText(userId: string, platform: string, userT
     }
 
     session.chatHistory.push({ role: 'assistant', content: 'I have updated the plan as requested.' });
+    persistAfterMessage();
 
     responses.push(text(`✅ *Plan Updated:* \`${planId}\``));
 

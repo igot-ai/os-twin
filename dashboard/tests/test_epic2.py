@@ -1,7 +1,9 @@
 import asyncio
 import httpx
 import sys
+import pytest
 
+@pytest.mark.asyncio
 async def test_epic2():
     print("Testing EPIC-002: Rich Dashboard Views")
     

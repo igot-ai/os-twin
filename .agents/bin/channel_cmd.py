@@ -52,6 +52,42 @@ def list_channels(args):
         print(f"Error: {e}")
         sys.exit(1)
 
+def _has_credentials(config: Optional[Dict[str, Any]]) -> bool:
+    """Check if the config has non-empty credentials."""
+    if not config:
+        return False
+    credentials = config.get("credentials", {})
+    return bool(credentials and any(v for v in credentials.values() if v))
+
+
+def _ask_use_existing_credentials(platform: str) -> bool:
+    """Ask user if they want to use existing credentials."""
+    print(f"\nFound existing credentials for {platform.capitalize()}.")
+    while True:
+        response = input("Use existing credentials? [Y/n]: ").strip().lower()
+        if response in ("y", "yes", ""):
+            return True
+        elif response in ("n", "no"):
+            return False
+        print("Please enter 'y' or 'n'.")
+
+
+def _prompt_credentials(platform: str) -> Dict[str, str]:
+    """Prompt user for credentials based on platform."""
+    credentials = {}
+    if platform == "telegram":
+        credentials["token"] = getpass.getpass("Enter Bot Token: ").strip()
+    elif platform == "discord":
+        credentials["token"] = getpass.getpass("Enter Bot Token: ").strip()
+    elif platform == "slack":
+        credentials["bot_token"] = getpass.getpass("Enter Bot Token (xoxb-...): ").strip()
+        credentials["app_token"] = getpass.getpass("Enter App Token (xapp-...): ").strip()
+    else:
+        print(f"Unknown platform: {platform}. Using generic setup.")
+        credentials["token"] = getpass.getpass("Enter Token: ").strip()
+    return credentials
+
+
 def connect_channel(args):
     url, api_key = get_config()
     headers = get_headers(api_key)
@@ -59,38 +95,42 @@ def connect_channel(args):
     
     try:
         with httpx.Client(base_url=url, headers=headers) as client:
-            # Get setup steps
-            response = client.get(f"/api/channels/{platform}/setup")
+            # Check if credentials already exist
+            response = client.get(f"/api/channels/{platform}")
             response.raise_for_status()
-            steps = response.json()
-            
-            if not steps:
-                print(f"No setup instructions found for {platform}.")
-            else:
-                print(f"\n--- {platform.capitalize()} Setup Wizard ---")
-                for i, step in enumerate(steps, 1):
-                    print(f"\nStep {i}: {step['title']}")
-                    print(f"{step['description']}")
-                    # Simple markdown-ish to text conversion for instructions
-                    instructions = step['instructions'].replace("\\n", "\n")
-                    print(f"{instructions}")
-                print("\n" + "-"*30)
+            channel_data = response.json()
+            config = channel_data.get("config")
             
             credentials = {}
-            if platform == "telegram":
-                credentials["token"] = getpass.getpass("Enter Bot Token: ").strip()
-            elif platform == "discord":
-                credentials["token"] = getpass.getpass("Enter Bot Token: ").strip()
-            elif platform == "slack":
-                credentials["bot_token"] = getpass.getpass("Enter Bot Token (xoxb-...): ").strip()
-                credentials["app_token"] = getpass.getpass("Enter App Token (xapp-...): ").strip()
+            use_existing = False
+            
+            if _has_credentials(config):
+                use_existing = _ask_use_existing_credentials(platform)
+            
+            if use_existing:
+                # Use existing credentials - just connect
+                print(f"Using existing credentials for {platform.capitalize()}...")
             else:
-                # For unknown platforms, just try to collect generic credentials if they were to exist
-                print(f"Unknown platform: {platform}. Using generic setup.")
-                credentials["token"] = getpass.getpass("Enter Token: ").strip()
+                # Show setup wizard and prompt for new credentials
+                response = client.get(f"/api/channels/{platform}/setup")
+                response.raise_for_status()
+                steps = response.json()
+                
+                if not steps:
+                    print(f"No setup instructions found for {platform}.")
+                else:
+                    print(f"\n--- {platform.capitalize()} Setup Wizard ---")
+                    for i, step in enumerate(steps, 1):
+                        print(f"\nStep {i}: {step['title']}")
+                        print(f"{step['description']}")
+                        instructions = step['instructions'].replace("\\n", "\n")
+                        print(f"{instructions}")
+                    print("\n" + "-"*30)
+                
+                credentials = _prompt_credentials(platform)
 
             # POST to connect
-            response = client.post(f"/api/channels/{platform}/connect", json={"credentials": credentials})
+            response = client.post(f"/api/channels/{platform}/connect", json={"credentials": credentials} if credentials else {})
             response.raise_for_status()
             
             # Get pairing code

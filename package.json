@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@nestjs/serve-static": "^5.0.4",
+    "chai": "^6.2.2",
     "clsx": "^2.1.1",
     "emitter-io": "^1.39.0",
     "express": "^5.2.1",

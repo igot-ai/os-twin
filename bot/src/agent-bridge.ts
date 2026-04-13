@@ -15,8 +15,9 @@ import {
 } from '@google/generative-ai';
 import config from './config';
 import api from './api';
-import { getSession, setMode, setPlan, clearSession } from './sessions';
-import { type ConnectorConfig } from './connectors/base';
+import { getSession, setMode, setPlan, clearSession, getStagedImages, getStagedFiles } from './sessions';
+import { flushStagedAttachments } from './asset-staging';
+import { type ConnectorConfig, type AttachmentMeta } from './connectors/base';
 import { registry } from './connectors/registry';
 
 // ── Tool definitions for Gemini function calling ──────────────────────────
@@ -146,6 +147,9 @@ const toolDeclarations: FunctionDeclaration[] = [
 interface AgentContext {
   userId: string;
   platform: string;
+  referencedMessageContent?: string;
+  /** Metadata about attached files so the agent knows assets were staged. */
+  attachments?: AttachmentMeta[];
 }
 
 async function executeTool(
@@ -212,10 +216,27 @@ async function executeTool(
         registry.getConfig(ctx.platform as any)?.settings?.working_dir ||
         '';
 
-      // Step 1: AI generates the plan content
+      // Get staged files (all types) and images (for vision API)
+      const stagedImages = getStagedImages(ctx.userId, ctx.platform);
+      const stagedFiles = getStagedFiles(ctx.userId, ctx.platform);
+      const hasImages = stagedImages.length > 0;
+      const hasFiles = stagedFiles.length > 0;
+      
+      console.log(`[AGENT] create_plan: hasImages=${hasImages}, hasFiles=${hasFiles}, stagedFiles=${stagedFiles.length}`);
+      if (hasFiles) {
+        console.log(`[AGENT] Staged files:`, stagedFiles.map((f: any) => ({ name: f.name, type: f.contentType })));
+      }
+
+      // Step 1: AI generates the plan content (include files/images if available)
+      let refineMessage = `Draft a new plan for: ${idea}`;
+      if (hasFiles) {
+        const fileList = stagedFiles.map((f: any) => `- ${f.name} (${f.contentType})`).join('\n');
+        refineMessage += `\n\nThe user has attached ${stagedFiles.length} file(s):\n${fileList}\n\nIMPORTANT INSTRUCTIONS FOR ASSETS:\n1. These files WILL BE SAVED as plan assets automatically after the plan is created.\n2. In each epic, explicitly reference these assets by filename.\n3. Describe HOW each asset should be used in that epic's implementation.\n4. For images: specify which UI components they belong to, their placement, and styling.\n5. For design mockups: break them down into sections and map each section to an epic.\n6. Create a dedicated "Assets" section in the plan listing all files and their intended use.`;
+      }
       const result = await api.refinePlan({
-        message: `Draft a new plan for: ${idea}`,
+        message: refineMessage,
         workingDir,
+        images: stagedImages,
       });
 
       if (result?._error) {
@@ -243,6 +264,17 @@ async function executeTool(
       setMode(ctx.userId, ctx.platform, 'editing');
       setPlan(ctx.userId, ctx.platform, finalPlanId);
 
+      // Step 4: Save staged files to the plan (now that we have a planId)
+      let savedAssets: Array<{ original_name: string }> = [];
+      if (hasFiles) {
+        const flushResult = await flushStagedAttachments(ctx.userId, ctx.platform, finalPlanId);
+        savedAssets = flushResult.saved;
+        if (flushResult.failures.length > 0) {
+          console.warn(`[AGENT] Failed to save some staged files:`, flushResult.failures);
+        }
+        console.log(`[AGENT] Saved ${savedAssets.length} staged file(s) to plan ${finalPlanId}`);
+      }
+
       return {
         name,
         response: {
@@ -252,10 +284,13 @@ async function executeTool(
           plan_content: planText.length > 3000 ? planText.slice(0, 3000) + '\n...(truncated)' : planText,
           explanation: result.explanation || '',
           epic_count: (planText.match(/EPIC-\d+/g) || []).length,
+          files_saved: savedAssets.length,
+          images_used: hasImages ? stagedImages.length : 0,
           message:
             `Plan "${finalPlanId}" has been created and saved. ` +
+            (savedAssets.length > 0 ? `I saved ${savedAssets.length} attached file(s) as plan assets. ` : '') +
             `The user is now in editing mode and can send further instructions to refine it, ` +
-            `upload assets, or use /cancel to exit editing.`,
+            `upload more assets, or use /cancel to exit editing.`,
         },
       };
     }
@@ -443,6 +478,18 @@ export async function askAgent(
         .join('\n')
     : 'No active war-rooms.';
 
+  // Build referenced message context if provided
+  const referenceContext = agentCtx.referencedMessageContent
+    ? `\n\n## Referenced Message\nThe user is replying to this message:\n"${agentCtx.referencedMessageContent}"`
+    : '';
+
+  // Build attachment context so the AI knows files were sent
+  const attachmentContext = agentCtx.attachments?.length
+    ? `\n\n## Attached Files\nThe user has attached ${agentCtx.attachments.length} file(s) with this message:\n` +
+      agentCtx.attachments.map(a => `- ${a.name} (${a.contentType || 'unknown type'})`).join('\n') +
+      `\nThese files are staged and will be automatically linked to any plan you create. If the user is asking to build something, call create_plan — the staged files will be used as reference material.`
+    : '';
+
   const systemPrompt = `You are OS Twin, an autonomous AI assistant that manages software projects through the Ostwin multi-agent war-room orchestrator.
 
 You have TWO capabilities:
@@ -462,12 +509,13 @@ IMPORTANT RULES:
 - When answering questions, be concise (1-3 paragraphs for chat).
 - Always present tool results in a user-friendly format with relevant details.
 - After creating a plan, mention that the user can now send further instructions to refine it, upload assets, or run /cancel.
+- If the user has attached files and is asking to build something, ALWAYS call create_plan — the files will be incorporated automatically.
 
 ## Current Plans
 ${plansText}
 
 ## Active War-Rooms
-${roomsText}`;
+${roomsText}${referenceContext}${attachmentContext}`;
 
   try {
     const genAI = new GoogleGenerativeAI(config.GOOGLE_API_KEY);
