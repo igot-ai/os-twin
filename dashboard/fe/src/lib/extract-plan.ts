@@ -2,7 +2,7 @@
  * Extract a plan markdown document from an AI response.
  *
  * The AI may return the plan:
- *   1. Wrapped in a ```markdown / ```md fenced code block
+ *   1. Wrapped in a ```markdown / ```md / ``` fenced code block
  *   2. As raw text starting with "# Plan:"
  *   3. Preceded by conversational text before "# Plan:"
  *   4. As plain unstructured content (fallback)
@@ -12,7 +12,7 @@
  * correctly identify the outer closing fence.
  */
 export function extractPlan(content: string): string {
-  // Strategy 1: Extract from a ```markdown fenced code block.
+  // Strategy 1: Extract from a ```markdown / ```md / ``` fenced code block.
   // Must track fence depth to handle nested code blocks (e.g. ```text lifecycle blocks).
   const lines = content.split('\n');
   let startIdx = -1;
@@ -21,7 +21,8 @@ export function extractPlan(content: string): string {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (startIdx === -1) {
-      if (trimmed === '```markdown' || trimmed === '```md') {
+      // Accept ```markdown, ```md, or plain ``` (if followed by # Plan: content)
+      if (trimmed === '```markdown' || trimmed === '```md' || trimmed === '```') {
         startIdx = i + 1;
         depth = 1;
       }

@@ -29,16 +29,88 @@ router = APIRouter(tags=["plans"])
 logger = logging.getLogger(__name__)
 
 
+def _resolve_plans_dir_for_write() -> Path:
+    """Resolve where new plans should be written.
+    
+    Returns PLANS_DIR if it exists (project-local), otherwise GLOBAL_PLANS_DIR.
+    This ensures new plans are written to the same store that list/save endpoints read.
+    """
+    if PLANS_DIR.exists():
+        return PLANS_DIR
+    return GLOBAL_PLANS_DIR
+
+
+def _find_plan_file(plan_id: str) -> Optional[Path]:
+    """Find a plan file, checking local store first, then global."""
+    local = PLANS_DIR / f"{plan_id}.md"
+    if local.exists():
+        return local
+    if GLOBAL_PLANS_DIR != PLANS_DIR:
+        global_path = GLOBAL_PLANS_DIR / f"{plan_id}.md"
+        if global_path.exists():
+            return global_path
+    return None
+
+
+def _find_plan_meta(plan_id: str) -> Optional[Path]:
+    """Find a plan meta file, checking local store first, then global."""
+    local = PLANS_DIR / f"{plan_id}.meta.json"
+    if local.exists():
+        return local
+    if GLOBAL_PLANS_DIR != PLANS_DIR:
+        global_path = GLOBAL_PLANS_DIR / f"{plan_id}.meta.json"
+        if global_path.exists():
+            return global_path
+    return None
+
+
+def _find_plan_assets_dir(plan_id: str) -> Optional[Path]:
+    """Find a plan assets directory, checking local store first, then global."""
+    local = PLANS_DIR / "assets" / plan_id
+    if local.exists():
+        return local
+    if GLOBAL_PLANS_DIR != PLANS_DIR:
+        global_path = GLOBAL_PLANS_DIR / "assets" / plan_id
+        if global_path.exists():
+            return global_path
+    return None
+
+
 def _plan_file_path(plan_id: str) -> Path:
-    return GLOBAL_PLANS_DIR / f"{plan_id}.md"
+    """Get the path to a plan file (for reading or writing).
+    
+    For reading: returns the first existing path (local then global).
+    For writing: returns the appropriate store based on where the plan exists.
+    """
+    existing = _find_plan_file(plan_id)
+    if existing:
+        return existing
+    # New plan: write to the resolved write location
+    return _resolve_plans_dir_for_write() / f"{plan_id}.md"
 
 
 def _plan_meta_path(plan_id: str) -> Path:
-    return GLOBAL_PLANS_DIR / f"{plan_id}.meta.json"
+    """Get the path to a plan meta file (for reading or writing)."""
+    existing = _find_plan_meta(plan_id)
+    if existing:
+        return existing
+    # Check if plan file exists to determine location
+    plan_file = _find_plan_file(plan_id)
+    if plan_file:
+        return plan_file.parent / f"{plan_id}.meta.json"
+    return _resolve_plans_dir_for_write() / f"{plan_id}.meta.json"
 
 
 def _plan_assets_dir(plan_id: str) -> Path:
-    return GLOBAL_PLANS_DIR / "assets" / plan_id
+    """Get the path to a plan assets directory (for reading or writing)."""
+    existing = _find_plan_assets_dir(plan_id)
+    if existing:
+        return existing
+    # Check if plan file exists to determine location
+    plan_file = _find_plan_file(plan_id)
+    if plan_file:
+        return plan_file.parent / "assets" / plan_id
+    return _resolve_plans_dir_for_write() / "assets" / plan_id
 
 
 def _validate_id(identifier: str, name: str = "ID") -> None:
@@ -1708,7 +1780,7 @@ def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optiona
     """Helper to write plan.md, meta.json, and roles.json to disk and index in zvec store."""
     raw = f"{title}:{datetime.now(timezone.utc).isoformat()}"
     plan_id = hashlib.sha256(raw.encode()).hexdigest()[:12]
-    plans_dir = GLOBAL_PLANS_DIR
+    plans_dir = _resolve_plans_dir_for_write()
     plans_dir.mkdir(exist_ok=True)
     plan_file = plans_dir / f"{plan_id}.md"
 
