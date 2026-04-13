@@ -75,6 +75,7 @@ export interface ProviderSettings {
   default_model?: string;
   deployment_mode?: GoogleDeploymentMode;  // Google only
   project_id?: string;                     // Google Vertex only
+  vertex_location?: string;                // Google Vertex region (default: global)
   enabled_models?: string[];               // empty = all models enabled
 }
 

@@ -1,6 +1,6 @@
 ---
 name: onboard
-description: "DEPRECATED: This skill has been merged into 'harden'. Run /harden instead."
+description: DEPRECATED: This skill has been merged into 'harden'. Run /harden instead."
 tags: []
 trust_level: experimental
 ---

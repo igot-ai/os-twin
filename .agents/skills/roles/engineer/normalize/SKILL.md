@@ -1,6 +1,6 @@
 ---
 name: normalize
-description: "DEPRECATED: This skill has been merged into 'polish'. Run /polish instead."
+description: DEPRECATED: This skill has been merged into 'polish'. Run /polish instead."
 tags: []
 trust_level: experimental
 ---

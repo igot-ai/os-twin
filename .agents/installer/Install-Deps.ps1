@@ -258,6 +258,61 @@ function Install-OpenCode {
     }
 }
 
+# ─── ngrok ───────────────────────────────────────────────────────────────────
+
+function Install-Ngrok {
+    [CmdletBinding()]
+    param()
+
+    # Already installed?
+    if (Get-Command ngrok -ErrorAction SilentlyContinue) {
+        $ngrokVer = (& ngrok version 2>&1) -replace '[^0-9.]', '' | Select-Object -First 1
+        Write-Ok "ngrok $ngrokVer already installed"
+        return
+    }
+
+    Write-Step "Installing ngrok..."
+
+    # 1st choice: winget (from Microsoft Store source)
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Step "Installing ngrok via winget (Microsoft Store)..."
+        & winget install ngrok -s msstore --accept-package-agreements --accept-source-agreements 2>$null
+        # Refresh PATH
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + $env:PATH
+        if (Get-Command ngrok -ErrorAction SilentlyContinue) {
+            $ngrokVer = (& ngrok version 2>&1) -replace '[^0-9.]', '' | Select-Object -First 1
+            Write-Ok "ngrok $ngrokVer installed via winget"
+            return
+        }
+        Write-Warn "winget install returned but ngrok not found in PATH — trying fallback..."
+    }
+
+    # 2nd choice: scoop
+    if (Get-Command scoop -ErrorAction SilentlyContinue) {
+        Write-Step "Installing ngrok via scoop..."
+        & scoop install ngrok 2>$null
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + $env:PATH
+        if (Get-Command ngrok -ErrorAction SilentlyContinue) {
+            $ngrokVer = (& ngrok version 2>&1) -replace '[^0-9.]', '' | Select-Object -First 1
+            Write-Ok "ngrok $ngrokVer installed via scoop"
+            return
+        }
+        Write-Warn "scoop install returned but ngrok not found in PATH"
+    }
+
+    # No supported method
+    Write-Host ""
+    Write-Fail "Cannot install ngrok: neither winget nor scoop is available."
+    Write-Host "    Please install a package manager first:" -ForegroundColor Yellow
+    Write-Host "      • winget — comes with Windows 10/11 App Installer (recommended)" -ForegroundColor Yellow
+    Write-Host "        https://learn.microsoft.com/windows/package-manager/winget/" -ForegroundColor DarkGray
+    Write-Host "      • scoop  — https://scoop.sh" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "    Then re-run the installer, or install ngrok manually:" -ForegroundColor Yellow
+    Write-Host "      https://ngrok.com/download" -ForegroundColor DarkGray
+    Write-Host ""
+}
+
 # ─── Pester (PowerShell test framework) ──────────────────────────────────────
 
 function Install-PesterModule {

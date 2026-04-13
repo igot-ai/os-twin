@@ -22,7 +22,7 @@
     },
     "memory": {
       "type": "local",
-      "command": ["python", "{env:AGENT_DIR}/A-mem-sys/mcp_server.py"],
+      "command": ["python", "{env:AGENT_DIR}/memory/mcp_server.py"],
       "environment": {
         "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
         "MEMORY_PERSIST_DIR": "./.memory",

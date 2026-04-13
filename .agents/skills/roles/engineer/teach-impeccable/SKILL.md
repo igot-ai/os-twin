@@ -1,6 +1,6 @@
 ---
 name: teach-impeccable
-description: "DEPRECATED: Use /impeccable teach instead. This command has been folded into the impeccable skill."
+description: DEPRECATED: Use /impeccable teach instead. This command has been folded into the impeccable skill."
 user-invocable: true
 ---
 

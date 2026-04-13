@@ -9,59 +9,64 @@ import { PlanStatus, Domain } from '@/types';
 import { useRouter } from 'next/navigation';
 
 export default function PlanGrid() {
-  const { plans, isLoading, isError } = usePlans();
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statuses, setStatuses] = useState<PlanStatus[]>([]);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [sort, setSort] = useState<SortOption>('newest');
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const router = useRouter();
 
+  // Debounce search input before sending to server (300ms)
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // Server-side zvec vector search via ?q= parameter
+  const { plans, isLoading, isError } = usePlans(debouncedSearch);
+
   const filteredPlans = useMemo(() => {
     if (!plans) return [];
 
     let result = [...plans];
 
-    // Search
-    if (search) {
-      const s = search.toLowerCase();
-      result = result.filter(p => 
-        p.title.toLowerCase().includes(s) || 
-        (p.goal ?? '').toLowerCase().includes(s)
-      );
-    }
+    // Search is handled server-side via zvec — no client-side text filter needed
 
-    // Status
+    // Status (cheap client-side filter)
     if (statuses.length > 0) {
       result = result.filter(p => p.status && statuses.includes(p.status));
     }
 
-    // Domain
+    // Domain (cheap client-side filter)
     if (domains.length > 0) {
       result = result.filter(p => p.domain && domains.includes(p.domain));
     }
 
-    // Sort
-    result.sort((a, b) => {
-      switch (sort) {
-        case 'newest':
-          return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
-        case 'oldest':
-          return new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime();
-        case 'progress-high':
-          return (b.pct_complete ?? 0) - (a.pct_complete ?? 0);
-        case 'progress-low':
-          return (a.pct_complete ?? 0) - (b.pct_complete ?? 0);
-        case 'alphabetical':
-          return a.title.localeCompare(b.title);
-        default:
-          return 0;
-      }
-    });
+    // When searching, preserve zvec relevance ranking (server already sorted).
+    // Only apply client-side sort when there's no active search query.
+    if (!debouncedSearch) {
+      result.sort((a, b) => {
+        switch (sort) {
+          case 'newest':
+            return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
+          case 'oldest':
+            return new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime();
+          case 'progress-high':
+            return (b.pct_complete ?? 0) - (a.pct_complete ?? 0);
+          case 'progress-low':
+            return (a.pct_complete ?? 0) - (b.pct_complete ?? 0);
+          case 'alphabetical':
+            return a.title.localeCompare(b.title);
+          default:
+            return 0;
+        }
+      });
+    }
 
     return result;
-  }, [plans, search, statuses, domains, sort]);
+  }, [plans, debouncedSearch, statuses, domains, sort]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -95,22 +95,47 @@ fi
 extract_skill_meta() {
   local skill_md="$1"
   awk '
-    BEGIN { name=""; desc=""; tags="[]"; in_yaml=0; }
+    BEGIN { name=""; desc=""; tags="[]"; in_yaml=0; key=""; val=""; block_style=0; }
     /^---$/ { 
-      if (in_yaml == 0) { in_yaml=1; next; } else { exit; } 
+      if (in_yaml == 0) { in_yaml=1; next; } else { in_yaml=0; exit; } 
     }
     {
       if (in_yaml == 1) {
-        if ($0 ~ /^name:[ \t]*/) { sub(/^name:[ \t]*/, ""); name=$0; }
-        else if ($0 ~ /^description:[ \t]*/) { sub(/^description:[ \t]*/, ""); desc=$0; }
-        else if ($0 ~ /^tags:[ \t]*/) { sub(/^tags:[ \t]*/, ""); tags=$0; }
+        # Handle continuation of block scalar (indented lines)
+        if (block_style == 1) {
+          if ($0 ~ /^[ \t]+/) {
+            line = $0; sub(/^[ \t]+/, "", line);
+            if (desc == "") desc = line; else desc = desc " " line;
+            next;
+          } else {
+            block_style = 0; # End of block
+          }
+        }
+
+        # Match key: value
+        if ($0 ~ /^[a-z_]+:[ \t]*/) {
+          key = $1; sub(/:$/, "", key);
+          val = $0; sub(/^[a-z_]+:[ \t]*/, "", val);
+          
+          if (key == "name") { name = val; }
+          else if (key == "tags") { tags = val; }
+          else if (key == "description") {
+            if (val ~ /^[>|]/) {
+              block_style = 1; # Start capturing block
+            } else {
+              desc = val;
+            }
+          }
+        }
       }
     }
     END {
+      # Strip outer quotes from name and desc
       gsub(/^["\047]|["\047]$/, "", name);
       gsub(/^["\047]|["\047]$/, "", desc);
-      if (tags == "") tags="[]";
+      if (tags == "" || tags == "null") tags="[]";
       
+      # Escape single quotes for use in eval
       gsub(/'\''/, "'\''\\'\'''\''", name);
       gsub(/'\''/, "'\''\\'\'''\''", desc);
       gsub(/'\''/, "'\''\\'\'''\''", tags);

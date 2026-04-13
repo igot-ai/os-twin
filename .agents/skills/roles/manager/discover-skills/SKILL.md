@@ -1,6 +1,6 @@
 ---
 name: discover-skills
-description: "Use this skill to search and install skills for war-rooms -- scan epic requirements, query the skills API, and populate skill_refs in config."
+description: Use this skill to search and install skills for war-rooms -- scan epic requirements, query the skills API, and populate skill_refs in config."
 tags: [manager, skills, discovery, installation]
 trust_level: core
 ---

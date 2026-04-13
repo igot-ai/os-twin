@@ -11,6 +11,7 @@ interface TestResult {
   status: string;
   latency_ms?: number;
   error?: string;
+  output?: string;
 }
 
 export default function TestConnectionButton({ version }: TestConnectionButtonProps) {
@@ -23,7 +24,7 @@ export default function TestConnectionButton({ version }: TestConnectionButtonPr
     setResult(null);
     try {
       const data = await apiPost<TestResult>(
-        `/models/${encodeURIComponent(version)}/test`,
+        `/models/${version.split('/').map(encodeURIComponent).join('/')}/test`,
         {}
       );
       setResult(data);

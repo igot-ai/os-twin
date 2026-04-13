@@ -1,6 +1,6 @@
 ---
 name: app-control
-description: "Launch, quit, query frontmost app, and list running apps on macOS using osascript and open."
+description: Launch, quit, query frontmost app, and list running apps on macOS using osascript and open."
 tags: [macos-automation-engineer, automation, macos, apps]
 trust_level: core
 platform: [macos]

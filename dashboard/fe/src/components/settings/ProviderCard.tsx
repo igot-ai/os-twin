@@ -4,9 +4,9 @@ import { useState, useRef } from 'react';
 import type { ProviderSettings, GoogleDeploymentMode, ModelInfo } from '@/types/settings';
 
 const PROVIDER_ICONS: Record<string, { icon: string; color: string }> = {
-  google:    { icon: 'cloud',      color: 'text-blue-600' },
+  google: { icon: 'cloud', color: 'text-blue-600' },
   anthropic: { icon: 'psychology', color: 'text-orange-600' },
-  openai:    { icon: 'hub',        color: 'text-green-700' },
+  openai: { icon: 'hub', color: 'text-green-700' },
 };
 
 export interface ProviderCardProps {
@@ -47,6 +47,7 @@ export function ProviderCard({
   const defaultModel = safeProvider.default_model ?? '';
   const deploymentMode: GoogleDeploymentMode = (safeProvider.deployment_mode as GoogleDeploymentMode) || 'gemini';
   const projectId = safeProvider.project_id ?? '';
+  const vertexLocation = safeProvider.vertex_location ?? 'global';
 
   const [testing, setTesting] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
@@ -114,9 +115,8 @@ export function ProviderCard({
               Google Cloud Provisioning
             </span>
           </div>
-          <span className={`px-2 py-1 text-[10px] font-bold rounded ${
-            isEnabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-          }`}>
+          <span className={`px-2 py-1 text-[10px] font-bold rounded ${isEnabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+            }`}>
             {isEnabled ? 'ACTIVE' : 'INACTIVE'}
           </span>
         </div>
@@ -133,16 +133,14 @@ export function ProviderCard({
                 onClick={() => {
                   onSettingsChange?.({ deployment_mode: 'gemini', default_model: undefined });
                 }}
-                className={`flex flex-col p-4 rounded-lg text-left transition-all ${
-                  deploymentMode === 'gemini'
+                className={`flex flex-col p-4 rounded-lg text-left transition-all ${deploymentMode === 'gemini'
                     ? 'border-2 border-blue-600 bg-blue-50/40'
                     : 'border border-slate-200 bg-white hover:border-blue-200'
-                }`}
+                  }`}
               >
                 <div className="flex justify-between items-center mb-2">
-                  <span className={`text-sm font-bold ${
-                    deploymentMode === 'gemini' ? 'text-blue-800' : 'text-slate-900'
-                  }`}>GEMINI</span>
+                  <span className={`text-sm font-bold ${deploymentMode === 'gemini' ? 'text-blue-800' : 'text-slate-900'
+                    }`}>GEMINI</span>
                   <span className="material-symbols-outlined text-sm" style={{
                     fontVariationSettings: deploymentMode === 'gemini' ? "'FILL' 1" : "'FILL' 0",
                     color: deploymentMode === 'gemini' ? '#2563eb' : '#94a3b8',
@@ -160,16 +158,14 @@ export function ProviderCard({
                 onClick={() => {
                   onSettingsChange?.({ deployment_mode: 'vertex', default_model: undefined });
                 }}
-                className={`flex flex-col p-4 rounded-lg text-left transition-all ${
-                  deploymentMode === 'vertex'
+                className={`flex flex-col p-4 rounded-lg text-left transition-all ${deploymentMode === 'vertex'
                     ? 'border-2 border-blue-600 bg-blue-50/40'
                     : 'border border-slate-200 bg-white hover:border-blue-200'
-                }`}
+                  }`}
               >
                 <div className="flex justify-between items-center mb-2">
-                  <span className={`text-sm font-bold ${
-                    deploymentMode === 'vertex' ? 'text-blue-800' : 'text-slate-900'
-                  }`}>VERTEX AI</span>
+                  <span className={`text-sm font-bold ${deploymentMode === 'vertex' ? 'text-blue-800' : 'text-slate-900'
+                    }`}>VERTEX AI</span>
                   <span className="material-symbols-outlined text-sm" style={{
                     fontVariationSettings: deploymentMode === 'vertex' ? "'FILL' 1" : "'FILL' 0",
                     color: deploymentMode === 'vertex' ? '#2563eb' : '#94a3b8',
@@ -221,6 +217,26 @@ export function ProviderCard({
                 />
               </div>
             )}
+
+            {/* Vertex AI: Location */}
+            {deploymentMode === 'vertex' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block">
+                  Vertex Location
+                </label>
+                <input
+                  type="text"
+                  value={vertexLocation}
+                  onChange={(e) => onSettingsChange?.({ vertex_location: e.target.value })}
+                  placeholder="global"
+                  disabled={!isEnabled}
+                  className="w-full bg-slate-50 border border-slate-200 rounded p-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-600 text-slate-900 placeholder:text-slate-400"
+                />
+                <p className="text-[10px] text-slate-400">
+                  Region for Vertex AI. Defaults to &quot;global&quot;.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ── Vertex-only: Service Account File Upload ────────────── */}
@@ -231,15 +247,13 @@ export function ProviderCard({
               </label>
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className={`flex items-center gap-3 p-3 rounded border-2 border-dashed cursor-pointer transition-colors ${
-                  serviceAccountVaultSet
+                className={`flex items-center gap-3 p-3 rounded border-2 border-dashed cursor-pointer transition-colors ${serviceAccountVaultSet
                     ? 'border-green-300 bg-green-50/50 hover:bg-green-50'
                     : 'border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/30'
-                }`}
+                  }`}
               >
-                <span className={`material-symbols-outlined text-lg ${
-                  serviceAccountVaultSet ? 'text-green-600' : 'text-slate-400'
-                }`}>
+                <span className={`material-symbols-outlined text-lg ${serviceAccountVaultSet ? 'text-green-600' : 'text-slate-400'
+                  }`}>
                   {uploading ? 'hourglass_top' : serviceAccountVaultSet ? 'check_circle' : 'upload_file'}
                 </span>
                 <div className="flex-1 min-w-0">
@@ -328,9 +342,8 @@ export function ProviderCard({
               {name} Provisioning
             </span>
           </div>
-          <span className={`px-2 py-1 text-[10px] font-bold rounded ${
-            isEnabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-          }`}>
+          <span className={`px-2 py-1 text-[10px] font-bold rounded ${isEnabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+            }`}>
             {isEnabled ? 'ACTIVE' : 'INACTIVE'}
           </span>
         </div>
@@ -389,9 +402,6 @@ export function ProviderCard({
           <span className={`material-symbols-outlined ${meta.color}`}>{meta.icon}</span>
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-900">{name}</h3>
         </div>
-        <span className="text-[10px] font-mono text-slate-500 uppercase">
-          {defaultModel || 'not set'}
-        </span>
       </div>
 
       <div className="space-y-4">

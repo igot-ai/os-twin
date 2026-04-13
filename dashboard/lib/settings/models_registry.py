@@ -84,7 +84,14 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
         ModelEntry("gemini/gemini-3-flash-lite-preview", "Gemini 3 Flash Lite", "1M", "fast", mode="gemini"),
     ],
     "BytePlus": [
-        ModelEntry("byteplus/seed-2-0-pro-260328", "Seed 2.0 Pro", "128K", "balanced"),
+        ModelEntry("byteplus/seed-2-0-pro-260328", "Seed 2.0 Pro", "256K", "flagship"),
+        ModelEntry("byteplus/seed-2-0-lite-260228", "Seed 2.0 Lite", "256K", "balanced"),
+        ModelEntry("byteplus/seed-2-0-mini-260215", "Seed 2.0 Mini", "256K", "fast"),
+        ModelEntry("byteplus/seed-1-8-251228", "Seed 1.8", "256K", "balanced"),
+        ModelEntry("byteplus/glm-4-7-251222", "GLM-4 7B", "256K", "balanced"),
+        ModelEntry("byteplus/deepseek-v3-2-251201", "DeepSeek V3.2", "128K", "balanced"),
+        ModelEntry("byteplus/seed-1-6-250915", "Seed 1.6 Vision", "256K", "vision"),
+        ModelEntry("byteplus/seed-1-6-flash-250715", "Seed 1.6 Flash", "256K", "fast"),
     ],
 }
 

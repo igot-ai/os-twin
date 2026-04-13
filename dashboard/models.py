@@ -229,6 +229,7 @@ class ProviderSettings(BaseModel):
     default_model: Optional[str] = None
     deployment_mode: Optional[str] = None   # 'gemini' | 'vertex' (Google only)
     project_id: Optional[str] = None        # Vertex AI project ID (Google only)
+    vertex_location: Optional[str] = None   # Vertex AI region (Google only, default: global)
     enabled_models: List[str] = Field(
         default_factory=list,
         description=(

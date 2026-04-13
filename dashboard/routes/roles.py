@@ -640,69 +640,59 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
     return
 
 
-PROVIDER_KEY_MAP = {
-    "Claude": "ANTHROPIC_API_KEY",
-    "GPT": "OPENAI_API_KEY",
-    "Gemini": "GOOGLE_API_KEY",
-    "Gemini_vertex": "GOOGLE_APPLICATION_CREDENTIALS",
-    "BytePlus": "BYTEPLUS_API_KEY",
-}
-PROVIDER_LANGCHAIN_MAP = {
-    "Claude": "anthropic",
-    "GPT": "openai",
-    "Gemini": "google_genai",
-    "Gemini_vertex": "google_vertexai",
-}
 
-_ENV_FILE = Path.home() / ".ostwin" / ".env"
-
-
-@router.post("/api/models/{version}/test")
+@router.post("/api/models/{version:path}/test")
 async def test_model_connection(version: str, user: dict = Depends(get_current_user)):
+    """Test model connectivity by running: opencode run "just say YES" --model <version>.
+
+    This validates the real end-to-end path — the same CLI the agent runtime uses —
+    rather than constructing a fragile LangChain shim with manual key resolution.
+    """
+    import shutil
+    import subprocess
     import time
-    from dotenv import dotenv_values
-    from langchain.chat_models import init_chat_model
 
-    provider = _detect_provider(version)
+    opencode = shutil.which("opencode")
+    if not opencode:
+        return {"status": "fail", "error": "opencode CLI not found on PATH"}
 
-    # Vertex AI models use a separate auth pathway
-    is_vertex = version.startswith("google-vertex")
-    provider_key = f"{provider}_vertex" if is_vertex else provider
-    env_key = PROVIDER_KEY_MAP.get(provider_key, PROVIDER_KEY_MAP.get(provider))
-    lc_provider = PROVIDER_LANGCHAIN_MAP.get(provider_key, PROVIDER_LANGCHAIN_MAP.get(provider))
+    cmd = [opencode, "run", "just say YES", "--model", version]
 
-    env_vars = dotenv_values(_ENV_FILE) if _ENV_FILE.exists() else {}
-    api_key = env_vars.get(env_key, "")
-
-    # Vault fallback: if env var is empty or is a vault ref, resolve from vault
-    _VAULT_SCOPE_MAP = {
-        "ANTHROPIC_API_KEY": ("providers", "claude"),
-        "OPENAI_API_KEY":    ("providers", "openai"),
-        "GOOGLE_API_KEY":    ("providers", "gemini"),
-        "GOOGLE_APPLICATION_CREDENTIALS": ("providers", "google_service_account"),
-        "BYTEPLUS_API_KEY":  ("providers", "byteplus"),
-    }
-    if (not api_key or api_key.startswith("${vault:")) and env_key in _VAULT_SCOPE_MAP:
-        try:
-            from dashboard.lib.settings.vault import get_vault
-            scope, vkey = _VAULT_SCOPE_MAP[env_key]
-            api_key = get_vault().get(scope, vkey) or ""
-        except Exception:
-            pass
-
-    if not api_key:
-        label = "service account" if is_vertex else "API key"
-        return {"status": "fail", "error": f"{label} not configured for {provider}"}
-
-    def _test():
-        llm = init_chat_model(version, model_provider=lc_provider, api_key=api_key)
-        llm.invoke("hi")
+    def _run() -> tuple[int, str, str]:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**__import__("os").environ},
+        )
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
 
     start = time.time()
     try:
-        await asyncio.get_event_loop().run_in_executor(None, _test)
+        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(
+            None, _run
+        )
         latency = int((time.time() - start) * 1000)
-        return {"status": "ok", "latency_ms": latency}
+
+        if returncode == 0:
+            output_snippet = stdout[-200:] if stdout else ""
+            # The model must actually respond with "YES" to confirm connectivity
+            if "YES" in (stdout or "").upper():
+                return {"status": "ok", "latency_ms": latency, "output": output_snippet}
+            else:
+                return {
+                    "status": "fail",
+                    "latency_ms": latency,
+                    "error": f"Model responded but did not confirm (expected YES): {stdout}",
+                }
+        else:
+            error_msg = stderr[-300:] if stderr else stdout[-300:] if stdout else "Unknown error"
+            return {"status": "fail", "latency_ms": latency, "error": error_msg}
+    except subprocess.TimeoutExpired:
+        latency = int((time.time() - start) * 1000)
+        return {"status": "fail", "latency_ms": latency, "error": "Timed out after 60s"}
     except Exception as exc:
         latency = int((time.time() - start) * 1000)
         return {"status": "fail", "latency_ms": latency, "error": str(exc)}
+

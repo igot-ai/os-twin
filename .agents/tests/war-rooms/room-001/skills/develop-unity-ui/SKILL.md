@@ -1,6 +1,6 @@
 ---
 name: develop-unity-ui
-description: "Interact with Unity to develop UI and assets. Use this skill to manage assets, scenes, GameObjects, components, and animations. It guides you to use the 64 specialized sub-skills found in `.agent/skills/unity-editor/`. Always trigger this skill when the user asks to "create a prefab", "modify the scene hierarchy", "setup animations", "add components", or "capture screenshots"."
+description: Interact with Unity to develop UI and assets. Use this skill to manage assets, scenes, GameObjects, components, and animations. It guides you to use the 64 specialized sub-skills found in `.agent/skills/unity-editor/`. Always trigger this skill when the user asks to "create a prefab", "modify the scene hierarchy", "setup animations", "add components", or "capture screenshots"."
 tags: []
 trust_level: experimental
 ---

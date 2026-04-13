@@ -1,6 +1,6 @@
 ---
 name: create-architecture
-description: "Use this skill to generate architecture documentation for an epic -- ADRs, component diagrams, data flows, and tech-stack rationale."
+description: Use this skill to generate architecture documentation for an epic -- ADRs, component diagrams, data flows, and tech-stack rationale.
 tags: [architect, documentation, design]
 trust_level: core
 ---

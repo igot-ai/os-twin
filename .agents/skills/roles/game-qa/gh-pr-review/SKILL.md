@@ -1,6 +1,6 @@
 ---
 name: gh-pr-review
-description: "Reviews GitHub pull requests for Unity C# projects. Triggers on: 'review PR', 'review pull request', 'check this PR', 'PR review', any GitHub PR URL, '/review', 'gh pr review', 'approve PR', 'request changes'. Also trigger proactively when the user shares a PR link or asks about code changes in a PR context. Applies unity-code-review dimensions (SOLID, Unity 6, C# 9, mobile performance, project standards) and consolidates all findings into a single GitHub review comment. Auto-approves if no critical/warning issues exist, otherwise requests changes."
+description: Reviews GitHub pull requests for Unity C# projects. Triggers on: 'review PR', 'review pull request', 'check this PR', 'PR review', any GitHub PR URL, '/review', 'gh pr review', 'approve PR', 'request changes'. Also trigger proactively when the user shares a PR link or asks about code changes in a PR context. Applies unity-code-review dimensions (SOLID, Unity 6, C# 9, mobile performance, project standards) and consolidates all findings into a single GitHub review comment. Auto-approves if no critical/warning issues exist, otherwise requests changes."
 ---
 
 # GitHub PR Review for Unity Projects

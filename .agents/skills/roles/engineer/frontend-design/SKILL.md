@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: "DEPRECATED: This skill has been renamed to 'impeccable'. Run /impeccable instead."
+description: DEPRECATED: This skill has been renamed to 'impeccable'. Run /impeccable instead."
 ---
 
 This skill has been renamed to **impeccable**. All design functionality now lives in the `{{command_prefix}}impeccable` skill.

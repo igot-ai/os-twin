@@ -1,6 +1,10 @@
 ---
 name: unity-dev-principles
-description: Professional Unity C# coding practices. Masters UniTask, UniRx, VContainer, and Pure C# game logic. Use for all coding tasks, refactoring, bug fixing, and architecture design. Enforces project-specific rules like "mandatory code review".
+description: >-
+  Professional Unity C# coding practices. Masters UniTask, UniRx, VContainer,
+  and Pure C# game logic. Use for all coding tasks, refactoring, bug fixing,
+  and architecture design. Enforces project-specific rules like
+  "mandatory code review".
 ---
 
 # Unity Coding - Snake Escape Project
