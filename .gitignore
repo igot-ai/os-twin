@@ -12,7 +12,7 @@ gold-mining/
 .agents/.venv/
 .agents/.venv.bak/
 .agents/.zvec/**
-.agents/memory/
+.agents/memory/.memory/
 .agents/plans/
 .agents/plans/**
 .agents/stats_history.json
