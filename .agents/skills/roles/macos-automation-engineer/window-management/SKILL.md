@@ -1,6 +1,6 @@
 ---
 name: window-management
-description: "Move, resize, minimize, restore, fullscreen, and inspect macOS application windows via osascript."
+description: Move, resize, minimize, restore, fullscreen, and inspect macOS application windows via osascript."
 tags: [macos-automation-engineer, automation, macos, windows]
 trust_level: core
 platform: [macos]

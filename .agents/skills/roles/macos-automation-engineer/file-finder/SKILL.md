@@ -1,6 +1,6 @@
 ---
 name: file-finder
-description: "Search files via Spotlight (mdfind), manage extended attributes (xattr), copy with metadata (ditto), Quick Look, and Finder operations."
+description: Search files via Spotlight (mdfind), manage extended attributes (xattr), copy with metadata (ditto), Quick Look, and Finder operations."
 tags: [macos-automation-engineer, automation, macos, files, spotlight, finder]
 trust_level: core
 platform: [macos]

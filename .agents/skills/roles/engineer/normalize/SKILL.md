@@ -1,6 +1,8 @@
 ---
 name: normalize
-description: "DEPRECATED: This skill has been merged into 'polish'. Run /polish instead."
+description: DEPRECATED: This skill has been merged into 'polish'. Run /polish instead."
+tags: []
+trust_level: experimental
 ---
 
 This skill has been merged into **polish**. Run `{{command_prefix}}polish` instead. Polish now includes design system discovery and alignment as part of its workflow.

@@ -2,9 +2,11 @@ import useSWR from 'swr';
 import { Plan } from '@/types';
 import { apiPost, apiPut, apiDelete } from '@/lib/api-client';
 
-export function usePlans() {
+export function usePlans(search?: string) {
   const isMockRealtime = process.env.NEXT_PUBLIC_ENABLE_MOCK_REALTIME === 'true';
-  const { data, error, mutate, isLoading } = useSWR<Plan[]>('/plans', {
+  const q = search?.trim() || '';
+  const swrKey = q ? `/plans?q=${encodeURIComponent(q)}` : '/plans';
+  const { data, error, mutate, isLoading } = useSWR<Plan[]>(swrKey, {
     refreshInterval: isMockRealtime ? 10000 : 0,
   });
 

@@ -229,6 +229,7 @@ class ProviderSettings(BaseModel):
     default_model: Optional[str] = None
     deployment_mode: Optional[str] = None   # 'gemini' | 'vertex' (Google only)
     project_id: Optional[str] = None        # Vertex AI project ID (Google only)
+    vertex_location: Optional[str] = None   # Vertex AI region (Google only, default: global)
     enabled_models: List[str] = Field(
         default_factory=list,
         description=(
@@ -265,9 +266,21 @@ class RuntimeSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    vector_store: str = "chroma"
-    embedding_model: str = "text-embedding-3-small"
-    ttl_days: int = 30
+    # -- Processing LLM --
+    llm_backend: str = "huggingface"          # gemini | openai | huggingface | ollama | openrouter | sglang
+    llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
+    # -- Embedding --
+    embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
+    embedding_model: str = "microsoft/harrier-oss-v1-0.6b"
+    # -- Vector store --
+    vector_backend: str = "zvec"              # zvec | chroma
+    # -- Behaviour --
+    context_aware: bool = True                # include similar memories in LLM analysis
+    auto_sync: bool = True                    # periodic disk sync
+    auto_sync_interval: int = 60              # seconds between syncs
+    ttl_days: int = 30                        # auto-delete entries older than N days
+    # Legacy alias — readers should prefer vector_backend
+    vector_store: str = "zvec"
 
 
 class ChannelPlatformSettings(BaseModel):

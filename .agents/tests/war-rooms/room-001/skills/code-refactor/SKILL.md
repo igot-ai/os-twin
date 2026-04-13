@@ -1,6 +1,6 @@
 ---
 name: code-refactor
-description: "Refactor existing Unity C# code for quality"
+description: Refactor existing Unity C# code for quality"
 tags: [engineer, refactoring, code-quality]
 trust_level: core
 ---

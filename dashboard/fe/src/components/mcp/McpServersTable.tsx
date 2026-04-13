@@ -267,29 +267,38 @@ export const McpServersTable: React.FC = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className={`flex items-center justify-end gap-1 transition-opacity ${
-                        isFailed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                      }`}>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => setExpandedServer(isExpanded ? null : server.name)}
+                          className="p-2 hover:bg-slate-100 text-slate-500 hover:text-slate-700 rounded-lg transition-all"
+                          title="Configure Credentials"
+                        >
+                          <span className="material-symbols-outlined text-lg">key</span>
+                        </button>
                         <button
                           onClick={() => handleTest(server.name)}
-                          className="p-2 hover:bg-primary/10 hover:text-primary rounded-lg transition-all"
+                          disabled={test?.status === 'testing'}
+                          className="p-2 hover:bg-primary/10 hover:text-primary text-slate-500 rounded-lg transition-all disabled:opacity-50"
                           title="Test Connection"
                         >
-                          <span className="material-symbols-outlined text-lg">play_arrow</span>
+                          <span className={`material-symbols-outlined text-lg ${test?.status === 'testing' ? 'animate-spin' : ''}`}>
+                            {test?.status === 'testing' ? 'sync' : 'play_arrow'}
+                          </span>
                         </button>
-                        {!server.builtin && (
-                          <button
-                            onClick={() => handleDelete(server.name)}
-                            className={`p-2 rounded-lg transition-all ${
-                              isFailed
+                        <button
+                          onClick={() => handleDelete(server.name)}
+                          disabled={server.builtin}
+                          className={`p-2 rounded-lg transition-all ${
+                            server.builtin
+                              ? 'text-slate-300 cursor-not-allowed'
+                              : isFailed
                                 ? 'bg-red-100 text-red-600 hover:bg-red-200'
-                                : 'hover:bg-red-50 hover:text-red-500'
-                            }`}
-                            title="Remove Server"
-                          >
-                            <span className="material-symbols-outlined text-lg">delete</span>
-                          </button>
-                        )}
+                                : 'text-slate-500 hover:bg-red-50 hover:text-red-500'
+                          }`}
+                          title={server.builtin ? "Built-in servers can't be removed" : 'Remove Server'}
+                        >
+                          <span className="material-symbols-outlined text-lg">delete</span>
+                        </button>
                       </div>
                     </td>
                   </tr>

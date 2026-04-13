@@ -1,6 +1,6 @@
 ---
 name: add-feature
-description: "Implement a new Unity feature end-to-end"
+description: Implement a new Unity feature end-to-end"
 tags: [engineer, implementation, feature]
 trust_level: core
 ---

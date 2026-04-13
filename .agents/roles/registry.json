@@ -29,7 +29,7 @@
         "lint-clean",
         "no-hardcoded-secrets"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "qa",
@@ -52,7 +52,7 @@
         "verdict-required",
         "evidence-based-review"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "architect",
@@ -77,7 +77,7 @@
         "scalability-check",
         "security-review"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "manager",
@@ -121,7 +121,7 @@
         "report-renders",
         "no-empty-pages"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "audit",
@@ -172,7 +172,7 @@
         "axbridge"
       ],
       "quality_gates": [],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default",
+      "default_model": "google-vertex/gemini-3.1-flash-preview",
       "platform": [
         "macos"
       ]
@@ -283,7 +283,7 @@
         "gdd-validates-pillars",
         "stories-have-acceptance-criteria"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "game-producer",
@@ -333,7 +333,7 @@
         "build-reproducible",
         "distribution-verified"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "game-ui-analyst",
@@ -386,7 +386,7 @@
         "tutorial-teaches-all-mechanics",
         "reward-pacing-validated"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "narrative-designer",
@@ -411,7 +411,7 @@
         "dialogue-localization-ready",
         "character-voices-consistent"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "sound-designer",
@@ -435,7 +435,7 @@
         "no-clipping",
         "compression-appropriate"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "tech-artist",
@@ -484,7 +484,7 @@
         "findings-actionable",
         "recommendations-prioritized"
       ],
-      "default_model": "google-vertex-anthropic/claude-opus-4-6@default"
+      "default_model": "google-vertex/gemini-3.1-flash-preview"
     },
     {
       "name": "technical-writer",
@@ -510,6 +510,15 @@
       "runner": "roles/_base/Start-DynamicRole.ps1",
       "definition": "roles/data-scientist/role.json",
       "prompt": "roles/data-scientist/ROLE.md",
+      "default_assignment": false,
+      "capabilities": []
+    },
+    {
+      "name": "qa **",
+      "description": "- Modularize install.sh into Composable Shell Modules **",
+      "runner": "roles/_base/Start-DynamicRole.ps1",
+      "definition": "roles/qa **/role.json",
+      "prompt": "roles/qa **/ROLE.md",
       "default_assignment": false,
       "capabilities": []
     }

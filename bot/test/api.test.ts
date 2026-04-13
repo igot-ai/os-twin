@@ -268,4 +268,116 @@ describe('api', () => {
       expect(result._error).to.exist;
     });
   });
+
+  // ── New Tier 1/2 API functions ─────────────────────────────────
+
+  describe('resumePlan', () => {
+    it('sends POST to /api/run with resume flag', async () => {
+      mockFetch({ status: 'resumed' });
+      await api.resumePlan('p1', '# Plan');
+      const [url, opts] = fetchStub.firstCall.args;
+      expect(url).to.include('/api/run');
+      const body = JSON.parse(opts.body);
+      expect(body.plan_id).to.equal('p1');
+      expect(body.resume).to.equal(true);
+    });
+  });
+
+  describe('roomAction', () => {
+    it('sends POST with action query param', async () => {
+      mockFetch({ status: 'ok' });
+      await api.roomAction('room-001', 'resume');
+      expect(fetchStub.firstCall.args[0]).to.include('/api/rooms/room-001/action?action=resume');
+    });
+  });
+
+  describe('getManagerStatus', () => {
+    it('returns manager status', async () => {
+      mockFetch({ running: true, pid: 1234 });
+      const result = await api.getManagerStatus();
+      expect(result.running).to.equal(true);
+      expect(result.pid).to.equal(1234);
+    });
+  });
+
+  describe('getBotStatus', () => {
+    it('returns bot status', async () => {
+      mockFetch({ running: true, pid: 5678, available: true });
+      const result = await api.getBotStatus();
+      expect(result.running).to.equal(true);
+    });
+  });
+
+  describe('getConfig', () => {
+    it('returns config object', async () => {
+      mockFetch({ manager: { poll_interval_seconds: 10 } });
+      const result = await api.getConfig();
+      expect(result.manager.poll_interval_seconds).to.equal(10);
+    });
+
+    it('returns _error on failure', async () => {
+      mockFetch({}, 500);
+      const result = await api.getConfig();
+      expect(result._error).to.exist;
+    });
+  });
+
+  describe('searchSkillsClawhub', () => {
+    it('returns skills array on success', async () => {
+      mockFetch([{ slug: 'web-search', name: 'Web Search', description: 'Search the web' }]);
+      const result = await api.searchSkillsClawhub('web');
+      expect(result).to.have.lengthOf(1);
+      expect(result[0].slug).to.equal('web-search');
+    });
+
+    it('returns empty array on error', async () => {
+      mockFetchError('timeout');
+      const result = await api.searchSkillsClawhub('query');
+      expect(result).to.deep.equal([]);
+    });
+  });
+
+  describe('installSkillClawhub', () => {
+    it('sends POST to install endpoint', async () => {
+      mockFetch({ status: 'installed' });
+      const result = await api.installSkillClawhub('steipete/web-search');
+      expect(fetchStub.firstCall.args[0]).to.include('/api/skills/clawhub-install');
+      expect(result.status).to.equal('installed');
+    });
+  });
+
+  describe('removeSkill', () => {
+    it('sends DELETE with force flag', async () => {
+      mockFetch({ status: 'removed' });
+      await api.removeSkill('web-search', true);
+      const [url, opts] = fetchStub.firstCall.args;
+      expect(url).to.include('/api/skills/web-search');
+      expect(url).to.include('force=true');
+      expect(opts.method).to.equal('DELETE');
+    });
+  });
+
+  describe('syncSkills', () => {
+    it('sends POST to sync endpoint', async () => {
+      mockFetch({ message: 'synced 5 skills' });
+      const result = await api.syncSkills();
+      expect(fetchStub.firstCall.args[0]).to.include('/api/skills/sync');
+      expect(result.message).to.include('synced');
+    });
+  });
+
+  describe('getRoles', () => {
+    it('returns roles array on success', async () => {
+      mockFetch([{ name: 'engineer', description: 'Writes code' }]);
+      const result = await api.getRoles();
+      expect(result).to.have.lengthOf(1);
+      expect(result[0].name).to.equal('engineer');
+    });
+
+    it('returns empty array on error', async () => {
+      mockFetchError('fail');
+      const result = await api.getRoles();
+      expect(result).to.deep.equal([]);
+    });
+  });
 });
