@@ -1,0 +1,6 @@
+
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+.agents/*
+!.agents/memory/

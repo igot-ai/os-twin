@@ -16,7 +16,7 @@ export interface EpicDocument {
 
 export interface EpicNode {
   ref: string;                            // "EPIC-001"
-  title: string;                          // Text after " — " or " - " dash in heading
+  title: string;                          // Text after " — ", " - ", or ": " in heading
   headingLevel: number;                   // 2 for ##, 3 for ###
   rawHeading: string;                     // Full heading line for exact reproduction
   frontmatter: Map<string, string>;       // **Key:** Value or Key: Value pairs
@@ -130,7 +130,7 @@ export function parseEpicMarkdown(md: string): EpicDocument {
   }
 
   // Find EPIC boundaries
-  const epicHeadingRegex = /^#{2,3}\s+(EPIC-\d+)\s*[—-]\s*(.*)$/;
+  const epicHeadingRegex = /^#{2,3}\s+(EPIC-\d+)\s*[—\-:]\s*(.*)$/;
   const epicIndices: number[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].match(epicHeadingRegex)) {
@@ -172,7 +172,7 @@ export function parseEpicMarkdown(md: string): EpicDocument {
 
 function parseEpicNode(lines: string[]): EpicNode {
   const headingLine = lines[0];
-  const match = headingLine.match(/^#{2,3}\s+(EPIC-\d+)\s*[—-]\s*(.*)$/);
+  const match = headingLine.match(/^#{2,3}\s+(EPIC-\d+)\s*[—\-:]\s*(.*)$/);
   const ref = match?.[1] || '';
   const title = match?.[2] || '';
   const headingLevel = headingLine.startsWith('###') ? 3 : 2;

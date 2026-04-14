@@ -265,4 +265,132 @@ depends_on: []
         $result.Count | Should -Be 1
         $result[0].TaskRef | Should -Be 'EPIC-001'
     }
+
+    It 'parses colon-delimited epic heading' {
+        $md = @"
+## EPIC-001: Build Auth Module
+
+Implement authentication.
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result.Count | Should -Be 1
+        $result[0].TaskRef | Should -Be 'EPIC-001'
+        $result[0].Description | Should -Be 'Build Auth Module'
+    }
+
+    It 'parses em-dash-delimited epic heading' {
+        $md = @"
+## EPIC-001 — Build Auth Module
+
+Implement authentication.
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result.Count | Should -Be 1
+        $result[0].TaskRef | Should -Be 'EPIC-001'
+        $result[0].Description | Should -Be 'Build Auth Module'
+    }
+
+    It 'extracts Skills directive' {
+        $md = @"
+## EPIC-001 - With Skills
+Skills: browser, mcp-tools, unity-editor
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Skills.Count | Should -Be 3
+        $result[0].Skills | Should -Contain 'browser'
+        $result[0].Skills | Should -Contain 'mcp-tools'
+        $result[0].Skills | Should -Contain 'unity-editor'
+    }
+
+    It 'parses depends_on inside yaml code block' {
+        $md = @"
+## EPIC-002 - Depends Via YAML
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+
+```yaml
+depends_on: ["EPIC-001"]
+```
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].DependsOn.Count | Should -Be 1
+        $result[0].DependsOn | Should -Contain 'EPIC-001'
+    }
+
+    It 'extracts ordered Sections array' {
+        $md = @"
+## EPIC-001 - Sectioned Epic
+Role: engineer
+Objective: Build everything
+
+#### Definition of Done
+- [ ] Done 1
+- [ ] Done 2
+
+#### Acceptance Criteria
+- [ ] AC 1
+
+#### Implementation Notes
+Some freeform notes here.
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Sections.Count | Should -Be 3
+        $result[0].Sections[0].Heading | Should -Be 'Definition of Done'
+        $result[0].Sections[1].Heading | Should -Be 'Acceptance Criteria'
+        $result[0].Sections[2].Heading | Should -Be 'Implementation Notes'
+    }
+
+    It 'classifies section types correctly' {
+        $md = @"
+## EPIC-001 - Type Classification
+#### Definition of Done
+- [ ] Done item
+
+#### Tasks
+- [ ] TASK-001 - A task item
+
+#### Notes
+Just some text without checkboxes.
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Sections[0].Type | Should -Be 'checklist'
+        $result[0].Sections[1].Type | Should -Be 'tasklist'
+        $result[0].Sections[2].Type | Should -Be 'text'
+    }
+
+    It 'extracts Lifecycle directive' {
+        $md = @"
+## EPIC-001 - With Lifecycle
+Lifecycle:
+```yaml
+on_complete: notify
+on_fail: retry
+```
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Lifecycle | Should -Not -BeNullOrEmpty
+        $result[0].Lifecycle | Should -Match 'on_complete'
+    }
 }

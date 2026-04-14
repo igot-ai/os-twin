@@ -33,8 +33,8 @@ function ConvertFrom-PlanMarkdown {
     )
 
     # --- Regex patterns for plan structure ---
-    $epicPattern        = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-\u2014\u2013?]\s*(.+)$'
-    $taskPattern        = '(?m)^\s*[-*]\s+\[[ x]\]\s+(TASK-\d+)\s*[-\u2014\u2013]\s*(.+)$'
+    $epicPattern        = '(?m)^#{2,3}\s+(EPIC-\d+)\s*[-\u2014\u2013:]\s*(.+)$'
+    $taskPattern        = '(?m)^\s*[-*]\s+\[[ x]\]\s+(TASK-\d+)\s*[-\u2014\u2013:]\s*(.+)$'
     $dodPattern         = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $acPattern          = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $depsPattern        = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
@@ -43,8 +43,11 @@ function ConvertFrom-PlanMarkdown {
     $workingDirPattern  = '(?m)^Working_dir:\s*(.+)$'
     $pipelinePattern    = '(?m)^Pipeline:\s*(.+)$'
     $capabilitiesPattern = '(?m)^Capabilities:\s*(.+)$'
-    $descPattern        = '(?s)^#{2,3}\s+EPIC-\d+\s*[-\u2014\u2013?]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
+    $skillsPattern      = '(?m)^Skills:\s*(.+)$'
+    $descPattern        = '(?s)^#{2,3}\s+EPIC-\d+\s*[-\u2014\u2013:]\s*.+?\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $lifecyclePattern   = '(?ism)^Lifecycle:[^\S\r\n]*\r?\n[^\S\r\n]*```[a-z]*\r?\n(.*?)\r?\n[^\S\r\n]*```'
+    $sectionPattern     = '(?m)^(#{3,4})\s+(.+)$'
+    $yamlDepsPattern    = '(?s)```ya?ml\r?\n(.*?)\r?\n```'
 
     $parsed = [System.Collections.Generic.List[PSObject]]::new()
     $roomIndex = 1
@@ -123,6 +126,13 @@ function ConvertFrom-PlanMarkdown {
                 ForEach-Object { $_.Trim() } | Where-Object { $_ }
         }
 
+        # --- Extract Skills directive ---
+        $epicSkills = @()
+        if ($epicSection -match $skillsPattern) {
+            $epicSkills = ($Matches[1].Trim() -split ',') |
+                ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        }
+
         # --- Extract Lifecycle directive ---
         $epicLifecycle = ""
         if ($epicSection -match $lifecyclePattern) {
@@ -145,7 +155,7 @@ function ConvertFrom-PlanMarkdown {
                 ForEach-Object { $_.Groups[1].Value.Trim() }
         }
 
-        # --- Extract depends_on ---
+        # --- Extract depends_on (inline or yaml code-block) ---
         $depsOn = @()
         if ($epicSection -match $depsPattern) {
             $rawDeps = $Matches[1]
@@ -154,6 +164,51 @@ function ConvertFrom-PlanMarkdown {
                     ForEach-Object { $_.Trim().Trim('"').Trim("'") } |
                     Where-Object { $_ }
             }
+        }
+        # Fallback: parse depends_on inside ```yaml code blocks
+        if ($depsOn.Count -eq 0 -and $epicSection -match $yamlDepsPattern) {
+            $yamlBlock = $Matches[1]
+            if ($yamlBlock -match 'depends_on:\s*\[([^\]]*)\]') {
+                $rawDeps = $Matches[1]
+                if ($rawDeps.Trim()) {
+                    $depsOn = ($rawDeps -split ',') |
+                        ForEach-Object { $_.Trim().Trim('"').Trim("'") } |
+                        Where-Object { $_ }
+                }
+            }
+        }
+
+        # --- Extract Sections/Topics (ordered) ---
+        $sections = [System.Collections.Generic.List[PSObject]]::new()
+        $sectionMatches = [regex]::Matches($epicSection, $sectionPattern)
+
+        for ($si = 0; $si -lt $sectionMatches.Count; $si++) {
+            $sm = $sectionMatches[$si]
+            $secHeading = $sm.Groups[2].Value.Trim()
+            $secHeadingLevel = $sm.Groups[1].Value.Length  # number of # chars
+
+            # Section content = text between this heading and the next (or end of epic)
+            $secStart = $sm.Index + $sm.Length
+            $secEnd = if ($si -lt $sectionMatches.Count - 1) {
+                $sectionMatches[$si + 1].Index
+            } else {
+                $epicSection.Length
+            }
+            $secContent = $epicSection.Substring($secStart, $secEnd - $secStart).Trim()
+
+            # Classify type
+            $secType = 'text'
+            if ($secContent -match '(?m)^[-*]\s+\[[ x]\]') {
+                if ($secContent -match 'TASK-\d+') { $secType = 'tasklist' }
+                else { $secType = 'checklist' }
+            }
+
+            $sections.Add([PSCustomObject]@{
+                Heading      = $secHeading
+                HeadingLevel = $secHeadingLevel
+                Type         = $secType
+                Content      = $secContent
+            })
         }
 
         $parsed.Add([PSCustomObject]@{
@@ -171,7 +226,9 @@ function ConvertFrom-PlanMarkdown {
             EpicWorkingDir   = $epicWorkingDir
             Pipeline         = $epicPipeline
             Capabilities     = $epicCapabilities
+            Skills           = $epicSkills
             Lifecycle        = $epicLifecycle
+            Sections         = @($sections)
         })
         $roomIndex++
     }
@@ -215,7 +272,9 @@ function ConvertFrom-PlanMarkdown {
                     EpicWorkingDir   = ""
                     Pipeline         = ""
                     Capabilities     = @()
+                    Skills           = @()
                     Lifecycle        = ""
+                    Sections         = @()
                 })
                 $roomIndex++
             }
