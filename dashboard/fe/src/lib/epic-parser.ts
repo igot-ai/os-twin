@@ -16,7 +16,7 @@ export interface EpicDocument {
 
 export interface EpicNode {
   ref: string;                            // "EPIC-001"
-  title: string;                          // Text after " — " or " - " dash in heading
+  title: string;                          // Text after " — ", " - ", or ": " in heading
   headingLevel: number;                   // 2 for ##, 3 for ###
   rawHeading: string;                     // Full heading line for exact reproduction
   frontmatter: Map<string, string>;       // **Key:** Value or Key: Value pairs
@@ -130,7 +130,7 @@ export function parseEpicMarkdown(md: string): EpicDocument {
   }
 
   // Find EPIC boundaries
-  const epicHeadingRegex = /^#{2,3}\s+(EPIC-\d+)\s*[—-]\s*(.*)$/;
+  const epicHeadingRegex = /^#{2,3}\s+(EPIC-\d+)\s*[—\-:]\s*(.*)$/;
   const epicIndices: number[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].match(epicHeadingRegex)) {
@@ -172,7 +172,7 @@ export function parseEpicMarkdown(md: string): EpicDocument {
 
 function parseEpicNode(lines: string[]): EpicNode {
   const headingLine = lines[0];
-  const match = headingLine.match(/^#{2,3}\s+(EPIC-\d+)\s*[—-]\s*(.*)$/);
+  const match = headingLine.match(/^#{2,3}\s+(EPIC-\d+)\s*[—\-:]\s*(.*)$/);
   const ref = match?.[1] || '';
   const title = match?.[2] || '';
   const headingLevel = headingLine.startsWith('###') ? 3 : 2;
@@ -258,7 +258,12 @@ function parseEpicNode(lines: string[]): EpicNode {
       if (metadataMatch && !inCodeBlock) {
         let key = metadataMatch[1].trim();
         if (key.endsWith(':')) key = key.slice(0, -1);
-        frontmatter.set(key, metadataMatch[2].trim());
+        let value = metadataMatch[2].trim();
+        // Normalize Roles: strip @ prefixes, unify separators to comma
+        if (/^Roles?$/i.test(key)) {
+          value = value.split(/[,\s]+/).filter(Boolean).map(r => r.replace(/^@/, '')).filter(r => r && r !== '...').join(', ');
+        }
+        frontmatter.set(key, value);
       }
 
       if (line.trim().startsWith('depends_on:') && !inCodeBlock) {
@@ -460,7 +465,9 @@ function serializeEpicNode(epic: EpicNode): string {
 
     const addedLines: string[] = [];
     for (const key of pendingKeys) {
-      addedLines.push(`**${key}**: ${epic.frontmatter.get(key)}`);
+      const value = epic.frontmatter.get(key)!;
+      const displayValue = /^Roles?$/i.test(key) ? formatRolesValue(value) : value;
+      addedLines.push(`**${key}**: ${displayValue}`);
     }
     if (dependsOnPending) {
       addedLines.push(`depends_on: [${epic.depends_on.join(', ')}]`);
@@ -535,6 +542,16 @@ function patchLines(lines: string[], epic: EpicNode): string[] {
   return result;
 }
 
+/** Normalize a Roles value to bare comma-separated names (strip @, unify separators). */
+function normalizeRolesValue(value: string): string {
+  return value.split(/[,\s]+/).filter(Boolean).map(r => r.replace(/^@/, '')).filter(r => r && r !== '...').join(', ');
+}
+
+/** Format a bare Roles value with @ prefix for markdown output. */
+function formatRolesValue(value: string): string {
+  return value.split(/[,\s]+/).filter(Boolean).map(r => r.startsWith('@') ? r : `@${r}`).join(', ');
+}
+
 function patchMetadata(lines: string[], epic: EpicNode): string[] {
   const result = [...lines];
   for (let i = 0; i < result.length; i++) {
@@ -544,20 +561,29 @@ function patchMetadata(lines: string[], epic: EpicNode): string[] {
       let key = metadataMatch[1].trim();
       if (key.endsWith(':')) key = key.slice(0, -1);
       const newValue = epic.frontmatter.get(key);
-      if (newValue !== undefined && newValue !== metadataMatch[2].trim()) {
+      if (newValue === undefined) continue;
+
+      // For Roles keys, compare normalized (bare) values to avoid
+      // spurious rewrites when only the @ prefix differs.
+      const isRolesKey = /^Roles?$/i.test(key);
+      const oldNormalized = isRolesKey ? normalizeRolesValue(metadataMatch[2].trim()) : metadataMatch[2].trim();
+      const newNormalized = isRolesKey ? normalizeRolesValue(newValue) : newValue;
+
+      if (newNormalized !== oldNormalized) {
+        const displayValue = isRolesKey ? formatRolesValue(newValue) : newValue;
         const isBold = line.startsWith('**');
         const colonInside = line.includes(':**');
         const colonOutside = !colonInside && line.includes('**:');
         if (isBold) {
           if (colonInside) {
-            result[i] = `**${key}:** ${newValue}`;
+            result[i] = `**${key}:** ${displayValue}`;
           } else if (colonOutside) {
-            result[i] = `**${key}**: ${newValue}`;
+            result[i] = `**${key}**: ${displayValue}`;
           } else {
-            result[i] = `**${key}** ${newValue}`;
+            result[i] = `**${key}** ${displayValue}`;
           }
         } else {
-          result[i] = `${key}: ${newValue}`;
+          result[i] = `${key}: ${displayValue}`;
         }
       }
     }

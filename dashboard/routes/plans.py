@@ -3161,14 +3161,29 @@ async def get_epic_config(plan_id: str, task_ref: str, user: dict = Depends(get_
     except: return {"error": "JSON parse error"}
 
 def _parse_roles_from_markdown(text: str) -> list[str]:
-    """Extract role names from 'Roles: a, b, c' lines in markdown content."""
+    """Extract role names from 'Roles: @a, @b, c' lines in markdown content.
+
+    Supports multiple formats aligned with the canonical PlanParser.psm1:
+      - Plain:    Roles: engineer, qa
+      - @-prefix: Roles: @engineer, @qa
+      - Mixed:    Roles: @engineer, qa, @designer
+      - Spaced:   Roles: @engineer @qa @designer
+      - Heading:  ### Roles: @engineer, @qa
+      - Bold:     **Roles**: @designer
+      - Italic:   *Role*: @architect
+      - Singular: Role: engineer
+      - Suffixed: @engineer:fe, @qa
+    """
     roles: list[str] = []
-    for m in re.finditer(r"(?m)^Roles?:\s*(.+)$", text):
+    # Match optional markdown heading prefix (### ), optional bold/italic wrapping
+    pattern = r"(?m)^(?:#{1,6}\s+)?(?:\*{1,2})?Roles?(?:\*{1,2})?:\s*(.+)$"
+    for m in re.finditer(pattern, text):
         line = m.group(1)
         line = re.sub(r"\(.*$", "", line)  # strip trailing comments
-        for part in line.split(","):
-            name = part.strip()
-            if name and re.match(r"[a-zA-Z0-9]", name) and not re.match(r"^<.*>$", name):
+        # Split by comma or whitespace (supports both "a, b" and "@a @b")
+        for part in re.split(r"[,\s]+", line):
+            name = part.strip().lstrip("@")  # strip @ prefix
+            if name and re.match(r"[a-zA-Z0-9]", name) and not re.match(r"^<.*>$", name) and name != "...":
                 roles.append(name)
     return list(dict.fromkeys(roles))  # dedupe, preserve order
 

@@ -27,6 +27,9 @@ param(
     [array]$AvailableRoles = $null
 )
  
+# Strip leading @ (markdown role notation) before any processing
+$RoleName = $RoleName -replace '^@', ''
+
 $baseRole = $RoleName -replace ':.*$', ''
 $instanceSuffix = if ($RoleName -match ':(.+)$') { $Matches[1] } else { '' }
  
