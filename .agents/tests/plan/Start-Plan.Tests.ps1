@@ -3,6 +3,7 @@
 BeforeAll {
     $script:StartPlan = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Start-Plan.ps1"
     $script:NewPlan = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "New-Plan.ps1"
+    $script:repoLibDir = Join-Path (Resolve-Path "$PSScriptRoot/../..").Path "lib"
     
     function global:Get-OstwinConfig {
         return [PSCustomObject]@{
@@ -49,9 +50,8 @@ Describe "Start-Plan" {
         "Write-Host 'Dummy ExpandPlan'" | Out-File (Join-Path $agentsDir "plan/Expand-Plan.ps1") -Encoding utf8
 
         # Copy lib modules — Start-Plan.ps1 conditionally imports .psm1 from project .agents/lib/
-        $sourceLibDir = Join-Path (Resolve-Path "$PSScriptRoot/../..").Path "lib"
-        Get-ChildItem -Path $sourceLibDir -Filter "*.psm1" | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination (Join-Path $agentsDir "lib/")
+        Get-ChildItem -Path $script:repoLibDir -Filter "*.psm1" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination (Join-Path $agentsDir "lib")
         }
     }
 
