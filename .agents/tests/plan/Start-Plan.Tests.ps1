@@ -3,6 +3,10 @@
 BeforeAll {
     $script:StartPlan = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Start-Plan.ps1"
     $script:NewPlan = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "New-Plan.ps1"
+    $script:repoLibDir = Join-Path (Resolve-Path "$PSScriptRoot/../..").Path "lib"
+    # Only PlanParser.psm1 is needed — do NOT copy Config/Log/Utils.psm1 as they
+    # shadow the global test mocks (Get-OstwinConfig, Write-OstwinLog, etc.)
+    $script:planParserModule = Join-Path $script:repoLibDir "PlanParser.psm1"
     
     function global:Get-OstwinConfig {
         return [PSCustomObject]@{
@@ -47,6 +51,10 @@ Describe "Start-Plan" {
         "Write-Host 'Dummy WaitForMessage'" | Out-File (Join-Path $agentsDir "channel/Wait-ForMessage.ps1") -Encoding utf8
         "Write-Host 'Dummy ReadMessages'" | Out-File (Join-Path $agentsDir "channel/Read-Messages.ps1") -Encoding utf8
         "Write-Host 'Dummy ExpandPlan'" | Out-File (Join-Path $agentsDir "plan/Expand-Plan.ps1") -Encoding utf8
+
+        # Copy only PlanParser.psm1 — other modules (Config, Log, Utils) have global
+        # test mocks that must not be shadowed by real Import-Module
+        Copy-Item -Path $script:planParserModule -Destination (Join-Path $agentsDir "lib")
     }
 
     Context "Plan parsing" {

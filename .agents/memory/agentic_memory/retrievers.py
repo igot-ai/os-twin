@@ -1,18 +1,25 @@
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Protocol, runtime_checkable
 from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
 import nltk
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-import chromadb
-from chromadb.config import Settings
 import pickle
 from nltk.tokenize import word_tokenize
 import os
 import json
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 import litellm
+
+
+@runtime_checkable
+class EmbeddingFunction(Protocol):
+    """Protocol for embedding functions (avoiding chromadb import)."""
+
+    def __call__(self, input: List[str]) -> List[List[float]]: ...
+
+
+Documents = List[str]
+Embeddings = List[List[float]]
 
 
 def simple_tokenize(text):
@@ -32,6 +39,16 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
     def __call__(self, input: Documents) -> Embeddings:
         response = litellm.embedding(model=self.model_name, input=input)
         return [item["embedding"] for item in response.data]
+
+
+class SentenceTransformerEmbeddingFunction:
+    """SentenceTransformer embedding function (avoids chromadb import)."""
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        self.model = SentenceTransformer(model_name)
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return self.model.encode(input).tolist()
 
 
 def _create_embedding_function(embedding_backend: str, model_name: str):
@@ -93,7 +110,7 @@ def _deserialize_json_value(value: str) -> Any:
 
 
 class ChromaRetriever:
-    """Vector database retrieval using ChromaDB"""
+    """Vector database retrieval using ChromaDB (lazy import)."""
 
     def __init__(
         self,
@@ -110,6 +127,9 @@ class ChromaRetriever:
             persist_dir: Directory for persistent storage. If None, uses in-memory mode.
             embedding_backend: "sentence-transformer" or "gemini"
         """
+        import chromadb
+        from chromadb.config import Settings
+
         if persist_dir:
             self.client = chromadb.PersistentClient(path=persist_dir)
         else:

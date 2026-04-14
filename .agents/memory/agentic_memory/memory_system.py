@@ -85,6 +85,8 @@ class AgenticMemorySystem:
         context_aware_analysis: bool = False,
         context_aware_tree: bool = False,
         max_links: Optional[int] = None,
+        similarity_weight: float = 0.8,
+        decay_half_life_days: float = 30.0,
     ):
         """Initialize the memory system.
 
@@ -106,6 +108,10 @@ class AgenticMemorySystem:
                 the complete knowledge structure for better linking and placement.
             max_links: Maximum number of links created per note during evolution.
                 If None, no limit (LLM decides freely).
+            similarity_weight: Weight for vector similarity in search ranking
+                (α in the formula). Default 0.8. Time-decay weight = 1 - α.
+            decay_half_life_days: Half-life in days for the time-decay function.
+                After this many days, the recency score drops to 0.5. Default 30.
         """
         _ensure_ml_imports()
         self.memories = {}
@@ -116,6 +122,8 @@ class AgenticMemorySystem:
         self.context_aware_analysis = context_aware_analysis
         self.context_aware_tree = context_aware_tree
         self.max_links = max_links
+        self.similarity_weight = max(0.0, min(1.0, similarity_weight))
+        self.decay_half_life_days = max(0.01, decay_half_life_days)
         self._initialize_evolution_prompt()
 
         # Set up subdirectories for persistence
@@ -904,16 +912,57 @@ class AgenticMemorySystem:
             for doc_id, score in zip(results["ids"][0], results["distances"][0])
         ]
 
+    def _compute_time_decay_score(
+        self, similarity: float, last_accessed: str
+    ) -> float:
+        """Compute combined score using time-decay re-ranking.
+
+        Formula: score = α * sim + (1 - α) * 0.5^(age_days / h)
+
+        Where:
+            α   = self.similarity_weight (default 0.8)
+            sim = normalized cosine similarity [0, 1]
+            age_days = days since last_accessed
+            h   = self.decay_half_life_days (default 7)
+        """
+        from datetime import datetime
+
+        # Normalize similarity to [0, 1].
+        # Zvec cosine returns 0..1 (higher = more similar).
+        # ChromaDB returns distance (lower = more similar), so invert.
+        sim = max(0.0, min(1.0, similarity))
+
+        # Parse last_accessed (format: YYYYMMDDHHMM)
+        try:
+            last_dt = datetime.strptime(last_accessed, "%Y%m%d%H%M")
+            age_days = max(0.0, (datetime.now() - last_dt).total_seconds() / 86400.0)
+        except (ValueError, TypeError):
+            age_days = 0.0  # unknown → treat as fresh
+
+        recency = 0.5 ** (age_days / self.decay_half_life_days)
+        return self.similarity_weight * sim + (1 - self.similarity_weight) * recency
+
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Search for memories using a hybrid retrieval approach."""
-        # Get results from ChromaDB (only do this once)
-        search_results = self.retriever.search(query, k)
+        """Search for memories using vector similarity with time-decay re-ranking.
+
+        Retrieves 2*k candidates from the vector store, then re-ranks them using:
+            score = α * cosine_sim + (1 - α) * 0.5^(age_days / half_life)
+
+        Returns the top-k results sorted by combined score (descending).
+        """
+        # Fetch extra candidates to allow re-ranking to surface recent notes
+        fetch_k = max(k * 2, 10)
+        search_results = self.retriever.search(query, fetch_k)
         memories = []
 
-        # Process ChromaDB results
+        # Process results and compute combined scores
         for i, doc_id in enumerate(search_results["ids"][0]):
             memory = self.memories.get(doc_id)
             if memory:
+                raw_sim = search_results["distances"][0][i]
+                combined_score = self._compute_time_decay_score(
+                    raw_sim, memory.last_accessed
+                )
                 memories.append(
                     {
                         "id": doc_id,
@@ -921,9 +970,21 @@ class AgenticMemorySystem:
                         "context": memory.context,
                         "keywords": memory.keywords,
                         "tags": memory.tags,
-                        "score": search_results["distances"][0][i],
+                        "score": combined_score,
+                        "similarity": raw_sim,
                     }
                 )
+
+        # Re-rank by combined score (highest first)
+        memories.sort(key=lambda m: m["score"], reverse=True)
+
+        # Update last_accessed for returned results
+        now = datetime.now().strftime("%Y%m%d%H%M")
+        for m in memories[:k]:
+            note = self.memories.get(m["id"])
+            if note:
+                note.last_accessed = now
+                note.retrieval_count += 1
 
         return memories[:k]
 
@@ -993,19 +1054,32 @@ class AgenticMemorySystem:
         return memories[:k]
 
     def search_agentic(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Search for memories using ChromaDB retrieval."""
+        """Search for memories using vector retrieval with link-following and time-decay."""
         if not self.memories:
             return []
 
         try:
-            results = self.retriever.search(query, k)
+            fetch_k = max(k * 2, 10)
+            results = self.retriever.search(query, fetch_k)
             if not self._has_valid_ids(results):
                 return []
 
             memories: List[Dict[str, Any]] = []
             seen_ids: set = set()
-            self._collect_search_results(results, k, memories, seen_ids)
+            self._collect_search_results(results, k * 2, memories, seen_ids)
             self._collect_neighbor_results(memories, seen_ids, k)
+
+            # Apply time-decay re-ranking to all collected results
+            for m in memories:
+                note = self.memories.get(m["id"])
+                raw_sim = m.get("score", 0.0)
+                if note:
+                    m["score"] = self._compute_time_decay_score(
+                        raw_sim, note.last_accessed
+                    )
+                    m["similarity"] = raw_sim
+
+            memories.sort(key=lambda m: m.get("score", 0), reverse=True)
             return memories[:k]
         except Exception as e:
             logger.error(f"Error in search_agentic: {e}")

@@ -23,12 +23,13 @@ Describe "Unified Plan Negotiation Rejection" {
         Copy-Item -Path (Join-Path $script:agentsDir "channel/Post-Message.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
         Copy-Item -Path (Join-Path $script:agentsDir "channel/Wait-ForMessage.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
         Copy-Item -Path (Join-Path $script:agentsDir "channel/Read-Messages.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
-        Copy-Item -Path (Join-Path $script:agentsDir "plan/Build-DependencyGraph.ps1") -Destination (Join-Path $script:projectDir ".agents/plan/")
+        # Build-DependencyGraph.ps1 was removed — DAG logic is now in Start-Plan.ps1
         Copy-Item -Path (Join-Path $script:agentsDir "plan/Test-DependenciesReady.ps1") -Destination (Join-Path $script:projectDir ".agents/plan/")
         Copy-Item -Path (Join-Path $script:agentsDir "plan/Update-Progress.ps1") -Destination (Join-Path $script:projectDir ".agents/plan/")
-        Copy-Item -Path (Join-Path $script:agentsDir "lib/Utils.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
-        Copy-Item -Path (Join-Path $script:agentsDir "lib/Log.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
-        Copy-Item -Path (Join-Path $script:agentsDir "lib/Config.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
+        # Copy all lib modules (Utils.psm1 imports Lock.psm1, Start-Plan.ps1 imports PlanParser.psm1)
+        Get-ChildItem -Path (Join-Path $script:agentsDir "lib") -Filter "*.psm1" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination (Join-Path $script:projectDir ".agents/lib/")
+        }
         Copy-Item -Path (Join-Path $script:agentsDir "roles/manager/Start-ManagerLoop.ps1") -Destination (Join-Path $script:projectDir ".agents/roles/manager/")
         
         # We need a dummy config.json too

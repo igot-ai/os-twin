@@ -5,7 +5,7 @@
 # concurrent serialisation, and lock-file release.
 
 BeforeAll {
-    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "Lock.psm1") -Force
+    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "Lock.psm1") -Force
 }
 
 AfterAll {
@@ -82,7 +82,7 @@ Describe "Invoke-WithFileLock" {
                     # Append our index -- under lock, so lines should not interleave
                     "writer-$Index" | Out-File -Append -FilePath $OutPath -Encoding utf8
                 }
-            } -ArgumentList (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "Lock.psm1"), $lockFile, $outputFile, $idx
+            } -ArgumentList (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "Lock.psm1"), $lockFile, $outputFile, $idx
         }
 
         $jobs | Wait-Job -Timeout 30 | Out-Null

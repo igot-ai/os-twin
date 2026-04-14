@@ -163,13 +163,12 @@ Describe "New-WarRoom" {
 
     Context "Error handling" {
         It "prevents overwriting existing room" {
-            $ErrorActionPreference = 'Continue'
             & $script:NewWarRoom -RoomId "room-dup" -TaskRef "TASK-001" `
                                  -TaskDescription "First" -WarRoomsDir $script:warRoomsDir
 
-            $output = & $script:NewWarRoom -RoomId "room-dup" -TaskRef "TASK-002" `
-                                           -TaskDescription "Second" -WarRoomsDir $script:warRoomsDir 2>&1
-            $output | Should -Match "already exists"
+            { & $script:NewWarRoom -RoomId "room-dup" -TaskRef "TASK-002" `
+                                   -TaskDescription "Second" -WarRoomsDir $script:warRoomsDir } |
+                Should -Throw "*already exists*"
         }
     }
 

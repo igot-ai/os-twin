@@ -14,7 +14,7 @@ Describe 'Test-GoalMet negation detection' {
     # Extract the function definitions from the script so we can test them
     # in isolation without running the full script (which requires -RoomDir).
     BeforeAll {
-        $scriptContent = Get-Content "$PSScriptRoot/../.agents/war-rooms/Test-GoalCompletion.ps1" -Raw
+        $scriptContent = Get-Content "$PSScriptRoot/../war-rooms/Test-GoalCompletion.ps1" -Raw
 
         # Extract Test-NegationContext function (defined before Test-GoalMet)
         if ($scriptContent -match '(?s)(function Test-NegationContext \{.+?\n\})') {
@@ -96,7 +96,7 @@ Describe 'Test-GoalMet negation detection' {
 
 Describe 'Test-NegationContext' {
     BeforeAll {
-        $scriptContent = Get-Content "$PSScriptRoot/../.agents/war-rooms/Test-GoalCompletion.ps1" -Raw
+        $scriptContent = Get-Content "$PSScriptRoot/../war-rooms/Test-GoalCompletion.ps1" -Raw
         if ($scriptContent -match '(?s)(function Test-NegationContext \{.+?\n\})') {
             Invoke-Expression $Matches[1]
         }
@@ -143,7 +143,7 @@ Describe 'Test-NegationContext' {
 
 Describe 'Channel reading efficiency' {
     It 'Get-WarRoomStatus.ps1 uses StreamReader not Get-Content for channel' {
-        $content = Get-Content "$PSScriptRoot/../.agents/war-rooms/Get-WarRoomStatus.ps1" -Raw
+        $content = Get-Content "$PSScriptRoot/../war-rooms/Get-WarRoomStatus.ps1" -Raw
         # Should use StreamReader for channel reading
         $content | Should -Match 'StreamReader'
         # Should NOT use Get-Content for channel.jsonl reading in the status loop
@@ -151,7 +151,7 @@ Describe 'Channel reading efficiency' {
     }
 
     It 'Get-WarRoomStatus.ps1 properly disposes StreamReader with try/finally' {
-        $content = Get-Content "$PSScriptRoot/../.agents/war-rooms/Get-WarRoomStatus.ps1" -Raw
+        $content = Get-Content "$PSScriptRoot/../war-rooms/Get-WarRoomStatus.ps1" -Raw
         $content | Should -Match 'finally'
         $content | Should -Match '\.Dispose\(\)'
     }
@@ -160,7 +160,7 @@ Describe 'Channel reading efficiency' {
 Describe 'Get-RoomsByStatus helper' {
     BeforeAll {
         # Extract Get-RoomsByStatus function from the script
-        $scriptContent = Get-Content "$PSScriptRoot/../.agents/war-rooms/Get-WarRoomStatus.ps1" -Raw
+        $scriptContent = Get-Content "$PSScriptRoot/../war-rooms/Get-WarRoomStatus.ps1" -Raw
         if ($scriptContent -match '(?s)(function Get-RoomsByStatus \{.+?\n\})') {
             Invoke-Expression $Matches[1]
         }
@@ -224,7 +224,7 @@ Describe 'Get-RoomsByStatus helper' {
     }
 
     It 'function exists in Get-WarRoomStatus.ps1' {
-        $content = Get-Content "$PSScriptRoot/../.agents/war-rooms/Get-WarRoomStatus.ps1" -Raw
+        $content = Get-Content "$PSScriptRoot/../war-rooms/Get-WarRoomStatus.ps1" -Raw
         $content | Should -Match 'function Get-RoomsByStatus'
     }
 }

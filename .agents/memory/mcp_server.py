@@ -212,28 +212,25 @@ def _patch_mcp_exception_silence() -> None:
 
 
 _patch_mcp_exception_silence()
-LLM_BACKEND = os.getenv("MEMORY_LLM_BACKEND", "gemini")
-LLM_MODEL = os.getenv("MEMORY_LLM_MODEL", "gemini-3-flash-preview")
-EMBEDDING_MODEL = os.getenv("MEMORY_EMBEDDING_MODEL", "gemini-embedding-001")
-EMBEDDING_BACKEND = os.getenv("MEMORY_EMBEDDING_BACKEND", "gemini")
-VECTOR_BACKEND = os.getenv("MEMORY_VECTOR_BACKEND", "zvec")
-CONTEXT_AWARE = os.getenv("MEMORY_CONTEXT_AWARE", "true").lower() == "true"
-CONTEXT_AWARE_TREE = os.getenv("MEMORY_CONTEXT_AWARE_TREE", "false").lower() == "true"
-MAX_LINKS = int(os.getenv("MEMORY_MAX_LINKS", "3"))
-AUTO_SYNC_ENABLED = os.getenv("MEMORY_AUTO_SYNC", "true").lower() == "true"
-AUTO_SYNC_INTERVAL = int(os.getenv("MEMORY_AUTO_SYNC_INTERVAL", "60"))  # seconds
+# --- Configuration ---
+# Defaults come from config.default.json, overridden by MEMORY_* env vars.
+from agentic_memory.config import load_config as _load_config
 
-# Comma-separated list of tools to disable (hide from MCP clients).
-# Example: MEMORY_DISABLED_TOOLS="unlink_memories,sync_to_disk"
-# To re-enable all: MEMORY_DISABLED_TOOLS=""
-DISABLED_TOOLS = {
-    t.strip()
-    for t in os.getenv(
-        "MEMORY_DISABLED_TOOLS",
-        "read_memory,update_memory,delete_memory,link_memories,unlink_memories,memory_stats,sync_from_disk,sync_to_disk,graph_snapshot",
-    ).split(",")
-    if t.strip()
-}
+_cfg = _load_config()
+
+LLM_BACKEND = _cfg.llm.backend
+LLM_MODEL = _cfg.llm.model
+EMBEDDING_MODEL = _cfg.embedding.model
+EMBEDDING_BACKEND = _cfg.embedding.backend
+VECTOR_BACKEND = _cfg.vector.backend
+CONTEXT_AWARE = _cfg.evolution.context_aware
+CONTEXT_AWARE_TREE = _cfg.evolution.context_aware_tree
+MAX_LINKS = _cfg.evolution.max_links
+AUTO_SYNC_ENABLED = _cfg.sync.auto_sync
+AUTO_SYNC_INTERVAL = _cfg.sync.auto_sync_interval
+SIMILARITY_WEIGHT = _cfg.search.similarity_weight
+DECAY_HALF_LIFE = _cfg.search.decay_half_life_days
+DISABLED_TOOLS = set(_cfg.disabled_tools)
 
 
 def tool_enabled(name: str) -> bool:
@@ -270,6 +267,11 @@ logger.info(
     VECTOR_BACKEND,
 )
 logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
+logger.info(
+    "search: similarity_weight=%.2f  decay_half_life=%.1f days",
+    SIMILARITY_WEIGHT,
+    DECAY_HALF_LIFE,
+)
 
 # --- Background-initialized memory system ---
 # The memory system loads heavy deps (embeddings, vector DB) which takes ~9s.
@@ -302,6 +304,8 @@ def _init_memory():
                 context_aware_analysis=CONTEXT_AWARE,
                 context_aware_tree=CONTEXT_AWARE_TREE,
                 max_links=MAX_LINKS,
+                similarity_weight=SIMILARITY_WEIGHT,
+                decay_half_life_days=DECAY_HALF_LIFE,
             )
         logger.info(
             "Background: memory system ready (%d memories loaded)",

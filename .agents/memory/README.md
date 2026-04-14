@@ -114,7 +114,50 @@ The evolution step is what separates this from a standard vector store. The LLM 
 
 ## MCP Server (`mcp_server.py`)
 
-The MCP server wraps the core library and exposes it as tools that any MCP-compatible LLM agent can call. It runs over **stdio** (default, one-shot) or **SSE** (persistent HTTP daemon).
+The MCP server wraps the core library and exposes it as tools that any MCP-compatible LLM agent can call. It runs over **stdio** (default) or **SSE** (persistent HTTP daemon).
+
+### Stdio is Persistent (Not One-Shot)
+
+A common misconception is that stdio MCP servers are killed after each tool call. **This is not how the MCP protocol works.** The [MCP specification](https://modelcontextprotocol.io/docs/concepts/transports) defines stdio as a persistent subprocess:
+
+```
+Client launches subprocess
+    |
+    v
+loop Message Exchange (multiple requests over the same process)
+    Client --> writes to stdin --> Server
+    Server --> writes to stdout --> Client
+    |
+    v
+Client terminates subprocess (when session ends)
+```
+
+The **client** controls process lifecycle, not the server. Compliant clients (OpenCode, Claude Code, Codex) keep the stdio process alive for the entire agent session. This was verified experimentally:
+
+```
+[PID=238278] [+0.0s]  PROCESS STARTED
+[PID=238278] [+3.9s]  tools/call #1 tool=ping   -- same PID
+[PID=238278] [+7.6s]  tools/call #2 tool=ping   -- same PID
+[PID=238278] [+9.5s]  tools/call #3 tool=ping   -- same PID
+[PID=238278] [+13.4s] PROCESS EXITING  uptime=13.4s
+```
+
+Same PID across all calls. `call_count` increments in memory. Process only exits when the session ends.
+
+**This means:**
+
+- Background threads survive between tool calls (auto-sync works)
+- In-memory state persists across calls (no cold start penalty after first call)
+- The 60-second auto-sync thread runs for the full session duration
+
+**Historical context:** The previous agent runtime (deepagents-cli) had a [bug](https://github.com/langchain-ai/deepagents/pull/2228) where it discarded the `MCPSessionManager` after `asyncio.run()`, killing all MCP sessions immediately. This forced a workaround where `save_memory` ran synchronously (~10s latency). That workaround is no longer needed with OpenCode but remains in the code for safety.
+
+| Client | Keeps stdio process alive? | Auto-sync works? |
+|--------|---------------------------|-----------------|
+| OpenCode | Yes | Yes |
+| Claude Code | Yes | Yes |
+| Codex (OpenAI) | Yes | Yes |
+| deepagents-cli | No (bug) | No |
 
 ### Available Tools
 
@@ -145,7 +188,28 @@ It also includes a **self-healing interpreter check**: if the current Python int
 
 ### Auto-Sync
 
-A background thread periodically writes in-memory state to disk (default: every 60 seconds). Controlled via `MEMORY_AUTO_SYNC` and `MEMORY_AUTO_SYNC_INTERVAL`.
+A background daemon thread periodically writes in-memory state to disk (default: every 60 seconds). Because stdio MCP processes are persistent (see above), this thread stays alive for the full agent session.
+
+```python
+# mcp_server.py — starts on module load, runs for entire session
+_sync_thread = threading.Thread(
+    target=_auto_sync_loop,
+    args=(AUTO_SYNC_INTERVAL,),
+    daemon=True,
+    name="memory-auto-sync",
+)
+_sync_thread.start()
+```
+
+Verified with a 65-second test session:
+
+```
+14:41:37 — Auto-sync enabled: every 60s
+14:41:47 — save_memory completed
+14:42:37 — Auto-sync to disk: {'written': 1, 'orphans_removed': 0}   <-- 60s later
+```
+
+Controlled via `MEMORY_AUTO_SYNC` and `MEMORY_AUTO_SYNC_INTERVAL` environment variables.
 
 ---
 
@@ -288,6 +352,43 @@ The test suite is fully deterministic — no network calls, no API keys, no mode
 - **Stress tests** (`tests/stress/`): bulk add/update/link/delete/rebuild cycles to catch consistency regressions
 
 Test doubles are defined in `tests/helpers.py`.
+
+---
+
+## Troubleshooting
+
+### Memory server fails to initialize (404 on embedding model)
+
+**Symptom:** Log shows `Background: failed to initialize memory system` with `404 Not Found` for an embedding URL like `models/microsoft/harrier-oss-v1-0.6b:batchEmbedContents`.
+
+**Cause:** Mismatch between embedding backend and model. The `~/.ostwin/.env.sh` auto-promotion sets `MEMORY_EMBEDDING_BACKEND=gemini` but an incompatible model name (e.g. a HuggingFace model) was preserved from `~/.ostwin/.env`.
+
+**Fix:** Ensure `.env.sh` forces both backend and model when promoting:
+
+```bash
+# Correct — force both
+export MEMORY_EMBEDDING_BACKEND=gemini
+export MEMORY_EMBEDDING_MODEL=gemini-embedding-001
+
+# Wrong — preserves incompatible model from .env
+export MEMORY_EMBEDDING_MODEL="${MEMORY_EMBEDDING_MODEL:-gemini-embedding-001}"
+```
+
+### ChromaDB import error when using Zvec
+
+**Symptom:** `ModuleNotFoundError: No module named 'chromadb'` even though `MEMORY_VECTOR_BACKEND=zvec`.
+
+**Cause:** `retrievers.py` previously imported `chromadb` at module level. Even when Zvec is the active backend, the import ran and failed.
+
+**Fix:** ChromaDB imports are now lazy — they only execute inside `ChromaRetriever.__init__()`. The `ZvecRetriever` path never touches chromadb. No need to `pip install chromadb` unless you explicitly set `MEMORY_VECTOR_BACKEND=chroma`.
+
+### save_memory hangs at "Waiting for memory system initialization"
+
+**Symptom:** Tool calls log `Waiting for memory system initialization...` and never complete.
+
+**Cause:** The background initialization thread failed (check the traceback above it in the log). Common causes: wrong API key, wrong model name, network issues.
+
+**Fix:** Check `{persist_dir}/mcp_server.log` for the initialization error. Usually it's a model/backend mismatch (see first item above).
 
 ---
 

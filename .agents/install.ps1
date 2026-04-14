@@ -238,7 +238,12 @@ Install-Channels
 
 if ($script:StartChannel -and $script:ChanDir) {
     Write-Header "9d. Starting channel connectors"
-    Start-Channels
+    try {
+        Start-Channels
+    }
+    catch {
+        Write-Warn "Channel connectors failed to start (non-critical): $_"
+    }
 }
 
 # Final banner
