@@ -1,4 +1,5 @@
 export type GoogleDeploymentMode = 'gemini' | 'vertex';
+export type VertexAuthMode = 'service_account' | 'oauth';
 
 export type ModelSource = 'models.dev' | 'custom';
 
@@ -76,6 +77,7 @@ export interface ProviderSettings {
   deployment_mode?: GoogleDeploymentMode;  // Google only
   project_id?: string;                     // Google Vertex only
   vertex_location?: string;                // Google Vertex region (default: global)
+  vertex_auth_mode?: VertexAuthMode;       // 'service_account' | 'oauth' (Vertex only)
   enabled_models?: string[];               // empty = all models enabled
 }
 
