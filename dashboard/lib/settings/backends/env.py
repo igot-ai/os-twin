@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Map (scope, key) -> expected env var name.  Extend as needed.
 _ENV_MAP: Dict[tuple[str, str], str] = {
-    ("providers", "claude"): "ANTHROPIC_API_KEY",
+    ("providers", "anthropic"): "ANTHROPIC_API_KEY",
     ("providers", "openai"): "OPENAI_API_KEY",
     ("providers", "google"): "GOOGLE_API_KEY",
     ("channels", "telegram"): "TELEGRAM_BOT_TOKEN",
