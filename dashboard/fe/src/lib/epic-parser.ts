@@ -258,7 +258,12 @@ function parseEpicNode(lines: string[]): EpicNode {
       if (metadataMatch && !inCodeBlock) {
         let key = metadataMatch[1].trim();
         if (key.endsWith(':')) key = key.slice(0, -1);
-        frontmatter.set(key, metadataMatch[2].trim());
+        let value = metadataMatch[2].trim();
+        // Normalize Roles: strip @ prefixes, unify separators to comma
+        if (/^Roles?$/i.test(key)) {
+          value = value.split(/[,\s]+/).filter(Boolean).map(r => r.replace(/^@/, '')).filter(r => r && r !== '...').join(', ');
+        }
+        frontmatter.set(key, value);
       }
 
       if (line.trim().startsWith('depends_on:') && !inCodeBlock) {
@@ -460,7 +465,9 @@ function serializeEpicNode(epic: EpicNode): string {
 
     const addedLines: string[] = [];
     for (const key of pendingKeys) {
-      addedLines.push(`**${key}**: ${epic.frontmatter.get(key)}`);
+      const value = epic.frontmatter.get(key)!;
+      const displayValue = /^Roles?$/i.test(key) ? formatRolesValue(value) : value;
+      addedLines.push(`**${key}**: ${displayValue}`);
     }
     if (dependsOnPending) {
       addedLines.push(`depends_on: [${epic.depends_on.join(', ')}]`);
@@ -535,6 +542,16 @@ function patchLines(lines: string[], epic: EpicNode): string[] {
   return result;
 }
 
+/** Normalize a Roles value to bare comma-separated names (strip @, unify separators). */
+function normalizeRolesValue(value: string): string {
+  return value.split(/[,\s]+/).filter(Boolean).map(r => r.replace(/^@/, '')).filter(r => r && r !== '...').join(', ');
+}
+
+/** Format a bare Roles value with @ prefix for markdown output. */
+function formatRolesValue(value: string): string {
+  return value.split(/[,\s]+/).filter(Boolean).map(r => r.startsWith('@') ? r : `@${r}`).join(', ');
+}
+
 function patchMetadata(lines: string[], epic: EpicNode): string[] {
   const result = [...lines];
   for (let i = 0; i < result.length; i++) {
@@ -544,20 +561,29 @@ function patchMetadata(lines: string[], epic: EpicNode): string[] {
       let key = metadataMatch[1].trim();
       if (key.endsWith(':')) key = key.slice(0, -1);
       const newValue = epic.frontmatter.get(key);
-      if (newValue !== undefined && newValue !== metadataMatch[2].trim()) {
+      if (newValue === undefined) continue;
+
+      // For Roles keys, compare normalized (bare) values to avoid
+      // spurious rewrites when only the @ prefix differs.
+      const isRolesKey = /^Roles?$/i.test(key);
+      const oldNormalized = isRolesKey ? normalizeRolesValue(metadataMatch[2].trim()) : metadataMatch[2].trim();
+      const newNormalized = isRolesKey ? normalizeRolesValue(newValue) : newValue;
+
+      if (newNormalized !== oldNormalized) {
+        const displayValue = isRolesKey ? formatRolesValue(newValue) : newValue;
         const isBold = line.startsWith('**');
         const colonInside = line.includes(':**');
         const colonOutside = !colonInside && line.includes('**:');
         if (isBold) {
           if (colonInside) {
-            result[i] = `**${key}:** ${newValue}`;
+            result[i] = `**${key}:** ${displayValue}`;
           } else if (colonOutside) {
-            result[i] = `**${key}**: ${newValue}`;
+            result[i] = `**${key}**: ${displayValue}`;
           } else {
-            result[i] = `**${key}** ${newValue}`;
+            result[i] = `**${key}** ${displayValue}`;
           }
         } else {
-          result[i] = `${key}: ${newValue}`;
+          result[i] = `${key}: ${displayValue}`;
         }
       }
     }

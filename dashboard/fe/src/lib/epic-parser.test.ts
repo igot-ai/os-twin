@@ -296,3 +296,177 @@ depends_on:
     expect(result).toContain('Goal of epic.');
   });
 });
+
+// ─── @-prefixed Roles round-trip and modification ──────────────────
+
+describe('Roles @ prefix handling', () => {
+  it('should round-trip Roles: @engineer, @qa without spurious changes', () => {
+    const md = `## EPIC-001 — Auth
+Roles: @engineer, @qa
+
+### Description
+Auth setup.
+`;
+    const doc = parseEpicMarkdown(md);
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toBe(md);
+  });
+
+  it('should round-trip Roles: engineer, qa (no @) without changes', () => {
+    const md = `## EPIC-001 — Auth
+Roles: engineer, qa
+
+### Description
+Auth setup.
+`;
+    const doc = parseEpicMarkdown(md);
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toBe(md);
+  });
+
+  it('should round-trip **Roles**: @engineer without changes', () => {
+    const md = `## EPIC-001 — Auth
+**Roles**: @engineer
+
+### Description
+Auth setup.
+`;
+    const doc = parseEpicMarkdown(md);
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toBe(md);
+  });
+
+  it('should strip @ from roles in frontmatter during parsing', () => {
+    const md = `## EPIC-001 — Auth
+Roles: @engineer, @qa
+`;
+    const doc = parseEpicMarkdown(md);
+    expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer, qa');
+  });
+
+  it('should normalize space-separated @ roles during parsing', () => {
+    const md = `## EPIC-001 — Auth
+Roles: @engineer @qa @designer
+`;
+    const doc = parseEpicMarkdown(md);
+    expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer, qa, designer');
+  });
+
+  it('should strip @ from plain Roles: format too (no-op)', () => {
+    const md = `## EPIC-001 — Auth
+Roles: engineer, qa
+`;
+    const doc = parseEpicMarkdown(md);
+    expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer, qa');
+  });
+
+  it('should output @-prefixed roles when a role is added', () => {
+    const md = `## EPIC-001 — Auth
+Roles: @engineer, @qa
+
+### Description
+Auth setup.
+`;
+    const doc = parseEpicMarkdown(md);
+    // Simulate user adding a role via the UI
+    const roles = doc.epics[0].frontmatter.get('Roles')!.split(', ');
+    roles.push('designer');
+    doc.epics[0].frontmatter.set('Roles', roles.join(', '));
+
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toContain('Roles: @engineer, @qa, @designer');
+  });
+
+  it('should output @-prefixed roles when a role is removed', () => {
+    const md = `## EPIC-001 — Auth
+Roles: @engineer, @qa, @designer
+
+### Description
+Auth setup.
+`;
+    const doc = parseEpicMarkdown(md);
+    // Simulate user removing a role
+    const roles = doc.epics[0].frontmatter.get('Roles')!.split(', ').filter(r => r !== 'qa');
+    doc.epics[0].frontmatter.set('Roles', roles.join(', '));
+
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toContain('Roles: @engineer, @designer');
+    expect(result).not.toContain('@qa');
+  });
+
+  it('should upgrade plain Roles to @-prefixed when modified', () => {
+    const md = `## EPIC-001 — Auth
+Roles: engineer, qa
+
+### Description
+Auth setup.
+`;
+    const doc = parseEpicMarkdown(md);
+    // Simulate user adding a role — triggers rewrite
+    const roles = doc.epics[0].frontmatter.get('Roles')!.split(', ');
+    roles.push('designer');
+    doc.epics[0].frontmatter.set('Roles', roles.join(', '));
+
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toContain('Roles: @engineer, @qa, @designer');
+  });
+
+  it('should output @-prefixed roles for bold format when modified', () => {
+    const md = `## EPIC-001 — Auth
+**Roles**: engineer
+
+### Description
+Auth setup.
+`;
+    const doc = parseEpicMarkdown(md);
+    doc.epics[0].frontmatter.set('Roles', 'engineer, qa');
+
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toContain('**Roles**: @engineer, @qa');
+  });
+
+  it('should output @-prefixed Roles when creating a new epic', () => {
+    const doc = {
+      title: 'Plan',
+      preamble: '',
+      epics: [{
+        ref: 'EPIC-001',
+        title: 'New Epic',
+        headingLevel: 2,
+        rawHeading: '## EPIC-001 — New Epic',
+        frontmatter: new Map([['Roles', 'engineer, qa']]),
+        sections: [{
+          heading: 'Description',
+          headingLevel: 3,
+          type: 'text' as const,
+          content: 'Goal.',
+          rawLines: ['Goal.'],
+          preamble: [],
+          postamble: [],
+        }],
+        depends_on: [],
+        rawDependsOn: '',
+      }],
+      postamble: '',
+    };
+
+    const result = serializeEpicMarkdown(doc as any);
+    expect(result).toContain('**Roles**: @engineer, @qa');
+  });
+
+  it('should handle singular Role: with @ prefix', () => {
+    const md = `## EPIC-001 — Auth
+Role: @engineer
+`;
+    const doc = parseEpicMarkdown(md);
+    expect(doc.epics[0].frontmatter.get('Role')).toBe('engineer');
+  });
+
+  it('should ignore trailing ellipsis in Roles', () => {
+    const md = `## EPIC-001 — Auth
+Roles: @engineer, ...
+`;
+    const doc = parseEpicMarkdown(md);
+    expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer');
+  });
+});

@@ -432,4 +432,67 @@ Write-Output @()
             $result.PSObject.Properties.Name | Should -Contain "Source"
         }
     }
+
+    # =====================================================
+    # @ Prefix Stripping (Markdown role notation)
+    # =====================================================
+    Context "@ Prefix Stripping — Markdown Role Notation" {
+
+        It "resolves '@engineer' the same as 'engineer' (Tier 1)" {
+            $result = & $script:resolveRole -RoleName "@engineer" -AgentsDir $script:agentsDir
+            $result.Runner | Should -Be $script:engineerRunner
+            $result.Source | Should -Be "registry"
+            $result.BaseRole | Should -Be "engineer"
+            $result.Name | Should -Be "engineer"
+        }
+
+        It "resolves '@qa' the same as 'qa' (Tier 1)" {
+            $result = & $script:resolveRole -RoleName "@qa" -AgentsDir $script:agentsDir
+            $result.Runner | Should -Be $script:qaRunner
+            $result.Source | Should -Be "registry"
+            $result.BaseRole | Should -Be "qa"
+        }
+
+        It "strips @ and preserves instance suffix (@engineer:fe)" {
+            $result = & $script:resolveRole -RoleName "@engineer:fe" -AgentsDir $script:agentsDir
+            $result.BaseRole | Should -Be "engineer"
+            $result.Name | Should -Be "engineer:fe"
+            $result.Runner | Should -Be $script:engineerRunner
+            $result.Source | Should -Be "registry"
+        }
+
+        It "propagates model correctly when using @ prefix" {
+            $result = & $script:resolveRole -RoleName "@qa" -AgentsDir $script:agentsDir
+            $result.Model | Should -Be "google-vertex/gemini-3.1-pro-preview"
+        }
+
+        It "propagates capabilities correctly when using @ prefix" {
+            $result = & $script:resolveRole -RoleName "@engineer" -AgentsDir $script:agentsDir
+            $result.Capabilities | Should -Contain "code-generation"
+            $result.Capabilities | Should -Contain "file-editing"
+        }
+
+        It "falls back to ephemeral for unknown @-prefixed role" {
+            $result = & $script:resolveRole -RoleName "@unknown-role" -AgentsDir $script:agentsDir
+            $result.Runner | Should -Be $script:ephemeralRunner
+            $result.Source | Should -Be "ephemeral"
+        }
+
+        It "uses cached AvailableRoles with @ prefix" {
+            $cachedRoles = @(
+                [PSCustomObject]@{
+                    Name         = "engineer"
+                    Runner       = "/cached/path/Start-Engineer.ps1"
+                    Model        = "cached-model"
+                    Timeout      = 777
+                    Capabilities = @("cached-cap")
+                    Source       = "cached"
+                }
+            )
+
+            $result = & $script:resolveRole -RoleName "@engineer" -AgentsDir $script:agentsDir -AvailableRoles $cachedRoles
+            $result.Runner | Should -Be "/cached/path/Start-Engineer.ps1"
+            $result.Source | Should -Be "cached"
+        }
+    }
 }

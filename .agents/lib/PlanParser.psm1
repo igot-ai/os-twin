@@ -38,7 +38,7 @@ function ConvertFrom-PlanMarkdown {
     $dodPattern         = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $acPattern          = '(?s)#### Acceptance Criteria\s*\n(.*?)(?=####|^#{1,3}\s+EPIC-|---|\z)'
     $depsPattern        = '(?m)^\s*depends_on:\s*\[([^\]]*)\]\s*$'
-    $rolesPattern       = '(?m)^Roles?:\s*(.+)$'
+    $rolesPattern       = '(?m)^(?:#{1,6}\s+)?(?:\*{1,2})?Roles?(?:\*{1,2})?:\s*(.+)$'
     $objectivePattern   = '(?m)^Objective:\s*(.+)$'
     $workingDirPattern  = '(?m)^Working_dir:\s*(.+)$'
     $pipelinePattern    = '(?m)^Pipeline:\s*(.+)$'
@@ -86,8 +86,8 @@ function ConvertFrom-PlanMarkdown {
         foreach ($rm in $roleMatches) {
             $line = $rm.Groups[1].Value
             $line = $line -replace '\(.*$', ''     # strip inline comments
-            $items = ($line -split ',') |
-                ForEach-Object { $_.Trim() } |
+            $items = ($line -split '[,\s]+') |
+                ForEach-Object { ($_.Trim() -replace '^@', '') } |
                 Where-Object { $_ -match '[a-zA-Z0-9]' -and $_ -notmatch '^<.*>$' }
             foreach ($item in $items) {
                 if (-not $roles.Contains($item)) { $roles.Add($item) }
