@@ -5,7 +5,7 @@
 # dependency resolution, role defaults, and edge cases.
 
 BeforeAll {
-    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "PlanParser.psm1") -Force
+    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "PlanParser.psm1") -Force
 }
 
 AfterAll {
