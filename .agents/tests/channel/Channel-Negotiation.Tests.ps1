@@ -35,9 +35,10 @@ exit 0
         Copy-Item -Path (Join-Path $script:agentsDir "channel/Wait-ForMessage.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
         Copy-Item -Path (Join-Path $script:agentsDir "channel/Read-Messages.ps1") -Destination (Join-Path $script:projectDir ".agents/channel/")
         Copy-Item -Path (Join-Path $script:agentsDir "plan/Build-DependencyGraph.ps1") -Destination (Join-Path $script:projectDir ".agents/plan/")
-        Copy-Item -Path (Join-Path $script:agentsDir "lib/Utils.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
-        Copy-Item -Path (Join-Path $script:agentsDir "lib/Log.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
-        Copy-Item -Path (Join-Path $script:agentsDir "lib/Config.psm1") -Destination (Join-Path $script:projectDir ".agents/lib/")
+        # Copy all lib modules (Utils.psm1 imports Lock.psm1, Start-Plan.ps1 imports PlanParser.psm1)
+        Get-ChildItem -Path (Join-Path $script:agentsDir "lib") -Filter "*.psm1" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination (Join-Path $script:projectDir ".agents/lib/")
+        }
         # We need a dummy config.json too
         '{"manager":{"poll_interval_seconds":1,"max_engineer_retries":1,"max_concurrent_rooms":5}}' | Out-File (Join-Path $script:projectDir ".agents/config.json") -Encoding utf8
         

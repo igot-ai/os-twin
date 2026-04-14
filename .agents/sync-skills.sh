@@ -220,7 +220,7 @@ install_from_dir() {
     resolved_dst="$(mkdir -p "$dest_dir" && cd "$dest_dir" 2>/dev/null && pwd)"
     if [[ "$resolved_src" == "$resolved_dst" ]]; then
       info "  $skill_name (already in place)"
-      ((copied++))
+      ((copied++)) || true
       continue
     fi
 
@@ -228,7 +228,7 @@ install_from_dir() {
     mkdir -p "$dest_dir"
     cp -r "$skill_dir"/* "$dest_dir/" 2>/dev/null || cp -r "$skill_dir"/. "$dest_dir/"
     info "  $skill_name → ${dest_dir#"$OSTWIN_HOME"/}"
-    ((copied++))
+    ((copied++)) || true
   done < <(find "$source_dir" -name "SKILL.md" -type f 2>/dev/null)
 
   if [[ $copied -gt 0 ]]; then
@@ -257,7 +257,7 @@ sync_home_skills() {
     local real_path
     real_path="$(realpath "$skill_md" 2>/dev/null || echo "$skill_md")"
     if grep -qxF "$real_path" "$seen_file" 2>/dev/null; then
-      ((skipped++))
+      ((skipped++)) || true
       continue
     fi
     echo "$real_path" >> "$seen_file"
@@ -273,7 +273,7 @@ sync_home_skills() {
        skill_name="$skill_name_meta"
     fi
     
-    ((total++))
+    ((total++)) || true
 
     local safe_name="${skill_name_meta//\"/\\\"}"
     local safe_desc="${skill_desc_meta//\"/\\\"}"
@@ -288,9 +288,9 @@ sync_home_skills() {
       "${DASHBOARD_URL}/api/skills/install" 2>&1) || true
 
     if echo "$result" | grep -q '"status"' 2>/dev/null; then
-      ((installed++))
+      ((installed++)) || true
     else
-      ((failed++))
+      ((failed++)) || true
       info "  ✗ $skill_name"
     fi
   done < <(find "$skills_base/roles" "$skills_base/global" \

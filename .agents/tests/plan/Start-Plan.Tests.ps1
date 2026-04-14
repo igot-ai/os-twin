@@ -47,6 +47,12 @@ Describe "Start-Plan" {
         "Write-Host 'Dummy WaitForMessage'" | Out-File (Join-Path $agentsDir "channel/Wait-ForMessage.ps1") -Encoding utf8
         "Write-Host 'Dummy ReadMessages'" | Out-File (Join-Path $agentsDir "channel/Read-Messages.ps1") -Encoding utf8
         "Write-Host 'Dummy ExpandPlan'" | Out-File (Join-Path $agentsDir "plan/Expand-Plan.ps1") -Encoding utf8
+
+        # Copy lib modules — Start-Plan.ps1 conditionally imports .psm1 from project .agents/lib/
+        $sourceLibDir = Join-Path (Resolve-Path "$PSScriptRoot/../..").Path "lib"
+        Get-ChildItem -Path $sourceLibDir -Filter "*.psm1" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination (Join-Path $agentsDir "lib/")
+        }
     }
 
     Context "Plan parsing" {
