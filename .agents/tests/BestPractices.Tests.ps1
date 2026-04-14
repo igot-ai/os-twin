@@ -1,27 +1,23 @@
 #Requires -Version 7.0
 
+# Compute at script level so Pester 5 discovery can see the test cases
+$libDir = Join-Path $PSScriptRoot '..' 'lib'
+$libTestCases = Get-ChildItem -Path $libDir -Filter '*.psm1' |
+    ForEach-Object { @{ Name = $_.Name; FullName = $_.FullName } }
+
 Describe 'PowerShell Best Practices Compliance' {
 
-    BeforeAll {
-        $script:libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
-        $script:libFiles = Get-ChildItem -Path $script:libDir -Filter '*.psm1'
-    }
-
     Context '#Requires statements' {
-        It "<Name> has #Requires -Version" -ForEach {
-            $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
-            Get-ChildItem -Path $libDir -Filter '*.psm1' | ForEach-Object { @{ Name = $_.Name; FullName = $_.FullName } }
-        } {
+        It "<Name> has #Requires -Version" -TestCases $libTestCases {
+            param($Name, $FullName)
             $content = Get-Content $FullName -Raw
             $content | Should -Match '#Requires\s+-Version'
         }
     }
 
     Context 'No automatic variable shadowing' {
-        It "<Name> does not shadow automatic variables" -ForEach {
-            $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
-            Get-ChildItem -Path $libDir -Filter '*.psm1' | ForEach-Object { @{ Name = $_.Name; FullName = $_.FullName } }
-        } {
+        It "<Name> does not shadow automatic variables" -TestCases $libTestCases {
+            param($Name, $FullName)
             $autoVars = @('pid', 'host', 'input', 'error', 'args', 'home', 'true', 'false', 'null')
             $content = Get-Content $FullName -Raw
             foreach ($v in $autoVars) {
@@ -32,20 +28,16 @@ Describe 'PowerShell Best Practices Compliance' {
     }
 
     Context 'Module exports' {
-        It "<Name> has Export-ModuleMember" -ForEach {
-            $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
-            Get-ChildItem -Path $libDir -Filter '*.psm1' | ForEach-Object { @{ Name = $_.Name; FullName = $_.FullName } }
-        } {
+        It "<Name> has Export-ModuleMember" -TestCases $libTestCases {
+            param($Name, $FullName)
             $content = Get-Content $FullName -Raw
             $content | Should -Match 'Export-ModuleMember'
         }
     }
 
     Context 'CmdletBinding on public functions' {
-        It "<Name> uses [CmdletBinding()] on functions" -ForEach {
-            $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
-            Get-ChildItem -Path $libDir -Filter '*.psm1' | ForEach-Object { @{ Name = $_.Name; FullName = $_.FullName } }
-        } {
+        It "<Name> uses [CmdletBinding()] on functions" -TestCases $libTestCases {
+            param($Name, $FullName)
             $content = Get-Content $FullName -Raw
             $functions = [regex]::Matches($content, '(?m)^\s*function\s+\w')
             if ($functions.Count -gt 0) {
@@ -56,10 +48,8 @@ Describe 'PowerShell Best Practices Compliance' {
     }
 
     Context 'No exit 1 in module files' {
-        It "<Name> does not use exit" -ForEach {
-            $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
-            Get-ChildItem -Path $libDir -Filter '*.psm1' | ForEach-Object { @{ Name = $_.Name; FullName = $_.FullName } }
-        } {
+        It "<Name> does not use exit" -TestCases $libTestCases {
+            param($Name, $FullName)
             $content = Get-Content $FullName -Raw
             $content | Should -Not -Match '\bexit\s+\d'
         }
