@@ -288,6 +288,12 @@ async def store_vault_secret(
     # Auto-sync opencode.json when a provider key changes
     if scope == "providers":
         _try_opencode_sync()
+        _sync_provider_key_to_env(key, request.value)
+        # When the service-account JSON or Google API key changes,
+        # re-run the Vertex env sync so GOOGLE_APPLICATION_CREDENTIALS
+        # and related env vars are kept up-to-date in ~/.ostwin/.env.
+        if key in ("google_service_account", "google"):
+            _try_vertex_env_sync()
 
     return VaultStatusResponse(is_set=True)
 
@@ -326,6 +332,15 @@ async def delete_vault_secret(
     # Auto-sync opencode.json when a provider key is removed
     if scope == "providers":
         _try_opencode_sync()
+        # Comment out the corresponding env var in ~/.ostwin/.env
+        env_var = _PROVIDER_ENV_MAP.get(key)
+        if env_var:
+            try:
+                _remove_env_vars({env_var})
+                os.environ.pop(env_var, None)
+                logger.info("[SETTINGS] Removed %s from .env and os.environ", env_var)
+            except Exception as exc:
+                logger.warning("[SETTINGS] Failed to remove %s from .env: %s", env_var, exc)
 
     return {"status": "deleted"}
 
@@ -417,6 +432,16 @@ _SA_FILE = _OSTWIN_DIR / "google-service-account.json"
 
 # Env vars managed by this sync — never conflate with vault-managed keys.
 _VERTEX_ENV_KEYS = {"GOOGLE_CLOUD_PROJECT", "VERTEX_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS"}
+
+# Map vault provider keys -> env-var names that should be synced to ~/.ostwin/.env.
+# When a provider secret is stored via the vault endpoint, the corresponding
+# env var is upserted into the .env file so that processes reading the file
+# (litellm, plan_agent, etc.) pick up the key immediately.
+_PROVIDER_ENV_MAP: Dict[str, str] = {
+    "google":    "GOOGLE_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai":    "OPENAI_API_KEY",
+}
 
 
 def _sync_vertex_env(providers_value: Dict[str, Any]) -> None:
@@ -558,6 +583,41 @@ def _remove_env_vars(keys_to_remove: set[str]) -> None:
             changed = True
     if changed:
         _ENV_FILE.write_text(_serialize_env_file(entries))
+
+
+def _sync_provider_key_to_env(vault_key: str, secret: str) -> None:
+    """Write a provider API key to ~/.ostwin/.env when it's stored via vault.
+
+    Only known provider keys (google, anthropic, openai) are synced.
+    This ensures that processes reading the .env file (litellm,
+    plan_agent, etc.) see the updated key without a manual edit.
+    """
+    env_var = _PROVIDER_ENV_MAP.get(vault_key)
+    if not env_var or not secret:
+        return
+    try:
+        _upsert_env_vars({env_var: secret})
+        os.environ[env_var] = secret
+        logger.info("[SETTINGS] Synced %s to .env and os.environ", env_var)
+    except Exception as exc:
+        logger.warning("[SETTINGS] Failed to sync %s to .env: %s", env_var, exc)
+
+
+def _try_vertex_env_sync() -> None:
+    """Re-run Vertex env sync using current provider settings.
+
+    Called after a vault secret change (e.g. service-account upload or
+    Google API key update) so that ~/.ostwin/.env stays consistent with
+    the current deployment mode.
+    """
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        providers_dict = master.providers.model_dump(exclude_none=True) if master.providers else {}
+        _sync_vertex_env(providers_dict)
+    except Exception as exc:
+        logger.warning("[SETTINGS] Vertex env re-sync failed: %s", exc)
 
 
 def _decode_if_hex(value: str) -> str:
