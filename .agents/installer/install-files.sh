@@ -181,9 +181,15 @@ _sync_dashboard() {
 
   if [[ -n "$dash_src" ]]; then
     step "Syncing dashboard from $dash_src (override)..."
-    rm -rf "$INSTALL_DIR/dashboard"
     mkdir -p "$INSTALL_DIR/dashboard"
-    rsync -a \
+    # Use incremental rsync with --delete instead of rm -rf + full copy.
+    # Exclude node_modules (588MB) and frontend source files — only the
+    # pre-built output in fe/out/ is needed at runtime.
+    rsync -a --delete \
+      --exclude='node_modules/' \
+      --exclude='fe/src/' \
+      --exclude='fe/.next/' \
+      --exclude='fe/.turbo/' \
       --exclude='__pycache__/' --exclude='*.pyc' --exclude='.DS_Store' \
       "$dash_src/" "$INSTALL_DIR/dashboard/"
     ok "Dashboard → $INSTALL_DIR/dashboard/"
