@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import json
 import logging
@@ -130,6 +131,11 @@ class OSTwinStore:
         self._roles: Optional[zvec.Collection] = None
         self._embed_fn = None
         self._embed_available: Optional[bool] = None
+
+        # Embedding cache — survives zvec collection rebuilds
+        self._embed_cache_path = self.zvec_dir / "embedding_cache.json"
+        self._embed_cache: dict[str, list[float]] = {}
+        self._load_embed_cache()
 
     # ── Collections ────────────────────────────────────────────────────
 
@@ -709,21 +715,70 @@ class OSTwinStore:
             return None
 
     def _embed_texts_batch(self, texts: list[str]) -> list[list[float] | None]:
-        """Embed multiple texts in a single model call — much faster than one-by-one."""
-        fn = self._get_embed_fn()
-        if fn is None:
-            return [None] * len(texts)
+        """Embed multiple texts in a single model call, with disk cache.
 
-        clean = []
-        indices = []
-        for i, t in enumerate(texts):
-            if t and isinstance(t, str) and t.strip():
-                clean.append(t[:2000])
-                indices.append(i)
-
+        Cached embeddings are loaded from ~/.ostwin/.zvec/embedding_cache.json
+        so they survive zvec collection rebuilds. Only uncached texts hit the model.
+        """
         results: list[list[float] | None] = [None] * len(texts)
-        if not clean:
-            return results
+        uncached_texts = []
+        uncached_indices = []
+
+        for i, t in enumerate(texts):
+            if not t or not isinstance(t, str) or not t.strip():
+                continue
+            key = hashlib.md5(t[:2000].encode("utf-8", errors="replace")).hexdigest()
+            cached = self._embed_cache.get(key)
+            if cached is not None:
+                results[i] = cached
+            else:
+                uncached_texts.append(t[:2000])
+                uncached_indices.append((i, key))
+
+        if uncached_texts:
+            fn = self._get_embed_fn()
+            if fn is not None:
+                try:
+                    logger.info(
+                        "Embedding %d texts (%d from cache)",
+                        len(uncached_texts),
+                        len(texts) - len(uncached_texts),
+                    )
+                    embeddings = fn.encode(
+                        uncached_texts, convert_to_numpy=True, show_progress_bar=False
+                    )
+                    for (idx, key), emb in zip(uncached_indices, embeddings):
+                        vec = emb.tolist()
+                        results[idx] = vec
+                        self._embed_cache[key] = vec
+                except Exception as e:
+                    logger.debug("Batch embedding failed: %s", e)
+            self._save_embed_cache()
+
+        return results
+
+    def _load_embed_cache(self):
+        """Load embedding cache from disk."""
+        try:
+            if self._embed_cache_path.exists():
+                with open(self._embed_cache_path, "r") as f:
+                    self._embed_cache = json.load(f)
+                logger.info(
+                    "Loaded %d cached embeddings from %s",
+                    len(self._embed_cache),
+                    self._embed_cache_path,
+                )
+        except Exception as e:
+            logger.debug("Failed to load embedding cache: %s", e)
+            self._embed_cache = {}
+
+    def _save_embed_cache(self):
+        """Persist embedding cache to disk."""
+        try:
+            with open(self._embed_cache_path, "w") as f:
+                json.dump(self._embed_cache, f)
+        except Exception as e:
+            logger.debug("Failed to save embedding cache: %s", e)
 
         try:
             embeddings = fn.encode(
