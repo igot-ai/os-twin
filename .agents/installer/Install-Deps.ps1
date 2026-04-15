@@ -284,8 +284,9 @@ function Install-OpenCode {
         Write-Ok "opencode $ocVer installed"
     }
     else {
-        Write-Warn "opencode installed but not in PATH yet"
+        Write-Fail "opencode installed but not in PATH"
         Write-Info "Restart your terminal or run: . `$PROFILE"
+        throw "opencode not available in PATH — installation cannot continue"
     }
 }
 

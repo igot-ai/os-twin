@@ -267,8 +267,9 @@ install_opencode() {
       local shell_name
       shell_name=$(basename "${SHELL:-/bin/bash}")
       local shell_rc="$HOME/.${shell_name}rc"
-      warn "opencode installed but not in PATH yet"
+      fail "opencode installed but not in PATH"
       info "Run: source $shell_rc  (or open a new terminal)"
+      exit 1
     fi
   fi
 }
