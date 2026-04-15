@@ -267,31 +267,12 @@ sync_home_skills() {
   #
   # The vector store initializes in a background thread after dashboard
   # startup, so we retry for up to 30s until it's ready.
-  step "Waiting for vector store to be ready..."
-  local sync_result=""
-  local _attempt
-  for _attempt in $(seq 1 10); do
-    sync_result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
-      "${DASHBOARD_URL}/api/skills/sync" 2>&1) || true
-
-    if [[ -n "$sync_result" ]] && echo "$sync_result" | grep -q '"synced_count"' 2>/dev/null; then
-      break
-    fi
-    # Store not ready yet — wait and retry
-    sync_result=""
-    sleep 3
-  done
-
-  if [[ -n "$sync_result" ]]; then
-    local synced_count added_count updated_count removed_count
-    synced_count=$(echo "$sync_result" | grep -o '"synced_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-    added_count=$(echo "$sync_result" | grep -o '"added":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
-    updated_count=$(echo "$sync_result" | grep -o '"updated":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
-    removed_count=$(echo "$sync_result" | grep -o '"removed":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
-    ok "Vector store synced: $synced_count changed ($added_count added, $updated_count updated, $removed_count removed)"
-  else
-    warn "Vector store sync failed after ${_attempt} attempts — dashboard may not be reachable"
-  fi
+  step "Triggering vector store sync (runs in background)..."
+  # The sync endpoint embeds all skills (~12s/batch on CPU) and can take
+  # several minutes with 250+ skills. Fire-and-forget so install doesn't block.
+  curl -sf --max-time 5 -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+    "${DASHBOARD_URL}/api/skills/sync" >/dev/null 2>&1 &
+  ok "Skill sync triggered — embeddings will complete in the background"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
