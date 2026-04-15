@@ -328,7 +328,12 @@ async def startup_all():
                 shutil.rmtree(global_state.store.zvec_dir)
                 global_state.store.zvec_dir.mkdir(parents=True, exist_ok=True)
 
+        global_state.store.ensure_collections()
+
         def _background_sync():
+            from dashboard.routes import skills as skills_routes
+
+            skills_routes._sync_in_progress = True
             try:
                 # ── Grace Period ──
                 # Give the browser 5 seconds to load HTML/JS/CSS before we 
@@ -368,6 +373,8 @@ async def startup_all():
                 logger.info("Background zvec sync complete")
             except Exception as e:
                 logger.error("Background zvec sync failed: %s", e)
+            finally:
+                skills_routes._sync_in_progress = False
 
         import threading
 
