@@ -260,14 +260,38 @@ sync_home_skills() {
 
   info "$total SKILL.md file(s) found on disk"
 
-  # The /api/skills/sync endpoint scans all SKILL.md files from the
-  # configured skills directories and bulk-indexes them into the vector
-  # store in a single pass — much faster than hitting /api/skills/install
-  # once per skill (which was 258 sequential curl calls).
-  #
-  # The vector store initializes in a background thread after dashboard
-  # startup, so we retry for up to 30s until it's ready.
-  step "Waiting for vector store to be ready..."
+  # Check if background sync is already running (started by tasks.py on startup)
+  step "Checking sync status..."
+  local status_json=""
+  status_json=$(curl -sf ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+    "${DASHBOARD_URL}/api/skills/sync/status" 2>&1) || true
+
+  local sync_in_progress="false"
+  if [[ -n "$status_json" ]]; then
+    sync_in_progress=$(echo "$status_json" | grep -o '"sync_in_progress":[^,}]*' | grep -o 'true\|false' || echo "false")
+  fi
+
+  if [[ "$sync_in_progress" == "true" ]]; then
+    step "Background sync in progress, waiting for completion..."
+    local _wait_attempt
+    for _wait_attempt in $(seq 1 30); do
+      sleep 2
+      status_json=$(curl -sf ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+        "${DASHBOARD_URL}/api/skills/sync/status" 2>&1) || true
+      if [[ -n "$status_json" ]]; then
+        sync_in_progress=$(echo "$status_json" | grep -o '"sync_in_progress":[^,}]*' | grep -o 'true\|false' || echo "false")
+        if [[ "$sync_in_progress" == "false" ]]; then
+          ok "Background sync completed"
+          return
+        fi
+      fi
+    done
+    warn "Background sync still in progress after 60s — proceeding anyway"
+    return
+  fi
+
+  # No background sync running — trigger sync ourselves
+  step "Triggering vector store sync..."
   local sync_result=""
   local _attempt
   for _attempt in $(seq 1 10); do
@@ -277,7 +301,6 @@ sync_home_skills() {
     if [[ -n "$sync_result" ]] && echo "$sync_result" | grep -q '"synced_count"' 2>/dev/null; then
       break
     fi
-    # Store not ready yet — wait and retry
     sync_result=""
     sleep 3
   done

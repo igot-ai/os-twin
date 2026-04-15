@@ -8,25 +8,40 @@ import httpx
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
 from dashboard.models import (
-    Skill, SkillInstallRequest, SkillSyncResponse,
-    SkillCreateRequest, SkillUpdateRequest, SkillForkRequest,
-    SkillValidateRequest, SkillValidateResponse,
-    SkillDuplicateCheckRequest, SkillDuplicateCheckResponse
+    Skill,
+    SkillInstallRequest,
+    SkillSyncResponse,
+    SkillCreateRequest,
+    SkillUpdateRequest,
+    SkillForkRequest,
+    SkillValidateRequest,
+    SkillValidateResponse,
+    SkillDuplicateCheckRequest,
+    SkillDuplicateCheckResponse,
 )
 from dashboard.api_utils import (
-    SKILLS_DIRS, AGENTS_DIR, PROJECT_ROOT, 
-    parse_skill_md, build_skills_list, save_skill_md,
-    get_active_epics_using_skill
+    SKILLS_DIRS,
+    AGENTS_DIR,
+    PROJECT_ROOT,
+    parse_skill_md,
+    build_skills_list,
+    save_skill_md,
+    get_active_epics_using_skill,
 )
 import dashboard.global_state as global_state
 from dashboard.auth import get_current_user
 
 router = APIRouter(tags=["skills"])
 logger = logging.getLogger(__name__)
+
+_sync_lock = asyncio.Lock()
+_sync_in_progress = False
+_sync_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="skills-sync")
 
 
 def _normalize_skill_name(name: str) -> str:
@@ -46,17 +61,29 @@ def _find_skill_on_disk(name: str) -> Optional[Dict[str, Any]]:
         candidate = sdir / folder_name
         if candidate.is_dir() and (candidate / "SKILL.md").exists():
             skill_data = parse_skill_md(candidate)
-            if skill_data and _normalize_skill_name(skill_data.get("name", "")) == wanted_name:
+            if (
+                skill_data
+                and _normalize_skill_name(skill_data.get("name", "")) == wanted_name
+            ):
                 return skill_data
 
         # Fallback for skills whose display name differs from the folder name.
         for skill_md in sdir.rglob("SKILL.md"):
             path = skill_md.parent
-            rel_parts = path.relative_to(sdir).parts if path.is_relative_to(sdir) else path.parts
-            if any(p in ("references", ".versions") for p in rel_parts): # skip reference/archive copies
+            rel_parts = (
+                path.relative_to(sdir).parts
+                if path.is_relative_to(sdir)
+                else path.parts
+            )
+            if any(
+                p in ("references", ".versions") for p in rel_parts
+            ):  # skip reference/archive copies
                 continue
             skill_data = parse_skill_md(path)
-            if skill_data and _normalize_skill_name(skill_data.get("name", "")) == wanted_name:
+            if (
+                skill_data
+                and _normalize_skill_name(skill_data.get("name", "")) == wanted_name
+            ):
                 return skill_data
 
     return None
@@ -110,20 +137,26 @@ def _matches_text_query(skill: Skill, query: str) -> bool:
     terms = [term for term in re.split(r"\s+", query_l) if term]
     return bool(terms) and all(term in haystack for term in terms)
 
+
 @router.get("/api/skills", response_model=List[Skill])
 async def list_skills(
-    role: Optional[str] = None, 
+    role: Optional[str] = None,
     tags: List[str] = Query([]),
     include_disabled: bool = Query(False),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """List all available skills with optional filtering."""
-    skills = build_skills_list(role=role, tags=tags, include_drafts=True, include_disabled=include_disabled)
+    skills = build_skills_list(
+        role=role, tags=tags, include_drafts=True, include_disabled=include_disabled
+    )
     current_username = user.get("username", "unknown")
     filtered = [s for s in skills if not s.is_draft or s.author == current_username]
     if role:
-        filtered = [s for s in filtered if not s.applicable_roles or role in s.applicable_roles]
+        filtered = [
+            s for s in filtered if not s.applicable_roles or role in s.applicable_roles
+        ]
     return filtered
+
 
 @router.get("/api/skills/search", response_model=List[Skill])
 async def search_skills_endpoint(
@@ -132,7 +165,7 @@ async def search_skills_endpoint(
     tags: List[str] = Query([]),
     limit: int = Query(50, ge=1, le=100, description="Max results to return"),
     include_disabled: bool = Query(False),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Semantic search for skills with role-based post-filtering."""
     store = global_state.store
@@ -176,8 +209,11 @@ async def search_skills_endpoint(
     current_username = user.get("username", "unknown")
     filtered = [s for s in skills if not s.is_draft or s.author == current_username]
     if role:
-        filtered = [s for s in filtered if not s.applicable_roles or role in s.applicable_roles]
+        filtered = [
+            s for s in filtered if not s.applicable_roles or role in s.applicable_roles
+        ]
     return filtered
+
 
 @router.get("/api/skills/tags", response_model=List[str])
 async def list_skill_tags(user: dict = Depends(get_current_user)):
@@ -189,12 +225,15 @@ async def list_skill_tags(user: dict = Depends(get_current_user)):
             tags.add(t)
     return sorted(list(tags))
 
+
 @router.get("/api/skills/roles", response_model=List[str])
 async def list_skill_roles(user: dict = Depends(get_current_user)):
     """List all available roles from the registry."""
     from dashboard.api_utils import build_roles_list
-    roles = build_roles_list({}) # Empty config to get all registry roles
+
+    roles = build_roles_list({})  # Empty config to get all registry roles
     return [r["name"] for r in roles]
+
 
 # ─── ClawhHub Marketplace (search must be registered before {name} wildcard) ──
 
@@ -297,7 +336,9 @@ async def clawhub_search(
             data = resp.json()
 
         if data.get("status") != "success":
-            raise HTTPException(status_code=502, detail="Unexpected response from ClawhHub")
+            raise HTTPException(
+                status_code=502, detail="Unexpected response from ClawhHub"
+            )
 
         value = data["value"]
 
@@ -365,7 +406,8 @@ async def clawhub_installed(user: dict = Depends(get_current_user)):
                     origin_data = json.loads(origin.read_text())
                     installed[child.name] = {
                         "slug": child.name,
-                        "version": origin_data.get("installedVersion") or origin_data.get("version"),
+                        "version": origin_data.get("installedVersion")
+                        or origin_data.get("version"),
                         "installedAt": origin_data.get("installedAt"),
                     }
                 except Exception:
@@ -381,7 +423,11 @@ async def toggle_skill(name: str, user: dict = Depends(get_current_user)):
     new_enabled = not getattr(skill, "enabled", True)
 
     disk_skill_data = _find_skill_on_disk(skill.name)
-    skill_path = Path(skill.path) if skill.path and (Path(skill.path) / "SKILL.md").exists() else None
+    skill_path = (
+        Path(skill.path)
+        if skill.path and (Path(skill.path) / "SKILL.md").exists()
+        else None
+    )
     if not skill_path and disk_skill_data:
         skill_path = Path(disk_skill_data["path"])
 
@@ -394,7 +440,9 @@ async def toggle_skill(name: str, user: dict = Depends(get_current_user)):
 
     updated_data = parse_skill_md(skill_path)
     if not updated_data:
-        raise HTTPException(status_code=500, detail=f"Failed to reload updated skill '{name}' from disk")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reload updated skill '{name}' from disk"
+        )
 
     store = global_state.store
     if store:
@@ -422,13 +470,16 @@ async def get_skill(name: str, user: dict = Depends(get_current_user)):
 
     if not skill_data:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
-        
+
     skill = Skill(**skill_data)
     skill.active_epics_count = get_active_epics_using_skill(skill.name)
     return skill
 
+
 @router.get("/api/skills/{name}/versions/{version}")
-async def get_skill_version(name: str, version: str, user: dict = Depends(get_current_user)):
+async def get_skill_version(
+    name: str, version: str, user: dict = Depends(get_current_user)
+):
     """Fetch raw instruction template for a historical version of a skill."""
     current_data = _find_skill_on_disk(name)
     if current_data:
@@ -439,27 +490,38 @@ async def get_skill_version(name: str, version: str, user: dict = Depends(get_cu
         version_filename = f"v{version}.md"
         version_file = path / ".versions" / version_filename
         if version_file.exists():
-            historical_data = parse_skill_md(path, filename=f".versions/{version_filename}")
+            historical_data = parse_skill_md(
+                path, filename=f".versions/{version_filename}"
+            )
             if historical_data:
                 return {"content": historical_data.get("content", "")}
 
-    raise HTTPException(status_code=404, detail=f"Version {version} of skill '{name}' not found")
+    raise HTTPException(
+        status_code=404, detail=f"Version {version} of skill '{name}' not found"
+    )
+
 
 @router.post("/api/skills/install")
-async def install_skill(req: SkillInstallRequest, user: dict = Depends(get_current_user)):
+async def install_skill(
+    req: SkillInstallRequest, user: dict = Depends(get_current_user)
+):
     """Install a new skill from a local filesystem path."""
     path = Path(req.path)
     if not path.exists() or not path.is_dir():
-        raise HTTPException(status_code=400, detail="Path does not exist or is not a directory")
-    
+        raise HTTPException(
+            status_code=400, detail="Path does not exist or is not a directory"
+        )
+
     skill_md = path / "SKILL.md"
     if not skill_md.exists():
-        raise HTTPException(status_code=400, detail="Directory must contain a valid SKILL.md file")
-    
+        raise HTTPException(
+            status_code=400, detail="Directory must contain a valid SKILL.md file"
+        )
+
     data = parse_skill_md(path)
     if not data:
         raise HTTPException(status_code=400, detail="Failed to parse SKILL.md")
-    
+
     store = global_state.store
     if store:
         store.index_skill(
@@ -470,20 +532,44 @@ async def install_skill(req: SkillInstallRequest, user: dict = Depends(get_curre
             relative_path=data.get("relative_path", ""),
             trust_level=data["trust_level"],
             source=data["source"],
-            content=data["content"]
+            content=data["content"],
         )
-            
+
     return {"status": "installed", "skill": data["name"]}
+
+
+@router.get("/api/skills/sync/status")
+async def sync_status_endpoint(user: dict = Depends(get_current_user)):
+    """Check if a skills sync is currently in progress."""
+    return {"sync_in_progress": _sync_in_progress}
+
 
 @router.post("/api/skills/sync", response_model=SkillSyncResponse)
 async def sync_skills_endpoint(user: dict = Depends(get_current_user)):
     """Synchronize the vector database with on-disk skills directories."""
+    global _sync_in_progress
+
     store = global_state.store
     if not store:
         raise HTTPException(status_code=503, detail="Vector store not available")
-    
-    result = store.sync_skills(SKILLS_DIRS)
-    return SkillSyncResponse(**result)
+
+    if _sync_in_progress:
+        return SkillSyncResponse(synced_count=0, added=[], updated=[], removed=[])
+
+    async with _sync_lock:
+        if _sync_in_progress:
+            return SkillSyncResponse(synced_count=0, added=[], updated=[], removed=[])
+        _sync_in_progress = True
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            _sync_executor, store.sync_skills, SKILLS_DIRS
+        )
+        return SkillSyncResponse(**result)
+    finally:
+        _sync_in_progress = False
+
 
 @router.post("/api/skills", response_model=Skill)
 async def create_skill(req: SkillCreateRequest, user: dict = Depends(get_current_user)):
@@ -491,8 +577,10 @@ async def create_skill(req: SkillCreateRequest, user: dict = Depends(get_current
     # Check for name uniqueness
     existing = build_skills_list()
     if any(s.name.lower() == req.name.lower() for s in existing):
-        raise HTTPException(status_code=400, detail=f"Skill with name '{req.name}' already exists")
-    
+        raise HTTPException(
+            status_code=400, detail=f"Skill with name '{req.name}' already exists"
+        )
+
     timestamp = datetime.now(timezone.utc).timestamp()
     skill_data = {
         "name": req.name,
@@ -504,37 +592,56 @@ async def create_skill(req: SkillCreateRequest, user: dict = Depends(get_current
         "is_draft": req.is_draft,
         "author": user.get("username", "unknown"),
         "version": "1.0.0" if not req.is_draft else "0.1.0",
-        "changelog": [{"version": "1.0.0" if not req.is_draft else "0.1.0", "date": timestamp, "changes": "Initial creation"}]
+        "changelog": [
+            {
+                "version": "1.0.0" if not req.is_draft else "0.1.0",
+                "date": timestamp,
+                "changes": "Initial creation",
+            }
+        ],
     }
-    
+
     path = save_skill_md(skill_data)
     indexed_data = parse_skill_md(path)
-    
+
     store = global_state.store
     if store:
-        idx = {k: v for k, v in indexed_data.items() if k not in ("updated_at", "score", "active_epics_count")}
+        idx = {
+            k: v
+            for k, v in indexed_data.items()
+            if k not in ("updated_at", "score", "active_epics_count")
+        }
         store.index_skill(**idx)
 
     return Skill(**indexed_data)
 
+
 @router.put("/api/skills/{name}", response_model=Skill)
-async def update_skill(name: str, req: SkillUpdateRequest, user: dict = Depends(get_current_user)):
+async def update_skill(
+    name: str, req: SkillUpdateRequest, user: dict = Depends(get_current_user)
+):
     """Update an existing skill."""
     # Fetch existing skill
     skill_data = await get_skill(name, user)
     if not skill_data:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
-    
+
     skill_dict = skill_data.dict()
-    
+
     # Apply updates
-    if req.description is not None: skill_dict["description"] = req.description
-    if req.category is not None: skill_dict["category"] = req.category
-    if req.applicable_roles is not None: skill_dict["applicable_roles"] = req.applicable_roles
-    if req.tags is not None: skill_dict["tags"] = req.tags
-    if req.content is not None: skill_dict["content"] = req.content
-    if req.is_draft is not None: skill_dict["is_draft"] = req.is_draft
-    
+    if req.description is not None:
+        skill_dict["description"] = req.description
+    if req.category is not None:
+        skill_dict["category"] = req.category
+    if req.applicable_roles is not None:
+        skill_dict["applicable_roles"] = req.applicable_roles
+    if req.tags is not None:
+        skill_dict["tags"] = req.tags
+    if req.content is not None:
+        skill_dict["content"] = req.content
+    if req.is_draft is not None:
+        skill_dict["is_draft"] = req.is_draft
+
     # Version bump logic
     current_version = skill_dict.get("version", "1.0.0")
     major, minor, patch = map(int, current_version.split("."))
@@ -542,44 +649,56 @@ async def update_skill(name: str, req: SkillUpdateRequest, user: dict = Depends(
         new_version = f"{major + 1}.0.0"
     else:
         new_version = f"{major}.{minor + 1}.0"
-    
+
     skill_dict["version"] = new_version
-    
+
     # Add changelog entry
     changelog = skill_dict.get("changelog", [])
     timestamp = datetime.now(timezone.utc).timestamp()
-    changelog.insert(0, {
-        "version": new_version,
-        "date": timestamp,
-        "changes": req.change_description or "Manual update"
-    })
+    changelog.insert(
+        0,
+        {
+            "version": new_version,
+            "date": timestamp,
+            "changes": req.change_description or "Manual update",
+        },
+    )
     skill_dict["changelog"] = changelog
-    
+
     # Save back to disk
     path = Path(skill_dict["path"])
     save_skill_md(skill_dict, path=path)
-    
+
     # Update index
     store = global_state.store
     if store:
         indexed_data = parse_skill_md(path)
-        idx = {k: v for k, v in indexed_data.items() if k not in ("updated_at", "score", "active_epics_count")}
+        idx = {
+            k: v
+            for k, v in indexed_data.items()
+            if k not in ("updated_at", "score", "active_epics_count")
+        }
         store.index_skill(**idx)
         return Skill(**indexed_data)
 
     return Skill(**skill_dict)
 
+
 @router.post("/api/skills/{name}/fork", response_model=Skill)
-async def fork_skill(name: str, req: SkillForkRequest, user: dict = Depends(get_current_user)):
+async def fork_skill(
+    name: str, req: SkillForkRequest, user: dict = Depends(get_current_user)
+):
     """Fork an existing skill."""
     original = await get_skill(name, user)
     if not original:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
-        
+
     # Check for name uniqueness
     existing = build_skills_list()
     if any(s.name.lower() == req.name.lower() for s in existing):
-        raise HTTPException(status_code=400, detail=f"Skill with name '{req.name}' already exists")
+        raise HTTPException(
+            status_code=400, detail=f"Skill with name '{req.name}' already exists"
+        )
 
     fork_data = original.dict()
     fork_data["name"] = req.name
@@ -587,28 +706,37 @@ async def fork_skill(name: str, req: SkillForkRequest, user: dict = Depends(get_
     fork_data["author"] = user.get("username", "unknown")
     fork_data["forked_from"] = name
     timestamp = datetime.now(timezone.utc).timestamp()
-    fork_data["changelog"] = [{"version": "1.0.0", "date": timestamp, "changes": f"Forked from {name}"}]
+    fork_data["changelog"] = [
+        {"version": "1.0.0", "date": timestamp, "changes": f"Forked from {name}"}
+    ]
     fork_data.pop("path", None)
     fork_data.pop("relative_path", None)
-    
+
     path = save_skill_md(fork_data)
     indexed_data = parse_skill_md(path)
-    
+
     store = global_state.store
     if store:
-        idx = {k: v for k, v in indexed_data.items() if k not in ("updated_at", "score", "active_epics_count")}
+        idx = {
+            k: v
+            for k, v in indexed_data.items()
+            if k not in ("updated_at", "score", "active_epics_count")
+        }
         store.index_skill(**idx)
 
     return Skill(**indexed_data)
 
+
 @router.delete("/api/skills/{name}", status_code=204)
-async def delete_skill(name: str, force: bool = False, user: dict = Depends(get_current_user)):
+async def delete_skill(
+    name: str, force: bool = False, user: dict = Depends(get_current_user)
+):
     """Delete a skill from disk and vector store."""
     active_count = get_active_epics_using_skill(name)
     if active_count > 0 and not force:
         raise HTTPException(
             status_code=409,
-            detail=f"Skill '{name}' is used by {active_count} active epic(s). Use force=true to delete anyway."
+            detail=f"Skill '{name}' is used by {active_count} active epic(s). Use force=true to delete anyway.",
         )
 
     disk_skill_data = _find_skill_on_disk(name)
@@ -625,17 +753,26 @@ async def delete_skill(name: str, force: bool = False, user: dict = Depends(get_
 
     return
 
+
 @router.post("/api/skills/validate", response_model=SkillValidateResponse)
-async def validate_skill_template(req: SkillValidateRequest, user: dict = Depends(get_current_user)):
+async def validate_skill_template(
+    req: SkillValidateRequest, user: dict = Depends(get_current_user)
+):
     """Validate skill instruction template and return markers for editor."""
     content = req.content
     errors = []
     warnings = []
     markers = []
-    
+
     # Known variables
-    KNOWN_VARS = {"task_description", "working_dir", "definition_of_done", "acceptance_criteria", "previous_feedback"}
-    
+    KNOWN_VARS = {
+        "task_description",
+        "working_dir",
+        "definition_of_done",
+        "acceptance_criteria",
+        "previous_feedback",
+    }
+
     # Simple line/col calculation helper
     def get_pos(offset):
         lines = content[:offset].split("\n")
@@ -647,15 +784,17 @@ async def validate_skill_template(req: SkillValidateRequest, user: dict = Depend
         # Heuristic markers for mismatched brackets
         for m in re.finditer(r"\{\{[^\}]*$", content, re.MULTILINE):
             line, col = get_pos(m.start())
-            markers.append({
-                "message": "Unclosed bracket '{{'",
-                "severity": 8, # Error
-                "startLineNumber": line,
-                "startColumn": col,
-                "endLineNumber": line,
-                "endColumn": col + 2
-            })
-    
+            markers.append(
+                {
+                    "message": "Unclosed bracket '{{'",
+                    "severity": 8,  # Error
+                    "startLineNumber": line,
+                    "startColumn": col,
+                    "endLineNumber": line,
+                    "endColumn": col + 2,
+                }
+            )
+
     # Check for unknown variables
     for m in re.finditer(r"\{\{([^}]+)\}\}", content):
         var = m.group(1).strip()
@@ -663,32 +802,34 @@ async def validate_skill_template(req: SkillValidateRequest, user: dict = Depend
             line, col = get_pos(m.start())
             msg = f"Unknown template variable: '{{{{{var}}}}}'"
             warnings.append(msg)
-            markers.append({
-                "message": msg,
-                "severity": 4, # Warning
-                "startLineNumber": line,
-                "startColumn": col,
-                "endLineNumber": line,
-                "endColumn": col + len(m.group(0))
-            })
-            
+            markers.append(
+                {
+                    "message": msg,
+                    "severity": 4,  # Warning
+                    "startLineNumber": line,
+                    "startColumn": col,
+                    "endLineNumber": line,
+                    "endColumn": col + len(m.group(0)),
+                }
+            )
+
     # Check length
     if len(content) < 50:
         errors.append("Instruction template is too short (minimum 50 characters)")
-        
+
     return SkillValidateResponse(
-        valid=len(errors) == 0,
-        errors=errors,
-        warnings=warnings,
-        markers=markers
+        valid=len(errors) == 0, errors=errors, warnings=warnings, markers=markers
     )
 
+
 @router.post("/api/skills/check-duplicate", response_model=SkillDuplicateCheckResponse)
-async def check_duplicate_skill(req: SkillDuplicateCheckRequest, user: dict = Depends(get_current_user)):
+async def check_duplicate_skill(
+    req: SkillDuplicateCheckRequest, user: dict = Depends(get_current_user)
+):
     """Check for similar existing skills."""
     name = req.name.lower()
     existing_skills = build_skills_list()
-    
+
     similar = []
     for s in existing_skills:
         if name in s.name.lower() or s.name.lower() in name:
@@ -696,10 +837,10 @@ async def check_duplicate_skill(req: SkillDuplicateCheckRequest, user: dict = De
         # Simple Levenshtein substitute: check for high overlap or common words
         elif len(set(name.split()) & set(s.name.lower().split())) >= 2:
             similar.append(s.name)
-            
+
     return SkillDuplicateCheckResponse(
         is_duplicate=any(s.name.lower() == name for s in existing_skills),
-        similar_skills=similar[:5]
+        similar_skills=similar[:5],
     )
 
 
@@ -769,9 +910,14 @@ async def clawhub_install(
             # Use --workdir and --dir so clawhub installs into
             # ~/.ostwin/.agents/skills/<slug> regardless of its own global defaults.
             proc = await asyncio.create_subprocess_exec(
-                "npx", "clawhub", "install", skill_name,
-                "--workdir", str(_CLAWHUB_WORKDIR),
-                "--dir", "skills",
+                "npx",
+                "clawhub",
+                "install",
+                skill_name,
+                "--workdir",
+                str(_CLAWHUB_WORKDIR),
+                "--dir",
+                "skills",
                 "--no-input",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -785,7 +931,12 @@ async def clawhub_install(
 
             if proc.returncode != 0:
                 detail = (stderr or stdout or b"").decode(errors="replace")
-                logger.error("clawhub-install failed by=%s skill=%s: %s", username, skill_name, detail)
+                logger.error(
+                    "clawhub-install failed by=%s skill=%s: %s",
+                    username,
+                    skill_name,
+                    detail,
+                )
                 raise HTTPException(
                     status_code=500,
                     detail="clawhub install failed. Check server logs for details.",
@@ -801,9 +952,16 @@ async def clawhub_install(
                     store = global_state.store
                     if store:
                         _index_skill_from_disk(store, skill_data)
-                        logger.info("clawhub-install indexed skill=%s into zvec", skill_name)
+                        logger.info(
+                            "clawhub-install indexed skill=%s into zvec", skill_name
+                        )
 
-            logger.info("clawhub-install success by=%s skill=%s dest=%s", username, skill_name, dest)
+            logger.info(
+                "clawhub-install success by=%s skill=%s dest=%s",
+                username,
+                skill_name,
+                dest,
+            )
             return {
                 "status": "installed",
                 "skill": skill_name,

@@ -40,8 +40,12 @@ async def poll_war_rooms():
         """
         nonlocal _cached_warroom_dirs, _cached_warroom_dirs_time
         import time
+
         now = time.monotonic()
-        if _cached_warroom_dirs and (now - _cached_warroom_dirs_time) < _WARROOM_CACHE_TTL:
+        if (
+            _cached_warroom_dirs
+            and (now - _cached_warroom_dirs_time) < _WARROOM_CACHE_TTL
+        ):
             return _cached_warroom_dirs
 
         dirs = set()
@@ -148,9 +152,15 @@ async def poll_war_rooms():
                             epic_ref = room.get("task_ref", "")
                             if epic_ref:
                                 try:
-                                    EpicSkillsManager.inject_room_assets(room_parent / room_id, plan_id, epic_ref)
+                                    EpicSkillsManager.inject_room_assets(
+                                        room_parent / room_id, plan_id, epic_ref
+                                    )
                                 except Exception as e:
-                                    logger.warning("Failed to inject assets for room %s: %s", room_id, e)
+                                    logger.warning(
+                                        "Failed to inject assets for room %s: %s",
+                                        room_id,
+                                        e,
+                                    )
 
                     if room_parent and room["message_count"] > 0:
                         messages = read_channel(room_parent / room_id)
@@ -291,12 +301,10 @@ async def startup_all():
 
         global_state.store.ensure_collections()
 
-        # Run the heavy embedding sync in a background thread so uvicorn
-        # can start accepting connections immediately.  The sync generates
-        # embeddings for every skill/role/message which takes ~5 min on
-        # first run (57 skills * ~5s each).  Blocking the event loop here
-        # causes the install-script health-check to time out.
         def _background_sync():
+            from dashboard.routes import skills as skills_routes
+
+            skills_routes._sync_in_progress = True
             try:
                 global_state.store.sync_from_disk()
                 from dashboard.api_utils import SKILLS_DIRS
@@ -315,6 +323,8 @@ async def startup_all():
                 logger.info("Background zvec sync complete")
             except Exception as e:
                 logger.error("Background zvec sync failed: %s", e)
+            finally:
+                skills_routes._sync_in_progress = False
 
         import threading
 
