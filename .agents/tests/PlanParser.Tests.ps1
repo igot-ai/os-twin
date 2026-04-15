@@ -318,17 +318,8 @@ depends_on: []
     }
 
     It 'parses depends_on inside yaml code block' {
-        $md = @"
-## EPIC-002 - Depends Via YAML
-#### Definition of Done
-- [ ] Done
-#### Acceptance Criteria
-- [ ] AC
-
-```yaml
-depends_on: ["EPIC-001"]
-```
-"@
+        $fence = '```'
+        $md = "## EPIC-002 - Depends Via YAML`n#### Definition of Done`n- [ ] Done`n#### Acceptance Criteria`n- [ ] AC`n`n${fence}yaml`ndepends_on: [""EPIC-001""]`n${fence}"
         $result = ConvertFrom-PlanMarkdown -Content $md
         $result[0].DependsOn.Count | Should -Be 1
         $result[0].DependsOn | Should -Contain 'EPIC-001'
@@ -376,19 +367,8 @@ Just some text without checkboxes.
     }
 
     It 'extracts Lifecycle directive' {
-        $md = @"
-## EPIC-001 - With Lifecycle
-Lifecycle:
-```yaml
-on_complete: notify
-on_fail: retry
-```
-#### Definition of Done
-- [ ] Done
-#### Acceptance Criteria
-- [ ] AC
-depends_on: []
-"@
+        $fence = '```'
+        $md = "## EPIC-001 - With Lifecycle`nLifecycle:`n${fence}yaml`non_complete: notify`non_fail: retry`n${fence}`n#### Definition of Done`n- [ ] Done`n#### Acceptance Criteria`n- [ ] AC`ndepends_on: []"
         $result = ConvertFrom-PlanMarkdown -Content $md
         $result[0].Lifecycle | Should -Not -BeNullOrEmpty
         $result[0].Lifecycle | Should -Match 'on_complete'
