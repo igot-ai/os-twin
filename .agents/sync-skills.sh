@@ -244,87 +244,53 @@ sync_home_skills() {
   local skills_base="$OSTWIN_HOME/.agents/skills"
   step "Scanning $skills_base for SKILL.md files..."
 
+  # Count skills on disk for reporting
   local total=0
-  local installed=0
-  local failed=0
-  local skipped=0
-  local seen_file
-  seen_file="$(mktemp)"
-  trap "rm -f '$seen_file'" RETURN
+  total=$(find "$skills_base/roles" "$skills_base/global" \
+           -name "SKILL.md" -type f \
+           -not -path "*/.git/*" \
+           -not -path "*/node_modules/*" \
+           -not -path "*/__pycache__/*" \
+           2>/dev/null | wc -l | tr -d ' ')
 
-  while IFS= read -r skill_md; do
-    # Deduplicate via realpath (catches symlinks & overlapping mounts)
-    local real_path
-    real_path="$(realpath "$skill_md" 2>/dev/null || echo "$skill_md")"
-    if grep -qxF "$real_path" "$seen_file" 2>/dev/null; then
-      ((skipped++)) || true
-      continue
-    fi
-    echo "$real_path" >> "$seen_file"
-
-    local skill_dir
-    skill_dir="$(dirname "$skill_md")"
-    local skill_name
-    skill_name="$(basename "$skill_dir")"
-
-    local skill_name_meta="" skill_desc_meta="" skill_tags_meta=""
-    eval "$(extract_skill_meta "$skill_md")"
-    if [[ -n "$skill_name_meta" ]]; then
-       skill_name="$skill_name_meta"
-    fi
-    
-    ((total++)) || true
-
-    local safe_name="${skill_name_meta//\"/\\\"}"
-    local safe_desc="${skill_desc_meta//\"/\\\"}"
-    local safe_tags="${skill_tags_meta//\"/\\\"}"
-
-    # Install via API
-    local json_payload="{\"path\": \"$skill_dir\", \"name\": \"$safe_name\", \"description\": \"$safe_desc\", \"tags\": \"$safe_tags\"}"
-    local result=""
-    result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
-      -H "Content-Type: application/json" \
-      -d "$json_payload" \
-      "${DASHBOARD_URL}/api/skills/install" 2>&1) || true
-
-    if echo "$result" | grep -q '"status"' 2>/dev/null; then
-      ((installed++)) || true
-    else
-      ((failed++)) || true
-      info "  ✗ $skill_name"
-    fi
-  done < <(find "$skills_base/roles" "$skills_base/global" \
-             -name "SKILL.md" -type f \
-             -not -path "*/.git/*" \
-             -not -path "*/node_modules/*" \
-             -not -path "*/__pycache__/*" \
-             2>/dev/null)
-
-  if [[ $total -eq 0 ]]; then
+  if [[ "$total" -eq 0 ]]; then
     warn "No SKILL.md files found in $skills_base"
     return
   fi
 
-  ok "$installed/$total skill(s) registered via API"
-  if [[ $skipped -gt 0 ]]; then
-    info "$skipped duplicate path(s) skipped"
-  fi
-  if [[ $failed -gt 0 ]]; then
-    warn "$failed skill(s) failed — dashboard may not be reachable"
-  fi
+  info "$total SKILL.md file(s) found on disk"
 
-  # Final sync to ensure vector store is consistent
-  step "Finalizing vector store sync..."
+  # The /api/skills/sync endpoint scans all SKILL.md files from the
+  # configured skills directories and bulk-indexes them into the vector
+  # store in a single pass — much faster than hitting /api/skills/install
+  # once per skill (which was 258 sequential curl calls).
+  #
+  # The vector store initializes in a background thread after dashboard
+  # startup, so we retry for up to 30s until it's ready.
+  step "Waiting for vector store to be ready..."
   local sync_result=""
-  sync_result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
-    "${DASHBOARD_URL}/api/skills/sync" 2>&1) || true
+  local _attempt
+  for _attempt in $(seq 1 10); do
+    sync_result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+      "${DASHBOARD_URL}/api/skills/sync" 2>&1) || true
+
+    if [[ -n "$sync_result" ]] && echo "$sync_result" | grep -q '"synced_count"' 2>/dev/null; then
+      break
+    fi
+    # Store not ready yet — wait and retry
+    sync_result=""
+    sleep 3
+  done
 
   if [[ -n "$sync_result" ]]; then
-    local synced_count
+    local synced_count added_count updated_count removed_count
     synced_count=$(echo "$sync_result" | grep -o '"synced_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-    ok "Vector store synced ($synced_count updated)"
+    added_count=$(echo "$sync_result" | grep -o '"added":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
+    updated_count=$(echo "$sync_result" | grep -o '"updated":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
+    removed_count=$(echo "$sync_result" | grep -o '"removed":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
+    ok "Vector store synced: $synced_count changed ($added_count added, $updated_count updated, $removed_count removed)"
   else
-    warn "Vector store sync returned empty — store may be unavailable"
+    warn "Vector store sync failed after ${_attempt} attempts — dashboard may not be reachable"
   fi
 }
 
