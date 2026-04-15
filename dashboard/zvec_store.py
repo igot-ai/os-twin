@@ -22,7 +22,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 import zvec
-from sentence_transformers import SentenceTransformer
+# NOTE: sentence_transformers is imported lazily in _get_embed_fn() to avoid
+# pulling in PyTorch at module load time, which adds 10-15s to startup.
 
 from datetime import datetime
 import uuid_utils
@@ -127,8 +128,11 @@ class OSTwinStore:
     def ensure_collections(self) -> None:
         """Create or open all collections."""
         zvec.init(log_level=zvec.LogLevel.WARN)
-        # Ensure model is loaded and dynamic EMBEDDING_DIM is set before opening
-        self._get_embed_fn()
+        # Infer EMBEDDING_DIM from an existing collection if possible,
+        # so we don't need to load the SentenceTransformer model (and
+        # PyTorch) during startup.  The model will be lazy-loaded on
+        # first embed call, which happens in the background sync thread.
+        self._infer_embedding_dim()
         # Check for migrations first
         self.migrate_collections()
         self._messages = self._open_or_create_messages()
@@ -140,6 +144,33 @@ class OSTwinStore:
         self._changes = self._open_or_create_changes()
         self._roles = self._open_or_create_roles()
         logger.info("zvec collections ready at %s", self.zvec_dir)
+
+    def _infer_embedding_dim(self) -> None:
+        """Try to read embedding dim from an existing collection, avoiding
+        a full model load during startup.  Falls back to the Harrier default
+        (1024) so collections can still be created on a fresh install."""
+        global EMBEDDING_DIM
+        for name in (SKILLS_COLLECTION, MESSAGES_COLLECTION, METADATA_COLLECTION):
+            path = self.zvec_dir / name
+            if path.exists():
+                try:
+                    col = zvec.open(str(path))
+                    vectors = col.schema.vectors
+                    dim = None
+                    if isinstance(vectors, list) and len(vectors) > 0:
+                        dim = vectors[0].dimension
+                    elif hasattr(vectors, 'dimension'):
+                        dim = vectors.dimension
+                    col = None  # release
+                    if dim and dim > 0:
+                        EMBEDDING_DIM = dim
+                        logger.info("Inferred embedding dim=%d from existing %s collection", dim, name)
+                        return
+                except Exception:
+                    pass
+        # No existing collections — use the known Harrier default
+        EMBEDDING_DIM = 1024  # microsoft/harrier-oss-v1-0.6b
+        logger.info("Using default embedding dim=%d (model will load lazily)", EMBEDDING_DIM)
 
     def migrate_collections(self) -> dict:
         """Check all collections and migrate if time_id is missing."""
@@ -528,6 +559,7 @@ class OSTwinStore:
         if self._embed_fn is not None:
             return self._embed_fn
         try:
+            from sentence_transformers import SentenceTransformer
             model_name = OSTWIN_EMBED_MODEL
             logger.info("Loading SentenceTransformer model: %s", model_name)
             self._embed_fn = SentenceTransformer(model_name, model_kwargs={"dtype": "auto"})

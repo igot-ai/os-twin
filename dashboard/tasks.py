@@ -298,6 +298,10 @@ async def startup_all():
         # causes the install-script health-check to time out.
         def _background_sync():
             try:
+                # Pre-load the embedding model here (in the background thread)
+                # rather than during startup, so uvicorn can start accepting
+                # connections immediately.
+                global_state.store._get_embed_fn()
                 global_state.store.sync_from_disk()
                 from dashboard.api_utils import SKILLS_DIRS
 
