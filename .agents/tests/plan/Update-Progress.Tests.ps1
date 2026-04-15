@@ -4,22 +4,7 @@ BeforeAll {
     $script:UpdateProgress = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Update-Progress.ps1"
     $script:agentsDir = (Resolve-Path (Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "..")).Path
     $script:NewWarRoom = Join-Path $script:agentsDir "war-rooms" "New-WarRoom.ps1"
-    # Build-DependencyGraph.ps1 was removed — inline helper
-    function script:Write-TestDag {
-        param([string]$WarRoomsDir)
-        $nodes = @{}
-        foreach ($room in (Get-ChildItem $WarRoomsDir -Directory -Filter "room-*")) {
-            $cfg = Get-Content (Join-Path $room.FullName "config.json") -Raw | ConvertFrom-Json
-            $deps = @()
-            if ($cfg.depends_on) { $deps = @($cfg.depends_on) }
-            $nodes[$cfg.task_ref] = @{ id = $cfg.task_ref; room_id = $room.Name; depends_on = $deps; depth = 0 }
-        }
-        foreach ($key in @($nodes.Keys)) {
-            if ($nodes[$key].depends_on.Count -gt 0) { $nodes[$key].depth = 1 }
-        }
-        @{ nodes = $nodes; generated_at = (Get-Date -Format o) } |
-            ConvertTo-Json -Depth 5 | Out-File (Join-Path $WarRoomsDir "DAG.json") -Encoding utf8
-    }
+    $script:BuildDag = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Build-DependencyGraph.ps1"
 }
 
 Describe "Update-Progress" {
@@ -106,7 +91,7 @@ Describe "Update-Progress" {
             "passed" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-001" "status") -NoNewline
 
             # Build DAG
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             & $script:UpdateProgress -WarRoomsDir $script:warRoomsDir *>&1 | Out-Null
 

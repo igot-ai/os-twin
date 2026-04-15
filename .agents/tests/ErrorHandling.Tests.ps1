@@ -71,7 +71,17 @@ Describe 'Error Handling Compliance' {
         It 'Review-Dependencies.ps1 uses throw or exit for errors' -Skip {}
     }
 
-    # Build-DependencyGraph.ps1 was removed from main — tests removed
+    Context 'Build-DependencyGraph.ps1 already uses throw' {
+        It 'Build-DependencyGraph.ps1 does not use exit 1' {
+            $content = Get-Content "$PSScriptRoot/../plan/Build-DependencyGraph.ps1" -Raw
+            $content | Should -Not -Match '\bexit\s+1\b'
+        }
+
+        It 'Build-DependencyGraph.ps1 uses throw for errors' {
+            $content = Get-Content "$PSScriptRoot/../plan/Build-DependencyGraph.ps1" -Raw
+            $content | Should -Match '\bthrow\b'
+        }
+    }
 
     Context 'New-WarRoom.ps1 throws on duplicate room' {
         It 'throws when room already exists' {

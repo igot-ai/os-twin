@@ -3,7 +3,7 @@
 BeforeAll {
     $script:ReviewDeps = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Review-Dependencies.ps1"
     $script:NewWarRoom = Join-Path (Resolve-Path "$PSScriptRoot/../../war-rooms").Path "New-WarRoom.ps1"
-    # Build-DependencyGraph.ps1 was removed — DAG logic is now in Start-Plan.ps1
+    $script:BuildDag = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Build-DependencyGraph.ps1"
 }
 
 Describe "Review-Dependencies.ps1" {

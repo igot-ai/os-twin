@@ -4,23 +4,7 @@ BeforeAll {
     $script:agentsDir = (Resolve-Path (Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "..")).Path
     $script:TestDepsReady = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Test-DependenciesReady.ps1"
     $script:NewWarRoom = Join-Path $script:agentsDir "war-rooms" "New-WarRoom.ps1"
-    # Build-DependencyGraph.ps1 was removed — inline a helper to write DAG.json
-    # Test-DependenciesReady expects nodes as object keyed by task_ref
-    function script:Write-TestDag {
-        param([string]$WarRoomsDir)
-        $nodes = @{}
-        foreach ($room in (Get-ChildItem $WarRoomsDir -Directory -Filter "room-*")) {
-            $cfg = Get-Content (Join-Path $room.FullName "config.json") -Raw | ConvertFrom-Json
-            $deps = @()
-            if ($cfg.depends_on) { $deps = @($cfg.depends_on) }
-            $nodes[$cfg.task_ref] = @{ id = $cfg.task_ref; room_id = $room.Name; depends_on = $deps; depth = 0 }
-        }
-        foreach ($key in @($nodes.Keys)) {
-            if ($nodes[$key].depends_on.Count -gt 0) { $nodes[$key].depth = 1 }
-        }
-        @{ nodes = $nodes; generated_at = (Get-Date -Format o) } |
-            ConvertTo-Json -Depth 5 | Out-File (Join-Path $WarRoomsDir "DAG.json") -Encoding utf8
-    }
+    $script:BuildDag = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Build-DependencyGraph.ps1"
 }
 
 Describe "Test-DependenciesReady" {
@@ -53,7 +37,7 @@ Describe "Test-DependenciesReady" {
             "passed" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-001" "status") -NoNewline
 
             # Build DAG
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             $roomDir = Join-Path $script:warRoomsDir "room-002"
             $result = & $script:TestDepsReady -RoomDir $roomDir -WarRoomsDir $script:warRoomsDir
@@ -70,7 +54,7 @@ Describe "Test-DependenciesReady" {
                                  -DependsOn @("TASK-001")
 
             # room-001 stays pending (default)
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             $roomDir = Join-Path $script:warRoomsDir "room-002"
             $result = & $script:TestDepsReady -RoomDir $roomDir -WarRoomsDir $script:warRoomsDir
@@ -89,7 +73,7 @@ Describe "Test-DependenciesReady" {
                                  -DependsOn @("TASK-001")
 
             "developing" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-001" "status") -NoNewline
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             $roomDir = Join-Path $script:warRoomsDir "room-002"
             $result = & $script:TestDepsReady -RoomDir $roomDir -WarRoomsDir $script:warRoomsDir
@@ -107,7 +91,7 @@ Describe "Test-DependenciesReady" {
                                  -DependsOn @("TASK-001")
 
             "failed-final" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-001" "status") -NoNewline
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             $roomDir = Join-Path $script:warRoomsDir "room-002"
             $result = & $script:TestDepsReady -RoomDir $roomDir -WarRoomsDir $script:warRoomsDir
@@ -126,7 +110,7 @@ Describe "Test-DependenciesReady" {
                                  -DependsOn @("TASK-001")
 
             "blocked" | Out-File -FilePath (Join-Path $script:warRoomsDir "room-001" "status") -NoNewline
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             $roomDir = Join-Path $script:warRoomsDir "room-002"
             $result = & $script:TestDepsReady -RoomDir $roomDir -WarRoomsDir $script:warRoomsDir
@@ -142,7 +126,7 @@ Describe "Test-DependenciesReady" {
                                  -TaskDescription "Auth" -WarRoomsDir $script:warRoomsDir
 
             # Build DAG for room-001 only
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             # Create rogue room-002 not in the DAG
             $rogueDir = Join-Path $script:warRoomsDir "room-099"
@@ -159,7 +143,7 @@ Describe "Test-DependenciesReady" {
             & $script:NewWarRoom -RoomId "room-001" -TaskRef "TASK-001" `
                                  -TaskDescription "Auth" -WarRoomsDir $script:warRoomsDir
 
-            Write-TestDag -WarRoomsDir $script:warRoomsDir
+            & $script:BuildDag -WarRoomsDir $script:warRoomsDir | Out-Null
 
             $roomDir = Join-Path $script:warRoomsDir "room-001"
             $result = & $script:TestDepsReady -RoomDir $roomDir -WarRoomsDir $script:warRoomsDir
