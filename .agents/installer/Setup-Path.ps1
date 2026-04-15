@@ -20,22 +20,27 @@ function Setup-Path {
     Write-Step "Configuring PATH..."
 
     $binDir = Join-Path $script:InstallDir ".agents\bin"
+    $localBinDir = Join-Path $env:USERPROFILE ".local\bin"
 
     # 1. Add to User PATH environment variable (persistent, works across all shells)
     $currentUserPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
-    if ($currentUserPath -and $currentUserPath -like "*$binDir*") {
-        Write-Ok "PATH already contains $binDir (User environment)"
-    }
-    else {
-        if ($currentUserPath) {
-            $newPath = "$binDir;$currentUserPath"
+    $pathsToAdd = @($binDir, $localBinDir)
+    
+    foreach ($pathToAdd in $pathsToAdd) {
+        if ($currentUserPath -and $currentUserPath -like "*$pathToAdd*") {
+            Write-Ok "PATH already contains $pathToAdd (User environment)"
         }
         else {
-            $newPath = $binDir
+            if ($currentUserPath) {
+                $currentUserPath = "$pathToAdd;$currentUserPath"
+            }
+            else {
+                $currentUserPath = $pathToAdd
+            }
         }
-        [System.Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
-        Write-Ok "Added $binDir to User PATH environment variable"
     }
+    [System.Environment]::SetEnvironmentVariable("PATH", $currentUserPath, "User")
+    Write-Ok "Updated User PATH environment variable"
 
     # 2. Add to PowerShell $PROFILE (so 'ostwin' works in new PS sessions)
     $profilePath = $PROFILE
@@ -58,7 +63,7 @@ function Setup-Path {
             $pathLine = @"
 
 # Ostwin CLI (Agent OS)
-`$env:PATH = "$binDir;`$env:PATH"
+`$env:PATH = "$binDir;$localBinDir;`$env:PATH"
 "@
             Add-Content -Path $profilePath -Value $pathLine
             Write-Ok "Added to PATH in `$PROFILE ($profilePath)"
@@ -66,7 +71,13 @@ function Setup-Path {
     }
 
     # 3. Export for current session
-    if ($env:PATH -notlike "*$binDir*") {
-        $env:PATH = "$binDir;$env:PATH"
+    foreach ($p in $pathsToAdd) {
+        if ($env:PATH -notlike "*$p*") {
+            $env:PATH = "$p;$env:PATH"
+        }
     }
+
+    # 4. Refresh from system (capture package manager paths)
+    $systemPath = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $env:PATH = $systemPath + ";" + $env:PATH
 }
