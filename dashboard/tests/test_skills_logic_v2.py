@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from dashboard.api_utils import parse_skill_md, sync_skills_from_disk
 from unittest.mock import MagicMock
 

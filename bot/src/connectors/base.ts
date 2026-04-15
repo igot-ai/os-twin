@@ -4,6 +4,18 @@ export type Platform = 'telegram' | 'discord' | 'slack';
 
 export type ConnectorStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+/**
+ * Platform-agnostic attachment metadata.
+ * Used to inform the agent bridge about files attached to a message
+ * so the AI knows assets were staged and can reference them.
+ */
+export interface AttachmentMeta {
+  name: string;
+  contentType?: string | null;
+  /** Size in bytes, if known. */
+  sizeBytes?: number;
+}
+
 export interface ConnectorConfig {
   platform: Platform;
   enabled: boolean;

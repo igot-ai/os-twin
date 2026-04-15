@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { ActivityFeed } from './ActivityFeed';
 import { useWebSocket } from '@/hooks/use-websocket';

@@ -212,7 +212,7 @@ This is more realistic for frontend work, but historically it had several rough 
 - cross-origin auth/CORS issues when the browser hit the backend directly
 - inconsistent use of `NEXT_PUBLIC_API_BASE_URL`
 - source-mode path handling issues for external `working_dir`
-- occasional broken optional frontend dependencies during `npm install`
+- occasional broken optional frontend dependencies during `pnpm install`
 
 ### Dev Mode Rules
 
@@ -234,7 +234,7 @@ Recommended frontend command:
 
 ```bash
 cd /home/tcuong1000/os-twin/dashboard/fe
-OSTWIN_BACKEND_URL=http://localhost:9000 npm run dev
+OSTWIN_BACKEND_URL=http://localhost:9000 pnpm run dev
 ```
 
 Open:

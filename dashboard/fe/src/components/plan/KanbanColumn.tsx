@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Epic } from '@/types';
 import EpicCard from './EpicCard';
 import { stateColors } from './EpicCard';

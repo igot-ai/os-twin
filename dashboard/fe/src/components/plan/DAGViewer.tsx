@@ -3,9 +3,9 @@
 import React, { useState, useRef, useMemo } from 'react';
 import useSWR from 'swr';
 import { usePlanContext } from './PlanWorkspace';
-import { DAG, DAGNodeRaw } from '@/types';
+import { DAG } from '@/types';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
-import { roleColorMap, getRoleColor, getRoleInitial } from '@/lib/role-utils';
+import { getRoleColor, getRoleInitial } from '@/lib/role-utils';
 import { deriveDAGFromDocument, wouldCreateCycle } from '@/lib/dag-layout';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
 import { EpicDetailDrawer } from './EpicDetailDrawer';
@@ -238,16 +238,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
     setContextMenu(null);
   };
 
-  const getCanvasCoords = (clientX: number, clientY: number) => {
-    if (!containerRef.current) return { x: 0, y: 0 };
-    const rect = containerRef.current.getBoundingClientRect();
-    // transform: scale(S) translate(TX, TY)
-    // x_screen = S * (x_canvas + TX) + rect.left
-    // x_canvas = (x_screen - rect.left) / S - TX
-    const x = (clientX - rect.left) / scale - translate.x;
-    const y = (clientY - rect.top) / scale - translate.y;
-    return { x, y };
-  };
+
 
   const handleStartDrag = (nodeId: string, clientX: number, clientY: number) => {
     setDragState({ type: 'dragging', sourceRef: nodeId, cursorX: clientX, cursorY: clientY });

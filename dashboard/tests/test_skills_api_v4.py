@@ -1,10 +1,7 @@
 import pytest
 from pathlib import Path
-import json
 import os
-import shutil
 import tempfile
-from datetime import datetime, timezone
 
 # Set API key BEFORE importing the app
 TEST_API_KEY = "test_key_123"
@@ -12,8 +9,7 @@ os.environ["OSTWIN_API_KEY"] = TEST_API_KEY
 
 from fastapi.testclient import TestClient
 from dashboard.api import app
-from dashboard.api_utils import SKILLS_DIRS, PROJECT_ROOT, AGENTS_DIR, parse_skill_md, save_skill_md
-import dashboard.global_state as global_state
+from dashboard.api_utils import SKILLS_DIRS, save_skill_md
 
 client = TestClient(app)
 

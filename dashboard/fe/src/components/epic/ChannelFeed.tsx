@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Epic, ChannelMessage as MessageType } from '@/types';
 import { useMessages } from '@/hooks/use-messages';
 import ChannelMessage from './ChannelMessage';

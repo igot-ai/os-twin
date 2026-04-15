@@ -11,8 +11,6 @@ Covers:
 """
 
 import json
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from dashboard.lib.settings.opencode_sync import (
@@ -20,7 +18,6 @@ from dashboard.lib.settings.opencode_sync import (
     SyncResult,
     TargetResult,
     OPENCODE_SCHEMA,
-    AUTH_JSON_PATH,
 )
 from dashboard.models import (
     MasterSettings,
@@ -428,7 +425,7 @@ def test_sync_all_disabled_removes_provider_block(tmp_path):
     vault = _make_vault({})
     settings = _make_settings(google_enabled=False, byteplus_enabled=False)
 
-    result = _sync(vault, settings, tmp_path, config_path=config_path)
+    _result = _sync(vault, settings, tmp_path, config_path=config_path)
 
     data = json.loads(config_path.read_text())
     # provider block should be gone entirely

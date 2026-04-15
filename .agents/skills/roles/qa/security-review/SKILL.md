@@ -82,7 +82,7 @@ If the code touches auth:
 pip-audit
 
 # JavaScript
-npm audit
+pnpm audit
 
 # Go
 govulncheck ./...

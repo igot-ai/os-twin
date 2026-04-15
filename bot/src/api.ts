@@ -229,6 +229,7 @@ export async function refinePlan(params: {
   chatHistory?: Array<{ role: string; content: string }>;
   workingDir?: string;
   assetContext?: PlanAsset[];
+  images?: Array<{ url: string; name?: string; contentType?: string }>;
 }): Promise<RefineResult> {
   return postJSON('/api/plans/refine', {
     message: params.message,
@@ -237,6 +238,7 @@ export async function refinePlan(params: {
     chat_history: params.chatHistory || [],
     working_dir: params.workingDir || '',
     asset_context: params.assetContext || [],
+    images: params.images || [],
   });
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Skill } from '@/types';
 import { apiPut, apiDelete } from '@/lib/api-client';
 import { SkillLibrary } from '@/components/skills/SkillLibrary';

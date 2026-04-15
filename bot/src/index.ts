@@ -18,6 +18,7 @@ import { DiscordConnector } from './connectors/discord';
 import { SlackConnector } from './connectors/slack';
 import { ConnectorConfig } from './connectors/base';
 import { NotificationRouter } from './notifications';
+import { flushSessionsSync } from './sessions';
 
 console.log('╔═══════════════════════════════════╗');
 console.log('║   OS Twin — Unified Bot Gateway   ║');
@@ -109,6 +110,7 @@ async function main() {
   // Graceful stop
   const shutdown = async () => {
     console.log('\n[REGISTRY] Shutting down all connectors...');
+    flushSessionsSync();
     notificationRouter.stop();
     await registry.stopAll();
     process.exit(0);

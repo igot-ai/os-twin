@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 import Link from 'next/link';
 import { Epic, Plan } from '@/types';
@@ -121,7 +121,7 @@ function EpicHeader({ epic }: { epic: Epic }) {
 function OverviewTab({ epic, planId }: { epic: Epic; planId: string }) {
   const { config } = useWarRoomConfig(planId, epic.epic_ref);
   const { agents } = useAgentInstances(planId, epic.epic_ref);
-  const { brief } = useBrief(planId, epic.epic_ref);
+  useBrief(planId, epic.epic_ref);
 
   return (
     <div className="space-y-5">

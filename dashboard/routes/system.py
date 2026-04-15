@@ -3,19 +3,17 @@ import json
 import signal
 import subprocess
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, Depends
 try:
     import notify
 except ImportError:
     notify = None
 
-from dashboard.models import TelegramConfigRequest, UpdatePlanRoleConfigRequest
+from dashboard.models import TelegramConfigRequest
 from dashboard.api_utils import (
     AGENTS_DIR, PROJECT_ROOT, 
-    build_roles_list, get_plan_roles_config,
     resolve_plan_warrooms_dir, read_channel
 )
-from dashboard.constants import ROLE_DEFAULTS
 from dashboard.auth import get_current_user
 
 # Resolve Python: ~/.ostwin/.venv → system fallback

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -82,13 +82,6 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
             "Vertex Gemini 3.1 Pro",
             "1M",
             "flagship",
-            mode="vertex",
-        ),
-        ModelEntry(
-            "google-vertex/gemini-3-flash-preview",
-            "Vertex Gemini 3 Flash",
-            "1M",
-            "balanced",
             mode="vertex",
         ),
         ModelEntry(

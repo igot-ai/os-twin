@@ -32,10 +32,12 @@ plan_logger.propagate = False  # don't duplicate to root
 if not plan_logger.handlers:
     _fh = logging.FileHandler(_plan_log_file, encoding="utf-8")
     _fh.setLevel(logging.DEBUG)
-    _fh.setFormatter(logging.Formatter(
-        "%(asctime)s | %(levelname)-5s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    _fh.setFormatter(
+        logging.Formatter(
+            "%(asctime)s | %(levelname)-5s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
     plan_logger.addHandler(_fh)
 
 
@@ -123,7 +125,8 @@ def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
 
 
 def get_system_prompt(
-    plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None,
+    plans_dir: Optional[Path] = None,
+    agents_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
 ) -> str:
     """Generate the system prompt dynamically based on the plan template."""
@@ -162,6 +165,7 @@ def get_system_prompt(
             project_dir = str(Path(env_project) / "projects")
         else:
             from dashboard.api_utils import PROJECT_ROOT
+
             project_dir = str(PROJECT_ROOT / "projects")
 
     return f"""\
@@ -222,40 +226,88 @@ Do NOT invent arbitrary paths — always use `{project_dir}/<short-name>`.
 1. If the user provides an existing plan, improve it while preserving their intent.
 2. If the user asks to modify a specific part, change only that part.
 3. Be concise, technical, and precise. Write like a senior engineering lead scoping work.
+
+## IMAGE AND DESIGN REFERENCE HANDLING
+
+When the user provides images or design mockups:
+1. **Analyze each image carefully** — describe what you see in the # EXPLANATION section.
+2. **Reference images in relevant epics** — add a `> Design Reference:` line under each epic that should use the image.
+3. **Include asset notes** — in the Config section, add `> Design Assets: <descriptive list of provided images>`.
+4. **Extract UI/layout details** — if images show UI designs, include specific component names, colors, layout structure in epic descriptions.
+5. **Mention the images explicitly** — the user expects you to use their visual references, so acknowledge them and describe how they influence the plan.
+
+Example epic with design reference:
+```markdown
+## EPIC-001 - Research & Strategy
+
+Roles: researcher, analyst
+Objective: Investigate market trends and synthesize a strategy document
+Lifecycle:
+```text
+pending → researcher → analyst ─┬─► passed → signoff
+              ▲                 │
+              └── researcher ◄──┘ (on fail → fixing)
+```
+
+Tasks: Gather data on competitor products. Analyze features and formulate a strategy document.
+
+### Definition of Done
+- [ ] Strategy document created and peer-reviewed
+
+### Tasks
+- [ ] TASK-001 — Gather competitor data
+- [ ] TASK-002 — Synthesize into strategy
+
+### Acceptance criteria:
+- Document includes at least 3 competitor profiles.
+- Strategy is clear and actionable.
+
+depends_on: []
+```
 """
 
 
 # ── Auto-detect available AI provider ──────────────────────────────
 
 
-def detect_model() -> tuple[str, str]:
+def detect_model(has_images: bool = False) -> tuple[str, str]:
     """Pick the best available model based on which API keys are set.
+
+    Args:
+        has_images: If True, prefer models with vision support.
 
     Returns:
         A tuple of (model_name, provider) for langchain's init_chat_model.
     """
     if os.environ.get("GOOGLE_API_KEY"):
+        # Gemini Flash supports vision
         return ("gemini-3-flash-preview", "google_genai")
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return ("claude-sonnet-4-6", "anthropic")
+        # Claude Sonnet supports vision
+        return ("claude-sonnet-4-20250514", "anthropic")
     if os.environ.get("OPENAI_API_KEY"):
+        # GPT-4o supports vision
         return ("gpt-4o", "openai")
     raise RuntimeError(
         "No AI API key found. Set GOOGLE_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY in ~/.ostwin/.env"
     )
 
 
-def _resolve_model(model_str: str = ""):
+def _resolve_model(model_str: str = "", has_images: bool = False):
     """Resolve a model string into an initialized ChatModel.
 
     If model_str is empty, auto-detects from environment.
     If model_str contains ':', splits as 'provider:model'.
     Otherwise uses init_chat_model's auto-detection.
+
+    Args:
+        model_str: Optional model identifier string.
+        has_images: If True, ensure the model supports vision.
     """
     from langchain.chat_models import init_chat_model
 
     if not model_str:
-        model_name, provider = detect_model()
+        model_name, provider = detect_model(has_images=has_images)
         return init_chat_model(model_name, model_provider=provider)
 
     if ":" in model_str:
@@ -278,6 +330,7 @@ def create_plan_agent(
     model: str = "",
     plans_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
+    has_images: bool = False,
 ):
     """Create a deepagent configured for plan refinement.
 
@@ -287,6 +340,8 @@ def create_plan_agent(
                - "provider:model" (e.g. "google-genai:gemini-2.5-flash")
                - Plain model name (e.g. "claude-sonnet-4-6")
         plans_dir: Path to the plans directory for the read_existing_plan tool.
+        working_dir: Target project directory for this plan.
+        has_images: If True, ensure the model supports vision.
 
     Returns:
         A compiled LangGraph agent.
@@ -315,19 +370,27 @@ def create_plan_agent(
             return f"Error: Plan '{plan_id}' not found."
         return plan_file.read_text()
 
-    chat_model = _resolve_model(model)
-    logger.info("Plan agent using model: %s", type(chat_model).__name__)
+    chat_model = _resolve_model(model, has_images=has_images)
+    logger.info(
+        "Plan agent using model: %s (has_images=%s)",
+        type(chat_model).__name__,
+        has_images,
+    )
 
     # Resolve agents_dir from plans_dir
     agents_dir = plans_dir.parent if plans_dir else None
 
-    logger.info(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
+    logger.info(
+        f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}"
+    )
     print(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
 
     agent = create_deep_agent(
         model=chat_model,
         tools=[read_existing_plan],
-        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir),
+        system_prompt=get_system_prompt(
+            plans_dir, agents_dir=agents_dir, working_dir=working_dir
+        ),
     )
 
     return agent
@@ -370,8 +433,12 @@ def build_messages(
     plan_logger.debug("=" * 80)
     plan_logger.debug("BUILD_MESSAGES called")
     plan_logger.debug("  user_message length: %d chars", len(user_message))
-    plan_logger.debug("  plan_content length: %d chars", len(plan_content) if plan_content else 0)
-    plan_logger.debug("  chat_history turns: %d", len(chat_history) if chat_history else 0)
+    plan_logger.debug(
+        "  plan_content length: %d chars", len(plan_content) if plan_content else 0
+    )
+    plan_logger.debug(
+        "  chat_history turns: %d", len(chat_history) if chat_history else 0
+    )
     plan_logger.debug("  images: %s", "yes" if images else "none")
 
     messages = []
@@ -383,7 +450,9 @@ def build_messages(
                 content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```"
             )
         )
-        plan_logger.debug("  + SystemMessage (plan_content): %d chars", len(plan_content))
+        plan_logger.debug(
+            "  + SystemMessage (plan_content): %d chars", len(plan_content)
+        )
 
     # Add chat history
     if chat_history:
@@ -392,15 +461,23 @@ def build_messages(
             content = msg.get("content", "")
             if role == "user":
                 hist_images = msg.get("images")
-                messages.append(HumanMessage(content=_make_human_content(content, hist_images)))
-                plan_logger.debug("  + History[%d] USER: %s...", i, content.replace('\n', ' '))
+                messages.append(
+                    HumanMessage(content=_make_human_content(content, hist_images))
+                )
+                plan_logger.debug(
+                    "  + History[%d] USER: %s...", i, content.replace("\n", " ")
+                )
             elif role == "assistant":
                 messages.append(AIMessage(content=content))
-                plan_logger.debug("  + History[%d] ASSISTANT: %s...", i, content.replace('\n', ' '))
+                plan_logger.debug(
+                    "  + History[%d] ASSISTANT: %s...", i, content.replace("\n", " ")
+                )
 
     # Add the latest user message
     messages.append(HumanMessage(content=_make_human_content(user_message, images)))
-    plan_logger.debug("  + Current USER message: %s...", user_message.replace('\n', ' '))
+    plan_logger.debug(
+        "  + Current USER message: %s...", user_message.replace("\n", " ")
+    )
     plan_logger.debug("  Total messages built: %d", len(messages))
 
     return messages
@@ -413,6 +490,7 @@ async def refine_plan(
     model: str = "",
     plans_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
+    images: list[dict] | None = None,
 ) -> Dict[str, Any]:
     """Invoke the plan agent and return the refined plan structured data.
 
@@ -423,18 +501,27 @@ async def refine_plan(
         model: LLM model to use.
         plans_dir: Path to plans directory.
         working_dir: Target project directory for this plan.
+        images: Optional images for multimodal input [{url: "data:image/...;base64,..."}].
 
     Returns:
         A dictionary with explanation, actions, and plan content.
     """
     plan_logger.info("=" * 80)
     plan_logger.info("REFINE_PLAN called")
-    plan_logger.info("  user_message: %s", user_message[:200].replace('\n', '\\n'))
-    plan_logger.info("  plan_content: %d chars", len(plan_content) if plan_content else 0)
-    plan_logger.info("  chat_history: %d turns", len(chat_history) if chat_history else 0)
+    plan_logger.info("  user_message: %s", user_message[:200].replace("\n", "\\n"))
+    plan_logger.info(
+        "  plan_content: %d chars", len(plan_content) if plan_content else 0
+    )
+    plan_logger.info(
+        "  chat_history: %d turns", len(chat_history) if chat_history else 0
+    )
+    plan_logger.info("  images: %d", len(images) if images else 0)
 
-    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
-    messages = build_messages(user_message, plan_content, chat_history)
+    has_images = bool(images)
+    agent = create_plan_agent(
+        model=model, plans_dir=plans_dir, working_dir=working_dir, has_images=has_images
+    )
+    messages = build_messages(user_message, plan_content, chat_history, images)
 
     result = await agent.ainvoke({"messages": messages})
 
@@ -468,6 +555,7 @@ async def refine_plan_stream(
     model: str = "",
     plans_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
+    images: list[dict] | None = None,
 ) -> AsyncIterator[str]:
     """Stream the plan agent's response token-by-token.
 
@@ -478,12 +566,16 @@ async def refine_plan_stream(
         model: LLM model to use.
         plans_dir: Path to plans directory.
         working_dir: Target project directory for this plan.
+        images: Optional images for multimodal input.
 
     Returns:
         AsyncIterator of string tokens.
     """
-    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
-    messages = build_messages(user_message, plan_content, chat_history)
+    has_images = bool(images)
+    agent = create_plan_agent(
+        model=model, plans_dir=plans_dir, working_dir=working_dir, has_images=has_images
+    )
+    messages = build_messages(user_message, plan_content, chat_history, images)
 
     try:
         async for event in agent.astream_events(
@@ -511,6 +603,7 @@ async def refine_plan_stream(
         logger.error("Plan agent streaming error: %s", e)
         yield f"\n\n[Error: {str(e)}]"
 
+
 async def summarize_plan(
     plan_content: str,
     model: str = "",
@@ -526,10 +619,16 @@ async def summarize_plan(
         f"{plan_content}"
     )
     from langchain_core.messages import HumanMessage
+
     result = await llm.ainvoke([HumanMessage(content=prompt)])
     content = result.content
     if isinstance(content, list):
-        content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
+        content = "".join(
+            [
+                b["text"] if isinstance(b, dict) and "text" in b else str(b)
+                for b in content
+            ]
+        )
     return content.strip()
 
 
@@ -571,6 +670,7 @@ When you see this format:
 Keep responses concise — 2-4 short paragraphs max. Prioritize the most important gaps first.
 """
 
+
 def create_brainstorm_agent(model: str = ""):
     """Create a deepagent configured for pure brainstorming conversation.
 
@@ -587,9 +687,11 @@ def create_brainstorm_agent(model: str = ""):
     model_name = type(chat_model).__name__
     logger.info("Brainstorm agent using model: %s", model_name)
     plan_logger.info("CREATE_BRAINSTORM_AGENT: model=%s", model_name)
-    plan_logger.debug("  System prompt (%d chars): %s...",
-                      len(BRAINSTORM_SYSTEM_PROMPT),
-                      BRAINSTORM_SYSTEM_PROMPT[:200].replace('\n', '\\n'))
+    plan_logger.debug(
+        "  System prompt (%d chars): %s...",
+        len(BRAINSTORM_SYSTEM_PROMPT),
+        BRAINSTORM_SYSTEM_PROMPT[:200].replace("\n", "\\n"),
+    )
 
     agent = create_deep_agent(
         model=chat_model,
@@ -598,6 +700,7 @@ def create_brainstorm_agent(model: str = ""):
     )
 
     return agent
+
 
 async def brainstorm_stream(
     user_message: str,
@@ -618,18 +721,26 @@ async def brainstorm_stream(
     """
     plan_logger.info("=" * 80)
     plan_logger.info("BRAINSTORM_STREAM started")
-    plan_logger.info("  user_message: %s", user_message[:300].replace('\n', '\\n'))
-    plan_logger.info("  chat_history turns: %d", len(chat_history) if chat_history else 0)
+    plan_logger.info("  user_message: %s", user_message[:300].replace("\n", "\\n"))
+    plan_logger.info(
+        "  chat_history turns: %d", len(chat_history) if chat_history else 0
+    )
     plan_logger.info("  model: %s", model or "(auto-detect)")
 
     agent = create_brainstorm_agent(model=model)
-    messages = build_messages(user_message, plan_content="", chat_history=chat_history, images=images)
+    messages = build_messages(
+        user_message, plan_content="", chat_history=chat_history, images=images
+    )
 
     plan_logger.info("BRAINSTORM_STREAM → sending %d messages to LLM", len(messages))
     for i, m in enumerate(messages):
         role = type(m).__name__
-        content_preview = m.content if isinstance(m.content, str) else str(m.content)[:200]
-        plan_logger.debug("  MSG[%d] %s: %s", i, role, content_preview[:200].replace('\n', '\\n'))
+        content_preview = (
+            m.content if isinstance(m.content, str) else str(m.content)[:200]
+        )
+        plan_logger.debug(
+            "  MSG[%d] %s: %s", i, role, content_preview[:200].replace("\n", "\\n")
+        )
 
     token_count = 0
     full_response = ""
@@ -659,8 +770,14 @@ async def brainstorm_stream(
                         full_response += content
                         yield content
 
-        plan_logger.info("BRAINSTORM_STREAM completed: %d tokens, %d chars", token_count, len(full_response))
-        plan_logger.debug("  Response preview: %s", full_response[:500].replace('\n', '\\n'))
+        plan_logger.info(
+            "BRAINSTORM_STREAM completed: %d tokens, %d chars",
+            token_count,
+            len(full_response),
+        )
+        plan_logger.debug(
+            "  Response preview: %s", full_response[:500].replace("\n", "\\n")
+        )
     except Exception as e:
         plan_logger.error("BRAINSTORM_STREAM error: %s", e)
         logger.error("Brainstorm agent streaming error: %s", e)

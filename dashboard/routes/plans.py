@@ -13,12 +13,12 @@ from typing import Optional, List, Dict, Any
 import subprocess
 _re_mod = re
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from dashboard.models import CreatePlanRequest, SavePlanRequest, RefineRequest, UpdatePlanRoleConfigRequest, RunRequest
 from dashboard.api_utils import (
-    AGENTS_DIR, PROJECT_ROOT, WARROOMS_DIR, PLANS_DIR,
-    get_plan_roles_config, build_roles_list, resolve_plan_warrooms_dir,
+    AGENTS_DIR, PROJECT_ROOT, PLANS_DIR, GLOBAL_PLANS_DIR,
+    get_plan_roles_config, build_roles_list,
     resolve_runtime_plan_warrooms_dir,
     process_notification
 )
@@ -29,16 +29,88 @@ router = APIRouter(tags=["plans"])
 logger = logging.getLogger(__name__)
 
 
+def _resolve_plans_dir_for_write() -> Path:
+    """Resolve where new plans should be written.
+    
+    Returns PLANS_DIR if it exists (project-local), otherwise GLOBAL_PLANS_DIR.
+    This ensures new plans are written to the same store that list/save endpoints read.
+    """
+    if PLANS_DIR.exists():
+        return PLANS_DIR
+    return GLOBAL_PLANS_DIR
+
+
+def _find_plan_file(plan_id: str) -> Optional[Path]:
+    """Find a plan file, checking local store first, then global."""
+    local = PLANS_DIR / f"{plan_id}.md"
+    if local.exists():
+        return local
+    if GLOBAL_PLANS_DIR != PLANS_DIR:
+        global_path = GLOBAL_PLANS_DIR / f"{plan_id}.md"
+        if global_path.exists():
+            return global_path
+    return None
+
+
+def _find_plan_meta(plan_id: str) -> Optional[Path]:
+    """Find a plan meta file, checking local store first, then global."""
+    local = PLANS_DIR / f"{plan_id}.meta.json"
+    if local.exists():
+        return local
+    if GLOBAL_PLANS_DIR != PLANS_DIR:
+        global_path = GLOBAL_PLANS_DIR / f"{plan_id}.meta.json"
+        if global_path.exists():
+            return global_path
+    return None
+
+
+def _find_plan_assets_dir(plan_id: str) -> Optional[Path]:
+    """Find a plan assets directory, checking local store first, then global."""
+    local = PLANS_DIR / "assets" / plan_id
+    if local.exists():
+        return local
+    if GLOBAL_PLANS_DIR != PLANS_DIR:
+        global_path = GLOBAL_PLANS_DIR / "assets" / plan_id
+        if global_path.exists():
+            return global_path
+    return None
+
+
 def _plan_file_path(plan_id: str) -> Path:
-    return PLANS_DIR / f"{plan_id}.md"
+    """Get the path to a plan file (for reading or writing).
+    
+    For reading: returns the first existing path (local then global).
+    For writing: returns the appropriate store based on where the plan exists.
+    """
+    existing = _find_plan_file(plan_id)
+    if existing:
+        return existing
+    # New plan: write to the resolved write location
+    return _resolve_plans_dir_for_write() / f"{plan_id}.md"
 
 
 def _plan_meta_path(plan_id: str) -> Path:
-    return PLANS_DIR / f"{plan_id}.meta.json"
+    """Get the path to a plan meta file (for reading or writing)."""
+    existing = _find_plan_meta(plan_id)
+    if existing:
+        return existing
+    # Check if plan file exists to determine location
+    plan_file = _find_plan_file(plan_id)
+    if plan_file:
+        return plan_file.parent / f"{plan_id}.meta.json"
+    return _resolve_plans_dir_for_write() / f"{plan_id}.meta.json"
 
 
 def _plan_assets_dir(plan_id: str) -> Path:
-    return PLANS_DIR / "assets" / plan_id
+    """Get the path to a plan assets directory (for reading or writing)."""
+    existing = _find_plan_assets_dir(plan_id)
+    if existing:
+        return existing
+    # Check if plan file exists to determine location
+    plan_file = _find_plan_file(plan_id)
+    if plan_file:
+        return plan_file.parent / "assets" / plan_id
+    return _resolve_plans_dir_for_write() / "assets" / plan_id
 
 
 def _validate_id(identifier: str, name: str = "ID") -> None:
@@ -66,6 +138,47 @@ def _require_plan_file(plan_id: str) -> Path:
 def _extract_plan_title(content: str, default: str) -> str:
     title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", content, re.MULTILINE)
     return title_match.group(1).strip() if title_match else default
+
+
+def _normalize_plan_header(content: str, title: str) -> str:
+    """Ensure plan content starts with '# Plan: {title}' header.
+    
+    This normalizes various header formats:
+    - ': Title' → '# Plan: Title'
+    - '# PLAN: Title' → '# Plan: Title'
+    - No header → Prepends '# Plan: {title}'
+    - Existing '# Plan: ...' → Preserved
+    
+    Args:
+        content: The plan markdown content
+        title: The expected title (used if header is missing)
+    
+    Returns:
+        Content with normalized '# Plan:' header
+    """
+    if not content or not content.strip():
+        return f"# Plan: {title}\n"
+    
+    # Check for existing # Plan: or # PLAN: header
+    header_match = _re_mod.search(r"^# (Plan|PLAN):\s*(.+)", content, _re_mod.MULTILINE)
+    
+    if header_match:
+        existing_title = header_match.group(2).strip()
+        # Normalize # PLAN: to # Plan:
+        if header_match.group(1) == "PLAN":
+            content = _re_mod.sub(r"^# PLAN:", "# Plan:", content, count=1, flags=_re_mod.MULTILINE)
+        return content
+    
+    # Check for colon-only prefix (': Title')
+    colon_match = _re_mod.match(r"^:\s*(.+?)(\n|$)", content)
+    if colon_match:
+        extracted_title = colon_match.group(1).strip()
+        # Replace ': Title' with '# Plan: Title'
+        content = _re_mod.sub(r"^:\s*.+?(\n|$)", f"# Plan: {extracted_title}\\1", content, count=1)
+        return content
+    
+    # No header found - prepend one
+    return f"# Plan: {title}\n\n{content}"
 
 
 def _read_plan_meta(plan_id: str) -> Dict[str, Any]:
@@ -680,8 +793,8 @@ def _update_epic_asset_sections(plan_id: str, all_assets: list, assets_dir: Path
                 by_epic[epic] = []
             by_epic[epic].append(asset)
 
-    # Find all epic sections: ### EPIC-NNN
-    epic_pattern = _re_mod.compile(r"(### (EPIC-\d+)[^\n]*\n)")
+    # Bug 2 Fix: Find all epic sections using #{2,3} to match both ## and ### headers
+    epic_pattern = _re_mod.compile(r"(#{2,3} (EPIC-\d+)[^\n]*\n)")
     matches = list(epic_pattern.finditer(content))
 
     if not matches:
@@ -693,7 +806,8 @@ def _update_epic_asset_sections(plan_id: str, all_assets: list, assets_dir: Path
         epic_ref = match.group(2)
         epic_start = match.start()
 
-        # Find the end of this epic section (next ### or end of file)
+        # Find the end of this epic section (next ## or ### or end of file)
+        # Bug 2 Fix: Use #{2,3} to match both heading levels
         if i + 1 < len(matches):
             epic_end = matches[i + 1].start()
         else:
@@ -703,7 +817,7 @@ def _update_epic_asset_sections(plan_id: str, all_assets: list, assets_dir: Path
 
         # Remove existing #### Assets section (migration) and > Assets: line.
         epic_block = _re_mod.sub(
-            r"\n?#### Assets\n(?:(?!####|depends_on:|\n---|\n### ).*\n)*",
+            r"\n?#### Assets\n(?:(?!####|depends_on:|\n---|\n#{2,3} ).*\n)*",
             "\n",
             epic_block,
         )
@@ -762,8 +876,8 @@ def _parse_epic_assets_from_markdown(content: str) -> Dict[str, List[str]]:
     """
     result: Dict[str, List[str]] = {}
 
-    # Find all epic sections
-    epic_pattern = _re_mod.compile(r"### (EPIC-\d+)[^\n]*\n")
+    # Bug 2 Fix: Find all epic sections using #{2,3} to match both ## and ### headers
+    epic_pattern = _re_mod.compile(r"#{2,3} (EPIC-\d+)[^\n]*\n")
     matches = list(epic_pattern.finditer(content))
 
     for i, match in enumerate(matches):
@@ -786,7 +900,8 @@ def _parse_epic_assets_from_markdown(content: str) -> Dict[str, List[str]]:
                 result[epic_ref] = entries
         else:
             # Fallback to legacy format
-            assets_match = _re_mod.search(r"#### Assets\n((?:.*\n)*?)(?=####|\ndepends_on:|\n---|\n### |\Z)", epic_block)
+            # Bug 2 Fix: Use #{2,3} in lookahead to match both heading levels
+            assets_match = _re_mod.search(r"#### Assets\n((?:.*\n)*?)(?=####|\ndepends_on:|\n---|\n#{2,3} |\Z)", epic_block)
             if assets_match:
                 asset_text = assets_match.group(1)
                 entries = []
@@ -1665,7 +1780,7 @@ def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optiona
     """Helper to write plan.md, meta.json, and roles.json to disk and index in zvec store."""
     raw = f"{title}:{datetime.now(timezone.utc).isoformat()}"
     plan_id = hashlib.sha256(raw.encode()).hexdigest()[:12]
-    plans_dir = PLANS_DIR
+    plans_dir = _resolve_plans_dir_for_write()
     plans_dir.mkdir(exist_ok=True)
     plan_file = plans_dir / f"{plan_id}.md"
 
@@ -1679,11 +1794,14 @@ def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optiona
         working_dir = str(project_dir)
 
     if content:
+        # Bug 1 Fix: Normalize the header to ensure '# Plan: {title}' prefix
+        content = _normalize_plan_header(content, title)
         plan_file.write_text(content)
     else:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         plan_file.write_text(f"# Plan: {title}\n\n> Created: {now}\n> Status: draft\n\n## Config\n\nworking_dir: {working_dir}\n\n---\n\n## Goal\n\n{title}\n\n## Epics\n\n### EPIC-001 — {title}\n\n#### Definition of Done\n- [ ] Core functionality implemented\n\n#### Tasks\n- [ ] TASK-001 — Design and plan implementation\n\ndepends_on: []\n")
 
+    # Bug 3 Fix: Initialize assets and epic_assets in meta.json
     meta_file = plans_dir / f"{plan_id}.meta.json"
     meta = {
         "plan_id": plan_id, 
@@ -1691,7 +1809,9 @@ def create_plan_on_disk(title: str, content: Optional[str], working_dir: Optiona
         "working_dir": working_dir, 
         "warrooms_dir": str(Path(working_dir) / ".war-rooms"), 
         "created_at": datetime.now(timezone.utc).isoformat(), 
-        "status": "draft"
+        "status": "draft",
+        "assets": [],
+        "epic_assets": {}
     }
     if thread_id:
         meta["thread_id"] = thread_id
@@ -1780,9 +1900,12 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     if not plan_file.exists():
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
     
+    # Bug 1 Fix: Normalize header before saving
+    normalized_content = _normalize_plan_header(request.content, plan_id)
+    
     store = global_state.store
     old_content = plan_file.read_text()
-    if old_content.strip() and old_content.strip() != request.content.strip():
+    if old_content.strip() and old_content.strip() != normalized_content.strip():
         if store:
             try:
                 old_title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", old_content, re.MULTILINE)
@@ -1795,11 +1918,11 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
             except Exception as e:
                 logger.warning("Failed to snapshot plan version for %s: %s", plan_id, e)
 
-    plan_file.write_text(request.content)
+    plan_file.write_text(normalized_content)
     new_mtime = plan_file.stat().st_mtime
     
     # Update meta if title changed (best effort)
-    title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", request.content, re.MULTILINE)
+    title_match = re.search(r"^# (?:Plan|PLAN):\s*(.+)", normalized_content, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else plan_id
     
     meta = {"plan_id": plan_id, "title": title, "status": "draft", "created_at": datetime.now(timezone.utc).isoformat()}
@@ -1816,13 +1939,13 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     if store:
         try:
             # Re-parse epic count
-            epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", request.content, re.MULTILINE)
+            epics_found = re.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", normalized_content, re.MULTILINE)
             epic_count = len(epics_found)
             
             store.index_plan(
                 plan_id=plan_id, 
                 title=title,
-                content=request.content,
+                content=normalized_content,
                 epic_count=epic_count,
                 filename=f"{plan_id}.md",
                 status=meta.get("status", "draft"),
@@ -1835,7 +1958,7 @@ async def save_plan(plan_id: str, request: SavePlanRequest, user: dict = Depends
     # R2-FIX-1: Parse asset sections from the saved markdown and merge edits into meta,
     # then regenerate the sections so meta.json and PLAN.md stay in sync.
     try:
-        _merge_markdown_asset_edits_into_meta(plan_id, request.content)
+        _merge_markdown_asset_edits_into_meta(plan_id, normalized_content)
         _sync_asset_sections(plan_id)
     except Exception:
         pass  # Best-effort: don't fail save if asset section sync fails
@@ -2133,13 +2256,25 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     # global store (PLANS_DIR) into {working_dir}/.agents/plans/.
     local_plans_dir = wd_path / ".agents" / "plans"
     local_plans_dir.mkdir(parents=True, exist_ok=True)
+    import shutil
     for suffix in (".md", ".meta.json", ".roles.json"):
         src = plans_dir / f"{plan_id}{suffix}"
         dst = local_plans_dir / f"{plan_id}{suffix}"
         if src.exists() and str(src.resolve()) != str(dst.resolve()):
-            import shutil
             shutil.copy2(str(src), str(dst))
             logger.info(f"run_plan: synced {src.name} -> {local_plans_dir}")
+
+    # Bug 4 Fix: Sync assets directory from PLANS_DIR/assets/{plan_id}/ to local .agents/plans/assets/{plan_id}/
+    global_assets_dir = plans_dir / "assets" / plan_id
+    local_assets_dir = local_plans_dir / "assets" / plan_id
+    if global_assets_dir.exists() and global_assets_dir.is_dir():
+        local_assets_dir.mkdir(parents=True, exist_ok=True)
+        for asset_file in global_assets_dir.iterdir():
+            if asset_file.is_file():
+                dst_file = local_assets_dir / asset_file.name
+                if not dst_file.exists() or str(dst_file.resolve()) != str(asset_file.resolve()):
+                    shutil.copy2(str(asset_file), str(dst_file))
+        logger.info(f"run_plan: synced assets -> {local_assets_dir}")
 
     # Use the local copy for run.sh so the path is within the sandbox
     local_plan_path = local_plans_dir / f"{plan_id}.md"
@@ -2539,7 +2674,15 @@ async def refine_plan_endpoint(request: RefineRequest):
                 f"{chr(10).join(asset_lines)}\n"
                 "Use these files as supporting context when refining the plan."
             )
-        result = await refine_plan(user_message=user_message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None)
+        # Convert images to format expected by plan_agent
+        images = None
+        if request.images:
+            images = [{"url": img.get("url", "")} for img in request.images if img.get("url")]
+            logger.info(f"[REFINE] Received {len(images)} image(s) for multimodal processing")
+            for i, img in enumerate(images[:3]):  # Log first 3
+                url_preview = img["url"][:100] + "..." if len(img["url"]) > 100 else img["url"]
+                logger.info(f"[REFINE] Image {i+1}: {url_preview}")
+        result = await refine_plan(user_message=user_message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images)
         if isinstance(result, dict):
             # Backward compatible: refined_plan is a string. Rich info is also available.
             return {
@@ -2565,11 +2708,15 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
             p_file = plans_dir / f"{request.plan_id}.md"
             if p_file.exists():
                 plan_content = p_file.read_text()
+        # Convert images for multimodal support
+        images = None
+        if request.images:
+            images = [{"url": img.get("url", "")} for img in request.images if img.get("url")]
         async def event_generator():
             try:
                 from plan_agent import parse_structured_response
                 full_response = ""
-                async for chunk in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None):
+                async for chunk in refine_plan_stream(user_message=request.message, plan_content=plan_content, chat_history=request.chat_history, model=request.model, plans_dir=plans_dir if plans_dir.exists() else None, working_dir=request.working_dir or None, images=images):
                     if isinstance(chunk, dict):
                         # If a dictionary is yielded, treat it as a rich event and accumulate if it has a 'token'
                         token = chunk.get("token", "")
@@ -2790,7 +2937,6 @@ def _recalculate_progress(warrooms_dir: Path):
     Mirrors the logic from ``.agents/plan/Update-Progress.ps1``.
     """
     from datetime import datetime, timezone
-    import re as _re
 
     total = passed = failed = blocked = active = pending = 0
     rooms = []

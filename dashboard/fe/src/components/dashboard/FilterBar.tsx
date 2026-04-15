@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PlanStatus, Domain } from '@/types';
 
 export type SortOption = 'newest' | 'oldest' | 'progress-high' | 'progress-low' | 'alphabetical';

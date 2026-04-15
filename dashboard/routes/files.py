@@ -5,7 +5,7 @@ import base64
 import mimetypes
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List
 from fastapi import APIRouter, HTTPException, Query, Depends
 from dashboard.api_utils import PLANS_DIR
 from dashboard.auth import get_current_user

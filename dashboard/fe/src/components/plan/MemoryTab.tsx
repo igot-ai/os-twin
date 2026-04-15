@@ -8,18 +8,6 @@ import { apiGet } from '@/lib/api-client';
 
 // ── Types ────────────────────────────────────────────────────────────
 
-interface MemoryNote {
-  id: string;
-  title: string;
-  path: string;
-  relativePath: string;
-  excerpt: string;
-  content?: string;
-  tags: string[];
-  keywords: string[];
-  links: string[];
-}
-
 interface GraphGroup {
   id: string;
   label: string;

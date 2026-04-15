@@ -7,7 +7,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import React from 'react';
 
 // Polyfill ResizeObserver for jsdom
 class MockResizeObserver implements ResizeObserver {

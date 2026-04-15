@@ -78,7 +78,7 @@ const RoleSVGs: Record<string, React.ReactNode> = {
   )
 };
 
-export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, isLoading }: RolesTableProps) {
+export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onEdit, onAdd, isLoading }: RolesTableProps) {
   const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' });

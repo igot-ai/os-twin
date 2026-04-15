@@ -126,18 +126,18 @@
     "auto_draft": true
   },
   "test-engineer": {
-    "default_model": "claude-3-5-sonnet-20241022",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "timeout_seconds": 600,
     "skill_refs": [
       "web-research"
     ]
   },
   "unique-role": {
-    "default_model": "gpt-4o",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "google-vertex/gemini-1.5-pro",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "timeout_seconds": 300
   },
   "autonomy": {

@@ -21,6 +21,7 @@ from dashboard.routes.plans import (
 @pytest.fixture
 def temp_plan(tmp_path, monkeypatch):
     monkeypatch.setattr("dashboard.routes.plans.PLANS_DIR", tmp_path)
+    monkeypatch.setattr("dashboard.routes.plans.GLOBAL_PLANS_DIR", tmp_path)
     plan_id = "api-test-plan"
     plan_file = tmp_path / f"{plan_id}.md"
     plan_file.write_text("# Plan: API Test Plan\n\n## Epics\n\n### EPIC-001 — First\n\n### EPIC-002 — Second\n")
@@ -381,6 +382,7 @@ def test_merge_markdown_no_assets_is_noop(temp_plan):
 def test_get_valid_epic_refs_alternate_format(tmp_path, monkeypatch):
     """Should match '## Epic: EPIC-001' format as well as '### EPIC-001'."""
     monkeypatch.setattr("dashboard.routes.plans.PLANS_DIR", tmp_path)
+    monkeypatch.setattr("dashboard.routes.plans.GLOBAL_PLANS_DIR", tmp_path)
     plan_id = "alt-fmt"
     plan_file = tmp_path / f"{plan_id}.md"
     plan_file.write_text(

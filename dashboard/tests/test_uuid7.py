@@ -2,9 +2,7 @@
 import os
 import time
 import uuid
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from datetime import datetime
 
 os.environ.setdefault("OSTWIN_API_KEY", "test-key")
 

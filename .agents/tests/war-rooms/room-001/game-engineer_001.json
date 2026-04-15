@@ -3,7 +3,7 @@
   "instance_id": "001",
   "instance_type": "",
   "display_name": "game-engineer #001",
-  "model": "google-vertex/gemini-3.1-pro-preview",
+  "model": "google-vertex/gemini-3-flash-preview",
   "timeout_seconds": 600,
   "assigned_at": "2026-04-02T04:48:47Z",
   "status": "active",

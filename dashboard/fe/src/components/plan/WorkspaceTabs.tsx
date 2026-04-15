@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, lazy } from 'react';
+import { Suspense, lazy } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 
 // Lazy-load tab components

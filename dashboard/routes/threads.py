@@ -1,21 +1,16 @@
-import os
 import json
-import hashlib
 import asyncio
-import re
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Query, Depends, Request
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from dashboard.auth import get_current_user
 import dashboard.global_state as global_state
 from dashboard.plan_agent import brainstorm_stream, refine_plan, _resolve_model, plan_logger
-from dashboard.api_utils import PLANS_DIR, PROJECT_ROOT, AGENTS_DIR
+from dashboard.api_utils import PLANS_DIR
 from dashboard.routes.plans import create_plan_on_disk
 from dashboard.asset_store import persist_images_from_message, list_thread_assets
 

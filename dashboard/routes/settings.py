@@ -61,6 +61,7 @@ class VaultInfoResponse(BaseModel):
 
 class TargetSyncDetail(BaseModel):
     """Per-target detail (opencode.json or auth.json)."""
+
     synced: List[str] = []
     removed: List[str] = []
     skipped: List[str] = []
@@ -99,7 +100,9 @@ async def get_master_settings(
 async def get_effective_settings(
     role: str = Query(..., description="Role to resolve settings for"),
     plan_id: Optional[str] = Query(None, description="Plan ID for plan-level override"),
-    task_ref: Optional[str] = Query(None, description="Task ref for room-level override"),
+    task_ref: Optional[str] = Query(
+        None, description="Task ref for room-level override"
+    ),
     user: dict = Depends(get_current_user),
 ):
     """Get effective settings for a role with provenance.
@@ -108,7 +111,10 @@ async def get_effective_settings(
     """
     resolver = get_settings_resolver()
     return resolver.resolve_role(
-        role, plan_id=plan_id, task_ref=task_ref, masked=True,
+        role,
+        plan_id=plan_id,
+        task_ref=task_ref,
+        masked=True,
     )
 
 
@@ -122,10 +128,17 @@ async def get_settings_schema(
 
 # ── Mutation Endpoints ─────────────────────────────────────────────────
 
-_VALID_NAMESPACES = frozenset({
-    "providers", "roles", "runtime", "memory",
-    "channels", "autonomy", "observability",
-})
+_VALID_NAMESPACES = frozenset(
+    {
+        "providers",
+        "roles",
+        "runtime",
+        "memory",
+        "channels",
+        "autonomy",
+        "observability",
+    }
+)
 
 
 @router.put("/{namespace}")
@@ -153,10 +166,13 @@ async def patch_global_namespace(
     if namespace == "providers":
         _sync_vertex_env(value)
 
-    await broadcaster.broadcast("settings_updated", {
-        "namespace": namespace,
-        "settings": value,
-    })
+    await broadcaster.broadcast(
+        "settings_updated",
+        {
+            "namespace": namespace,
+            "settings": value,
+        },
+    )
     return {"status": "ok"}
 
 
@@ -171,12 +187,15 @@ async def patch_plan_role(
     resolver = get_settings_resolver()
     resolver.patch_plan_role(plan_id, role, value)
 
-    await broadcaster.broadcast("settings_updated", {
-        "namespace": "plan",
-        "plan_id": plan_id,
-        "role": role,
-        "settings": value,
-    })
+    await broadcaster.broadcast(
+        "settings_updated",
+        {
+            "namespace": "plan",
+            "plan_id": plan_id,
+            "role": role,
+            "settings": value,
+        },
+    )
     return {"status": "ok"}
 
 
@@ -192,13 +211,16 @@ async def patch_room_role(
     resolver = get_settings_resolver()
     resolver.patch_room_role(plan_id, task_ref, role, value)
 
-    await broadcaster.broadcast("settings_updated", {
-        "namespace": "room",
-        "plan_id": plan_id,
-        "task_ref": task_ref,
-        "role": role,
-        "settings": value,
-    })
+    await broadcaster.broadcast(
+        "settings_updated",
+        {
+            "namespace": "room",
+            "plan_id": plan_id,
+            "task_ref": task_ref,
+            "role": role,
+            "settings": value,
+        },
+    )
     return {"status": "ok"}
 
 
@@ -211,14 +233,18 @@ async def reset_namespace(
     resolver = get_settings_resolver()
     resolver.reset_namespace(namespace)
 
-    await broadcaster.broadcast("settings_updated", {
-        "namespace": namespace,
-        "action": "reset",
-    })
+    await broadcaster.broadcast(
+        "settings_updated",
+        {
+            "namespace": namespace,
+            "action": "reset",
+        },
+    )
     return {"status": "ok"}
 
 
 # ── Provider Test Endpoint ─────────────────────────────────────────────
+
 
 @router.post("/test/{provider}")
 async def test_provider_connection(
@@ -256,6 +282,7 @@ async def test_provider_connection(
 
 
 # ── Vault Management Endpoints ─────────────────────────────────────────
+
 
 @router.get("/vault/status", response_model=VaultInfoResponse)
 async def vault_status(
@@ -346,12 +373,15 @@ async def delete_vault_secret(
                 os.environ.pop(env_var, None)
                 logger.info("[SETTINGS] Removed %s from .env and os.environ", env_var)
             except Exception as exc:
-                logger.warning("[SETTINGS] Failed to remove %s from .env: %s", env_var, exc)
+                logger.warning(
+                    "[SETTINGS] Failed to remove %s from .env: %s", env_var, exc
+                )
 
     return {"status": "deleted"}
 
 
 # ── Vault Migration Endpoint ──────────────────────────────────────────
+
 
 @router.post("/vault/migrate")
 async def migrate_secrets_to_vault(
@@ -373,6 +403,7 @@ async def migrate_secrets_to_vault(
 
 # ── OpenCode Config Sync ──────────────────────────────────────────────
 
+
 @router.post("/opencode/sync", response_model=OpenCodeSyncResponse)
 async def sync_opencode(
     user: dict = Depends(get_current_user),
@@ -388,8 +419,11 @@ async def sync_opencode(
         if t is None:
             return None
         return TargetSyncDetail(
-            synced=t.synced, removed=t.removed,
-            skipped=t.skipped, path=t.path, error=t.error,
+            synced=t.synced,
+            removed=t.removed,
+            skipped=t.skipped,
+            path=t.path,
+            error=t.error,
         )
 
     return OpenCodeSyncResponse(
@@ -404,6 +438,7 @@ async def sync_opencode(
 
 
 # ── Google OAuth2 Flow ─────────────────────────────────────────────────
+
 
 class OAuthStartRequest(BaseModel):
     project_id: str = ""
@@ -420,6 +455,7 @@ async def google_oauth_start(
     After the user authenticates, Google redirects to our callback endpoint.
     """
     from starlette.requests import Request as StarletteRequest
+
     # Build callback URL based on the current request origin
     # Default to localhost:9000 if we can't determine the host
     callback_path = "/api/settings/google/oauth/callback"
@@ -451,7 +487,9 @@ async def google_oauth_callback(
     Returns an HTML page that closes the popup window.
     """
     if error:
-        return _oauth_result_page(success=False, message=f"Google returned error: {error}")
+        return _oauth_result_page(
+            success=False, message=f"Google returned error: {error}"
+        )
 
     try:
         result = exchange_code(code=code, state=state)
@@ -512,7 +550,7 @@ def _oauth_result_page(
     window.opener.postMessage({{
       type: 'google_oauth_result',
       status: '{status}',
-      email: {json.dumps(email) if email else 'null'},
+      email: {json.dumps(email) if email else "null"},
     }}, '*');
   }}
   setTimeout(() => window.close(), 2000);
@@ -542,7 +580,8 @@ def _try_opencode_sync() -> None:
         elif result.synced or result.removed:
             logger.info(
                 "opencode sync: synced=%s removed=%s",
-                result.synced, result.removed,
+                result.synced,
+                result.removed,
             )
     except Exception as exc:
         logger.warning("opencode sync failed: %s", exc)
@@ -555,16 +594,20 @@ _ENV_FILE = _OSTWIN_DIR / ".env"
 _SA_FILE = _OSTWIN_DIR / "google-service-account.json"
 
 # Env vars managed by this sync — never conflate with vault-managed keys.
-_VERTEX_ENV_KEYS = {"GOOGLE_CLOUD_PROJECT", "VERTEX_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS"}
+_VERTEX_ENV_KEYS = {
+    "GOOGLE_CLOUD_PROJECT",
+    "VERTEX_LOCATION",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+}
 
 # Map vault provider keys -> env-var names that should be synced to ~/.ostwin/.env.
 # When a provider secret is stored via the vault endpoint, the corresponding
 # env var is upserted into the .env file so that processes reading the file
 # (litellm, plan_agent, etc.) pick up the key immediately.
 _PROVIDER_ENV_MAP: Dict[str, str] = {
-    "google":    "GOOGLE_API_KEY",
+    "google": "GOOGLE_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
-    "openai":    "OPENAI_API_KEY",
+    "openai": "OPENAI_API_KEY",
 }
 
 
@@ -615,11 +658,14 @@ def _sync_vertex_env(providers_value: Dict[str, Any]) -> None:
                 # Clean up on-disk SA file if leftover from a previous mode
                 if _SA_FILE.exists():
                     _SA_FILE.unlink()
-                logger.info("[SETTINGS] Vertex auth_mode=oauth — using ADC auto-discovery")
+                logger.info(
+                    "[SETTINGS] Vertex auth_mode=oauth — using ADC auto-discovery"
+                )
             else:
                 # service_account mode — write SA file + env var
                 try:
                     from dashboard.lib.settings.vault import get_vault
+
                     vault = get_vault()
                     sa_json = vault.get("providers", "google_service_account")
                     if sa_json:
@@ -627,10 +673,13 @@ def _sync_vertex_env(providers_value: Dict[str, Any]) -> None:
                         _OSTWIN_DIR.mkdir(parents=True, exist_ok=True)
                         _SA_FILE.write_text(sa_json)
                         env_updates["GOOGLE_APPLICATION_CREDENTIALS"] = str(_SA_FILE)
-                        logger.info("[SETTINGS] Wrote service-account JSON to %s", _SA_FILE)
+                        logger.info(
+                            "[SETTINGS] Wrote service-account JSON to %s", _SA_FILE
+                        )
                 except Exception as exc:
                     logger.warning(
-                        "[SETTINGS] Could not extract service-account from vault: %s", exc,
+                        "[SETTINGS] Could not extract service-account from vault: %s",
+                        exc,
                     )
 
             if env_updates:
@@ -643,7 +692,9 @@ def _sync_vertex_env(providers_value: Dict[str, Any]) -> None:
 
             logger.info(
                 "[SETTINGS] Vertex env synced: project=%s location=%s auth=%s",
-                project_id, location, auth_mode,
+                project_id,
+                location,
+                auth_mode,
             )
         else:
             # Switching away from vertex — clean up
@@ -671,12 +722,26 @@ def _parse_env_file() -> list[dict]:
         elif stripped.startswith("#") and "=" in stripped:
             rest = stripped.lstrip("# ").strip()
             key, _, value = rest.partition("=")
-            entries.append({"type": "var", "key": key.strip(), "value": value.strip(), "enabled": False})
+            entries.append(
+                {
+                    "type": "var",
+                    "key": key.strip(),
+                    "value": value.strip(),
+                    "enabled": False,
+                }
+            )
         elif stripped.startswith("#"):
             entries.append({"type": "comment", "text": stripped})
         elif "=" in stripped:
             key, _, value = stripped.partition("=")
-            entries.append({"type": "var", "key": key.strip(), "value": value.strip(), "enabled": True})
+            entries.append(
+                {
+                    "type": "var",
+                    "key": key.strip(),
+                    "value": value.strip(),
+                    "enabled": True,
+                }
+            )
         else:
             entries.append({"type": "comment", "text": stripped})
     return entries
@@ -704,7 +769,9 @@ def _serialize_env_file(entries: list[dict]) -> str:
 def _upsert_env_vars(updates: Dict[str, str]) -> None:
     """Upsert env vars into ~/.ostwin/.env.  Creates the file if needed."""
     entries = _parse_env_file()
-    existing_keys = {e.get("key"): i for i, e in enumerate(entries) if e.get("type") == "var"}
+    existing_keys = {
+        e.get("key"): i for i, e in enumerate(entries) if e.get("type") == "var"
+    }
 
     for key, value in updates.items():
         if not value:
@@ -717,7 +784,12 @@ def _upsert_env_vars(updates: Dict[str, str]) -> None:
             # Append with a section header on first vertex var
             if not any(e.get("text", "").startswith("# ── Vertex AI") for e in entries):
                 entries.append({"type": "blank"})
-                entries.append({"type": "comment", "text": "# ── Vertex AI (managed by dashboard) ────────────────────────────────"})
+                entries.append(
+                    {
+                        "type": "comment",
+                        "text": "# ── Vertex AI (managed by dashboard) ────────────────────────────────",
+                    }
+                )
             entries.append({"type": "var", "key": key, "value": value, "enabled": True})
 
     _OSTWIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -731,7 +803,11 @@ def _remove_env_vars(keys_to_remove: set[str]) -> None:
     entries = _parse_env_file()
     changed = False
     for e in entries:
-        if e.get("type") == "var" and e.get("key") in keys_to_remove and e.get("enabled"):
+        if (
+            e.get("type") == "var"
+            and e.get("key") in keys_to_remove
+            and e.get("enabled")
+        ):
             e["enabled"] = False
             changed = True
     if changed:
@@ -765,9 +841,12 @@ def _try_vertex_env_sync() -> None:
     """
     try:
         from dashboard.lib.settings.resolver import get_settings_resolver
+
         resolver = get_settings_resolver()
         master = resolver.get_master_settings()
-        providers_dict = master.providers.model_dump(exclude_none=True) if master.providers else {}
+        providers_dict = (
+            master.providers.model_dump(exclude_none=True) if master.providers else {}
+        )
         _sync_vertex_env(providers_dict)
     except Exception as exc:
         logger.warning("[SETTINGS] Vertex env re-sync failed: %s", exc)

@@ -1,5 +1,5 @@
 {
-  "model": "anthropic/claude-3-5-sonnet-20241022",
+  "model": "google-vertex/gemini-3-flash-preview",
   "skill_refs": [
     "web-research"
   ],

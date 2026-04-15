@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { Tooltip } from '@/components/ui/Tooltip';
 
 export const ConnectionStatus = () => {
