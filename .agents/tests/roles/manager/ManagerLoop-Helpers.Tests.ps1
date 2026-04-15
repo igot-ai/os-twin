@@ -607,19 +607,28 @@ Describe "Handle-PlanApproval" {
     }
 
     It "calls Build-DependencyGraph.ps1 when present (PLAN-REVIEW)" {
-        # Create a stub Build-DependencyGraph.ps1
         $planDir = Join-Path $script:agentsDir "plan"
         $buildScript = Join-Path $planDir "Build-DependencyGraph.ps1"
+        $backupScript = Join-Path $TestDrive "Build-DependencyGraph.ps1.bak"
         $stubCalled = Join-Path $script:wd "dag-built.txt"
-        @"
+
+        # Back up the real file if it exists
+        if (Test-Path $buildScript) {
+            Copy-Item $buildScript $backupScript -Force
+        }
+        try {
+            # Write stub over the real path (Handle-PlanApproval looks here)
+            @"
 param([string]`$WarRoomsDir)
 "dag-built" | Out-File '$stubCalled' -Encoding utf8 -NoNewline
 "@ | Out-File $buildScript -Encoding utf8 -Force
-        Handle-PlanApproval -TaskRef "PLAN-REVIEW"
-        # Restore original (don't leave stub)
-        Remove-Item $buildScript -Force -ErrorAction SilentlyContinue
-        # If it ran, the stub created the file
-        # (may or may not exist depending on whether Build-DependencyGraph.ps1 was already there — just ensure no throw)
+            Handle-PlanApproval -TaskRef "PLAN-REVIEW"
+        } finally {
+            # Restore the original file
+            if (Test-Path $backupScript) {
+                Copy-Item $backupScript $buildScript -Force
+            }
+        }
     }
 
     It "does not throw when Build-DependencyGraph.ps1 absent" {
