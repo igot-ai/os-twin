@@ -16,20 +16,30 @@ _START_CHANNELS_SH_LOADED=1
 # Installs channel connector Node.js dependencies.
 
 install_channels() {
-  # Locate the channel connector directory
-  CHAN_DIR=""
+  # Install in ~/.ostwin/bot/ (primary) and source repo (for development)
+  local bot_dirs=()
+  
+  # Primary: installed bot directory
+  if [[ -f "$INSTALL_DIR/bot/package.json" ]]; then
+    bot_dirs+=("$INSTALL_DIR/bot")
+  fi
+  
+  # Secondary: source repo for development
   for candidate in \
     "${SOURCE_DIR}/bot" \
     "${SCRIPT_DIR}/../bot"; do
     if [[ -d "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
-      CHAN_DIR="$(cd "$candidate" && pwd)"
+      local src_bot
+      src_bot="$(cd "$candidate" && pwd)"
+      # Skip if same as installed location
+      [[ "$src_bot" == "$INSTALL_DIR/bot" ]] || bot_dirs+=("$src_bot")
       break
     fi
   done
 
-  if [[ -z "$CHAN_DIR" ]]; then
+  if [[ ${#bot_dirs[@]} -eq 0 ]]; then
     warn "channel connector dir (bot/) not found — skipping"
-    info "Expected at bot/package.json relative to the repo root"
+    info "Expected at bot/package.json relative to the repo root or $INSTALL_DIR/bot/"
     return
   elif ! check_node; then
     warn "Node.js not found — cannot install channel connectors"
@@ -41,20 +51,22 @@ install_channels() {
     return
   fi
 
-  step "Installing channel dependencies in $CHAN_DIR with pnpm..."
-  # shellcheck disable=SC2015
-  (cd "$CHAN_DIR" && pnpm install) \
-    && ok "Channel dependencies installed" || warn "Channel dependency install failed"
+  for CHAN_DIR in "${bot_dirs[@]}"; do
+    step "Installing channel dependencies in $CHAN_DIR with pnpm..."
+    # shellcheck disable=SC2015
+    (cd "$CHAN_DIR" && pnpm install) \
+      && ok "Channel dependencies installed" || warn "Channel dependency install failed"
 
-  # tsx should come from bot/package.json devDependencies after install.
-  if [[ ! -f "$CHAN_DIR/node_modules/.bin/tsx" ]]; then
-    warn "tsx not found after pnpm install"
-  else
-    ok "tsx available"
-  fi
+    # tsx should come from bot/package.json devDependencies after install.
+    if [[ ! -f "$CHAN_DIR/node_modules/.bin/tsx" ]]; then
+      warn "tsx not found after pnpm install"
+    else
+      ok "tsx available in $CHAN_DIR"
+    fi
+  done
 
-  ok "Channel connector dir: $CHAN_DIR"
-  info "Start with: (cd \"$CHAN_DIR\" && npm start)"
+  ok "Channel connector ready"
+  info "Start with: ostwin channel connect <platform>"
 }
 
 # ─── start_channels ─────────────────────────────────────────────────────────

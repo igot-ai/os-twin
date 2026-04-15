@@ -31,6 +31,12 @@ These axes are composed independently through five architectural pillars:
 | 4 | [War-Rooms: Isolated Execution](war-rooms.md) | Each epic runs in a self-contained directory with its own channel, lifecycle, and PID tracking. |
 | 5 | [Layered Memory](memory.md) | Conversation, code artifacts, and shared ledger -- each bounded. |
 
+## Additional Systems
+
+| System | Doc |
+|--------|-----|
+| [Agentic Memory MCP](agentic-memory.md) | Semantic knowledge base with auto-linking, tagging, and vector search (A-mem-sys). |
+
 ## Execution Model
 
 | Topic | Doc |

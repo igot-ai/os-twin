@@ -219,42 +219,74 @@ function Install-OpenCode {
     param()
 
     Write-Step "Installing opencode..."
+    $installed = $false
 
     switch ($script:PkgMgr) {
         "winget" {
-            & winget install --id AnomalyCo.opencode --accept-package-agreements --accept-source-agreements 2>$null
+            $output = & winget install --id AnomalyCo.opencode --accept-package-agreements --accept-source-agreements 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $installed = $true
+            }
+            else {
+                Write-Warn "winget install failed: $output"
+            }
         }
         "choco" {
-            & choco install opencode -y 2>$null
-        }
-        default {
-            # Official install script
-            try {
-                $installScript = Invoke-RestMethod "https://opencode.ai/install.ps1"
-                Invoke-Expression $installScript
+            $output = & choco install opencode -y 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $installed = $true
             }
-            catch {
-                Write-Warn "opencode install script failed — trying npm..."
-                if (Check-Node) {
-                    & npm install -g opencode 2>$null
-                }
-                else {
-                    Write-Warn "Cannot install opencode: no supported method available"
-                    return
+            else {
+                Write-Warn "choco install failed: $output"
+            }
+        }
+    }
+
+    # Fallback: official install script
+    if (-not $installed) {
+        try {
+            Write-Step "Trying official install script..."
+            $installScript = Invoke-RestMethod "https://opencode.ai/install.ps1"
+            Invoke-Expression $installScript
+            $installed = $true
+        }
+        catch {
+            Write-Warn "opencode install script failed: $_"
+            if (Check-Node) {
+                Write-Step "Trying npm install..."
+                & npm install -g opencode 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    $installed = $true
                 }
             }
         }
     }
 
-    # Refresh PATH and verify
-    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + $env:PATH
+    # Refresh PATH from system
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+
+    # Add common install locations to PATH
+    $opencodePaths = @(
+        "$env:LOCALAPPDATA\opencode",
+        "$env:APPDATA\npm",
+        "$env:USERPROFILE\.local\bin",
+        "$env:USERPROFILE\.cargo\bin"
+    )
+    foreach ($p in $opencodePaths) {
+        if ((Test-Path $p) -and $env:PATH -notlike "*$p*") {
+            $env:PATH = "$p;$env:PATH"
+        }
+    }
+
     if (Check-OpenCode) {
         $ocVer = (& opencode --version 2>&1) -replace '[^0-9.]', '' | Select-Object -First 1
         if (-not $ocVer) { $ocVer = "installed" }
         Write-Ok "opencode $ocVer installed"
     }
     else {
-        Write-Warn "opencode installed but not in PATH yet — restart your terminal"
+        Write-Fail "opencode installed but not in PATH"
+        Write-Info "Restart your terminal or run: . `$PROFILE"
+        throw "opencode not available in PATH — installation cannot continue"
     }
 }
 

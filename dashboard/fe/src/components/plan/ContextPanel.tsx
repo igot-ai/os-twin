@@ -42,18 +42,6 @@ export default function ContextPanel() {
         )}
       </div>
 
-      {/* Footer / Action Area */}
-      {selectedEpic && (
-        <div className="p-4 border-t border-border bg-surface-alt/30">
-          <Link 
-            href={`/plans/${plan?.plan_id}/epics/${selectedEpic.epic_ref}`}
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
-          >
-            Open Full Detail
-            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-          </Link>
-        </div>
-      )}
     </div>
   );
 }

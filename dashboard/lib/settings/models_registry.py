@@ -33,18 +33,23 @@ logger = logging.getLogger(__name__)
 
 # ── Provider auth types ───────────────────────────────────────────────
 
+
 class ProviderAuthType(str, enum.Enum):
     """How a provider authenticates with OpenCode.
 
     A provider can use multiple types (e.g. Azure uses both AUTH_JSON
     and ENV for different credentials).
     """
-    AUTH_JSON = "auth_json"               # ~/.local/share/opencode/auth.json
-    OPENAI_COMPATIBLE = "openai_compatible"  # ~/.config/opencode/opencode.json provider block
-    ENV = "env"                           # environment variables only
+
+    AUTH_JSON = "auth_json"  # ~/.local/share/opencode/auth.json
+    OPENAI_COMPATIBLE = (
+        "openai_compatible"  # ~/.config/opencode/opencode.json provider block
+    )
+    ENV = "env"  # environment variables only
 
 
 # ── Model entry ────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class ModelEntry:
@@ -72,23 +77,75 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
     ],
     "Gemini": [
         # Vertex AI mode
-        ModelEntry("google-vertex/gemini-3.1-pro-preview", "Vertex Gemini 3.1 Pro", "1M", "flagship", mode="vertex"),
-        ModelEntry("google-vertex/gemini-3-flash-preview", "Vertex Gemini 3 Flash", "1M", "balanced", mode="vertex"),
-        ModelEntry("google-vertex-anthropic/claude-sonnet-4-6@default", "Claude Sonnet 4.6", "200K", "balanced", mode="vertex"),
-        ModelEntry("google-vertex-anthropic/claude-haiku-4-5@20251001", "Claude Haiku 4.5", "200K", "fast", mode="vertex"),
-        ModelEntry("google-vertex/zai-org/glm-5-maas", "GLM-5", "128K", "balanced", mode="vertex"),
+        ModelEntry(
+            "google-vertex/gemini-3.1-pro-preview",
+            "Vertex Gemini 3.1 Pro",
+            "1M",
+            "flagship",
+            mode="vertex",
+        ),
+        ModelEntry(
+            "google-vertex/gemini-3-flash-preview",
+            "Vertex Gemini 3 Flash",
+            "1M",
+            "balanced",
+            mode="vertex",
+        ),
+        ModelEntry(
+            "google-vertex-anthropic/claude-sonnet-4-6@default",
+            "Claude Sonnet 4.6",
+            "200K",
+            "balanced",
+            mode="vertex",
+        ),
+        ModelEntry(
+            "google-vertex-anthropic/claude-haiku-4-5@20251001",
+            "Claude Haiku 4.5",
+            "200K",
+            "fast",
+            mode="vertex",
+        ),
+        ModelEntry(
+            "google-vertex/zai-org/glm-5-maas",
+            "GLM-5",
+            "128K",
+            "balanced",
+            mode="vertex",
+        ),
         # Gemini API mode
-        ModelEntry("gemini/gemini-3.1-pro-preview", "Gemini 3.1 Pro", "1M", "flagship", mode="gemini"),
-        ModelEntry("gemini/gemini-3-flash-preview", "Gemini 3 Flash", "1M", "balanced", mode="gemini"),
-        ModelEntry("gemini/gemini-3-flash-lite-preview", "Gemini 3 Flash Lite", "1M", "fast", mode="gemini"),
+        ModelEntry(
+            "gemini/gemini-3.1-pro-preview",
+            "Gemini 3.1 Pro",
+            "1M",
+            "flagship",
+            mode="gemini",
+        ),
+        ModelEntry(
+            "gemini/gemini-3-flash-preview",
+            "Gemini 3 Flash",
+            "1M",
+            "balanced",
+            mode="gemini",
+        ),
+        ModelEntry(
+            "gemini/gemini-3-flash-lite-preview",
+            "Gemini 3 Flash Lite",
+            "1M",
+            "fast",
+            mode="gemini",
+        ),
     ],
     "BytePlus": [
         ModelEntry("byteplus/seed-2-0-pro-260328", "Seed 2.0 Pro", "256K", "flagship"),
-        ModelEntry("byteplus/seed-2-0-lite-260228", "Seed 2.0 Lite", "256K", "balanced"),
+        ModelEntry(
+            "byteplus/seed-2-0-lite-260228", "Seed 2.0 Lite", "256K", "balanced"
+        ),
         ModelEntry("byteplus/seed-2-0-mini-260215", "Seed 2.0 Mini", "256K", "fast"),
         ModelEntry("byteplus/seed-1-8-251228", "Seed 1.8", "256K", "balanced"),
         ModelEntry("byteplus/glm-4-7-251222", "GLM-4 7B", "256K", "balanced"),
-        ModelEntry("byteplus/deepseek-v3-2-251201", "DeepSeek V3.2", "128K", "balanced"),
+        ModelEntry(
+            "byteplus/deepseek-v3-2-251201", "DeepSeek V3.2", "128K", "balanced"
+        ),
         ModelEntry("byteplus/seed-1-6-250915", "Seed 1.6 Vision", "256K", "vision"),
         ModelEntry("byteplus/seed-1-6-flash-250715", "Seed 1.6 Flash", "256K", "fast"),
     ],
@@ -134,13 +191,13 @@ def get_model_registry(
     # Also map lowercase provider-id → static name so that custom
     # providers like "byteplus" supersede static "BytePlus".
     _DYNAMIC_REPLACES_STATIC: Dict[str, str] = {
-        "OpenAI":   "GPT",
+        "OpenAI": "GPT",
         "Anthropic": "Claude",
     }
     _PID_REPLACES_STATIC: Dict[str, str] = {
         "byteplus": "BytePlus",
-        "gemini":   "Gemini",
-        "openai":   "GPT",
+        "gemini": "Gemini",
+        "openai": "GPT",
         "anthropic": "Claude",
     }
 
@@ -148,6 +205,7 @@ def get_model_registry(
     dynamic: Dict[str, List[dict]] = {}
     try:
         from .models_dev_loader import get_model_registry_from_configured
+
         dynamic = get_model_registry_from_configured() or {}
     except Exception as exc:
         logger.debug("Dynamic model registry unavailable: %s", exc)
@@ -224,7 +282,9 @@ def _get_static_registry(
             d["mode"] = m.mode
         return d
 
-    def _filter(entries: List[ModelEntry], allowlist: Optional[List[str]]) -> List[dict]:
+    def _filter(
+        entries: List[ModelEntry], allowlist: Optional[List[str]]
+    ) -> List[dict]:
         if allowlist:
             allow_set = set(allowlist)
             return [_to_dict(m) for m in entries if m.id in allow_set]
@@ -245,7 +305,8 @@ def _get_static_registry(
     # Gemini -- filter by deployment mode first, then by allowlist
     if google_enabled:
         mode_filtered = [
-            m for m in _FALLBACK_CATALOG["Gemini"]
+            m
+            for m in _FALLBACK_CATALOG["Gemini"]
             if m.mode is None or m.mode == google_mode
         ]
         models = _filter(mode_filtered, google_models)
@@ -266,19 +327,21 @@ def _get_static_registry(
 # ``provider`` block.  Only providers that need a custom opencode
 # provider entry are listed.
 
+
 @dataclass(frozen=True)
 class OpenCodeProviderDef:
     """Describes how to write a provider block in opencode.json."""
-    opencode_key: str                   # key under "provider" in opencode.json
-    vault_scope: str                    # vault scope for the API key
-    vault_key: str                      # vault key for the API key
-    base_url: str                       # baseURL for the openai-compatible shim
+
+    opencode_key: str  # key under "provider" in opencode.json
+    vault_scope: str  # vault scope for the API key
+    vault_key: str  # vault key for the API key
+    base_url: str  # baseURL for the openai-compatible shim
     npm_package: str = "@ai-sdk/openai-compatible"
     # map of model_id -> {"npm": ..., "name": ...}
     # populated dynamically from the catalog
     registry_filter_provider: str = ""  # provider key in _CATALOG
     registry_filter_mode: Optional[str] = None  # mode filter (e.g. "gemini")
-    model_name_prefix: str = ""         # prefix for model name in opencode (e.g. "gemini:")
+    model_name_prefix: str = ""  # prefix for model name in opencode (e.g. "gemini:")
 
 
 OPENCODE_PROVIDERS: Dict[str, OpenCodeProviderDef] = {
@@ -307,59 +370,70 @@ OPENCODE_PROVIDERS: Dict[str, OpenCodeProviderDef] = {
 # Providers whose API key is written to
 # ``~/.local/share/opencode/auth.json`` as ``{"type":"api","key":"..."}``
 
+
 @dataclass(frozen=True)
 class AuthJsonProviderDef:
     """Maps a vault key to an auth.json entry."""
-    auth_json_key: str         # key in auth.json (e.g. "anthropic")
-    vault_scope: str           # vault scope
-    vault_key: str             # vault key
-    auth_types: frozenset      # which auth mechanisms this provider uses
+
+    auth_json_key: str  # key in auth.json (e.g. "anthropic")
+    vault_scope: str  # vault scope
+    vault_key: str  # vault key
+    auth_types: frozenset  # which auth mechanisms this provider uses
 
 
 AUTH_JSON_PROVIDERS: Dict[str, AuthJsonProviderDef] = {
     "anthropic": AuthJsonProviderDef(
         auth_json_key="anthropic",
-        vault_scope="providers", vault_key="anthropic",
+        vault_scope="providers",
+        vault_key="anthropic",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
     "openai": AuthJsonProviderDef(
         auth_json_key="openai",
-        vault_scope="providers", vault_key="openai",
+        vault_scope="providers",
+        vault_key="openai",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
     "azure": AuthJsonProviderDef(
         auth_json_key="azure",
-        vault_scope="providers", vault_key="azure",
+        vault_scope="providers",
+        vault_key="azure",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON, ProviderAuthType.ENV}),
     ),
     "xai": AuthJsonProviderDef(
         auth_json_key="xai",
-        vault_scope="providers", vault_key="xai",
+        vault_scope="providers",
+        vault_key="xai",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
     "deepseek": AuthJsonProviderDef(
         auth_json_key="deepseek",
-        vault_scope="providers", vault_key="deepseek",
+        vault_scope="providers",
+        vault_key="deepseek",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
     "openrouter": AuthJsonProviderDef(
         auth_json_key="openrouter",
-        vault_scope="providers", vault_key="openrouter",
+        vault_scope="providers",
+        vault_key="openrouter",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
     "moonshotai": AuthJsonProviderDef(
         auth_json_key="moonshotai",
-        vault_scope="providers", vault_key="moonshotai",
+        vault_scope="providers",
+        vault_key="moonshotai",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
     "lmstudio": AuthJsonProviderDef(
         auth_json_key="lmstudio",
-        vault_scope="providers", vault_key="lmstudio",
+        vault_scope="providers",
+        vault_key="lmstudio",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
     "zai": AuthJsonProviderDef(
         auth_json_key="zai",
-        vault_scope="providers", vault_key="zai",
+        vault_scope="providers",
+        vault_key="zai",
         auth_types=frozenset({ProviderAuthType.AUTH_JSON}),
     ),
 }
@@ -385,7 +459,10 @@ def build_opencode_models(
     models: Dict[str, dict] = {}
     for entry in catalog_entries:
         # Apply mode filter if set
-        if provider_def.registry_filter_mode and entry.mode != provider_def.registry_filter_mode:
+        if (
+            provider_def.registry_filter_mode
+            and entry.mode != provider_def.registry_filter_mode
+        ):
             continue
 
         # Apply allowlist

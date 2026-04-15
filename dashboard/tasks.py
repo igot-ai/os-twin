@@ -15,6 +15,7 @@ from dashboard.api_utils import (
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
 from dashboard.zvec_store import OSTwinStore
+
 # Telegram command handling is now in the Node.js bot (bot/src/telegram.ts).
 # Outbound notifications use notify.py (formerly telegram_bot.py).
 
@@ -25,8 +26,27 @@ async def poll_war_rooms():
     """Background task to poll war-room state and broadcast changes."""
     last_snapshot: dict[str, dict] = {}
 
+    _cached_warroom_dirs: list[Path] = []
+    _cached_warroom_dirs_time: float = 0
+    _WARROOM_CACHE_TTL = 10  # seconds
+
     def _discover_warroom_dirs() -> list[Path]:
-        """Discover all war-room directories: global + plan-specific."""
+        """Discover all war-room directories: global + plan-specific.
+
+        Results are cached for 10 seconds to avoid re-globbing and re-reading
+        .meta.json files on every 1-second poll cycle, which can exhaust the
+        OS file-descriptor limit (macOS default is often only 256).
+        """
+        nonlocal _cached_warroom_dirs, _cached_warroom_dirs_time
+        import time
+
+        now = time.monotonic()
+        if (
+            _cached_warroom_dirs
+            and (now - _cached_warroom_dirs_time) < _WARROOM_CACHE_TTL
+        ):
+            return _cached_warroom_dirs
+
         dirs = set()
         if WARROOMS_DIR.exists():
             dirs.add(WARROOMS_DIR)
@@ -45,7 +65,10 @@ async def poll_war_rooms():
                             dirs.add(warrooms_path)
                 except (json.JSONDecodeError, KeyError):
                     pass
-        return list(dirs)
+
+        _cached_warroom_dirs = list(dirs)
+        _cached_warroom_dirs_time = now
+        return _cached_warroom_dirs
 
     def _find_plan_id_for_warroom_dir(warroom_dir: Path) -> str | None:
         """Find the plan_id whose warrooms_dir matches."""
@@ -128,9 +151,15 @@ async def poll_war_rooms():
                             epic_ref = room.get("task_ref", "")
                             if epic_ref:
                                 try:
-                                    EpicSkillsManager.inject_room_assets(room_parent / room_id, plan_id, epic_ref)
+                                    EpicSkillsManager.inject_room_assets(
+                                        room_parent / room_id, plan_id, epic_ref
+                                    )
                                 except Exception as e:
-                                    logger.warning("Failed to inject assets for room %s: %s", room_id, e)
+                                    logger.warning(
+                                        "Failed to inject assets for room %s: %s",
+                                        room_id,
+                                        e,
+                                    )
 
                     if room_parent and room["message_count"] > 0:
                         messages = read_channel(room_parent / room_id)
@@ -228,7 +257,9 @@ async def poll_war_rooms():
             await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001 - intentional catch-all for polling resilience
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 - intentional catch-all for polling resilience
             logger.error("poll_war_rooms error: %s", e, exc_info=True)
             await asyncio.sleep(2)
 
@@ -307,21 +338,17 @@ async def startup_all():
         logger.error(f"zvec init failed: {e}")
         global_state.store = None
 
-    # Auto-start the bot process if bot/ directory exists
+    # Initialize bot manager but don't auto-start — use POST /api/bot/start instead
     try:
         from dashboard.bot_manager import BotProcessManager, BOT_DIR
 
         if BOT_DIR.exists():
             global_state.bot_manager = BotProcessManager()
-            started = await global_state.bot_manager.start()
-            if started:
-                logger.info("Bot process started successfully")
-            else:
-                logger.warning("Bot process failed to start (missing tsx or entry point)")
+            logger.info("Bot manager initialized — start via POST /api/bot/start")
         else:
-            logger.info("Bot directory not found — skipping bot auto-start")
+            logger.info("Bot directory not found — bot manager disabled")
     except Exception as e:
-        logger.error("Bot auto-start failed: %s", e)
+        logger.error("Bot manager init failed: %s", e)
 
     # Auto-start ngrok tunnel if NGROK_AUTHTOKEN is set
     auth_token = os.environ.get("NGROK_AUTHTOKEN")

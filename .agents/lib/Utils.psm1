@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # Agent OS — Shared Utilities Module
 #
 # Import:
@@ -106,6 +107,7 @@ function Test-Underspecified {
 }
 
 function Test-SingleEpicUnderspecified {
+    [CmdletBinding()]
     param([string]$EpicSection, [int]$MinDod, [int]$MinAc, [int]$MinBullets)
     
     $dodPattern = '(?s)#### Definition of Done\s*\n(.*?)(?=####|^## EPIC-|---|\z)'

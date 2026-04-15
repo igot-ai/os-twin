@@ -15,10 +15,12 @@ from typing import List, Dict, Any, Optional
 # Constants
 DEFAULT_DASHBOARD_URL = "http://localhost:9000"
 
+
 def get_config():
     url = os.environ.get("DASHBOARD_URL", DEFAULT_DASHBOARD_URL)
     api_key = os.environ.get("OSTWIN_API_KEY")
     return url, api_key
+
 
 def get_headers(api_key: Optional[str]):
     headers = {}
@@ -26,31 +28,37 @@ def get_headers(api_key: Optional[str]):
         headers["X-API-Key"] = api_key
     return headers
 
+
 def list_channels(args):
     url, api_key = get_config()
     headers = get_headers(api_key)
-    
+
     try:
         with httpx.Client(base_url=url, headers=headers) as client:
             response = client.get("/api/channels")
             response.raise_for_status()
             channels = response.json()
-            
+
             print(f"\n {'Platform':10} {'Status':12} {'Users':10} {'Pairing Code':15}")
-            print() # Blank line as in example
-            
+            print()  # Blank line as in example
+
             for c in channels:
                 platform = c["platform"]
                 status = c["status"]
                 config = c.get("config") or {}
-                users = len(config.get("authorized_users", [])) if config.get("authorized_users") else "-"
+                users = (
+                    len(config.get("authorized_users", []))
+                    if config.get("authorized_users")
+                    else "-"
+                )
                 pairing = config.get("pairing_code") or "-"
-                
+
                 print(f" {platform:10} {status:12} {str(users):10} {pairing:15}")
             print()
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
+
 
 def _has_credentials(config: Optional[Dict[str, Any]]) -> bool:
     """Check if the config has non-empty credentials."""
@@ -80,8 +88,12 @@ def _prompt_credentials(platform: str) -> Dict[str, str]:
     elif platform == "discord":
         credentials["token"] = getpass.getpass("Enter Bot Token: ").strip()
     elif platform == "slack":
-        credentials["bot_token"] = getpass.getpass("Enter Bot Token (xoxb-...): ").strip()
-        credentials["app_token"] = getpass.getpass("Enter App Token (xapp-...): ").strip()
+        credentials["bot_token"] = getpass.getpass(
+            "Enter Bot Token (xoxb-...): "
+        ).strip()
+        credentials["app_token"] = getpass.getpass(
+            "Enter App Token (xapp-...): "
+        ).strip()
     else:
         print(f"Unknown platform: {platform}. Using generic setup.")
         credentials["token"] = getpass.getpass("Enter Token: ").strip()
@@ -92,7 +104,7 @@ def connect_channel(args):
     url, api_key = get_config()
     headers = get_headers(api_key)
     platform = args.platform
-    
+
     try:
         with httpx.Client(base_url=url, headers=headers) as client:
             # Check if credentials already exist
@@ -100,13 +112,13 @@ def connect_channel(args):
             response.raise_for_status()
             channel_data = response.json()
             config = channel_data.get("config")
-            
+
             credentials = {}
             use_existing = False
-            
+
             if _has_credentials(config):
                 use_existing = _ask_use_existing_credentials(platform)
-            
+
             if use_existing:
                 # Use existing credentials - just connect
                 print(f"Using existing credentials for {platform.capitalize()}...")
@@ -115,7 +127,7 @@ def connect_channel(args):
                 response = client.get(f"/api/channels/{platform}/setup")
                 response.raise_for_status()
                 steps = response.json()
-                
+
                 if not steps:
                     print(f"No setup instructions found for {platform}.")
                 else:
@@ -123,35 +135,41 @@ def connect_channel(args):
                     for i, step in enumerate(steps, 1):
                         print(f"\nStep {i}: {step['title']}")
                         print(f"{step['description']}")
-                        instructions = step['instructions'].replace("\\n", "\n")
+                        instructions = step["instructions"].replace("\\n", "\n")
                         print(f"{instructions}")
-                    print("\n" + "-"*30)
-                
+                    print("\n" + "-" * 30)
+
                 credentials = _prompt_credentials(platform)
 
             # POST to connect
-            response = client.post(f"/api/channels/{platform}/connect", json={"credentials": credentials} if credentials else {})
+            response = client.post(
+                f"/api/channels/{platform}/connect",
+                json={"credentials": credentials} if credentials else {},
+            )
             response.raise_for_status()
-            
+
             # Get pairing code
             response = client.get(f"/api/channels/{platform}/pairing")
             response.raise_for_status()
             pairing_code = response.json().get("pairing_code")
-            print(f"Pairing code: {pairing_code} (share with your {platform.capitalize()} users)")
-            
+            print(
+                f"Pairing code: {pairing_code} (share with your {platform.capitalize()} users)"
+            )
+
             # Final status line
             print(f"Starting {platform} bot... ", end="", flush=True)
             print("Connected")
-            
+
     except Exception as e:
         print(f"\nError: {e}")
         sys.exit(1)
+
 
 def disconnect_channel(args):
     url, api_key = get_config()
     headers = get_headers(api_key)
     platform = args.platform
-    
+
     try:
         with httpx.Client(base_url=url, headers=headers) as client:
             print(f"Stopping + disabling {platform}... ", end="", flush=True)
@@ -162,11 +180,12 @@ def disconnect_channel(args):
         print(f"\nError: {e}")
         sys.exit(1)
 
+
 def test_channel(args):
     url, api_key = get_config()
     headers = get_headers(api_key)
     platform = args.platform
-    
+
     try:
         with httpx.Client(base_url=url, headers=headers) as client:
             print(f"Checking health for {platform}... ", end="", flush=True)
@@ -175,11 +194,12 @@ def test_channel(args):
             data = response.json()
             status = data.get("status", "unknown")
             message = data.get("message", "")
-            
+
             # Mock latency for effect as requested
             import random
+
             latency = random.randint(20, 150)
-            
+
             print(f"{status.upper()}")
             print(f"  Latency: {latency}ms")
             if message:
@@ -188,15 +208,18 @@ def test_channel(args):
         print(f"\nError: {e}")
         sys.exit(1)
 
+
 def pair_channel(args):
     url, api_key = get_config()
     headers = get_headers(api_key)
     platform = args.platform
-    
+
     try:
         with httpx.Client(base_url=url, headers=headers) as client:
             if args.regenerate:
-                print(f"Regenerating pairing code for {platform}... ", end="", flush=True)
+                print(
+                    f"Regenerating pairing code for {platform}... ", end="", flush=True
+                )
                 response = client.post(f"/api/channels/{platform}/pairing/regenerate")
                 response.raise_for_status()
                 pairing_code = response.json().get("pairing_code")
@@ -211,36 +234,43 @@ def pair_channel(args):
         print(f"\nError: {e}")
         sys.exit(1)
 
+
 def main():
-    parser = argparse.ArgumentParser(prog="ostwin channel", description="CLI Channel Management")
+    parser = argparse.ArgumentParser(
+        prog="ostwin channel", description="CLI Channel Management"
+    )
     subparsers = parser.add_subparsers(dest="command", help="Channel subcommands")
-    
+
     # list
     subparsers.add_parser("list", help="List all channels and their status")
-    
+
     # connect
     connect_parser = subparsers.add_parser("connect", help="Connect a channel")
-    connect_parser.add_argument("platform", help="Platform name (telegram, discord, slack)")
-    
+    connect_parser.add_argument(
+        "platform", help="Platform name (telegram, discord, slack)"
+    )
+
     # disconnect
     disconnect_parser = subparsers.add_parser("disconnect", help="Disconnect a channel")
     disconnect_parser.add_argument("platform", help="Platform name")
-    
+
     # test
     test_parser = subparsers.add_parser("test", help="Test channel health")
     test_parser.add_argument("platform", help="Platform name")
-    
+
     # pair
     pair_parser = subparsers.add_parser("pair", help="Manage pairing codes")
     pair_parser.add_argument("platform", help="Platform name")
-    pair_parser.add_argument("--regenerate", action="store_true", help="Regenerate pairing code")
-    
+    pair_parser.add_argument(
+        "--regenerate", action="store_true", help="Regenerate pairing code"
+    )
+
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(0)
-        
+
     args = parser.parse_args()
-    
+
     if args.command == "list":
         list_channels(args)
     elif args.command == "connect":
@@ -253,6 +283,7 @@ def main():
         pair_channel(args)
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

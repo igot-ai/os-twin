@@ -8,8 +8,8 @@
 #   - Write-ChannelLine appends correctly under lock
 
 BeforeAll {
-    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "Lock.psm1") -Force
-    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "Utils.psm1") -Force
+    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "Lock.psm1") -Force
+    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "Utils.psm1") -Force
 }
 
 AfterAll {
@@ -227,8 +227,8 @@ Describe "Write-ChannelLine" {
                 Import-Module $UtilsModPath -Force
                 Write-ChannelLine -ChannelFile $ChFile -JsonLine "{`"writer`":$Index}"
             } -ArgumentList `
-                (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "Lock.psm1"),
-                (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "Utils.psm1"),
+                (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "Lock.psm1"),
+                (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "Utils.psm1"),
                 $channelFile, $idx
         }
 

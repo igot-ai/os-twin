@@ -33,9 +33,9 @@ if str(_project_root) not in sys.path:
 
 MIGRATION_MAP: Dict[str, Tuple[str, str]] = {
     # env_key -> (vault_scope, vault_key)
-    "ANTHROPIC_API_KEY":  ("providers", "claude"),
+    "ANTHROPIC_API_KEY":  ("providers", "anthropic"),
     "OPENAI_API_KEY":     ("providers", "openai"),
-    "GOOGLE_API_KEY":     ("providers", "gemini"),
+    "GOOGLE_API_KEY":     ("providers", "google"),
     "TELEGRAM_BOT_TOKEN": ("channels", "telegram"),
     "DISCORD_TOKEN":      ("channels", "discord"),
     "NGROK_AUTHTOKEN":    ("tunnel", "ngrok"),

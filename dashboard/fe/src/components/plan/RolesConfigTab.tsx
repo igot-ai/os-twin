@@ -240,7 +240,7 @@ export default function RolesConfigTab() {
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <span className="material-symbols-outlined text-4xl text-text-faint mb-3">group</span>
           <p className="text-sm text-text-muted">No roles declared in the plan epics.</p>
-          <p className="text-xs text-text-faint mt-1">Add <code className="bg-surface-hover px-1 rounded">Roles: engineer, qa</code> to your epic markdown.</p>
+          <p className="text-xs text-text-faint mt-1">Add <code className="bg-surface-hover px-1 rounded">Roles: @engineer, @qa</code> to your epic markdown.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

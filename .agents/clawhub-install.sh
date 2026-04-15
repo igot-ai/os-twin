@@ -465,7 +465,7 @@ print(lock.get('skills', {}).get('$slug', {}).get('version', 'unknown'))
 
     info "$slug: v$local_version → v$remote_version"
     cmd_install "$slug"
-    ((updated++))
+    ((updated++)) || true
   done
 
   if [[ $updated -eq 0 ]]; then

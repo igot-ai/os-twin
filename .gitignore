@@ -12,7 +12,7 @@ gold-mining/
 .agents/.venv/
 .agents/.venv.bak/
 .agents/.zvec/**
-.agents/memory/
+.agents/memory/.memory/
 .agents/plans/
 .agents/plans/**
 .agents/stats_history.json
@@ -98,3 +98,6 @@ test_ws.py
 tsc_output.txt
 tsc_output_final.txt
 docs/opencode-vertex-ai-partner-models.md
+
+A-mem-sys*/
+A-mem-sys*/**

@@ -79,6 +79,10 @@ fi
 
 PID_FILE="$AGENTS_DIR/dashboard.pid"
 
+# Raise open-file limit — the polling loop + background zvec sync can easily
+# exhaust macOS's default 256-fd limit, causing "Too many open files" errors.
+ulimit -n 4096 2>/dev/null || ulimit -n 2048 2>/dev/null || true
+
 if $BACKGROUND; then
   DASHBOARD_LOG_DIR="$HOME/.ostwin/dashboard"
   mkdir -p "$DASHBOARD_LOG_DIR"

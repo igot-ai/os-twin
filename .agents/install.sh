@@ -31,7 +31,7 @@ INSTALL_DIR="${HOME}/.ostwin"
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 # shellcheck disable=SC2034
 AUTO_YES=false; SKIP_OPTIONAL=false; DASHBOARD_ONLY=false
-START_CHANNEL=true; DASHBOARD_PORT=9000
+START_CHANNEL=false; DASHBOARD_PORT=9000
 # shellcheck disable=SC2034
 PYTHON_VERSION=""
 # shellcheck disable=SC2034
@@ -139,7 +139,7 @@ header "9. Starting dashboard"
 start_dashboard; publish_skills
 header "9c. Installing channel dependencies (Telegram + Discord + Slack)"
 install_channels
-if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
-  header "9d. Starting channel connectors"; start_channels
-fi
+# if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
+#   header "9d. Starting channel connectors"; start_channels
+# fi
 print_completion_banner

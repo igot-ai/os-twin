@@ -2,6 +2,8 @@
 
 BeforeAll {
     $script:StartPlan = Join-Path (Resolve-Path "$PSScriptRoot/..").Path "../plan/Start-Plan.ps1"
+    $script:repoLibDir = Join-Path (Resolve-Path "$PSScriptRoot/../..").Path "lib"
+    $script:planParserModule = Join-Path $script:repoLibDir "PlanParser.psm1"
     
     function global:Get-OstwinConfig {
         return [PSCustomObject]@{
@@ -44,6 +46,10 @@ Describe "Multi-Room DAG Launch" {
         "Write-Host 'Dummy WaitForMessage'" | Out-File (Join-Path $agentsDir "channel/Wait-ForMessage.ps1") -Encoding utf8
         "Write-Host 'Dummy ReadMessages'" | Out-File (Join-Path $agentsDir "channel/Read-Messages.ps1") -Encoding utf8
         "Write-Host 'Dummy ExpandPlan'" | Out-File (Join-Path $agentsDir "plan/Expand-Plan.ps1") -Encoding utf8
+
+        # Copy only PlanParser.psm1 — other modules (Config, Log, Utils) have global
+        # test mocks that must not be shadowed by real Import-Module
+        Copy-Item -Path $script:planParserModule -Destination (Join-Path $agentsDir "lib")
     }
 
     It "creates 5 rooms for a 4-EPIC plan (4 epics + room-000)" {
