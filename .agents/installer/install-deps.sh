@@ -219,14 +219,38 @@ install_node() {
 
 install_opencode() {
   step "Installing opencode..."
+  local brew_installed=false
 
   # Preferred: brew (macOS and Linux, always up to date)
   if command -v brew &>/dev/null; then
-    brew install anomalyco/tap/opencode 2>/dev/null || brew upgrade anomalyco/tap/opencode 2>/dev/null || true
-  else
-    # Fallback: official install script
-    curl -fsSL https://opencode.ai/install | bash
+    if brew install anomalyco/tap/opencode 2>&1; then
+      brew_installed=true
+    elif brew upgrade anomalyco/tap/opencode 2>&1; then
+      brew_installed=true
+    else
+      warn "brew install failed, falling back to official script"
+    fi
+    # Immediately add brew paths to current session
+    if $brew_installed; then
+      local brew_prefix
+      brew_prefix=$(brew --prefix 2>/dev/null || echo "/opt/homebrew")
+      export PATH="${brew_prefix}/bin:${brew_prefix}/sbin:$PATH"
+    fi
   fi
+
+  # Fallback: official install script
+  if ! $brew_installed; then
+    if curl -fsSL https://opencode.ai/install | bash; then
+      # Official script installs to ~/.local/bin
+      export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    else
+      fail "opencode installation failed"
+      return 1
+    fi
+  fi
+
+  # Refresh command hash (macOS zsh/bash cache commands)
+  hash -r 2>/dev/null || rehash 2>/dev/null || true
 
   # Verify
   if check_opencode; then
@@ -234,13 +258,17 @@ install_opencode() {
     oc_ver=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
     ok "opencode $oc_ver installed"
   else
-    # PATH may need refreshing
-    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    # PATH may need refreshing for non-interactive shells
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+    hash -r 2>/dev/null || true
     if check_opencode; then
       ok "opencode installed (PATH updated)"
     else
+      local shell_name
+      shell_name=$(basename "${SHELL:-/bin/bash}")
+      local shell_rc="$HOME/.${shell_name}rc"
       warn "opencode installed but not in PATH yet"
-      info "Run: source ~/.bashrc  (or open a new terminal)"
+      info "Run: source $shell_rc  (or open a new terminal)"
     fi
   fi
 }
