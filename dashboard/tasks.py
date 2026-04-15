@@ -17,6 +17,7 @@ from dashboard.api_utils import (
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
 from dashboard.zvec_store import OSTwinStore
+
 # Telegram command handling is now in the Node.js bot (bot/src/telegram.ts).
 # Outbound notifications use notify.py (formerly telegram_bot.py).
 
@@ -258,7 +259,9 @@ async def poll_war_rooms():
             await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001 - intentional catch-all for polling resilience
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 - intentional catch-all for polling resilience
             logger.error("poll_war_rooms error: %s", e, exc_info=True)
             await asyncio.sleep(2)
 
@@ -337,23 +340,17 @@ async def startup_all():
         logger.error(f"zvec init failed: {e}")
         global_state.store = None
 
-    # Bot auto-start disabled — the WebSocket notification connection
-    # causes ECONNRESET noise during install because the bot connects
-    # before uvicorn is fully ready.  Re-enable when needed.
-    # try:
-    #     from dashboard.bot_manager import BotProcessManager, BOT_DIR
-    #
-    #     if BOT_DIR.exists():
-    #         global_state.bot_manager = BotProcessManager()
-    #         started = await global_state.bot_manager.start()
-    #         if started:
-    #             logger.info("Bot process started successfully")
-    #         else:
-    #             logger.warning("Bot process failed to start (missing tsx or entry point)")
-    #     else:
-    #         logger.info("Bot directory not found — skipping bot auto-start")
-    # except Exception as e:
-    #     logger.error("Bot auto-start failed: %s", e)
+    # Initialize bot manager but don't auto-start — use POST /api/bot/start instead
+    try:
+        from dashboard.bot_manager import BotProcessManager, BOT_DIR
+
+        if BOT_DIR.exists():
+            global_state.bot_manager = BotProcessManager()
+            logger.info("Bot manager initialized — start via POST /api/bot/start")
+        else:
+            logger.info("Bot directory not found — bot manager disabled")
+    except Exception as e:
+        logger.error("Bot manager init failed: %s", e)
 
     # Auto-start ngrok tunnel if NGROK_AUTHTOKEN is set
     auth_token = os.environ.get("NGROK_AUTHTOKEN")

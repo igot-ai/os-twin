@@ -58,6 +58,38 @@ def test_connect_channel_telegram(mock_httpx_client):
     mock_httpx_client.get.assert_any_call("/api/channels/telegram/setup")
     mock_httpx_client.post.assert_called_with("/api/channels/telegram/connect", json={"credentials": {"token": "test-token"}})
 
+def test_connect_channel_discord(mock_httpx_client):
+    # Mock setup steps
+    mock_setup_resp = MagicMock()
+    mock_setup_resp.json.return_value = [{"title": "Step 1", "description": "Desc", "instructions": "Inst"}]
+    
+    # Mock connect
+    mock_connect_resp = MagicMock()
+    mock_connect_resp.json.return_value = {"status": "ok"}
+    
+    # Mock pairing
+    mock_pairing_resp = MagicMock()
+    mock_pairing_resp.json.return_value = {"pairing_code": "discord-code"}
+    
+    mock_httpx_client.get.side_effect = [mock_setup_resp, mock_pairing_resp]
+    mock_httpx_client.post.return_value = mock_connect_resp
+    
+    args = MagicMock()
+    args.platform = "discord"
+    
+    with patch("channel_cmd.getpass.getpass", return_value="discord-token"):
+        with patch("channel_cmd.input", side_effect=["client-123", "guild-456"]):
+            channel_cmd.connect_channel(args)
+    
+    mock_httpx_client.get.assert_any_call("/api/channels/discord/setup")
+    mock_httpx_client.post.assert_called_with("/api/channels/discord/connect", json={
+        "credentials": {
+            "token": "discord-token",
+            "client_id": "client-123",
+            "guild_id": "guild-456"
+        }
+    })
+
 def test_disconnect_channel(mock_httpx_client):
     mock_response = MagicMock()
     mock_response.json.return_value = {"status": "ok"}

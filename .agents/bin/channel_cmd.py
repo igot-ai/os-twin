@@ -81,6 +81,8 @@ def connect_channel(args):
                 credentials["token"] = getpass.getpass("Enter Bot Token: ").strip()
             elif platform == "discord":
                 credentials["token"] = getpass.getpass("Enter Bot Token: ").strip()
+                credentials["client_id"] = input("Enter Client ID: ").strip()
+                credentials["guild_id"] = input("Enter Server/Guild ID: ").strip()
             elif platform == "slack":
                 credentials["bot_token"] = getpass.getpass("Enter Bot Token (xoxb-...): ").strip()
                 credentials["app_token"] = getpass.getpass("Enter App Token (xapp-...): ").strip()
