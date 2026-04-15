@@ -19,7 +19,9 @@ from dashboard.auth import get_current_user
 # (not `memory_system`) to avoid pulling in the heavy retriever stack
 # (sentence_transformers, chromadb, nltk, litellm) at dashboard startup.
 _AMEM_PATH_CANDIDATES = [
+    Path.home() / ".ostwin" / ".agents" / "memory",
     Path.home() / ".ostwin" / "A-mem-sys",
+    Path(__file__).resolve().parent.parent.parent / ".agents" / "memory",
     Path(__file__).resolve().parent.parent.parent / "A-mem-sys",
 ]
 for _p in _AMEM_PATH_CANDIDATES:
