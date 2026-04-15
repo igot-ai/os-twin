@@ -327,21 +327,23 @@ async def startup_all():
         logger.error(f"zvec init failed: {e}")
         global_state.store = None
 
-    # Auto-start the bot process if bot/ directory exists
-    try:
-        from dashboard.bot_manager import BotProcessManager, BOT_DIR
-
-        if BOT_DIR.exists():
-            global_state.bot_manager = BotProcessManager()
-            started = await global_state.bot_manager.start()
-            if started:
-                logger.info("Bot process started successfully")
-            else:
-                logger.warning("Bot process failed to start (missing tsx or entry point)")
-        else:
-            logger.info("Bot directory not found — skipping bot auto-start")
-    except Exception as e:
-        logger.error("Bot auto-start failed: %s", e)
+    # Bot auto-start disabled — the WebSocket notification connection
+    # causes ECONNRESET noise during install because the bot connects
+    # before uvicorn is fully ready.  Re-enable when needed.
+    # try:
+    #     from dashboard.bot_manager import BotProcessManager, BOT_DIR
+    #
+    #     if BOT_DIR.exists():
+    #         global_state.bot_manager = BotProcessManager()
+    #         started = await global_state.bot_manager.start()
+    #         if started:
+    #             logger.info("Bot process started successfully")
+    #         else:
+    #             logger.warning("Bot process failed to start (missing tsx or entry point)")
+    #     else:
+    #         logger.info("Bot directory not found — skipping bot auto-start")
+    # except Exception as e:
+    #     logger.error("Bot auto-start failed: %s", e)
 
     # Auto-start ngrok tunnel if NGROK_AUTHTOKEN is set
     auth_token = os.environ.get("NGROK_AUTHTOKEN")
