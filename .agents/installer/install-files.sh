@@ -61,6 +61,9 @@ install_files() {
   # ── Dashboard: always override from source repo ───────────────────────────
   _sync_dashboard
 
+  # ── Bot: sync channel connector bot ───────────────────────────────────────
+  _sync_bot
+
   # ── Contributed roles ─────────────────────────────────────────────────────
   _load_contributed_roles
 
@@ -196,6 +199,36 @@ _sync_dashboard() {
   else
     warn "Dashboard source not found — dashboard/ not updated"
     info "Pass the repo root: ./install.sh --source-dir /path/to/agent-os"
+  fi
+}
+
+_sync_bot() {
+  local bot_src=""
+  for candidate in \
+    "${SOURCE_DIR}/bot" \
+    "${SCRIPT_DIR}/../bot" \
+    "${SCRIPT_DIR}/bot"; do
+    if [[ -n "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
+      bot_src="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+
+  if [[ -n "$bot_src" ]]; then
+    step "Syncing bot from $bot_src..."
+    mkdir -p "$INSTALL_DIR/bot"
+    # Exclude node_modules and build artifacts
+    rsync -a --delete \
+      --exclude='node_modules/' \
+      --exclude='dist/' \
+      --exclude='coverage/' \
+      --exclude='.pytest_cache/' \
+      --exclude='logs/' \
+      --exclude='__pycache__/' --exclude='*.pyc' --exclude='.DS_Store' \
+      "$bot_src/" "$INSTALL_DIR/bot/"
+    ok "Bot → $INSTALL_DIR/bot/"
+  else
+    info "Bot source not found — bot/ not synced (optional)"
   fi
 }
 

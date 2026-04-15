@@ -150,3 +150,46 @@ Describe "Load-ContributedRoles" {
     }
 }
 
+Describe "Sync-Bot" {
+    BeforeEach {
+        $testDir = Join-Path $TestDrive "test-bot-$(Get-Random)"
+        $installDir = Join-Path $testDir "install"
+        $sourceDir = Join-Path $testDir "source"
+        $botSrc = Join-Path $sourceDir "bot"
+        $botDst = Join-Path $installDir "bot"
+
+        New-Item -ItemType Directory -Path $botSrc -Force | Out-Null
+        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+
+        $script:InstallDir = $installDir
+        $script:SourceDir = $sourceDir
+        $script:ScriptDir = Join-Path $sourceDir ".agents"
+    }
+
+    It "Should sync bot directory when package.json exists" {
+        Set-Content -Path (Join-Path $botSrc "package.json") -Value '{"name": "test-bot"}'
+        Set-Content -Path (Join-Path $botSrc "src" "index.ts") -Value "console.log('hello')"
+        New-Item -ItemType Directory -Path (Join-Path $botSrc "src") -Force | Out-Null
+
+        Sync-Bot
+
+        Test-Path $botDst | Should -Be $true
+        Test-Path (Join-Path $botDst "package.json") | Should -Be $true
+    }
+
+    It "Should exclude node_modules from sync" {
+        Set-Content -Path (Join-Path $botSrc "package.json") -Value '{}'
+        New-Item -ItemType Directory -Path (Join-Path $botSrc "node_modules" "some-package") -Force | Out-Null
+        Set-Content -Path (Join-Path $botSrc "node_modules" "some-package" "index.js") -Value "module.exports = {}"
+
+        Sync-Bot
+
+        Test-Path (Join-Path $botDst "node_modules") | Should -Be $false
+    }
+
+    It "Should not fail when bot source not found" {
+        # No bot directory in source
+        { Sync-Bot } | Should -Not -Throw
+    }
+}
+
