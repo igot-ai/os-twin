@@ -139,7 +139,7 @@ header "9. Starting dashboard"
 start_dashboard; publish_skills
 header "9c. Installing channel dependencies (Telegram + Discord + Slack)"
 install_channels
-if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
-  header "9d. Starting channel connectors"; start_channels
-fi
+# if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
+#   header "9d. Starting channel connectors"; start_channels
+# fi
 print_completion_banner

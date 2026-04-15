@@ -20,11 +20,17 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Resolve the bot directory relative to the dashboard package.
-# Source repo layout:  agent-os/dashboard/  and  agent-os/bot/
+# Resolve the bot directory.
+# Priority: 1) ~/.ostwin/bot/ (installed)  2) relative to dashboard (dev)
+_OSTWIN_HOME = Path.home() / ".ostwin"
 _DASHBOARD_DIR = Path(__file__).parent
-_PROJECT_ROOT = _DASHBOARD_DIR.parent
-BOT_DIR = _PROJECT_ROOT / "bot"
+
+# Prefer installed bot location, fallback to source repo for development
+if (_OSTWIN_HOME / "bot" / "package.json").exists():
+    BOT_DIR = _OSTWIN_HOME / "bot"
+else:
+    BOT_DIR = _DASHBOARD_DIR.parent / "bot"
+
 BOT_ENTRY = BOT_DIR / "src" / "index.ts"
 
 # Maximum log lines kept in memory for the /api/bot/logs endpoint
@@ -32,6 +38,60 @@ _MAX_LOG_LINES = 500
 
 # Debounce window — ignore duplicate restart requests within this period
 _RESTART_DEBOUNCE_SECS = 2.0
+
+
+def ensure_bot_dependencies() -> bool:
+    """Install bot dependencies if node_modules missing.
+    
+    Returns True if dependencies are available (already installed or just installed).
+    Returns False if installation failed.
+    """
+    node_modules = BOT_DIR / "node_modules"
+    
+    if node_modules.exists():
+        logger.debug("[BOT] node_modules already exists")
+        return True
+    
+    if not (BOT_DIR / "package.json").exists():
+        logger.warning("[BOT] package.json not found in %s", BOT_DIR)
+        return False
+    
+    # Find package manager
+    import subprocess
+    
+    pkg_manager = None
+    for pm in ["pnpm", "npm"]:
+        if shutil.which(pm):
+            pkg_manager = pm
+            break
+    
+    if not pkg_manager:
+        logger.error("[BOT] No package manager found (pnpm or npm required)")
+        return False
+    
+    logger.info("[BOT] Installing dependencies with %s in %s", pkg_manager, BOT_DIR)
+    
+    try:
+        result = subprocess.run(
+            [pkg_manager, "install"],
+            cwd=str(BOT_DIR),
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        
+        if result.returncode == 0:
+            logger.info("[BOT] Dependencies installed successfully")
+            return True
+        else:
+            logger.error("[BOT] Dependency install failed: %s", result.stderr)
+            return False
+    except subprocess.TimeoutExpired:
+        logger.error("[BOT] Dependency install timed out")
+        return False
+    except Exception as e:
+        logger.error("[BOT] Dependency install error: %s", e)
+        return False
 
 
 class BotProcessManager:
@@ -66,10 +126,19 @@ class BotProcessManager:
             logger.info("[BOT] Already running (pid %s)", self._process.pid)
             return False
 
-        tsx = self._find_tsx()
-        if tsx is None:
+        # Ensure dependencies are installed
+        loop = asyncio.get_running_loop()
+        deps_ok = await loop.run_in_executor(None, ensure_bot_dependencies)
+        if not deps_ok:
+            logger.error("[BOT] Failed to install dependencies")
+            return False
+
+        tsx_result = self._find_tsx()
+        if tsx_result is None:
             logger.error("[BOT] Cannot find tsx binary — is bot/node_modules installed?")
             return False
+
+        tsx_exe, tsx_args = tsx_result
 
         if not BOT_ENTRY.exists():
             logger.error("[BOT] Entry point not found: %s", BOT_ENTRY)
@@ -77,12 +146,14 @@ class BotProcessManager:
 
         env = {**os.environ}  # inherit current env (includes .env vars)
 
-        logger.info("[BOT] Starting bot process: %s %s", tsx, BOT_ENTRY)
+        # Build command: tsx_exe [tsx_args] BOT_ENTRY
+        cmd = [tsx_exe, *tsx_args, str(BOT_ENTRY)]
+        logger.info("[BOT] Starting bot process: %s", " ".join(cmd))
         self._log_lines.clear()
         self._stopping = False
 
         self._process = await asyncio.create_subprocess_exec(
-            str(tsx), str(BOT_ENTRY),
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(self.bot_dir),
@@ -202,13 +273,18 @@ class BotProcessManager:
         if len(self._log_lines) > _MAX_LOG_LINES:
             self._log_lines = self._log_lines[-_MAX_LOG_LINES:]
 
-    def _find_tsx(self) -> Optional[str]:
-        """Locate the tsx binary in the bot's node_modules."""
+    def _find_tsx(self) -> Optional[tuple[str, list[str]]]:
+        """Locate the tsx binary in the bot's node_modules.
+        
+        Returns tuple of (executable, args) or None if not found.
+        - Local tsx: (tsx_path, [])
+        - Fallback npx: ('npx', ['tsx'])
+        """
         local_tsx = self.bot_dir / "node_modules" / ".bin" / "tsx"
         if local_tsx.exists():
-            return str(local_tsx)
-        # Fallback: global npx
+            return (str(local_tsx), [])
+        # Fallback: use npx tsx
         npx = shutil.which("npx")
         if npx:
-            return npx  # caller would need to adjust args, but tsx-local is preferred
+            return (npx, ["tsx"])
         return None
