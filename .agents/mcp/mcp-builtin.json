@@ -3,7 +3,7 @@
     "channel": {
       "type": "local",
       "command": [
-        "python",
+        "{env:OSTWIN_PYTHON}",
         "{env:AGENT_DIR}/mcp/channel-server.py"
       ],
       "environment": {
@@ -13,7 +13,7 @@
     "warroom": {
       "type": "local",
       "command": [
-        "python",
+        "{env:OSTWIN_PYTHON}",
         "{env:AGENT_DIR}/mcp/warroom-server.py"
       ],
       "environment": {
@@ -22,7 +22,7 @@
     },
     "memory": {
       "type": "local",
-      "command": ["python", "{env:AGENT_DIR}/.agents/memory/mcp_server.py"],
+      "command": ["{env:OSTWIN_PYTHON}", "{env:AGENT_DIR}/.agents/memory/mcp_server.py"],
       "environment": {
         "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
         "MEMORY_PERSIST_DIR": "./.memory",
