@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# _orchestrate-deps.sh — Dependency check & install orchestration (step 2)
+#
+# This is sourced inline by install.sh to handle the branching logic for
+# --dashboard-only vs full install. It uses functions from check-deps.sh
+# and install-deps.sh.
+#
+# Not a standalone module — requires all globals set by install.sh.
+# ──────────────────────────────────────────────────────────────────────────────
+
+if $DASHBOARD_ONLY; then
+  header "2. Checking dependencies (dashboard-only — minimal)"
+  # Only ensure uv + Python are available (needed for dashboard venv)
+  BASH_VER=$(bash --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  ok "bash $BASH_VER"
+  if ! check_uv; then
+    install_uv
+  fi
+  PYTHON_CMD=$(check_python)
+  if [[ -z "$PYTHON_CMD" ]]; then
+    install_python
+    PYTHON_CMD=$(check_python)
+    [[ -z "$PYTHON_CMD" ]] && { fail "Python required for dashboard"; exit 1; }
+  fi
+  ok "Python $PYTHON_VERSION ($PYTHON_CMD)"
+
+  # --- Node.js ---
+  if ! check_node; then
+    install_node
+  fi
+  if check_node; then
+    NODE_VERSION=$(node --version 2>&1 | head -1)
+    ok "Node.js $NODE_VERSION"
+    if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+      step "Installing pnpm..."
+      npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+    fi
+    if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+      step "Installing clawhub CLI..."
+      npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
+    fi
+  else
+    fail "Node.js required for dashboard"
+    exit 1
+  fi
+else
+
+header "2. Checking dependencies"
+
+# --- Bash ---
+BASH_VER=$(bash --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+ok "bash $BASH_VER"
+
+# --- uv ---
+if check_uv; then
+  UV_VERSION=$(uv --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  ok "uv $UV_VERSION"
+else
+  warn "uv not found"
+  if ask "Install uv? (recommended — fast Python package manager)"; then
+    install_uv
+  else
+    info "Skipping uv — will use pip fallback"
+  fi
+fi
+
+# --- Python ---
+PYTHON_CMD=$(check_python)
+if [[ -n "$PYTHON_CMD" ]]; then
+  ok "Python $PYTHON_VERSION ($PYTHON_CMD)"
+else
+  warn "Python $MIN_PYTHON_VERSION+ not found"
+  if ask "Install Python?"; then
+    install_python
+    PYTHON_CMD=$(check_python)
+    if [[ -n "$PYTHON_CMD" ]]; then
+      ok "Python $PYTHON_VERSION installed"
+    else
+      fail "Python installation failed"
+      exit 1
+    fi
+  else
+    fail "Python $MIN_PYTHON_VERSION+ is required"
+    exit 1
+  fi
+fi
+
+# --- PowerShell ---
+if check_pwsh; then
+  ok "PowerShell $PWSH_VERSION"
+else
+  warn "PowerShell 7+ not found"
+  if ask "Install PowerShell? (required for PS modules)"; then
+    install_pwsh
+    if check_pwsh; then
+      ok "PowerShell $PWSH_VERSION installed"
+    else
+      warn "PowerShell installation may need a shell restart"
+    fi
+  else
+    warn "Skipping PowerShell — bash-only mode (some features unavailable)"
+  fi
+fi
+
+# --- opencode ---
+if check_opencode; then
+  OC_VERSION=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+  ok "opencode $OC_VERSION"
+else
+  install_opencode
+fi
+
+# --- Node.js ---
+if check_node; then
+  NODE_VERSION=$(node --version 2>&1 | head -1)
+  ok "Node.js $NODE_VERSION"
+  if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+    step "Installing pnpm..."
+    npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+  fi
+  if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+    step "Installing clawhub CLI..."
+    npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
+  fi
+else
+  warn "Node.js not found"
+  if ask "Install Node.js? (required for Dashboard UI)"; then
+    install_node
+    if check_node; then
+      NODE_VERSION=$(node --version 2>&1 | head -1)
+      ok "Node.js $NODE_VERSION installed"
+      if ! command -v pnpm &>/dev/null && command -v npm &>/dev/null; then
+        step "Installing pnpm..."
+        npm install -g pnpm 2>/dev/null || sudo npm install -g pnpm 2>/dev/null || true
+      fi
+      if ! command -v clawhub &>/dev/null && command -v npm &>/dev/null; then
+        step "Installing clawhub CLI..."
+        npm install -g clawhub 2>/dev/null || sudo npm install -g clawhub 2>/dev/null || true
+      fi
+    else
+      warn "Node.js installation failed"
+    fi
+  else
+    warn "Skipping Node.js — dashboard UI will not be built"
+  fi
+fi
+
+fi  # end: ! DASHBOARD_ONLY

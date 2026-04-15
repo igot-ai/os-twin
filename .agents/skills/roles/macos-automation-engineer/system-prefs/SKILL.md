@@ -1,6 +1,6 @@
 ---
 name: system-prefs
-description: "Control macOS system settings: network, power, volume, dark mode, clipboard, notifications, and defaults."
+description: Control macOS system settings: network, power, volume, dark mode, clipboard, notifications, and defaults."
 tags: [macos-automation-engineer, automation, macos, system, settings, clipboard, notifications]
 trust_level: core
 platform: [macos]

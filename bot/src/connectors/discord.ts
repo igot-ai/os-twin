@@ -19,7 +19,7 @@ import path from 'path';
 import { EOL } from 'os';
 
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse, Button } from '../commands';
+import { routeCommand, routeCallback, handleStatefulText, BotResponse, Button, COMMAND_REGISTRY, DEFERRED_COMMANDS } from '../commands';
 import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { transcribeAndLaunch } from '../audio-transcript';
@@ -148,16 +148,13 @@ export class DiscordConnector implements Connector {
       }
 
       const userId = String(interaction.user.id);
-      const longRunning = ['draft', 'edit', 'startplan', 'new', 'restart', 'transcribe', 'feedback', 'preferences', 'subscriptions', 'progress'].includes(commandName);
-      if (longRunning) await interaction.deferReply();
+      if (DEFERRED_COMMANDS.has(commandName)) await interaction.deferReply();
 
+      // Extract args from the registry-defined option name
+      const cmdDef = COMMAND_REGISTRY.find(c => c.name === commandName);
       let args = '';
-      if (commandName === 'draft') {
-        args = interaction.options.getString('idea') || '';
-      } else if (commandName === 'setdir') {
-        args = interaction.options.getString('path') || '';
-      } else if (commandName === 'feedback') {
-        args = interaction.options.getString('text') || '';
+      if (cmdDef?.arg) {
+        args = interaction.options.getString(cmdDef.arg) || '';
       }
 
       const responses = await routeCommand(userId, 'discord', commandName, args);
@@ -578,36 +575,20 @@ export class DiscordConnector implements Connector {
   }
 
   private async deployCommands(token: string, clientId: string, guildId?: string): Promise<void> {
-    const commands = [
-      new SlashCommandBuilder().setName('menu').setDescription('Main Control Center'),
-      new SlashCommandBuilder().setName('dashboard').setDescription('Real-time War-Room progress'),
-      new SlashCommandBuilder().setName('status').setDescription('List running War-Rooms'),
-      new SlashCommandBuilder().setName('compact').setDescription('Latest messages from agents'),
-      new SlashCommandBuilder().setName('plans').setDescription('List all project Plans'),
-      new SlashCommandBuilder().setName('errors').setDescription('Error summary with root causes'),
-      new SlashCommandBuilder().setName('skills').setDescription('View available AI skills'),
-      new SlashCommandBuilder().setName('usage').setDescription('Stats report'),
-      new SlashCommandBuilder().setName('help').setDescription('Detailed user guide'),
-      new SlashCommandBuilder()
-        .setName('setdir')
-        .setDescription('Set target project directory for new plans')
-        .addStringOption(opt => opt.setName('path').setDescription('Absolute path to project directory').setRequired(false)),
-      new SlashCommandBuilder()
-        .setName('draft')
-        .setDescription('Draft a new Plan with AI')
-        .addStringOption(opt => opt.setName('idea').setDescription('Your project idea').setRequired(false)),
-      new SlashCommandBuilder().setName('edit').setDescription('Select a plan to edit with AI'),
-      new SlashCommandBuilder().setName('assets').setDescription('List assets saved for the active or selected plan'),
-      new SlashCommandBuilder().setName('viewplan').setDescription('View a plan\'s content'),
-      new SlashCommandBuilder().setName('startplan').setDescription('Select and launch a plan'),
-      new SlashCommandBuilder().setName('cancel').setDescription('Exit current editing session'),
-      new SlashCommandBuilder().setName('transcribe').setDescription('Transcribe a voice recording and optionally draft a plan'),
-      new SlashCommandBuilder().setName('new').setDescription('Wipe old War-Room data to start fresh'),
-      new SlashCommandBuilder().setName('restart').setDescription('Reboot the Command Center background process'),
-      new SlashCommandBuilder().setName('join').setDescription('Join your voice channel and stream live audio'),
-      new SlashCommandBuilder().setName('leave').setDescription('Disconnect and save all recordings'),
-      new SlashCommandBuilder().setName('ping').setDescription('Check bot latency'),
-    ];
+    // Build slash commands from the centralized COMMAND_REGISTRY
+    const commands = COMMAND_REGISTRY.map(def => {
+      const builder = new SlashCommandBuilder()
+        .setName(def.name)
+        .setDescription(def.description);
+      if (def.arg) {
+        builder.addStringOption(opt =>
+          opt.setName(def.arg!)
+            .setDescription(def.argDescription || def.arg!)
+            .setRequired(def.argRequired ?? false),
+        );
+      }
+      return builder;
+    });
 
     const rest = new REST({ version: '10' }).setToken(token);
     try {

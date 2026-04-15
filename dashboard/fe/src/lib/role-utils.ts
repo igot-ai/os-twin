@@ -43,18 +43,31 @@ export function getRoleInitials(role: string): string {
 }
 
 /**
- * Parse role names from `Roles: a, b, c` directives in markdown content.
- * Matches the same pattern used by the plan engine (Start-Plan.ps1).
+ * Parse role names from `Roles: @a, @b, c` directives in markdown content.
+ * Aligned with the canonical PlanParser.psm1 pattern.
+ *
+ * Supports:
+ *   - Plain:    Roles: engineer, qa
+ *   - @-prefix: Roles: @engineer, @qa
+ *   - Mixed:    Roles: @engineer, qa, @designer
+ *   - Spaced:   Roles: @engineer @qa @designer
+ *   - Heading:  ### Roles: @engineer, @qa
+ *   - Bold:     **Roles**: @designer
+ *   - Italic:   *Role*: @architect
+ *   - Singular: Role: engineer
+ *   - Suffixed: @engineer:fe, @qa
  */
 export function parseRolesFromMarkdown(body: string): string[] {
   const roles: string[] = [];
-  const re = /^Roles?:\s*(.+)$/gm;
+  // Match optional heading prefix (### ), optional bold/italic wrapping
+  const re = /^(?:#{1,6}\s+)?(?:\*{1,2})?Roles?(?:\*{1,2})?:\s*(.+)$/gm;
   let match;
   while ((match = re.exec(body)) !== null) {
     const line = match[1].replace(/\(.*$/, ''); // strip trailing comments
-    for (const part of line.split(',')) {
-      const name = part.trim();
-      if (name && /^[a-zA-Z0-9]/.test(name) && !/^<.*>$/.test(name)) {
+    // Split by comma or whitespace (supports both "a, b" and "@a @b")
+    for (const part of line.split(/[,\s]+/)) {
+      const name = part.trim().replace(/^@/, ''); // strip @ prefix
+      if (name && /^[a-zA-Z0-9]/.test(name) && !/^<.*>$/.test(name) && name !== '...') {
         roles.push(name);
       }
     }

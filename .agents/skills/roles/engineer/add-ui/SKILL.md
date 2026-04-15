@@ -1,6 +1,6 @@
 ---
 name: add-ui
-description: "Add UI components to Unity scene"
+description: Add UI components to Unity scene"
 tags: [engineer, implementation, ui]
 trust_level: core
 ---

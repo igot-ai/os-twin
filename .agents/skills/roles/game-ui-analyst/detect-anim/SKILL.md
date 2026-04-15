@@ -1,6 +1,6 @@
 ---
 name: detect-anim
-description: "Analyse a screen-recorded video of a Unity UI animation (popup appear, heart refill, level complete, etc.) and generate animation_clips JSON with per-object keyframe tracks. Uses a 2-phase pipeline -- Python/OpenCV extracts motion data, then Claude performs semantic analysis matching tracks to objects from a detection JSON. Triggers on 'analyse animation', 'detect animation', 'extract animation', 'animation from video', 'video to animation', 'detect-anim'. Use this skill whenever the user has a screen recording of a UI animation and wants to extract structured animation data from it."
+description: Analyse a screen-recorded video of a Unity UI animation (popup appear, heart refill, level complete, etc.) and generate animation_clips JSON with per-object keyframe tracks. Uses a 2-phase pipeline -- Python/OpenCV extracts motion data, then Claude performs semantic analysis matching tracks to objects from a detection JSON. Triggers on 'analyse animation', 'detect animation', 'extract animation', 'animation from video', 'video to animation', 'detect-anim'. Use this skill whenever the user has a screen recording of a UI animation and wants to extract structured animation data from it."
 argument-hint: <video_path> <detection_json_path> [output_json_path]
 ---
 

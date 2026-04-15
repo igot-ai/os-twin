@@ -74,7 +74,7 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
         # Vertex AI mode
         ModelEntry("google-vertex/gemini-3.1-pro-preview", "Vertex Gemini 3.1 Pro", "1M", "flagship", mode="vertex"),
         ModelEntry("google-vertex/gemini-3-flash-preview", "Vertex Gemini 3 Flash", "1M", "balanced", mode="vertex"),
-        ModelEntry("google-vertex-anthropic/claude-opus-4-6@default", "Claude Opus 4.6", "200K", "flagship", mode="vertex"),
+        ModelEntry("google-vertex/gemini-3.1-flash-preview", "Claude Opus 4.6", "200K", "flagship", mode="vertex"),
         ModelEntry("google-vertex-anthropic/claude-sonnet-4-6@default", "Claude Sonnet 4.6", "200K", "balanced", mode="vertex"),
         ModelEntry("google-vertex-anthropic/claude-haiku-4-5@20251001", "Claude Haiku 4.5", "200K", "fast", mode="vertex"),
         ModelEntry("google-vertex/zai-org/glm-5-maas", "GLM-5", "128K", "balanced", mode="vertex"),
@@ -84,7 +84,14 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
         ModelEntry("gemini/gemini-3-flash-lite-preview", "Gemini 3 Flash Lite", "1M", "fast", mode="gemini"),
     ],
     "BytePlus": [
-        ModelEntry("byteplus/seed-2-0-pro-260328", "Seed 2.0 Pro", "128K", "balanced"),
+        ModelEntry("byteplus/seed-2-0-pro-260328", "Seed 2.0 Pro", "256K", "flagship"),
+        ModelEntry("byteplus/seed-2-0-lite-260228", "Seed 2.0 Lite", "256K", "balanced"),
+        ModelEntry("byteplus/seed-2-0-mini-260215", "Seed 2.0 Mini", "256K", "fast"),
+        ModelEntry("byteplus/seed-1-8-251228", "Seed 1.8", "256K", "balanced"),
+        ModelEntry("byteplus/glm-4-7-251222", "GLM-4 7B", "256K", "balanced"),
+        ModelEntry("byteplus/deepseek-v3-2-251201", "DeepSeek V3.2", "128K", "balanced"),
+        ModelEntry("byteplus/seed-1-6-250915", "Seed 1.6 Vision", "256K", "vision"),
+        ModelEntry("byteplus/seed-1-6-flash-250715", "Seed 1.6 Flash", "256K", "fast"),
     ],
 }
 

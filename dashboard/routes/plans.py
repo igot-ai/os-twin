@@ -1225,15 +1225,40 @@ Create a detailed, concrete plan that directly uses the information in these fil
 
 @router.get("/api/plans")
 async def list_plans(
+    q: Optional[str] = Query(None, description="Semantic search query to filter plans"),
     order_by: str = Query("created_desc", description="Sort order: created_desc, created_asc, title, time_id"),
     user: dict = Depends(get_current_user),
 ):
-    """List all stored plans (disk is source of truth, zvec enriches)."""
+    """List all stored plans (disk is source of truth, zvec enriches).
+
+    When `q` is provided, performs a semantic vector search via zvec to find
+    matching plans. Results are ranked by relevance. When `q` is absent,
+    returns all plans as before.
+    """
     store = global_state.store
     plans_dir = PLANS_DIR
 
     if not plans_dir.exists():
         return {"plans": [], "count": 0}
+
+    # ── Semantic search gate ─────────────────────────────────────────────
+    # When a query is provided, use zvec to find matching plan_ids first.
+    search_plan_ids: Optional[set] = None      # None  = no filter (return all)
+    search_ranked_ids: Optional[list] = None   # ordered list for relevance sort
+    if q and q.strip():
+        q_clean = q.strip()
+        if store:
+            try:
+                search_results = store.search_plans(q_clean, limit=50)
+                search_plan_ids = {r["plan_id"] for r in search_results}
+                search_ranked_ids = [r["plan_id"] for r in search_results]
+            except Exception as e:
+                logger.warning("zvec plan search failed, falling back to all: %s", e)
+                # Fall through — search_plan_ids stays None → returns all plans
+
+        # If zvec is unavailable or returned nothing, there are no matches
+        if search_plan_ids is not None and len(search_plan_ids) == 0:
+            return {"plans": [], "count": 0}
 
     # Build a lookup of zvec-indexed plans for enrichment
     zvec_plans: Dict[str, dict] = {}
@@ -1256,6 +1281,10 @@ async def list_plans(
             continue
 
         plan_id = f.stem
+
+        # Skip plans not in search results when a query is active
+        if search_plan_ids is not None and plan_id not in search_plan_ids:
+            continue
 
         # Start from zvec data if available, otherwise parse from disk
         if plan_id in zvec_plans:
@@ -1363,7 +1392,14 @@ async def list_plans(
 
         plans.append(p)
 
-    if order_by == "created_desc":
+    # ── Sorting ──────────────────────────────────────────────────────────
+    # When searching, default to relevance order (zvec ranking) unless
+    # the caller explicitly requests a different sort.
+    if search_ranked_ids is not None and order_by == "created_desc":
+        # Preserve zvec relevance ranking
+        rank_lookup = {pid: i for i, pid in enumerate(search_ranked_ids)}
+        plans.sort(key=lambda x: rank_lookup.get(x.get("plan_id", ""), 999))
+    elif order_by == "created_desc":
         plans.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     elif order_by == "created_asc":
         plans.sort(key=lambda x: x.get("created_at", ""))
@@ -3125,14 +3161,29 @@ async def get_epic_config(plan_id: str, task_ref: str, user: dict = Depends(get_
     except: return {"error": "JSON parse error"}
 
 def _parse_roles_from_markdown(text: str) -> list[str]:
-    """Extract role names from 'Roles: a, b, c' lines in markdown content."""
+    """Extract role names from 'Roles: @a, @b, c' lines in markdown content.
+
+    Supports multiple formats aligned with the canonical PlanParser.psm1:
+      - Plain:    Roles: engineer, qa
+      - @-prefix: Roles: @engineer, @qa
+      - Mixed:    Roles: @engineer, qa, @designer
+      - Spaced:   Roles: @engineer @qa @designer
+      - Heading:  ### Roles: @engineer, @qa
+      - Bold:     **Roles**: @designer
+      - Italic:   *Role*: @architect
+      - Singular: Role: engineer
+      - Suffixed: @engineer:fe, @qa
+    """
     roles: list[str] = []
-    for m in re.finditer(r"(?m)^Roles?:\s*(.+)$", text):
+    # Match optional markdown heading prefix (### ), optional bold/italic wrapping
+    pattern = r"(?m)^(?:#{1,6}\s+)?(?:\*{1,2})?Roles?(?:\*{1,2})?:\s*(.+)$"
+    for m in re.finditer(pattern, text):
         line = m.group(1)
         line = re.sub(r"\(.*$", "", line)  # strip trailing comments
-        for part in line.split(","):
-            name = part.strip()
-            if name and re.match(r"[a-zA-Z0-9]", name) and not re.match(r"^<.*>$", name):
+        # Split by comma or whitespace (supports both "a, b" and "@a @b")
+        for part in re.split(r"[,\s]+", line):
+            name = part.strip().lstrip("@")  # strip @ prefix
+            if name and re.match(r"[a-zA-Z0-9]", name) and not re.match(r"^<.*>$", name) and name != "...":
                 roles.append(name)
     return list(dict.fromkeys(roles))  # dedupe, preserve order
 

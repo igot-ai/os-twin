@@ -154,26 +154,8 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
           </button>
         </div>
 
-        {/* Tabs */}
-        {role && (
-          <div className="flex px-6 border-b" style={{ borderColor: 'var(--color-border)' }}>
-            <button 
-              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
-              onClick={() => setActiveTab('config')}
-            >
-              Configuration
-            </button>
-            <button 
-              className={`py-3 px-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === 'dependencies' ? 'border-primary text-primary' : 'border-transparent text-text-faint hover:text-text-muted'}`}
-              onClick={() => setActiveTab('dependencies')}
-            >
-              Where Used
-              {dependencies && ((dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)) > 0 && (
-                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/10 text-[10px]">{(dependencies.active_warrooms?.length ?? 0) + (dependencies.plans?.length ?? 0)}</span>
-              )}
-            </button>
-          </div>
-        )}
+
+        {/* Tabs — Where Used tab hidden for now, coming in a future release */}
 
         {/* Form Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-24">
@@ -284,16 +266,8 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Budget Tokens</label>
-                <input 
-                  type="number"
-                  className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold"
-                  value={formData.budget_tokens_max}
-                  onChange={e => setFormData({ ...formData, budget_tokens_max: parseInt(e.target.value) || 0 })}
-                />
-              </div>
+            <div className="grid grid-cols-2 gap-4">
+              {/* Budget Tokens — hidden for now, coming in a future release */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Retries</label>
                 <input 
@@ -361,16 +335,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">System Prompt Override</label>
-              <textarea
-                rows={6}
-                placeholder="Optional: Custom system instructions that override defaults..."
-                className="w-full p-3 rounded-xl border bg-white text-xs font-mono resize-none focus:ring-4 focus:ring-primary/10 transition-all"
-                value={formData.system_prompt_override || ''}
-                onChange={e => setFormData({ ...formData, system_prompt_override: e.target.value })}
-              />
-            </div>
+            {/* System Prompt Override — hidden for now, coming in a future release */}
           </div>
           </>
           ) : (

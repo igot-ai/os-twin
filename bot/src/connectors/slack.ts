@@ -1,6 +1,6 @@
 import { App, SayFn, RespondFn, BlockAction, SlackAction, SlackActionMiddlewareArgs, SlashCommand } from '@slack/bolt';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse } from '../commands';
+import { routeCommand, routeCallback, handleStatefulText, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS } from '../commands';
 import { getSession } from '../sessions';
 import { chunk } from './utils';
 
@@ -100,10 +100,9 @@ export class SlackConnector implements Connector {
       await this.sendResponses(say, userId, responses);
     });
 
-    // Shortcuts
-    const SHORTCUTS = ['draft', 'status', 'dashboard'] as const;
-    for (const sc of SHORTCUTS) {
-      this.app.command(`/${sc}`, async ({ command, ack, say, respond }) => {
+    // Commands with arguments — driven by COMMAND_REGISTRY
+    for (const def of COMMANDS_WITH_ARGS) {
+      this.app.command(`/${def.name}`, async ({ command, ack, say, respond }) => {
         await ack();
         const userId = command.user_id;
         if (!this.isAuthorized(userId)) {
@@ -111,32 +110,29 @@ export class SlackConnector implements Connector {
           return;
         }
         const args = command.text.trim();
-        const responses = await routeCommand(userId, 'slack', sc, args);
+        const responses = await routeCommand(userId, 'slack', def.name, args);
         await this.sendResponses(say, userId, responses);
       });
     }
 
-    // Other commands as separate slash commands if registered in Slack
-    const OTHER_COMMANDS = [
-      'menu', 'compact', 'plans', 'errors', 'skills', 'usage', 'help', 'start', 'cancel', 'edit', 'startplan', 'viewplan'
-    ];
-    for (const cmd of OTHER_COMMANDS) {
-      this.app.command(`/${cmd}`, async ({ command, ack, say, respond }) => {
+    // Commands without arguments — driven by COMMAND_REGISTRY
+    for (const def of COMMANDS_NO_ARGS) {
+      this.app.command(`/${def.name}`, async ({ command, ack, say, respond }) => {
         await ack();
         const userId = command.user_id;
         if (!this.isAuthorized(userId)) {
           await this.sendUnauthorized(respond, userId);
           return;
         }
-        const responses = await routeCommand(userId, 'slack', cmd);
+        const responses = await routeCommand(userId, 'slack', def.name);
         await this.sendResponses(say, userId, responses);
       });
     }
 
     // ── Action Handlers (Buttons) ─────────────────────────────────
     
-    // Match any action_id starting with menu: or cmd:
-    this.app.action(/^(menu|cmd):/, async ({ action, ack, body }) => {
+    // Match any action_id starting with menu:, cmd:, prefs:, or asset:
+    this.app.action(/^(menu|cmd|prefs|asset):/, async ({ action, ack, body }) => {
       await ack();
       const userId = body.user.id;
       if (!this.isAuthorized(userId)) return;

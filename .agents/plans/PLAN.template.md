@@ -1,9 +1,9 @@
 <!-- MANAGER INSTRUCTION:
-When generating a plan, you MUST explicitly define a `Lifecycle` for EACH Epic.
-The roles and lifecycle MUST BE DYNAMICALLY DESIGNED based on the specific requirements of the Epic. 
+When generating a plan, you MUST explicitly define a `Roles: ...` for EACH Epic.
+The `roles` MUST BE DYNAMICALLY DESIGNED based on the specific requirements of the Epic. 
 Not all tasks require an engineer or qa. For example, a research epic might only need a researcher and analyst, while a documentation epic might need a writer and editor.
 Whatever the roles, you must design a closed-loop workflow optimized for those specific autonomous agents, allowing them to operate without stalling.
-IMPORTANT: Lifecycle state names MUST use the ROLE AGENT NAMES (e.g., `researcher`, `analyst`, `engineer`, `qa`), NOT generic action names (e.g., `research`, `review`, `drafting`). This is because the manager loop uses state names to determine which agent to invoke.
+IMPORTANT: Lifecycle state names MUST use the ROLE AGENT NAMES (e.g., `@researcher`, `@analyst`, `@engineer`, `qa`), NOT generic action names (e.g., `research`, `review`, `drafting`). This is because the manager loop uses state names to determine which agent to invoke.
 Always map out the transition states, including what happens on failure.
 
 Example of a dynamic closed workflow for a generic task:
@@ -28,21 +28,17 @@ working_dir: /path/to/your/project
 
 Per-epic format:
 ```
-Roles: <role1>, <role2>, ...    (dynamically chosen agents for this epic's workflow)
+Roles: @<role1>, @<role2>, ...    (dynamically chosen agents for this epic's workflow)
 Objective: <mission>            (what this war-room must achieve — be specific)
-Lifecycle:                      (REQUIRED: Dynamically map the closed-loop transitions between the chosen roles, including specific failure/correction states)
-Pipeline: <stage1 -> stage2>    (OPTIONAL: only for non-default stage sequences)
-Skills: <capabilities>          (comma-separated, guides agent focus)
-Working_dir: <path>             (scope agents to a subdirectory)
-Capabilities: <cap1, cap2>     (optional: auto-generates review stages)
-> Assets: <file1>, <file2>      (list of bound assets, auto-generated)
+Lifecycle:                      (REQUIRED: Dynamically map the closed-loop transitions between the chosen roles, including specific 
+working_dir: <path>             (scope agents to a subdirectory)
 ```
 
 {{AVAILABLE_ROLES}}
 
-#### War-Room Lifecycle (Closed Loop)
+#### EPIC Lifecycle (Closed Loop)
 
-Every war-room runs a dynamically designed closed lifecycle where the specific agents assigned to that epic iterate and correct each other's work until all quality gates pass.
+Every Epic runs a dynamically designed closed lifecycle where the specific agents assigned to that epic iterate and correct each other's work until all quality gates pass.
 
 For example, an Engineering Epic might use:
 
@@ -100,7 +96,7 @@ A clear, concise description of what this plan aims to achieve and the problem i
 
 ## EPIC-001 - Research & Strategy
 
-Roles: researcher, analyst
+Roles: @researcher, @analyst
 Objective: Investigate market trends and synthesize a strategy document
 Lifecycle:
 ```text
@@ -112,67 +108,14 @@ pending → researcher → analyst ─┬─► passed → signoff
 Tasks: Gather data on competitor products. Analyze features and formulate a strategy document.
 
 ### Definition of Done
-- [ ] Strategy document created and peer-reviewed
+- [ ] ...
 
 ### Tasks
-- [ ] TASK-001 — Gather competitor data
-- [ ] TASK-002 — Synthesize into strategy
+- [ ] ...
 
 ### Acceptance criteria:
-- Document includes at least 3 competitor profiles.
-- Strategy is clear and actionable.
+- [ ] ...
 
-depends_on: []
+depends_on: [EPIC-xxx]
 
-## EPIC-002 - Feature Implementation
-
-Roles: backend-engineer, frontend-engineer, qa
-Objective: Implement core feature logic and UI
-Lifecycle:
-```text
-pending → backend-engineer → frontend-engineer → qa ─┬─► passed → signoff
-               ▲                    ▲                 │
-               │                    └─ frontend-engineer ◄──┤ (on ui bug)
-               └───────────── backend-engineer ◄────────────┘ (on api bug)
-```
-
-Tasks: Build the APIs based on the strategy. Implement the matching UI.
-
-#### Definition of Done
-- [ ] End-to-end feature is built and tested
-
-#### Tasks
-- [ ] TASK-001 — Build REST APIs
-- [ ] TASK-002 — Build React components
-
-Acceptance criteria:
-- UI successfully fetches data from APIs.
-- QA validates all user journeys.
-
-depends_on: [EPIC-001]
-
-## EPIC-003 - Documentation & Delivery
-
-Roles: technical-writer, editor
-Objective: Create user guides and deployment documentation
-Lifecycle:
-```text
-pending → technical-writer → editor ─┬─► passed → signoff
-               ▲                     │
-               └── technical-writer ◄┘ (on fail → fixing)
-```
-
-Tasks: Write end-user documentation. Produce a runbook for the ops team.
-
-#### Definition of Done
-- [ ] Documentation approved by Editor
-
-#### Tasks
-- [ ] TASK-001 — Write User Guide
-- [ ] TASK-002 — Write Ops Runbook
-
-Acceptance criteria:
-- Runbook contains troubleshooting steps.
-- Docs are published to the internal portal.
-
-depends_on: [EPIC-002]
+## EPIC-002 - ...

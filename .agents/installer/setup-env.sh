@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# setup-env.sh — .env file creation, API key prompting, .env.sh hook
+#
+# Provides: setup_env
+#
+# Requires: lib.sh, detect-os.sh (OS), globals: INSTALL_DIR, AUTO_YES
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Guard against double-sourcing
+[[ -n "${_SETUP_ENV_SH_LOADED:-}" ]] && return 0
+_SETUP_ENV_SH_LOADED=1
+
+setup_env() {
+  local env_file="$INSTALL_DIR/.env"
+
+  if [[ -f "$env_file" ]]; then
+    ok ".env already exists at $env_file"
+    return
+  fi
+
+  step "Creating .env file at $env_file..."
+  mkdir -p "$INSTALL_DIR"
+
+  # Generate a secure API key for dashboard auth
+  local generated_api_key
+  generated_api_key="ostwin_$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
+
+  cat > "$env_file" << ENVEOF
+# Ostwin — Environment Variables
+# Edit this file and re-start the dashboard (ostwin stop && ostwin start)
+# Lines starting with # are comments.
+
+# ── AI Provider Keys (set at least one) ────────────────────────────────────
+# GOOGLE_API_KEY=your-google-api-key-here
+# OPENAI_API_KEY=your-openai-api-key-here
+# ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# OPENROUTER_API_KEY=your-openrouter-api-key-here
+# AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
+# BASETEN_API_KEY=your-baseten-api-key-here
+# AWS_ACCESS_KEY_ID=your-aws-access-key-id-here
+# AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
+
+# ── Dashboard settings ──────────────────────────────────────────────────────
+# DASHBOARD_PORT=9000
+# DASHBOARD_HOST=0.0.0.0
+
+# ── Dashboard Authentication ────────────────────────────────────────────────
+# API key for CLI ↔ Dashboard communication. Auto-generated on first install.
+OSTWIN_API_KEY=${generated_api_key}
+
+# ── ngrok Tunnel (auto-starts when NGROK_AUTHTOKEN is set) ─────────────────
+# NGROK_AUTHTOKEN=
+# NGROK_DOMAIN=              # Optional: custom/static domain (paid ngrok plans)
+
+# ── Agent OS settings ───────────────────────────────────────────────────────
+# OSTWIN_LOG_LEVEL=INFO
+
+# ── Agentic Memory Platform ────────────────────────────────────────────────
+# Processing LLM — the model that analyses, summarises, and evolves memories.
+# Backend: huggingface | gemini | openai | ollama | openrouter | sglang
+MEMORY_LLM_BACKEND=huggingface
+MEMORY_LLM_MODEL=LiquidAI/LFM2-1.2B-Extract
+
+# Embedding — converts text into vectors for similarity search.
+# Backend: sentence-transformer | gemini
+MEMORY_EMBEDDING_BACKEND=sentence-transformer
+MEMORY_EMBEDDING_MODEL=microsoft/harrier-oss-v1-0.6b
+
+# Vector store: zvec (recommended) | chroma
+MEMORY_VECTOR_BACKEND=zvec
+
+# Behaviour
+MEMORY_CONTEXT_AWARE=true
+MEMORY_AUTO_SYNC=true
+MEMORY_AUTO_SYNC_INTERVAL=60
+
+# ── Gemini override ────────────────────────────────────────────────────────
+# To use Gemini for memory instead of local HuggingFace, uncomment below
+# (requires GOOGLE_API_KEY to be set above):
+# MEMORY_LLM_BACKEND=gemini
+# MEMORY_LLM_MODEL=gemini-3-flash-preview
+# MEMORY_EMBEDDING_BACKEND=gemini
+# MEMORY_EMBEDDING_MODEL=gemini-embedding-001
+ENVEOF
+
+  chmod 600 "$env_file"   # Protect API keys
+  ok ".env created — edit $env_file to add your API keys"
+
+  # Create a companion .env.sh hook for dynamic env logic (subshells,
+  # token refresh, etc.) that .env can't express. Sourced by every
+  # generated run-agent.sh wrapper before the agent execs.
+  _create_env_sh_hook
+
+  # Migrate any existing exported key from the current shell environment
+  _migrate_env_keys "$env_file"
+
+  # Prompt for ngrok tunnel token (optional)
+  if ! ${AUTO_YES:-false} && [[ -z "${NGROK_AUTHTOKEN:-}" ]]; then
+    echo ""
+    echo -en "    ${CYAN}→${NC} Enter NGROK_AUTHTOKEN for dashboard port-forwarding (or press Enter to skip): "
+    read -r ngrok_token
+    if [[ -n "$ngrok_token" ]]; then
+      if [[ "$OS" == "macos" ]]; then
+        sed -i '' "s|^# NGROK_AUTHTOKEN=.*|NGROK_AUTHTOKEN=${ngrok_token}|" "$env_file"
+      else
+        sed -i "s|^# NGROK_AUTHTOKEN=.*|NGROK_AUTHTOKEN=${ngrok_token}|" "$env_file"
+      fi
+      ok "Saved NGROK_AUTHTOKEN — tunnel will auto-start with dashboard"
+    fi
+  fi
+}
+
+# ─── Internal helpers ────────────────────────────────────────────────────────
+
+_create_env_sh_hook() {
+  local env_sh="$INSTALL_DIR/.env.sh"
+  if [[ ! -f "$env_sh" ]]; then
+    cat > "$env_sh" << 'ENVSHEOF'
+# Ostwin — dynamic environment hook
+# Sourced by every generated run-agent.sh wrapper before the agent execs.
+# Use this for env vars that require shell logic (subshells, conditionals,
+# token refresh, etc.). Static KEY=VALUE pairs belong in ~/.ostwin/.env.
+
+# Refresh a Vertex AI access token from the active gcloud account.
+# The OpenAI-compatible Vertex endpoint expects this as a Bearer token,
+# and access tokens expire ~1h, so re-mint per agent launch.
+if command -v gcloud >/dev/null 2>&1; then
+  VERTEX_API_KEY="$(gcloud auth print-access-token 2>/dev/null)"
+  export VERTEX_API_KEY
+fi
+
+# Auto-promote memory backend to Gemini when a Google API key is available
+# and the user hasn't explicitly overridden the LLM backend.
+# This gives cloud-connected installs faster, higher-quality memory analysis
+# while keeping the default local-first for offline/privacy-sensitive setups.
+if [ -n "${GOOGLE_API_KEY:-}" ] && [ "${MEMORY_LLM_BACKEND:-huggingface}" = "huggingface" ]; then
+  export MEMORY_LLM_BACKEND=gemini
+  export MEMORY_LLM_MODEL="${MEMORY_LLM_MODEL:-gemini-3-flash-preview}"
+  export MEMORY_EMBEDDING_BACKEND=gemini
+  export MEMORY_EMBEDDING_MODEL="${MEMORY_EMBEDDING_MODEL:-gemini-embedding-001}"
+fi
+ENVSHEOF
+    chmod 600 "$env_sh"
+    ok ".env.sh created — add dynamic env hooks (e.g. token refresh) here"
+  fi
+}
+
+_migrate_env_keys() {
+  local env_file="$1"
+  local migrated=false
+  for key in GOOGLE_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY AZURE_OPENAI_API_KEY BASETEN_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY NGROK_AUTHTOKEN; do
+    if [[ -n "${!key:-}" ]]; then
+      # Uncomment and fill the matching line
+      if [[ "$OS" == "macos" ]]; then
+        sed -i '' "s|^# ${key}=.*|${key}=${!key}|" "$env_file"
+      else
+        sed -i "s|^# ${key}=.*|${key}=${!key}|" "$env_file"
+      fi
+      ok "Migrated \$${key} into .env"
+      migrated=true
+    fi
+  done
+
+  if ! $migrated; then
+    warn "No API keys found in current shell."
+    if ! ${AUTO_YES:-false}; then
+      echo -e "    ${CYAN}Which AI Provider would you like to configure now?${NC}"
+      echo -e "      1) Google (Gemini)\t5) Azure OpenAI"
+      echo -e "      2) OpenAI\t\t6) Baseten"
+      echo -e "      3) Anthropic\t\t7) AWS Bedrock"
+      echo -e "      4) OpenRouter"
+      echo -e "      0) Skip for now"
+      echo -en "    ${YELLOW}?${NC} Select an option ${DIM}[0-7]${NC}: "
+      read -r provider_choice
+
+      local selected_keys=()
+      case "$provider_choice" in
+        1) selected_keys=("GOOGLE_API_KEY") ;;
+        2) selected_keys=("OPENAI_API_KEY") ;;
+        3) selected_keys=("ANTHROPIC_API_KEY") ;;
+        4) selected_keys=("OPENROUTER_API_KEY") ;;
+        5) selected_keys=("AZURE_OPENAI_API_KEY") ;;
+        6) selected_keys=("BASETEN_API_KEY") ;;
+        7) selected_keys=("AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY") ;;
+        *) info "Skipped API key setup. Please edit $env_file later." ;;
+      esac
+
+      for key_name in ${selected_keys[@]+"${selected_keys[@]}"}; do
+        echo -en "    ${CYAN}→${NC} Enter $key_name: "
+        read -s -r user_val
+        echo ""
+        if [[ -n "$user_val" ]]; then
+          if [[ "$OS" == "macos" ]]; then
+            sed -i '' "s|^# ${key_name}=.*|${key_name}=${user_val}|" "$env_file"
+          else
+            sed -i "s|^# ${key_name}=.*|${key_name}=${user_val}|" "$env_file"
+          fi
+          ok "Saved $key_name into .env"
+        fi
+      done
+    else
+      info "Non-interactive mode (-y). Edit $env_file later to add your API keys."
+    fi
+  fi
+}

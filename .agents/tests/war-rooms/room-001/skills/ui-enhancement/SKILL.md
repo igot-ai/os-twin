@@ -1,6 +1,6 @@
 ---
 name: ui-enhancement
-description: "Enhance existing Unity UI components"
+description: Enhance existing Unity UI components"
 tags: [engineer, implementation, ui]
 trust_level: core
 ---

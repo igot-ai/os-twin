@@ -5,7 +5,7 @@
 # dependency resolution, role defaults, and edge cases.
 
 BeforeAll {
-    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../.agents/lib").Path "PlanParser.psm1") -Force
+    Import-Module (Join-Path (Resolve-Path "$PSScriptRoot/../lib").Path "PlanParser.psm1") -Force
 }
 
 AfterAll {
@@ -264,5 +264,295 @@ depends_on: []
         # EPIC-001 should be parsed, but TASK-001 should NOT appear as standalone
         $result.Count | Should -Be 1
         $result[0].TaskRef | Should -Be 'EPIC-001'
+    }
+
+    It 'parses colon-delimited epic heading' {
+        $md = @"
+## EPIC-001: Build Auth Module
+
+Implement authentication.
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result.Count | Should -Be 1
+        $result[0].TaskRef | Should -Be 'EPIC-001'
+        $result[0].Description | Should -Be 'Build Auth Module'
+    }
+
+    It 'parses em-dash-delimited epic heading' {
+        $md = @"
+## EPIC-001 — Build Auth Module
+
+Implement authentication.
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result.Count | Should -Be 1
+        $result[0].TaskRef | Should -Be 'EPIC-001'
+        $result[0].Description | Should -Be 'Build Auth Module'
+    }
+
+    It 'extracts Skills directive' {
+        $md = @"
+## EPIC-001 - With Skills
+Skills: browser, mcp-tools, unity-editor
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Skills.Count | Should -Be 3
+        $result[0].Skills | Should -Contain 'browser'
+        $result[0].Skills | Should -Contain 'mcp-tools'
+        $result[0].Skills | Should -Contain 'unity-editor'
+    }
+
+    It 'parses depends_on inside yaml code block' {
+        $md = @"
+## EPIC-002 - Depends Via YAML
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+
+```yaml
+depends_on: ["EPIC-001"]
+```
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].DependsOn.Count | Should -Be 1
+        $result[0].DependsOn | Should -Contain 'EPIC-001'
+    }
+
+    It 'extracts ordered Sections array' {
+        $md = @"
+## EPIC-001 - Sectioned Epic
+Role: engineer
+Objective: Build everything
+
+#### Definition of Done
+- [ ] Done 1
+- [ ] Done 2
+
+#### Acceptance Criteria
+- [ ] AC 1
+
+#### Implementation Notes
+Some freeform notes here.
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Sections.Count | Should -Be 3
+        $result[0].Sections[0].Heading | Should -Be 'Definition of Done'
+        $result[0].Sections[1].Heading | Should -Be 'Acceptance Criteria'
+        $result[0].Sections[2].Heading | Should -Be 'Implementation Notes'
+    }
+
+    It 'classifies section types correctly' {
+        $md = @"
+## EPIC-001 - Type Classification
+#### Definition of Done
+- [ ] Done item
+
+#### Tasks
+- [ ] TASK-001 - A task item
+
+#### Notes
+Just some text without checkboxes.
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Sections[0].Type | Should -Be 'checklist'
+        $result[0].Sections[1].Type | Should -Be 'tasklist'
+        $result[0].Sections[2].Type | Should -Be 'text'
+    }
+
+    It 'extracts Lifecycle directive' {
+        $md = @"
+## EPIC-001 - With Lifecycle
+Lifecycle:
+```yaml
+on_complete: notify
+on_fail: retry
+```
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Lifecycle | Should -Not -BeNullOrEmpty
+        $result[0].Lifecycle | Should -Match 'on_complete'
+    }
+
+    # =====================================================
+    # Markdown Role Format Tests (@ prefix, headings, bold)
+    # =====================================================
+
+    It 'parses Roles with @ prefix and strips @ for lifecycle compatibility' {
+        $md = @"
+## EPIC-001 - At-Prefixed Roles
+Roles: @engineer, @qa
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'engineer'
+        $result[0].Roles | Should -Contain 'qa'
+        $result[0].Roles | Should -Not -Contain '@engineer'
+        $result[0].Roles | Should -Not -Contain '@qa'
+        $result[0].HasExplicitRoles | Should -BeTrue
+    }
+
+    It 'parses ### Roles: @engineer, @qa (markdown heading format)' {
+        $md = @"
+## EPIC-001 - Heading Roles
+### Roles: @engineer, @qa
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'engineer'
+        $result[0].Roles | Should -Contain 'qa'
+        $result[0].HasExplicitRoles | Should -BeTrue
+    }
+
+    It 'parses **Roles**: @xxx (bold markdown format)' {
+        $md = @"
+## EPIC-001 - Bold Roles
+**Roles**: @designer
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'designer'
+        $result[0].Roles | Should -Not -Contain '@designer'
+        $result[0].HasExplicitRoles | Should -BeTrue
+    }
+
+    It 'parses Roles: @qa, ... (trailing ellipsis ignored)' {
+        $md = @"
+## EPIC-001 - Ellipsis Roles
+Roles: @qa, ...
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'qa'
+        $result[0].Roles | Should -Not -Contain '...'
+        $result[0].HasExplicitRoles | Should -BeTrue
+    }
+
+    It 'parses Roles with mixed @ and plain names' {
+        $md = @"
+## EPIC-001 - Mixed Roles
+Roles: @engineer, qa, @designer
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'engineer'
+        $result[0].Roles | Should -Contain 'qa'
+        $result[0].Roles | Should -Contain 'designer'
+    }
+
+    It 'parses space-separated @ roles (Roles: @xxx @yyy)' {
+        $md = @"
+## EPIC-001 - Space Sep Roles
+Roles: @engineer @qa @designer
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'engineer'
+        $result[0].Roles | Should -Contain 'qa'
+        $result[0].Roles | Should -Contain 'designer'
+    }
+
+    It 'parses *Role*: @xxx (single-asterisk italic format)' {
+        $md = @"
+## EPIC-001 - Italic Role
+*Role*: @architect
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'architect'
+        $result[0].HasExplicitRoles | Should -BeTrue
+    }
+
+    It 'preserves backward compatibility with plain Role: engineer' {
+        $md = @"
+## EPIC-001 - Plain Role
+Role: engineer
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'engineer'
+        $result[0].HasExplicitRoles | Should -BeTrue
+    }
+
+    It 'preserves backward compatibility with Roles: engineer, qa' {
+        $md = @"
+## EPIC-001 - Plain Roles
+Roles: engineer, qa
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'engineer'
+        $result[0].Roles | Should -Contain 'qa'
+    }
+
+    It 'parses @ roles with instance suffix (e.g. @engineer:fe)' {
+        $md = @"
+## EPIC-001 - Instance Suffix
+Roles: @engineer:fe, @qa
+#### Definition of Done
+- [ ] Done
+#### Acceptance Criteria
+- [ ] AC
+depends_on: []
+"@
+        $result = ConvertFrom-PlanMarkdown -Content $md
+        $result[0].Roles | Should -Contain 'engineer:fe'
+        $result[0].Roles | Should -Contain 'qa'
     }
 }

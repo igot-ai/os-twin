@@ -17,7 +17,9 @@ import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
 
 // Providers that have dedicated cards at the top of the settings page.
 // These are hidden from the Additional Providers section.
-const LEGACY_PRIMARY_PROVIDERS = new Set(['google', 'byteplus', 'anthropic', 'openai']);
+// NOTE: 'gemini' is included because opencode.json syncs Google under
+// the 'gemini' provider ID, which would otherwise leak as a dynamic card.
+const LEGACY_PRIMARY_PROVIDERS = new Set(['google', 'gemini', 'byteplus', 'anthropic', 'openai']);
 
 // Map internal provider names to registry keys (for legacy fallback)
 const PROVIDER_REGISTRY_KEY: Record<string, string> = {
@@ -385,13 +387,10 @@ export default function SettingsPage() {
 
       case 'memory':
         return (
-          <div>
-            <h2 className="text-lg font-bold text-on-surface mb-4">Memory</h2>
-            <MemoryPanel
-              memory={settings.memory || {}}
-              onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
-            />
-          </div>
+          <MemoryPanel
+            memory={settings.memory || {}}
+            onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
+          />
         );
 
       default:

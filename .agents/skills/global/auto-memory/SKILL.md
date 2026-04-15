@@ -1,6 +1,6 @@
 ---
 name: auto-memory
-description: "Use this skill to save, search, and manage persistent memories via the Agentic Memory MCP server -- a semantic knowledge base with auto-linking, tagging, and vector search."
+description: Use this skill to save, search, and manage persistent memories via the Agentic Memory MCP server -- a semantic knowledge base with auto-linking, tagging, and vector search.
 ---
 
 # auto-memory

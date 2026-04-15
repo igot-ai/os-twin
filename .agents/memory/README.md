@@ -1,323 +1,304 @@
-# Agentic Memory 🧠
+# Agentic Memory
 
-A novel agentic memory system for LLM agents that can dynamically organize memories in an agentic way.
+A memory system for LLM agents that goes beyond simple storage and retrieval. Memories are not just saved — they are analyzed, placed in context, linked to related memories, and evolved as new knowledge arrives. Based on the [A-MEM paper](https://arxiv.org/pdf/2502.12110).
 
-## Code Reading Guide
+## Architecture Overview
 
-If you want to understand the codebase quickly instead of only the high-level project pitch, start here:
+The system has three layers:
 
-- [`README_CODEBASE.md`](README_CODEBASE.md) - practical codebase walkthrough
-- [`agentic_memory/README.md`](agentic_memory/README.md) - core package and main classes
-- [`tests/README.md`](tests/README.md) - what the test suite is trying to protect
-
-## Setup Guides
-
-- [`SETUP-GUIDE.md`](SETUP-GUIDE.md) - install and run the Memory MCP server with ostwin
-- [`OPENCODE-VERTEX-SETUP.md`](OPENCODE-VERTEX-SETUP.md) - configure OpenCode to use Vertex AI partner models such as `zai-org/glm-5-maas`
-
-## Tài liệu tiếng Việt
-
-Nếu bạn muốn đọc repo theo logic của hệ thống A-MEM thay vì theo góc nhìn kỹ thuật thuần túy:
-
-- [`README_CODEBASE.md`](README_CODEBASE.md) - giải thích ý tưởng chính của repo và cách nó hiện thực logic của A-MEM
-- [`agentic_memory/README.md`](agentic_memory/README.md) - giải thích package lõi theo ngôn ngữ dễ đọc hơn
-- [`tests/README.md`](tests/README.md) - giải thích test đang bảo vệ những hành vi nào
-
-## Introduction 🌟
-
-Large Language Model (LLM) agents have demonstrated remarkable capabilities in handling complex real-world tasks through external tool usage. However, to effectively leverage historical experiences, they require sophisticated memory systems. Traditional memory systems, while providing basic storage and retrieval functionality, often lack advanced memory organization capabilities.
-
-Our project introduces an innovative **Agentic Memory** system that revolutionizes how LLM agents manage and utilize their memories:
-
-<div align="center">
-  <img src="Figure/intro-a.jpg" alt="Traditional Memory System" width="600"/>
-  <img src="Figure/intro-b.jpg" alt="Our Proposed Agentic Memory" width="600"/>
-  <br>
-  <em>Comparison between traditional memory system (top) and our proposed agentic memory (bottom). Our system enables dynamic memory operations and flexible agent-memory interactions.</em>
-</div>
-
-> **Note:** This repository provides a memory system to facilitate agent construction. If you want to reproduce the results presented in our paper, please refer to: [https://github.com/WujiangXu/AgenticMemory](https://github.com/WujiangXu/AgenticMemory)
-
-For more details, please refer to our paper: [A-MEM: Agentic Memory for LLM Agents](https://arxiv.org/pdf/2502.12110)
-
-
-## Key Features ✨
-
-- 🔄 Dynamic memory organization based on Zettelkasten principles
-- 🔍 Intelligent indexing and linking of memories via Zvec
-- 📝 Comprehensive note generation with structured attributes
-- 🌐 Interconnected knowledge networks
-- 🧬 Continuous memory evolution and refinement
-- 🤖 Agent-driven decision making for adaptive memory management
-
-## Framework 🏗️
-
-<div align="center">
-  <img src="Figure/framework.jpg" alt="Agentic Memory Framework" width="800"/>
-  <br>
-  <em>The framework of our Agentic Memory system showing the dynamic interaction between LLM agents and memory components.</em>
-</div>
-
-## How It Works 🛠️
-
-When a new memory is added to the system:
-1. **LLM Analysis**: Automatically analyzes content to generate keywords, context, and tags (if not provided)
-2. **Enhanced Embedding**: Creates vector embeddings using both content and generated metadata for superior retrieval
-3. **Semantic Storage**: Stores memories in Zvec vector database with rich semantic information
-4. **Relationship Analysis**: Analyzes historical memories for relevant connections using enhanced embeddings
-5. **Dynamic Linking**: Establishes meaningful links based on content and metadata similarities
-6. **Memory Evolution**: Enables continuous memory evolution and updates through intelligent analysis
-
-## Results 📊
-
-Empirical experiments conducted on six foundation models demonstrate superior performance compared to existing SOTA baselines.
-
-## Getting Started 🚀
-
-1. Clone the repository:
-```bash
-git clone https://github.com/agiresearch/A-mem.git
-cd A-mem
+```
+MCP Server (mcp_server.py)          -- exposes tools to LLM agents via MCP protocol
+  |
+Core Library (agentic_memory/)      -- memory lifecycle: create, analyze, evolve, search
+  |
+Vector Store (Zvec or ChromaDB)     -- semantic retrieval via embeddings
 ```
 
-2. Install dependencies:
-Create and activate a virtual environment (recommended):
+An optional **frontend** (React/TypeScript) provides a graph visualization of the memory vault.
+
+---
+
+## Core Concepts
+
+### MemoryNote (`memory_note.py`)
+
+A `MemoryNote` is the fundamental unit of memory. It is not just raw text — it carries three layers of information:
+
+| Layer | Fields | Purpose |
+|---|---|---|
+| Raw content | `content` | The original information the agent wants to remember |
+| Semantic metadata | `keywords`, `context`, `tags`, `summary` | LLM-generated understanding of what the content means, what topic it belongs to, and how to find it later |
+| Relationships | `links`, `backlinks`, `evolution_history` | Connections to other memories, turning isolated notes into a knowledge graph |
+
+Additional fields: `id` (UUID), `name` (human-readable title), `path` (directory placement like `backend/database`), `timestamp`, `last_accessed`, `retrieval_count`.
+
+Notes are persisted as **markdown files with YAML frontmatter** in a directory tree. The tree structure is auto-generated by the LLM based on content analysis.
+
+### AgenticMemorySystem (`memory_system.py`)
+
+This is the central orchestrator. It manages the full lifecycle of a memory:
+
+1. **Receive** raw content
+2. **Analyze** it via LLM to extract name, path, keywords, context, tags, and (for long content) a summary
+3. **Store** it in the in-memory dictionary and the vector index
+4. **Find neighbors** — search the vector store for semantically related existing memories
+5. **Evolve** — ask the LLM whether the new memory should be linked to neighbors, and whether neighbors' tags/context should be updated
+6. **Persist** the note as a markdown file on disk
+
+This is what makes the system "agentic" — it does not stop at storing and searching. Every new memory triggers an evolution step where the LLM decides how the knowledge graph should change.
+
+### LLMController (`llm_controller.py`)
+
+An adapter layer that decouples the memory logic from any specific LLM provider. The system needs an LLM for two tasks:
+
+- **Content analysis**: extracting keywords, context, tags, summary from raw text
+- **Evolution decisions**: deciding whether to create links or update neighbor metadata
+
+Supported backends:
+
+| Backend | Class | Use case |
+|---|---|---|
+| OpenAI | `OpenAIController` | Cloud, high quality (GPT-4, GPT-4o-mini) |
+| Gemini | `GeminiController` | Google models via litellm |
+| Ollama | `OllamaController` | Local deployment, privacy |
+| SGLang | `SGLangController` | Fast local inference with RadixAttention |
+| OpenRouter | `OpenRouterController` | Unified access to 100+ models |
+
+The design principle: **swap the engine, keep the car**. Memory logic stays the same regardless of which LLM backend is active.
+
+### Retrievers (`retrievers.py`)
+
+The retrieval layer handles semantic search. Two backends are available:
+
+| Backend | Class | Storage |
+|---|---|---|
+| Zvec | `ZvecRetriever` | Native vector DB with HNSW index, cosine similarity |
+| ChromaDB | `ChromaRetriever` | Established vector store with persistent client |
+
+A key implementation detail: documents are not embedded using raw content alone. The system builds an **enhanced document** that concatenates content (or summary for long notes) with context, keywords, and tags. This means retrieval leverages the semantic layer the LLM generated, not just the original text.
+
+Both retrievers expose a ChromaDB-compatible result format (`{ids, metadatas, distances}`) so the rest of the system is backend-agnostic.
+
+---
+
+## How the Memory Flow Works
+
+```
+Raw content arrives
+    |
+    v
+LLM analyzes content --> extracts name, path, keywords, context, tags, summary
+    |
+    v
+MemoryNote object created with full metadata
+    |
+    v
+Vector store indexed with enhanced document (content + metadata)
+    |
+    v
+Neighbors searched -- find the k most similar existing memories
+    |
+    v
+Evolution decision -- LLM examines the new note + neighbors and decides:
+    |-- "strengthen": create links between the new note and specific neighbors,
+    |                  update the new note's tags
+    |-- "update_neighbor": revise context and tags of existing neighbor memories
+    |
+    v
+Note persisted as markdown file in directory tree
+```
+
+The evolution step is what separates this from a standard vector store. The LLM acts as a librarian that not only files new material but also reorganizes existing material when new knowledge changes the picture.
+
+---
+
+## MCP Server (`mcp_server.py`)
+
+The MCP server wraps the core library and exposes it as tools that any MCP-compatible LLM agent can call. It runs over **stdio** (default, one-shot) or **SSE** (persistent HTTP daemon).
+
+### Available Tools
+
+| Tool | Description |
+|---|---|
+| `save_memory` | Save a new memory note. LLM analysis runs synchronously. Returns a UUID. |
+| `search_memory` | Semantic search across all memories. Returns ranked results with content and metadata. |
+| `read_memory` | Read a specific note by UUID. Returns full content and metadata. |
+| `update_memory` | Update a note. Content changes trigger full re-analysis. |
+| `delete_memory` | Delete a note. Cleans up all links, backlinks, and the markdown file. |
+| `link_memories` | Manually create a directional link between two notes. |
+| `unlink_memories` | Remove a link between two notes. |
+| `memory_tree` | Show the full directory tree of all memories. |
+| `memory_stats` | Get statistics: total count, paths, link counts. |
+| `grep_memory` | Run grep across all markdown files in the notes directory. |
+| `find_memory` | Run find across the notes directory. |
+| `sync_from_disk` | Reload from disk files into the running system. Disk wins on conflicts. |
+| `sync_to_disk` | Write in-memory state to disk. Removes orphan files. |
+| `graph_snapshot` | Return full graph data (groups, nodes, links, stats) for the frontend. |
+
+Tools can be selectively disabled via the `MEMORY_DISABLED_TOOLS` environment variable.
+
+### Server Initialization
+
+The server uses **background initialization** to start fast. Heavy imports (sentence-transformers, vector DB) load in a background thread while the MCP handshake completes. The first tool call waits for initialization to finish (up to 60 seconds).
+
+It also includes a **self-healing interpreter check**: if the current Python interpreter lacks required dependencies, the server re-execs itself using the project's virtual environment.
+
+### Auto-Sync
+
+A background thread periodically writes in-memory state to disk (default: every 60 seconds). Controlled via `MEMORY_AUTO_SYNC` and `MEMORY_AUTO_SYNC_INTERVAL`.
+
+---
+
+## Configuration
+
+All configuration is via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `MEMORY_PERSIST_DIR` | `{project_root}/.memory` | Where notes and vector data are stored |
+| `MEMORY_LLM_BACKEND` | `gemini` | LLM backend: openai, ollama, sglang, openrouter, gemini |
+| `MEMORY_LLM_MODEL` | `gemini-3-flash-preview` | LLM model name |
+| `MEMORY_EMBEDDING_MODEL` | `gemini-embedding-001` | Embedding model name |
+| `MEMORY_EMBEDDING_BACKEND` | `gemini` | Embedding backend: sentence-transformer, gemini |
+| `MEMORY_VECTOR_BACKEND` | `zvec` | Vector store: zvec, chroma |
+| `MEMORY_CONTEXT_AWARE` | `true` | Include similar memories when analyzing new content |
+| `MEMORY_CONTEXT_AWARE_TREE` | `false` | Include full directory tree in analysis context |
+| `MEMORY_MAX_LINKS` | `3` | Max links created per note during evolution |
+| `MEMORY_AUTO_SYNC` | `true` | Enable periodic disk sync |
+| `MEMORY_AUTO_SYNC_INTERVAL` | `60` | Sync interval in seconds |
+| `MEMORY_DISABLED_TOOLS` | *(several disabled by default)* | Comma-separated list of tools to hide from clients |
+
+---
+
+## Persistence Model
+
+- **In-memory**: `self.memories` dict holds `MemoryNote` objects (the runtime source of truth)
+- **Disk**: each note is a `.md` file with YAML frontmatter, organized in a directory tree under `{persist_dir}/notes/`
+- **Vector index**: embeddings stored under `{persist_dir}/vectordb/` (Zvec or ChromaDB)
+- **Backlinks** are never persisted — they are rebuilt from forward links at startup
+
+The two sync directions:
+- `sync_from_disk`: disk wins, in-memory state is replaced
+- `sync_to_disk`: in-memory wins, orphan files are deleted
+
+---
+
+## Directory Structure
+
+```
+.agents/memory/
+  agentic_memory/              -- core Python package
+    memory_note.py             -- MemoryNote class (the data model)
+    memory_system.py           -- AgenticMemorySystem (orchestrator)
+    llm_controller.py          -- LLM backend adapters
+    retrievers.py              -- vector retrieval (Zvec, ChromaDB)
+  mcp_server.py                -- MCP server wrapping the core library
+  memory-cli.py                -- CLI for direct interaction
+  frontend/                    -- React/TypeScript graph visualization
+  tests/
+    unit/                      -- isolated tests with full mocking
+    integration/               -- real system flows with in-memory doubles
+    stress/                    -- bulk lifecycle consistency tests
+  patches/                     -- compatibility patches for MCP launchers
+  pyproject.toml               -- package metadata and dependencies
+  start-memory-daemon.sh       -- launch script for SSE mode
+  switch-memory-transport.sh   -- switch between stdio and SSE transport
+```
+
+---
+
+## Getting Started
+
+1. Create and activate a virtual environment:
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # On Windows, use: .venv\Scripts\activate
+source .venv/bin/activate
 ```
 
-Install the package:
-```bash
-pip install .
-```
-For development, you can install it in editable mode:
+2. Install the package:
 ```bash
 pip install -e .
 ```
 
-3. Usage Examples 💡
+3. Set your API key for the chosen LLM backend:
+```bash
+# For Gemini (default)
+export GOOGLE_API_KEY="your-key"
 
-Here's how to use the Agentic Memory system for basic operations:
+# For OpenAI
+export OPENAI_API_KEY="your-key"
 
+# For OpenRouter
+export OPENROUTER_API_KEY="your-key"
+```
+
+4. Run the MCP server:
+```bash
+# stdio mode (used by MCP clients)
+python mcp_server.py
+
+# SSE mode (persistent daemon)
+python mcp_server.py --transport sse --port 6463
+```
+
+5. Or use the library directly:
 ```python
 from agentic_memory.memory_system import AgenticMemorySystem
 
-# Initialize the memory system with OpenAI 🚀
-memory_system = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',  # Embedding model for vector storage
-    llm_backend="openai",           # LLM backend (openai/ollama/sglang/openrouter)
-    llm_model="gpt-4o-mini",        # LLM model name
-    persist_dir="./memory_data"     # Directory for persistent storage
+memory = AgenticMemorySystem(
+    llm_backend="gemini",
+    llm_model="gemini-3-flash-preview",
+    embedding_backend="gemini",
+    embedding_model="gemini-embedding-001",
+    vector_backend="zvec",
+    persist_dir="./.memory",
 )
 
-# OR initialize with SGLang for faster local inference 🚀
-memory_system = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',
-    llm_backend="sglang",           # Use SGLang backend
-    llm_model="meta-llama/Llama-3.1-8B-Instruct",  # Your local model
-    sglang_host="http://localhost", # SGLang server host
-    sglang_port=30000,              # SGLang server port
-    persist_dir="./memory_data"     # Directory for persistent storage
-)
+# Add a memory -- LLM auto-generates name, path, keywords, context, tags
+note_id = memory.add_note("PostgreSQL JSONB with GIN indexes reduced our search from 800ms to 12ms.")
 
-# OR initialize with OpenRouter for multi-provider access 🚀
-memory_system = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',
-    llm_backend="openrouter",       # Use OpenRouter backend
-    llm_model="openai/gpt-4o-mini", # OpenRouter model identifier
-    api_key="your-openrouter-key",  # Or set OPENROUTER_API_KEY env variable
-    persist_dir="./memory_data"     # Directory for persistent storage
-)
+# Search semantically
+results = memory.search("database indexing performance", k=3)
 
-# OR initialize with Ollama 🚀
-memory_system = AgenticMemorySystem(
-    model_name='all-MiniLM-L6-v2',
-    llm_backend="ollama",
-    llm_model="llama2",
-    persist_dir="./memory_data"     # Directory for Zvec storage
-)
-
-# Add Memories with Automatic LLM Analysis ✨
-# Simple addition - LLM automatically generates keywords, context, and tags
-memory_id1 = memory_system.add_note(
-    "Machine learning algorithms use neural networks to process complex datasets and identify patterns."
-)
-
-# Check the automatically generated metadata
-memory = memory_system.read(memory_id1)
-print(f"Content: {memory.content}")
-print(f"Auto-generated Keywords: {memory.keywords}")  # e.g., ['machine learning', 'neural networks', 'datasets']
-print(f"Auto-generated Context: {memory.context}")    # e.g., "Discussion about ML algorithms and data processing"
-print(f"Auto-generated Tags: {memory.tags}")          # e.g., ['artificial intelligence', 'data science', 'technology']
-
-# Partial metadata provision - LLM fills in missing attributes
-memory_id2 = memory_system.add_note(
-    content="Python is excellent for data science applications",
-    keywords=["Python", "programming"]  # Provide keywords, LLM will generate context and tags
-)
-
-# Manual metadata provision - no LLM analysis needed
-memory_id3 = memory_system.add_note(
-    content="Project meeting notes for Q1 review",
-    keywords=["meeting", "project", "review"],
-    context="Business project management discussion",
-    tags=["business", "project", "meeting"],
-    timestamp="202503021500"  # YYYYMMDDHHmm format
-)
-
-# Enhanced Retrieval with Metadata 🔍
-# The system now uses generated metadata for better semantic search
-results = memory_system.search("artificial intelligence data processing", k=3)
-for result in results:
-    print(f"ID: {result['id']}")
-    print(f"Content: {result['content']}")
-    print(f"Keywords: {result['keywords']}")
-    print(f"Tags: {result['tags']}")
-    print(f"Relevance Score: {result.get('score', 'N/A')}")
-    print("---")
-
-# Alternative search methods
-results = memory_system.search_agentic("neural networks", k=5)
-for result in results:
-    print(f"ID: {result['id']}")
-    print(f"Content: {result['content'][:100]}...")
-    print(f"Tags: {result['tags']}")
-    print("---")
-
-# Update Memories 🔄
-memory_system.update(memory_id1, content="Updated: Deep learning neural networks for pattern recognition")
-
-# Delete Memories ❌
-memory_system.delete(memory_id3)
-
-# Memory Evolution 🧬
-# The system automatically evolves memories by:
-# 1. Using LLM to analyze content and generate semantic metadata
-# 2. Finding relationships using enhanced vector embeddings (content + metadata)
-# 3. Updating tags, context, and connections based on related memories
-# 4. Creating semantic links between memories
-# This happens automatically when adding or updating memories!
+# The system automatically linked this to related memories and may have
+# updated neighbor tags/context based on the new knowledge.
 ```
 
-### Advanced Features 🌟
+---
 
-1. **Intelligent LLM Analysis** 🧠
-   - Automatic keyword extraction from content
-   - Context generation based on semantic understanding
-   - Smart tag assignment for categorization
-   - Seamless integration with OpenAI, Ollama, and OpenRouter backends
+## Code Reading Order
 
-2. **Enhanced Vector Storage** 📦
-   - Embedding generation using content + metadata for superior semantic search
-   - Fast similarity search leveraging both content and generated attributes
-   - Automatic metadata serialization and handling
-   - Persistent memory storage with rich semantic information via Zvec
+To understand the logic quickly, read in this order:
 
-3. **Memory Evolution** 🧬
-   - Automatically analyzes content relationships using LLM-generated metadata
-   - Updates tags and context based on related memories
-   - Creates semantic connections between memories
-   - Dynamic memory organization with improved accuracy
+1. `MemoryNote` in `memory_note.py` — the data model
+2. `add_note()` in `memory_system.py` — how a memory enters the system
+3. `process_memory()` in `memory_system.py` — the evolution decision
+4. `search()` and `search_agentic()` in `memory_system.py` — retrieval
+5. `LLMController` in `llm_controller.py` — how LLM calls are dispatched
+6. `ZvecRetriever` / `ChromaRetriever` in `retrievers.py` — vector storage and enhanced embedding
 
-4. **Flexible Metadata Management** 📋
-   - Auto-generation when not provided (keywords, context, tags)
-   - Manual override support for custom metadata
-   - Partial metadata completion (LLM fills missing attributes)
-   - Timestamp tracking and retrieval count monitoring
+---
 
-5. **Multiple LLM Backends** 🤖
-   - **OpenAI** (GPT-4, GPT-4o-mini, GPT-3.5) - Cloud-based, high quality
-   - **Ollama** - Local deployment for privacy
-   - **SGLang** - Fast local inference with RadixAttention for efficient KV cache reuse
-   - **OpenRouter** - Access to 100+ models from multiple providers through unified API
-   - Configurable model selection for analysis and evolution
+## Tests
 
-#### Setting up SGLang Backend
+The test suite is fully deterministic — no network calls, no API keys, no model downloads.
 
-SGLang provides ultra-fast local inference. To use it:
+- **Unit tests** (`tests/unit/`): isolated behavior tests with mocked dependencies
+- **Integration tests** (`tests/integration/`): full `AgenticMemorySystem` flows with in-memory test doubles
+- **Stress tests** (`tests/stress/`): bulk add/update/link/delete/rebuild cycles to catch consistency regressions
 
-1. Install SGLang:
-```bash
-pip install "sglang[all]"
-```
+Test doubles are defined in `tests/helpers.py`.
 
-2. Launch SGLang server:
-```bash
-python -m sglang.launch_server \
-    --model-path meta-llama/Llama-3.1-8B-Instruct \
-    --host 0.0.0.0 \
-    --port 30000
-```
+---
 
-3. Use in your code:
-```python
-memory_system = AgenticMemorySystem(
-    llm_backend="sglang",
-    llm_model="meta-llama/Llama-3.1-8B-Instruct",
-    sglang_host="http://localhost",
-    sglang_port=30000
-)
-```
+## Additional Guides
 
-#### Setting up OpenRouter Backend
+- [SETUP-GUIDE.md](SETUP-GUIDE.md) — install and run the Memory MCP server with ostwin
+- [OPENCODE-VERTEX-SETUP.md](OPENCODE-VERTEX-SETUP.md) — configure OpenCode with Vertex AI partner models
 
-OpenRouter provides access to 100+ models from multiple providers. To use it:
+## Citation
 
-1. Get an API key from [OpenRouter](https://openrouter.ai/)
-
-2. Set the environment variable:
-```bash
-export OPENROUTER_API_KEY="your-key-here"
-```
-
-3. Use in your code:
-```python
-memory_system = AgenticMemorySystem(
-    llm_backend="openrouter",
-    llm_model="openai/gpt-4o-mini",  # or "anthropic/claude-3.5-sonnet", etc.
-    api_key="your-key"  # Optional if OPENROUTER_API_KEY is set
-)
-```
-
-Available models: `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-001:free`, and many more!
-
-### Best Practices 💪
-
-1. **Memory Creation** ✨:
-   - Provide clear, descriptive content for better LLM analysis
-   - Let the system auto-generate metadata for optimal semantic richness
-   - Use partial metadata provision when you want to control specific attributes
-   - Provide manual metadata only when you need precise control
-
-2. **Memory Retrieval** 🔍:
-   - Leverage semantic search with natural language queries
-   - Use specific domain terminology that matches generated keywords
-   - Adjust 'k' parameter based on needed results (typically 3-10)
-   - Take advantage of enhanced retrieval using both content and metadata
-
-3. **Memory Evolution** 🧬:
-   - Allow automatic evolution to maximize memory organization
-   - Review LLM-generated metadata periodically for accuracy
-   - Use consistent domain-specific terminology for better clustering
-   - Monitor memory connections to understand knowledge relationships
-
-4. **LLM Integration** 🤖:
-   - Ensure API keys are properly configured for your chosen backend
-   - OpenAI: Use gpt-4o-mini for cost-effective analysis or gpt-4 for higher quality
-   - OpenRouter: Try free models as well as premium models from a vast catalog
-   - Ollama: Consider for local deployment and privacy requirements
-   - Monitor LLM usage for cost management
-
-5. **Error Handling** ⚠️:
-   - Always check return values and handle None responses
-   - Handle potential KeyError for non-existent memories
-   - Use try-except blocks for LLM operations (network/API failures)
-   - Implement fallback behavior when LLM analysis fails
-
-## Citation 📚
-
-If you use this code in your research, please cite our work:
+Based on the A-MEM research paper:
 
 ```bibtex
 @article{xu2025mem,
@@ -328,6 +309,6 @@ If you use this code in your research, please cite our work:
 }
 ```
 
-## License 📄
+## License
 
-This project is licensed under the MIT License. See LICENSE for details.
+MIT License. See [LICENSE](LICENSE) for details.

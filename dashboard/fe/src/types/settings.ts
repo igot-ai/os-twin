@@ -1,4 +1,5 @@
 export type GoogleDeploymentMode = 'gemini' | 'vertex';
+export type VertexAuthMode = 'service_account' | 'oauth';
 
 export type ModelSource = 'models.dev' | 'custom';
 
@@ -75,6 +76,8 @@ export interface ProviderSettings {
   default_model?: string;
   deployment_mode?: GoogleDeploymentMode;  // Google only
   project_id?: string;                     // Google Vertex only
+  vertex_location?: string;                // Google Vertex region (default: global)
+  vertex_auth_mode?: VertexAuthMode;       // 'service_account' | 'oauth' (Vertex only)
   enabled_models?: string[];               // empty = all models enabled
 }
 
@@ -109,10 +112,26 @@ export interface AutonomySettings {
   interval: number;
 }
 
+export type MemoryLLMBackend = 'huggingface' | 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang';
+export type MemoryEmbeddingBackend = 'sentence-transformer' | 'gemini';
+export type MemoryVectorBackend = 'zvec' | 'chroma';
+
 export interface MemorySettings {
-  vector_store?: string;
+  // Processing LLM
+  llm_backend?: MemoryLLMBackend;
+  llm_model?: string;
+  // Embedding
+  embedding_backend?: MemoryEmbeddingBackend;
   embedding_model?: string;
+  // Vector store
+  vector_backend?: MemoryVectorBackend;
+  // Behaviour
+  context_aware?: boolean;
+  auto_sync?: boolean;
+  auto_sync_interval?: number;
   ttl_days?: number;
+  // Legacy alias
+  vector_store?: string;
   [key: string]: unknown;
 }
 

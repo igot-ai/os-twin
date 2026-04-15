@@ -4,7 +4,7 @@ import fs from 'fs';
 import api from '../src/api';
 import { registry } from '../src/connectors/registry';
 import * as sessions from '../src/sessions';
-import { routeCommand, routeCallback, handleStatefulText, cmdHelp } from '../src/commands';
+import { routeCommand, routeCallback, handleStatefulText, cmdHelp, COMMAND_REGISTRY, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS, DEFERRED_COMMANDS } from '../src/commands';
 
 describe('commands', () => {
   let sandbox: sinon.SinonSandbox;
@@ -50,12 +50,13 @@ describe('commands', () => {
   // ── Menu commands (pure, no API) ─────────────────────────────
 
   describe('routeCommand — menu', () => {
-    it('returns menu with 3 category buttons', async () => {
+    it('returns menu with 4 category buttons', async () => {
       const [resp] = await routeCommand('u1', 'telegram', 'menu');
-      expect(resp.buttons).to.have.lengthOf(3);
+      expect(resp.buttons).to.have.lengthOf(4);
       const data = resp.buttons!.flat().map(b => b.callbackData);
       expect(data).to.include('menu:cat:monitoring');
       expect(data).to.include('menu:cat:plans');
+      expect(data).to.include('menu:cat:skills');
       expect(data).to.include('menu:cat:system');
     });
   });
@@ -537,7 +538,7 @@ describe('commands', () => {
   describe('routeCallback', () => {
     it('menu:main returns main menu', async () => {
       const [resp] = await routeCallback('u1', 'telegram', 'menu:main');
-      expect(resp.buttons).to.have.lengthOf(3);
+      expect(resp.buttons).to.have.lengthOf(4);
     });
 
     it('menu:cat:monitoring returns monitoring submenu', async () => {
@@ -792,6 +793,344 @@ describe('commands', () => {
     it('routeCommand transcribe_plan returns error if no transcription', async () => {
       const [resp] = await routeCommand('u1', 'telegram', 'transcribe_plan');
       expect(resp.text).to.include('No transcription available');
+    });
+  });
+
+  // ── COMMAND_REGISTRY ──────────────────────────────────────────
+
+  describe('COMMAND_REGISTRY', () => {
+    it('exports a non-empty array of command definitions', () => {
+      expect(COMMAND_REGISTRY).to.be.an('array');
+      expect(COMMAND_REGISTRY.length).to.be.greaterThan(30);
+    });
+
+    it('every entry has name and description', () => {
+      for (const def of COMMAND_REGISTRY) {
+        expect(def.name, `${def.name} missing name`).to.be.a('string').with.length.greaterThan(0);
+        expect(def.description, `${def.name} missing description`).to.be.a('string').with.length.greaterThan(0);
+      }
+    });
+
+    it('has no duplicate command names', () => {
+      const names = COMMAND_REGISTRY.map(c => c.name);
+      const unique = new Set(names);
+      expect(unique.size).to.equal(names.length);
+    });
+
+    it('COMMANDS_NO_ARGS excludes commands with args and discordOnly', () => {
+      for (const def of COMMANDS_NO_ARGS) {
+        expect(def.arg, `${def.name} should not have arg`).to.be.undefined;
+        expect(def.discordOnly, `${def.name} should not be discordOnly`).to.not.equal(true);
+      }
+    });
+
+    it('COMMANDS_WITH_ARGS only contains commands with args', () => {
+      for (const def of COMMANDS_WITH_ARGS) {
+        expect(def.arg, `${def.name} should have arg`).to.be.a('string');
+        expect(def.discordOnly, `${def.name} should not be discordOnly`).to.not.equal(true);
+      }
+    });
+
+    it('ALL_PLATFORM_COMMANDS excludes discordOnly', () => {
+      for (const def of ALL_PLATFORM_COMMANDS) {
+        expect(def.discordOnly, `${def.name} should not be discordOnly`).to.not.equal(true);
+      }
+    });
+
+    it('DEFERRED_COMMANDS is a Set of command names', () => {
+      expect(DEFERRED_COMMANDS).to.be.instanceOf(Set);
+      expect(DEFERRED_COMMANDS.has('health')).to.be.true;
+      expect(DEFERRED_COMMANDS.has('menu')).to.be.false;
+    });
+
+    it('every routeCommand case has a matching COMMAND_REGISTRY entry', () => {
+      const registeredNames = new Set(COMMAND_REGISTRY.map(c => c.name));
+      // These commands are handled by routeCommand but aren't standalone registrations
+      const internalOnly = new Set(['start', 'transcribe_plan']);
+      const routerCommands = [
+        'menu', 'help', 'start', 'dashboard', 'status', 'compact', 'plans', 'errors',
+        'skills', 'usage', 'new', 'restart', 'cancel', 'setdir', 'draft',
+        'transcribe', 'transcribe_plan', 'edit', 'assets', 'startplan', 'viewplan',
+        'feedback', 'preferences', 'subscriptions', 'progress',
+        'resume', 'clearplans', 'logs', 'health', 'config',
+        'skillsearch', 'skillinstall', 'skillremove', 'skillsync',
+        'roles', 'triage', 'clonerole', 'launchdashboard',
+      ];
+      for (const cmd of routerCommands) {
+        if (internalOnly.has(cmd)) continue;
+        expect(registeredNames.has(cmd), `${cmd} missing from COMMAND_REGISTRY`).to.be.true;
+      }
+    });
+  });
+
+  // ── Tier 1 commands ───────────────────────────────────────────
+
+  describe('routeCommand — resume', () => {
+    it('shows plan selection buttons for resumable plans', async () => {
+      sandbox.stub(api, 'getPlans').resolves({
+        plans: [
+          { plan_id: 'p1', title: 'Auth', status: 'failed' },
+          { plan_id: 'p2', title: 'Blog', status: 'draft' },
+        ],
+      });
+      const [resp] = await routeCommand('u1', 'telegram', 'resume');
+      expect(resp.buttons).to.be.an('array');
+      expect(resp.buttons!.length).to.equal(1); // only p1 is resumable
+      expect(resp.buttons![0][0].callbackData).to.include('p1');
+    });
+
+    it('returns message when no resumable plans', async () => {
+      sandbox.stub(api, 'getPlans').resolves({ plans: [{ plan_id: 'p1', status: 'draft' }] });
+      const [resp] = await routeCommand('u1', 'telegram', 'resume');
+      expect(resp.text).to.include('No plans available to resume');
+    });
+  });
+
+  describe('routeCallback — resume_confirm', () => {
+    it('resumes a plan', async () => {
+      sandbox.stub(api, 'getPlan').resolves({ plan_id: 'p1', content: '# Plan' });
+      sandbox.stub(api, 'resumePlan').resolves({ status: 'resumed' });
+      const responses = await routeCallback('u1', 'telegram', 'menu:resume_confirm:p1');
+      expect(responses.some(r => r.text.includes('Resumed'))).to.be.true;
+    });
+
+    it('shows error when plan not found', async () => {
+      sandbox.stub(api, 'getPlan').resolves({ _error: 'not found' });
+      const responses = await routeCallback('u1', 'telegram', 'menu:resume_confirm:p1');
+      expect(responses[0].text).to.include('not found');
+    });
+  });
+
+  describe('routeCommand — clearplans', () => {
+    it('calls shell and returns confirmation', async () => {
+      sandbox.stub(api, 'shellCommand').resolves({ stdout: 'cleared', returncode: 0 });
+      const [resp] = await routeCommand('u1', 'telegram', 'clearplans');
+      expect(resp.text).to.include('plans cleared');
+    });
+
+    it('handles error', async () => {
+      sandbox.stub(api, 'shellCommand').resolves({ _error: 'permission denied' });
+      const [resp] = await routeCommand('u1', 'telegram', 'clearplans');
+      expect(resp.text).to.include('Failed');
+    });
+  });
+
+  describe('routeCommand — logs', () => {
+    it('shows room selector when no room_id given', async () => {
+      sandbox.stub(api, 'getRooms').resolves(MOCK_ROOMS);
+      const [resp] = await routeCommand('u1', 'telegram', 'logs', '');
+      expect(resp.buttons).to.be.an('array');
+      expect(resp.buttons!.length).to.be.greaterThan(0);
+    });
+
+    it('shows messages when room_id given', async () => {
+      sandbox.stub(api, 'getRoomChannel').resolves({
+        messages: [
+          { from: 'engineer', type: 'task', body: 'Working on auth' },
+          { from: 'qa', type: 'review', body: 'Looks good' },
+        ],
+      });
+      const [resp] = await routeCommand('u1', 'telegram', 'logs', 'room-1');
+      expect(resp.text).to.include('room-1');
+      expect(resp.text).to.include('Working on auth');
+    });
+
+    it('handles empty messages', async () => {
+      sandbox.stub(api, 'getRoomChannel').resolves({ messages: [] });
+      const [resp] = await routeCommand('u1', 'telegram', 'logs', 'room-1');
+      expect(resp.text).to.include('No messages');
+    });
+  });
+
+  describe('routeCommand — health', () => {
+    it('shows system health info', async () => {
+      sandbox.stub(api, 'getManagerStatus').resolves({ running: true, pid: 1234 });
+      sandbox.stub(api, 'getBotStatus').resolves({ running: true, pid: 5678, available: true });
+      sandbox.stub(api, 'getRooms').resolves(MOCK_ROOMS);
+
+      const [resp] = await routeCommand('u1', 'telegram', 'health');
+      expect(resp.text).to.include('System Health');
+      expect(resp.text).to.include('Running');
+      expect(resp.text).to.include('1234');
+    });
+  });
+
+  describe('routeCommand — config', () => {
+    it('shows full config when no key given', async () => {
+      sandbox.stub(api, 'getConfig').resolves({ manager: { poll: 10 } });
+      const [resp] = await routeCommand('u1', 'telegram', 'config', '');
+      expect(resp.text).to.include('Configuration');
+      expect(resp.text).to.include('poll');
+    });
+
+    it('shows specific key when key given', async () => {
+      sandbox.stub(api, 'getConfig').resolves({ manager: { poll: 10 } });
+      const [resp] = await routeCommand('u1', 'telegram', 'config', 'manager.poll');
+      expect(resp.text).to.include('10');
+    });
+
+    it('shows error for missing key', async () => {
+      sandbox.stub(api, 'getConfig').resolves({ manager: {} });
+      const [resp] = await routeCommand('u1', 'telegram', 'config', 'manager.missing');
+      expect(resp.text).to.include('not found');
+    });
+  });
+
+  // ── Tier 2 commands ───────────────────────────────────────────
+
+  describe('routeCommand — skillsearch', () => {
+    it('requires a query argument', async () => {
+      const [resp] = await routeCommand('u1', 'telegram', 'skillsearch', '');
+      expect(resp.text).to.include('Usage');
+    });
+
+    it('returns search results', async () => {
+      sandbox.stub(api, 'searchSkillsClawhub').resolves([
+        { name: 'Web Search', slug: 'web-search', description: 'Search the web' },
+      ]);
+      const [resp] = await routeCommand('u1', 'telegram', 'skillsearch', 'web');
+      expect(resp.text).to.include('web-search');
+      expect(resp.text).to.include('Search the web');
+    });
+
+    it('shows message when no results', async () => {
+      sandbox.stub(api, 'searchSkillsClawhub').resolves([]);
+      const [resp] = await routeCommand('u1', 'telegram', 'skillsearch', 'nonexistent');
+      expect(resp.text).to.include('No skills found');
+    });
+  });
+
+  describe('routeCommand — skillinstall', () => {
+    it('requires a slug argument', async () => {
+      const [resp] = await routeCommand('u1', 'telegram', 'skillinstall', '');
+      expect(resp.text).to.include('Usage');
+    });
+
+    it('installs and confirms', async () => {
+      sandbox.stub(api, 'installSkillClawhub').resolves({ status: 'installed' });
+      const [resp] = await routeCommand('u1', 'telegram', 'skillinstall', 'steipete/web-search');
+      expect(resp.text).to.include('installed');
+    });
+
+    it('shows error on failure', async () => {
+      sandbox.stub(api, 'installSkillClawhub').resolves({ _error: 'not found on ClawHub' });
+      const [resp] = await routeCommand('u1', 'telegram', 'skillinstall', 'bad/slug');
+      expect(resp.text).to.include('Failed');
+    });
+  });
+
+  describe('routeCommand — skillremove', () => {
+    it('requires a name argument', async () => {
+      const [resp] = await routeCommand('u1', 'telegram', 'skillremove', '');
+      expect(resp.text).to.include('Usage');
+    });
+
+    it('removes and confirms', async () => {
+      sandbox.stub(api, 'removeSkill').resolves({ status: 'removed' });
+      const [resp] = await routeCommand('u1', 'telegram', 'skillremove', 'web-search');
+      expect(resp.text).to.include('removed');
+    });
+  });
+
+  describe('routeCommand — skillsync', () => {
+    it('syncs and returns confirmation', async () => {
+      sandbox.stub(api, 'syncSkills').resolves({ message: 'synced 5 skills' });
+      const [resp] = await routeCommand('u1', 'telegram', 'skillsync');
+      expect(resp.text).to.include('synced');
+    });
+  });
+
+  describe('routeCommand — roles', () => {
+    it('lists roles', async () => {
+      sandbox.stub(api, 'getRoles').resolves([
+        { name: 'engineer', description: 'Writes code', default_model: 'gpt-4' },
+        { name: 'qa', description: 'Reviews code' },
+      ]);
+      const [resp] = await routeCommand('u1', 'telegram', 'roles');
+      expect(resp.text).to.include('engineer');
+      expect(resp.text).to.include('qa');
+      expect(resp.text).to.include('gpt-4');
+    });
+
+    it('shows message when no roles', async () => {
+      sandbox.stub(api, 'getRoles').resolves([]);
+      const [resp] = await routeCommand('u1', 'telegram', 'roles');
+      expect(resp.text).to.include('No roles');
+    });
+  });
+
+  describe('routeCommand — triage', () => {
+    it('shows failed room selector when no room_id given', async () => {
+      sandbox.stub(api, 'getRooms').resolves(MOCK_ROOMS);
+      const [resp] = await routeCommand('u1', 'telegram', 'triage', '');
+      expect(resp.buttons).to.be.an('array');
+      expect(resp.buttons![0][0].callbackData).to.include('room-3');
+    });
+
+    it('shows "no failed rooms" when all healthy', async () => {
+      sandbox.stub(api, 'getRooms').resolves({
+        rooms: [{ room_id: 'r1', status: 'passed', message_count: 5 }],
+        summary: {},
+      });
+      const [resp] = await routeCommand('u1', 'telegram', 'triage', '');
+      expect(resp.text).to.include('No failed rooms');
+    });
+
+    it('triggers triage action when room_id given', async () => {
+      sandbox.stub(api, 'roomAction').resolves({ status: 'ok' });
+      const [resp] = await routeCommand('u1', 'telegram', 'triage', 'room-3');
+      expect(resp.text).to.include('Triage initiated');
+      expect(resp.text).to.include('room-3');
+    });
+  });
+
+  describe('routeCommand — clonerole', () => {
+    it('requires a role argument', async () => {
+      const [resp] = await routeCommand('u1', 'telegram', 'clonerole', '');
+      expect(resp.text).to.include('Usage');
+    });
+
+    it('clones and confirms', async () => {
+      sandbox.stub(api, 'shellCommand').resolves({ stdout: 'cloned to .agents/roles/engineer/' });
+      const [resp] = await routeCommand('u1', 'telegram', 'clonerole', 'engineer');
+      expect(resp.text).to.include('Role cloned');
+      expect(resp.text).to.include('engineer');
+    });
+  });
+
+  describe('routeCommand — launchdashboard', () => {
+    it('shows dashboard URL', async () => {
+      sandbox.stub(api, 'getBaseUrl').resolves('http://localhost:9000');
+      sandbox.stub(api, 'getBotStatus').resolves({ running: true });
+      const [resp] = await routeCommand('u1', 'telegram', 'launchdashboard');
+      expect(resp.text).to.include('Dashboard');
+      expect(resp.text).to.include('localhost:9000');
+    });
+  });
+
+  // ── New callback submenu routes ───────────────────────────────
+
+  describe('routeCallback — new submenus', () => {
+    it('menu:cat:skills returns skills submenu', async () => {
+      const [resp] = await routeCallback('u1', 'telegram', 'menu:cat:skills');
+      const data = resp.buttons!.flat().map(b => b.callbackData);
+      expect(data).to.include('cmd:skills');
+      expect(data).to.include('cmd:roles');
+    });
+
+    it('menu:logs:room-1 shows logs for that room', async () => {
+      sandbox.stub(api, 'getRoomChannel').resolves({
+        messages: [{ from: 'eng', type: 'done', body: 'Complete' }],
+      });
+      const [resp] = await routeCallback('u1', 'telegram', 'menu:logs:room-1');
+      expect(resp.text).to.include('room-1');
+      expect(resp.text).to.include('Complete');
+    });
+
+    it('menu:triage:room-3 triggers triage', async () => {
+      sandbox.stub(api, 'roomAction').resolves({ status: 'ok' });
+      const [resp] = await routeCallback('u1', 'telegram', 'menu:triage:room-3');
+      expect(resp.text).to.include('Triage initiated');
     });
   });
 });

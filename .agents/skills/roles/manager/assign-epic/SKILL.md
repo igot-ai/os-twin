@@ -1,6 +1,6 @@
 ---
 name: assign-epic
-description: Use this skill to assign epics from PLAN.md to war-rooms — create rooms, assign creative specialist roles, and write briefs.
+description: Use this skill to assign epics from PLAN.md to war-rooms -- create rooms, assign creative specialist roles, and write briefs."
 tags: [manager, orchestration, assignment, war-room]
 trust_level: core
 ---
@@ -9,7 +9,7 @@ trust_level: core
 
 ## Overview
 
-This skill guides the manager through reading a plan, creating war-rooms for each epic/task, and assigning the most appropriate specialist role. The manager should be **creative** with role assignment — inventing the ideal specialist for each piece of work.
+This skill guides the manager through reading a plan, creating war-rooms for each epic/task, and assigning the most appropriate specialist role. The manager should be **creative** with role assignment -- inventing the ideal specialist for each piece of work.
 
 ## When to Use
 
@@ -32,7 +32,7 @@ This skill guides the manager through reading a plan, creating war-rooms for eac
 Parse `PLAN.md` to extract all epics and tasks:
 
 ```markdown
-## Epic: EPIC-001 — <title>
+## Epic: EPIC-001 -- <title>
 Objective: <what to deliver>
 Skills: <required capabilities>
 Acceptance Criteria:
@@ -41,10 +41,10 @@ Acceptance Criteria:
 ```
 
 For each item, note:
-- **Identifier** — EPIC-XXX or TASK-XXX
-- **Objective** — what it delivers
-- **Skills** — technologies and domains needed
-- **Dependencies** — which items must complete first
+- **Identifier** -- EPIC-XXX or TASK-XXX
+- **Objective** -- what it delivers
+- **Skills** -- technologies and domains needed
+- **Dependencies** -- which items must complete first
 
 ### 2. Design the Role Assignment
 
@@ -57,7 +57,7 @@ For each epic/task, choose the **most specific** role:
 | EPIC-003 | Security audit | `security-auditor` | OWASP, vulnerability scanning |
 
 **Rules:**
-- Don't default to `engineer` — invent the ideal specialist
+- Don't default to `engineer` -- invent the ideal specialist
 - The role name should describe the expert (e.g., `performance-engineer`, `data-pipeline-engineer`)
 - Define clear `Objective:` and `Skills:` per epic
 - Check if the role exists in `registry.json`; if not, use the `create-role` skill first
@@ -79,10 +79,10 @@ Or create the directory structure manually:
 
 ```
 .war-rooms/<room-id>/
-├── brief.md          # What to do
-├── config.json       # Room configuration
-├── status.json       # Current state
-└── artifacts/        # Work artifacts
+ brief.md          # What to do
+ config.json       # Room configuration
+ status.json       # Current state
+ artifacts/        # Work artifacts
 ```
 
 ### 4. Write the Brief
@@ -90,7 +90,7 @@ Or create the directory structure manually:
 Create `<war-room>/brief.md`:
 
 ```markdown
-# Brief — <EPIC/TASK-XXX>
+# Brief -- <EPIC/TASK-XXX>
 
 ## Objective
 <clear, actionable description of what to deliver>
@@ -146,7 +146,7 @@ Brief: <war-room>/brief.md
 Config: <war-room>/config.json
 ```
 
-Respect the `max_concurrent_rooms` limit — queue excess rooms.
+Respect the `max_concurrent_rooms` limit -- queue excess rooms.
 
 ## Verification
 

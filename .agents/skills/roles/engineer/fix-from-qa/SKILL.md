@@ -1,6 +1,6 @@
 ---
 name: fix-from-qa
-description: "Use this skill to address QA failure feedback -- read every point, fix without regressions, and deliver a new done report."
+description: Use this skill to address QA failure feedback -- read every point, fix without regressions, and deliver a new done report."
 tags: [engineer, bugfix, qa-response]
 trust_level: core
 ---

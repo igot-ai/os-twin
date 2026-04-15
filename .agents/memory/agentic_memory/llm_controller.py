@@ -220,7 +220,7 @@ class OpenRouterController(BaseLLMController):
 
     Examples:
         >>> controller = OpenRouterController("openai/gpt-4o-mini", api_key="your-key")
-        >>> controller = OpenRouterController("google/gemini-2.0-flash-001:free")
+        >>> controller = OpenRouterController("google/gemini-3.1-flash-lite-preview-001:free")
     """
 
     def __init__(
@@ -279,16 +279,201 @@ class OpenRouterController(BaseLLMController):
             return json.dumps(empty_response)
 
 
+class HuggingFaceController(BaseLLMController):
+    """LLM controller for local HuggingFace models via transformers.
+
+    Loads a causal-LM model and tokenizer from the HuggingFace Hub (or a local
+    path) and runs inference entirely on the local machine. No API keys or
+    network calls are needed after the initial model download.
+
+    The controller applies the tokenizer's chat template when available
+    (system + user messages) and extracts JSON from the generated text.
+
+    Args:
+        model: HuggingFace model identifier or local path
+            (e.g. "LiquidAI/LFM2-1.2B-Extract", "mistralai/Mistral-7B-Instruct-v0.3").
+        device: Compute device — "cpu", "cuda", "mps", or None for auto-detect.
+        max_new_tokens: Maximum tokens to generate per call (default: 1024).
+        torch_dtype: Data type for model weights — "auto", "float32", "float16",
+            "bfloat16". Default "auto" uses float16 on GPU/MPS and float32 on CPU.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        device: Optional[str] = None,
+        max_new_tokens: int = 1024,
+        torch_dtype: str = "auto",
+    ):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        self.model_name = model
+        self.max_new_tokens = max_new_tokens
+
+        # Auto-detect device
+        if device is None:
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+        self.device = device
+
+        # Resolve dtype
+        if torch_dtype == "auto":
+            self._torch_dtype = torch.float32 if device == "cpu" else torch.float16
+        else:
+            self._torch_dtype = getattr(torch, torch_dtype)
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model, trust_remote_code=True
+        )
+        # transformers >=5.x renamed torch_dtype -> dtype
+        dtype_kwarg = {"dtype": self._torch_dtype}
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model,
+            trust_remote_code=True,
+            **dtype_kwarg,
+        ).to(device)
+        self.model.eval()
+
+    def get_completion(
+        self, prompt: str, response_format: dict = None, temperature: float = 1.0
+    ) -> str:
+        """Generate a JSON completion from a local HuggingFace model.
+
+        Applies the chat template, generates tokens, extracts JSON from the
+        output. Falls back to a schema-conforming empty response on failure.
+        """
+        import torch
+        import re
+
+        input_text = self._build_input(prompt)
+        inputs = self.tokenizer(input_text, return_tensors="pt").to(self.device)
+
+        gen_kwargs = {
+            "max_new_tokens": self.max_new_tokens,
+            "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+        }
+        # temperature=0 → greedy; >0 → sampling
+        if temperature <= 0.01:
+            gen_kwargs["do_sample"] = False
+        else:
+            gen_kwargs["do_sample"] = True
+            gen_kwargs["temperature"] = temperature
+            gen_kwargs["top_p"] = 0.9
+
+        with torch.no_grad():
+            outputs = self.model.generate(**inputs, **gen_kwargs)
+
+        # Decode only the newly generated tokens
+        new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+        raw_text = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+
+        # Try to extract valid JSON
+        extracted = self._extract_json(raw_text)
+        if extracted is not None:
+            # Small models often wrap their response in an extra key like
+            # {"analysis": {"name": ..., "keywords": ...}}.  Unwrap it so
+            # callers (e.g. analyze_content) see the inner dict directly.
+            extracted = self._unwrap_single_key(extracted)
+            return extracted
+
+        # Fallback: return a schema-conforming empty response
+        if response_format:
+            return json.dumps(self._generate_empty_response(response_format))
+        return "{}"
+
+    def _build_input(self, prompt: str) -> str:
+        """Build the full input string using the tokenizer's chat template."""
+        messages = [
+            {"role": "system", "content": _SYSTEM_JSON_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            return self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        except Exception:
+            # Fallback for tokenizers without a chat template
+            return (
+                f"System: {_SYSTEM_JSON_PROMPT}\n\n"
+                f"User: {prompt}\n\nAssistant:"
+            )
+
+    @staticmethod
+    def _unwrap_single_key(text: str) -> str:
+        """Unwrap {"wrapper": {actual_payload}} → {actual_payload}.
+
+        Small models frequently nest the real response inside an extra key
+        like "analysis", "result", or "response".  If the parsed JSON has
+        exactly one key whose value is itself a dict, return the inner dict
+        as a JSON string instead.
+        """
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict) and len(obj) == 1:
+                inner = next(iter(obj.values()))
+                if isinstance(inner, dict):
+                    return json.dumps(inner, ensure_ascii=False)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return text
+
+    @staticmethod
+    def _extract_json(text: str) -> Optional[str]:
+        """Extract the first valid JSON object from generated text.
+
+        Handles raw JSON, markdown code fences, and nested braces.
+        """
+        import re
+
+        # Strip markdown code fences if present
+        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if fenced:
+            try:
+                json.loads(fenced.group(1))
+                return fenced.group(1)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Walk through the text looking for balanced braces
+        start = text.find("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except (json.JSONDecodeError, ValueError):
+                        # Reset and keep searching after this failed candidate
+                        depth = 0
+                        start = text.find("{", i + 1)
+                        if start == -1:
+                            return None
+        return None
+
+
 class GeminiController(BaseLLMController):
     """LLM controller for Google Gemini API using litellm.
 
     Args:
-        model: Gemini model identifier (e.g., "gemini-2.0-flash", "gemini-1.5-pro").
+        model: Gemini model identifier (e.g., "gemini-3.1-flash-lite-preview", "gemini-1.5-pro").
                The "gemini/" prefix is automatically added if not present.
         api_key: Google API key. If None, reads from GOOGLE_API_KEY env variable.
     """
 
-    def __init__(self, model: str = "gemini-2.0-flash", api_key: Optional[str] = None):
+    def __init__(self, model: str = "gemini-3.1-flash-lite-preview", api_key: Optional[str] = None):
         if not model.startswith("gemini/"):
             self.model = f"gemini/{model}"
         else:
@@ -332,18 +517,22 @@ class GeminiController(BaseLLMController):
 class LLMController:
     """LLM-based controller for memory metadata generation.
 
-    Supports multiple backends: OpenAI, Ollama, SGLang, OpenRouter, and Gemini.
+    Supports multiple backends: OpenAI, Ollama, SGLang, OpenRouter, Gemini,
+    and HuggingFace (local inference).
     """
 
     def __init__(
         self,
         backend: Literal[
-            "openai", "ollama", "sglang", "openrouter", "gemini"
+            "openai", "ollama", "sglang", "openrouter", "gemini", "huggingface"
         ] = "openai",
         model: str = "gpt-4",
         api_key: Optional[str] = None,
         sglang_host: str = "http://localhost",
         sglang_port: int = 30000,
+        hf_device: Optional[str] = None,
+        hf_max_new_tokens: int = 1024,
+        hf_torch_dtype: str = "auto",
     ):
         if backend == "openai":
             self.llm = OpenAIController(model, api_key)
@@ -355,9 +544,17 @@ class LLMController:
             self.llm = OpenRouterController(model, api_key)
         elif backend == "gemini":
             self.llm = GeminiController(model, api_key)
+        elif backend == "huggingface":
+            self.llm = HuggingFaceController(
+                model,
+                device=hf_device,
+                max_new_tokens=hf_max_new_tokens,
+                torch_dtype=hf_torch_dtype,
+            )
         else:
             raise ValueError(
-                "Backend must be one of: 'openai', 'ollama', 'sglang', 'openrouter', 'gemini'"
+                "Backend must be one of: 'openai', 'ollama', 'sglang', "
+                "'openrouter', 'gemini', 'huggingface'"
             )
 
     def get_completion(
