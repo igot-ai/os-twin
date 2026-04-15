@@ -62,7 +62,8 @@ patch_mcp_config() {
   # 3. Normalize + validate + merge MCP servers into ~/.config/opencode/opencode.json
   local opencode_home="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
   mkdir -p "$opencode_home"
-  "$VENV_DIR/bin/python" "${_PATCH_SCRIPTS_DIR}/merge_mcp_to_opencode.py" \
+  OSTWIN_VENV_DIR="$VENV_DIR" OSTWIN_INSTALL_DIR="$INSTALL_DIR" \
+    "$VENV_DIR/bin/python" "${_PATCH_SCRIPTS_DIR}/merge_mcp_to_opencode.py" \
     "$mcp_config" "$opencode_home/opencode.json" "$INSTALL_DIR/.agents/mcp"
 
   ok "MCP config patched"
