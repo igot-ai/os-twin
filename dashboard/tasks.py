@@ -27,8 +27,23 @@ async def poll_war_rooms():
     """Background task to poll war-room state and broadcast changes."""
     last_snapshot: dict[str, dict] = {}
 
+    _cached_warroom_dirs: list[Path] = []
+    _cached_warroom_dirs_time: float = 0
+    _WARROOM_CACHE_TTL = 10  # seconds
+
     def _discover_warroom_dirs() -> list[Path]:
-        """Discover all war-room directories: global + plan-specific."""
+        """Discover all war-room directories: global + plan-specific.
+
+        Results are cached for 10 seconds to avoid re-globbing and re-reading
+        .meta.json files on every 1-second poll cycle, which can exhaust the
+        OS file-descriptor limit (macOS default is often only 256).
+        """
+        nonlocal _cached_warroom_dirs, _cached_warroom_dirs_time
+        import time
+        now = time.monotonic()
+        if _cached_warroom_dirs and (now - _cached_warroom_dirs_time) < _WARROOM_CACHE_TTL:
+            return _cached_warroom_dirs
+
         dirs = set()
         if WARROOMS_DIR.exists():
             dirs.add(WARROOMS_DIR)
@@ -47,7 +62,10 @@ async def poll_war_rooms():
                             dirs.add(warrooms_path)
                 except (json.JSONDecodeError, KeyError):
                     pass
-        return list(dirs)
+
+        _cached_warroom_dirs = list(dirs)
+        _cached_warroom_dirs_time = now
+        return _cached_warroom_dirs
 
     def _find_plan_id_for_warroom_dir(warroom_dir: Path) -> str | None:
         """Find the plan_id whose warrooms_dir matches."""
