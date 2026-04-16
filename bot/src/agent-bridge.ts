@@ -16,7 +16,7 @@ import {
 } from '@google/generative-ai';
 import config from './config';
 import api from './api';
-import { getSession, setMode, setPlan, clearSession, getStagedImages, getStagedFiles, persistAfterMessage } from './sessions';
+import { getSession, setPlan, clearSession, getStagedImages, getStagedFiles, persistAfterMessage } from './sessions';
 import { flushStagedAttachments } from './asset-staging';
 
 // ── Chat history helpers ──────────────────────────────────────────────────
@@ -358,8 +358,7 @@ async function executeTool(
 
       const finalPlanId = created?.plan_id || planSlug;
 
-      // Step 3: Update session state so user can continue editing
-      setMode(ctx.userId, ctx.platform, 'editing');
+      // Step 3: Update session state so user can continue refining via @mention
       setPlan(ctx.userId, ctx.platform, finalPlanId);
 
       // Step 4: Save staged files to the plan (now that we have a planId)

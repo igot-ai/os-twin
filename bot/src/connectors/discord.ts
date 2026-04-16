@@ -199,8 +199,7 @@ export class DiscordConnector implements Connector {
 
       // ── Handle attachments: save immediately or stage for later ──
       const hasAttachments = attachments.length > 0;
-      const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
-        && ['drafting', 'editing'].includes(session.mode);
+      const canSaveNow = session.activePlanId && session.activePlanId !== 'new';
 
       if (hasAttachments) {
         if (canSaveNow) {
