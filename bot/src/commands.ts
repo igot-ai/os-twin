@@ -9,7 +9,7 @@
 
 import api, { PlanAsset, ClawhubSkill, RoleInfo } from './api';
 import { registry } from './connectors/registry';
-import { getSession, clearSession, setMode, setPlan, setWorkingDir, persistAfterMessage } from './sessions';
+import { getSession, clearSession, clearChatHistory, setMode, setPlan, setWorkingDir, persistAfterMessage } from './sessions';
 import { listRecordings, transcribeAudio } from './audio-transcript';
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -61,6 +61,7 @@ export const COMMAND_REGISTRY: CommandDef[] = [
   { name: 'transcribe',      description: 'Transcribe a voice recording and draft a plan',       deferReply: true },
   { name: 'setdir',          description: 'Set target project directory for new plans',          arg: 'path',     argDescription: 'Absolute path to project directory' },
   { name: 'cancel',          description: 'Exit current editing session' },
+  { name: 'clear',           description: 'Clear conversation history with the AI' },
   { name: 'feedback',        description: 'Send feedback to the dashboard',                      arg: 'text',     argDescription: 'Your feedback message',   argRequired: true, deferReply: true },
 
   // ── Monitoring ──────────────────────────────────────────────────
@@ -1195,6 +1196,9 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'cancel':
       clearSession(userId, platform);
       return [text('🛑 Action cancelled. Session cleared.')];
+    case 'clear':
+      clearChatHistory(userId, platform);
+      return [text('🧹 Conversation history cleared. The AI will start fresh.')];
     case 'setdir': {
       const dir = args.trim();
       if (!dir) {

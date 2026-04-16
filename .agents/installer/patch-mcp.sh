@@ -19,8 +19,18 @@ patch_mcp_config() {
   local mcp_config="$INSTALL_DIR/.agents/mcp/config.json"
   local env_file="$INSTALL_DIR/.env"
 
+  # Safety net: if config.json wasn't seeded (e.g. both config.json and
+  # mcp-config.json are gitignored and mcp-builtin.json fallback didn't
+  # trigger), try to create it from the installed builtin template now.
   if [[ ! -f "$mcp_config" ]]; then
-    return
+    local builtin="$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
+    if [[ -f "$builtin" ]]; then
+      warn "mcp/config.json missing — creating from mcp-builtin.json"
+      cp "$builtin" "$mcp_config"
+    else
+      warn "No MCP config found — opencode.json will have no MCP servers"
+      return
+    fi
   fi
 
   step "Patching MCP config..."

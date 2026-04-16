@@ -10,13 +10,56 @@
 import {
   GoogleGenerativeAI,
   SchemaType,
+  type Content,
   type FunctionDeclaration,
   type FunctionCall,
 } from '@google/generative-ai';
 import config from './config';
 import api from './api';
-import { getSession, setMode, setPlan, clearSession, getStagedImages, getStagedFiles } from './sessions';
+import { getSession, setMode, setPlan, clearSession, getStagedImages, getStagedFiles, persistAfterMessage } from './sessions';
 import { flushStagedAttachments } from './asset-staging';
+
+// ── Chat history helpers ──────────────────────────────────────────────────
+
+/** Max prior turns (user+assistant pairs) to send to Gemini. */
+const MAX_HISTORY_TURNS = 10;
+const MAX_HISTORY_MESSAGES = MAX_HISTORY_TURNS * 2;
+
+/** Hard cap on messages persisted to sessions.json per user. */
+const MAX_PERSISTED_MESSAGES = 50;
+
+/**
+ * Sanitize chat history so it satisfies Gemini's constraints:
+ * - roles must alternate (user, model, user, model, ...)
+ * - must start with "user"
+ * - consecutive same-role messages are merged
+ */
+function sanitizeHistory(messages: Array<{ role: string; content: string }>): Array<{ role: string; content: string }> {
+  const result: Array<{ role: string; content: string }> = [];
+  for (const msg of messages) {
+    if (result.length > 0 && result[result.length - 1].role === msg.role) {
+      result[result.length - 1].content += '\n\n' + msg.content;
+    } else {
+      result.push({ ...msg });
+    }
+  }
+  // Gemini requires history to start with "user"
+  while (result.length > 0 && result[0].role !== 'user') {
+    result.shift();
+  }
+  return result;
+}
+
+/**
+ * Convert session ChatMessage[] to Gemini Content[] format.
+ * Maps role: 'assistant' → 'model' and wraps content in parts[].
+ */
+function toGeminiHistory(messages: Array<{ role: string; content: string }>): Content[] {
+  return sanitizeHistory(messages).map((msg) => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }],
+  }));
+}
 import { type ConnectorConfig, type AttachmentMeta } from './connectors/base';
 import { registry } from './connectors/registry';
 
@@ -457,6 +500,11 @@ export async function askAgent(
   // Default context for backward compat
   const agentCtx: AgentContext = ctx || { userId: 'unknown', platform: 'unknown' };
 
+  // Load conversation history from session
+  const session = getSession(agentCtx.userId, agentCtx.platform);
+  const recentHistory = session.chatHistory.slice(-MAX_HISTORY_MESSAGES);
+  const geminiHistory = toGeminiHistory(recentHistory);
+
   // Gather lightweight context in parallel
   const [plansData, roomsData] = await Promise.all([
     api.getPlans(),
@@ -524,9 +572,9 @@ ${roomsText}${referenceContext}${attachmentContext}`;
       tools: [{ functionDeclarations: toolDeclarations }],
     });
 
-    // Start a chat with system instruction
+    // Start a chat with conversation history and system instruction
     const chat = model.startChat({
-      history: [],
+      history: geminiHistory,
       systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
     });
 
@@ -556,6 +604,14 @@ ${roomsText}${referenceContext}${attachmentContext}`;
 
     const answer = response.text?.();
     if (!answer) return '⚠️ AI returned an empty response.';
+
+    // Persist conversation turn (full answer, not truncated)
+    session.chatHistory.push({ role: 'user', content: question });
+    session.chatHistory.push({ role: 'assistant', content: answer });
+    if (session.chatHistory.length > MAX_PERSISTED_MESSAGES) {
+      session.chatHistory.splice(0, session.chatHistory.length - MAX_PERSISTED_MESSAGES);
+    }
+    persistAfterMessage();
 
     return answer.length > 1900
       ? answer.slice(0, 1900) + '\n\n*…(truncated)*'
