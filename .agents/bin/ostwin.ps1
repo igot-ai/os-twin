@@ -984,11 +984,38 @@ switch ($Command) {
         $channelPidFileAlt = Join-Path $OstwinHome ".agents\channel.pid"
         $chanPid = $null
         foreach ($cpf in @($channelPidFile, $channelPidFileAlt)) {
-            if (Test-Path $cpf) {
-                $chanPid = (Get-Content $cpf -Raw).Trim()
-                $channelPidFile = $cpf
-                break
+            if (-not (Test-Path $cpf)) { continue }
+
+            $candidatePid = (Get-Content $cpf -Raw -ErrorAction SilentlyContinue).Trim()
+            # Only accept if non-empty AND looks like a valid numeric PID
+            if ($candidatePid -and $candidatePid -match '^\d+$') {
+                try {
+                    $proc = Get-Process -Id $candidatePid -ErrorAction Stop
+                    # Verify it's actually a channel process to avoid killing wrong process after PID reuse
+                    $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$candidatePid" -ErrorAction SilentlyContinue).CommandLine
+                    # Must have channel-related path - tight validation to prevent PID reuse attacks
+                    # Accept: (tsx OR node as executable) AND (.agents/channel OR channel.ts/channels.ts)
+                    # Use word boundary to avoid false positives like "some_tsx_folder/script.sh"
+                    $hasRuntime = $cmdLine -match "(^|[\s/\\`"\'])(tsx|node)(\.exe)?(\s|$|`")"
+                    $hasChannelPath = $cmdLine -match "\.agents[/\\]channel" -or $cmdLine -match "channels?\.ts"
+                    if ($cmdLine -and $hasRuntime -and $hasChannelPath) {
+                        # Valid channel process — use this PID
+                        $chanPid = $candidatePid
+                        $channelPidFile = $cpf
+                        break
+                    }
+                    # Process exists but not a channel process — PID was reused, clean up and continue
+                    Remove-Item $cpf -Force -ErrorAction SilentlyContinue
+                    continue
+                } catch {
+                    # PID is numeric but process doesn't exist — stale, clean up and continue
+                    Remove-Item $cpf -Force -ErrorAction SilentlyContinue
+                    continue
+                }
             }
+
+            # File exists but is empty/invalid — clean it up and continue to fallback
+            Remove-Item $cpf -Force -ErrorAction SilentlyContinue
         }
         if ($chanPid) {
             try {

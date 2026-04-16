@@ -172,12 +172,20 @@ function Seed-McpConfig {
     }
 
     # Always sync MCP server scripts (.py, .sh, requirements.txt)
+    # Only sync specific static JSON files - do NOT overwrite runtime state (config.json, extensions.json)
     $mcpSrcDir = Join-Path $script:ScriptDir "mcp"
     if (Test-Path $mcpSrcDir) {
-        foreach ($ext in @("*.py", "*.sh", "*.json", "requirements.txt")) {
+        # Sync scripts
+        foreach ($ext in @("*.py", "*.sh", "requirements.txt")) {
             Get-ChildItem -Path $mcpSrcDir -Filter $ext -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -ne "config.json" } |
                 ForEach-Object { Copy-Item -Path $_.FullName -Destination $mcpDir -Force }
+        }
+        # Sync only specific static JSON files (not config.json or extensions.json which are runtime state)
+        foreach ($jsonName in @("mcp-builtin.json", "mcp-catalog.json")) {
+            $src = Join-Path $mcpSrcDir $jsonName
+            if (Test-Path $src) {
+                Copy-Item -Path $src -Destination (Join-Path $mcpDir $jsonName) -Force
+            }
         }
         Write-Ok "mcp/ scripts synced"
     }
