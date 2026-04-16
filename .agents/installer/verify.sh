@@ -85,9 +85,11 @@ print_completion_banner() {
   echo ""
   echo -e "    ${CYAN}1.${NC} Reload your shell:        ${DIM}source $shell_rc${NC}"
   echo -e "    ${CYAN}2.${NC} Verify installation:       ${DIM}ostwin health${NC}"
-  echo -e "    ${CYAN}3.${NC} Initialize a project:      ${DIM}ostwin init ~/my-project${NC}"
-  echo -e "    ${CYAN}4.${NC} Set your API key:          ${DIM}export GOOGLE_API_KEY=\"your-key\"${NC}"
+  echo -e "    ${CYAN}3.${NC} Set your API key:          ${DIM}nano ${INSTALL_DIR}/.env${NC}"
+  echo -e "    ${CYAN}4.${NC} Initialize a project:      ${DIM}ostwin init ~/my-project${NC}"
   echo -e "    ${CYAN}5.${NC} Run your first plan:       ${DIM}ostwin run plans/my-plan.md${NC}"
+  echo ""
+  echo -e "  ${DIM}Note: API keys in ~/.ostwin/.env are auto-sourced in new terminals.${NC}"
   echo ""
   echo -e "  ${BOLD}Dashboard:${NC}"
   if [[ -n "${TUNNEL_URL:-}" ]]; then
@@ -121,12 +123,4 @@ print_completion_banner() {
     echo -e "    ${DIM}Stored in: ${INSTALL_DIR}/.env${NC}"
     echo ""
   fi
-
-  echo -e "  ${BOLD}AI Provider Keys:${NC}"
-  echo -e "    ${DIM}Edit your .env file (keys auto-migrated if already in shell):${NC}"
-  echo -e "    nano ${INSTALL_DIR}/.env"
-  echo -e "    ${DIM}Then restart dashboard: ostwin stop && ostwin start${NC}"
-  echo -e "    ${DIM}# Or export directly (not persisted): export GOOGLE_API_KEY=\"your-key\"${NC}"
-  echo -e "    ${DIM}# Or use OpenAI/Anthropic — see: ostwin config${NC}"
-  echo ""
 }

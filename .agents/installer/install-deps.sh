@@ -221,6 +221,9 @@ install_opencode() {
   step "Installing opencode..."
   local brew_installed=false
 
+  # Ensure paths are available before install
+  ensure_brew_paths
+
   # Preferred: brew (macOS and Linux, always up to date)
   if command -v brew &>/dev/null; then
     if brew install anomalyco/tap/opencode 2>&1; then
@@ -229,12 +232,6 @@ install_opencode() {
       brew_installed=true
     else
       warn "brew install failed, falling back to official script"
-    fi
-    # Immediately add brew paths to current session
-    if $brew_installed; then
-      local brew_prefix
-      brew_prefix=$(brew --prefix 2>/dev/null || echo "/opt/homebrew")
-      export PATH="${brew_prefix}/bin:${brew_prefix}/sbin:$PATH"
     fi
   fi
 
@@ -249,8 +246,8 @@ install_opencode() {
     fi
   fi
 
-  # Refresh command hash (macOS zsh/bash cache commands)
-  hash -r 2>/dev/null || rehash 2>/dev/null || true
+  # Refresh command hash and paths
+  ensure_brew_paths
 
   # Verify
   if check_opencode; then
@@ -258,19 +255,12 @@ install_opencode() {
     oc_ver=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
     ok "opencode $oc_ver installed"
   else
-    # PATH may need refreshing for non-interactive shells
-    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-    hash -r 2>/dev/null || true
-    if check_opencode; then
-      ok "opencode installed (PATH updated)"
-    else
-      local shell_name
-      shell_name=$(basename "${SHELL:-/bin/bash}")
-      local shell_rc="$HOME/.${shell_name}rc"
-      fail "opencode installed but not in PATH"
-      info "Run: source $shell_rc  (or open a new terminal)"
-      exit 1
-    fi
+    # One more attempt with explicit paths
+    local shell_name
+    shell_name=$(basename "${SHELL:-/bin/bash}")
+    local shell_rc="$HOME/.${shell_name}rc"
+    warn "opencode installed but not immediately available in PATH"
+    info "Will be available after: source $shell_rc (or open a new terminal)"
   fi
 }
 
