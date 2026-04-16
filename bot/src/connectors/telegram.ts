@@ -1,7 +1,7 @@
 import https from 'https';
 import { Telegraf, Markup, Context } from 'telegraf';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS } from '../commands';
+import { routeCommand, routeCallback, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS } from '../commands';
 import { getSession, getStagedFiles } from '../sessions';
 import { askAgent } from '../agent-bridge';
 import { flushStagedAttachments, getStagedCount } from '../asset-staging';
@@ -104,12 +104,7 @@ export class TelegramConnector implements Connector {
       // Skip if it's a command
       if (msgText.startsWith('/')) return;
 
-      const session = getSession(userId, 'telegram');
-      if (['drafting', 'editing', 'awaiting_idea'].includes(session.mode)) {
-        // Stateful: refine/draft plan
-        const responses = await handleStatefulText(userId, 'telegram', msgText);
-        await this.sendResponses(ctx, responses);
-      } else {
+      {
         // Idle: use AI agent with tool-calling (can create plans, check status, etc.)
         try {
           // Include staged file metadata so the agent knows assets are available

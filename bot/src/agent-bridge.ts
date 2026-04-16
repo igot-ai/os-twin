@@ -105,6 +105,27 @@ const toolDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'refine_plan',
+    description:
+      'Refine or modify an existing plan. Use this when the user wants to add features, change epics, ' +
+      'update tasks, add acceptance criteria, or make any changes to a plan. ' +
+      'Also use when the user says "add authentication", "break into more epics", "make it simpler", etc.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        plan_id: {
+          type: SchemaType.STRING,
+          description: 'The plan ID to refine (e.g. "gold-mining.plan")',
+        },
+        instruction: {
+          type: SchemaType.STRING,
+          description: 'What changes to make to the plan (e.g. "add JWT authentication to EPIC-002")',
+        },
+      },
+      required: ['plan_id', 'instruction'],
+    },
+  },
+  {
     name: 'launch_plan',
     description:
       'Launch an existing plan into war-rooms so agents start working on it. ' +
@@ -181,6 +202,39 @@ const toolDeclarations: FunctionDeclaration[] = [
         },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'get_plan_assets',
+    description:
+      'List all assets and artifacts produced by a plan. Use this when the user asks about files, ' +
+      'artifacts, deliverables, outputs, or the product of a plan.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        plan_id: {
+          type: SchemaType.STRING,
+          description: 'The plan ID (e.g. "gold-mining.plan")',
+        },
+      },
+      required: ['plan_id'],
+    },
+  },
+  {
+    name: 'get_memories',
+    description:
+      'List the memories (knowledge notes) saved during a plan\'s execution. Each memory captures ' +
+      'architectural decisions, code patterns, lessons learned, and context discovered by agents. ' +
+      'Use this when the user asks about memories, what agents learned, what was saved, or knowledge base.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        plan_id: {
+          type: SchemaType.STRING,
+          description: 'The plan ID (e.g. "gold-mining.plan")',
+        },
+      },
+      required: ['plan_id'],
     },
   },
 ];
@@ -338,6 +392,42 @@ async function executeTool(
       };
     }
 
+    case 'refine_plan': {
+      const planId = (args as any).plan_id;
+      const instruction = (args as any).instruction;
+      const plan = await api.getPlan(planId);
+      if ((plan as any)?._error) {
+        return { name, response: { success: false, error: `Plan "${planId}" not found.` } };
+      }
+      const planContent = (plan as any).content || '';
+
+      // Get session for chat history context
+      const session = getSession(ctx.userId, ctx.platform);
+      const result = await api.refinePlan({
+        message: instruction,
+        planId,
+        planContent,
+        chatHistory: session.chatHistory.slice(-20),
+        workingDir: session.workingDir,
+      });
+      if (result?._error) {
+        return { name, response: { success: false, error: result._error } };
+      }
+      const refinedPlan = result.plan || result.refined_plan || '';
+      if (refinedPlan) {
+        await api.savePlan(planId, refinedPlan);
+      }
+      return {
+        name,
+        response: {
+          success: true,
+          plan_id: planId,
+          explanation: result.explanation || 'Plan updated.',
+          message: `Plan "${planId}" has been refined and saved.`,
+        },
+      };
+    }
+
     case 'launch_plan': {
       const planId = (args as any).plan_id;
       const plan = await api.getPlan(planId);
@@ -482,6 +572,67 @@ async function executeTool(
       };
     }
 
+    case 'get_plan_assets': {
+      const planId = (args as any).plan_id;
+      const result = await api.getPlanAssets(planId);
+      if (result?.error) {
+        return { name, response: { success: false, error: result.error } };
+      }
+      return {
+        name,
+        response: {
+          success: true,
+          plan_id: planId,
+          total: result.count || result.assets?.length || 0,
+          assets: (result.assets || []).map((a: any) => ({
+            name: a.name || a.filename,
+            path: a.path || a.relative_path,
+            type: a.asset_type || a.type || 'unknown',
+            epic_ref: a.epic_ref || null,
+            size: a.size_bytes || a.size || null,
+          })),
+          message: result.assets?.length
+            ? `Found ${result.assets.length} asset(s) for plan "${planId}".`
+            : `No assets found for plan "${planId}".`,
+        },
+      };
+    }
+
+    case 'get_memories': {
+      const planId = (args as any).plan_id;
+      try {
+        const notesRes = await api.fetchJSON(`/api/amem/${planId}/notes`);
+        const statsRes = await api.fetchJSON(`/api/amem/${planId}/stats`);
+        const notes = Array.isArray(notesRes) ? notesRes : [];
+        return {
+          name,
+          response: {
+            success: true,
+            plan_id: planId,
+            total_notes: notes.length,
+            stats: {
+              total_tags: statsRes?.total_tags || 0,
+              total_keywords: statsRes?.total_keywords || 0,
+              categories: statsRes?.categories || [],
+            },
+            memories: notes.slice(0, 15).map((n: any) => ({
+              title: n.title,
+              path: n.path,
+              tags: n.tags || [],
+              keywords: n.keywords || [],
+              excerpt: n.excerpt || n.body?.slice(0, 200) || '',
+              links_count: n.links?.length || 0,
+            })),
+            message: notes.length
+              ? `Found ${notes.length} memory note(s) for plan "${planId}".`
+              : `No memories found for plan "${planId}".`,
+          },
+        };
+      } catch (err: any) {
+        return { name, response: { success: false, error: `Failed to fetch memories: ${err.message}` } };
+      }
+    }
+
     default:
       return { name, response: { error: `Unknown tool: ${name}` } };
   }
@@ -538,32 +689,39 @@ export async function askAgent(
       `\nThese files are staged and will be automatically linked to any plan you create. If the user is asking to build something, call create_plan — the staged files will be used as reference material.`
     : '';
 
+  const activePlanContext = session.activePlanId
+    ? `\n\n## Active Plan\nThe user is currently working on plan: **${session.activePlanId}**. When they say "the plan", "this plan", or "it", they mean this plan.`
+    : '';
+
   const systemPrompt = `You are OS Twin, an autonomous AI assistant that manages software projects through the Ostwin multi-agent war-room orchestrator.
 
 You have TWO capabilities:
 1. **Answer questions** about existing projects, plans, war-rooms, and agent status.
 2. **Take actions** by calling the available tools.
 
-Available tools: create plans, list plans, check status, launch plans, resume failed plans, read war-room logs, check system health, and search for installable skills.
+Available tools: create plans, refine plans, list plans, check status, launch plans, resume failed plans, read war-room logs, check system health, search for skills, view plan assets/artifacts, and view agent memories.
 
 IMPORTANT RULES:
-- When the user asks to BUILD, MAKE, CREATE, or DEVELOP something → call create_plan with their idea.
+- When the user asks to BUILD, MAKE, CREATE, or DEVELOP something NEW → call create_plan with their idea.
+- When the user asks to ADD, CHANGE, UPDATE, MODIFY, or REFINE an existing plan → call refine_plan with the plan_id and instruction.
 - When the user asks about STATUS, PROGRESS, or WHAT'S RUNNING → call list_plans or get_war_room_status.
 - When the user asks to LAUNCH, RUN, START, or EXECUTE a plan → call launch_plan.
 - When the user asks to RESUME, RETRY, or RE-RUN a failed plan → call resume_plan.
 - When the user asks about LOGS, MESSAGES, or what agents are SAYING → call get_logs.
 - When the user asks about HEALTH, SYSTEM STATUS, or if things are RUNNING → call get_health.
 - When the user asks to FIND, SEARCH, or DISCOVER skills → call search_skills.
+- When the user asks about ASSETS, ARTIFACTS, FILES, OUTPUTS, or DELIVERABLES of a plan → call get_plan_assets.
+- When the user asks about MEMORIES, what agents LEARNED, KNOWLEDGE, or NOTES saved → call get_memories.
 - When answering questions, be concise (1-3 paragraphs for chat).
 - Always present tool results in a user-friendly format with relevant details.
-- After creating a plan, mention that the user can now send further instructions to refine it, upload assets, or run /cancel.
 - If the user has attached files and is asking to build something, ALWAYS call create_plan — the files will be incorporated automatically.
+- NEVER treat a status question as a plan refinement instruction. If unsure, ask the user to clarify.
 
 ## Current Plans
 ${plansText}
 
 ## Active War-Rooms
-${roomsText}${referenceContext}${attachmentContext}`;
+${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
 
   try {
     const genAI = new GoogleGenerativeAI(config.GOOGLE_API_KEY);
