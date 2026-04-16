@@ -158,6 +158,19 @@ function getHeaders(contentType: string | null = 'application/json'): Record<str
   return h;
 }
 
+export async function fetchBinary(path: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(`${config.DASHBOARD_URL}${path}`, {
+      headers: getHeaders(null),
+    });
+    if (!res.ok) return null;
+    const arrayBuf = await res.arrayBuffer();
+    return Buffer.from(arrayBuf);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchJSON(path: string, options: RequestInit = {}): Promise<any> {
   try {
     const { headers: customHeaders, ...restOptions } = options;
@@ -544,6 +557,7 @@ const api = {
   postComment,
   getEngagement,
   fetchJSON,
+  fetchBinary,
 };
 
 export default api;

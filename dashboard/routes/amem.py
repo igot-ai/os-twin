@@ -312,6 +312,125 @@ async def get_memory_graph(
     return _build_graph(notes)
 
 
+def _render_graph_png(graph_data: dict) -> bytes:
+    """Render graph data as a PNG image. Runs in a thread (CPU-bound)."""
+    import io
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    from matplotlib.patches import Patch
+
+    G = nx.Graph()
+    node_colors = []
+    node_sizes = []
+    labels = {}
+
+    for node in graph_data["nodes"]:
+        G.add_node(node["id"])
+        node_colors.append(node.get("color", "#8b5cf6"))
+        node_sizes.append(300 + node.get("connections", 0) * 150)
+        title = node.get("title", node["id"])
+        labels[node["id"]] = title[:25] + "..." if len(title) > 28 else title
+
+    for link in graph_data["links"]:
+        if G.has_node(link["source"]) and G.has_node(link["target"]):
+            G.add_edge(link["source"], link["target"])
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8), facecolor="#0f0f0f")
+    ax.set_facecolor("#0f0f0f")
+
+    if len(G.nodes) > 1 and len(G.edges) > 0:
+        pos = nx.spring_layout(G, k=2.5, iterations=60, seed=42)
+    else:
+        pos = nx.spring_layout(G, k=3.0, seed=42)
+
+    nx.draw_networkx_edges(G, pos, ax=ax, edge_color="#444444", width=1.5, alpha=0.6)
+    nx.draw_networkx_nodes(
+        G,
+        pos,
+        ax=ax,
+        node_color=node_colors,
+        node_size=node_sizes,
+        edgecolors="#222222",
+        linewidths=1.5,
+        alpha=0.9,
+    )
+    nx.draw_networkx_labels(
+        G,
+        pos,
+        labels=labels,
+        ax=ax,
+        font_size=8,
+        font_color="white",
+        font_weight="bold",
+    )
+
+    legend_handles = []
+    for group in graph_data["groups"]:
+        legend_handles.append(
+            Patch(facecolor=group["color"], label=group["label"], alpha=0.9)
+        )
+    if legend_handles:
+        legend = ax.legend(
+            handles=legend_handles,
+            loc="upper left",
+            fontsize=8,
+            facecolor="#1a1a1a",
+            edgecolor="#333333",
+            labelcolor="white",
+        )
+        legend.get_frame().set_alpha(0.8)
+
+    stats = graph_data["stats"]
+    ax.set_title(
+        f"Memory Graph \u2014 {stats['total_memories']} notes, {stats['total_links']} links",
+        color="white",
+        fontsize=14,
+        fontweight="bold",
+        pad=15,
+    )
+    ax.axis("off")
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="#0f0f0f")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+@router.get(
+    "/api/amem/{plan_id}/graph-image",
+    responses={404: {"description": "Not found"}},
+)
+async def get_memory_graph_image(
+    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
+):
+    """Render the memory graph as a PNG image."""
+    import asyncio
+    import io
+    from fastapi.responses import StreamingResponse
+
+    mem_dir = _resolve_memory_dir(plan_id)
+    notes_dir = mem_dir / "notes"
+    notes = _load_notes(notes_dir)
+    graph_data = _build_graph(notes)
+
+    if not graph_data["nodes"]:
+        raise HTTPException(status_code=404, detail="No memories to graph")
+
+    loop = asyncio.get_event_loop()
+    try:
+        png_bytes = await loop.run_in_executor(None, _render_graph_png, graph_data)
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(io.BytesIO(png_bytes), media_type="image/png")
+
+
 @router.get("/api/amem/{plan_id}/notes", responses={404: {"description": "Not found"}})
 async def list_memory_notes(
     plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None

@@ -284,13 +284,22 @@ export class DiscordConnector implements Connector {
             : undefined;
 
           try {
-            const answer = await askAgent(agentQuestion, { 
+            const result = await askAgent(agentQuestion, { 
               userId, 
               platform: 'discord',
               referencedMessageContent,
               attachments: attachmentMeta,
             });
-            await message.reply(answer);
+
+            // Build reply with optional file attachments (e.g. memory graph)
+            const replyOptions: any = { content: result.text };
+            if (result.attachments?.length) {
+              const { AttachmentBuilder } = await import('discord.js');
+              replyOptions.files = result.attachments.map(
+                (a) => new AttachmentBuilder(a.buffer, { name: a.name })
+              );
+            }
+            await message.reply(replyOptions);
           } catch (err: any) {
             console.error('❌ [AGENT] Bridge error:', err);
             await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});

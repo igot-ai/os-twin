@@ -601,15 +601,25 @@ async function executeTool(
     case 'get_memories': {
       const planId = (args as any).plan_id;
       try {
-        const notesRes = await api.fetchJSON(`/api/amem/${planId}/notes`);
-        const statsRes = await api.fetchJSON(`/api/amem/${planId}/stats`);
+        const [notesRes, statsRes, graphImage] = await Promise.all([
+          api.fetchJSON(`/api/amem/${planId}/notes`),
+          api.fetchJSON(`/api/amem/${planId}/stats`),
+          api.fetchBinary(`/api/amem/${planId}/graph-image`),
+        ]);
         const notes = Array.isArray(notesRes) ? notesRes : [];
+
+        // Attach graph image if available
+        if (graphImage) {
+          _pendingAttachments.push({ buffer: graphImage, name: 'memory-graph.png' });
+        }
+
         return {
           name,
           response: {
             success: true,
             plan_id: planId,
             total_notes: notes.length,
+            has_graph_image: !!graphImage,
             stats: {
               total_tags: statsRes?.total_tags || 0,
               total_keywords: statsRes?.total_keywords || 0,
@@ -624,7 +634,7 @@ async function executeTool(
               links_count: n.links?.length || 0,
             })),
             message: notes.length
-              ? `Found ${notes.length} memory note(s) for plan "${planId}".`
+              ? `Found ${notes.length} memory note(s) for plan "${planId}". A graph visualization is attached.`
               : `No memories found for plan "${planId}".`,
           },
         };
@@ -640,12 +650,21 @@ async function executeTool(
 
 // ── Main agent entry point ────────────────────────────────────────────────
 
+export interface AgentResponse {
+  text: string;
+  attachments?: Array<{ buffer: Buffer; name: string }>;
+}
+
+/** Collects image attachments during tool execution within a single askAgent call. */
+let _pendingAttachments: Array<{ buffer: Buffer; name: string }> = [];
+
 export async function askAgent(
   question: string,
   ctx?: AgentContext,
-): Promise<string> {
+): Promise<AgentResponse> {
+  _pendingAttachments = [];
   if (!config.GOOGLE_API_KEY) {
-    return '❌ `GOOGLE_API_KEY` is not set in the bot environment.';
+    return { text: '❌ `GOOGLE_API_KEY` is not set in the bot environment.' };
   }
 
   // Default context for backward compat
@@ -761,7 +780,7 @@ ${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
     }
 
     const answer = response.text?.();
-    if (!answer) return '⚠️ AI returned an empty response.';
+    if (!answer) return { text: '⚠️ AI returned an empty response.' };
 
     // Persist conversation turn (full answer, not truncated)
     session.chatHistory.push({ role: 'user', content: question });
@@ -771,11 +790,16 @@ ${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
     }
     persistAfterMessage();
 
-    return answer.length > 1900
+    const text = answer.length > 1900
       ? answer.slice(0, 1900) + '\n\n*…(truncated)*'
       : answer;
+
+    return {
+      text,
+      attachments: _pendingAttachments.length > 0 ? [..._pendingAttachments] : undefined,
+    };
   } catch (err: any) {
     console.error('[BRIDGE] AI API error:', err.message);
-    return '⚠️ Failed to get a response from the AI model.';
+    return { text: '⚠️ Failed to get a response from the AI model.' };
   }
 }
