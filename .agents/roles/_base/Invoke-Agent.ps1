@@ -408,10 +408,14 @@ $argsLine = ($extraCliArgs | ForEach-Object {
 
 for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
     $exitCode = 0
+    $wrapperScript = $null  # Initialize before try block
     try {
         # Detect if running on Windows
-        $isWindows = $PSVersionTable.PSVersion.Major -ge 6 -and $IsWindows
+        # NOTE: Cannot use $isWindows because PowerShell is case-insensitive and
+        # $IsWindows is a read-only automatic variable. Using $runningOnWindows instead.
+        $runningOnWindows = $PSVersionTable.PSVersion.Major -ge 6 -and $IsWindows
         $isUnix = $IsLinux -or $IsMacOS
+        Write-Host "[Invoke-Agent] OS detection: runningOnWindows=$runningOnWindows, isUnix=$isUnix, PSVersion=$($PSVersionTable.PSVersion)"
 
         # Build paths with proper escaping for the target platform
         $safeOutput = $outputFile -replace "'", "'\''"
@@ -443,8 +447,10 @@ export OSTWIN_PYTHON='$venvPythonUnix'
         
         # Log diagnostic info before exec
         Write-Host "[Invoke-Agent] Launching: CMD=$AgentCmd, PromptFile=$promptFile, ArgsLine=$argsLine"
+        Write-Host "[Invoke-Agent] About to enter if (runningOnWindows=$runningOnWindows) branch..."
         
-        if ($isWindows) {
+        if ($runningOnWindows) {
+            Write-Host "[Invoke-Agent] Taking Windows branch..."
             # Windows: Use PowerShell wrapper instead of bash
             $winPidFile = $pidFile.Replace('/', '\')
             $winOutput = $outputFile.Replace('/', '\')
@@ -454,6 +460,23 @@ export OSTWIN_PYTHON='$venvPythonUnix'
             $winProjectDir = if ($ProjectDir) { $ProjectDir.Replace('/', '\') } else { "" }
             $winOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig.Replace('/', '\') } else { "" }
             
+            # Tokenize AgentCmd and args for PowerShell execution
+            # $AgentCmd may be "opencode run" or "'/path/to/agent'" - must split on spaces
+            # $extraCliArgs is already a proper array, use it directly instead of bash-escaped $argsLine
+            $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+            $exe = $cmdParts[0]
+            $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length-1)] } else { @() }
+            $allArgs = $cmdArgs + $extraCliArgs
+            
+            # Serialize args array into the wrapper script as a PowerShell array literal
+            # Each arg must be properly escaped for PowerShell string handling
+            $escapedArgs = $allArgs | ForEach-Object {
+                $arg = $_
+                # Escape single quotes by doubling them, then wrap in single quotes
+                "'" + ($arg -replace "'", "''") + "'"
+            }
+            $argsArrayLiteral = "@(" + ($escapedArgs -join ',') + ")"
+
             $psWrapperScript = Join-Path $artifactsDir "run-agent.ps1"
             $psScriptContent = @"
 `$env:AGENT_OS_ROOM_DIR = '$safeRoomDir'
@@ -475,10 +498,11 @@ if (Test-Path `$envSh) { . `$envSh }
 `$PID | Out-File -FilePath '$winPidFile' -Encoding ascii -NoNewline
 
 # Log diagnostics
-"[$wrapper] PID=`$PID, CMD=$AgentCmd" | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+`$cmdArgs = $argsArrayLiteral
+"[$wrapper] PID=`$PID, CMD=$exe, ARGS=`$(`$cmdArgs -join ' ')" | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
 
-# Execute
-$AgentCmd $argsLine 2>&1 | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+# Execute using call operator with array
+& '$exe' @cmdArgs 2>&1 | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
 "@
             $psScriptContent | Out-File -FilePath $psWrapperScript -Encoding utf8 -Force
             
@@ -496,10 +520,13 @@ $AgentCmd $argsLine 2>&1 | Out-File -FilePath '$winOutput' -Encoding utf8 -Appen
             $proc.StandardInput.Close()
             
             $wrapperScript = $psWrapperScript
+            Write-Host "[Invoke-Agent] Windows branch: wrapperScript=$wrapperScript"
         }
         else {
+            Write-Host "[Invoke-Agent] Taking Unix/Mac branch..."
             # Unix: Use bash wrapper (existing logic)
             $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+            Write-Host "[Invoke-Agent] Unix branch: wrapperScript=$wrapperScript"
             $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
@@ -545,6 +572,7 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
             $proc.StandardInput.Close()  # equivalent to /dev/null stdin
         }
 
+        Write-Host "[Invoke-Agent] After if/else: wrapperScript='$wrapperScript'" -ForegroundColor Cyan
         Write-Warning "[Invoke-Agent] bash launched as PID $($proc.Id), HasExited=$($proc.HasExited), wrapper=$wrapperScript"
 
         # --- Wait for agent to self-register its PID (max 15s) ---
@@ -614,7 +642,16 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
     }
     catch {
         $exitCode = 1
-        $_.Exception.Message | Out-File -FilePath $outputFile -Encoding utf8
+        $errorMsg = $_.Exception.Message
+        $errorType = $_.Exception.GetType().FullName
+        $stackTrace = $_.ScriptStackTrace
+        Write-Host "[Invoke-Agent] ERROR in try block (attempt $processAttempt): $errorType" -ForegroundColor Red
+        Write-Host "[Invoke-Agent] Message: $errorMsg" -ForegroundColor Red
+        Write-Host "[Invoke-Agent] StackTrace:`n$stackTrace" -ForegroundColor Red
+        Write-Host "[Invoke-Agent] wrapperScript at catch: '$wrapperScript'" -ForegroundColor Yellow
+        Write-Host "[Invoke-Agent] runningOnWindows: $runningOnWindows" -ForegroundColor Yellow
+        Write-Host "[Invoke-Agent] artifactsDir: $artifactsDir" -ForegroundColor Yellow
+        "$errorType : $errorMsg`nStackTrace:`n$stackTrace" | Out-File -FilePath $outputFile -Encoding utf8
     }
 
     # --- Retry on transient remote errors (ClosedResourceError, RemoteException) ---
