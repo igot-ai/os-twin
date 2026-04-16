@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import FileTree from './files/FileTree';
 import FileViewer from './files/FileViewer';
 import GitChangePanel from './files/GitChangePanel';

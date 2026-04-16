@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 import dashboard.api_utils as api_utils
 
 

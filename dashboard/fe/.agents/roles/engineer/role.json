@@ -1,6 +1,6 @@
 {
   "prompt_file": "ROLE.md",
-  "model": "google-vertex/gemini-3-flash-preview",
+  "model": "google-vertex/zai-org/glm-5-maas",
   "skills": [
     "global",
     "roles"

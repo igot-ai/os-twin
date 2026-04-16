@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { extractPlan } from '@/lib/extract-plan';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -24,18 +25,6 @@ const QUICK_PROMPTS = [
   'Add more detail',
   'Simplify the plan',
 ];
-
-function extractPlan(content: string): string {
-  const codeBlockMatch = content.match(/```(?:markdown)?\n([\s\S]*)```/);
-  if (codeBlockMatch) return codeBlockMatch[1].trim();
-
-  if (content.trim().startsWith('# Plan:')) return content.trim();
-
-  const planMatch = content.match(/(# Plan:[\s\S]*)/);
-  if (planMatch) return planMatch[1].trim();
-
-  return content;
-}
 
 function ThinkingDots() {
   return (

@@ -22,7 +22,7 @@ export function BytedanceProviderCard({
   onVaultClick,
   onTest,
   vaultSet,
-  modelRegistry = [],
+  modelRegistry: _modelRegistry = [],
 }: BytedanceProviderCardProps) {
   const safeProvider = provider ?? { enabled: false, default_model: null };
   const isEnabled = safeProvider.enabled ?? false;

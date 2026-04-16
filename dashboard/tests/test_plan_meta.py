@@ -20,11 +20,9 @@ _env = pathlib_Path.home() / ".ostwin" / ".env"
 if _env.is_file():
     load_dotenv(_env, override=True)
 import time
-from pathlib import Path
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
 
-import sys
 sys.path.insert(0, str(pathlib_Path(__file__).resolve().parent.parent.parent))
 from dashboard.api_utils import PLANS_DIR
 

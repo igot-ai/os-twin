@@ -26,7 +26,13 @@ start_dashboard() {
   if [[ -n "$local_pids" ]]; then
     step "Stopping existing process on :$DASHBOARD_PORT..."
     echo "$local_pids" | xargs kill 2>/dev/null || true
-    sleep 1
+    sleep 2
+    # Force-kill if still alive (ML models can delay graceful shutdown)
+    local_pids=$(lsof -ti:"$DASHBOARD_PORT" 2>/dev/null || true)
+    if [[ -n "$local_pids" ]]; then
+      echo "$local_pids" | xargs kill -9 2>/dev/null || true
+      sleep 1
+    fi
   fi
 
   # Source .env so the dashboard process inherits API keys

@@ -7,7 +7,7 @@ import subprocess
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, AsyncIterator, Optional, Any, Dict
+from typing import List, Optional, Any, Dict
 
 from dashboard.models import Skill
 
@@ -904,8 +904,6 @@ def add_comment(
     entity_id: str, user_id: str, body: str, parent_id: Optional[str] = None
 ):
     """Stub: Add a comment."""
-    from dashboard.models import CommentRequest  # Avoid circular
-
     ts = datetime.now(timezone.utc).isoformat()
     comment = {"id": "stub-1", "user_id": user_id, "body": body, "ts": ts}
 

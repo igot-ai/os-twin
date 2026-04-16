@@ -1,7 +1,6 @@
 import WebSocket from 'ws';
 import { ConnectorRegistry } from './connectors/registry';
-import { Platform, ConnectorConfig } from './connectors/base';
-import { BotResponse } from './commands';
+
 
 export type NotificationEvent = 
   | 'plan_started' 

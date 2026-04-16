@@ -2,7 +2,6 @@ import pytest
 from fastapi.testclient import TestClient
 import os
 import json
-import uuid
 from pathlib import Path
 
 # Set up environment for testing

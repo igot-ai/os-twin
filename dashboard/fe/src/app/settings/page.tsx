@@ -39,7 +39,7 @@ export default function SettingsPage() {
   const [modelRegistry, setModelRegistry] = useState<Record<string, ModelInfo[]>>({});
 
   const { settings, isLoading, isError, updateNamespace, testProvider, updateVault } = useSettings();
-  const { configured, providers: configuredProviders, allModels, registry: dynamicRegistry, reload: reloadModels } = useConfiguredModels();
+  const { configured, providers: configuredProviders, allModels, reload: reloadModels } = useConfiguredModels();
 
   // Fetch model registry (backward compat + dynamic)
   useEffect(() => {
@@ -139,26 +139,7 @@ export default function SettingsPage() {
     return key ? (modelRegistry[key] || []) : [];
   };
 
-  // Get models for a specific provider from dynamic catalog
-  const getModelsForProvider = (providerId: string): ModelInfo[] => {
-    const provider = configuredProviders[providerId];
-    if (!provider) return [];
-    return Object.entries(provider.models).map(([modelId, model]) => ({
-      id: modelId,
-      label: model.name,
-      context_window: model.limit?.context
-        ? formatCtx(model.limit.context)
-        : '',
-      tier: classifyTier(model),
-      provider_id: providerId,
-      family: model.family,
-      cost: model.cost,
-      logo_url: provider.logo_url,
-      reasoning: model.reasoning,
-      tool_call: model.tool_call,
-      attachment: model.attachment,
-    }));
-  };
+
 
   // Flat model IDs for backward-compat consumers (RolesPanel)
   const allModelIds = allModels.length > 0

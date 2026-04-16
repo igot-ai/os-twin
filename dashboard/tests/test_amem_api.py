@@ -5,9 +5,7 @@ note listings, individual notes, and statistics from the .memory/ directory.
 """
 
 import json
-import os
 import pytest
-from pathlib import Path
 from fastapi.testclient import TestClient
 
 from dashboard.api import app

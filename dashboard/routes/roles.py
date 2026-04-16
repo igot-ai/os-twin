@@ -552,7 +552,7 @@ async def get_role_dependencies(role_id: str, user: dict = Depends(get_current_u
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     
-    from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR
+    from dashboard.api_utils import WARROOMS_DIR
     active_warrooms = []
     inactive_warrooms = []
     plans = []

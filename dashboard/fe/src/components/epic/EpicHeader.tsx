@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Plan, Epic, EpicStatus } from '@/types';
 import AdvanceStateDialog from './AdvanceStateDialog';

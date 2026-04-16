@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Epic, Role, Skill } from '@/types';
+import { useState } from 'react';
+import { Epic } from '@/types';
 import { useEpicRoles } from '@/hooks/use-epics';
 import { useSkills } from '@/hooks/use-skills';
 import Modal from '@/components/ui/Modal';

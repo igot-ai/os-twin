@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { AgentResponse } from './AgentResponse';
 import { vi, describe, it, expect } from 'vitest';

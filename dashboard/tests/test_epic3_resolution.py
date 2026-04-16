@@ -6,8 +6,7 @@ resolver consolidation (settings_manager.py -> lib/settings/).
 
 import json
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 
 from dashboard.epic_manager import EpicSkillsManager
 
@@ -27,7 +26,9 @@ def mock_project(tmp_path):
     warrooms = tmp_path / ".war-rooms"
     warrooms.mkdir()
 
-    # Plan-level config
+    plans_dir = tmp_path / "plans"
+    plans_dir.mkdir()
+
     plan_dir = warrooms / "plan-001"
     plan_dir.mkdir()
     (plan_dir / "config.json").write_text(json.dumps({
@@ -41,7 +42,8 @@ def mock_project(tmp_path):
         "attached_skills": ["attached-skill"],
     }))
 
-    # Room-level config
+    (plans_dir / "plan-001.md").write_text("# Plan 001\n\nTest plan content.")
+
     room_dir = plan_dir / "EPIC-003"
     room_dir.mkdir()
     (room_dir / "config.json").write_text(json.dumps({
@@ -55,14 +57,12 @@ def mock_project(tmp_path):
     }))
     (room_dir / "brief.md").write_text("This is a test epic brief.")
 
-    # Role instructions
     roles_dir = agents_dir / "roles" / "engineer"
     roles_dir.mkdir(parents=True)
     (roles_dir / "ROLE.md").write_text(
         "---\nname: engineer\n---\n# Responsibilities\nDo engineering things."
     )
 
-    # Skills
     skills_dir = tmp_path / "skills" / "room-skill"
     skills_dir.mkdir(parents=True)
     (skills_dir / "SKILL.md").write_text(
@@ -92,6 +92,8 @@ def resolver_patches(mock_project):
         AGENTS_DIR=mock_project / ".agents",
         PROJECT_ROOT=mock_project,
         WARROOMS_DIR=mock_project / ".war-rooms",
+        PLANS_DIR=mock_project / "plans",
+        GLOBAL_PLANS_DIR=mock_project / "plans",
     )
     return patches, _fake_resolver, mock_vault
 
@@ -124,6 +126,8 @@ def test_generate_system_prompt(mock_project, resolver_patches):
          patch("dashboard.epic_manager._resolve_room_dir", return_value=room_dir), \
          patch("dashboard.epic_manager.AGENTS_DIR", mock_project / ".agents"), \
          patch("dashboard.epic_manager.SKILLS_DIRS", [mock_project / "skills"]), \
+         patch("dashboard.routes.plans.PLANS_DIR", mock_project / "plans"), \
+         patch("dashboard.routes.plans.GLOBAL_PLANS_DIR", mock_project / "plans"), \
          patch("dashboard.constants.ROLE_DEFAULTS", {}), \
          patch("dashboard.api_utils.build_skills_list", return_value=[]):
 

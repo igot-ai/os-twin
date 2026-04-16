@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { useStats } from '@/hooks/use-stats';
 import MetricCard from './MetricCard';
 

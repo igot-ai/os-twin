@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { usePlan } from '@/hooks/use-plans';
 import { useEpics, useDAG } from '@/hooks/use-epics';
@@ -14,7 +14,7 @@ import { parseEpicMarkdown, serializeEpicMarkdown, EpicDocument } from '@/lib/ep
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
 import ContextPanel from './ContextPanel';
-import AIChatPanel from './AIChatPanel';
+
 import PlanBreadcrumb from './PlanBreadcrumb';
 import ProgressFooter from './ProgressFooter';
 
@@ -36,9 +36,11 @@ interface PlanContextType {
   planContent: string;
   setPlanContent: (content: string) => void;
   savePlan: () => Promise<void>;
+  launchPlan: () => Promise<void>;
   reloadFromDisk: () => Promise<void>;
   syncStatus: { in_sync: boolean; disk_mtime: number; zvec_mtime: number } | undefined;
   isSaving: boolean;
+  isLaunching: boolean;
   isAIChatOpen: boolean;
   setIsAIChatOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   isRefining: boolean;
@@ -92,6 +94,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const [planContent, setPlanContent] = useState('');
   const [parsedPlan, setParsedPlan] = useState<EpicDocument | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   // Undo/Redo Stack
@@ -208,13 +211,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const addToast = useNotificationStore((state) => state.addToast);
 
   const {
-    chatHistory,
     isRefining,
-    streamedResponse,
-    error: aiError,
-    refine,
-    cancelRefine,
-    clearHistory,
   } = usePlanRefine();
 
   useEffect(() => {
@@ -245,11 +242,32 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     }
   }, [planId, planContent, addToast]);
 
+  const launchPlan = useCallback(async () => {
+    setIsLaunching(true);
+    try {
+      await apiPost('/run', { plan: planContent, plan_id: planId });
+      addToast({
+        type: 'success',
+        title: 'Plan Launched',
+        message: 'Your plan has been launched successfully.',
+        autoDismiss: true,
+      });
+    } catch (err: unknown) {
+      addToast({
+        type: 'error',
+        title: 'Launch Failed',
+        message: err instanceof Error ? err.message : 'There was an error launching your plan. Please try again.',
+        autoDismiss: false,
+      });
+    } finally {
+      setIsLaunching(false);
+    }
+  }, [planId, planContent, addToast]);
+
   const handleApplyAI = useCallback((newContent: string) => {
     setPlanContent(newContent);
     setActiveTab('editor');
   }, []);
-
   // Synthesize epics from progress + DAG when the /epics API returns empty
   const epics = useMemo(() => {
     const result: Epic[] = [];
@@ -327,9 +345,11 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     planContent,
     setPlanContent,
     savePlan,
+    launchPlan,
     reloadFromDisk,
     syncStatus,
     isSaving,
+    isLaunching,
     isAIChatOpen,
     setIsAIChatOpen,
     isRefining,

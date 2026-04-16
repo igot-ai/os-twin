@@ -22,13 +22,10 @@ from dashboard.lib.settings.models_dev_loader import (
     _read_configured_providers,
     _read_google_deployment_mode,
     _build_configured_models,
-    _read_opencode_custom_providers,
     _COMPANION_PROVIDERS,
     get_model_registry_from_configured,
-    get_available_providers,
     get_provider_logo_url,
     invalidate_cache,
-    get_configured_models,
     _format_context_window,
     _classify_tier,
 )

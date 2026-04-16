@@ -6,7 +6,6 @@ Delegates to mcp-extension.sh for actual operations.
 """
 
 import json
-import subprocess
 import asyncio
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
@@ -17,7 +16,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
 
-from dashboard.api_utils import AGENTS_DIR, PROJECT_ROOT
+from dashboard.api_utils import AGENTS_DIR
 from dashboard.auth import get_current_user
 
 # Try to import vault and config_resolver from .agents/mcp

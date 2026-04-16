@@ -4,7 +4,6 @@ import unittest
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from types import SimpleNamespace
 
 # Add project root to sys.path
 sys.path.insert(0, "/Users/paulaan/PycharmProjects/agent-os")

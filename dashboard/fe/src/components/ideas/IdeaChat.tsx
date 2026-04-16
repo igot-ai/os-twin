@@ -12,7 +12,7 @@ interface IdeaChatProps {
   threadId: string;
 }
 
-export function IdeaChat({ threadId: propId }: IdeaChatProps) {
+export function IdeaChat({ threadId: _propId }: IdeaChatProps) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useParams();

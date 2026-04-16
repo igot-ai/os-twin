@@ -46,6 +46,7 @@ interface LogEntry {
   username: string;
   content: string;
   timestamp: string;
+  referencedMessageId?: string;
 }
 
 const DISCORD_MSG_LIMIT = 2000;
@@ -175,6 +176,7 @@ export class DiscordConnector implements Connector {
         username: message.author.username,
         content: message.content,
         timestamp: message.createdAt.toISOString(),
+        referencedMessageId: message.reference?.messageId,
       };
 
       const logFile = path.join(LOGS_DIR, `${entry.channelName}-${entry.channelId}.jsonl`);
@@ -217,10 +219,12 @@ export class DiscordConnector implements Connector {
         } else {
           // No plan yet → download from CDN and stage in session buffer
           const epicRef = detectEpicRef(message.content) || session.activeEpicRef;
+          console.log(`[DISCORD] Staging ${attachments.length} attachment(s) for user ${userId}`);
           const stageResult = await stageAttachments(userId, 'discord',
             attachments.map(a => ({ url: a.url, name: a.name || 'attachment', contentType: a.contentType })),
             epicRef,
           );
+          console.log(`[DISCORD] Stage result:`, { staged: stageResult.staged, failed: stageResult.failed, rejected: stageResult.rejected });
 
           if (stageResult.rejected) {
             await this.sendToChannel(message.channel as TextChannel, [{
@@ -258,12 +262,40 @@ export class DiscordConnector implements Connector {
         }
 
         // Otherwise: AI agent with tool-calling (can create plans, check status, etc.)
-        if (question) {
+        // Trigger if there's text OR attachments (attachment-only = user wants assets processed)
+        if (question || hasAttachments) {
           (message.channel as TextChannel).sendTyping().catch(() => {});
-          console.log(`🤖 [AGENT] ${entry.username} asked: ${question}`);
+
+          // Build the prompt — if no text but files attached, describe what was sent
+          const agentQuestion = question
+            || `I've attached ${attachments.length} file(s): ${attachments.map(a => a.name || 'file').join(', ')}. Please use them to create a plan.`;
+
+          console.log(`🤖 [AGENT] ${entry.username} asked: ${agentQuestion}`);
+
+          // Fetch referenced message content if this is a reply
+          let referencedMessageContent: string | undefined;
+          if (message.reference?.messageId) {
+            try {
+              const referencedMsg = await (message.channel as TextChannel).messages.fetch(message.reference.messageId);
+              referencedMessageContent = referencedMsg.content;
+              console.log(`[DISCORD] Reply context: "${referencedMessageContent?.slice(0, 100)}..."`);
+            } catch (err) {
+              console.warn(`[DISCORD] Failed to fetch referenced message: ${err}`);
+            }
+          }
+
+          // Build attachment metadata so the agent knows files are staged
+          const attachmentMeta = hasAttachments
+            ? attachments.map(a => ({ name: a.name || 'attachment', contentType: a.contentType, sizeBytes: a.size }))
+            : undefined;
 
           try {
-            const answer = await askAgent(question, { userId, platform: 'discord' });
+            const answer = await askAgent(agentQuestion, { 
+              userId, 
+              platform: 'discord',
+              referencedMessageContent,
+              attachments: attachmentMeta,
+            });
             await message.reply(answer);
           } catch (err: any) {
             console.error('❌ [AGENT] Bridge error:', err);

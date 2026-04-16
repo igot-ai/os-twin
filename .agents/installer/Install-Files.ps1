@@ -400,3 +400,36 @@ function Compute-BuildHash {
         Write-Warn "Failed to compute build hash: $_"
     }
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sync-Bot — copies the bot/ directory from source to install, excluding
+# node_modules. No-op if bot/ does not exist in source.
+# ──────────────────────────────────────────────────────────────────────────────
+function Sync-Bot {
+    [CmdletBinding()]
+    param()
+
+    $botSrc = Join-Path $script:SourceDir "bot"
+    if (-not (Test-Path $botSrc)) { return }
+    if (-not (Test-Path (Join-Path $botSrc "package.json"))) { return }
+
+    $botDst = Join-Path $script:InstallDir "bot"
+    if (Test-Path $botDst) { Remove-Item $botDst -Recurse -Force }
+
+    # Copy everything except node_modules
+    $items = Get-ChildItem -Path $botSrc -Recurse |
+        Where-Object { $_.FullName -notmatch '[/\\]node_modules[/\\]?' }
+    foreach ($item in $items) {
+        $relativePath = $item.FullName.Substring($botSrc.Length)
+        $destPath = Join-Path $botDst $relativePath
+        if ($item.PSIsContainer) {
+            New-Item -ItemType Directory -Path $destPath -Force | Out-Null
+        } else {
+            $destDir = Split-Path $destPath
+            if (-not (Test-Path $destDir)) {
+                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            }
+            Copy-Item -Path $item.FullName -Destination $destPath -Force
+        }
+    }
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { usePlanChanges } from '@/hooks/use-plan-changes';
 import { usePlanVersions } from '@/hooks/use-plan-versions';
 import { Button } from '@/components/ui/Button';
@@ -31,7 +31,7 @@ export default function PlanHistoryTab({ planId }: PlanHistoryTabProps) {
     selectedChange,
     diff,
     isLoading,
-    error,
+    error: _error,
     loadChanges,
     selectChange,
   } = usePlanChanges(planId);

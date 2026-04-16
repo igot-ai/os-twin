@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { useBrief } from '@/hooks/use-war-room';
 
 interface BriefPanelProps {

@@ -5,7 +5,7 @@
  * (wrapped objects like {plans: [...], count: N}) to frontend expectations (plain arrays).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Plan, Epic } from '@/types';
+import { Plan } from '@/types';
 
 // We test the logic of the unwrapping by importing the fetcher and mocking fetch.
 // The `fetcher` calls `apiGet` which calls `request` which does the unwrapping.

@@ -1,11 +1,9 @@
 """Unit tests for Skill Enable/Disable feature (EPIC-002) and related fixes."""
 import os
-import json
 import tempfile
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
-from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 TEST_API_KEY = "test_key_toggle"
 os.environ["OSTWIN_API_KEY"] = TEST_API_KEY

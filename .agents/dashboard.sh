@@ -71,7 +71,7 @@ FE_OUT="$FE_DIR/out"
 if [[ -d "$FE_DIR" && -f "$FE_DIR/package.json" ]]; then
   if [[ ! -d "$FE_OUT" ]] || [[ -n "$(find "$FE_DIR/src" -newer "$FE_OUT" -print -quit 2>/dev/null)" ]]; then
     echo "[DASHBOARD] Building frontend..."
-    (cd "$FE_DIR" && npm install --silent 2>/dev/null && npm run build 2>&1) || {
+    (cd "$FE_DIR" && pnpm install --silent 2>/dev/null && pnpm run build 2>&1) || {
       echo "[WARN] Frontend build failed — serving with stale assets" >&2
     }
   fi

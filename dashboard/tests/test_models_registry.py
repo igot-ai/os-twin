@@ -10,15 +10,12 @@ Covers:
 - AUTH_JSON_PROVIDERS structure
 """
 
-import pytest
-
 from dashboard.lib.settings.models_registry import (
     ModelEntry,
     ProviderAuthType,
     get_full_catalog,
     get_model_registry,
     _get_static_registry,
-    _FALLBACK_CATALOG,
     build_opencode_models,
     OPENCODE_PROVIDERS,
     AUTH_JSON_PROVIDERS,

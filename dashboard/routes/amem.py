@@ -4,11 +4,10 @@ Reads .memory/ directory from the plan's working_dir to serve
 graph snapshots, memory notes, and search results to the frontend.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pathlib import Path
 from typing import Annotated, Optional
 import json
-import os
 import re
 import sys
 
@@ -20,7 +19,9 @@ from dashboard.auth import get_current_user
 # (not `memory_system`) to avoid pulling in the heavy retriever stack
 # (sentence_transformers, chromadb, nltk, litellm) at dashboard startup.
 _AMEM_PATH_CANDIDATES = [
+    Path.home() / ".ostwin" / ".agents" / "memory",
     Path.home() / ".ostwin" / "A-mem-sys",
+    Path(__file__).resolve().parent.parent.parent / ".agents" / "memory",
     Path(__file__).resolve().parent.parent.parent / "A-mem-sys",
 ]
 for _p in _AMEM_PATH_CANDIDATES:
@@ -74,7 +75,7 @@ def _parse_legacy_metadata(text: str) -> tuple[list[str], list[str], list[str]]:
         ]:
             if stripped.startswith(label):
                 value = stripped[len(label) :].strip()
-                items = [v.strip() for v in value.split(",") if v.strip()]
+                items = [v.strip().lstrip("#") for v in value.split(",") if v.strip()]
                 target.extend(items)
     return tags, keywords, links
 
@@ -88,12 +89,13 @@ def _stub_note_dict(
 ) -> dict:
     """Build a minimal note dict when frontmatter parsing is unavailable."""
     tags, keywords, links = _parse_legacy_metadata(raw)
+    title = _resolve_title(None, body, md_file)
     return {
         "id": md_file.stem,
         "filename": md_file.name,
         "path": rel_path,
         "relativePath": rel_file,
-        "title": md_file.stem.replace("-", " ").title(),
+        "title": title,
         "body": body,
         "content": raw,
         "excerpt": body[:280],

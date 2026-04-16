@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { Modal } from './Modal';
 import { useUIStore } from '@/lib/stores/uiStore';
 

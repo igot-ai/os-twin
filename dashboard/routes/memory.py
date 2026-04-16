@@ -3,7 +3,6 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 import json
-import sys
 import os
 import importlib.util
 

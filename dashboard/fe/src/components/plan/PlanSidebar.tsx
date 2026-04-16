@@ -1,11 +1,11 @@
 'use client';
 
-import React from 'react';
+
 import { usePlanContext } from './PlanWorkspace';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export default function PlanSidebar() {
-  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, isSaving } = usePlanContext();
+  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, isSaving, launchPlan, isLaunching } = usePlanContext();
 
   const tabs = [
     { id: 'editor', label: 'Planner', icon: 'edit_document' },
@@ -97,6 +97,16 @@ export default function PlanSidebar() {
 
       {/* Action Buttons */}
       <div className="p-3 border-t border-border space-y-1.5">
+        <button
+          onClick={() => launchPlan()}
+          disabled={isLaunching}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-all disabled:opacity-50"
+        >
+          <span className="material-symbols-outlined text-[18px]">
+            {isLaunching ? 'progress_activity' : 'rocket_launch'}
+          </span>
+          {isLaunching ? 'Launching...' : 'Launch Plan'}
+        </button>
         <button
           onClick={() => savePlan()}
           disabled={isSaving}

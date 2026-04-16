@@ -23,7 +23,7 @@ app.dependency_overrides[get_current_user] = mock_get_current_user
 
 @pytest.fixture
 def mock_room_data(tmp_path):
-    plan_id = "test-plan"
+    _plan_id = "test-plan"
     task_ref = "EPIC-003"
     room_dir = tmp_path / ".war-rooms" / "room-003"
     room_dir.mkdir(parents=True)

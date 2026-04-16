@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 import KanbanColumn from './KanbanColumn';
 import EpicCard from './EpicCard';

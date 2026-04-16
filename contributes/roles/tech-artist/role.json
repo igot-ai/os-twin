@@ -17,7 +17,7 @@
     "60fps-maintained"
   ],
   "cli": "agent",
-  "model": "google-vertex/gemini-3.1-pro-preview",
+  "model": "google-vertex/gemini-3-flash-preview",
   "timeout": 600,
   "skill_refs": [
     "unity-dev-principles"

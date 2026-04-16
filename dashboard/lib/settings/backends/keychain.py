@@ -11,7 +11,7 @@ import logging
 import subprocess
 from typing import List, Optional
 
-from .base import VaultBackend, VaultBackendType, VaultHealthStatus
+from .base import VaultBackendType, VaultHealthStatus
 
 logger = logging.getLogger(__name__)
 

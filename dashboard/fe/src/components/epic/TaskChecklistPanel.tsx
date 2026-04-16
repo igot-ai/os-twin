@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Task } from '@/types';
 import { useEpic } from '@/hooks/use-epics';
 import {

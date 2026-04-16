@@ -41,9 +41,7 @@ if _dashboard_dir not in sys.path:
 
 from dashboard.api_utils import (
     PROJECT_ROOT,
-    AGENTS_DIR,
     WARROOMS_DIR,
-    DEMO_DIR,
     USE_FE,
     FE_OUT_DIR,
 )
@@ -67,7 +65,6 @@ from dashboard.routes import (
     files,
     settings,
 )
-from dashboard.global_state import broadcaster
 
 # Configure logging — file + console
 # All dashboard logs are written to ~/.ostwin/dashboard/debug.log (DEBUG level)
@@ -92,7 +89,15 @@ _console_handler.setFormatter(
     logging.Formatter("%(levelname)-8s  %(name)s  %(message)s")
 )
 
-logging.basicConfig(level=logging.DEBUG, handlers=[_file_handler, _console_handler])
+# Attach handlers directly — basicConfig is a no-op if any import already
+# triggered default logging configuration before this line.
+_root = logging.getLogger()
+_root.setLevel(logging.DEBUG)
+if _file_handler not in _root.handlers:
+    _root.addHandler(_file_handler)
+if _console_handler not in _root.handlers:
+    _root.addHandler(_console_handler)
+
 logger = logging.getLogger(__name__)
 logger.info("Dashboard log file: %s", _log_file)
 
@@ -206,6 +211,7 @@ async def on_shutdown():
 
     # Stop the bot process if it was started
     import dashboard.global_state as gs
+
     if gs.bot_manager and gs.bot_manager.is_running:
         await gs.bot_manager.stop()
 

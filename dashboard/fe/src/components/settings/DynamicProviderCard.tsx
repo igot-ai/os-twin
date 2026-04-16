@@ -20,7 +20,7 @@ export function DynamicProviderCard({
   settings,
   vaultSet,
   onVaultClick,
-  onToggle,
+  onToggle: _onToggle,
   onTest,
   onRemove,
 }: DynamicProviderCardProps) {

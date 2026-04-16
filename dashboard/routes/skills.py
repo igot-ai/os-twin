@@ -1,4 +1,3 @@
-import os
 import json
 import shutil
 import logging
@@ -972,5 +971,5 @@ async def clawhub_install(
         except FileNotFoundError:
             raise HTTPException(
                 status_code=500,
-                detail="clawhub CLI not found. Run: npm install -g clawhub",
+                detail="clawhub CLI not found. Run: pnpm add -g clawhub",
             )

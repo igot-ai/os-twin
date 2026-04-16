@@ -15,6 +15,6 @@
     "war-room-communication"
   ],
   "cli": "agent",
-  "model": "google-vertex/gemini-3.1-pro-preview",
+  "model": "google-vertex/zai-org/glm-5-maas",
   "timeout": 900
 }
