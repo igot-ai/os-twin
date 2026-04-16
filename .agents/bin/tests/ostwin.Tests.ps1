@@ -474,6 +474,19 @@ Describe "ostwin.ps1 — Stop Command PID Management" {
         $content | Should -Match 'cmdLine.*-match.*(\.agents.*channel|channels?\.)' -Because "Must verify channel-related path to prevent false positives"
     }
 
+    It "Should accept bot runtime path src/index.ts in channel PID validation" {
+        # Windows installer starts channel with: tsx src/index.ts
+        $content = Get-Content $script:OstwinPs1 -Raw
+        $content | Should -Match 'hasChannelPath.*src\[/\\\\\]index\\\.ts' -Because "Must accept bot/src/index.ts channel runtime path"
+    }
+
+    It "Should preserve non-Windows force-stop path" {
+        # --force should still work on Linux/macOS and not rely only on taskkill
+        $content = Get-Content $script:OstwinPs1 -Raw
+        $content | Should -Match 'if \(\$IsWindows\)\s*\{' -Because "Must branch by OS for force-stop"
+        $content | Should -Match 'Stop-Process -Id \$PidToKill -Force' -Because "Must keep non-Windows force-stop behavior"
+    }
+
     It "Should fallback to secondary PID file when primary is invalid" {
         # Test the actual fallback behavior: loop through PID files, skip invalid, use valid one
         # This simulates the production code path in ostwin.ps1 stop command

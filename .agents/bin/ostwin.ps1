@@ -943,6 +943,15 @@ switch ($Command) {
     # ── stop ─────────────────────────────────────────────────────────────────
     "stop" {
         $forceStop = $Arguments -contains '--force'
+        $killTree = {
+            param([string]$PidToKill)
+            if ($IsWindows) {
+                & taskkill /F /T /PID $PidToKill 2>$null | Out-Null
+            }
+            else {
+                Stop-Process -Id $PidToKill -Force -ErrorAction SilentlyContinue
+            }
+        }
 
         # Stop dashboard
         $pidFile = Join-Path $OstwinHome "dashboard.pid"
@@ -953,7 +962,7 @@ switch ($Command) {
                 Write-Host "Stopping dashboard (PID $dashPid)..."
                 if ($forceStop) {
                     # Force kill entire process tree immediately
-                    & taskkill /F /T /PID $dashPid 2>$null | Out-Null
+                    & $killTree $dashPid
                 }
                 else {
                     # Graceful: send termination signal, wait up to 5s
@@ -965,7 +974,7 @@ switch ($Command) {
                     # Force kill tree if still alive
                     try {
                         $null = Get-Process -Id $dashPid -ErrorAction Stop
-                        & taskkill /F /T /PID $dashPid 2>$null | Out-Null
+                        & $killTree $dashPid
                     } catch {}
                 }
                 Write-Host ([char]0x2713 + " Dashboard stopped")
@@ -994,10 +1003,10 @@ switch ($Command) {
                     # Verify it's actually a channel process to avoid killing wrong process after PID reuse
                     $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$candidatePid" -ErrorAction SilentlyContinue).CommandLine
                     # Must have channel-related path - tight validation to prevent PID reuse attacks
-                    # Accept: (tsx OR node as executable) AND (.agents/channel OR channel.ts/channels.ts)
+                    # Accept: (tsx OR node as executable) AND (.agents/channel OR channel.ts/channels.ts OR src/index.ts)
                     # Use word boundary to avoid false positives like "some_tsx_folder/script.sh"
                     $hasRuntime = $cmdLine -match "(^|[\s/\\`"\'])(tsx|node)(\.exe)?(\s|$|`")"
-                    $hasChannelPath = $cmdLine -match "\.agents[/\\]channel" -or $cmdLine -match "channels?\.ts"
+                    $hasChannelPath = $cmdLine -match "\.agents[/\\]channel" -or $cmdLine -match "channels?\.ts" -or $cmdLine -match "src[/\\]index\.ts"
                     if ($cmdLine -and $hasRuntime -and $hasChannelPath) {
                         # Valid channel process — use this PID
                         $chanPid = $candidatePid
@@ -1022,7 +1031,7 @@ switch ($Command) {
                 $proc = Get-Process -Id $chanPid -ErrorAction Stop
                 Write-Host "Stopping channels (PID $chanPid)..."
                 if ($forceStop) {
-                    & taskkill /F /T /PID $chanPid 2>$null | Out-Null
+                    & $killTree $chanPid
                 }
                 else {
                     Stop-Process -Id $chanPid -ErrorAction SilentlyContinue
@@ -1032,7 +1041,7 @@ switch ($Command) {
                     }
                     try {
                         $null = Get-Process -Id $chanPid -ErrorAction Stop
-                        & taskkill /F /T /PID $chanPid 2>$null | Out-Null
+                        & $killTree $chanPid
                     } catch {}
                 }
                 Write-Host ([char]0x2713 + " Channels stopped")
