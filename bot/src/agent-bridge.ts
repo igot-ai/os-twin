@@ -651,6 +651,89 @@ async function executeTool(
   }
 }
 
+// ── Fast-path: skip Gemini for trivial messages ──────────────────────────
+
+const TRIVIAL_PATTERNS = [
+  /^(hi|hello|hey|yo|sup)[\s!.?]*$/i,
+  /^(thanks|thank you|thx|ty|cheers)[\s!.?]*$/i,
+  /^(ok|okay|k|got it|sure|yep|yeah|yes|no|nope|alright)[\s!.?]*$/i,
+  /^(good|great|nice|cool|awesome|perfect|wow)[\s!.?]*$/i,
+  /^(bye|goodbye|cya|see ya|later)[\s!.?]*$/i,
+];
+
+const TRIVIAL_RESPONSES: Record<string, string[]> = {
+  greeting: ['Hey! How can I help with your project?', 'Hello! What would you like to do?'],
+  thanks: ['You\'re welcome!', 'Glad to help!'],
+  ack: ['Got it. Let me know if you need anything else.'],
+  positive: ['Glad to hear it! Need anything else?'],
+  bye: ['See you later! Your session is still active for 30 minutes.'],
+};
+
+function detectTrivial(text: string): string | null {
+  const t = text.trim();
+  if (t.length > 50) return null; // Long messages are never trivial
+  if (TRIVIAL_PATTERNS[0].test(t)) return 'greeting';
+  if (TRIVIAL_PATTERNS[1].test(t)) return 'thanks';
+  if (TRIVIAL_PATTERNS[2].test(t)) return 'ack';
+  if (TRIVIAL_PATTERNS[3].test(t)) return 'positive';
+  if (TRIVIAL_PATTERNS[4].test(t)) return 'bye';
+  return null;
+}
+
+// ── Context cache: avoid fetching plans/rooms on every message ───────────
+
+interface CachedContext {
+  plans: any;
+  rooms: any;
+  fetchedAt: number;
+}
+
+const CONTEXT_CACHE_TTL_MS = 15_000; // 15 seconds
+let _contextCache: CachedContext | null = null;
+
+async function getContextCached(): Promise<{ plans: any; rooms: any }> {
+  if (_contextCache && Date.now() - _contextCache.fetchedAt < CONTEXT_CACHE_TTL_MS) {
+    return { plans: _contextCache.plans, rooms: _contextCache.rooms };
+  }
+  const [plans, rooms] = await Promise.all([api.getPlans(), api.getRooms()]);
+  _contextCache = { plans, rooms, fetchedAt: Date.now() };
+  return { plans, rooms };
+}
+
+// ── Tool retry wrapper ───────────────────────────────────────────────────
+
+async function executeToolWithRetry(
+  call: FunctionCall,
+  ctx: AgentContext,
+  attachments: Array<{ buffer: Buffer; name: string }>,
+  timeoutMs: number,
+): Promise<{ name: string; response: Record<string, unknown> }> {
+  const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms),
+      ),
+    ]);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await withTimeout(
+        executeTool(call, ctx, attachments),
+        timeoutMs,
+        `tool:${call.name}`,
+      );
+    } catch (err: any) {
+      if (attempt === 0 && !err.message.includes('timed out')) {
+        console.warn(`[BRIDGE] Tool ${call.name} failed (attempt 1), retrying: ${err.message}`);
+        continue;
+      }
+      return { name: call.name, response: { error: err.message } as Record<string, unknown> };
+    }
+  }
+  return { name: call.name, response: { error: 'Unexpected retry exhaustion' } };
+}
+
 // ── Main agent entry point ────────────────────────────────────────────────
 
 export interface AgentResponse {
