@@ -25,7 +25,7 @@ async def tunnel_restart(_user=Depends(get_current_user)):
 
     tunnel_mod.stop_tunnel()
 
-    port = int(os.environ.get("DASHBOARD_PORT", "9000"))
+    port = int(os.environ.get("DASHBOARD_PORT", "3366"))
     domain = os.environ.get("NGROK_DOMAIN")
     try:
         url = await tunnel_mod.start_tunnel(port, auth_token, domain)

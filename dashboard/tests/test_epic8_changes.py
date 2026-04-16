@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3366")
 API_KEY = os.environ.get("OSTWIN_API_KEY", "")
 HEADERS = {"X-API-Key": API_KEY}
 

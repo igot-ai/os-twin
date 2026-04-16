@@ -69,7 +69,7 @@ class TestTunnelModule:
             "pyngrok.ngrok": mock_ngrok_module,
             "pyngrok.conf": mock_conf_module,
         }):
-            url = await tunnel_mod.start_tunnel(9000, "test-token")
+            url = await tunnel_mod.start_tunnel(3366, "test-token")
             assert url == "https://abc123.ngrok.io"
             assert tunnel_mod._tunnel_url == "https://abc123.ngrok.io"
             assert tunnel_mod._started_at is not None
@@ -88,7 +88,7 @@ class TestTunnelModule:
             "pyngrok.conf": mock_conf_module,
         }):
             with pytest.raises(RuntimeError, match="ngrok failed"):
-                await tunnel_mod.start_tunnel(9000, "test-token")
+                await tunnel_mod.start_tunnel(3366, "test-token")
 
         assert tunnel_mod._tunnel is None
         assert tunnel_mod._tunnel_url is None
@@ -170,7 +170,7 @@ class TestTunnelModule:
             "pyngrok.ngrok": mock_ngrok_module,
             "pyngrok.conf": mock_conf_module,
         }):
-            url = await tunnel_mod.start_tunnel(9000, "test-token")
+            url = await tunnel_mod.start_tunnel(3366, "test-token")
 
         assert url == "https://new.ngrok.io"
         # Old tunnel should have been disconnected
@@ -191,7 +191,7 @@ class TestTunnelModule:
             "pyngrok.ngrok": mock_ngrok_module,
             "pyngrok.conf": mock_conf_module,
         }):
-            await tunnel_mod.start_tunnel(9000, "test-token", domain="custom.example.com")
+            await tunnel_mod.start_tunnel(3366, "test-token", domain="custom.example.com")
 
         # Verify hostname was passed in connect kwargs
         call_kwargs = mock_ngrok_module.connect.call_args[1]
@@ -228,7 +228,7 @@ class TestTunnelRoutes:
 
     def test_restart_with_token_success(self, test_client, monkeypatch):
         monkeypatch.setenv("NGROK_AUTHTOKEN", "fake-token")
-        monkeypatch.setenv("DASHBOARD_PORT", "9000")
+        monkeypatch.setenv("DASHBOARD_PORT", "3366")
         monkeypatch.delenv("NGROK_DOMAIN", raising=False)
 
         with patch.object(tunnel_mod, "stop_tunnel") as mock_stop, \
@@ -244,7 +244,7 @@ class TestTunnelRoutes:
 
     def test_restart_failure_returns_500(self, test_client, monkeypatch):
         monkeypatch.setenv("NGROK_AUTHTOKEN", "fake-token")
-        monkeypatch.setenv("DASHBOARD_PORT", "9000")
+        monkeypatch.setenv("DASHBOARD_PORT", "3366")
         monkeypatch.delenv("NGROK_DOMAIN", raising=False)
 
         with patch.object(tunnel_mod, "stop_tunnel"), \

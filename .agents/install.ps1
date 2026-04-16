@@ -28,7 +28,7 @@
     Path to the agent-os source repository.
 
 .PARAMETER Port
-    Dashboard port (default: 9000).
+    Dashboard port (default: 3366).
 
 .PARAMETER DashboardOnly
     Install dashboard API + frontend only (implies -Yes).
@@ -64,7 +64,7 @@ param(
 
     [string]$SourceDir,
 
-    [int]$Port = 9000,
+    [int]$Port = 3366,
 
     [switch]$DashboardOnly,
 

@@ -137,7 +137,7 @@
     "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "google-vertex/gemini-3-flash-preview",
+    "default_model": "gemini-3.1-flash-lite-preview",
     "timeout_seconds": 300
   },
   "autonomy": {

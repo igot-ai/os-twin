@@ -11,6 +11,9 @@ from fastapi.staticfiles import StaticFiles
 # ── Load ~/.ostwin/.env early (before any module reads env at import time) ──
 # This makes the dashboard self-contained: it works whether started via
 # `ostwin dashboard` (which already sources .env) or directly via `python api.py`.
+# NOTE: This is a one-time bootstrap load.  For live hot-reload when the
+# .env file is edited at runtime, see dashboard/env_watcher.py which is
+# started as an async task in startup_all().
 _env_file = Path.home() / ".ostwin" / ".env"
 if _env_file.is_file():
     try:
@@ -220,7 +223,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Ostwin Dashboard")
-    parser.add_argument("--port", type=int, default=9000, help="Port to listen on")
+    parser.add_argument("--port", type=int, default=3366, help="Port to listen on")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument(
         "--project-dir", default=None, help="Project directory to monitor"

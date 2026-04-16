@@ -457,15 +457,15 @@ async def google_oauth_start(
     from starlette.requests import Request as StarletteRequest
 
     # Build callback URL based on the current request origin
-    # Default to localhost:9000 if we can't determine the host
+    # Default to localhost:3366 if we can't determine the host
     callback_path = "/api/settings/google/oauth/callback"
     try:
         # Use the Referer or Origin header to build the redirect URI
         # This handles both localhost and tunneled URLs
-        base_url = os.environ.get("OSTWIN_BASE_URL", "http://localhost:9000")
+        base_url = os.environ.get("OSTWIN_BASE_URL", "http://localhost:3366")
         redirect_uri = f"{base_url}{callback_path}"
     except Exception:
-        redirect_uri = f"http://localhost:9000{callback_path}"
+        redirect_uri = f"http://localhost:3366{callback_path}"
 
     result = start_oauth(
         redirect_uri=redirect_uri,

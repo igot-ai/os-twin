@@ -3,7 +3,7 @@ test_plan_meta.py — Verify that /api/plans/create produces meta.json
 and that GET /api/plans/{plan_id} merges meta into the response.
 
 Usage:
-    python test_plan_meta.py              # runs against http://localhost:9000
+    python test_plan_meta.py              # runs against http://localhost:3366
     DASHBOARD_URL=http://localhost:9001 python test_plan_meta.py
 """
 
@@ -21,7 +21,7 @@ if _env.is_file():
     load_dotenv(_env, override=True)
 import time
 
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3366")
 
 sys.path.insert(0, str(pathlib_Path(__file__).resolve().parent.parent.parent))
 from dashboard.api_utils import PLANS_DIR

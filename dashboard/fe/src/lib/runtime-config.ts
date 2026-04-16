@@ -17,6 +17,6 @@ export function getWebSocketUrl(): string {
     return globalThis.window.location.origin.replace(/^http/, 'ws') + '/api/ws';
   }
 
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:9000/api';
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3366/api';
   return apiBase.replace(/^http/, 'ws').replace(/\/$/, '') + '/ws';
 }

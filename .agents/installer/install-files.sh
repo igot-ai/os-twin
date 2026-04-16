@@ -77,32 +77,26 @@ install_files() {
 # ─── Internal helpers ────────────────────────────────────────────────────────
 
 _seed_mcp_config() {
-  # Source of truth file was renamed mcp-config.json → config.json during the
-  # OpenCode migration (April 2026). Honor either name in the source repo.
-  # Both config.json and mcp-config.json are gitignored (they contain resolved
-  # env vars on the dev machine), so on a fresh clone only mcp-builtin.json
-  # (which IS tracked by git) is available as a seed.
-  local seed_src=""
-  if [[ -f "$SCRIPT_DIR/mcp/config.json" ]]; then
-    seed_src="$SCRIPT_DIR/mcp/config.json"
-  elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
-    seed_src="$SCRIPT_DIR/mcp/mcp-config.json"
-  elif [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
-    seed_src="$SCRIPT_DIR/mcp/mcp-builtin.json"
-  fi
+  # mcp-builtin.json is the seed source for config.json.
+  # On fresh install, it's copied to config.json.
+  # On re-install, new built-in servers are merged into existing config.json.
+  local seed_src="$SCRIPT_DIR/mcp/mcp-builtin.json"
+  
   if [[ ! -f "$INSTALL_DIR/.agents/mcp/config.json" ]]; then
-    if [[ -n "$seed_src" ]]; then
-      step "Seeding mcp/config.json (first install)..."
+    # Fresh install - seed from mcp-builtin.json
+    if [[ -f "$seed_src" ]]; then
+      step "Seeding mcp/config.json from mcp-builtin.json..."
       mkdir -p "$INSTALL_DIR/.agents/mcp"
       cp "$seed_src" "$INSTALL_DIR/.agents/mcp/config.json"
-      ok "mcp/config.json seeded from $(basename "$seed_src")"
+      ok "mcp/config.json seeded from mcp-builtin.json"
     else
-      warn "No source mcp config found in $SCRIPT_DIR/mcp/ — skipping seed"
+      warn "No mcp-builtin.json found in $SCRIPT_DIR/mcp/ — skipping seed"
     fi
   else
+    # Re-install - preserve existing config, merge new built-in servers
     # Always update the builtin template so new built-in servers are available
-    if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
-      cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
+    if [[ -f "$seed_src" ]]; then
+      cp "$seed_src" "$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
     fi
     # Always update catalog so new packages are available
     if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then

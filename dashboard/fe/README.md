@@ -27,13 +27,13 @@ By default, the dashboard uses a mock API layer located in `src/app/api/`.
 To connect the dashboard to a real backend (e.g., a FastAPI server), set the `NEXT_PUBLIC_API_BASE_URL` environment variable:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=http://localhost:9000/api bun run dev
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3366/api bun run dev
 ```
 
 Or create a `.env.local` file:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:9000/api
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3366/api
 ```
 
 When this variable is set, the `api-client.ts` will redirect all calls to the specified URL instead of the local `/api` routes.

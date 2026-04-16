@@ -35,14 +35,33 @@ patch_mcp_config() {
 
   step "Patching MCP config..."
 
-  # 1. Ensure OSTWIN_PYTHON is set in .env (used by {env:OSTWIN_PYTHON} in config)
-  if [[ -f "$env_file" ]]; then
-    if ! grep -q "^OSTWIN_PYTHON=" "$env_file"; then
-      echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" >> "$env_file"
-    fi
+  # Detect OS for sed compatibility
+  local sed_opts=()
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    sed_opts=("-i" "")
   else
-    echo "OSTWIN_PYTHON=$VENV_DIR/bin/python" > "$env_file"
+    sed_opts=("-i")
   fi
+
+  # 1. Ensure critical path env vars are set in .env
+  # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} resolution
+  # Using 'export' so they're available to child processes (opencode, MCP servers)
+  local venv_python="$VENV_DIR/bin/python"
+
+  # Remove any existing entries (with or without export) and add fresh ones
+  for key in AGENT_DIR OSTWIN_PYTHON; do
+    if [[ -f "$env_file" ]]; then
+      # Remove lines starting with optional 'export ' followed by the key
+      sed "${sed_opts[@]}" "/^export ${key}=/d" "$env_file"
+      sed "${sed_opts[@]}" "/^${key}=/d" "$env_file"
+    fi
+  done
+
+  # Append the new entries
+  {
+    echo "export AGENT_DIR=$INSTALL_DIR"
+    echo "export OSTWIN_PYTHON=$venv_python"
+  } >> "$env_file"
 
   # 2. Inject all .env variables into every MCP server's "environment" block
   if [[ -f "$env_file" ]]; then

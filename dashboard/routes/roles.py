@@ -34,6 +34,37 @@ def _detect_provider(model_id: str) -> str:
     return "Gemini"
 
 
+def _resolve_model_id(version: str) -> str:
+    """Ensure a model ID is fully-qualified (i.e. contains a provider prefix).
+
+    Roles can store bare model names like ``gemini-3-flash-preview`` when they
+    were originally created from an opencode config that stripped the prefix.
+    The opencode CLI requires the full ``provider/model`` form, so we resolve
+    the bare ID against the static registry catalog before calling it.
+
+    IDs that already contain ``/`` (e.g. ``google-vertex/gemini-3-flash-preview``
+    or ``gemini/gemini-3-flash-preview``) are returned unchanged.
+    """
+    if "/" in version:
+        return version  # already provider-qualified
+
+    # Walk the static fallback catalog to find the full ID whose short part
+    # (after the first '/') matches the bare version string.
+    try:
+        from dashboard.lib.settings.models_registry import _FALLBACK_CATALOG
+        for entries in _FALLBACK_CATALOG.values():
+            for entry in entries:
+                short = entry.id.split("/", 1)[-1] if "/" in entry.id else entry.id
+                if short == version and entry.id != version:
+                    return entry.id  # return the qualified ID
+    except Exception:
+        pass
+
+    # Unknown bare ID (e.g. native Claude/OpenAI): pass through; opencode
+    # resolves those without a prefix.
+    return version
+
+
 def _read_role_json(role_name: str) -> dict:
     """Read individual role.json from disk (the engine's per-role definition)."""
     role_file = GLOBAL_ROLES_DIR / role_name / "role.json"
@@ -647,6 +678,12 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
 
     This validates the real end-to-end path — the same CLI the agent runtime uses —
     rather than constructing a fragile LangChain shim with manual key resolution.
+
+    The ``version`` path parameter may be a bare model ID (e.g.
+    ``gemini-3-flash-preview``) when a role was stored without its provider
+    prefix.  ``_resolve_model_id`` normalises it to the fully-qualified form
+    that opencode expects (e.g. ``gemini/gemini-3-flash-preview``) before
+    the CLI is invoked.
     """
     import shutil
     import subprocess
@@ -656,7 +693,11 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
     if not opencode:
         return {"status": "fail", "error": "opencode CLI not found on PATH"}
 
-    cmd = [opencode, "run", "just say YES", "--model", version]
+    # Normalise bare IDs → fully-qualified provider/model form
+    resolved_version = _resolve_model_id(version)
+    logger.debug("test_model_connection: %r → resolved %r", version, resolved_version)
+
+    cmd = [opencode, "run", "just say YES", "--model", resolved_version]
 
     def _run() -> tuple[int, str, str]:
         result = subprocess.run(
@@ -684,7 +725,7 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
                 return {
                     "status": "fail",
                     "latency_ms": latency,
-                    "error": f"Model responded but did not confirm (expected YES): {stdout}",
+                    "error": f"{stdout}",
                 }
         else:
             error_msg = stderr[-300:] if stderr else stdout[-300:] if stdout else "Unknown error"

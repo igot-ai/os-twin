@@ -268,6 +268,14 @@ async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
 
+    # ── Hot-reload ~/.ostwin/.env on file changes ─────────────────────
+    try:
+        from dashboard.env_watcher import watch_env_file
+
+        asyncio.create_task(watch_env_file())
+    except Exception as e:
+        logger.error("env_watcher failed to start: %s", e)
+
     # ── Load model catalog from models.dev ────────────────────────────
     try:
         from dashboard.lib.settings.models_dev_loader import load_models_on_startup
@@ -356,7 +364,7 @@ async def startup_all():
         try:
             from dashboard.tunnel import start_tunnel
 
-            port = int(os.environ.get("DASHBOARD_PORT", "9000"))
+            port = int(os.environ.get("DASHBOARD_PORT", "3366"))
             domain = os.environ.get("NGROK_DOMAIN")
             url = await start_tunnel(port, auth_token, domain)
             global_state.tunnel_url = url
