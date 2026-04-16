@@ -56,7 +56,7 @@ ask() {
 
 version_gte() {
   # Returns 0 if $1 >= $2
-  printf '%s\n%s' "$1" | sort -V | head -n1 | grep -qF "$2"
+  printf '%s\n%s' "$2" "$1" | sort -V | head -n1 | grep -qF "$2"
 }
 
 # ─── PATH helpers ────────────────────────────────────────────────────────────
