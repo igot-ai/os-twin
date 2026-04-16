@@ -21,7 +21,7 @@ Describe "Patch-McpConfig" {
         { Patch-McpConfig } | Should -Not -Throw
     }
 
-    It "Should add OSTWIN_PYTHON to .env when not present" {
+    It "Should add AGENT_DIR and OSTWIN_PYTHON to .env when not present" {
         Set-Content -Path (Join-Path $mcpDir "config.json") -Value '{"mcpServers": {}}'
         $envFile = Join-Path $testDir ".env"
         Set-Content -Path $envFile -Value "SOME_KEY=value"
@@ -33,22 +33,25 @@ Describe "Patch-McpConfig" {
         Patch-McpConfig 2>$null
 
         $content = Get-Content $envFile -Raw
+        $content | Should -Match 'AGENT_DIR='
         $content | Should -Match 'OSTWIN_PYTHON='
     }
 
-    It "Should not duplicate OSTWIN_PYTHON in .env" {
+    It "Should not duplicate AGENT_DIR and OSTWIN_PYTHON in .env" {
         Set-Content -Path (Join-Path $mcpDir "config.json") -Value '{"mcpServers": {}}'
         $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
         $envFile = Join-Path $testDir ".env"
-        Set-Content -Path $envFile -Value "OSTWIN_PYTHON=$venvPython"
+        Set-Content -Path $envFile -Value "AGENT_DIR=$testDir`nOSTWIN_PYTHON=$venvPython"
 
         $script:PatchScriptsDir = Join-Path $TestDrive "fake-scripts"
         New-Item -ItemType Directory -Path $script:PatchScriptsDir -Force | Out-Null
 
         Patch-McpConfig 2>$null
 
-        $lines = Get-Content $envFile | Where-Object { $_ -match '^OSTWIN_PYTHON=' }
-        $lines.Count | Should -Be 1
+        $agentDirLines = Get-Content $envFile | Where-Object { $_ -match 'AGENT_DIR=' }
+        $ostwinPythonLines = Get-Content $envFile | Where-Object { $_ -match 'OSTWIN_PYTHON=' }
+        $agentDirLines.Count | Should -Be 1
+        $ostwinPythonLines.Count | Should -Be 1
     }
 
     It "Should create .env when it doesn't exist" {
@@ -61,6 +64,20 @@ Describe "Patch-McpConfig" {
 
         $envFile = Join-Path $testDir ".env"
         Test-Path $envFile | Should -Be $true
+    }
+
+    It "Should export AGENT_DIR and OSTWIN_PYTHON" {
+        Set-Content -Path (Join-Path $mcpDir "config.json") -Value '{"mcpServers": {}}'
+        $envFile = Join-Path $testDir ".env"
+
+        $script:PatchScriptsDir = Join-Path $TestDrive "fake-scripts"
+        New-Item -ItemType Directory -Path $script:PatchScriptsDir -Force | Out-Null
+
+        Patch-McpConfig 2>$null
+
+        $content = Get-Content $envFile -Raw
+        $content | Should -Match 'export AGENT_DIR='
+        $content | Should -Match 'export OSTWIN_PYTHON='
     }
 }
 

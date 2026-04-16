@@ -409,8 +409,11 @@ $argsLine = ($extraCliArgs | ForEach-Object {
 for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
     $exitCode = 0
     try {
-        # Write wrapper script
-        $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+        # Detect if running on Windows
+        $isWindows = $PSVersionTable.PSVersion.Major -ge 6 -and $IsWindows
+        $isUnix = $IsLinux -or $IsMacOS
+
+        # Build paths with proper escaping for the target platform
         $safeOutput = $outputFile -replace "'", "'\''"
         $safePrompt = $promptFile -replace "'", "'\''"
         $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
@@ -427,9 +430,75 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
             $safeOpencodeConfig = $tempMcpConfig.Replace('\', '/').Replace("'", "'\''")
             $opencodeConfigLine = "export OPENCODE_CONFIG='$safeOpencodeConfig'"
         }
+        
+        # Ensure critical env vars for MCP server resolution are exported
+        # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} placeholders
+        $venvPython = Join-Path $OstwinHome ".venv" "bin" "python"
+        $envExportLines = @"
+export AGENT_DIR='$safeOstwinHome'
+export OSTWIN_PYTHON='$venvPython'
+"@
+        
         # Log diagnostic info before exec
         Write-Host "[Invoke-Agent] Launching: CMD=$AgentCmd, PromptFile=$promptFile, ArgsLine=$argsLine"
-        $scriptContent = @"
+        
+        if ($isWindows) {
+            # Windows: Use PowerShell wrapper instead of bash
+            $winPidFile = $pidFile.Replace('/', '\')
+            $winOutput = $outputFile.Replace('/', '\')
+            $winPrompt = $promptFile.Replace('/', '\')
+            $winSkillsDir = $isolatedSkillsDir.Replace('/', '\')
+            $winOstwinHome = $OstwinHome.Replace('/', '\')
+            $winProjectDir = if ($ProjectDir) { $ProjectDir.Replace('/', '\') } else { "" }
+            $winOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig.Replace('/', '\') } else { "" }
+            
+            $psWrapperScript = Join-Path $artifactsDir "run-agent.ps1"
+            $psScriptContent = @"
+`$env:AGENT_OS_ROOM_DIR = '$safeRoomDir'
+`$env:AGENT_OS_ROLE = '$safeRole'
+`$env:AGENT_OS_PARENT_PID = $PID
+`$env:AGENT_OS_SKILLS_DIR = '$winSkillsDir'
+`$env:AGENT_OS_PID_FILE = '$winPidFile'
+`$env:OSTWIN_HOME = '$winOstwinHome'
+`$env:AGENT_OS_PROJECT_DIR = '$winProjectDir'
+`$env:AGENT_DIR = '$winOstwinHome'
+`$env:OSTWIN_PYTHON = '$venvPython'
+if ('$winOpencodeConfig') { `$env:OPENCODE_CONFIG = '$winOpencodeConfig' }
+
+# Source user-controlled pre-exec hook
+`$envSh = Join-Path `$env:USERPROFILE '.ostwin' '.env.sh'
+if (Test-Path `$envSh) { . `$envSh }
+
+# Write PID
+`$PID | Out-File -FilePath '$winPidFile' -Encoding ascii -NoNewline
+
+# Log diagnostics
+"[$wrapper] PID=`$PID, CMD=$AgentCmd" | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+
+# Execute
+$AgentCmd $argsLine 2>&1 | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+"@
+            $psScriptContent | Out-File -FilePath $psWrapperScript -Encoding utf8 -Force
+            
+            # Launch PowerShell wrapper
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = "pwsh"
+            if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+                $psi.FileName = "powershell"
+            }
+            $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$psWrapperScript`""
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardInput = $true
+            $psi.CreateNoWindow = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $proc.StandardInput.Close()
+            
+            $wrapperScript = $psWrapperScript
+        }
+        else {
+            # Unix: Use bash wrapper (existing logic)
+            $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+            $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
 export AGENT_OS_ROLE='$safeRole'
@@ -439,6 +508,7 @@ export AGENT_OS_PID_FILE='$safePidFile'
 export OSTWIN_HOME='$safeOstwinHome'
 export AGENT_OS_PROJECT_DIR='$safeProjectDir'
 $opencodeConfigLine
+$envExportLines
 # Source user-controlled pre-exec hook for dynamic env vars
 # (e.g. refreshing short-lived API tokens like VERTEX_API_KEY).
 # Static vars belong in `$safeOstwinHome`/.env; this file is for shell logic.
@@ -457,20 +527,21 @@ exec $AgentCmd $argsLine >> '$safeOutput' 2>&1
 # If exec fails, this line runs:
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
 "@
-        $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
-        chmod +x $wrapperScript 2>$null
+            $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
+            chmod +x $wrapperScript 2>$null
 
-        # --- Launch bash via System.Diagnostics.Process ---
-        # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
-        # (no console to attach to in headless runspace). Direct Process API works.
-        $psi = [System.Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName = "bash"
-        $psi.Arguments = "`"$wrapperScript`""
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardInput = $true
-        $psi.CreateNoWindow = $true
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        $proc.StandardInput.Close()  # equivalent to /dev/null stdin
+            # --- Launch bash via System.Diagnostics.Process ---
+            # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
+            # (no console to attach to in headless runspace). Direct Process API works.
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = "bash"
+            $psi.Arguments = "`"$wrapperScript`""
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardInput = $true
+            $psi.CreateNoWindow = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $proc.StandardInput.Close()  # equivalent to /dev/null stdin
+        }
 
         Write-Warning "[Invoke-Agent] bash launched as PID $($proc.Id), HasExited=$($proc.HasExited), wrapper=$wrapperScript"
 
