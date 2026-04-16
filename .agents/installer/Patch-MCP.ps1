@@ -30,9 +30,10 @@ function Patch-McpConfig {
 
     # 1. Ensure critical path env vars are set in .env
     # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} resolution
+    # NOTE: .env files use KEY=VALUE format (no 'export' prefix - that's for shell scripts)
     $envEntries = @(
-        "export AGENT_DIR=$($script:InstallDir)",
-        "export OSTWIN_PYTHON=$venvPython"
+        "AGENT_DIR=$($script:InstallDir)",
+        "OSTWIN_PYTHON=$venvPython"
     )
 
     # Read existing content

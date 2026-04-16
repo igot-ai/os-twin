@@ -66,7 +66,7 @@ Describe "Patch-McpConfig" {
         Test-Path $envFile | Should -Be $true
     }
 
-    It "Should export AGENT_DIR and OSTWIN_PYTHON" {
+    It "Should write AGENT_DIR and OSTWIN_PYTHON in KEY=VALUE format (no export prefix)" {
         Set-Content -Path (Join-Path $mcpDir "config.json") -Value '{"mcpServers": {}}'
         $envFile = Join-Path $testDir ".env"
 
@@ -76,8 +76,11 @@ Describe "Patch-McpConfig" {
         Patch-McpConfig 2>$null
 
         $content = Get-Content $envFile -Raw
-        $content | Should -Match 'export AGENT_DIR='
-        $content | Should -Match 'export OSTWIN_PYTHON='
+        # .env files use plain KEY=VALUE format, NOT 'export KEY=VALUE'
+        $content | Should -Match '^AGENT_DIR='
+        $content | Should -Match '^OSTWIN_PYTHON='
+        $content | Should -Not -Match 'export AGENT_DIR='
+        $content | Should -Not -Match 'export OSTWIN_PYTHON='
     }
 }
 

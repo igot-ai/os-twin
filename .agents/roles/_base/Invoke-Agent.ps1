@@ -433,10 +433,12 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         
         # Ensure critical env vars for MCP server resolution are exported
         # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} placeholders
-        $venvPython = Join-Path $OstwinHome ".venv" "bin" "python"
+        # Use platform-specific venv Python path
+        $venvPythonUnix = Join-Path $OstwinHome ".venv" "bin" "python"
+        $venvPythonWin = Join-Path $OstwinHome ".venv" "Scripts" "python.exe"
         $envExportLines = @"
 export AGENT_DIR='$safeOstwinHome'
-export OSTWIN_PYTHON='$venvPython'
+export OSTWIN_PYTHON='$venvPythonUnix'
 "@
         
         # Log diagnostic info before exec
@@ -462,7 +464,7 @@ export OSTWIN_PYTHON='$venvPython'
 `$env:OSTWIN_HOME = '$winOstwinHome'
 `$env:AGENT_OS_PROJECT_DIR = '$winProjectDir'
 `$env:AGENT_DIR = '$winOstwinHome'
-`$env:OSTWIN_PYTHON = '$venvPython'
+`$env:OSTWIN_PYTHON = '$venvPythonWin'
 if ('$winOpencodeConfig') { `$env:OPENCODE_CONFIG = '$winOpencodeConfig' }
 
 # Source user-controlled pre-exec hook
