@@ -255,3 +255,37 @@ Describe "Start-Dashboard.ps1 regression tests" {
     }
 }
 
+Describe "Start-Channels.ps1 regression tests" {
+    BeforeAll {
+        . "$PSScriptRoot/TestHelper.ps1"
+        $startChannels = Join-Path $script:InstallerModDir "Start-Channels.ps1"
+        $script:StartChannelsContent = Get-Content $startChannels -Raw
+    }
+
+    It "Should not use -Encoding ASCII for .cmd launcher files" {
+        # Regression: -Encoding ASCII breaks paths with non-ASCII characters
+        $script:StartChannelsContent | Should -Not -Match 'Set-Content.*-Encoding\s+ASCII' -Because "Should use UTF-8 without BOM for .cmd files"
+    }
+
+    It "Should use UTF-8 without BOM for .cmd file creation" {
+        $script:StartChannelsContent | Should -Match '\[System\.IO\.File\]::WriteAllText.*UTF8Encoding' -Because ".cmd files should use UTF-8 without BOM for path safety"
+    }
+}
+
+Describe "Setup-Venv.ps1 regression tests" {
+    BeforeAll {
+        . "$PSScriptRoot/TestHelper.ps1"
+        $setupVenv = Join-Path $script:InstallerModDir "Setup-Venv.ps1"
+        $script:SetupVenvContent = Get-Content $setupVenv -Raw
+    }
+
+    It "should not use -Encoding ASCII for .cmd launcher files" {
+        # Regression: -Encoding ASCII breaks paths with non-ASCII characters
+        $script:SetupVenvContent | Should -Not -Match 'Set-Content.*-Encoding\s+ASCII' -Because "Should use UTF-8 without BOM for .cmd files"
+    }
+
+    It "should use UTF-8 without BOM for .cmd file creation" {
+        $script:SetupVenvContent | Should -Match '\[System\.IO\.File\]::WriteAllText.*UTF8Encoding' -Because ".cmd files should use UTF-8 without BOM for path safety"
+    }
+}
+

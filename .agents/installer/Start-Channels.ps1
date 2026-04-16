@@ -159,7 +159,9 @@ function Start-Channels {
     # Bat wrapper handles stdout/stderr redirection; tsx.cmd is the entry point.
     $batFile = Join-Path $logsDir "_start-channel.cmd"
     $batContent = "@echo off`r`ncd /d `"$($script:ChanDir)`"`r`n`"$tsxCmd`" src/index.ts >`"$chanLogFile`" 2>`"$chanErrorLog`""
-    Set-Content -Path $batFile -Value $batContent -Encoding ASCII
+
+    # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
+    [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
 
     $chanWrapper = Start-Process -FilePath "cmd.exe" `
         -ArgumentList "/c", "`"$batFile`"" `

@@ -114,7 +114,10 @@ function Setup-Venv {
             if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
             $uvLog = Join-Path $logsDir "uv-install.log"
             $batFile = Join-Path $logsDir "_uv-install.cmd"
-            Set-Content -Path $batFile -Value "@echo off`r`n`"$uvExe`" $uvArgStr >`"$uvLog`" 2>&1" -Encoding ASCII
+            $batContent = "@echo off`r`n`"$uvExe`" $uvArgStr >`"$uvLog`" 2>&1"
+
+            # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
+            [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
 
             $proc = Start-Process -FilePath "cmd.exe" `
                 -ArgumentList "/c", "`"$batFile`"" `
