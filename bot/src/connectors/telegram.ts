@@ -112,8 +112,14 @@ export class TelegramConnector implements Connector {
           const attachments = stagedFiles.length > 0
             ? stagedFiles.map(f => ({ name: f.name, contentType: f.contentType, sizeBytes: f.sizeBytes }))
             : undefined;
-          const answer = await askAgent(msgText, { userId, platform: 'telegram', attachments });
-          await ctx.reply(answer, { parse_mode: 'Markdown' });
+          const result = await askAgent(msgText, { userId, platform: 'telegram', attachments });
+          await ctx.reply(result.text, { parse_mode: 'Markdown' });
+          // Send image attachments as photos
+          if (result.attachments?.length) {
+            for (const att of result.attachments) {
+              await ctx.replyWithPhoto({ source: att.buffer, filename: att.name }).catch(() => {});
+            }
+          }
         } catch (err: any) {
           console.warn('[TELEGRAM] Agent bridge error:', err.message);
           await ctx.reply('⚠️ Failed to process your request.', { parse_mode: 'Markdown' });
@@ -203,8 +209,8 @@ export class TelegramConnector implements Connector {
           if (caption) {
             try {
               const attachments = downloadable.map(d => ({ name: d.name, contentType: d.contentType, sizeBytes: d.data.byteLength }));
-              const answer = await askAgent(caption, { userId, platform: 'telegram', attachments });
-              await ctx.reply(answer, { parse_mode: 'Markdown' });
+              const result = await askAgent(caption, { userId, platform: 'telegram', attachments });
+              await ctx.reply(result.text, { parse_mode: 'Markdown' });
             } catch (err: any) {
               console.warn('[TELEGRAM] Agent bridge error:', err.message);
               await ctx.reply('⚠️ Failed to process your request.', { parse_mode: 'Markdown' });
