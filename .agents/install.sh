@@ -140,9 +140,11 @@ fi
 header "8. Verification"
 verify_components
 header "9. Starting dashboard"
+section_9_start=$(get_now)
 start_dashboard; publish_skills
 header "9c. Installing channel dependencies (Telegram + Discord + Slack)"
 install_channels
+ok_time "Section 9 complete" "$(print_duration "$section_9_start")"
 # if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
 #   header "9d. Starting channel connectors"; start_channels
 # fi

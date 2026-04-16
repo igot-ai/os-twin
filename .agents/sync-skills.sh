@@ -40,6 +40,18 @@ warn() { echo -e "    ${YELLOW}[WARN]${NC} $1"; }
 fail() { echo -e "    ${RED}[FAIL]${NC} $1"; }
 info() { echo -e "    ${DIM}$1${NC}"; }
 step() { echo -e "  ${CYAN}→${NC} $1"; }
+ok_time() { echo -e "    ${GREEN}[OK]${NC} $1 ${DIM}($2)${NC}"; }
+
+get_now() {
+  date +%s
+}
+
+print_duration() {
+  local start=$1
+  local end
+  end=$(get_now)
+  echo "$((end - start))s"
+}
 
 # ─── Load .env ────────────────────────────────────────────────────────────────
 
@@ -150,6 +162,8 @@ install_from_dir() {
   local source_dir="$1"
   local dest_base="$OSTWIN_HOME/.agents/skills"
   local copied=0
+  local start_time
+  start_time=$(get_now)
 
   step "Scanning $source_dir for SKILL.md files..."
 
@@ -232,7 +246,7 @@ install_from_dir() {
   done < <(find "$source_dir" -name "SKILL.md" -type f 2>/dev/null)
 
   if [[ $copied -gt 0 ]]; then
-    ok "$copied skill(s) copied to $dest_base"
+    ok_time "$copied skill(s) copied to $dest_base" "$(print_duration "$start_time")"
   else
     warn "No SKILL.md files found in $source_dir"
   fi
@@ -242,6 +256,8 @@ install_from_dir() {
 
 sync_home_skills() {
   local skills_base="$OSTWIN_HOME/.agents/skills"
+  local start_time
+  start_time=$(get_now)
   step "Scanning $skills_base for SKILL.md files..."
 
   # Count skills on disk for reporting
@@ -272,7 +288,7 @@ sync_home_skills() {
   # several minutes with 250+ skills. Fire-and-forget so install doesn't block.
   curl -sf --max-time 5 -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
     "${DASHBOARD_URL}/api/skills/sync" >/dev/null 2>&1 &
-  ok "Skill sync triggered — embeddings will complete in the background"
+  ok_time "Skill sync triggered — embeddings will complete in the background" "$(print_duration "$start_time")"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -52,10 +52,13 @@ install_channels() {
   fi
 
   for CHAN_DIR in "${bot_dirs[@]}"; do
+    local start_time
+    start_time=$(get_now)
     step "Installing channel dependencies in $CHAN_DIR with pnpm..."
     # shellcheck disable=SC2015
     (cd "$CHAN_DIR" && pnpm install) \
-      && ok "Channel dependencies installed" || warn "Channel dependency install failed"
+      && ok_time "Channel dependencies installed" "$(print_duration "$start_time")" \
+      || warn "Channel dependency install failed"
 
     # tsx should come from bot/package.json devDependencies after install.
     if [[ ! -f "$CHAN_DIR/node_modules/.bin/tsx" ]]; then

@@ -338,27 +338,32 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
     body = content
     trust_level = "experimental"  # Model default fallback
 
-    # Check for YAML frontmatter
+    # ── YAML Frontmatter ──
+    # Extra restrictive: must start with --- and have a second --- before too many lines.
     meta_dict = {}
     if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
+        # Look for the closing --- within the first 2KB to avoid scanning large files
+        end_idx = content.find("---", 3)
+        if 3 < end_idx < 2048:
             try:
-                meta = yaml.safe_load(parts[1])
-                if isinstance(meta, dict):
-                    meta_dict = meta
-                    name = meta.get("name", name)
-                    description = meta.get("description", description)
-                    tags = meta.get("tags", tags)
-                    if isinstance(tags, str):
-                        tags = [t.strip() for t in tags.split(",")]
-                    elif not isinstance(tags, list):
-                        tags = []
-                    trust_level = meta.get("trust_level", trust_level)
-                    body = parts[2].strip()
+                frontmatter = content[3:end_idx].strip()
+                if frontmatter:
+                    meta = yaml.safe_load(frontmatter)
+                    if isinstance(meta, dict):
+                        meta_dict = meta
+                        name = meta.get("name", name)
+                        description = meta.get("description", description)
+                        tags = meta.get("tags", tags)
+                        if isinstance(tags, str):
+                            tags = [t.strip() for t in tags.split(",")]
+                        elif not isinstance(tags, list):
+                            tags = []
+                        trust_level = meta.get("trust_level", trust_level)
+                        body = content[end_idx + 3 :].strip()
             except Exception as e:
+                # Log but continue — invalid metadata shouldn't block skill indexing
                 logger = logging.getLogger("api_utils")
-                logger.warning(f"Failed to parse YAML frontmatter in {skill_file}: {e}")
+                logger.debug(f"Skipping malformed YAML frontmatter in {skill_file}: {e}")
 
     # Determine source based on path
     source = "project"
