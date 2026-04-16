@@ -34,12 +34,6 @@ def _detect_provider(model_id: str) -> str:
     return "Gemini"
 
 
-# Providers natively supported by opencode that need no custom prefix.
-_NATIVE_OPENCODE_PROVIDERS = frozenset({
-    "anthropic", "openai", "azure", "xai", "deepseek", "openrouter",
-    "moonshotai", "lmstudio",
-})
-
 
 def _resolve_model_id(version: str) -> str:
     """Ensure a model ID is fully-qualified with a ``provider/model`` prefix.
@@ -101,10 +95,6 @@ def _resolve_model_id(version: str) -> str:
                     )
                     return mid
 
-                # Bare model ID — determine the opencode prefix from provider.
-                if provider_id in _NATIVE_OPENCODE_PROVIDERS:
-                    # opencode resolves these natively; no prefix needed.
-                    return version
 
                 if provider_id == "google":
                     # opencode uses the custom 'gemini' provider block;
@@ -769,7 +759,7 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
     resolved_version = _resolve_model_id(version)
     logger.debug("test_model_connection: %r → resolved %r", version, resolved_version)
 
-    cmd = [opencode, "run", "just say YES", "--model", resolved_version]
+    cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", "/tmp"]
 
     def _run() -> tuple[int, str, str]:
         result = subprocess.run(

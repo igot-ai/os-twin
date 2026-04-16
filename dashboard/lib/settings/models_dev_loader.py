@@ -232,7 +232,7 @@ def _read_cached_raw() -> Optional[Dict[str, Any]]:
 
 
 def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
-    """Read auth.json + opencode.json + env vars to discover configured providers.
+    """Read auth.json + opencode.json + env vars + vault to discover configured providers.
 
     Returns ``{provider_id: {type, source, has_key, ...}}``.
     """
@@ -279,6 +279,26 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
                 "has_key": True,
                 "deployment_mode": _read_google_deployment_mode(),
             }
+
+    # 4. Vault -- catch any provider key stored via AddProviderModal that
+    #    hasn't been synced to auth.json yet.  Keys like
+    #    ``google_service_account`` are internal vault entries, not providers.
+    _VAULT_SKIP = {"google_service_account"}
+    try:
+        from .vault import get_vault
+
+        vault = get_vault()
+        vault_keys = vault.list_keys("providers")
+        for vault_key in vault_keys:
+            if vault_key in providers or vault_key in _VAULT_SKIP:
+                continue
+            providers[vault_key] = {
+                "type": "api",
+                "source": "vault",
+                "has_key": True,
+            }
+    except Exception as exc:
+        logger.debug("Vault provider discovery skipped: %s", exc)
 
     return providers
 
