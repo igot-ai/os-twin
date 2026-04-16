@@ -79,15 +79,21 @@ install_files() {
 _seed_mcp_config() {
   # Source of truth file was renamed mcp-config.json → config.json during the
   # OpenCode migration (April 2026). Honor either name in the source repo.
+  # Both config.json and mcp-config.json are gitignored (they contain resolved
+  # env vars on the dev machine), so on a fresh clone only mcp-builtin.json
+  # (which IS tracked by git) is available as a seed.
   local seed_src=""
   if [[ -f "$SCRIPT_DIR/mcp/config.json" ]]; then
     seed_src="$SCRIPT_DIR/mcp/config.json"
   elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
     seed_src="$SCRIPT_DIR/mcp/mcp-config.json"
+  elif [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
+    seed_src="$SCRIPT_DIR/mcp/mcp-builtin.json"
   fi
   if [[ ! -f "$INSTALL_DIR/.agents/mcp/config.json" ]]; then
     if [[ -n "$seed_src" ]]; then
       step "Seeding mcp/config.json (first install)..."
+      mkdir -p "$INSTALL_DIR/.agents/mcp"
       cp "$seed_src" "$INSTALL_DIR/.agents/mcp/config.json"
       ok "mcp/config.json seeded from $(basename "$seed_src")"
     else
