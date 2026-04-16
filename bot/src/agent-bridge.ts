@@ -601,9 +601,10 @@ async function executeTool(
     case 'get_memories': {
       const planId = (args as any).plan_id;
       try {
-        const [notesRes, statsRes, graphImage] = await Promise.all([
+        const [notesRes, statsRes, treeRes, graphImage] = await Promise.all([
           api.fetchJSON(`/api/amem/${planId}/notes`),
           api.fetchJSON(`/api/amem/${planId}/stats`),
+          api.fetchJSON(`/api/amem/${planId}/tree`),
           api.fetchBinary(`/api/amem/${planId}/graph-image`),
         ]);
         const notes = Array.isArray(notesRes) ? notesRes : [];
@@ -620,6 +621,7 @@ async function executeTool(
             plan_id: planId,
             total_notes: notes.length,
             has_graph_image: !!graphImage,
+            directory_tree: treeRes?.tree || '(unavailable)',
             stats: {
               total_tags: statsRes?.total_tags || 0,
               total_keywords: statsRes?.total_keywords || 0,
