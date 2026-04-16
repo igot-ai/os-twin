@@ -22,21 +22,31 @@ function Start-Dashboard {
         return
     }
 
-    # Stop any existing process on the dashboard port
+    # Stop any existing dashboard process (by PID file, then by port)
+    $pidFile = Join-Path $script:InstallDir "dashboard.pid"
+    if (Test-Path $pidFile) {
+        $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
+        if ($oldPid) {
+            try {
+                # Kill the process tree (cmd.exe + python child)
+                & taskkill /F /T /PID $oldPid 2>$null | Out-Null
+            } catch {}
+        }
+    }
     try {
         $existingProcs = Get-NetTCPConnection -LocalPort $script:DashboardPort -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty OwningProcess -Unique
         if ($existingProcs) {
             Write-Step "Stopping existing process on :$($script:DashboardPort)..."
-            foreach ($pid in $existingProcs) {
-                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            foreach ($p in $existingProcs) {
+                & taskkill /F /T /PID $p 2>$null | Out-Null
             }
-            Start-Sleep -Seconds 1
         }
     }
     catch {
         # Get-NetTCPConnection may not be available — continue
     }
+    Start-Sleep -Seconds 2
 
     # Load .env so the dashboard process inherits API keys
     $envFile = Join-Path $script:InstallDir ".env"
@@ -57,18 +67,29 @@ function Start-Dashboard {
 
     $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
     $logFile = Join-Path $logsDir "dashboard.log"
+    $errorLog = Join-Path $logsDir "dashboard-error.log"
 
-    # Start dashboard via Start-Process -NoNewWindow for PID tracking
-    $dashProcess = Start-Process -FilePath $venvPython `
-        -ArgumentList "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "$($script:DashboardPort)", "--project-dir", "$($script:InstallDir)" `
-        -WorkingDirectory (Join-Path $script:InstallDir "dashboard") `
-        -NoNewWindow -PassThru `
-        -RedirectStandardOutput $logFile `
-        -RedirectStandardError (Join-Path $logsDir "dashboard-error.log")
+    # Clear stale logs from previous runs
+    if (Test-Path $logFile)  { Remove-Item $logFile -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $errorLog) { Remove-Item $errorLog -Force -ErrorAction SilentlyContinue }
 
-    $dashPid = $dashProcess.Id
+    # Set project dir env var so api_utils.py picks it up
+    [System.Environment]::SetEnvironmentVariable("OSTWIN_PROJECT_DIR", $script:InstallDir, "Process")
+
+    # Start dashboard via bat file for clean output redirection
+    # Resolve the real python PID afterwards via port listening
+    $dashboardDir = Join-Path $script:InstallDir "dashboard"
     $pidFile = Join-Path $script:InstallDir "dashboard.pid"
-    Set-Content -Path $pidFile -Value $dashPid -NoNewline
+    $batFile = Join-Path $logsDir "_start-dashboard.cmd"
+    $batContent = "@echo off`r`ncd /d `"$dashboardDir`"`r`n`"$venvPython`" -m uvicorn api:app --host 0.0.0.0 --port $($script:DashboardPort) >`"$logFile`" 2>`"$errorLog`""
+    Set-Content -Path $batFile -Value $batContent -Encoding ASCII
+
+    Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c", "`"$batFile`"" `
+        -WindowStyle Hidden
+
+    # The PID will be resolved after health check succeeds (port is listening)
+    $dashPid = $null
 
     # Read OSTWIN_API_KEY for auth headers
     $script:OstwinApiKey = $env:OSTWIN_API_KEY
@@ -76,32 +97,51 @@ function Start-Dashboard {
         $script:OstwinApiKey = ""
     }
 
-    # Health-check: poll /api/status up to 60s
-    Write-Step "Waiting for dashboard to be healthy (up to 60s)..."
+    # Health-check: poll /api/status up to 180s
+    # SentenceTransformer model loading can take 60-150s on CPU
+    # Accept any HTTP response (including 401/403) as proof the server is up
+    Write-Step "Waiting for dashboard to be healthy (up to 180s)..."
     $dashOk = $false
-    for ($i = 1; $i -le 60; $i++) {
+    for ($i = 1; $i -le 180; $i++) {
         try {
-            $headers = @{}
-            if ($script:OstwinApiKey) {
-                $headers["X-API-Key"] = $script:OstwinApiKey
+            # Use System.Net.Http directly — avoids PowerShell cmdlet exception handling quirks
+            $httpClient = [System.Net.Http.HttpClient]::new()
+            $httpClient.Timeout = [TimeSpan]::FromSeconds(10)
+            $task = $httpClient.GetAsync("http://localhost:$($script:DashboardPort)/api/status")
+            $task.Wait()
+            $statusCode = [int]$task.Result.StatusCode
+            $httpClient.Dispose()
+            # Accept 200, 401, 403 as healthy; reject 500+ as server error
+            if ($statusCode -lt 500) {
+                $dashOk = $true
+                break
             }
-            $response = Invoke-RestMethod -Uri "http://localhost:$($script:DashboardPort)/api/status" `
-                -Headers $headers -TimeoutSec 2 -ErrorAction Stop
-            $dashOk = $true
-            break
+            Start-Sleep -Seconds 1
         }
         catch {
+            if ($httpClient) { $httpClient.Dispose() }
             Start-Sleep -Seconds 1
         }
     }
 
     if ($dashOk) {
+        # Resolve the real python PID via port listening
+        try {
+            $dashPid = Get-NetTCPConnection -LocalPort $script:DashboardPort -State Listen -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty OwningProcess -First 1
+        } catch {}
+        if ($dashPid) {
+            Set-Content -Path $pidFile -Value $dashPid -NoNewline
+        }
         Write-Ok "Dashboard healthy at http://localhost:$($script:DashboardPort) (PID $dashPid)"
+        $script:DashboardHealthy = $true
         Check-Tunnel
     }
     else {
-        Write-Warn "Dashboard did not respond in 60s — check $logFile"
-        Write-Info "Start manually: $venvPython -m uvicorn api:app --port $($script:DashboardPort)"
+        Write-Warn "Dashboard did not respond in 180s — check $errorLog"
+        $dashDir = Join-Path $script:InstallDir "dashboard"
+        Write-Info "Start manually: cd `"$dashDir`" && `"$venvPython`" api.py --port $($script:DashboardPort) --project-dir `"$($script:InstallDir)`""
+        $script:DashboardHealthy = $false
     }
 }
 
@@ -111,13 +151,27 @@ function Publish-Skills {
 
     Write-Header "9b. Publishing skills to backend"
 
+    if (-not $script:DashboardHealthy) {
+        Write-Warn "Dashboard not healthy — skipping skill sync (run 'ostwin sync-skills' later)"
+        return
+    }
+
     $syncScript = Join-Path $script:InstallDir ".agents\sync-skills.sh"
     $syncScriptPs1 = Join-Path $script:InstallDir ".agents\sync-skills.ps1"
+
+    # Run skill sync in background to avoid blocking the installer (~15 min on CPU)
+    $logsDir = Join-Path $script:InstallDir "logs"
+    $skillLogFile = Join-Path $logsDir "sync-skills.log"
 
     if (Test-Path $syncScriptPs1) {
         $env:OSTWIN_HOME = $script:InstallDir
         $env:DASHBOARD_PORT = $script:DashboardPort
-        & pwsh -NoProfile -File $syncScriptPs1 --install-from (Join-Path $script:InstallDir ".agents")
+        $installFrom = Join-Path $script:InstallDir ".agents"
+        $batFile = Join-Path $logsDir "_sync-skills.cmd"
+        $pwshExe = (Get-Command pwsh).Source
+        Set-Content -Path $batFile -Value "@echo off`r`n`"$pwshExe`" -NoProfile -File `"$syncScriptPs1`" -InstallFrom `"$installFrom`" >`"$skillLogFile`" 2>&1" -Encoding ASCII
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$batFile`"" -WindowStyle Hidden
+        Write-Ok "Skill sync started in background — log: $skillLogFile"
     }
     elseif ((Test-Path $syncScript) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
         $env:OSTWIN_HOME = $script:InstallDir

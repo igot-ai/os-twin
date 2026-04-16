@@ -952,17 +952,21 @@ switch ($Command) {
                 $proc = Get-Process -Id $dashPid -ErrorAction Stop
                 Write-Host "Stopping dashboard (PID $dashPid)..."
                 if ($forceStop) {
-                    Stop-Process -Id $dashPid -Force
+                    # Force kill entire process tree immediately
+                    & taskkill /F /T /PID $dashPid 2>$null | Out-Null
                 }
                 else {
-                    Stop-Process -Id $dashPid
-                    # Wait up to 5s for graceful shutdown
+                    # Graceful: send termination signal, wait up to 5s
+                    Stop-Process -Id $dashPid -ErrorAction SilentlyContinue
                     for ($w = 0; $w -lt 5; $w++) {
                         try { $null = Get-Process -Id $dashPid -ErrorAction Stop; Start-Sleep -Seconds 1 }
                         catch { break }
                     }
-                    # Force kill if still running
-                    try { Stop-Process -Id $dashPid -Force -ErrorAction SilentlyContinue } catch { }
+                    # Force kill tree if still alive
+                    try {
+                        $null = Get-Process -Id $dashPid -ErrorAction Stop
+                        & taskkill /F /T /PID $dashPid 2>$null | Out-Null
+                    } catch {}
                 }
                 Write-Host ([char]0x2713 + " Dashboard stopped")
             }
@@ -975,14 +979,35 @@ switch ($Command) {
             Write-Host "No dashboard PID file found"
         }
 
-        # Stop channel processes
+        # Stop channel processes — check both legacy and current PID file locations
         $channelPidFile = Join-Path $OstwinHome "channels.pid"
-        if (Test-Path $channelPidFile) {
-            $channelPid = (Get-Content $channelPidFile -Raw).Trim()
+        $channelPidFileAlt = Join-Path $OstwinHome ".agents\channel.pid"
+        $chanPid = $null
+        foreach ($cpf in @($channelPidFile, $channelPidFileAlt)) {
+            if (Test-Path $cpf) {
+                $chanPid = (Get-Content $cpf -Raw).Trim()
+                $channelPidFile = $cpf
+                break
+            }
+        }
+        if ($chanPid) {
             try {
-                $proc = Get-Process -Id $channelPid -ErrorAction Stop
-                Write-Host "Stopping channels (PID $channelPid)..."
-                Stop-Process -Id $channelPid -Force
+                $proc = Get-Process -Id $chanPid -ErrorAction Stop
+                Write-Host "Stopping channels (PID $chanPid)..."
+                if ($forceStop) {
+                    & taskkill /F /T /PID $chanPid 2>$null | Out-Null
+                }
+                else {
+                    Stop-Process -Id $chanPid -ErrorAction SilentlyContinue
+                    for ($w = 0; $w -lt 5; $w++) {
+                        try { $null = Get-Process -Id $chanPid -ErrorAction Stop; Start-Sleep -Seconds 1 }
+                        catch { break }
+                    }
+                    try {
+                        $null = Get-Process -Id $chanPid -ErrorAction Stop
+                        & taskkill /F /T /PID $chanPid 2>$null | Out-Null
+                    } catch {}
+                }
                 Write-Host ([char]0x2713 + " Channels stopped")
             }
             catch {
@@ -991,9 +1016,9 @@ switch ($Command) {
             Remove-Item $channelPidFile -Force -ErrorAction SilentlyContinue
         }
 
-        # Also try the bash stop script for any additional cleanup
+        # Also try the bash stop script for any additional cleanup (Unix-like only)
         $stopSh = Join-Path $AgentsDir "stop.sh"
-        if ((Test-Path $stopSh) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
+        if ((Test-Path $stopSh) -and (Get-Command bash -ErrorAction SilentlyContinue) -and ($IsLinux -or $IsMacOS)) {
             & bash $stopSh @Arguments 2>$null
         }
 

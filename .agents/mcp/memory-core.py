@@ -10,7 +10,6 @@ Storage:
     {AGENT_OS_ROOT}/.agents/memory/index.json
 """
 
-import fcntl
 import json
 import math
 import os
@@ -18,6 +17,39 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Optional
+
+# Cross-platform file locking
+try:
+    import fcntl
+
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False
+    try:
+        import msvcrt
+
+        _HAS_MSVCRT = True
+    except ImportError:
+        _HAS_MSVCRT = False
+
+
+def _lock_file(f):
+    """Acquire exclusive lock on file handle (cross-platform)."""
+    if _HAS_FCNTL:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+    elif _HAS_MSVCRT:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_file(f):
+    """Release file lock (cross-platform)."""
+    if _HAS_FCNTL:
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    elif _HAS_MSVCRT:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -354,11 +386,11 @@ def publish(
     # Append to ledger with exclusive lock
     ledger = _ledger_path()
     with open(ledger, "a") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        _lock_file(f)
         try:
             f.write(json.dumps(entry) + "\n")
         finally:
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            _unlock_file(f)
 
     # Rebuild index (only publish writes to disk)
     all_entries = _read_ledger()

@@ -19,6 +19,12 @@ function Install-Files {
     [CmdletBinding()]
     param()
 
+    # Suppress PowerShell progress bars (Remove-Item -Recurse shows file-delete progress on Windows)
+    $oldProgressPref = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+
+    try {
+
     Write-Step "Installing OS Twin to $script:InstallDir..."
 
     $agentsDir = Join-Path $script:InstallDir ".agents"
@@ -29,7 +35,7 @@ function Install-Files {
     # Ensure clean slate for core roles
     $rolesDir = Join-Path $agentsDir "roles"
     if (Test-Path $rolesDir) {
-        Remove-Item $rolesDir -Recurse -Force -ErrorAction SilentlyContinue
+        & cmd.exe /c "rd /s /q `"$rolesDir`"" 2>$null
     }
 
     # Sync ScriptDir contents using robocopy (preferred) or Copy-Item
@@ -39,7 +45,7 @@ function Install-Files {
     if (Get-Command robocopy -ErrorAction SilentlyContinue) {
         # robocopy: /E = recurse, /XD = exclude dirs, /XF = exclude files, /NFL /NDL /NJH /NJS = quiet
         $robocopyExclDirs = $excludeDirs + @('mcp')
-        & robocopy $script:ScriptDir $agentsDir /E /XD $robocopyExclDirs /XF $excludeFiles /NFL /NDL /NJH /NJS /R:1 /W:1 2>$null
+        & robocopy $script:ScriptDir $agentsDir /E /XD $robocopyExclDirs /XF $excludeFiles /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
         # robocopy returns non-zero on success (1 = files copied, 0 = no changes)
         # Only exit codes >= 8 are actual errors
     }
@@ -89,6 +95,11 @@ function Install-Files {
 
     # Make scripts executable (Windows doesn't need chmod, but mark .ps1 files)
     Write-Ok "Files installed"
+
+    } finally {
+        # Restore progress preference even if an exception occurred
+        $ProgressPreference = $oldProgressPref
+    }
 }
 
 # ─── Internal helpers ────────────────────────────────────────────────────────
@@ -108,12 +119,15 @@ function Seed-McpConfig {
     if (Test-Path $srcConfigJson) { $seedSrc = $srcConfigJson }
     elseif (Test-Path $srcMcpConfigJson) { $seedSrc = $srcMcpConfigJson }
 
+    # Ensure mcp dir exists
+    if (-not (Test-Path $mcpDir)) {
+        New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
+    }
+
+    # Seed or update config.json
     if (-not (Test-Path $mcpConfig)) {
         if ($seedSrc) {
             Write-Step "Seeding mcp/config.json (first install)..."
-            if (-not (Test-Path $mcpDir)) {
-                New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
-            }
             Copy-Item -Path $seedSrc -Destination $mcpConfig
             Write-Ok "mcp/config.json seeded from $(Split-Path $seedSrc -Leaf)"
         }
@@ -155,14 +169,17 @@ function Seed-McpConfig {
                 }
             }
         }
+    }
 
-        # Sync MCP server scripts
-        $mcpSrcDir = Join-Path $script:ScriptDir "mcp"
-        foreach ($ext in @("*.py", "*.sh", "requirements.txt")) {
+    # Always sync MCP server scripts (.py, .sh, requirements.txt)
+    $mcpSrcDir = Join-Path $script:ScriptDir "mcp"
+    if (Test-Path $mcpSrcDir) {
+        foreach ($ext in @("*.py", "*.sh", "*.json", "requirements.txt")) {
             Get-ChildItem -Path $mcpSrcDir -Filter $ext -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -ne "config.json" } |
                 ForEach-Object { Copy-Item -Path $_.FullName -Destination $mcpDir -Force }
         }
-        Write-Ok "mcp/ preserved (scripts + catalog updated, new servers merged)"
+        Write-Ok "mcp/ scripts synced"
     }
 }
 
@@ -184,7 +201,7 @@ function Sync-Amem {
             New-Item -ItemType Directory -Path $amemDst -Force | Out-Null
         }
         if (Get-Command robocopy -ErrorAction SilentlyContinue) {
-            & robocopy $amemSrc $amemDst /E /XD '__pycache__' '.memory' /XF '*.pyc' /NFL /NDL /NJH /NJS /R:1 /W:1 2>$null
+            & robocopy $amemSrc $amemDst /E /XD '__pycache__' '.memory' /XF '*.pyc' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
         }
         else {
             Copy-Item -Path "$amemSrc\*" -Destination $amemDst -Recurse -Force -ErrorAction SilentlyContinue
@@ -285,12 +302,12 @@ function Sync-Dashboard {
         Write-Step "Syncing dashboard from $dashSrc (override)..."
         $dashDst = Join-Path $script:InstallDir "dashboard"
         if (Test-Path $dashDst) {
-            Remove-Item $dashDst -Recurse -Force
+            & cmd.exe /c "rd /s /q `"$dashDst`"" 2>$null
         }
         New-Item -ItemType Directory -Path $dashDst -Force | Out-Null
 
         if (Get-Command robocopy -ErrorAction SilentlyContinue) {
-            & robocopy $dashSrc $dashDst /E /XD '__pycache__' /XF '*.pyc' '.DS_Store' /NFL /NDL /NJH /NJS /R:1 /W:1 2>$null
+            & robocopy $dashSrc $dashDst /E /XD '__pycache__' 'node_modules' '.next' /XF '*.pyc' '.DS_Store' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
         }
         else {
             Copy-Item -Path "$dashSrc\*" -Destination $dashDst -Recurse -Force
