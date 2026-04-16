@@ -431,6 +431,44 @@ async def get_memory_graph_image(
     return StreamingResponse(io.BytesIO(png_bytes), media_type="image/png")
 
 
+@router.get("/api/amem/{plan_id}/tree", responses={404: {"description": "Not found"}})
+async def get_memory_tree(
+    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
+) -> dict:
+    """Get a tree-like directory structure of all memory notes."""
+    mem_dir = _resolve_memory_dir(plan_id)
+    notes_dir = mem_dir / "notes"
+    notes = _load_notes(notes_dir)
+
+    if not notes:
+        return {"tree": "(empty)", "total": 0}
+
+    # Build nested dict from note paths
+    root: dict = {}
+    for note in sorted(notes, key=lambda n: n.get("relativePath", "")):
+        rel = note.get("relativePath", note.get("path", "unfiled"))
+        parts = [p for p in rel.replace("\\", "/").split("/") if p]
+        node = root
+        for part in parts:
+            node = node.setdefault(part, {})
+
+    # Render as tree string
+    def _render(node: dict, prefix: str = "") -> list[str]:
+        lines = []
+        items = list(node.items())
+        for i, (name, children) in enumerate(items):
+            last = i == len(items) - 1
+            connector = "\u2514\u2500\u2500 " if last else "\u251c\u2500\u2500 "
+            lines.append(f"{prefix}{connector}{name}")
+            if children:
+                ext = "    " if last else "\u2502   "
+                lines.extend(_render(children, prefix + ext))
+        return lines
+
+    tree_str = "\n".join(_render(root))
+    return {"tree": tree_str, "total": len(notes)}
+
+
 @router.get("/api/amem/{plan_id}/notes", responses={404: {"description": "Not found"}})
 async def list_memory_notes(
     plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
