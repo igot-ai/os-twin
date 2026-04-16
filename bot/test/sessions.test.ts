@@ -5,6 +5,7 @@ import os from 'os';
 import { 
   getSession, 
   clearSession, 
+  clearChatHistory,
   setMode, 
   setPlan, 
   setWorkingDir,
@@ -281,6 +282,63 @@ describe('sessions', () => {
       const data = JSON.parse(raw);
       expect(data['telegram:u1']).to.exist;
       expect(data['telegram:u1'].pendingAttachments).to.be.undefined;
+    });
+  });
+
+  // ── clearChatHistory ──────────────────────────────────────────
+
+  describe('clearChatHistory', () => {
+    it('clears only chat history, preserving activePlanId', () => {
+      setPlan('u1', 'telegram', 'my-plan');
+      const s = getSession('u1', 'telegram');
+      s.chatHistory.push({ role: 'user', content: 'hello' });
+      s.chatHistory.push({ role: 'assistant', content: 'hi' });
+
+      clearChatHistory('u1', 'telegram');
+
+      const after = getSession('u1', 'telegram');
+      expect(after.chatHistory).to.deep.equal([]);
+      expect(after.activePlanId).to.equal('my-plan');
+    });
+
+    it('does not affect other users', () => {
+      const s1 = getSession('u1', 'telegram');
+      s1.chatHistory.push({ role: 'user', content: 'msg1' });
+      const s2 = getSession('u2', 'telegram');
+      s2.chatHistory.push({ role: 'user', content: 'msg2' });
+
+      clearChatHistory('u1', 'telegram');
+
+      expect(getSession('u1', 'telegram').chatHistory).to.have.lengthOf(0);
+      expect(getSession('u2', 'telegram').chatHistory).to.have.lengthOf(1);
+    });
+  });
+
+  // ── Chat history persistence ──────────────────────────────────
+
+  describe('chatHistory persistence', () => {
+    it('persists chat history to disk', () => {
+      const s = getSession('u1', 'telegram');
+      s.chatHistory.push({ role: 'user', content: 'test message' });
+      s.chatHistory.push({ role: 'assistant', content: 'test reply' });
+
+      flushSessionsSync();
+
+      const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      expect(data['telegram:u1'].chatHistory).to.have.lengthOf(2);
+      expect(data['telegram:u1'].chatHistory[0].role).to.equal('user');
+      expect(data['telegram:u1'].chatHistory[1].content).to.equal('test reply');
+    });
+
+    it('survives session reload', () => {
+      const s = getSession('u1', 'telegram');
+      s.chatHistory.push({ role: 'user', content: 'persistent msg' });
+      flushSessionsSync();
+
+      // Read raw and verify
+      const raw = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+      expect(raw['telegram:u1'].chatHistory[0].content).to.equal('persistent msg');
     });
   });
 });

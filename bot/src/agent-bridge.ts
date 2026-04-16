@@ -690,6 +690,11 @@ interface CachedContext {
 const CONTEXT_CACHE_TTL_MS = 15_000; // 15 seconds
 let _contextCache: CachedContext | null = null;
 
+/** Invalidate the context cache. Exported for testing. */
+export function invalidateContextCache(): void {
+  _contextCache = null;
+}
+
 async function getContextCached(): Promise<{ plans: any; rooms: any }> {
   if (_contextCache && Date.now() - _contextCache.fetchedAt < CONTEXT_CACHE_TTL_MS) {
     return { plans: _contextCache.plans, rooms: _contextCache.rooms };
@@ -745,84 +750,77 @@ export async function askAgent(
   ctx?: AgentContext,
 ): Promise<AgentResponse> {
   const pendingAttachments: Array<{ buffer: Buffer; name: string }> = [];
+
   if (!config.GOOGLE_API_KEY) {
     return { text: '❌ `GOOGLE_API_KEY` is not set in the bot environment.' };
   }
 
-  // Default context for backward compat
   const agentCtx: AgentContext = ctx || { userId: 'unknown', platform: 'unknown' };
-
-  // Load conversation history from session
   const session = getSession(agentCtx.userId, agentCtx.platform);
+
+  // ── Fast path: skip Gemini for trivial messages ──
+  const hasAttachments = agentCtx.attachments && agentCtx.attachments.length > 0;
+  if (!hasAttachments) {
+    const trivialType = detectTrivial(question);
+    if (trivialType) {
+      const responses = TRIVIAL_RESPONSES[trivialType] || ['Got it.'];
+      const reply = responses[Math.floor(Math.random() * responses.length)];
+      session.chatHistory.push({ role: 'user', content: question });
+      session.chatHistory.push({ role: 'assistant', content: reply });
+      if (session.chatHistory.length > MAX_PERSISTED_MESSAGES) {
+        session.chatHistory.splice(0, session.chatHistory.length - MAX_PERSISTED_MESSAGES);
+      }
+      persistAfterMessage();
+      return { text: reply };
+    }
+  }
+
+  // ── Load conversation history ──
   const recentHistory = session.chatHistory.slice(-MAX_HISTORY_MESSAGES);
   const geminiHistory = toGeminiHistory(recentHistory);
 
-  // Gather lightweight context in parallel
-  const [plansData, roomsData] = await Promise.all([
-    api.getPlans(),
-    api.getRooms(),
-  ]);
-
-  const plansText = plansData.plans.length
-    ? plansData.plans
-        .map((p: any) => {
-          const pct = p.pct_complete != null ? `${p.pct_complete}%` : p.status;
-          return `- **${p.title}** (${p.plan_id}) — ${pct}, ${p.epic_count || 0} epics`;
-        })
-        .join('\n')
-    : 'No plans found.';
-
-  const roomsText = roomsData.rooms.length
-    ? roomsData.rooms
-        .map((r: any) => `- ${r.room_id}: ${r.epic_ref || 'N/A'} — status: ${r.status}`)
-        .join('\n')
-    : 'No active war-rooms.';
-
-  // Build referenced message context if provided
+  // ── Build system prompt (lazy context — tools fetch details on demand) ──
   const referenceContext = agentCtx.referencedMessageContent
     ? `\n\n## Referenced Message\nThe user is replying to this message:\n"${agentCtx.referencedMessageContent}"`
     : '';
 
-  // Build attachment context so the AI knows files were sent
   const attachmentContext = agentCtx.attachments?.length
     ? `\n\n## Attached Files\nThe user has attached ${agentCtx.attachments.length} file(s) with this message:\n` +
       agentCtx.attachments.map(a => `- ${a.name} (${a.contentType || 'unknown type'})`).join('\n') +
-      `\nThese files are staged and will be automatically linked to any plan you create. If the user is asking to build something, call create_plan — the staged files will be used as reference material.`
+      `\nThese files are staged and will be automatically linked to any plan you create.`
     : '';
 
   const activePlanContext = session.activePlanId
     ? `\n\n## Active Plan\nThe user is currently working on plan: **${session.activePlanId}**. When they say "the plan", "this plan", or "it", they mean this plan.`
     : '';
 
+  // Fetch cached context — only a summary line, not full data dump
+  const { plans: plansData, rooms: roomsData } = await getContextCached();
+  const planCount = plansData.plans?.length || 0;
+  const activeRooms = roomsData.rooms?.filter((r: any) => !['passed', 'failed-final'].includes(r.status))?.length || 0;
+  const contextSummary = `You have access to ${planCount} plan(s) and ${activeRooms} active war-room(s). Use list_plans or get_war_room_status tools to get details when needed.`;
+
   const systemPrompt = `You are OS Twin, an autonomous AI assistant that manages software projects through the Ostwin multi-agent war-room orchestrator.
 
-You have TWO capabilities:
-1. **Answer questions** about existing projects, plans, war-rooms, and agent status.
-2. **Take actions** by calling the available tools.
+You can ANSWER QUESTIONS and TAKE ACTIONS by calling tools. You have 12 tools available.
 
-Available tools: create plans, refine plans, list plans, check status, launch plans, resume failed plans, read war-room logs, check system health, search for skills, view plan assets/artifacts, and view agent memories.
+RULES:
+- BUILD/CREATE something new → create_plan
+- MODIFY/REFINE an existing plan → refine_plan
+- STATUS/PROGRESS queries → list_plans or get_war_room_status
+- LAUNCH/START a plan → launch_plan
+- RESUME a failed plan → resume_plan
+- LOGS/MESSAGES from agents → get_logs
+- SYSTEM HEALTH → get_health
+- FIND/SEARCH skills → search_skills
+- ASSETS/ARTIFACTS/FILES → get_plan_assets
+- MEMORIES/KNOWLEDGE → get_memories
+- Be concise (1-3 paragraphs). Present tool results clearly.
+- For status questions, ALWAYS use tools — don't guess from context.
+- If user attached files + wants to build something → call create_plan.
 
-IMPORTANT RULES:
-- When the user asks to BUILD, MAKE, CREATE, or DEVELOP something NEW → call create_plan with their idea.
-- When the user asks to ADD, CHANGE, UPDATE, MODIFY, or REFINE an existing plan → call refine_plan with the plan_id and instruction.
-- When the user asks about STATUS, PROGRESS, or WHAT'S RUNNING → call list_plans or get_war_room_status.
-- When the user asks to LAUNCH, RUN, START, or EXECUTE a plan → call launch_plan.
-- When the user asks to RESUME, RETRY, or RE-RUN a failed plan → call resume_plan.
-- When the user asks about LOGS, MESSAGES, or what agents are SAYING → call get_logs.
-- When the user asks about HEALTH, SYSTEM STATUS, or if things are RUNNING → call get_health.
-- When the user asks to FIND, SEARCH, or DISCOVER skills → call search_skills.
-- When the user asks about ASSETS, ARTIFACTS, FILES, OUTPUTS, or DELIVERABLES of a plan → call get_plan_assets.
-- When the user asks about MEMORIES, what agents LEARNED, KNOWLEDGE, or NOTES saved → call get_memories.
-- When answering questions, be concise (1-3 paragraphs for chat).
-- Always present tool results in a user-friendly format with relevant details.
-- If the user has attached files and is asking to build something, ALWAYS call create_plan — the files will be incorporated automatically.
-- NEVER treat a status question as a plan refinement instruction. If unsure, ask the user to clarify.
-
-## Current Plans
-${plansText}
-
-## Active War-Rooms
-${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
+## System Context
+${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
 
   try {
     const genAI = new GoogleGenerativeAI(config.GOOGLE_API_KEY);
@@ -831,19 +829,18 @@ ${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
       tools: [{ functionDeclarations: toolDeclarations }],
     });
 
-    // Start a chat with conversation history and system instruction
     const chat = model.startChat({
       history: geminiHistory,
       systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
     });
 
-    // Wrap the entire Gemini interaction in a timeout
+    // ── Gemini interaction with timeouts ──
     const AGENT_TIMEOUT_MS = 25_000;
     const TOOL_TIMEOUT_MS = 10_000;
 
-    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+    const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
       Promise.race([
-        promise,
+        p,
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms),
         ),
@@ -851,43 +848,35 @@ ${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
 
     const agentStart = Date.now();
 
-    // First turn: send user's question
     let result = await withTimeout(chat.sendMessage(question), AGENT_TIMEOUT_MS, 'Gemini');
     let response = result.response;
 
-    // Function-calling loop: execute tools until the model produces a text response
+    // Function-calling loop with timeout + retry
     const MAX_TOOL_ROUNDS = 5;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      if (Date.now() - agentStart > AGENT_TIMEOUT_MS) {
-        console.warn(`[BRIDGE] Agent timeout after ${round} tool rounds`);
+      const elapsed = Date.now() - agentStart;
+      if (elapsed > AGENT_TIMEOUT_MS) {
+        console.warn(`[BRIDGE] Agent timeout after ${round} tool rounds (${elapsed}ms)`);
         break;
       }
 
       const calls = response.functionCalls();
       if (!calls || calls.length === 0) break;
 
-      // Execute all tool calls in parallel with per-tool timeout
+      // Execute tools in parallel with retry on transient failures
       const toolResults = await Promise.all(
-        calls.map((call) =>
-          withTimeout(
-            executeTool(call, agentCtx, pendingAttachments),
-            TOOL_TIMEOUT_MS,
-            `tool:${call.name}`,
-          ).catch((err) => ({
-            name: call.name,
-            response: { error: err.message } as Record<string, unknown>,
-          })),
-        ),
+        calls.map((call) => executeToolWithRetry(call, agentCtx, pendingAttachments, TOOL_TIMEOUT_MS)),
       );
 
-      // Send function responses back to the model
+      // Send tool results back to Gemini
+      const remainingMs = Math.max(5000, AGENT_TIMEOUT_MS - (Date.now() - agentStart));
       result = await withTimeout(
         chat.sendMessage(
           toolResults.map((r) => ({
             functionResponse: { name: r.name, response: r.response },
           })),
         ),
-        AGENT_TIMEOUT_MS - (Date.now() - agentStart),
+        remainingMs,
         'Gemini',
       );
       response = result.response;
@@ -896,7 +885,7 @@ ${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
     const answer = response.text?.();
     if (!answer) return { text: '⚠️ AI returned an empty response.' };
 
-    // Persist conversation turn (full answer, not truncated)
+    // Persist conversation turn
     session.chatHistory.push({ role: 'user', content: question });
     session.chatHistory.push({ role: 'assistant', content: answer });
     if (session.chatHistory.length > MAX_PERSISTED_MESSAGES) {
