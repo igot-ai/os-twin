@@ -24,7 +24,7 @@ export default function TestConnectionButton({ version }: TestConnectionButtonPr
     setResult(null);
     try {
       const data = await apiPost<TestResult>(
-        `/models/${version.split('/').map(encodeURIComponent).join('/')}/test`,
+        `/models/${version}/test`,
         {}
       );
       setResult(data);
@@ -45,7 +45,7 @@ export default function TestConnectionButton({ version }: TestConnectionButtonPr
         onClick={handleTest}
         disabled={loading}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-        style={{ 
+        style={{
           background: 'transparent',
           border: '1px solid var(--color-border)',
           color: 'var(--color-text-main)',

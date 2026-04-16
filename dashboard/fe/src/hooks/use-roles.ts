@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 import { Role } from '@/types';
 import { apiPost, apiPut, apiDelete } from '@/lib/api-client';
+import type { ModelInfo } from '@/types/settings';
 
 export function useRoles() {
   const { data, error, mutate, isLoading } = useSWR<Role[]>('/roles');
@@ -21,10 +22,35 @@ export function useRoles() {
 }
 
 export function useModelRegistry() {
-  const { data, error, isLoading } = useSWR<Record<string, { id: string; context_window: string; tier: string }[]>>('/models/registry');
+  const { data, error, isLoading } = useSWR<Record<string, ModelInfo[]>>(
+    '/models/registry',
+  );
+
+  // Flat list of all models for populating ModelSelect
+  const allModels: ModelInfo[] = data
+    ? Object.values(data).flat()
+    : [];
+
+  // Provider-keyed map: provider_id → first logo/name found
+  const providers: Record<string, { name: string; logo_url: string }> = {};
+  if (data) {
+    for (const models of Object.values(data)) {
+      for (const m of models) {
+        const pid = m.provider_id || '_other';
+        if (!providers[pid]) {
+          providers[pid] = {
+            name: pid,
+            logo_url: m.logo_url || `https://models.dev/logos/${pid}.svg`,
+          };
+        }
+      }
+    }
+  }
 
   return {
     registry: data,
+    allModels,
+    providers,
     isLoading,
     isError: error,
   };

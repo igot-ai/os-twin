@@ -133,8 +133,18 @@ def get_model_registry_from_configured() -> Dict[str, List[dict]]:
 
             cost = model_data.get("cost", {})
 
+            # Companion models (google-vertex/*, google-vertex-anthropic/*) already
+            # have the companion-provider prefix baked into their model_id key, so
+            # they must be kept as-is.  All other providers need the
+            # "provider_id/model_id" composite so the registry id is routable
+            # (e.g. "poe/topazlabs-co/topazlabs", "anthropic/claude-opus-4-6").
+            if model_data.get("companion_provider"):
+                registry_id = model_id  # already like "google-vertex/gemini-3-flash"
+            else:
+                registry_id = f"{provider_id}/{model_id}"
+
             model_entry = {
-                "id": model_id,
+                "id": registry_id,
                 "label": model_data.get("name", model_id),
                 "context_window": ctx_str,
                 "tier": _classify_tier(model_data),

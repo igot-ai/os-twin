@@ -5,11 +5,13 @@ import useSWR, { useSWRConfig } from 'swr';
 import { Role } from '@/types';
 import { apiPost, apiPut } from '@/lib/api-client';
 import { ModelSelect } from '@/components/settings/ModelSelect';
-import { useConfiguredModels } from '@/hooks/use-configured-models';
+import type { ModelInfo } from '@/types/settings';
+
 import SkillChipInput from './SkillChipInput';
 import McpSelector from './McpSelector';
 import TestConnectionButton from './TestConnectionButton';
 import { useModelRegistry, useRoleDependencies } from '@/hooks/use-roles';
+
 
 interface RoleEditorPanelProps {
   role?: Role;
@@ -20,8 +22,7 @@ interface RoleEditorPanelProps {
 
 export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }: RoleEditorPanelProps) {
   const { mutate } = useSWRConfig();
-  const { registry } = useModelRegistry();
-  const { allModels, providers: configuredProviders } = useConfiguredModels();
+  const { registry, allModels, providers: registryProviders } = useModelRegistry();
   const { data: apiKeysStatus, isLoading: isLoadingKeys } = useSWR<Record<string, boolean>>('/providers/api-keys');
   const { dependencies } = useRoleDependencies(role?.id || '');
   const [activeTab, setActiveTab] = useState<'config' | 'dependencies'>('config');
@@ -88,7 +89,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
   // is active.
   const normalizedRegistry = useMemo(() => {
     if (!registry) return null;
-    const normalized: Record<string, { id: string; context_window: string; tier: string }[]> = {};
+    const normalized: Record<string, ModelInfo[]> = {};
     Object.entries(registry).forEach(([provider, models]) => {
       normalized[provider.toLowerCase()] = models;
     });
@@ -264,7 +265,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
                   });
                 }}
                 models={allModels}
-                providers={configuredProviders}
+                providers={registryProviders}
                 placeholder="Search models or providers..."
               />
               {errors.version && <p className="text-[10px] font-bold text-red-500 px-1">{errors.version}</p>}

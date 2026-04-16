@@ -87,7 +87,7 @@ export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onE
     if (!registry) return {};
     const meta: Record<string, { tier: string; context_window: string }> = {};
     Object.values(registry).flat().forEach(m => {
-      meta[m.id] = { tier: m.tier, context_window: m.context_window };
+      meta[m.id] = { tier: m.tier ?? '', context_window: m.context_window ?? '' };
     });
     return meta;
   }, [registry]);

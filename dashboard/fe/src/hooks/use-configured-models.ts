@@ -83,8 +83,14 @@ function toModelInfo(
   modelId: string,
   model: ConfiguredModel,
 ): ModelInfo {
+  // Companion models (google-vertex/*, google-vertex-anthropic/*) already carry
+  // the companion-provider prefix in their modelId key — do not add providerId on
+  // top.  All other providers need the "providerId/modelId" composite to match
+  // what the /api/models/registry endpoint (and the test endpoint) expect.
+  const registryId = model.companion_provider ? modelId : `${providerId}/${modelId}`;
+
   return {
-    id: modelId,
+    id: registryId,
     label: model.name,
     context_window: model.limit?.context
       ? formatContextWindow(model.limit.context)
