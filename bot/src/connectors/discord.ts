@@ -292,7 +292,10 @@ export class DiscordConnector implements Connector {
             });
 
             // Build reply with optional file attachments (e.g. memory graph)
-            const replyOptions: any = { content: result.text };
+            const discordText = result.text.length > 1900
+              ? result.text.slice(0, 1900) + '\n\n*…(truncated)*'
+              : result.text;
+            const replyOptions: any = { content: discordText };
             if (result.attachments?.length) {
               const { AttachmentBuilder } = await import('discord.js');
               replyOptions.files = result.attachments.map(
