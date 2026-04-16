@@ -358,31 +358,6 @@ export default function RolesConfigTab() {
                         </div>
                       )}
                     </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-text-faint uppercase tracking-wider block mb-1">
-                        Budget (tokens)
-                      </label>
-                      <input
-                        type="number"
-                        min="1000"
-                        max="10000000"
-                        value={cfg.budget_tokens_max ?? ''}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          if (!isNaN(val) && val >= 1000 && val <= 10000000) {
-                            updateRoleField(role.name, 'budget_tokens_max', val);
-                          }
-                        }}
-                        placeholder="1k-10M"
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                      />
-                      {provenance.budget_tokens_max && (
-                        <div className="mt-1">
-                          <ProvenanceChip source={provenance.budget_tokens_max} />
-                        </div>
-                      )}
-                    </div>
                   </div>
 
                   <div>

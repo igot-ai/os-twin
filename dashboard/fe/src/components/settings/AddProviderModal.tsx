@@ -14,28 +14,13 @@ interface AvailableProvider {
 }
 
 /**
- * Provider IDs that can be added through this modal.
- * All others are shown greyed-out with a "coming soon" label.
- *
- * google, anthropic, and openai are excluded because they have
- * dedicated primary cards on the settings page.
- */
-const ALLOWED_PROVIDER_IDS = new Set([
-  'zai',
-  'lmstudio',
-  'moonshotai',
-  'openrouter',
-  'deepseek',
-  'xai',
-  'azure',
-]);
-
-/**
  * Provider IDs that have dedicated configuration cards on the settings page.
- * These are hidden entirely from the "Add Provider" browser.
- * 'gemini' is the opencode.json alias for google.
+ * These are hidden entirely from the "Add Provider" browser to avoid duplicates.
  */
-const DEFAULT_PROVIDER_IDS = new Set(['google', 'gemini', 'anthropic', 'openai']);
+const EXCLUDED_PROVIDER_IDS = new Set([
+  'anthropic',
+  'byteplus',
+]);
 
 export interface AddProviderModalProps {
   isOpen: boolean;
@@ -75,8 +60,8 @@ export function AddProviderModal({ isOpen, onClose, onProviderAdded }: AddProvid
   }, [isOpen]);
 
   const filtered = useMemo(() => {
-    // Exclude default providers (google, anthropic, openai) -- they have dedicated cards
-    let list = providers.filter((p) => !DEFAULT_PROVIDER_IDS.has(p.id));
+    // Exclude providers that have dedicated cards on the settings page
+    let list = providers.filter((p) => !EXCLUDED_PROVIDER_IDS.has(p.id));
 
     // Text filter
     if (search.trim()) {
@@ -88,13 +73,8 @@ export function AddProviderModal({ isOpen, onClose, onProviderAdded }: AddProvid
       );
     }
 
-    // Sort: allowed first, then alphabetical within each group
-    return [...list].sort((a, b) => {
-      const aAllowed = ALLOWED_PROVIDER_IDS.has(a.id) ? 0 : 1;
-      const bAllowed = ALLOWED_PROVIDER_IDS.has(b.id) ? 0 : 1;
-      if (aAllowed !== bAllowed) return aAllowed - bAllowed;
-      return a.name.localeCompare(b.name);
-    });
+    // Alphabetical sort
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
   }, [providers, search]);
 
   const handleSelect = (p: AvailableProvider) => {
@@ -182,21 +162,16 @@ export function AddProviderModal({ isOpen, onClose, onProviderAdded }: AddProvid
                 <div className="text-center py-12 text-xs text-slate-400">No providers found</div>
               ) : (
                 <div className="grid grid-cols-1 gap-1">
-                  {filtered.map((p) => {
-                    const isAllowed = ALLOWED_PROVIDER_IDS.has(p.id);
-                    const isDisabled = p.already_configured || !isAllowed;
-
-                    return (
+                  {filtered.map((p) => (
                       <button
                         key={p.id}
                         type="button"
-                        onClick={() => !isDisabled && handleSelect(p)}
-                        disabled={isDisabled}
-                        className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${
-                          isDisabled
-                            ? 'opacity-40 cursor-not-allowed'
-                            : 'hover:bg-blue-50 cursor-pointer'
-                        }`}
+                        onClick={() => !p.already_configured && handleSelect(p)}
+                        disabled={p.already_configured}
+                        className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${p.already_configured
+                          ? 'opacity-40 cursor-not-allowed'
+                          : 'hover:bg-blue-50 cursor-pointer'
+                          }`}
                       >
                         <img
                           src={p.logo_url}
@@ -213,20 +188,17 @@ export function AddProviderModal({ isOpen, onClose, onProviderAdded }: AddProvid
                         </div>
                         {p.already_configured ? (
                           <span className="text-[10px] font-bold text-green-600 flex-shrink-0">ADDED</span>
-                        ) : !isAllowed ? (
-                          <span className="text-[10px] font-medium text-slate-400 flex-shrink-0">coming soon</span>
                         ) : (
                           <span className="material-symbols-outlined text-sm text-slate-300">chevron_right</span>
                         )}
                       </button>
-                    );
-                  })}
+                    ))}
                 </div>
               )}
             </div>
 
             <div className="px-6 py-3 border-t border-slate-100 text-[10px] text-slate-400 text-center">
-              {providers.filter((p) => ALLOWED_PROVIDER_IDS.has(p.id)).length} supported providers &middot; {providers.filter((p) => p.already_configured && !DEFAULT_PROVIDER_IDS.has(p.id)).length} already configured
+              {providers.filter((p) => !EXCLUDED_PROVIDER_IDS.has(p.id)).length} available providers &middot; {providers.filter((p) => p.already_configured && !EXCLUDED_PROVIDER_IDS.has(p.id)).length} already configured
             </div>
           </>
         )}

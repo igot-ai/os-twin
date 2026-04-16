@@ -19,7 +19,6 @@ export interface ProviderCardProps {
   onToggle: (enabled: boolean) => void;
   onModelChange: (model: string) => void;
   onSettingsChange?: (updates: Partial<ProviderSettings>) => void;
-  onTest: () => Promise<{ latency_ms: number }>;
   onVaultClick: () => void;
   onServiceAccountUpload?: (jsonContent: string) => Promise<void>;
   vaultSet: boolean;
@@ -36,7 +35,6 @@ export function ProviderCard({
   onToggle: _onToggle,
   onModelChange: _onModelChange,
   onSettingsChange,
-  onTest,
   onVaultClick,
   onServiceAccountUpload,
   vaultSet,
@@ -52,10 +50,8 @@ export function ProviderCard({
   const vertexLocation = safeProvider.vertex_location ?? 'global';
   const vertexAuthMode: VertexAuthMode = (safeProvider.vertex_auth_mode as VertexAuthMode) || 'service_account';
 
-  const [testing, setTesting] = useState(false);
-  const [latency, setLatency] = useState<number | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // OAuth state
   const [oauthLoading, setOauthLoading] = useState(false);
@@ -86,9 +82,9 @@ export function ProviderCard({
       if (event.data?.type === 'google_oauth_result') {
         if (event.data.status === 'success') {
           setOauthStatus({ authenticated: true, email: event.data.email });
-          setTestError(null);
+          setError(null);
         } else {
-          setTestError('OAuth failed');
+          setError('OAuth failed');
         }
       }
     };
@@ -98,7 +94,7 @@ export function ProviderCard({
 
   const handleOAuthLogin = async () => {
     setOauthLoading(true);
-    setTestError(null);
+    setError(null);
     try {
       const result = await apiPost<{ authorization_url: string; state: string }>(
         '/settings/google/oauth/start',
@@ -112,23 +108,9 @@ export function ProviderCard({
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start OAuth';
-      setTestError(message);
+      setError(message);
     } finally {
       setOauthLoading(false);
-    }
-  };
-
-  const handleTest = async () => {
-    setTesting(true);
-    setTestError(null);
-    try {
-      const result = await onTest();
-      setLatency(result.latency_ms);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Test failed';
-      setTestError(message);
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -140,7 +122,7 @@ export function ProviderCard({
     if (!file) return;
 
     setUploading(true);
-    setTestError(null);
+    setError(null);
     try {
       const content = await file.text();
       // Validate it's valid JSON with expected fields
@@ -157,7 +139,7 @@ export function ProviderCard({
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Invalid service account JSON';
-      setTestError(message);
+      setError(message);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -444,35 +426,18 @@ export function ProviderCard({
 
         {/* ── Status Bar ─────────────────────────────────────────────── */}
         <div className="mt-auto px-6 py-4 bg-slate-900 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              {testing ? (
-                <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-              ) : latency !== null ? (
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              ) : (
-                <div className="w-2 h-2 rounded-full bg-slate-500" />
-              )}
-              <span className="text-[10px] font-mono text-slate-400">
-                {testing ? 'TESTING...' : latency !== null ? `LATENCY: ${latency}ms` : 'READY'}
-              </span>
-            </div>
-            {testError && (
-              <span className="text-[10px] font-mono text-red-400 truncate max-w-xs">{testError}</span>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isEnabled ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+            <span className="text-[10px] font-mono text-slate-400">
+              {isEnabled ? 'READY' : 'INACTIVE'}
+            </span>
+            {error && (
+              <span className="text-[10px] font-mono text-red-400 truncate max-w-xs">{error}</span>
             )}
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-[10px] font-mono text-slate-500 uppercase">
-              MODE: {deploymentMode.toUpperCase()}
-            </span>
-            <button
-              onClick={handleTest}
-              disabled={testing || !isEnabled}
-              className="text-[10px] font-mono text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-            >
-              [RUN TEST]
-            </button>
-          </div>
+          <span className="text-[10px] font-mono text-slate-500 uppercase">
+            MODE: {deploymentMode.toUpperCase()}
+          </span>
         </div>
       </section>
     );
@@ -514,26 +479,11 @@ export function ProviderCard({
           </div>
         </div>
 
-        <div className="mt-auto px-6 py-4 bg-slate-900 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            {testing ? (
-              <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-            ) : latency !== null ? (
-              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            ) : (
-              <div className="w-2 h-2 rounded-full bg-slate-500" />
-            )}
-            <span className="text-[10px] font-mono text-slate-400">
-              {testing ? 'TESTING...' : latency !== null ? `LATENCY: ${latency}ms` : 'READY'}
-            </span>
-          </div>
-          <button
-            onClick={handleTest}
-            disabled={testing || !isEnabled}
-            className="text-[10px] font-mono text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-          >
-            [RUN TEST]
-          </button>
+        <div className="mt-auto px-6 py-4 bg-slate-900 flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${isEnabled ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+          <span className="text-[10px] font-mono text-slate-400">
+            {isEnabled ? 'READY' : 'INACTIVE'}
+          </span>
         </div>
       </section>
     );
@@ -569,26 +519,6 @@ export function ProviderCard({
           </button>
         </div>
 
-        <button
-          onClick={handleTest}
-          disabled={testing || !isEnabled}
-          className="w-full py-2 text-[10px] font-bold uppercase bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors disabled:opacity-50"
-        >
-          {testing ? 'Testing...' : 'Test Connection'}
-        </button>
-
-        {latency !== null && (
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-green-600">check_circle</span>
-            <span className="text-[11px] font-mono text-slate-600">Latency: {latency}ms</span>
-          </div>
-        )}
-        {testError && (
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-red-500">error</span>
-            <span className="text-[11px] font-mono text-red-500">{testError}</span>
-          </div>
-        )}
       </div>
     </div>
   );

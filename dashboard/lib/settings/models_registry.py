@@ -75,8 +75,10 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
         ModelEntry("o3", "o3", "200K", "reasoning"),
         ModelEntry("o4-mini", "o4-mini", "200K", "reasoning"),
     ],
+    # Only google-vertex/* and google-vertex-anthropic/* are kept here.
+    # Gemini API-mode models (gemini/*) come exclusively from the live
+    # models.dev dynamic catalog so they are never stale or bare-ID-qualified.
     "Gemini": [
-        # Vertex AI mode
         ModelEntry(
             "google-vertex/gemini-3.1-pro-preview",
             "Vertex Gemini 3.1 Pro",
@@ -92,47 +94,32 @@ _FALLBACK_CATALOG: Dict[str, List[ModelEntry]] = {
             mode="vertex",
         ),
         ModelEntry(
+            "google-vertex/gemini-3-flash-lite-preview",
+            "Vertex Gemini 3 Flash Lite",
+            "1M",
+            "fast",
+            mode="vertex",
+        ),
+        ModelEntry(
             "google-vertex-anthropic/claude-sonnet-4-6@default",
-            "Claude Sonnet 4.6",
+            "Vertex Claude Sonnet 4.6",
             "200K",
             "balanced",
             mode="vertex",
         ),
         ModelEntry(
             "google-vertex-anthropic/claude-haiku-4-5@20251001",
-            "Claude Haiku 4.5",
+            "Vertex Claude Haiku 4.5",
             "200K",
             "fast",
             mode="vertex",
         ),
         ModelEntry(
             "google-vertex/zai-org/glm-5-maas",
-            "GLM-5",
+            "Vertex GLM-5 MaaS",
             "128K",
             "balanced",
             mode="vertex",
-        ),
-        # Gemini API mode
-        ModelEntry(
-            "gemini/gemini-3.1-pro-preview",
-            "Gemini 3.1 Pro",
-            "1M",
-            "flagship",
-            mode="gemini",
-        ),
-        ModelEntry(
-            "gemini/gemini-3-flash-preview",
-            "Gemini 3 Flash",
-            "1M",
-            "balanced",
-            mode="gemini",
-        ),
-        ModelEntry(
-            "gemini/gemini-3-flash-lite-preview",
-            "Gemini 3 Flash Lite",
-            "1M",
-            "fast",
-            mode="gemini",
         ),
     ],
     "BytePlus": [
@@ -193,10 +180,12 @@ def get_model_registry(
     _DYNAMIC_REPLACES_STATIC: Dict[str, str] = {
         "OpenAI": "GPT",
         "Anthropic": "Claude",
+        "Google": "Gemini",
     }
     _PID_REPLACES_STATIC: Dict[str, str] = {
         "byteplus": "BytePlus",
         "gemini": "Gemini",
+        "google": "Gemini",
         "openai": "GPT",
         "anthropic": "Claude",
     }
@@ -259,7 +248,7 @@ def get_model_registry(
 def _get_static_registry(
     *,
     google_enabled: bool = True,
-    google_mode: str = "vertex",
+    google_mode: str = "vertex",  # kept for API compat; fallback is always vertex
     google_models: Optional[List[str]] = None,
     byteplus_enabled: bool = True,
     byteplus_models: Optional[List[str]] = None,
@@ -268,7 +257,12 @@ def _get_static_registry(
     openai_enabled: bool = True,
     openai_models: Optional[List[str]] = None,
 ) -> Dict[str, List[dict]]:
-    """Legacy static registry builder (fallback only)."""
+    """Static fallback registry builder.
+
+    All Google entries are ``google-vertex/*`` or ``google-vertex-anthropic/*``.
+    Gemini API-mode models are intentionally absent here; they come from the
+    live models.dev dynamic catalog instead.
+    """
     registry: Dict[str, List[dict]] = {}
 
     def _to_dict(m: ModelEntry) -> dict:
@@ -302,14 +296,10 @@ def _get_static_registry(
         if models:
             registry["GPT"] = models
 
-    # Gemini -- filter by deployment mode first, then by allowlist
+    # Gemini (Vertex only) -- all entries are already google-vertex/* or
+    # google-vertex-anthropic/*; no mode filter needed.
     if google_enabled:
-        mode_filtered = [
-            m
-            for m in _FALLBACK_CATALOG["Gemini"]
-            if m.mode is None or m.mode == google_mode
-        ]
-        models = _filter(mode_filtered, google_models)
+        models = _filter(_FALLBACK_CATALOG["Gemini"], google_models)
         if models:
             registry["Gemini"] = models
 
