@@ -64,6 +64,10 @@ for _mod in lib.sh versions.conf detect-os.sh check-deps.sh install-deps.sh \
   source "$INSTALLER_DIR/$_mod"
 done
 
+# Ensure brew/local paths are available BEFORE any dependency checks
+# This prevents "not in PATH" errors when tools are freshly installed
+ensure_brew_paths
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════

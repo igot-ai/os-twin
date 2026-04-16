@@ -56,5 +56,25 @@ ask() {
 
 version_gte() {
   # Returns 0 if $1 >= $2
-  printf '%s\n%s' "$2" "$1" | sort -V | head -n1 | grep -qF "$2"
+  printf '%s\n%s' "$1" | sort -V | head -n1 | grep -qF "$2"
+}
+
+# ─── PATH helpers ────────────────────────────────────────────────────────────
+
+# Ensure brew paths are in current session PATH (call before any brew installs)
+ensure_brew_paths() {
+  if command -v brew &>/dev/null; then
+    local brew_prefix
+    brew_prefix=$(brew --prefix 2>/dev/null || echo "/opt/homebrew")
+    # Add to PATH if not already present
+    if [[ ":$PATH:" != *":${brew_prefix}/bin:"* ]]; then
+      export PATH="${brew_prefix}/bin:${brew_prefix}/sbin:$PATH"
+    fi
+  fi
+  # Also ensure ~/.local/bin is in PATH (for opencode official install)
+  if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+  # Refresh command hash
+  hash -r 2>/dev/null || rehash 2>/dev/null || true
 }
