@@ -1001,23 +1001,33 @@ switch ($Command) {
                 try {
                     $proc = Get-Process -Id $candidatePid -ErrorAction Stop
                     # Verify it's actually a channel process to avoid killing wrong process after PID reuse
-                    $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$candidatePid" -ErrorAction SilentlyContinue).CommandLine
-                    # Must have channel-related path - tight validation to prevent PID reuse attacks
-                    # Accept: (tsx OR node as executable) AND (.agents/channel OR channel.ts/channels.ts OR src/index.ts)
-                    # Use word boundary to avoid false positives like "some_tsx_folder/script.sh"
-                    $hasRuntime = $cmdLine -match "(^|[\s/\\`"\'])(tsx|node)(\.exe)?(\s|$|`")"
-                    $hasChannelPath = $cmdLine -match "\.agents[/\\]channel" -or $cmdLine -match "channels?\.ts" -or $cmdLine -match "src[/\\]index\.ts"
-                    if ($cmdLine -and $hasRuntime -and $hasChannelPath) {
-                        # Valid channel process — use this PID
+                    # Cross-platform: Win32_Process only exists on Windows
+                    $isValidChannel = $true
+                    if ($IsWindows -or (-not $IsLinux -and -not $IsMacOS)) {
+                        # Windows: use tight command-line validation
+                        $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$candidatePid" -ErrorAction SilentlyContinue).CommandLine
+                        # Must have channel-related path - tight validation to prevent PID reuse attacks
+                        # Accept: (tsx OR node as executable) AND (.agents/channel OR channel.ts/channels.ts OR src/index.ts)
+                        # Use word boundary to avoid false positives like "some_tsx_folder/script.sh"
+                        $hasRuntime = $cmdLine -match "(^|[\s/\\`"\'])(tsx|node)(\.exe)?(\s|$|`")"
+                        $hasChannelPath = $cmdLine -match "\.agents[/\\]channel" -or $cmdLine -match "channels?\.ts" -or $cmdLine -match "src[/\\]index\.ts"
+                        if (-not ($cmdLine -and $hasRuntime -and $hasChannelPath)) {
+                            $isValidChannel = $false
+                        }
+                    }
+                    # else: non-Windows - accept if process exists (no tight validation available cross-platform)
+
+                    if ($isValidChannel) {
+                        # Valid channel process - use this PID
                         $chanPid = $candidatePid
                         $channelPidFile = $cpf
                         break
                     }
-                    # Process exists but not a channel process — PID was reused, clean up and continue
+                    # Process exists but not a channel process - PID was reused, clean up and continue
                     Remove-Item $cpf -Force -ErrorAction SilentlyContinue
                     continue
                 } catch {
-                    # PID is numeric but process doesn't exist — stale, clean up and continue
+                    # PID is numeric but process doesn't exist - stale, clean up and continue
                     Remove-Item $cpf -Force -ErrorAction SilentlyContinue
                     continue
                 }

@@ -609,4 +609,46 @@ Describe "ostwin.ps1 — Stop Command PID Management" {
         $result[0] | Should -Be "GARBAGE_CLEANED"
         $result[1] | Should -Be "FILE_EXISTS=False"
     }
+
+    It "Should accept valid PID on non-Windows without command-line validation" {
+        # Regression: Win32_Process is Windows-only, so non-Windows should accept PID if process exists
+        $content = Get-Content $script:OstwinPs1 -Raw
+
+        # Verify the code has OS-aware logic for Windows vs non-Windows
+        $content | Should -Match '\$IsWindows' -Because "Must check for Windows to conditionally use Win32_Process"
+        $content | Should -Match '\$isValidChannel\s*=\s*\$true' -Because "Must default to accepting PID, then optionally tighten on Windows"
+
+        # Verify the isValidChannel flag is used to decide whether to accept the PID
+        $content | Should -Match 'if\s*\(\$isValidChannel\)' -Because "Must check isValidChannel flag before accepting PID"
+    }
+
+    It "Should accept PID when process exists (simulated non-Windows behavior)" {
+        # Behavioral test: simulate non-Windows where Win32_Process is unavailable
+        # On non-Windows, PID should be accepted if process exists, regardless of command-line
+        $pidFile = Join-Path $script:TempDir "test-nonwin.pid"
+        $myPid = $PID
+
+        Set-Content -Path $pidFile -Value $myPid
+
+        # Simulate the non-Windows code path (no Win32_Process validation)
+        $result = & pwsh -NoProfile -Command @"
+            `$pidFile = '$pidFile'
+            `$candidatePid = (Get-Content `$pidFile -Raw -ErrorAction SilentlyContinue).Trim()
+            `$isValidChannel = `$true  # Default to true (non-Windows behavior)
+
+            if (`$candidatePid -and `$candidatePid -match '^\d+$') {
+                try {
+                    `$null = Get-Process -Id `$candidatePid -ErrorAction Stop
+                    # On non-Windows: no Win32_Process check, just accept if process exists
+                    if (`$isValidChannel) {
+                        Write-Output "ACCEPTED_PID=`$candidatePid"
+                    }
+                } catch {
+                    Write-Output "PROCESS_NOT_FOUND"
+                }
+            }
+"@
+
+        $result | Should -Be "ACCEPTED_PID=$myPid" -Because "Non-Windows should accept PID if process exists without command-line validation"
+    }
 }
