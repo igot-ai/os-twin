@@ -1120,7 +1120,6 @@ project_dir = os.environ.get("_PROJECT_DIR")
 mcp_dir = os.path.join(project_dir, '.agents', 'mcp')
 env_mcp_file = os.path.join(mcp_dir, '.env.mcp')
 compiled_config_file = os.path.join(mcp_dir, 'config.json')
-manifest_file = os.path.join(mcp_dir, 'mcp-manifest.json')
 
 sys.path.append(script_dir)
 try:
@@ -1177,25 +1176,9 @@ with open(env_mcp_file, 'w') as f:
     for k, v in sorted(env_vars.items()):
         f.write(f"{k}={v}\n")
 
-# Write mcp-manifest.json (declarative list without secrets)
-manifest = {
-    "mcp": {}
-}
-for name, cfg in compiled_config['mcp'].items():
-    # Strip environment/headers that might contain secrets (though they should be ${ENV_VAR} now)
-    manifest['mcp'][name] = {
-        "type": cfg.get("type", "remote" if "url" in cfg else "local"),
-        "description": f"MCP server {name}"
-    }
-
-with open(manifest_file, 'w') as f:
-    json.dump(manifest, f, indent=2)
-    f.write('\n')
-
 print(f'  ✓ Compiled {len(compiled_config["mcp"])} servers')
 print(f'  ✓ Generated {compiled_config_file}')
 print(f'  ✓ Generated {env_mcp_file}')
-print(f'  ✓ Generated {manifest_file}')
 PYEOF
 
   # ── Resolve placeholders and write .opencode/opencode.json ──

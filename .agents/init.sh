@@ -101,10 +101,6 @@ if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
   cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$TARGET_AGENTS/mcp/mcp-builtin.json" 2>/dev/null || true
 fi
 
-# Note: mcp-config.json is the deploy template — it's read by the compile step
-# from the source repo, but we don't copy it into the project (only config.json
-# is the canonical compiled output). Avoid leaving unresolved {env:VAR} files.
-
 # Copy extension manager script
 if [[ -f "$SCRIPT_DIR/mcp/mcp-extension.sh" ]]; then
   local_src="$(realpath "$SCRIPT_DIR/mcp/mcp-extension.sh" 2>/dev/null || echo "$SCRIPT_DIR/mcp/mcp-extension.sh")"
@@ -123,22 +119,15 @@ for _py_file in vault.py config_resolver.py; do
 done
 
 PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/config.json"
-LEGACY_PROJECT_MCP_CONFIG="$TARGET_AGENTS/mcp/mcp-config.json"
 
 if [[ ! -f "$PROJECT_MCP_CONFIG" ]]; then
-  # Priority: mcp-config.json (deployed format with {env:OSTWIN_PYTHON}/{env:HOME})
-  #         > legacy mcp-config.json
-  #         > mcp-builtin.json (dev format with {env:AGENT_DIR})
-  if [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
-    cp "$SCRIPT_DIR/mcp/mcp-config.json" "$PROJECT_MCP_CONFIG"
-  elif [[ -f "$LEGACY_PROJECT_MCP_CONFIG" ]]; then
-    cp "$LEGACY_PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG"
-  elif [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
+  # Seed from mcp-builtin.json (the canonical source)
+  if [[ -f "$TARGET_AGENTS/mcp/mcp-builtin.json" ]]; then
     cp "$TARGET_AGENTS/mcp/mcp-builtin.json" "$PROJECT_MCP_CONFIG"
   else
     echo '{"mcp":{}}' > "$PROJECT_MCP_CONFIG"
   fi
-  ok "MCP config seeded"
+  ok "MCP config seeded from mcp-builtin.json"
 else
   ok "MCP config exists (will recompile)"
 fi

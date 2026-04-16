@@ -20,6 +20,7 @@ gold-mining/
 .agents/RELEASE.md
 .agents/mcp/mcp-config.json
 .agents/mcp/config.json
+.agents/mcp/mcp-manifest.json
 
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
