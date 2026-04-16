@@ -158,7 +158,7 @@ function getHeaders(contentType: string | null = 'application/json'): Record<str
   return h;
 }
 
-async function fetchJSON(path: string, options: RequestInit = {}): Promise<any> {
+export async function fetchJSON(path: string, options: RequestInit = {}): Promise<any> {
   try {
     const { headers: customHeaders, ...restOptions } = options;
     const res = await fetch(`${config.DASHBOARD_URL}${path}`, {
@@ -543,6 +543,7 @@ const api = {
   shellCommand,
   postComment,
   getEngagement,
+  fetchJSON,
 };
 
 export default api;

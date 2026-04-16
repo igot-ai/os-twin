@@ -104,3 +104,21 @@ export function guessAssetType(filename: string, mimeType?: string): string {
   return 'other';
 }
 
+/**
+ * Detect if a message is a system/status query rather than a plan refinement.
+ * Used to route @mentions to askAgent() even when in editing mode.
+ */
+const AGENT_QUERY_PATTERNS = [
+  /\b(is|are|does|has)\b.+\b(plan|room|war-?room|epic|agent|bot|system)\b.+\b(running|active|done|pass|fail|finish|complet|start|launch|stop)\b/i,
+  /\b(status|progress|health|running|launched?|failed?|errors?)\b.*\b(plan|room|war-?room|epic|agent)\b/i,
+  /\b(plan|room|war-?room|epic|agent)\b.*\b(status|progress|health|running|launched?|failed?|errors?)\b/i,
+  /\bwhat(?:'s| is| are)\b.+\b(status|progress|running|happening)\b/i,
+  /\bhow(?:'s| is| are)\b.+\b(plan|room|war-?room|epic|progress)\b/i,
+  /\b(list|show|check)\b.+\b(plan|room|war-?room|epic|skill|role)\b/i,
+  /\b(search|find|install|remove)\b.+\bskill/i,
+];
+
+export function isAgentQuery(text: string): boolean {
+  return AGENT_QUERY_PATTERNS.some((re) => re.test(text));
+}
+
