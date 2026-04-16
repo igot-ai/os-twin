@@ -43,24 +43,71 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
+  // Google custom model prefix state
+  const GOOGLE_PREFIXES = ['google-vertex', 'google-vertex-anthropic'] as const;
+  const [googleCustomPrefix, setGoogleCustomPrefix] = useState<string>(GOOGLE_PREFIXES[0]);
+
+  // Map dynamic provider_ids to Role provider values
+  const PROVIDER_ID_TO_ROLE: Record<string, Role['provider']> = {
+    google: 'gemini',
+    anthropic: 'claude',
+    openai: 'gpt',
+  };
+
+  // Whether the current version is a known catalog model
+  const isKnownModel = useMemo(
+    () => !!formData.version && allModels.some(m => m.id === formData.version),
+    [allModels, formData.version],
+  );
+
+  // Parse Google custom model name from version
+  const googleCustomModelName = useMemo(() => {
+    if (formData.provider !== 'gemini' || !formData.version || isKnownModel) return '';
+    const v = formData.version;
+    // Check longer prefix first (google-vertex-anthropic before google-vertex)
+    for (const pfx of [...GOOGLE_PREFIXES].sort((a, b) => b.length - a.length)) {
+      if (v.startsWith(pfx + '/')) return v.slice(pfx.length + 1);
+    }
+    return v;
+  }, [formData.version, formData.provider, isKnownModel]);
+
+  // Sync prefix selector when loading existing role with prefixed version
+  useEffect(() => {
+    if (!formData.version) return;
+    for (const pfx of [...GOOGLE_PREFIXES].sort((a, b) => b.length - a.length)) {
+      if (formData.version.startsWith(pfx + '/')) {
+        setGoogleCustomPrefix(pfx);
+        return;
+      }
+    }
+  }, [formData.version]);
+
   // Normalize backend registry keys (Claude -> claude)
+  // Alias "google" <-> "gemini" so lookups work regardless of
+  // whether the dynamic catalog ("Google") or static fallback ("Gemini")
+  // is active.
   const normalizedRegistry = useMemo(() => {
     if (!registry) return null;
     const normalized: Record<string, { id: string; context_window: string; tier: string }[]> = {};
     Object.entries(registry).forEach(([provider, models]) => {
       normalized[provider.toLowerCase()] = models;
     });
+    if (normalized['google'] && !normalized['gemini']) {
+      normalized['gemini'] = normalized['google'];
+    } else if (normalized['gemini'] && !normalized['google']) {
+      normalized['google'] = normalized['gemini'];
+    }
     return normalized;
   }, [registry]);
 
   const defaultProvider = useMemo((): Role['provider'] => {
-    const priority: { key: string; provider: Role['provider'] }[] = [
-      { key: 'Claude', provider: 'claude' },
-      { key: 'Gemini', provider: 'gemini' },
-      { key: 'GPT', provider: 'gpt' },
+    const priority: { keys: string[]; provider: Role['provider'] }[] = [
+      { keys: ['Claude', 'Anthropic'], provider: 'claude' },
+      { keys: ['Google', 'Gemini'], provider: 'gemini' },
+      { keys: ['GPT', 'OpenAI'], provider: 'gpt' },
     ];
     if (apiKeysStatus) {
-      const configured = priority.find(p => apiKeysStatus[p.key]);
+      const configured = priority.find(p => p.keys.some(k => apiKeysStatus[k]));
       if (configured) return configured.provider;
     }
     return 'claude';
@@ -204,9 +251,12 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
               <ModelSelect
                 value={formData.version || ''}
                 onChange={(modelId) => {
-                  // Auto-detect provider from selected model
+                  // Auto-detect provider from selected model, mapping
+                  // dynamic provider_ids (e.g. "google") to Role values
+                  // (e.g. "gemini").
                   const model = allModels.find(m => m.id === modelId);
-                  const detectedProvider = model?.provider_id as Role['provider'] | undefined;
+                  const rawPid = model?.provider_id || '';
+                  const detectedProvider = PROVIDER_ID_TO_ROLE[rawPid] ?? rawPid as Role['provider'];
                   setFormData({
                     ...formData,
                     version: modelId,
@@ -222,17 +272,53 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
 
             <div className="space-y-1.5 mt-3">
               <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Or Custom Model ID</label>
-              <input
-                type="text"
-                placeholder="e.g. my-custom-model or provider/model-name"
-                className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold shadow-sm focus:ring-4 focus:ring-primary/10 transition-all"
-                value={formData.version && !normalizedRegistry?.[formData.provider?.toLowerCase() || defaultProvider]?.some(m => m.id === formData.version) ? formData.version : ''}
-                onChange={e => {
-                  if (e.target.value) {
-                    setFormData({ ...formData, version: e.target.value });
-                  }
-                }}
-              />
+              {formData.provider === 'gemini' ? (
+                /* Google: inline prefix selector + model name input */
+                <div className="flex items-stretch gap-0">
+                  <select
+                    className="px-2.5 py-3 rounded-l-xl border border-r-0 bg-slate-50 text-[11px] font-mono font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary/10"
+                    value={googleCustomPrefix}
+                    onChange={e => {
+                      const pfx = e.target.value;
+                      setGoogleCustomPrefix(pfx);
+                      if (googleCustomModelName) {
+                        setFormData({ ...formData, version: `${pfx}/${googleCustomModelName}` });
+                      }
+                    }}
+                  >
+                    {GOOGLE_PREFIXES.map(pfx => (
+                      <option key={pfx} value={pfx}>{pfx}/</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="e.g. gemini-3-flash-preview"
+                    className="flex-1 p-3 rounded-r-xl border border-l-0 bg-white text-sm font-mono font-semibold shadow-sm focus:ring-4 focus:ring-primary/10 transition-all min-w-0"
+                    value={googleCustomModelName}
+                    onChange={e => {
+                      const name = e.target.value;
+                      if (name) {
+                        setFormData({ ...formData, version: `${googleCustomPrefix}/${name}` });
+                      } else {
+                        setFormData({ ...formData, version: '' });
+                      }
+                    }}
+                  />
+                </div>
+              ) : (
+                /* Non-Google: plain text input */
+                <input
+                  type="text"
+                  placeholder="e.g. my-custom-model or provider/model-name"
+                  className="w-full p-3 rounded-xl border bg-white text-sm font-mono font-semibold shadow-sm focus:ring-4 focus:ring-primary/10 transition-all"
+                  value={!isKnownModel ? formData.version || '' : ''}
+                  onChange={e => {
+                    if (e.target.value) {
+                      setFormData({ ...formData, version: e.target.value });
+                    }
+                  }}
+                />
+              )}
             </div>
             
             <TestConnectionButton version={formData.version || ''} />
