@@ -34,6 +34,20 @@ warn()    { echo -e "    ${YELLOW}[WARN]${NC} $1"; }
 fail()    { echo -e "    ${RED}[FAIL]${NC} $1"; }
 info()    { echo -e "    ${DIM}$1${NC}"; }
 step()    { echo -e "  ${CYAN}→${NC} $1"; }
+ok_time() { echo -e "    ${GREEN}[OK]${NC} $1 ${DIM}($2)${NC}"; }
+
+# ─── Timing helpers ──────────────────────────────────────────────────────────
+
+get_now() {
+  date +%s
+}
+
+print_duration() {
+  local start=$1
+  local end
+  end=$(get_now)
+  echo "$((end - start))s"
+}
 
 # ─── Interactive prompt ──────────────────────────────────────────────────────
 # Returns 0 (yes) if AUTO_YES is true or user answers Y/y.
