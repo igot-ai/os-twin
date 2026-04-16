@@ -25,7 +25,7 @@ if _env.is_file():
     load_dotenv(_env, override=True)
 import time
 
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3366")
 
 
 # --------------------------------------------------------------------------

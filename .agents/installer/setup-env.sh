@@ -42,7 +42,7 @@ setup_env() {
 # AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
 
 # ── Dashboard settings ──────────────────────────────────────────────────────
-# DASHBOARD_PORT=9000
+# DASHBOARD_PORT=3366
 # DASHBOARD_HOST=0.0.0.0
 
 # ── Dashboard Authentication ────────────────────────────────────────────────

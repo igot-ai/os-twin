@@ -31,7 +31,7 @@ INSTALL_DIR="${HOME}/.ostwin"
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 # shellcheck disable=SC2034
 AUTO_YES=false; SKIP_OPTIONAL=false; DASHBOARD_ONLY=false
-START_CHANNEL=false; DASHBOARD_PORT=9000
+START_CHANNEL=false; DASHBOARD_PORT=3366
 # shellcheck disable=SC2034
 PYTHON_VERSION=""
 # shellcheck disable=SC2034

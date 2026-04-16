@@ -102,8 +102,8 @@ if (-not $AgentsDir) {
 
 # After venv activation, resolve python
 $PythonCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" }
-             elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" }
-             else { "python" }
+elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" }
+else { "python" }
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. Load project .env (from AGENTS_DIR/.env)
@@ -136,7 +136,7 @@ foreach ($hashFile in @((Join-Path $OstwinHome ".build-hash"), (Join-Path $Agent
 
 # Dashboard URL
 if (-not $env:DASHBOARD_URL) {
-    $env:DASHBOARD_URL = "http://localhost:9000"
+    $env:DASHBOARD_URL = "http://localhost:3366"
 }
 $DashboardUrl = $env:DASHBOARD_URL
 
@@ -234,8 +234,8 @@ function Resolve-PlanId {
                 $plan = $apiResponse.plan
                 $filename = $plan.filename
                 $workingDir = if ($plan.working_dir) { $plan.working_dir }
-                              elseif ($plan.meta.working_dir) { $plan.meta.working_dir }
-                              else { "" }
+                elseif ($plan.meta.working_dir) { $plan.meta.working_dir }
+                else { "" }
 
                 $planFile = ""
                 if ($filename) {
@@ -427,19 +427,19 @@ switch ($Command) {
         if ($planArgResolved -and (Test-Path $resolvedPlanFile)) {
             $planContent = Get-Content $resolvedPlanFile -Raw
             $neededRoles = [regex]::Matches($planContent, '(?m)^Role:\s*(.+)$') |
-                ForEach-Object { $_.Groups[1].Value.Trim() -split '\s+' | Select-Object -First 1 } |
-                Where-Object { $_ -and $_ -ne '<role-name>' } |
-                Sort-Object -Unique
+            ForEach-Object { $_.Groups[1].Value.Trim() -split '\s+' | Select-Object -First 1 } |
+            Where-Object { $_ -and $_ -ne '<role-name>' } |
+            Sort-Object -Unique
 
             $projectRoot = Split-Path $AgentsDir -Parent
             $missingRoles = @()
             foreach ($r in $neededRoles) {
                 $found = $false
                 foreach ($roleDir in @(
-                    (Join-Path $AgentsDir "roles" $r),
-                    (Join-Path $OstwinHome ".agents\roles" $r),
-                    (Join-Path $projectRoot "contributes\roles" $r)
-                )) {
+                        (Join-Path $AgentsDir "roles" $r),
+                        (Join-Path $OstwinHome ".agents\roles" $r),
+                        (Join-Path $projectRoot "contributes\roles" $r)
+                    )) {
                     if (Test-Path $roleDir -PathType Container) {
                         $found = $true
                         break
@@ -452,8 +452,8 @@ switch ($Command) {
                 Write-Host ([char]0x26A0 + " Found missing roles needed by the plan: $($missingRoles -join ', ')")
 
                 $isInteractive = [Environment]::UserInteractive -and
-                    (-not ($runArgs -contains '--non-interactive')) -and
-                    (-not ($runArgs -contains '-n'))
+                (-not ($runArgs -contains '--non-interactive')) -and
+                (-not ($runArgs -contains '-n'))
 
                 $doCreate = $false
                 if ($isInteractive) {
@@ -485,10 +485,10 @@ switch ($Command) {
                     foreach ($mr in $missingRoles) {
                         $found = $false
                         foreach ($roleDir in @(
-                            (Join-Path $AgentsDir "roles" $mr),
-                            (Join-Path $OstwinHome ".agents\roles" $mr),
-                            (Join-Path $projectRoot "contributes\roles" $mr)
-                        )) {
+                                (Join-Path $AgentsDir "roles" $mr),
+                                (Join-Path $OstwinHome ".agents\roles" $mr),
+                                (Join-Path $projectRoot "contributes\roles" $mr)
+                            )) {
                             if (Test-Path $roleDir -PathType Container) {
                                 $found = $true
                                 break
@@ -548,16 +548,16 @@ switch ($Command) {
             $i = 0
             while ($i -lt $runArgs.Count) {
                 switch ($runArgs[$i]) {
-                    '--dry-run'     { $null = $psArgs.Add('-DryRun'); $i++ }
-                    '--resume'      { $null = $psArgs.Add('-Resume'); $i++ }
-                    '--expand'      { $null = $psArgs.Add('-Expand'); $i++ }
-                    '--review'      { $null = $psArgs.Add('-Review'); $i++ }
-                    '--max-rooms'   { $null = $psArgs.Add('-MaxConcurrent'); $i++; $null = $psArgs.Add($runArgs[$i]); $i++ }
+                    '--dry-run' { $null = $psArgs.Add('-DryRun'); $i++ }
+                    '--resume' { $null = $psArgs.Add('-Resume'); $i++ }
+                    '--expand' { $null = $psArgs.Add('-Expand'); $i++ }
+                    '--review' { $null = $psArgs.Add('-Review'); $i++ }
+                    '--max-rooms' { $null = $psArgs.Add('-MaxConcurrent'); $i++; $null = $psArgs.Add($runArgs[$i]); $i++ }
                     '--working-dir' { $null = $psArgs.Add('-ProjectDir'); $i++; $null = $psArgs.Add($runArgs[$i]); $i++ }
-                    '--plan-file'   { $null = $psArgs.Add('-PlanFile'); $i++; $null = $psArgs.Add($runArgs[$i]); $i++ }
+                    '--plan-file' { $null = $psArgs.Add('-PlanFile'); $i++; $null = $psArgs.Add($runArgs[$i]); $i++ }
                     '--non-interactive' { $null = $psArgs.Add('-NonInteractive'); $i++ }
-                    '-n'            { $null = $psArgs.Add('-NonInteractive'); $i++ }
-                    default         { $null = $psArgs.Add($runArgs[$i]); $i++ }
+                    '-n' { $null = $psArgs.Add('-NonInteractive'); $i++ }
+                    default { $null = $psArgs.Add($runArgs[$i]); $i++ }
                 }
             }
             & pwsh -NoProfile -File $startPlan @psArgs
@@ -710,12 +710,12 @@ switch ($Command) {
                     $si = 0
                     while ($si -lt $startArgs.Count) {
                         switch ($startArgs[$si]) {
-                            '--dry-run'     { $null = $psArgs.Add('-DryRun'); $si++ }
-                            '--resume'      { $null = $psArgs.Add('-Resume'); $si++ }
-                            '--expand'      { $null = $psArgs.Add('-Expand'); $si++ }
-                            '--review'      { $null = $psArgs.Add('-Review'); $si++ }
+                            '--dry-run' { $null = $psArgs.Add('-DryRun'); $si++ }
+                            '--resume' { $null = $psArgs.Add('-Resume'); $si++ }
+                            '--expand' { $null = $psArgs.Add('-Expand'); $si++ }
+                            '--review' { $null = $psArgs.Add('-Review'); $si++ }
                             '--working-dir' { $null = $psArgs.Add('-ProjectDir'); $si++; $null = $psArgs.Add($startArgs[$si]); $si++ }
-                            default         { $null = $psArgs.Add($startArgs[$si]); $si++ }
+                            default { $null = $psArgs.Add($startArgs[$si]); $si++ }
                         }
                     }
                     & pwsh -NoProfile -File $startPlan @psArgs
@@ -825,7 +825,7 @@ switch ($Command) {
                     $dashScript = Join-Path $AgentsDir "dashboard.sh"
                     if (Test-Path $dashScript) {
                         $dashProc = Start-Process -FilePath "bash" `
-                            -ArgumentList $dashScript, "--background", "--port", "9000", "--project-dir", $OstwinHome `
+                            -ArgumentList $dashScript, "--background", "--port", "3366", "--project-dir", $OstwinHome `
                             -NoNewWindow -PassThru `
                             -RedirectStandardOutput (Join-Path $logsDir "dashboard.log") `
                             -RedirectStandardError (Join-Path $logsDir "dashboard-error.log")
@@ -898,9 +898,9 @@ switch ($Command) {
             $si = 0
             while ($si -lt $Arguments.Count) {
                 switch ($Arguments[$si]) {
-                    '--json'  { $null = $psArgs.Add('-JsonOutput'); $si++ }
+                    '--json' { $null = $psArgs.Add('-JsonOutput'); $si++ }
                     '--watch' { $null = $psArgs.Add('-Watch'); $si++ }
-                    default   { $null = $psArgs.Add($Arguments[$si]); $si++ }
+                    default { $null = $psArgs.Add($Arguments[$si]); $si++ }
                 }
             }
             & pwsh -NoProfile -File $statusPs1 @psArgs
@@ -923,10 +923,10 @@ switch ($Command) {
             while ($li -lt $Arguments.Count) {
                 switch ($Arguments[$li]) {
                     { $_ -in @('--follow', '-f') } { $null = $psArgs.Add('-Follow'); $li++ }
-                    '--type'  { $null = $psArgs.Add('-Type'); $li++; $null = $psArgs.Add($Arguments[$li]); $li++ }
-                    '--from'  { $null = $psArgs.Add('-From'); $li++; $null = $psArgs.Add($Arguments[$li]); $li++ }
-                    '--last'  { $null = $psArgs.Add('-Last'); $li++; $null = $psArgs.Add($Arguments[$li]); $li++ }
-                    default   { $null = $psArgs.Add($Arguments[$li]); $li++ }
+                    '--type' { $null = $psArgs.Add('-Type'); $li++; $null = $psArgs.Add($Arguments[$li]); $li++ }
+                    '--from' { $null = $psArgs.Add('-From'); $li++; $null = $psArgs.Add($Arguments[$li]); $li++ }
+                    '--last' { $null = $psArgs.Add('-Last'); $li++; $null = $psArgs.Add($Arguments[$li]); $li++ }
+                    default { $null = $psArgs.Add($Arguments[$li]); $li++ }
                 }
             }
             & pwsh -NoProfile -File $logsPs1 @psArgs
@@ -1012,11 +1012,11 @@ switch ($Command) {
             $di = 0
             while ($di -lt $Arguments.Count) {
                 switch ($Arguments[$di]) {
-                    '--port'        { $null = $psArgs.Add('-Port'); $di++; $null = $psArgs.Add($Arguments[$di]); $di++ }
+                    '--port' { $null = $psArgs.Add('-Port'); $di++; $null = $psArgs.Add($Arguments[$di]); $di++ }
                     '--project-dir' { $hasProjectDir = $true; $null = $psArgs.Add('-ProjectDir'); $di++; $null = $psArgs.Add($Arguments[$di]); $di++ }
-                    '--background'  { $null = $psArgs.Add('-Background'); $di++ }
+                    '--background' { $null = $psArgs.Add('-Background'); $di++ }
                     { $_ -in @('-h', '--help') } { $null = $psArgs.Add('-Help'); $di++ }
-                    default         { $null = $psArgs.Add($Arguments[$di]); $di++ }
+                    default { $null = $psArgs.Add($Arguments[$di]); $di++ }
                 }
             }
             if (-not $hasProjectDir) {
@@ -1116,7 +1116,8 @@ switch ($Command) {
                 $env:OSTWIN_HOME = $OstwinHome
                 if ($syncScript -match '\.ps1$') {
                     & pwsh -NoProfile -File $syncScript @skillsArgs
-                } else {
+                }
+                else {
                     & bash $syncScript @skillsArgs
                 }
             }
@@ -1128,9 +1129,9 @@ switch ($Command) {
                 $si = 0
                 while ($si -lt $skillsArgs.Count) {
                     switch ($skillsArgs[$si]) {
-                        '--from'  { $si++; $fromDir = $skillsArgs[$si]; $si++ }
+                        '--from' { $si++; $fromDir = $skillsArgs[$si]; $si++ }
                         '--agent' { $si++; $agentRole = $skillsArgs[$si]; $si++ }
-                        default   { $null = $extraArgs.Add($skillsArgs[$si]); $si++ }
+                        default { $null = $extraArgs.Add($skillsArgs[$si]); $si++ }
                     }
                 }
 
@@ -1168,11 +1169,11 @@ switch ($Command) {
                             # Find skills root
                             $ghSkillsRoot = ""
                             foreach ($candidateDir in @(
-                                "$ghTmp\repo\source\skills",
-                                "$ghTmp\repo\.agents\skills",
-                                "$ghTmp\repo\skills",
-                                "$ghTmp\repo"
-                            )) {
+                                    "$ghTmp\repo\source\skills",
+                                    "$ghTmp\repo\.agents\skills",
+                                    "$ghTmp\repo\skills",
+                                    "$ghTmp\repo"
+                                )) {
                                 if ((Test-Path $candidateDir) -and
                                     (Get-ChildItem -Path $candidateDir -Filter "SKILL.md" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1)) {
                                     $ghSkillsRoot = $candidateDir
@@ -1187,7 +1188,7 @@ switch ($Command) {
 
                             # Collect top-level skill dirs (skip nested)
                             $allSkillMds = Get-ChildItem -Path $ghSkillsRoot -Filter "SKILL.md" -Recurse -ErrorAction SilentlyContinue |
-                                Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }
+                            Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }
 
                             $ghSkillDirs = @()
                             foreach ($skillMd in $allSkillMds) {
@@ -1222,8 +1223,8 @@ switch ($Command) {
                                 }
 
                                 $skillName = if ($metaName) { $metaName }
-                                             elseif ($ghSkillDirs.Count -eq 1) { $ghRepoName }
-                                             else { $dirName }
+                                elseif ($ghSkillDirs.Count -eq 1) { $ghRepoName }
+                                else { $dirName }
 
                                 $skillSubdir = if ($agentRole) { "roles\$agentRole\$skillName" } else { "global\$skillName" }
 
@@ -1278,7 +1279,8 @@ switch ($Command) {
                                 $env:OSTWIN_HOME = $OstwinHome
                                 if ($syncScript -match '\.ps1$') {
                                     & pwsh -NoProfile -File $syncScript 2>$null
-                                } else {
+                                }
+                                else {
                                     & bash $syncScript 2>$null
                                 }
                             }
@@ -1295,7 +1297,8 @@ switch ($Command) {
                             $env:OSTWIN_HOME = $OstwinHome
                             if ($clawHubScript -match '\.ps1$') {
                                 & pwsh -NoProfile -File $clawHubScript install @extraArgs
-                            } else {
+                            }
+                            else {
                                 & bash $clawHubScript install @extraArgs
                             }
                             exit $LASTEXITCODE
@@ -1310,10 +1313,10 @@ switch ($Command) {
                 # Local install: scan cwd for skills
                 if (-not $fromDir) {
                     foreach ($candidate in @(
-                        (Join-Path $cwd ".agents\skills"),
-                        (Join-Path $cwd "skills"),
-                        $cwd
-                    )) {
+                            (Join-Path $cwd ".agents\skills"),
+                            (Join-Path $cwd "skills"),
+                            $cwd
+                        )) {
                         if ((Test-Path $candidate) -and
                             (Get-ChildItem -Path $candidate -Filter "SKILL.md" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1)) {
                             $fromDir = $candidate
@@ -1334,7 +1337,8 @@ switch ($Command) {
                 $env:OSTWIN_HOME = $OstwinHome
                 if ($syncScript -match '\.ps1$') {
                     & pwsh -NoProfile -File $syncScript -InstallFrom $fromDir @extraArgs
-                } else {
+                }
+                else {
                     & bash $syncScript --install-from $fromDir @extraArgs
                 }
             }
@@ -1344,7 +1348,8 @@ switch ($Command) {
                     $env:OSTWIN_HOME = $OstwinHome
                     if ($clawHubScript -match '\.ps1$') {
                         & pwsh -NoProfile -File $clawHubScript search @skillsArgs
-                    } else {
+                    }
+                    else {
                         & bash $clawHubScript search @skillsArgs
                     }
                 }
@@ -1359,7 +1364,8 @@ switch ($Command) {
                     $env:OSTWIN_HOME = $OstwinHome
                     if ($clawHubScript -match '\.ps1$') {
                         & pwsh -NoProfile -File $clawHubScript update @skillsArgs
-                    } else {
+                    }
+                    else {
                         & bash $clawHubScript update @skillsArgs
                     }
                 }
@@ -1374,7 +1380,8 @@ switch ($Command) {
                     $env:OSTWIN_HOME = $OstwinHome
                     if ($clawHubScript -match '\.ps1$') {
                         & pwsh -NoProfile -File $clawHubScript remove @skillsArgs
-                    } else {
+                    }
+                    else {
                         & bash $clawHubScript remove @skillsArgs
                     }
                 }
@@ -1503,8 +1510,8 @@ switch ($Command) {
 
                     # Determine env key name
                     $envKey = if ($server.PSObject.Properties['environment']) { 'environment' }
-                              elseif ($server.PSObject.Properties['env']) { 'env' }
-                              else { 'environment' }
+                    elseif ($server.PSObject.Properties['env']) { 'env' }
+                    else { 'environment' }
 
                     if (-not $server.PSObject.Properties[$envKey]) {
                         $server | Add-Member -NotePropertyName $envKey -NotePropertyValue ([PSCustomObject]@{})
@@ -1538,9 +1545,9 @@ switch ($Command) {
             Write-Host ""
 
             foreach ($searchDir in @(
-                (Join-Path $AgentsDir "roles"),
-                (Join-Path $OstwinHome ".agents\roles")
-            )) {
+                    (Join-Path $AgentsDir "roles"),
+                    (Join-Path $OstwinHome ".agents\roles")
+                )) {
                 if (-not (Test-Path $searchDir)) { continue }
                 $isGlobal = $searchDir -like "*$OstwinHome*"
                 $suffix = if ($isGlobal) { " (global)" } else { "" }
@@ -1573,9 +1580,9 @@ switch ($Command) {
         # Find subcommands.json
         $roleManifest = ""
         foreach ($candidate in @(
-            (Join-Path $AgentsDir "roles\$roleName\subcommands.json"),
-            (Join-Path $OstwinHome ".agents\roles\$roleName\subcommands.json")
-        )) {
+                (Join-Path $AgentsDir "roles\$roleName\subcommands.json"),
+                (Join-Path $OstwinHome ".agents\roles\$roleName\subcommands.json")
+            )) {
             if (Test-Path $candidate) {
                 $roleManifest = $candidate
                 break
@@ -1677,10 +1684,10 @@ switch ($Command) {
             $ci = 0
             while ($ci -lt $Arguments.Count) {
                 switch ($Arguments[$ci]) {
-                    '--get'  { $null = $psArgs.Add('-Get'); $ci++; $null = $psArgs.Add($Arguments[$ci]); $ci++ }
-                    '--set'  { $null = $psArgs.Add('-Set'); $ci++; $null = $psArgs.Add($Arguments[$ci]); $ci++; $null = $psArgs.Add('-Value'); $null = $psArgs.Add($Arguments[$ci]); $ci++ }
+                    '--get' { $null = $psArgs.Add('-Get'); $ci++; $null = $psArgs.Add($Arguments[$ci]); $ci++ }
+                    '--set' { $null = $psArgs.Add('-Set'); $ci++; $null = $psArgs.Add($Arguments[$ci]); $ci++; $null = $psArgs.Add('-Value'); $null = $psArgs.Add($Arguments[$ci]); $ci++ }
                     { $_ -in @('-h', '--help') } { $null = $psArgs.Add('-Help'); $ci++ }
-                    default  { $null = $psArgs.Add($Arguments[$ci]); $ci++ }
+                    default { $null = $psArgs.Add($Arguments[$ci]); $ci++ }
                 }
             }
             & pwsh -NoProfile -File $configPs1 @psArgs

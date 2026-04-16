@@ -37,7 +37,7 @@ Describe "Print-CompletionBanner" {
         $testDir = Join-Path $TestDrive "test-banner-$(Get-Random)"
         New-Item -ItemType Directory -Path $testDir -Force | Out-Null
         $script:InstallDir = $testDir
-        $script:DashboardPort = 9000
+        $script:DashboardPort = 3366
         $script:TunnelUrl = ""
         $script:StartChannel = $false
     }

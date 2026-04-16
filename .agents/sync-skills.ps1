@@ -11,7 +11,7 @@
     Copy skills from a project directory into ~/.ostwin/.agents/skills/ first.
 
 .PARAMETER Port
-    Dashboard port (default: 9000).
+    Dashboard port (default: 3366).
 
 .PARAMETER Home
     Override OSTWIN_HOME (default: ~/.ostwin).
@@ -20,7 +20,7 @@
 param(
     [string]$InstallFrom,
 
-    [int]$Port = 9000,
+    [int]$Port = 3366,
 
     [string]$Home
 )

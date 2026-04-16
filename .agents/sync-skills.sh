@@ -11,7 +11,7 @@
 #
 # Environment:
 #   OSTWIN_HOME        Override install dir (default: ~/.ostwin)
-#   DASHBOARD_PORT     Dashboard port (default: 9000)
+#   DASHBOARD_PORT     Dashboard port (default: 3366)
 #   OSTWIN_API_KEY     Dashboard authentication key
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ set -euo pipefail
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
-DASHBOARD_PORT="${DASHBOARD_PORT:-9000}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-3366}"
 DASHBOARD_URL="http://localhost:${DASHBOARD_PORT}"
 OSTWIN_API_KEY="${OSTWIN_API_KEY:-}"
 INSTALL_FROM=""
@@ -72,7 +72,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: sync-skills.sh [--install-from DIR] [--port PORT] [--home DIR]"
       echo ""
       echo "  --install-from DIR   Copy skills from DIR into ~/.ostwin/.agents/skills/ first"
-      echo "  --port PORT          Dashboard port (default: 9000)"
+      echo "  --port PORT          Dashboard port (default: 3366)"
       echo "  --home DIR           Override OSTWIN_HOME (default: ~/.ostwin)"
       exit 0
       ;;
