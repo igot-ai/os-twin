@@ -13,7 +13,7 @@
 .PARAMETER Port
     Dashboard port (default: 9000).
 
-.PARAMETER Home
+.PARAMETER HomePath
     Override OSTWIN_HOME (default: ~/.ostwin).
 #>
 [CmdletBinding()]
@@ -22,7 +22,7 @@ param(
 
     [int]$Port = 9000,
 
-    [string]$Home
+    [string]$HomePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 $HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
-$OstwinHome = if ($Home) { $Home }
+$OstwinHome = if ($HomePath) { $HomePath }
               elseif ($env:OSTWIN_HOME) { $env:OSTWIN_HOME }
               else { Join-Path $HomeDir ".ostwin" }
 $DashboardPort = if ($env:DASHBOARD_PORT) { [int]$env:DASHBOARD_PORT } else { $Port }
