@@ -146,11 +146,11 @@ describe('commands', () => {
     it('handles prefs:toggle_global', async () => {
       const updateStub = sandbox.stub(registry, 'updateConfig').resolves();
       const getConfigStub = sandbox.stub(registry, 'getConfig');
-      
+
       getConfigStub.onFirstCall().returns({
         platform: 'telegram', enabled: true, notification_preferences: { events: [], enabled: true }
       } as any);
-      
+
       getConfigStub.onSecondCall().returns({
         platform: 'telegram', enabled: true, notification_preferences: { events: [], enabled: false }
       } as any);
@@ -163,11 +163,11 @@ describe('commands', () => {
     it('handles prefs:toggle_event', async () => {
       const updateStub = sandbox.stub(registry, 'updateConfig').resolves();
       const getConfigStub = sandbox.stub(registry, 'getConfig');
-      
+
       getConfigStub.onFirstCall().returns({
         platform: 'telegram', enabled: true, notification_preferences: { events: ['plan_started'], enabled: true }
       } as any);
-      
+
       getConfigStub.onSecondCall().returns({
         platform: 'telegram', enabled: true, notification_preferences: { events: ['plan_started', 'epic_passed'], enabled: true }
       } as any);
@@ -1100,11 +1100,11 @@ describe('commands', () => {
 
   describe('routeCommand — launchdashboard', () => {
     it('shows dashboard URL', async () => {
-      sandbox.stub(api, 'getBaseUrl').resolves('http://localhost:9000');
+      sandbox.stub(api, 'getBaseUrl').resolves('http://localhost:3366');
       sandbox.stub(api, 'getBotStatus').resolves({ running: true });
       const [resp] = await routeCommand('u1', 'telegram', 'launchdashboard');
       expect(resp.text).to.include('Dashboard');
-      expect(resp.text).to.include('localhost:9000');
+      expect(resp.text).to.include('localhost:3366');
     });
   });
 

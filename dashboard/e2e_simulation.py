@@ -9,7 +9,7 @@ def test_e2e():
     env["PYTHONPATH"] = "/Users/paulaan/PycharmProjects/agent-os"
     # Start server in background
     server_process = subprocess.Popen(
-        ["python", "api.py", "--port", "9000"],
+        ["python", "api.py", "--port", "3366"],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -21,7 +21,7 @@ def test_e2e():
         print("Waiting for server to be ready...")
         for _ in range(30):
             try:
-                response = requests.get("http://localhost:9000/api/system/status", timeout=1)
+                response = requests.get("http://localhost:3366/api/system/status", timeout=1)
                 if response.status_code == 200:
                     print("Server is ready!")
                     break

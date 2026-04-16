@@ -290,6 +290,29 @@ async def save_env(request: dict, user: dict = Depends(get_current_user)):
     return {"status": "saved", "path": str(_ENV_FILE)}
 
 
+@router.post("/env/reload")
+async def reload_env(user: dict = Depends(get_current_user)):
+    """Trigger an immediate reload of ~/.ostwin/.env into os.environ.
+
+    Useful after saving changes via POST /api/env — hot-reloads keys
+    without waiting for the background poller (3 s cycle).
+    """
+    from dashboard.env_watcher import reload_env_file
+    import dashboard.global_state as gs
+
+    result = reload_env_file()
+    all_changes = result["added"] + result["changed"] + result["removed"]
+    if all_changes:
+        await gs.broadcaster.broadcast(
+            "env_reloaded",
+            {
+                "added": result["added"],
+                "changed": result["changed"],
+                "removed": result["removed"],
+            },
+        )
+    return {"status": "reloaded", **result}
+
 # ── Bot Process Management ────────────────────────────────────────────
 
 @router.get("/bot/status")

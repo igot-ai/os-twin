@@ -29,7 +29,7 @@
 .PARAMETER SkillsBaseDir
     Optional. Override for the base skills directory (defaults to ../../skills).
 .PARAMETER DashboardUrl
-    Optional. Dashboard API base URL (default: http://localhost:9000).
+    Optional. Dashboard API base URL (default: http://localhost:3366).
 .PARAMETER ApiKey
     Optional. API key for dashboard authentication (default: $env:OSTWIN_API_KEY).
 
@@ -38,10 +38,10 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory = $true)]
     [string]$RoleName,
 
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory = $true)]
     [string]$RolePath,
 
     [string]$RoomDir = '',
@@ -68,7 +68,7 @@ if (-not (Test-Path $SkillsBaseDir)) {
 
 # --- Initialize dashboard settings ---
 if (-not $DashboardUrl) {
-    $DashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { "http://localhost:9000" }
+    $DashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { "http://localhost:3366" }
 }
 if (-not $ApiKey) {
     $ApiKey = $env:OSTWIN_API_KEY
@@ -116,7 +116,8 @@ if ($RoomDir -and (Test-Path (Join-Path $RoomDir "config.json"))) {
             $PlanId = $roomCfg.plan_id
             Write-Verbose "Derived PlanId='$PlanId' from room config.json"
         }
-    } catch { Write-Verbose "Failed to parse room config.json: $_" }
+    }
+    catch { Write-Verbose "Failed to parse room config.json: $_" }
 }
 
 # --- Collect skill refs from all sources (priority order) ---
@@ -132,7 +133,8 @@ if ($PlanId) {
                 $allRefs += @($planRoles.$RoleName.skill_refs)
                 Write-Verbose "Plan-level skill_refs for '$RoleName': $($planRoles.$RoleName.skill_refs -join ', ')"
             }
-        } catch { Write-Verbose "Failed to parse plan roles file: $_" }
+        }
+        catch { Write-Verbose "Failed to parse plan roles file: $_" }
     }
 }
 
@@ -354,8 +356,8 @@ if ($RoomDir) {
             $nameHits = @($nameWords | Where-Object { $briefContent -match [regex]::Escape($_) })
 
             $isMatch = ($tagHits.Count -ge 2) -or
-                       ($nameHits.Count -ge 2) -or
-                       ($tagHits.Count -ge 1 -and $nameHits.Count -ge 1)
+            ($nameHits.Count -ge 2) -or
+            ($tagHits.Count -ge 1 -and $nameHits.Count -ge 1)
 
             if ($isMatch) {
                 if (-not (Test-SkillPlatform -SkillMdPath $sc.Path)) { continue }

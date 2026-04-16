@@ -82,7 +82,7 @@ def start_oauth(
     ----------
     redirect_uri : str
         The callback URL on this dashboard server, e.g.
-        ``http://localhost:9000/api/settings/google/oauth/callback``
+        ``http://localhost:3366/api/settings/google/oauth/callback``
     project_id : str
         GCP project ID (stored in the session for later use).
 

@@ -13,7 +13,7 @@ import getpass
 from typing import List, Dict, Any, Optional
 
 # Constants
-DEFAULT_DASHBOARD_URL = "http://localhost:9000"
+DEFAULT_DASHBOARD_URL = "http://localhost:3366"
 
 
 def get_config():

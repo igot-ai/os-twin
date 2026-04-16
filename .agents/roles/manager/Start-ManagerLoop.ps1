@@ -107,7 +107,7 @@ Write-Host ""
 # --- Pre-flight checks ---
 # Resolve-RoomSkills: Before spawning a worker, search the dashboard API
 # for skills matching the epic's requirements and write them to the room config.
-$dashboardBaseUrl = if ($env:OSTWIN_DASHBOARD_URL) { $env:OSTWIN_DASHBOARD_URL } else { "http://localhost:9000" }
+$dashboardBaseUrl = if ($env:OSTWIN_DASHBOARD_URL) { $env:OSTWIN_DASHBOARD_URL } else { "http://localhost:3366" }
 
 # --- Inject runtime context into ManagerLoop-Helpers module ---
 # All helper functions are defined in ManagerLoop-Helpers.psm1 (imported above).

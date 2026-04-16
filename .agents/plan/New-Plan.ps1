@@ -212,7 +212,7 @@ _Use "Working_dir:" to scope the agent to a specific subdirectory._
 $planContent | Out-File -FilePath $PlanFile -Encoding utf8
 
 # --- Push plan to dashboard API ---
-$dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { "http://localhost:9000" }
+$dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { "http://localhost:3366" }
 $registeredPlanId = ""
 $metadataPlanId = [guid]::NewGuid().ToString().Replace("-", "").Substring(0, 12)
 

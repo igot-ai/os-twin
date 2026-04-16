@@ -95,7 +95,7 @@ for _hash_file in "$OSTWIN_HOME/.build-hash" "$AGENTS_DIR/.build-hash"; do
 done
 
 # Dashboard URL
-export DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+export DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:3366}"
 
 # Build curl auth args from OSTWIN_API_KEY (array to preserve quoting)
 CURL_AUTH=()
@@ -425,7 +425,7 @@ case "${1:-}" in
         PLAN_TITLE=""
         INIT_FILE=""
         PROJECT_DIR="$(pwd)"
-        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:3366}"
 
         # Parse arguments: positional title/file and optional --file/-f
         # Smart detection: if a positional arg is an existing .md file, treat it as --file
@@ -560,7 +560,7 @@ print(json.dumps(payload))
         ;;
       list)
         # Quick list via API
-        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:3366}"
         if curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
           curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/plans" | "$PYTHON" -c "
 import sys, json
@@ -656,7 +656,7 @@ else:
           echo "→ Restarting dashboard..."
           mkdir -p "$OSTWIN_HOME/logs"
           nohup bash "$AGENTS_DIR/dashboard.sh" \
-            --background --port 9000 --project-dir "$OSTWIN_HOME" \
+            --background --port 3366 --project-dir "$OSTWIN_HOME" \
             > "$OSTWIN_HOME/logs/dashboard.log" 2>&1 &
           echo "  PID $!"
         fi
@@ -927,7 +927,7 @@ PYADD
             echo "  $GH_INSTALLED skill(s) installed from $GH_REPO_NAME"
 
             # Sync with dashboard if reachable
-            DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+            DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:3366}"
             if curl -sf ${CURL_AUTH+"${CURL_AUTH[@]}"} "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
               echo "  Syncing with dashboard..."
               OSTWIN_HOME="$HOME/.ostwin" bash "$SYNC_SCRIPT" 2>/dev/null || true
@@ -995,7 +995,7 @@ PYADD
         ;;
       list)
         shift
-        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:9000}"
+        DASHBOARD_URL="${DASHBOARD_URL:-http://localhost:3366}"
         if curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/status" >/dev/null 2>&1; then
           curl -sf "${CURL_AUTH[@]}" "${DASHBOARD_URL}/api/skills" | "$PYTHON" -c "
 import sys, json

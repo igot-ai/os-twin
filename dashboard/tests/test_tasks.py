@@ -102,7 +102,7 @@ class TestStartupAll:
     async def test_starts_ngrok_tunnel_when_token_set(self, mock_dirs, monkeypatch):
         """startup_all should start ngrok when NGROK_AUTHTOKEN is set."""
         monkeypatch.setenv("NGROK_AUTHTOKEN", "fake-token")
-        monkeypatch.setenv("DASHBOARD_PORT", "9000")
+        monkeypatch.setenv("DASHBOARD_PORT", "3366")
         monkeypatch.delenv("NGROK_DOMAIN", raising=False)
 
         mock_start = AsyncMock(return_value="https://tunnel.ngrok.io")
@@ -115,7 +115,7 @@ class TestStartupAll:
              patch("dashboard.notify.send_message", new_callable=AsyncMock):
             await tasks_module.startup_all()
 
-        mock_start.assert_awaited_once_with(9000, "fake-token", None)
+        mock_start.assert_awaited_once_with(3366, "fake-token", None)
         assert global_state.tunnel_url == "https://tunnel.ngrok.io"
 
     @pytest.mark.asyncio
@@ -164,7 +164,7 @@ class TestStartupAll:
     async def test_ngrok_failure_handled_gracefully(self, mock_dirs, monkeypatch):
         """If ngrok tunnel fails, startup_all should not crash."""
         monkeypatch.setenv("NGROK_AUTHTOKEN", "fake-token")
-        monkeypatch.setenv("DASHBOARD_PORT", "9000")
+        monkeypatch.setenv("DASHBOARD_PORT", "3366")
         mock_planning_cls = MagicMock(return_value=MagicMock())
 
         with patch("dashboard.tasks.poll_war_rooms", new_callable=AsyncMock), \
