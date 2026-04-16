@@ -252,6 +252,7 @@ interface AgentContext {
 async function executeTool(
   call: FunctionCall,
   ctx: AgentContext,
+  attachments: Array<{ buffer: Buffer; name: string }>,
 ): Promise<{ name: string; response: Record<string, unknown> }> {
   const { name, args } = call;
 
@@ -611,7 +612,7 @@ async function executeTool(
 
         // Attach graph image if available
         if (graphImage) {
-          _pendingAttachments.push({ buffer: graphImage, name: 'memory-graph.png' });
+          attachments.push({ buffer: graphImage, name: 'memory-graph.png' });
         }
 
         return {
@@ -657,14 +658,11 @@ export interface AgentResponse {
   attachments?: Array<{ buffer: Buffer; name: string }>;
 }
 
-/** Collects image attachments during tool execution within a single askAgent call. */
-let _pendingAttachments: Array<{ buffer: Buffer; name: string }> = [];
-
 export async function askAgent(
   question: string,
   ctx?: AgentContext,
 ): Promise<AgentResponse> {
-  _pendingAttachments = [];
+  const pendingAttachments: Array<{ buffer: Buffer; name: string }> = [];
   if (!config.GOOGLE_API_KEY) {
     return { text: '❌ `GOOGLE_API_KEY` is not set in the bot environment.' };
   }
@@ -757,26 +755,58 @@ ${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
       systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
     });
 
+    // Wrap the entire Gemini interaction in a timeout
+    const AGENT_TIMEOUT_MS = 25_000;
+    const TOOL_TIMEOUT_MS = 10_000;
+
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([
+        promise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms),
+        ),
+      ]);
+
+    const agentStart = Date.now();
+
     // First turn: send user's question
-    let result = await chat.sendMessage(question);
+    let result = await withTimeout(chat.sendMessage(question), AGENT_TIMEOUT_MS, 'Gemini');
     let response = result.response;
 
     // Function-calling loop: execute tools until the model produces a text response
     const MAX_TOOL_ROUNDS = 5;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      if (Date.now() - agentStart > AGENT_TIMEOUT_MS) {
+        console.warn(`[BRIDGE] Agent timeout after ${round} tool rounds`);
+        break;
+      }
+
       const calls = response.functionCalls();
       if (!calls || calls.length === 0) break;
 
-      // Execute all tool calls in parallel
+      // Execute all tool calls in parallel with per-tool timeout
       const toolResults = await Promise.all(
-        calls.map((call) => executeTool(call, agentCtx)),
+        calls.map((call) =>
+          withTimeout(
+            executeTool(call, agentCtx, pendingAttachments),
+            TOOL_TIMEOUT_MS,
+            `tool:${call.name}`,
+          ).catch((err) => ({
+            name: call.name,
+            response: { error: err.message } as Record<string, unknown>,
+          })),
+        ),
       );
 
       // Send function responses back to the model
-      result = await chat.sendMessage(
-        toolResults.map((r) => ({
-          functionResponse: { name: r.name, response: r.response },
-        })),
+      result = await withTimeout(
+        chat.sendMessage(
+          toolResults.map((r) => ({
+            functionResponse: { name: r.name, response: r.response },
+          })),
+        ),
+        AGENT_TIMEOUT_MS - (Date.now() - agentStart),
+        'Gemini',
       );
       response = result.response;
     }
@@ -792,13 +822,9 @@ ${roomsText}${activePlanContext}${referenceContext}${attachmentContext}`;
     }
     persistAfterMessage();
 
-    const text = answer.length > 1900
-      ? answer.slice(0, 1900) + '\n\n*…(truncated)*'
-      : answer;
-
     return {
-      text,
-      attachments: _pendingAttachments.length > 0 ? [..._pendingAttachments] : undefined,
+      text: answer,
+      attachments: pendingAttachments.length > 0 ? [...pendingAttachments] : undefined,
     };
   } catch (err: any) {
     console.error('[BRIDGE] AI API error:', err.message);

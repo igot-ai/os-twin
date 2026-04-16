@@ -113,7 +113,10 @@ export class TelegramConnector implements Connector {
             ? stagedFiles.map(f => ({ name: f.name, contentType: f.contentType, sizeBytes: f.sizeBytes }))
             : undefined;
           const result = await askAgent(msgText, { userId, platform: 'telegram', attachments });
-          await ctx.reply(result.text, { parse_mode: 'Markdown' });
+          const telegramText = result.text.length > 4000
+            ? result.text.slice(0, 4000) + '\n\n_…(truncated)_'
+            : result.text;
+          await ctx.reply(telegramText, { parse_mode: 'Markdown' });
           // Send image attachments as photos
           if (result.attachments?.length) {
             for (const att of result.attachments) {

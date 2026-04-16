@@ -478,6 +478,7 @@ async function cmdTriage(args: string): Promise<BotResponse> {
 async function cmdCloneRole(args: string): Promise<BotResponse> {
   const role = args.trim();
   if (!role) return text('⚠️ Usage: `/clonerole <role>`\nExample: `/clonerole engineer`');
+  if (!/^[a-zA-Z0-9_-]+$/.test(role)) return text('⚠️ Invalid role name. Use only letters, numbers, hyphens, and underscores.');
 
   const result = await api.shellCommand(`ostwin clone-role ${role}`);
   if (result?._error) return text(`❌ Failed to clone role \`${role}\`: ${result._error}`);
