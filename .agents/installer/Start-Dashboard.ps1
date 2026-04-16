@@ -27,10 +27,36 @@ function Start-Dashboard {
     if (Test-Path $pidFile) {
         $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
         if ($oldPid) {
+            # Validate PID is actually a python/uvicorn process before killing
+            # Tight validation: must be python AND (uvicorn OR api:app) to avoid false matches
+            $isValidDash = $false
             try {
-                # Kill the process tree (cmd.exe + python child)
-                & taskkill /F /T /PID $oldPid 2>$null | Out-Null
+                $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+                if ($proc) {
+                    # Primary check: must be a python process running uvicorn/api:app
+                    $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$oldPid" -ErrorAction SilentlyContinue).CommandLine
+                    if ($cmdLine -and $cmdLine -match "python" -and ($cmdLine -match "uvicorn" -or $cmdLine -match "api:app")) {
+                        $isValidDash = $true
+                    }
+                    # Fallback: check if it's listening on the expected dashboard port
+                    if (-not $isValidDash) {
+                        try {
+                            $portOwner = Get-NetTCPConnection -LocalPort $script:DashboardPort -State Listen -ErrorAction SilentlyContinue |
+                                Select-Object -ExpandProperty OwningProcess -First 1
+                            if ($portOwner -eq $oldPid) {
+                                $isValidDash = $true
+                            }
+                        } catch {}
+                    }
+                }
             } catch {}
+            if ($isValidDash) {
+                try {
+                    & taskkill /F /T /PID $oldPid 2>$null | Out-Null
+                } catch {}
+            }
+            # Remove stale PID file
+            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
         }
     }
     try {
@@ -76,13 +102,18 @@ function Start-Dashboard {
     # Set project dir env var so api_utils.py picks it up
     [System.Environment]::SetEnvironmentVariable("OSTWIN_PROJECT_DIR", $script:InstallDir, "Process")
 
-    # Start dashboard via bat file for clean output redirection
-    # Resolve the real python PID afterwards via port listening
+    # Start dashboard via .cmd wrapper so the child process owns its own log pipes.
+    # This avoids the lifetime issue where redirected streams are tied to the installer process.
+    # Use UTF-8 without BOM to handle paths with non-ASCII characters.
     $dashboardDir = Join-Path $script:InstallDir "dashboard"
     $pidFile = Join-Path $script:InstallDir "dashboard.pid"
     $batFile = Join-Path $logsDir "_start-dashboard.cmd"
+
+    # Build .cmd content with proper escaping for paths
     $batContent = "@echo off`r`ncd /d `"$dashboardDir`"`r`n`"$venvPython`" -m uvicorn api:app --host 0.0.0.0 --port $($script:DashboardPort) >`"$logFile`" 2>`"$errorLog`""
-    Set-Content -Path $batFile -Value $batContent -Encoding ASCII
+
+    # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
+    [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
 
     Start-Process -FilePath "cmd.exe" `
         -ArgumentList "/c", "`"$batFile`"" `
@@ -111,8 +142,9 @@ function Start-Dashboard {
             $task.Wait()
             $statusCode = [int]$task.Result.StatusCode
             $httpClient.Dispose()
-            # Accept 200, 401, 403 as healthy; reject 500+ as server error
-            if ($statusCode -lt 500) {
+            # Accept only expected dashboard status codes: 200 (OK), 401 (auth required), 403 (forbidden)
+            # Reject 500+ (server error) and other unexpected codes
+            if ($statusCode -in @(200, 401, 403)) {
                 $dashOk = $true
                 break
             }
@@ -169,7 +201,9 @@ function Publish-Skills {
         $installFrom = Join-Path $script:InstallDir ".agents"
         $batFile = Join-Path $logsDir "_sync-skills.cmd"
         $pwshExe = (Get-Command pwsh).Source
-        Set-Content -Path $batFile -Value "@echo off`r`n`"$pwshExe`" -NoProfile -File `"$syncScriptPs1`" -InstallFrom `"$installFrom`" >`"$skillLogFile`" 2>&1" -Encoding ASCII
+        $batContent = "@echo off`r`n`"$pwshExe`" -NoProfile -File `"$syncScriptPs1`" -InstallFrom `"$installFrom`" >`"$skillLogFile`" 2>&1"
+        # Use UTF-8 without BOM to avoid encoding issues with non-ASCII paths
+        [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
         Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$batFile`"" -WindowStyle Hidden
         Write-Ok "Skill sync started in background — log: $skillLogFile"
     }
