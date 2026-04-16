@@ -149,8 +149,7 @@ export class TelegramConnector implements Connector {
       const userId = String(ctx.chat.id);
       const msg = ctx.message as any;
       const session = getSession(userId, 'telegram');
-      const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
-        && ['drafting', 'editing'].includes(session.mode);
+      const canSaveNow = session.activePlanId && session.activePlanId !== 'new';
 
       const files: any[] = [];
       

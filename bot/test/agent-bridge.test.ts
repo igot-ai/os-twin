@@ -36,8 +36,8 @@ describe('agent-bridge', () => {
   it('returns error when GOOGLE_API_KEY is not set', async () => {
     config.GOOGLE_API_KEY = '';
     const result = await askAgent('test question');
-    expect(result).to.include('GOOGLE_API_KEY');
-    expect(result).to.include('not set');
+    expect(result.text).to.include('GOOGLE_API_KEY');
+    expect(result.text).to.include('not set');
   });
 
   // ── Context gathering ───────────────────────────────────────────
@@ -110,8 +110,8 @@ describe('agent-bridge', () => {
       // The real Gemini API call will fail with an invalid key
       const result = await askAgent('test');
       // Should return an error message, not throw
-      expect(result).to.be.a('string');
-      expect(result).to.include('Failed to get a response');
+      expect(result.text).to.be.a('string');
+      expect(result.text).to.include('Failed to get a response');
     });
   });
 
@@ -125,7 +125,7 @@ describe('agent-bridge', () => {
 
       // Call without ctx — should not throw from context handling
       const result = await askAgent('hello');
-      expect(result).to.be.a('string');
+      expect(result.text).to.be.a('string');
     });
 
     it('accepts ctx parameter for tool execution', async () => {
@@ -135,7 +135,7 @@ describe('agent-bridge', () => {
 
       // Call with ctx — should not throw
       const result = await askAgent('hello', { userId: 'u1', platform: 'discord' });
-      expect(result).to.be.a('string');
+      expect(result.text).to.be.a('string');
     });
   });
 
@@ -198,7 +198,7 @@ describe('agent-bridge', () => {
         platform: 'discord',
         referencedMessageContent: 'What do you think about this design?',
       });
-      expect(result).to.be.a('string');
+      expect(result.text).to.be.a('string');
     });
 
     it('system prompt should include referenced message context', () => {
@@ -258,7 +258,7 @@ describe('agent-bridge', () => {
           { name: 'dashboard-mockup.png', contentType: 'image/png', sizeBytes: 4096 },
         ],
       });
-      expect(result).to.be.a('string');
+      expect(result.text).to.be.a('string');
     });
 
     it('attachment context prompt includes file names and types', () => {
