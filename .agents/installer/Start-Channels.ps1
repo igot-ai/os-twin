@@ -174,20 +174,26 @@ function Start-Channels {
 
     try {
         # Walk cmd.exe → tsx.cmd → node.exe via WMI parent-child relationship
+        # Find the actual channel process (node/tsx) by matching executable, not just last visited
         $frontier = @($wrapperPid)
-        $deepest = $wrapperPid
-        while ($frontier.Count -gt 0) {
+        $foundPid = $null
+        while ($frontier.Count -gt 0 -and -not $foundPid) {
             $nextFrontier = @()
             foreach ($parentId in $frontier) {
                 $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $parentId" -ErrorAction SilentlyContinue)
                 foreach ($child in $children) {
-                    $deepest = $child.ProcessId
                     $nextFrontier += $child.ProcessId
+                    $exeName = $child.Name
+                    if ($exeName -match '^(node|tsx)(\.exe)?$') {
+                        $foundPid = $child.ProcessId
+                        break
+                    }
                 }
+                if ($foundPid) { break }
             }
             $frontier = $nextFrontier
         }
-        $chanPid = $deepest
+        if ($foundPid) { $chanPid = $foundPid }
     } catch {}
 
     Set-Content -Path $chanPidFile -Value $chanPid -NoNewline
