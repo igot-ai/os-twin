@@ -805,23 +805,12 @@ else:
             INSTALL_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             GH_INSTALLED=0
 
-            # Find the canonical skills source directory.
-            # Multi-skill repos (e.g. impeccable) duplicate skills across tool
-            # dirs (.cursor/, .claude/, .agents/, etc.). Prefer source/skills/
-            # or .agents/skills/ to avoid installing duplicates.
-            GH_SKILLS_ROOT=""
-            for candidate_dir in \
-              "$GH_TMP/repo/source/skills" \
-              "$GH_TMP/repo/.agents/skills" \
-              "$GH_TMP/repo/skills" \
-              "$GH_TMP/repo"; do
-              if [[ -d "$candidate_dir" ]] && find "$candidate_dir" -maxdepth 3 -name "SKILL.md" -type f 2>/dev/null | head -1 | grep -q .; then
-                GH_SKILLS_ROOT="$candidate_dir"
-                break
-              fi
-            done
+            # Scan the entire repo for SKILL.md at any depth.
+            # No assumptions about folder structure — any directory containing
+            # a SKILL.md is a candidate skill to install.
+            GH_SKILLS_ROOT="$GH_TMP/repo"
 
-            if [[ -z "$GH_SKILLS_ROOT" ]]; then
+            if ! find "$GH_SKILLS_ROOT" -name "SKILL.md" -type f -not -path "*/.git/*" 2>/dev/null | head -1 | grep -q .; then
               echo "✗ No SKILL.md found in $GH_URL" >&2
               rm -rf "$GH_TMP"
               exit 1
