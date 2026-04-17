@@ -50,7 +50,11 @@ function Install-Channels {
     $originalDir = Get-Location
     try {
         Set-Location $script:ChanDir
-        & pnpm install
+        & pnpm install --silent 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Channel dependency install failed (exit $LASTEXITCODE)"
+            return
+        }
         Write-Ok "Channel dependencies installed"
     }
     catch {
@@ -98,20 +102,22 @@ function Start-Channels {
         }
     }
 
-    # Stop previous channel process
-    $chanPidFile = Join-Path $script:InstallDir ".agents\channel.pid"
-    if (Test-Path $chanPidFile) {
-        $oldPid = Get-Content $chanPidFile -ErrorAction SilentlyContinue
-        if ($oldPid) {
-            try {
-                $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-                if ($proc) {
-                    Write-Step "Stopping previous channel process (PID $oldPid)..."
-                    Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-                    Start-Sleep -Seconds 1
-                }
+    # Stop previous channel process — check both legacy and current PID file locations
+    $chanPidFile = Join-Path $script:InstallDir "channels.pid"
+    foreach ($legacyPid in @($chanPidFile, (Join-Path $script:InstallDir ".agents\channel.pid"))) {
+        if (Test-Path $legacyPid) {
+            $oldPid = Get-Content $legacyPid -ErrorAction SilentlyContinue
+            if ($oldPid) {
+                try {
+                    $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+                    if ($proc) {
+                        Write-Step "Stopping previous channel process (PID $oldPid)..."
+                        & taskkill /F /T /PID $oldPid 2>$null | Out-Null
+                        Start-Sleep -Seconds 1
+                    }
+                } catch { }
             }
-            catch { }
+            Remove-Item $legacyPid -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -139,15 +145,57 @@ function Start-Channels {
 
     Write-Step "Starting channels from $($script:ChanDir)..."
     $chanLogFile = Join-Path $logsDir "channel.log"
+    $chanErrorLog = Join-Path $logsDir "channel-error.log"
 
-    $chanProcess = Start-Process -FilePath "npm" `
-        -ArgumentList "start" `
-        -WorkingDirectory $script:ChanDir `
-        -NoNewWindow -PassThru `
-        -RedirectStandardOutput $chanLogFile `
-        -RedirectStandardError (Join-Path $logsDir "channel-error.log")
+    # Run tsx directly instead of `npm start` to avoid npm's intermediate node
+    # wrapper processes. This gives us the real application PID via -PassThru.
+    # bot/package.json "start" is: tsx src/index.ts
+    $tsxCmd = Join-Path $script:ChanDir "node_modules\.bin\tsx.cmd"
+    if (-not (Test-Path $tsxCmd)) {
+        Write-Warn "tsx not found — cannot start channels"
+        return
+    }
 
-    $chanPid = $chanProcess.Id
+    # Bat wrapper handles stdout/stderr redirection; tsx.cmd is the entry point.
+    $batFile = Join-Path $logsDir "_start-channel.cmd"
+    $batContent = "@echo off`r`ncd /d `"$($script:ChanDir)`"`r`n`"$tsxCmd`" src/index.ts >`"$chanLogFile`" 2>`"$chanErrorLog`""
+
+    # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
+    [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
+
+    $chanWrapper = Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c", "`"$batFile`"" `
+        -WindowStyle Hidden -PassThru
+
+    # Resolve the real node PID by walking the process tree from the cmd.exe wrapper.
+    Start-Sleep -Seconds 3
+    $wrapperPid = $chanWrapper.Id
+    $chanPid = $wrapperPid  # fallback: use wrapper if tree walk fails
+
+    try {
+        # Walk cmd.exe → tsx.cmd → node.exe via WMI parent-child relationship
+        # Find the actual channel process (node/tsx) by matching executable, not just last visited
+        $frontier = @($wrapperPid)
+        $foundPid = $null
+        while ($frontier.Count -gt 0 -and -not $foundPid) {
+            $nextFrontier = @()
+            foreach ($parentId in $frontier) {
+                $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $parentId" -ErrorAction SilentlyContinue)
+                foreach ($child in $children) {
+                    $nextFrontier += $child.ProcessId
+                    $exeName = $child.Name
+                    if ($exeName -match '^(node|tsx)(\.exe)?$') {
+                        $foundPid = $child.ProcessId
+                        break
+                    }
+                }
+                if ($foundPid) { break }
+            }
+            $frontier = $nextFrontier
+        }
+        if ($foundPid) { $chanPid = $foundPid }
+    } catch {}
+
     Set-Content -Path $chanPidFile -Value $chanPid -NoNewline
     Write-Ok "Channels started (PID $chanPid) — log: $chanLogFile"
 
