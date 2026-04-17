@@ -690,6 +690,129 @@ class AgenticMemorySystem:
                 self.consolidate_memories()
         return note.id
 
+    # --- Import docs -------------------------------------------------------
+
+    def import_docs(self, docs_dir: str) -> Dict:
+        """Import markdown files from a docs directory into the memory system.
+
+        Each ``.md`` file is imported as a MemoryNote:
+        - **name** is derived from the filename (slugified, minus extension).
+        - **path** mirrors the directory structure within ``docs_dir``.
+        - **content** is the raw file content.
+        - **keywords, context, tags, summary, links** are filled by LLM
+          analysis (same as ``save_memory``).
+
+        After import the docs directory is renamed to
+        ``.docs_imported_<YYYYMMDD_HHMMSS>`` so concurrent agents won't
+        re-process it.
+
+        Args:
+            docs_dir: Absolute path to the docs directory
+                      (typically ``<persist_dir>/docs``).
+
+        Returns:
+            Dict with counts: imported, skipped, failed, renamed_to.
+        """
+        from datetime import datetime as _dt
+
+        if not os.path.isdir(docs_dir):
+            return {"error": f"docs_dir not found: {docs_dir}"}
+
+        # Rename immediately to claim ownership before processing.
+        ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        renamed = os.path.join(
+            os.path.dirname(docs_dir),
+            f".docs_imported_{ts}",
+        )
+        try:
+            os.rename(docs_dir, renamed)
+        except OSError as e:
+            # Another process already renamed it — nothing to do.
+            logger.info("import_docs: rename failed (already claimed?): %s", e)
+            return {"error": f"rename failed: {e}"}
+        logger.info("import_docs: claimed %s → %s", docs_dir, renamed)
+
+        imported = 0
+        skipped = 0
+        failed = 0
+
+        for dirpath, _dirnames, filenames in os.walk(renamed):
+            for filename in filenames:
+                if not filename.endswith(".md"):
+                    continue
+
+                filepath = os.path.join(dirpath, filename)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                except Exception as e:
+                    logger.warning("import_docs: failed to read %s: %s", filepath, e)
+                    failed += 1
+                    continue
+
+                if not content:
+                    skipped += 1
+                    continue
+
+                # Derive name from filename, path from directory structure
+                name = os.path.splitext(filename)[0]
+                rel_dir = os.path.relpath(dirpath, renamed)
+                path = rel_dir if rel_dir != "." else None
+
+                # Skip if a note with identical content already exists
+                # (prevents re-import if the user places the same docs again)
+                candidate = MemoryNote(
+                    content=content,
+                    name=name,
+                    path=path,
+                    context="General",
+                )
+                dup = False
+                for existing in self.memories.values():
+                    if existing.content_hash == candidate.content_hash:
+                        logger.info(
+                            "import_docs: skipping duplicate %s (matches %s)",
+                            filepath,
+                            existing.id,
+                        )
+                        dup = True
+                        break
+                if dup:
+                    skipped += 1
+                    continue
+
+                # Create note with derived name/path, LLM fills the rest
+                try:
+                    note_id = self.add_note(
+                        content=content,
+                        name=name,
+                        path=path,
+                    )
+                    logger.info(
+                        "import_docs: imported %s as %s",
+                        filepath,
+                        note_id,
+                    )
+                    imported += 1
+                except Exception as e:
+                    logger.exception(
+                        "import_docs: failed to import %s: %s", filepath, e
+                    )
+                    failed += 1
+
+        logger.info(
+            "import_docs: done — imported=%d skipped=%d failed=%d",
+            imported,
+            skipped,
+            failed,
+        )
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "failed": failed,
+            "renamed_to": renamed,
+        }
+
     # --- Disk ↔ Memory helpers ---
 
     def _load_disk_notes(self) -> Dict[str, MemoryNote]:
