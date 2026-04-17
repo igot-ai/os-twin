@@ -14,14 +14,18 @@ name: Agent OS — CI
 
 on:
   push:
-    branches: [main, hotfix/*, feature/*]
+    branches: [main, hotfix/*, feature/*, fix/*]
     paths:
       - '.agents/**'
+      - 'bot/**'
+      - 'dashboard/**'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
     paths:
       - '.agents/**'
+      - 'bot/**'
+      - 'dashboard/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
 
@@ -278,7 +282,100 @@ jobs:
           fail-on-error: true
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 4: Smoke test — install.sh (Linux only)
+  # Job 4a: Memory system unit + integration tests (Linux only)
+  # Validates MemoryNote, AgenticMemorySystem, MCP server, and time decay.
+  # Uses deterministic mocks — no API keys or ML models required.
+  # ─────────────────────────────────────────────────────────────────────────
+  memory-tests:
+    name: "Memory System Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install memory system dependencies
+        shell: bash
+        run: |
+          cd .agents/memory
+          pip install -e ".[test]" 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true
+          # Ensure core deps available for unit tests (no ML needed)
+          pip install litellm mcp httpx zvec 2>/dev/null || true
+
+      - name: Run memory unit tests
+        shell: bash
+        run: |
+          cd .agents/memory
+          python -m unittest \
+            tests.unit.test_memory_note \
+            tests.unit.test_mcp_server \
+            tests.unit.test_llm_controller \
+            tests.unit.test_time_decay \
+            -v 2>&1 | tee /tmp/memory-unit-results.txt
+          # Check exit code
+          python -m unittest \
+            tests.unit.test_memory_note \
+            tests.unit.test_mcp_server \
+            tests.unit.test_llm_controller \
+            tests.unit.test_time_decay
+
+      - name: Run memory integration tests (mock-only, no ML)
+        shell: bash
+        run: |
+          cd .agents/memory
+          python -m unittest \
+            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_memory_lifecycle_with_deterministic_dependencies \
+            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_persistence_round_trip_rebuilds_backlinks \
+            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_sync_from_disk_detects_added_updated_and_removed_notes \
+            tests.integration.test_memory_system.TestAgenticMemorySystemIntegration.test_process_memory_applies_evolution_actions \
+            -v
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 4b: Bot tests (Linux only)
+  # Validates the Discord/Telegram bot — agent-bridge, commands, sessions,
+  # connectors, and asset staging.
+  # ─────────────────────────────────────────────────────────────────────────
+  bot-tests:
+    name: "Bot Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        shell: bash
+        run: npm install -g pnpm
+
+      - name: Install bot dependencies
+        shell: bash
+        working-directory: bot
+        run: pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+
+      - name: TypeScript compile check
+        shell: bash
+        working-directory: bot
+        run: npx tsc --noEmit
+
+      - name: Run bot tests
+        shell: bash
+        working-directory: bot
+        run: pnpm test
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 5: Smoke test — install.sh (Linux only)
   # Validates the bash installer completes without error in CI.
   # Uses --yes --skip-optional to avoid interactive prompts and heavy deps.
   # ─────────────────────────────────────────────────────────────────────────
@@ -397,6 +494,8 @@ jobs:
       - bats-installer-tests
       - pester-installer-tests
       - pester-core-tests
+      - memory-tests
+      - bot-tests
       - smoke-test-bash
       - smoke-test-powershell
 
@@ -407,6 +506,8 @@ jobs:
           echo "  bats-installer-tests:    ${{ needs.bats-installer-tests.result }}"
           echo "  pester-installer-tests:  ${{ needs.pester-installer-tests.result }}"
           echo "  pester-core-tests:       ${{ needs.pester-core-tests.result }}"
+          echo "  memory-tests:            ${{ needs.memory-tests.result }}"
+          echo "  bot-tests:               ${{ needs.bot-tests.result }}"
           echo "  smoke-test-bash:         ${{ needs.smoke-test-bash.result }}"
           echo "  smoke-test-powershell:   ${{ needs.smoke-test-powershell.result }}"
           FAILED=false
@@ -414,6 +515,8 @@ jobs:
             "${{ needs.bats-installer-tests.result }}" \
             "${{ needs.pester-installer-tests.result }}" \
             "${{ needs.pester-core-tests.result }}" \
+            "${{ needs.memory-tests.result }}" \
+            "${{ needs.bot-tests.result }}" \
             "${{ needs.smoke-test-bash.result }}" \
             "${{ needs.smoke-test-powershell.result }}"; do
             if [[ "$result" == "failure" ]]; then
