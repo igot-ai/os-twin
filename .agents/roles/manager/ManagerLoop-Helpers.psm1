@@ -77,30 +77,14 @@ function Resolve-RoomSkills {
         }
 
         if ($response -and $response.Count -gt 0) {
-            $topSkills  = @($response | Select-Object -First 10)
+            $topSkills  = @($response | Select-Object -First 5)
             $skillNames = @($topSkills | ForEach-Object { $_.name })
 
             $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
             $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
 
-            $roomSkillsDir = Join-Path $RoomDir "skills"
-            if (-not (Test-Path $roomSkillsDir)) {
-                New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
-            }
-
-            foreach ($skill in $topSkills) {
-                $relPath = $skill.relative_path
-                if (-not $relPath) { continue }
-                $srcDir = Join-Path $agentsDir $relPath
-                if (-not (Test-Path $srcDir)) {
-                    $homeSrc = Join-Path (Join-Path $env:HOME ".ostwin") $relPath
-                    if (Test-Path $homeSrc) { $srcDir = $homeSrc } else { continue }
-                }
-                $destDir = Join-Path $roomSkillsDir $skill.name
-                if (Test-Path $destDir) { Remove-Item -Path $destDir -Recurse -Force -ErrorAction SilentlyContinue }
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-                Copy-Item -Path (Join-Path $srcDir "*") -Destination $destDir -Recurse -Force -ErrorAction SilentlyContinue
-            }
+            # Physical skill copying is handled by Invoke-Agent.ps1 via Resolve-RoleSkills.ps1.
+            # This function only writes skill_refs to config.json so the agent knows what to pull.
             Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for ${AssignedRole}: $($skillNames -join ', ')"
         }
     }
