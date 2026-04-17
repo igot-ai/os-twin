@@ -33,7 +33,9 @@ MODELS_DEV_LOGO_URL = "https://models.dev/logos/{provider}.svg"
 
 AUTH_JSON_PATH = Path.home() / ".local" / "share" / "opencode" / "auth.json"
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
-CONFIGURED_MODELS_PATH = Path.home() / ".local" / "share" / "opencode" / "configured_models.json"
+CONFIGURED_MODELS_PATH = (
+    Path.home() / ".local" / "share" / "opencode" / "configured_models.json"
+)
 
 # In-memory cache
 _cached_models: Optional[Dict[str, Any]] = None
@@ -70,10 +72,7 @@ def load_models_on_startup() -> Dict[str, Any]:
     logger.info(
         "Models catalog loaded: %d providers, %d total models",
         len(configured.get("providers", {})),
-        sum(
-            len(p.get("models", {}))
-            for p in configured.get("providers", {}).values()
-        ),
+        sum(len(p.get("models", {})) for p in configured.get("providers", {}).values()),
     )
     return configured
 
@@ -134,8 +133,18 @@ def get_model_registry_from_configured() -> Dict[str, List[dict]]:
 
             cost = model_data.get("cost", {})
 
+            # Companion models (google-vertex/*, google-vertex-anthropic/*) already
+            # have the companion-provider prefix baked into their model_id key, so
+            # they must be kept as-is.  All other providers need the
+            # "provider_id/model_id" composite so the registry id is routable
+            # (e.g. "poe/topazlabs-co/topazlabs", "anthropic/claude-opus-4-6").
+            if model_data.get("companion_provider"):
+                registry_id = model_id  # already like "google-vertex/gemini-3-flash"
+            else:
+                registry_id = f"{provider_id}/{model_id}"
+
             model_entry = {
-                "id": model_id,
+                "id": registry_id,
                 "label": model_data.get("name", model_id),
                 "context_window": ctx_str,
                 "tier": _classify_tier(model_data),
@@ -173,15 +182,17 @@ def get_available_providers() -> List[Dict[str, Any]]:
     for pid, pdata in sorted(raw.items(), key=lambda kv: kv[1].get("name", kv[0])):
         if not isinstance(pdata, dict) or "models" not in pdata:
             continue
-        result.append({
-            "id": pid,
-            "name": pdata.get("name", pid),
-            "logo_url": get_provider_logo_url(pid),
-            "model_count": len(pdata.get("models", {})),
-            "doc": pdata.get("doc", ""),
-            "env": pdata.get("env", []),
-            "already_configured": pid in configured,
-        })
+        result.append(
+            {
+                "id": pid,
+                "name": pdata.get("name", pid),
+                "logo_url": get_provider_logo_url(pid),
+                "model_count": len(pdata.get("models", {})),
+                "doc": pdata.get("doc", ""),
+                "env": pdata.get("env", []),
+                "already_configured": pid in configured,
+            }
+        )
     return result
 
 
@@ -200,7 +211,10 @@ def _fetch_models_dev() -> Optional[Dict[str, Any]]:
     try:
         req = urllib.request.Request(
             MODELS_DEV_URL,
-            headers={"User-Agent": "ostwin-dashboard/1.0", "Accept": "application/json"},
+            headers={
+                "User-Agent": "ostwin-dashboard/1.0",
+                "Accept": "application/json",
+            },
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -228,7 +242,7 @@ def _read_cached_raw() -> Optional[Dict[str, Any]]:
 
 
 def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
-    """Read auth.json + opencode.json + env vars to discover configured providers.
+    """Read auth.json + opencode.json + env vars + vault to discover configured providers.
 
     Returns ``{provider_id: {type, source, has_key, ...}}``.
     """
@@ -257,9 +271,7 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
                     providers[provider_id] = {
                         "type": "custom",
                         "source": "opencode.json",
-                        "has_key": bool(
-                            entry.get("options", {}).get("apiKey")
-                        ),
+                        "has_key": bool(entry.get("options", {}).get("apiKey")),
                     }
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Failed to read opencode.json: %s", exc)
@@ -278,6 +290,26 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
                 "deployment_mode": _read_google_deployment_mode(),
             }
 
+    # 4. Vault -- catch any provider key stored via AddProviderModal that
+    #    hasn't been synced to auth.json yet.  Keys like
+    #    ``google_service_account`` are internal vault entries, not providers.
+    _VAULT_SKIP = {"google_service_account"}
+    try:
+        from .vault import get_vault
+
+        vault = get_vault()
+        vault_keys = vault.list_keys("providers")
+        for vault_key in vault_keys:
+            if vault_key in providers or vault_key in _VAULT_SKIP:
+                continue
+            providers[vault_key] = {
+                "type": "api",
+                "source": "vault",
+                "has_key": True,
+            }
+    except Exception as exc:
+        logger.debug("Vault provider discovery skipped: %s", exc)
+
     return providers
 
 
@@ -288,11 +320,14 @@ def _read_google_deployment_mode() -> str:
     """
     try:
         from dashboard.api_utils import AGENTS_DIR
+
         config_path = AGENTS_DIR / "config.json"
         if config_path.exists():
             config = json.loads(config_path.read_text())
-            return config.get("providers", {}).get("google", {}).get(
-                "deployment_mode", "vertex"
+            return (
+                config.get("providers", {})
+                .get("google", {})
+                .get("deployment_mode", "vertex")
             )
     except Exception:
         pass
@@ -384,8 +419,21 @@ def _build_configured_models(
                 "models": {},
             }
 
+        # Resolve companion providers early so step 1 can skip base
+        # models when companions will supply properly-prefixed ones.
+        mode = provider_cfg.get("deployment_mode", "")
+        companions_by_mode = _COMPANION_PROVIDERS.get(provider_id, {})
+        companion_ids = companions_by_mode.get(mode, []) if mode else []
+        # If no mode-specific entry, try a flat list fallback
+        if not companion_ids and isinstance(companions_by_mode, list):
+            companion_ids = companions_by_mode
+
         # ── 1) Ingest models.dev models ───────────────────────────
-        if raw_provider is not None:
+        # When companion providers are active (e.g. google in vertex
+        # mode), skip base models — they have bare IDs and aren't
+        # routable via the companion API.  All models come from the
+        # companion catalog with properly prefixed IDs instead.
+        if raw_provider is not None and not companion_ids:
             for model_id, model_data in raw_provider.get("models", {}).items():
                 provider_entry["models"][model_id] = {
                     "id": model_id,
@@ -404,13 +452,6 @@ def _build_configured_models(
                 }
 
         # ── 2) Ingest companion provider models ───────────────────
-        # Select companions based on deployment mode (e.g. vertex vs gemini)
-        mode = provider_cfg.get("deployment_mode", "")
-        companions_by_mode = _COMPANION_PROVIDERS.get(provider_id, {})
-        companion_ids = companions_by_mode.get(mode, []) if mode else []
-        # If no mode-specific entry, try a flat list fallback
-        if not companion_ids and isinstance(companions_by_mode, list):
-            companion_ids = companions_by_mode
 
         for companion_id in companion_ids:
             companion = raw_catalog.get(companion_id)
@@ -514,6 +555,7 @@ def _classify_tier(model_data: dict) -> str:
 def _iso_now() -> str:
     """Return current UTC time as ISO string."""
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).isoformat()
 
 

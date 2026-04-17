@@ -46,13 +46,15 @@ start_dashboard() {
 
   mkdir -p "$INSTALL_DIR/logs"
   step "Starting dashboard on http://localhost:${DASHBOARD_PORT}..."
-  # Pin --project-dir to $INSTALL_DIR so the dashboard's plan registry is
-  # always ~/.ostwin/.agents/plans/, regardless of cwd when install.sh runs.
+  echo "[$(date +%H:%M:%S)] VERBAL: Launching dashboard.sh with --skip-build..."
+  # Pin --project-dir to $INSTALL_DIR
   nohup bash "$dashboard_script" \
     --background --port "$DASHBOARD_PORT" \
     --project-dir "$INSTALL_DIR" \
+    --skip-build \
     > "$INSTALL_DIR/logs/dashboard.log" 2>&1 &
   DASHBOARD_PID=$!
+  echo "[$(date +%H:%M:%S)] VERBAL: dashboard.sh launched (PID: $DASHBOARD_PID)"
   echo "$DASHBOARD_PID" > "$INSTALL_DIR/dashboard.pid"
 
   # Read OSTWIN_API_KEY for auth headers
@@ -60,19 +62,22 @@ start_dashboard() {
 
   # Health-check: poll /api/status up to 60s
   step "Waiting for dashboard to be healthy (up to 60s)..."
+  local start_time
+  start_time=$(get_now)
   DASH_OK=false
   for _i in $(seq 1 60); do
     if [[ -n "$OSTWIN_API_KEY" ]]; then
-      curl -sf -H "X-API-Key: $OSTWIN_API_KEY" "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1 && DASH_OK=true
+      curl -v -sf -H "X-API-Key: $OSTWIN_API_KEY" "http://127.0.0.1:${DASHBOARD_PORT}/api/status" >/tmp/ostwin_curl.log 2>&1 && DASH_OK=true
     else
-      curl -sf "http://localhost:${DASHBOARD_PORT}/api/status" >/dev/null 2>&1 && DASH_OK=true
+      curl -v -sf "http://127.0.0.1:${DASHBOARD_PORT}/api/status" >/tmp/ostwin_curl.log 2>&1 && DASH_OK=true
     fi
     if $DASH_OK; then break; fi
+    echo "  [$(date +%H:%M:%S)] Health check failed (attempt $_i/60). Details: $(tail -n 1 /tmp/ostwin_curl.log)"
     sleep 1
   done
 
   if $DASH_OK; then
-    ok "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)"
+    ok_time "Dashboard healthy at http://localhost:${DASHBOARD_PORT} (PID $DASHBOARD_PID)" "$(print_duration "$start_time")"
     _check_tunnel
   else
     warn "Dashboard did not respond in 60s — check $INSTALL_DIR/logs/dashboard.log"
@@ -82,10 +87,13 @@ start_dashboard() {
 
 publish_skills() {
   header "9b. Publishing skills to backend"
+  local start_time
+  start_time=$(get_now)
   local sync_script="$INSTALL_DIR/.agents/sync-skills.sh"
   if [[ -x "$sync_script" ]]; then
     OSTWIN_HOME="$INSTALL_DIR" DASHBOARD_PORT="$DASHBOARD_PORT" \
-      bash "$sync_script" --install-from "$INSTALL_DIR/.agents"
+      bash "$sync_script" --install-from "$INSTALL_DIR/.agents" \
+      && ok_time "Skills published" "$(print_duration "$start_time")"
   else
     warn "sync-skills.sh not found — skipping skill sync"
     info "Expected at $sync_script"

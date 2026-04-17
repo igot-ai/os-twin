@@ -34,6 +34,9 @@ export interface ConfiguredModel {
   knowledge: string;
   release_date: string;
   source?: ModelSource;
+  /** Set for Google companion models (google-vertex, google-vertex-anthropic).
+   *  When present the modelId storage key already contains the companion prefix. */
+  companion_provider?: string;
 }
 
 /** A provider entry from the configured models catalog */
@@ -47,6 +50,9 @@ export interface ConfiguredProvider {
   logo_url: string;
   source: string;
   models: Record<string, ConfiguredModel>;
+  /** Allow arbitrary additional fields (makes this structurally compatible
+   *  with the ModelSelect providers prop index signature). */
+  [key: string]: unknown;
 }
 
 /** The full configured_models.json structure */

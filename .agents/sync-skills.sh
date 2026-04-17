@@ -40,6 +40,18 @@ warn() { echo -e "    ${YELLOW}[WARN]${NC} $1"; }
 fail() { echo -e "    ${RED}[FAIL]${NC} $1"; }
 info() { echo -e "    ${DIM}$1${NC}"; }
 step() { echo -e "  ${CYAN}→${NC} $1"; }
+ok_time() { echo -e "    ${GREEN}[OK]${NC} $1 ${DIM}($2)${NC}"; }
+
+get_now() {
+  date +%s
+}
+
+print_duration() {
+  local start=$1
+  local end
+  end=$(get_now)
+  echo "$((end - start))s"
+}
 
 # ─── Load .env ────────────────────────────────────────────────────────────────
 
@@ -150,6 +162,8 @@ install_from_dir() {
   local source_dir="$1"
   local dest_base="$OSTWIN_HOME/.agents/skills"
   local copied=0
+  local start_time
+  start_time=$(get_now)
 
   step "Scanning $source_dir for SKILL.md files..."
 
@@ -232,7 +246,7 @@ install_from_dir() {
   done < <(find "$source_dir" -name "SKILL.md" -type f 2>/dev/null)
 
   if [[ $copied -gt 0 ]]; then
-    ok "$copied skill(s) copied to $dest_base"
+    ok_time "$copied skill(s) copied to $dest_base" "$(print_duration "$start_time")"
   else
     warn "No SKILL.md files found in $source_dir"
   fi
@@ -242,6 +256,8 @@ install_from_dir() {
 
 sync_home_skills() {
   local skills_base="$OSTWIN_HOME/.agents/skills"
+  local start_time
+  start_time=$(get_now)
   step "Scanning $skills_base for SKILL.md files..."
 
   # Count skills on disk for reporting
@@ -290,31 +306,11 @@ sync_home_skills() {
     return
   fi
 
-  # No background sync running — trigger sync ourselves
-  step "Triggering vector store sync..."
-  local sync_result=""
-  local _attempt
-  for _attempt in $(seq 1 10); do
-    sync_result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
-      "${DASHBOARD_URL}/api/skills/sync" 2>&1) || true
-
-    if [[ -n "$sync_result" ]] && echo "$sync_result" | grep -q '"synced_count"' 2>/dev/null; then
-      break
-    fi
-    sync_result=""
-    sleep 3
-  done
-
-  if [[ -n "$sync_result" ]]; then
-    local synced_count added_count updated_count removed_count
-    synced_count=$(echo "$sync_result" | grep -o '"synced_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-    added_count=$(echo "$sync_result" | grep -o '"added":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
-    updated_count=$(echo "$sync_result" | grep -o '"updated":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
-    removed_count=$(echo "$sync_result" | grep -o '"removed":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
-    ok "Vector store synced: $synced_count changed ($added_count added, $updated_count updated, $removed_count removed)"
-  else
-    warn "Vector store sync failed after ${_attempt} attempts — dashboard may not be reachable"
-  fi
+  # No background sync running — trigger sync ourselves (fire-and-forget)
+  step "Triggering vector store sync (runs in background)..."
+  curl -sf --max-time 5 -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+    "${DASHBOARD_URL}/api/skills/sync" >/dev/null 2>&1 &
+  ok "Skill sync triggered — embeddings will complete in the background"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

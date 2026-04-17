@@ -1,5 +1,7 @@
 import os
 import sys
+import asyncio
+import time
 import json
 import uvicorn
 import logging
@@ -7,8 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
-# ── Load ~/.ostwin/.env early (before any module reads env at import time) ──
+# ── Load ~/.ostwin/.env early ──
 # This makes the dashboard self-contained: it works whether started via
 # `ostwin dashboard` (which already sources .env) or directly via `python api.py`.
 # NOTE: This is a one-time bootstrap load.  For live hot-reload when the
@@ -50,23 +51,13 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
+# --- Route Imports ---
+# Heavy libraries (torch, langchain) are now lazy-loaded inside these routes
+# so direct imports here translate to < 2s total dashboard boot time.
 from dashboard.routes import (
-    auth,
-    engagement,
-    plans,
-    rooms,
-    system,
-    mcp,
-    skills,
-    roles,
-    memory,
-    amem,
-    channels,
-    command,
-    threads,
-    tunnel,
-    files,
-    settings,
+    auth, system, mcp, threads, plans, rooms, skills, 
+    roles, memory, amem, channels, command, tunnel, 
+    files, settings, engagement
 )
 
 # Configure logging — file + console
@@ -203,7 +194,8 @@ if USE_FE:
 # --- Lifecycle ---
 @app.on_event("startup")
 async def on_startup():
-    await startup_all()
+    # Use create_task so the lifecycle doesn't block the server from accepting connections
+    asyncio.create_task(startup_all())
 
 
 @app.on_event("shutdown")
@@ -247,5 +239,4 @@ if __name__ == "__main__":
     print("⬡ OS Twin Command Center (Modular)")
     print(f"  Project:   {args.project_dir or PROJECT_ROOT}")
     print(f"  War-rooms: {WARROOMS_DIR}")
-    print(f"  URL:       http://localhost:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)

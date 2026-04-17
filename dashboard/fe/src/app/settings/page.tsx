@@ -16,10 +16,11 @@ import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/set
 import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
 
 // Providers that have dedicated cards at the top of the settings page.
-// These are hidden from the Additional Providers section.
-// NOTE: 'gemini' is included because opencode.json syncs Google under
-// the 'gemini' provider ID, which would otherwise leak as a dynamic card.
-const LEGACY_PRIMARY_PROVIDERS = new Set(['google', 'gemini', 'byteplus', 'anthropic', 'openai']);
+// These are hidden from the Additional Providers section to avoid duplicates.
+const LEGACY_PRIMARY_PROVIDERS = new Set([
+  'anthropic',
+  'byteplus',
+]);
 
 // Map internal provider names to registry keys (for legacy fallback)
 const PROVIDER_REGISTRY_KEY: Record<string, string> = {
@@ -38,7 +39,7 @@ export default function SettingsPage() {
   const [vaultStatus, setVaultStatus] = useState<Record<string, boolean>>({});
   const [modelRegistry, setModelRegistry] = useState<Record<string, ModelInfo[]>>({});
 
-  const { settings, isLoading, isError, updateNamespace, testProvider, updateVault } = useSettings();
+  const { settings, isLoading, isError, updateNamespace, updateVault } = useSettings();
   const { configured, providers: configuredProviders, allModels, reload: reloadModels } = useConfiguredModels();
 
   // Fetch model registry (backward compat + dynamic)
@@ -246,7 +247,6 @@ export default function SettingsPage() {
                   onToggle={(enabled) => updateProvider('google', googleSettings, { enabled })}
                   onModelChange={(model) => updateProvider('google', googleSettings, { default_model: model })}
                   onSettingsChange={(updates) => updateProvider('google', googleSettings, updates)}
-                  onTest={() => testProvider('google')}
                   onVaultClick={() => handleVaultClick('google')}
                   onServiceAccountUpload={handleServiceAccountUpload}
                   vaultSet={vaultStatus['google'] || false}
@@ -264,7 +264,6 @@ export default function SettingsPage() {
                   variant="compact"
                   onToggle={(enabled) => updateProvider('anthropic', anthropicSettings, { enabled })}
                   onModelChange={(model) => updateProvider('anthropic', anthropicSettings, { default_model: model })}
-                  onTest={() => testProvider('anthropic')}
                   onVaultClick={() => handleVaultClick('anthropic')}
                   vaultSet={vaultStatus['anthropic'] || false}
                   modelRegistry={getRegistryForProvider('anthropic')}
@@ -276,7 +275,6 @@ export default function SettingsPage() {
                   variant="compact"
                   onToggle={(enabled) => updateProvider('openai', openaiSettings, { enabled })}
                   onModelChange={(model) => updateProvider('openai', openaiSettings, { default_model: model })}
-                  onTest={() => testProvider('openai')}
                   onVaultClick={() => handleVaultClick('openai')}
                   vaultSet={vaultStatus['openai'] || false}
                   modelRegistry={getRegistryForProvider('openai')}
@@ -289,7 +287,6 @@ export default function SettingsPage() {
                 provider={byteplusSettings}
                 onSettingsChange={(updates) => updateProvider('byteplus', byteplusSettings, updates)}
                 onVaultClick={() => handleVaultClick('byteplus')}
-                onTest={() => testProvider('byteplus')}
                 vaultSet={vaultStatus['byteplus'] || false}
                 modelRegistry={getRegistryForProvider('byteplus')}
               />
@@ -344,7 +341,6 @@ export default function SettingsPage() {
                         vaultSet={vaultStatus[pid] || false}
                         onVaultClick={() => handleVaultClick(pid)}
                         onToggle={(enabled) => updateProvider(pid, provSettings, { enabled })}
-                        onTest={() => testProvider(pid)}
                         onRemove={() => handleRemoveProvider(pid)}
                       />
                     );

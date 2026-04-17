@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import type { ModelInfo, ConfiguredProvider } from '@/types/settings';
+import type { ModelInfo } from '@/types/settings';
 
 const TIER_COLORS: Record<string, string> = {
   flagship: 'bg-amber-100 text-amber-800',
@@ -20,7 +20,7 @@ export interface ModelSelectProps {
   value: string;
   onChange: (modelId: string) => void;
   models: ModelInfo[];
-  providers?: Record<string, ConfiguredProvider>;
+  providers?: Record<string, { name?: string; logo_url?: string; [key: string]: unknown }>;
   disabled?: boolean;
   placeholder?: string;
   /** @deprecated ignored -- always renders the searchable dropdown */

@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Optional
 
 import zvec
-from sentence_transformers import SentenceTransformer
 
 from datetime import datetime
 import uuid_utils
@@ -179,7 +178,6 @@ class OSTwinStore:
                 continue
 
             try:
-                # Try to open and check schema
                 col = zvec.open(str(path))
                 schema = col.schema
                 has_time_id = any(f.name == "time_id" for f in schema.fields)
@@ -676,6 +674,7 @@ class OSTwinStore:
             return self._embed_fn
         try:
             model_name = OSTWIN_EMBED_MODEL
+            from sentence_transformers import SentenceTransformer
             logger.info("Loading SentenceTransformer model: %s", model_name)
             self._embed_fn = SentenceTransformer(
                 model_name, model_kwargs={"dtype": "auto"}
@@ -779,16 +778,6 @@ class OSTwinStore:
                 json.dump(self._embed_cache, f)
         except Exception as e:
             logger.debug("Failed to save embedding cache: %s", e)
-
-        try:
-            embeddings = fn.encode(
-                clean, convert_to_numpy=True, show_progress_bar=False
-            )
-            for idx, emb in zip(indices, embeddings):
-                results[idx] = emb.tolist()
-        except Exception as e:
-            logger.debug("Batch embedding failed: %s", e)
-        return results
 
     # ── Text Sanitization ──────────────────────────────────────────────
 

@@ -34,34 +34,96 @@ def _detect_provider(model_id: str) -> str:
     return "Gemini"
 
 
+
 def _resolve_model_id(version: str) -> str:
-    """Ensure a model ID is fully-qualified (i.e. contains a provider prefix).
+    """Ensure a model ID is fully-qualified with a ``provider/model`` prefix.
 
     Roles can store bare model names like ``gemini-3-flash-preview`` when they
-    were originally created from an opencode config that stripped the prefix.
-    The opencode CLI requires the full ``provider/model`` form, so we resolve
-    the bare ID against the static registry catalog before calling it.
+    were originally created from an opencode config that had stripped the
+    provider prefix.  The opencode CLI requires the full ``provider/model``
+    form, so we resolve the bare ID before invoking it.
 
-    IDs that already contain ``/`` (e.g. ``google-vertex/gemini-3-flash-preview``
-    or ``gemini/gemini-3-flash-preview``) are returned unchanged.
+    Resolution order
+    ----------------
+    1. IDs that already contain ``/`` are returned unchanged:
+       e.g. ``google-vertex/gemini-3-flash-preview``, ``gemini/gemini-3-flash-preview``.
+    2. Static fallback catalog (``_FALLBACK_CATALOG``) — covers the four
+       legacy providers without touching any models.dev data.
+    3. Dynamic configured_models catalog (built from models.dev at startup) —
+       covers additional models from configured providers.  The raw models.dev
+       JSON is never modified; we only read it for lookup.
+    4. Native opencode providers (Anthropic, OpenAI, …) need no prefix;
+       unknown bare IDs are passed through unchanged.
     """
     if "/" in version:
         return version  # already provider-qualified
 
-    # Walk the static fallback catalog to find the full ID whose short part
-    # (after the first '/') matches the bare version string.
+    # ── Step 1: static fallback catalog ──────────────────────────────────
     try:
         from dashboard.lib.settings.models_registry import _FALLBACK_CATALOG
         for entries in _FALLBACK_CATALOG.values():
             for entry in entries:
                 short = entry.id.split("/", 1)[-1] if "/" in entry.id else entry.id
                 if short == version and entry.id != version:
-                    return entry.id  # return the qualified ID
+                    logger.debug(
+                        "_resolve_model_id: %r → static catalog %r", version, entry.id
+                    )
+                    return entry.id
     except Exception:
         pass
 
-    # Unknown bare ID (e.g. native Claude/OpenAI): pass through; opencode
-    # resolves those without a prefix.
+    # ── Step 2: dynamic configured_models (models.dev) ───────────────────
+    # Models.dev raw data is never modified — we only use it for ID lookup.
+    try:
+        from dashboard.lib.settings.models_dev_loader import (
+            get_configured_models,
+            _read_google_deployment_mode,
+        )
+        configured = get_configured_models()
+        for provider_id, pdata in configured.get("providers", {}).items():
+            for mid in pdata.get("models", {}):
+                # mid may already be qualified (companion provider prefix)
+                short = mid.split("/", 1)[-1] if "/" in mid else mid
+                if short != version and mid != version:
+                    continue
+
+                if "/" in mid:
+                    # Companion model: already fully qualified in the catalog.
+                    logger.debug(
+                        "_resolve_model_id: %r → dynamic catalog (companion) %r",
+                        version, mid,
+                    )
+                    return mid
+
+
+                if provider_id == "google":
+                    # opencode uses the custom 'gemini' provider block;
+                    # vertex companion models already have google-vertex/ prefix.
+                    mode = _read_google_deployment_mode()
+                    if mode == "gemini":
+                        qualified = f"gemini/{version}"
+                        logger.debug(
+                            "_resolve_model_id: %r → google/gemini mode %r",
+                            version, qualified,
+                        )
+                        return qualified
+                    # Vertex mode: bare google model IDs shouldn't appear here
+                    # (companions are already prefixed), but pass through.
+                    return version
+
+                # Any other custom provider (gemini, byteplus, …): use its
+                # provider_id as the opencode model prefix.
+                qualified = f"{provider_id}/{version}"
+                logger.debug(
+                    "_resolve_model_id: %r → custom provider %r",
+                    version, qualified,
+                )
+                return qualified
+    except Exception:
+        pass
+
+    # Unknown bare ID (e.g. native Claude/OpenAI not in catalog):
+    # pass through and let opencode decide.
     return version
 
 
@@ -697,7 +759,7 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
     resolved_version = _resolve_model_id(version)
     logger.debug("test_model_connection: %r → resolved %r", version, resolved_version)
 
-    cmd = [opencode, "run", "just say YES", "--model", resolved_version]
+    cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", "/tmp"]
 
     def _run() -> tuple[int, str, str]:
         result = subprocess.run(

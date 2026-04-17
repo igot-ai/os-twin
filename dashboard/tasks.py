@@ -14,7 +14,7 @@ from dashboard.api_utils import (
 )
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
-from dashboard.zvec_store import OSTwinStore
+# Heavy imports moved to background thread to prevent startup blocking
 
 # Telegram command handling is now in the Node.js bot (bot/src/telegram.ts).
 # Outbound notifications use notify.py (formerly telegram_bot.py).
@@ -257,9 +257,7 @@ async def poll_war_rooms():
             await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise
-        except (
-            Exception
-        ) as e:  # noqa: BLE001 - intentional catch-all for polling resilience
+        except Exception as e:  # noqa: BLE001 - intentional catch-all for polling resilience
             logger.error("poll_war_rooms error: %s", e, exc_info=True)
             await asyncio.sleep(2)
 
@@ -276,28 +274,22 @@ async def startup_all():
     except Exception as e:
         logger.error("env_watcher failed to start: %s", e)
 
-    # ── Load model catalog from models.dev ────────────────────────────
-    try:
-        from dashboard.lib.settings.models_dev_loader import load_models_on_startup
-
-        load_models_on_startup()
-    except Exception as e:
-        logger.error("Models catalog load failed: %s", e)
+    # Models catalog and heavy syncs move to the background thread
 
     # Telegram polling removed — handled by the Node.js bot (bot/src/telegram.ts)
-    # Planning thread store (independent of zvec)
+    # Planning thread store (initialized early/sync to avoid race conditions with first requests)
     try:
         from dashboard.planning_thread_store import PlanningThreadStore
 
         global_state.planning_store = PlanningThreadStore()
-        logger.info("Planning thread store initialized")
+        logger.info("Planning thread store initialized (Sync)")
     except Exception as e:
         logger.error(f"Planning store init failed: {e}")
 
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-        # Initialize store in global state
-        global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
+        # Initialize store in the background thread to prevent slow imports
+        # (torch, sentence_transformers) from blocking the main loop.
 
         # Force re-index if requested via CLI flag
         if os.environ.get("OSTWIN_REINDEX") == "true":
@@ -308,13 +300,37 @@ async def startup_all():
                 shutil.rmtree(global_state.store.zvec_dir)
                 global_state.store.zvec_dir.mkdir(parents=True, exist_ok=True)
 
-        global_state.store.ensure_collections()
-
         def _background_sync():
             from dashboard.routes import skills as skills_routes
 
             skills_routes._sync_in_progress = True
             try:
+                # ── Grace Period ──
+                # Give the browser 5 seconds to load HTML/JS/CSS before we
+                # start hogging the CPU with Torch and YAML parsing.
+                import time
+
+                time.sleep(5)
+
+                # Lazy import of heavy vector store
+                from dashboard.zvec_store import OSTwinStore
+
+                global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
+
+                # ── Load model catalog from models.dev ────────────────────────────
+                try:
+                    from dashboard.lib.settings.models_dev_loader import (
+                        load_models_on_startup,
+                    )
+
+                    load_models_on_startup()
+                except Exception as e:
+                    logger.error("Models catalog load failed: %s", e)
+
+                # Initialization (slow — loads 600MB model)
+                global_state.store.ensure_collections()
+
+                # Syncing
                 global_state.store.sync_from_disk()
                 from dashboard.api_utils import SKILLS_DIRS
 
