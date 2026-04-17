@@ -286,7 +286,8 @@ class ZvecRetriever:
             if persist_dir
             else os.path.join("/tmp/zvec", collection_name)
         )
-        self._collection_path = collection_path
+        # Resolve to absolute path so later opens work regardless of CWD
+        self._collection_path = os.path.abspath(collection_path)
         self._collection_name = collection_name
 
         # Ensure the collection exists (one-time setup).
