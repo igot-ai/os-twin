@@ -23,6 +23,20 @@ class FakeRetriever:
     def add_document(self, document, metadata, doc_id):
         self.docs[doc_id] = (document, metadata)
 
+    def has_document(self, doc_id):
+        return doc_id in self.docs
+
+    def existing_ids(self, doc_ids):
+        return {did for did in doc_ids if did in self.docs}
+
+    def get_stored_hashes(self, doc_ids):
+        out = {}
+        for did in doc_ids:
+            if did in self.docs:
+                _, metadata = self.docs[did]
+                out[did] = metadata.get("content_hash") if metadata else None
+        return out
+
     def delete_document(self, doc_id):
         self.docs.pop(doc_id, None)
 
@@ -33,7 +47,7 @@ class FakeRetriever:
         return {"ids": [[]], "metadatas": [[]], "distances": [[]]}
 
 
-def _make_system(persist_dir):
+def _make_system(persist_dir, conflict_resolution="last_modified"):
     """Build an AgenticMemorySystem with heavy init bypassed."""
     sys = object.__new__(AgenticMemorySystem)
     sys.memories = {}
@@ -51,6 +65,7 @@ def _make_system(persist_dir):
     sys.max_links = 3
     sys.similarity_weight = 0.8
     sys.decay_half_life_days = 30.0
+    sys.conflict_resolution = conflict_resolution
     sys.evo_cnt = 0
     sys.evo_threshold = 5
     sys.llm_controller = None
@@ -296,6 +311,44 @@ class TestMergeFromDisk(unittest.TestCase):
         self.assertEqual(result["updated_from_disk"], 1)
         self.assertEqual(self.sys.memories["legacy-001"].content, "Updated on disk")
 
+    # ---- Vectordb consistency repair ----
+
+    def test_missing_vector_repaired(self):
+        """A note in memory with no vector should be re-embedded after merge."""
+        note = MemoryNote(
+            content="I have no vector",
+            id="orphan-001",
+            name="Orphan",
+        )
+        # Add to memories but NOT to retriever (simulates crash between
+        # _save_note and retriever.add_document)
+        self.sys.memories["orphan-001"] = note
+        _write_note_to_disk(self.sys._notes_dir, note)
+
+        self.assertFalse(self.sys.retriever.has_document("orphan-001"))
+
+        result = self.sys.merge_from_disk()
+
+        self.assertEqual(result["vectors_repaired"], 1)
+        self.assertTrue(self.sys.retriever.has_document("orphan-001"))
+
+    def test_no_repair_when_vector_exists(self):
+        """Notes with existing vectors should not be re-embedded."""
+        note = MemoryNote(
+            content="I already have a vector",
+            id="healthy-001",
+            name="Healthy",
+        )
+        self.sys.memories["healthy-001"] = note
+        self.sys.retriever.add_document(
+            "content", {"content_hash": note.content_hash}, "healthy-001"
+        )
+        _write_note_to_disk(self.sys._notes_dir, note)
+
+        result = self.sys.merge_from_disk()
+
+        self.assertEqual(result["vectors_repaired"], 0)
+
 
 class TestSyncToDisk(unittest.TestCase):
     def setUp(self):
@@ -426,6 +479,170 @@ class TestLastModifiedField(unittest.TestCase):
             self.assertEqual(note.last_modified, "202601010000")
         finally:
             shutil.rmtree(tmpdir)
+
+
+class TestFilepathCollision(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.sys = _make_system(self.tmpdir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def test_collision_same_hash_skips_write(self):
+        """Two notes with same filepath and same hash = true duplicate, skip."""
+        note_a = MemoryNote(
+            content="Identical content",
+            id="aaa",
+            name="Tips",
+            path="db",
+            context="General",
+            keywords=[],
+            tags=[],
+        )
+        note_b = MemoryNote(
+            content="Identical content",
+            id="bbb",
+            name="Tips",
+            path="db",
+            context="General",
+            keywords=[],
+            tags=[],
+        )
+        # Same hash
+        self.assertEqual(note_a.content_hash, note_b.content_hash)
+
+        self.sys._save_note(note_a)
+        filepath = os.path.join(self.sys._notes_dir, note_a.filepath)
+
+        # note_b writes to same path — should be skipped (duplicate)
+        self.sys._save_note(note_b)
+
+        # File should still contain note_a's ID
+        with open(filepath, "r") as f:
+            self.assertIn("aaa", f.read())
+
+    def test_collision_different_hash_newer_wins(self):
+        """Two notes with same filepath but different hash — last_modified wins."""
+        note_old = MemoryNote(
+            content="Old content",
+            id="old-id",
+            name="Tips",
+            path="db",
+            last_modified="202601010000",
+        )
+        note_new = MemoryNote(
+            content="New content",
+            id="new-id",
+            name="Tips",
+            path="db",
+            last_modified="202601020000",
+        )
+
+        # Write old note first
+        self.sys._save_note(note_old, touch_modified=False)
+        filepath = os.path.join(self.sys._notes_dir, note_old.filepath)
+
+        # Write newer note — should overwrite
+        self.sys._save_note(note_new, touch_modified=False)
+        with open(filepath, "r") as f:
+            content = f.read()
+        self.assertIn("new-id", content)
+        self.assertIn("New content", content)
+
+    def test_collision_existing_is_newer_keeps_existing(self):
+        """When existing file is newer, new write is rejected."""
+        note_existing = MemoryNote(
+            content="I am newer on disk",
+            id="exist-id",
+            name="Tips",
+            path="db",
+            last_modified="202601020000",
+        )
+        note_incoming = MemoryNote(
+            content="I am older trying to write",
+            id="incoming-id",
+            name="Tips",
+            path="db",
+            last_modified="202601010000",
+        )
+
+        self.sys._save_note(note_existing, touch_modified=False)
+        filepath = os.path.join(self.sys._notes_dir, note_existing.filepath)
+
+        # Incoming is older — should be rejected
+        self.sys._save_note(note_incoming, touch_modified=False)
+        with open(filepath, "r") as f:
+            content = f.read()
+        self.assertIn("exist-id", content)
+        self.assertNotIn("incoming-id", content)
+
+    def test_same_id_overwrites_normally(self):
+        """Updating the same note (same UUID) should overwrite in place."""
+        note = MemoryNote(
+            content="Version 1",
+            id="same-001",
+            name="Same Note",
+        )
+        self.sys._save_note(note)
+
+        note.content = "Version 2"
+        self.sys._save_note(note)
+
+        filepath = os.path.join(self.sys._notes_dir, note.filepath)
+        with open(filepath, "r") as f:
+            content = f.read()
+        self.assertIn("Version 2", content)
+        self.assertNotIn("Version 1", content)
+
+
+class TestContentHash(unittest.TestCase):
+    def test_hash_deterministic(self):
+        """Same content/metadata should always produce same hash."""
+        note = MemoryNote(
+            content="Test content",
+            keywords=["a", "b"],
+            tags=["x"],
+            context="Testing",
+        )
+        h1 = note.compute_hash()
+        h2 = note.compute_hash()
+        self.assertEqual(h1, h2)
+
+    def test_hash_changes_with_content(self):
+        note = MemoryNote(content="Version 1")
+        h1 = note.content_hash
+        note.content = "Version 2"
+        note.refresh_hash()
+        self.assertNotEqual(h1, note.content_hash)
+
+    def test_hash_changes_with_tags(self):
+        note = MemoryNote(content="Same", tags=["a"])
+        h1 = note.content_hash
+        note.tags = ["a", "b"]
+        note.refresh_hash()
+        self.assertNotEqual(h1, note.content_hash)
+
+    def test_hash_roundtrip(self):
+        """Hash should survive to_markdown → from_markdown."""
+        note = MemoryNote(content="Roundtrip", tags=["test"])
+        original_hash = note.content_hash
+        restored = MemoryNote.from_markdown(note.to_markdown())
+        self.assertEqual(restored.content_hash, original_hash)
+
+    def test_hash_order_independent(self):
+        """Keyword/tag order shouldn't affect hash (sorted internally)."""
+        note_a = MemoryNote(content="X", keywords=["b", "a"], tags=["y", "x"])
+        note_b = MemoryNote(content="X", keywords=["a", "b"], tags=["x", "y"])
+        self.assertEqual(note_a.compute_hash(), note_b.compute_hash())
+
+    def test_legacy_note_without_hash(self):
+        """Old notes without content_hash should compute it on access."""
+        note = MemoryNote(content="Old note")
+        note._content_hash = None
+        h = note.content_hash  # should auto-compute
+        self.assertIsNotNone(h)
+        self.assertEqual(len(h), 16)
 
 
 if __name__ == "__main__":

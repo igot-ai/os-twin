@@ -166,6 +166,31 @@ class ChromaRetriever:
             name="memories", embedding_function=self.embedding_function
         )
 
+    def has_document(self, doc_id: str) -> bool:
+        """Check if a document exists in ChromaDB."""
+        results = self.collection.get(ids=[doc_id])
+        return bool(results and results.get("ids"))
+
+    def existing_ids(self, doc_ids: List[str]) -> set:
+        """Return the subset of *doc_ids* that exist in the collection."""
+        if not doc_ids:
+            return set()
+        results = self.collection.get(ids=doc_ids)
+        return set(results.get("ids", []))
+
+    def get_stored_hashes(self, doc_ids: List[str]) -> Dict[str, Optional[str]]:
+        """Return {doc_id: content_hash} for each ID. Missing IDs omitted."""
+        if not doc_ids:
+            return {}
+        results = self.collection.get(ids=doc_ids, include=["metadatas"])
+        out: Dict[str, Optional[str]] = {}
+        for i, did in enumerate(results.get("ids", [])):
+            meta = (
+                (results.get("metadatas") or [])[i] if results.get("metadatas") else {}
+            )
+            out[did] = (meta or {}).get("content_hash")
+        return out
+
     def delete_document(self, doc_id: str):
         """Delete a document from ChromaDB.
 
@@ -343,6 +368,32 @@ class ZvecRetriever:
             else:
                 processed[key] = str(value)
         return processed
+
+    def has_document(self, doc_id: str) -> bool:
+        """Check if a document exists in the Zvec collection."""
+        result = self.collection.fetch(doc_id)
+        return bool(result)
+
+    def existing_ids(self, doc_ids: List[str]) -> set:
+        """Return the subset of *doc_ids* that exist in the collection.
+
+        Uses a single batch ``fetch`` call instead of N individual lookups.
+        """
+        if not doc_ids:
+            return set()
+        result = self.collection.fetch(doc_ids)
+        return set(result.keys())
+
+    def get_stored_hashes(self, doc_ids: List[str]) -> Dict[str, Optional[str]]:
+        """Return {doc_id: content_hash} for each ID. Missing IDs omitted."""
+        if not doc_ids:
+            return {}
+        fetched = self.collection.fetch(doc_ids)
+        out: Dict[str, Optional[str]] = {}
+        for did, doc in fetched.items():
+            meta = json.loads(doc.fields.get("metadata_json", "{}"))
+            out[did] = meta.get("content_hash")
+        return out
 
     def delete_document(self, doc_id: str):
         """Delete a document from Zvec."""
