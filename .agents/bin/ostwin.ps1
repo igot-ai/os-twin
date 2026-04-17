@@ -1238,21 +1238,12 @@ switch ($Command) {
                             $ghInstalled = 0
 
                             # Find skills root
-                            $ghSkillsRoot = ""
-                            foreach ($candidateDir in @(
-                                    "$ghTmp\repo\source\skills",
-                                    "$ghTmp\repo\.agents\skills",
-                                    "$ghTmp\repo\skills",
-                                    "$ghTmp\repo"
-                                )) {
-                                if ((Test-Path $candidateDir) -and
-                                    (Get-ChildItem -Path $candidateDir -Filter "SKILL.md" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1)) {
-                                    $ghSkillsRoot = $candidateDir
-                                    break
-                                }
-                            }
+                            # Scan the entire repo for SKILL.md at any depth.
+                            # No assumptions about folder structure — any directory
+                            # containing a SKILL.md is a candidate skill to install.
+                            $ghSkillsRoot = "$ghTmp\repo"
 
-                            if (-not $ghSkillsRoot) {
+                            if (-not (Get-ChildItem -Path $ghSkillsRoot -Filter "SKILL.md" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)) {
                                 Write-Error ([char]0x2717 + " No SKILL.md found in $ghUrl")
                                 exit 1
                             }
