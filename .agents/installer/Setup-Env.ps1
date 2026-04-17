@@ -14,18 +14,38 @@ function Setup-Env {
     param()
 
     $envFile = Join-Path $script:InstallDir ".env"
+    
+    Write-Step "Setting up .env at $envFile..."
+    Write-Step "InstallDir: $($script:InstallDir)"
 
     if (Test-Path $envFile) {
         Write-Ok ".env already exists at $envFile"
         
         # Load OSTWIN_API_KEY from existing .env into current process
         $envContent = Get-Content $envFile
+        $hasApiKey = $false
         foreach ($line in $envContent) {
             if ($line -match '^OSTWIN_API_KEY=(.+)$') {
                 $env:OSTWIN_API_KEY = $Matches[1].Trim()
                 $script:OstwinApiKey = $Matches[1].Trim()
+                $hasApiKey = $true
+                Write-Ok "OSTWIN_API_KEY loaded from .env: $($Matches[1].Trim().Substring(0, [Math]::Min(10, $Matches[1].Trim().Length)))..."
                 break
             }
+        }
+        
+        # If OSTWIN_API_KEY doesn't exist, generate and add it
+        if (-not $hasApiKey) {
+            Write-Step "OSTWIN_API_KEY not found in .env — generating new key..."
+            $randomBytes = New-Object byte[] 32
+            [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($randomBytes)
+            $generatedApiKey = "ostwin_" + [Convert]::ToBase64String($randomBytes).Replace("/", "").Replace("+", "").Replace("=", "").Substring(0, 32)
+            
+            Add-Content -Path $envFile -Value "`n# ── Dashboard Authentication ────────────────────────────────────────────────`nOSTWIN_API_KEY=$generatedApiKey"
+            
+            $env:OSTWIN_API_KEY = $generatedApiKey
+            $script:OstwinApiKey = $generatedApiKey
+            Write-Ok "OSTWIN_API_KEY generated and added to .env"
         }
         return
     }
@@ -98,9 +118,22 @@ MEMORY_AUTO_SYNC_INTERVAL=60
 # MEMORY_EMBEDDING_MODEL=gemini-embedding-001
 "@
 
-    Set-Content -Path $envFile -Value $envContent -Encoding UTF8
+    try {
+        Set-Content -Path $envFile -Value $envContent -Encoding UTF8 -ErrorAction Stop
+    }
+    catch {
+        Write-Fail "Failed to write .env file: $_"
+        throw "Cannot create .env at $envFile"
+    }
 
-    Write-Ok ".env created — edit $envFile to add your API keys"
+    # Verify file was created
+    if (-not (Test-Path $envFile)) {
+        Write-Fail ".env file was not created at $envFile"
+        throw "Failed to create .env file"
+    }
+    
+    Write-Ok ".env created at $envFile"
+    Write-Step "OSTWIN_API_KEY: $generatedApiKey"
 
     # Export OSTWIN_API_KEY to current process and script scope
     $env:OSTWIN_API_KEY = $generatedApiKey

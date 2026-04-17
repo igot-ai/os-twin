@@ -149,13 +149,23 @@ function Print-CompletionBanner {
 
     # Display OSTWIN_API_KEY
     $apiKey = $env:OSTWIN_API_KEY
+    Write-Host "  Debug: OSTWIN_API_KEY from env: $([string]::IsNullOrEmpty($apiKey))" -ForegroundColor DarkGray
     if (-not $apiKey) {
         $envFile = Join-Path $script:InstallDir ".env"
+        Write-Host "  Debug: Reading from .env at: $envFile" -ForegroundColor DarkGray
         if (Test-Path $envFile) {
-            $match = Get-Content $envFile | Where-Object { $_ -match '^OSTWIN_API_KEY=(.+)$' }
-            if ($match -and $match -match '^OSTWIN_API_KEY=(.+)$') {
-                $apiKey = $Matches[1]
+            $envLines = Get-Content $envFile
+            Write-Host "  Debug: .env has $($envLines.Count) lines" -ForegroundColor DarkGray
+            foreach ($line in $envLines) {
+                if ($line -match '^OSTWIN_API_KEY=(.+)$') {
+                    $apiKey = $Matches[1].Trim()
+                    Write-Host "  Debug: Found OSTWIN_API_KEY in .env" -ForegroundColor DarkGray
+                    break
+                }
             }
+        }
+        else {
+            Write-Host "  Debug: .env file not found at $envFile" -ForegroundColor DarkGray
         }
     }
     if ($apiKey) {
@@ -167,6 +177,10 @@ function Print-CompletionBanner {
         Write-Host "    The frontend will prompt you to enter this key on first visit." -ForegroundColor DarkGray
         Write-Host "    Stored in: $($script:InstallDir)\.env" -ForegroundColor DarkGray
         Write-Host ""
+    }
+    else {
+        Write-Host "  ⚠️  OSTWIN_API_KEY not found in environment or .env" -ForegroundColor Yellow
+        Write-Host "    Run: ostwin config --generate-api-key" -ForegroundColor DarkGray
     }
 
     Write-Host "  AI Provider Keys:" -ForegroundColor White

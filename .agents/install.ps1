@@ -90,8 +90,11 @@ if ($Help) {
 $script:ScriptDir = $PSScriptRoot
 $script:InstallerDir = Join-Path $script:ScriptDir "installer"
 
+# Resolve home directory correctly on Windows
+$HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+
 # Globals consumed by modules
-$script:InstallDir = if ($Dir) { $Dir } else { Join-Path $HOME ".ostwin" }
+$script:InstallDir = if ($Dir) { $Dir } else { Join-Path $HomeDir ".ostwin" }
 $script:SourceDir = if ($SourceDir) { $SourceDir } else { Split-Path $script:ScriptDir -Parent }
 $script:AutoYes = $Yes.IsPresent -or $DashboardOnly.IsPresent
 $script:SkipOptional = $SkipOptional.IsPresent
