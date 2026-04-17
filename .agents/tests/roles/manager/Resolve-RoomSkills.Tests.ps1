@@ -1,5 +1,5 @@
 # Agent OS — Resolve-RoomSkills Unit Tests
-# Tests the skills auto-discovery flow: brief.md → API search → skill_refs + copy to room/skills/
+# Tests the skills auto-discovery flow: brief.md → API search → skill_refs + copy to .agents/skills/
 
 BeforeAll {
     $script:agentsDir = (Resolve-Path (Join-Path (Resolve-Path "$PSScriptRoot/../../../roles/manager").Path ".." "..")).Path
@@ -95,16 +95,16 @@ Describe "Resolve-RoomSkills — Skills Auto-Discovery" {
         }
     }
 
-    Context "Skills copied to room/skills/ directory" {
-        It "creates room skills directory" {
-            $roomSkillsDir = Join-Path $script:roomDir "skills"
-            New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
-            Test-Path $roomSkillsDir | Should -BeTrue
+    Context "Skills copied to project-level .agents/skills/ directory" {
+        It "creates project skills directory" {
+            $projectSkillsDir = Join-Path $TestDrive "agents-mock" "skills"
+            New-Item -ItemType Directory -Path $projectSkillsDir -Force | Out-Null
+            Test-Path $projectSkillsDir | Should -BeTrue
         }
 
-        It "copies skill with SKILL.md to room/skills/{name}/" {
-            $roomSkillsDir = Join-Path $script:roomDir "skills"
-            New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
+        It "copies skill with SKILL.md to .agents/skills/{name}/" {
+            $projectSkillsDir = Join-Path $TestDrive "agents-mock" "skills"
+            New-Item -ItemType Directory -Path $projectSkillsDir -Force | Out-Null
 
             # Simulate a source skill under agents dir
             $srcSkillDir = Join-Path $TestDrive "agents-mock" "skills" "roles" "engineer" "write-tests"
@@ -119,8 +119,8 @@ trust_level: core
 # write-tests skill content
 "@ | Out-File (Join-Path $srcSkillDir "SKILL.md") -Encoding utf8
 
-            # Copy it the same way Resolve-RoomSkills does
-            $destDir = Join-Path $roomSkillsDir "write-tests"
+            # Copy it the same way Resolve-RoomSkills does (dest is now project-level)
+            $destDir = Join-Path $projectSkillsDir "write-tests"
             New-Item -ItemType Directory -Path $destDir -Force | Out-Null
             Copy-Item -Path (Join-Path $srcSkillDir "*") -Destination $destDir -Recurse -Force
 
@@ -131,9 +131,9 @@ trust_level: core
             $content | Should -Match "Generates unit tests"
         }
 
-        It "copies multiple skills to room/skills/" {
-            $roomSkillsDir = Join-Path $script:roomDir "skills"
-            New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
+        It "copies multiple skills to .agents/skills/" {
+            $projectSkillsDir = Join-Path $TestDrive "agents-mock" "skills-multi"
+            New-Item -ItemType Directory -Path $projectSkillsDir -Force | Out-Null
 
             # Create 3 mock skills
             foreach ($name in @("skill-a", "skill-b", "skill-c")) {
@@ -142,12 +142,12 @@ trust_level: core
                 "---`nname: $name`n---`n# $name content" |
                     Out-File (Join-Path $srcDir "SKILL.md") -Encoding utf8
 
-                $destDir = Join-Path $roomSkillsDir $name
+                $destDir = Join-Path $projectSkillsDir $name
                 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
                 Copy-Item -Path (Join-Path $srcDir "*") -Destination $destDir -Recurse -Force
             }
 
-            $skills = Get-ChildItem $roomSkillsDir -Directory
+            $skills = Get-ChildItem $projectSkillsDir -Directory
             $skills.Count | Should -Be 3
             $skills.Name | Should -Contain "skill-a"
             $skills.Name | Should -Contain "skill-b"
@@ -155,12 +155,12 @@ trust_level: core
         }
 
         It "overwrites existing skill on re-resolution" {
-            $roomSkillsDir = Join-Path $script:roomDir "skills"
-            $destDir = Join-Path $roomSkillsDir "overwrite-test"
+            $projectSkillsDir = Join-Path $TestDrive "agents-mock" "skills-overwrite"
+            $destDir = Join-Path $projectSkillsDir "overwrite-test"
             New-Item -ItemType Directory -Path $destDir -Force | Out-Null
             "old content" | Out-File (Join-Path $destDir "SKILL.md") -Encoding utf8
 
-            # Simulate re-copy with new content
+            # Simulate re-copy with new content (Resolve-RoomSkills removes then recreates)
             Remove-Item -Path $destDir -Recurse -Force
             New-Item -ItemType Directory -Path $destDir -Force | Out-Null
             "new content" | Out-File (Join-Path $destDir "SKILL.md") -Encoding utf8
@@ -170,6 +170,7 @@ trust_level: core
             $content | Should -Not -Match "old content"
         }
     }
+
 
     Context "relative_path resolution" {
         It "resolves skill from relative_path pattern 'skills/roles/engineer/write-tests'" {
