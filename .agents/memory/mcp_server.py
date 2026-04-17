@@ -313,6 +313,14 @@ def _init_memory():
             "Background: memory system ready (%d memories loaded)",
             len(_memory.memories),
         )
+
+        # Import docs if .memory/docs/ exists
+        docs_dir = os.path.join(PERSIST_DIR, "docs")
+        if os.path.isdir(docs_dir):
+            logger.info("Background: docs/ folder detected, importing...")
+            import_result = _memory.import_docs(docs_dir)
+            logger.info("Background: import_docs result: %s", import_result)
+
     except Exception as exc:
         _memory_init_error = exc
         logger.exception("Background: failed to initialize memory system")

@@ -318,6 +318,7 @@ jobs:
             tests.unit.test_llm_controller \
             tests.unit.test_time_decay \
             tests.unit.test_merge \
+            tests.unit.test_import_docs \
             -v 2>&1 | tee /tmp/memory-unit-results.txt
           # Check exit code
           python -m unittest \
@@ -325,7 +326,8 @@ jobs:
             tests.unit.test_mcp_server \
             tests.unit.test_llm_controller \
             tests.unit.test_time_decay \
-            tests.unit.test_merge
+            tests.unit.test_merge \
+            tests.unit.test_import_docs
 
       - name: Run memory integration tests (mock-only, no ML)
         shell: bash
