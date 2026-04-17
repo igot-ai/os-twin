@@ -246,7 +246,20 @@ class ChromaRetriever:
 
 
 class ZvecRetriever:
-    """Vector database retrieval using Zvec."""
+    """Vector database retrieval using Zvec.
+
+    Uses short-lived collection handles instead of holding a persistent
+    read-write lock.  This allows multiple MCP server processes to share
+    the same ``vectordb/`` directory:
+
+    - **Read operations** (search, fetch, has_document) open a read-only
+      handle, execute, then release it immediately.
+    - **Write operations** (add_document, delete_document, clear) open a
+      read-write handle with retry, execute, then release it immediately.
+
+    The lock is only held for the duration of a single operation, not the
+    entire process lifetime.
+    """
 
     def __init__(
         self,
@@ -255,14 +268,6 @@ class ZvecRetriever:
         persist_dir: str = None,
         embedding_backend: str = "sentence-transformer",
     ):
-        """Initialize Zvec retriever.
-
-        Args:
-            collection_name: Name of the Zvec collection
-            model_name: Name of the embedding model
-            persist_dir: Directory for persistent storage. Required for Zvec.
-            embedding_backend: "sentence-transformer" or "gemini"
-        """
         import zvec as _zvec
 
         self._zvec = _zvec
@@ -282,35 +287,54 @@ class ZvecRetriever:
             else os.path.join("/tmp/zvec", collection_name)
         )
         self._collection_path = collection_path
+        self._collection_name = collection_name
 
-        if os.path.exists(collection_path):
-            self.collection = self._open_with_retry(_zvec, collection_path)
-        else:
+        # Ensure the collection exists (one-time setup).
+        if not os.path.exists(collection_path):
             os.makedirs(os.path.dirname(collection_path), exist_ok=True)
-            self.collection = _zvec.create_and_open(
+            col = _zvec.create_and_open(
                 path=collection_path,
                 schema=self._build_schema(_zvec, collection_name),
             )
+            del col
+            self._gc()
+
+    # --- Handle management -------------------------------------------
 
     @staticmethod
-    def _open_with_retry(_zvec, collection_path: str):
-        """Open a Zvec collection with retry on lock contention.
+    def _gc():
+        """Force garbage collection to release zvec file locks."""
+        import gc
 
-        Multiple MCP server processes may try to open the same collection
-        simultaneously when several agents call save_memory concurrently.
-        """
+        gc.collect()
+
+    def _open_ro(self):
+        """Open a read-only handle (no exclusive lock)."""
+        return self._zvec.open(
+            path=self._collection_path,
+            option=self._zvec.CollectionOption(read_only=True),
+        )
+
+    def _open_rw(self):
+        """Open a read-write handle with retry on lock contention."""
         import time
 
         last_err = None
         for _attempt in range(30):  # ~30s total wait
             try:
-                return _zvec.open(path=collection_path)
+                return self._zvec.open(path=self._collection_path)
             except RuntimeError as e:
                 last_err = e
                 if "lock" not in str(e).lower():
                     raise
                 time.sleep(1.0)
-        raise last_err if last_err else RuntimeError("Failed to open zvec collection")
+        raise (
+            last_err
+            if last_err
+            else RuntimeError(
+                f"Failed to lock zvec collection: {self._collection_path}"
+            )
+        )
 
     def _build_schema(self, _zvec, collection_name: str):
         """Build a Zvec collection schema for memory storage."""
@@ -333,13 +357,20 @@ class ZvecRetriever:
             ],
         )
 
+    # --- Write operations (read-write lock) --------------------------
+
     def clear(self):
         """Delete all documents and recreate the collection."""
-        self.collection.destroy()
-        self.collection = self._zvec.create_and_open(
+        col = self._open_rw()
+        col.destroy()
+        del col
+        self._gc()
+        col = self._zvec.create_and_open(
             path=self._collection_path,
-            schema=self._build_schema(self._zvec, "memories"),
+            schema=self._build_schema(self._zvec, self._collection_name),
         )
+        del col
+        self._gc()
 
     def add_document(self, document: str, metadata: Dict, doc_id: str) -> None:
         """Add a document to Zvec with enhanced embedding using metadata."""
@@ -354,50 +385,51 @@ class ZvecRetriever:
                 "metadata_json": json.dumps(processed_metadata, ensure_ascii=False)
             },
         )
-        self.collection.insert(doc)
+        col = self._open_rw()
+        col.insert(doc)
+        del col
+        self._gc()
 
-    @staticmethod
-    def _prepare_zvec_metadata(metadata: Dict) -> Dict:
-        """Convert metadata values for Zvec JSON storage."""
-        processed = {}
-        for key, value in metadata.items():
-            if isinstance(value, (list, dict)):
-                processed[key] = value
-            elif value is None:
-                processed[key] = None
-            else:
-                processed[key] = str(value)
-        return processed
+    def delete_document(self, doc_id: str):
+        """Delete a document from Zvec."""
+        col = self._open_rw()
+        col.delete(ids=doc_id)
+        del col
+        self._gc()
+
+    # --- Read operations (read-only, no exclusive lock) ---------------
 
     def has_document(self, doc_id: str) -> bool:
         """Check if a document exists in the Zvec collection."""
-        result = self.collection.fetch(doc_id)
+        col = self._open_ro()
+        result = col.fetch(doc_id)
+        del col
+        self._gc()
         return bool(result)
 
     def existing_ids(self, doc_ids: List[str]) -> set:
-        """Return the subset of *doc_ids* that exist in the collection.
-
-        Uses a single batch ``fetch`` call instead of N individual lookups.
-        """
+        """Return the subset of *doc_ids* that exist in the collection."""
         if not doc_ids:
             return set()
-        result = self.collection.fetch(doc_ids)
+        col = self._open_ro()
+        result = col.fetch(doc_ids)
+        del col
+        self._gc()
         return set(result.keys())
 
     def get_stored_hashes(self, doc_ids: List[str]) -> Dict[str, Optional[str]]:
         """Return {doc_id: content_hash} for each ID. Missing IDs omitted."""
         if not doc_ids:
             return {}
-        fetched = self.collection.fetch(doc_ids)
+        col = self._open_ro()
+        fetched = col.fetch(doc_ids)
+        del col
+        self._gc()
         out: Dict[str, Optional[str]] = {}
         for did, doc in fetched.items():
             meta = json.loads(doc.fields.get("metadata_json", "{}"))
             out[did] = meta.get("content_hash")
         return out
-
-    def delete_document(self, doc_id: str):
-        """Delete a document from Zvec."""
-        self.collection.delete(ids=doc_id)
 
     def search(self, query: str, k: int = 5) -> dict:
         """Search for similar documents. Returns ChromaDB-compatible result format."""
@@ -406,12 +438,16 @@ class ZvecRetriever:
         if not embeddings:
             return empty_result
 
-        results = self.collection.query(
+        col = self._open_ro()
+        results = col.query(
             vectors=self._zvec.VectorQuery(
                 field_name="embedding", vector=embeddings[0]
             ),
             topk=k,
         )
+        del col
+        self._gc()
+
         if not results:
             return empty_result
 
@@ -429,6 +465,21 @@ class ZvecRetriever:
             "metadatas": [metadatas],
             "distances": [distances],
         }
+
+    # --- Helpers ------------------------------------------------------
+
+    @staticmethod
+    def _prepare_zvec_metadata(metadata: Dict) -> Dict:
+        """Convert metadata values for Zvec JSON storage."""
+        processed = {}
+        for key, value in metadata.items():
+            if isinstance(value, (list, dict)):
+                processed[key] = value
+            elif value is None:
+                processed[key] = None
+            else:
+                processed[key] = str(value)
+        return processed
 
     @staticmethod
     def _parse_doc_metadata(doc) -> dict:
