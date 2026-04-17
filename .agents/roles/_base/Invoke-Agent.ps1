@@ -128,8 +128,8 @@ if ($planRolesConfig -and $planRolesConfig.$RoleName) {
     if (-not $Model) {
         # Priority 1a: plan-roles instance override
         if ($InstanceId -and $planRoleNode.instances `
-            -and $planRoleNode.instances.$InstanceId `
-            -and $planRoleNode.instances.$InstanceId.default_model) {
+                -and $planRoleNode.instances.$InstanceId `
+                -and $planRoleNode.instances.$InstanceId.default_model) {
             $Model = $planRoleNode.instances.$InstanceId.default_model
         }
         # Priority 1b: plan-roles role default
@@ -140,8 +140,8 @@ if ($planRolesConfig -and $planRolesConfig.$RoleName) {
 
     if (-not $timeoutWasExplicit) {
         if ($InstanceId -and $planRoleNode.instances `
-            -and $planRoleNode.instances.$InstanceId `
-            -and $planRoleNode.instances.$InstanceId.timeout_seconds) {
+                -and $planRoleNode.instances.$InstanceId `
+                -and $planRoleNode.instances.$InstanceId.timeout_seconds) {
             $TimeoutSeconds = [int]$planRoleNode.instances.$InstanceId.timeout_seconds
         }
         elseif ($planRoleNode.timeout_seconds) {
@@ -304,10 +304,33 @@ $pidsDir = Join-Path $absRoomDir "pids"
 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
 New-Item -ItemType Directory -Path $pidsDir -Force | Out-Null
 
-# --- Skill Isolation (EPIC-002) ---
-$isolatedSkillsDir = Join-Path $absRoomDir "skills"
+# --- Ensure ProjectDir is resolved (unconditional fallback) ---
+# The config block above computes $ProjectDir only when config.json exists.
+# Run the same walkup here so skill staging always uses the correct project dir,
+# even for rooms without a config.json (e.g. test rooms, clean invocations).
+if (-not $ProjectDir) {
+    $searchDir2 = $absRoomDir
+    for ($i = 0; $i -lt 6; $i++) {
+        $parentDir2 = Split-Path $searchDir2 -Parent
+        if (-not $parentDir2 -or $parentDir2 -eq $searchDir2) { break }
+        if ((Split-Path $searchDir2 -Leaf) -eq ".war-rooms") {
+            $ProjectDir = $parentDir2
+            break
+        }
+        $searchDir2 = $parentDir2
+    }
+    if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
+    if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
+}
 
-# Ensure isolated skills dir exists without wiping existing API-matched skills
+# --- Skill Staging: project-local .agents/skills/ (shared across rooms) ---
+# Use the *project's* .agents/skills/, not the ostwin install tree ($agentsDir).
+# This ensures skills appear at $project_dir/.agents/skills/ regardless of
+# where Invoke-Agent.ps1 is installed (~/.ostwin or project-local dev copy).
+$projectAgentsDir = if ($ProjectDir) { Join-Path $ProjectDir ".agents" } else { $agentsDir }
+$isolatedSkillsDir = Join-Path $projectAgentsDir "skills"
+
+# Ensure project-level skills dir exists
 if (-not (Test-Path $isolatedSkillsDir)) {
     New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
 }
@@ -385,6 +408,7 @@ if ($ShareSession) { $extraCliArgs += "--share" }
 if ($Command) { $extraCliArgs += "--command"; $extraCliArgs += $Command }
 if ($AttachUrl) { $extraCliArgs += "--attach"; $extraCliArgs += $AttachUrl }
 if ($Port -gt 0) { $extraCliArgs += "--port"; $extraCliArgs += $Port.ToString() }
+if ($ProjectDir) { $extraCliArgs += "--dir"; $extraCliArgs += $ProjectDir }
 foreach ($f in $Files) { $extraCliArgs += "--file"; $extraCliArgs += $f }
 # Attach prompt file — avoids inlining huge prompt text on the command line
 $extraCliArgs += "--file"; $extraCliArgs += $promptFileAbsolute
@@ -428,7 +452,6 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
         $safePidFile = $pidFile -replace "'", "'\''"
         $safeOstwinHome = $OstwinHome.Replace('\', '/').Replace("'", "'\''")
-        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''") } else { "" }
         $opencodeConfigLine = ""
         if ($tempMcpConfig) {
             $safeOpencodeConfig = $tempMcpConfig.Replace('\', '/').Replace("'", "'\''")
@@ -457,7 +480,6 @@ export OSTWIN_PYTHON='$venvPythonUnix'
             $winPrompt = $promptFile.Replace('/', '\')
             $winSkillsDir = $isolatedSkillsDir.Replace('/', '\')
             $winOstwinHome = $OstwinHome.Replace('/', '\')
-            $winProjectDir = if ($ProjectDir) { $ProjectDir.Replace('/', '\') } else { "" }
             $winOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig.Replace('/', '\') } else { "" }
             
             # Tokenize AgentCmd and args for PowerShell execution
@@ -465,7 +487,7 @@ export OSTWIN_PYTHON='$venvPythonUnix'
             # $extraCliArgs is already a proper array, use it directly instead of bash-escaped $argsLine
             $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
             $exe = $cmdParts[0]
-            $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length-1)] } else { @() }
+            $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length - 1)] } else { @() }
             $allArgs = $cmdArgs + $extraCliArgs
             
             # Serialize args array into the wrapper script as a PowerShell array literal
@@ -485,7 +507,6 @@ export OSTWIN_PYTHON='$venvPythonUnix'
 `$env:AGENT_OS_SKILLS_DIR = '$winSkillsDir'
 `$env:AGENT_OS_PID_FILE = '$winPidFile'
 `$env:OSTWIN_HOME = '$winOstwinHome'
-`$env:AGENT_OS_PROJECT_DIR = '$winProjectDir'
 `$env:AGENT_DIR = '$winOstwinHome'
 `$env:OSTWIN_PYTHON = '$venvPythonWin'
 if ('$winOpencodeConfig') { `$env:OPENCODE_CONFIG = '$winOpencodeConfig' }
@@ -535,11 +556,8 @@ export AGENT_OS_PARENT_PID='$PID'
 export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 export AGENT_OS_PID_FILE='$safePidFile'
 export OSTWIN_HOME='$safeOstwinHome'
-export AGENT_OS_PROJECT_DIR='$safeProjectDir'
 $opencodeConfigLine
 $envExportLines
-# Source user-controlled pre-exec hook for dynamic env vars
-# (e.g. refreshing short-lived API tokens like VERTEX_API_KEY).
 # Static vars belong in `$safeOstwinHome`/.env; this file is for shell logic.
 if [ -f "`$HOME/.ostwin/.env.sh" ]; then . "`$HOME/.ostwin/.env.sh"; fi
 if [ -f '$safeOstwinHome/.env.sh' ]; then . '$safeOstwinHome/.env.sh'; fi

@@ -83,9 +83,24 @@ function Resolve-RoomSkills {
             $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
             $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
 
-            $roomSkillsDir = Join-Path $RoomDir "skills"
-            if (-not (Test-Path $roomSkillsDir)) {
-                New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
+            # Derive the project directory from the war-room path so skills
+            # land in $project_dir/.agents/skills/, not the ostwin install tree.
+            # War-room paths follow: $PROJECT/.war-rooms/<plan>/<room>/
+            $resolvedProjectDir = ""
+            $walkDir = $RoomDir
+            for ($wi = 0; $wi -lt 6; $wi++) {
+                $walkParent = Split-Path $walkDir -Parent
+                if (-not $walkParent -or $walkParent -eq $walkDir) { break }
+                if ((Split-Path $walkDir -Leaf) -eq ".war-rooms") {
+                    $resolvedProjectDir = $walkParent
+                    break
+                }
+                $walkDir = $walkParent
+            }
+            $targetAgentsDir = if ($resolvedProjectDir) { Join-Path $resolvedProjectDir ".agents" } else { $agentsDir }
+            $projectSkillsDir = Join-Path $targetAgentsDir "skills"
+            if (-not (Test-Path $projectSkillsDir)) {
+                New-Item -ItemType Directory -Path $projectSkillsDir -Force | Out-Null
             }
 
             foreach ($skill in $topSkills) {
@@ -96,7 +111,7 @@ function Resolve-RoomSkills {
                     $homeSrc = Join-Path (Join-Path $env:HOME ".ostwin") $relPath
                     if (Test-Path $homeSrc) { $srcDir = $homeSrc } else { continue }
                 }
-                $destDir = Join-Path $roomSkillsDir $skill.name
+                $destDir = Join-Path $projectSkillsDir $skill.name
                 if (Test-Path $destDir) { Remove-Item -Path $destDir -Recurse -Force -ErrorAction SilentlyContinue }
                 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
                 Copy-Item -Path (Join-Path $srcDir "*") -Destination $destDir -Recurse -Force -ErrorAction SilentlyContinue

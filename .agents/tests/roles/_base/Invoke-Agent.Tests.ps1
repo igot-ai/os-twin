@@ -2,6 +2,8 @@
 
 BeforeAll {
     $script:InvokeAgent = Join-Path (Resolve-Path "$PSScriptRoot/../../../roles/_base").Path "Invoke-Agent.ps1"
+    # Mirror Invoke-Agent.ps1's own $agentsDir resolution: $PSScriptRoot (roles/_base) ../../ = .agents/
+    $script:agentsBaseDir = (Resolve-Path "$PSScriptRoot/../../../roles/_base/../..").Path
 }
 
 Describe "Invoke-Agent" {
@@ -215,37 +217,59 @@ Describe "Invoke-Agent" {
         }
     }
 
-    Context "Skill Isolation (EPIC-002)" {
-        It "creates and populates skills directory" {
-            # Use engineer role — gets role-private skills auto-loaded from skills/roles/engineer/
+    Context "Skill Staging (project-level .agents/skills/)" {
+        It "creates and populates project-level skills directory" {
+            # Skills are staged under .agents/skills/, NOT under the war-room dir.
+            # $agentsBaseDir mirrors Invoke-Agent.ps1's own $agentsDir resolution.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
 
-            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
-            Test-Path $isolatedSkillsDir | Should -BeTrue
-            
-            $skills = Get-ChildItem $isolatedSkillsDir -Directory
+            $projectSkillsDir = Join-Path $script:agentsBaseDir "skills"
+            Test-Path $projectSkillsDir | Should -BeTrue
+
+            $skills = Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue
             $skills.Count | Should -BeGreaterThan 0
-            # Should contain at least 'implement-epic' (auto-loaded role-private skill)
+            # Should contain at least 'implement-epic' (auto-loaded engineer role-private skill)
             $skills.Name | Should -Contain "implement-epic"
         }
 
-        It "preserves existing skills dir and adds resolved skills on new invocation" {
-            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
-            New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
-
+        It "does NOT create a skills directory inside the war-room" {
+            # After the redirect, war-room dirs must NOT contain a skills/ subfolder.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
 
-            # Skills dir should still exist and contain resolved skills
-            Test-Path $isolatedSkillsDir | Should -BeTrue
-            $skills = Get-ChildItem $isolatedSkillsDir -Directory
-            $skills.Count | Should -BeGreaterThan 0
+            $roomSkillsDir = Join-Path $script:roomDir "skills"
+            Test-Path $roomSkillsDir | Should -BeFalse `
+                -Because "skills are now staged under .agents/skills/, not inside the war-room"
         }
 
-        It "exports AGENT_OS_SKILLS_DIR in the environment (verified via echo mock)" {
+        It "populates project skills dir on repeated invocations (idempotent)" {
+            # First invocation
+            $null = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $projectSkillsDir = Join-Path $script:agentsBaseDir "skills"
+            $countAfterFirst = (Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue).Count
+
+            # Second invocation with a fresh room
+            $script:roomDir2 = Join-Path $TestDrive "room2-$(Get-Random)"
+            New-Item -ItemType Directory -Path $script:roomDir2 -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $script:roomDir2 "pids") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $script:roomDir2 "artifacts") -Force | Out-Null
+
+            $null = & $script:InvokeAgent -RoomDir $script:roomDir2 `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $countAfterSecond = (Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue).Count
+            # Skill count should be stable — same skills, not doubled
+            $countAfterSecond | Should -Be $countAfterFirst
+        }
+
+        It "exports AGENT_OS_SKILLS_DIR pointing to project-level path (verified via echo mock)" {
             # Create a mock bash script that echoes AGENT_OS_SKILLS_DIR with a tag
             $echoMock = Join-Path $TestDrive "echo-env.sh"
             "#!/bin/bash`necho SKILLS_DIR_IS:`$AGENT_OS_SKILLS_DIR" | Out-File $echoMock -Encoding utf8
@@ -255,20 +279,50 @@ Describe "Invoke-Agent" {
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd $echoMock -TimeoutSeconds 5
 
-            # Output contains wrapper logs + our echo; find the tagged line
-            $result.Output | Should -Match "SKILLS_DIR_IS:.*/skills"
+            # Must match .agents/skills (not .war-rooms/.../skills)
+            $result.Output | Should -Match "SKILLS_DIR_IS:.*\.agents/skills"
+            $result.Output | Should -Not -Match "SKILLS_DIR_IS:.*\.war-rooms"
         }
 
-        It "handles empty skills array gracefully" {
-            # Use a role that doesn't exist and ensure global skills are empty for this test
-            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+        It "handles non-existent role gracefully without crashing" {
+            # Non-existent role has no role.json and no private skills — should not throw
+            { & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "non-existent-role" -Prompt "test" `
-                -AgentCmd "echo" -TimeoutSeconds 5
-            
-            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
-            Test-Path $isolatedSkillsDir | Should -BeTrue
-            # Note: non-existent-role will still get Global skills if they exist in .agents/skills/global
-            # So this might not be 0 unless we mock Resolve-RoleSkills.
+                -AgentCmd "echo" -TimeoutSeconds 5 } | Should -Not -Throw
+
+            # The project-level skills dir should exist (created if not already present)
+            $projectSkillsDir = Join-Path $script:agentsBaseDir "skills"
+            Test-Path $projectSkillsDir | Should -BeTrue
+        }
+
+        It "does NOT export AGENT_OS_PROJECT_DIR in the wrapper (replaced by --dir flag)" {
+            # Ensure the env var is clean in the parent process
+            $savedProjDir = $env:AGENT_OS_PROJECT_DIR
+            Remove-Item Env:AGENT_OS_PROJECT_DIR -ErrorAction SilentlyContinue
+
+            try {
+                $echoMock = Join-Path $TestDrive "echo-no-projdir-$(Get-Random).sh"
+                @"
+#!/bin/bash
+echo "PROJDIR_CHECK:`${AGENT_OS_PROJECT_DIR:-UNSET}"
+"@ | Out-File $echoMock -Encoding utf8
+                chmod +x $echoMock
+
+                $projectDir = Join-Path $TestDrive "project-noexport-$(Get-Random)"
+                $roomDir = Join-Path $projectDir ".war-rooms" "room-noexport"
+                New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+                New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+                $result = & $script:InvokeAgent -RoomDir $roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd $echoMock -TimeoutSeconds 5
+
+                $result.Output | Should -Match "PROJDIR_CHECK:UNSET" `
+                    -Because "--dir CLI flag replaces AGENT_OS_PROJECT_DIR export"
+            }
+            finally {
+                if ($savedProjDir) { $env:AGENT_OS_PROJECT_DIR = $savedProjDir }
+            }
         }
     }
 
@@ -465,6 +519,36 @@ for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
                 $args = Get-Content $script:argsDump
                 $args | Should -Contain "--port"
                 $args | Should -Contain "8080"
+            }
+        }
+
+        It "passes --dir flag with resolved project directory" {
+            # Create project structure with .war-rooms so ProjectDir resolves
+            $projectDir = Join-Path $TestDrive "project-dir-$(Get-Random)"
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-dir"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                $capturedArgs | Should -Contain "--dir"
+                $capturedArgs | Should -Contain $projectDir
+            }
+        }
+
+        It "does not pass --dir when ProjectDir cannot be resolved" {
+            # $script:roomDir is NOT inside .war-rooms — ProjectDir stays empty
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                $capturedArgs | Should -Not -Contain "--dir"
             }
         }
 

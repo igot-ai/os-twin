@@ -5,14 +5,15 @@
 .DESCRIPTION
     Skill refs are collected from multiple sources in priority order:
       1. Plan-level override: ~/.ostwin/.agents/plans/{plan_id}.roles.json → {role}.skill_refs
-      2. War-room config:    {RoomDir}/config.json → skill_refs
-      3. Global role.json:   ~/.ostwin/roles/{RoleName}/role.json → skill_refs + capabilities
-      4. Brief-based match:  {RoomDir}/brief.md keywords matched against available skill names/tags
+      2. Dashboard API search: /api/skills/search with brief.md content → top 5 matches
+      3. War-room config:    {RoomDir}/config.json → skill_refs (fallback)
+      4. Global role.json:   ~/.ostwin/roles/{RoleName}/role.json → skill_refs + capabilities (fallback)
 
     Resolution strategy (for each ref):
     1. Registry lookup: from ~/.ostwin/roles/registry.json
-    2. Local skills fallback: from skills/<ref>/SKILL.md
+    2. Local skills fallback: hierarchical search in skills/ tree
     3. Backend skills: fetched from dashboard API when not found locally
+    API-discovered refs (from Priority 2) are best-effort — skipped if unresolvable.
 
     Deduplication is performed based on skill directory name (identifier).
 
@@ -122,8 +123,10 @@ if ($RoomDir -and (Test-Path (Join-Path $RoomDir "config.json"))) {
 
 # --- Collect skill refs from all sources (priority order) ---
 $allRefs = @()
+$apiDiscoveredRefs = @()  # Track API-suggested refs (best-effort, don't throw on miss)
 
 # Priority 1: Plan-level role override — ~/.ostwin/.agents/plans/{plan_id}.roles.json
+# Always the primary source for explicit skill_refs.
 if ($PlanId) {
     $planRolesFile = Join-Path $ostwinHome ".agents" "plans" "$PlanId.roles.json"
     if (Test-Path $planRolesFile) {
@@ -138,13 +141,44 @@ if ($PlanId) {
     }
 }
 
-# Priority 2: War-room config.json skill_refs (set by manager during assignment)
-if ($roomCfg -and $roomCfg.skill_refs) {
-    $allRefs += @($roomCfg.skill_refs)
-    Write-Verbose "Room config skill_refs: $($roomCfg.skill_refs -join ', ')"
+# Priority 2: Dashboard API search using brief.md content (always, top 5)
+# Searches /api/skills/search with the room's brief text and merges the
+# top 5 matched skill names into $allRefs. These are best-effort: if not
+# found locally or via backend, they are skipped instead of throwing.
+if ($RoomDir) {
+    $briefFile = Join-Path $RoomDir "brief.md"
+    if (Test-Path $briefFile) {
+        $briefContent = Get-Content $briefFile -Raw -ErrorAction SilentlyContinue
+        if ($briefContent) {
+            try {
+                $headers = @{}
+                if ($ApiKey) { $headers["X-API-Key"] = $ApiKey }
+                # Truncate brief to avoid URL length issues (safe GET limit ~2000 chars)
+                $queryText = if ($briefContent.Length -gt 500) { $briefContent.Substring(0, 500) } else { $briefContent }
+                $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($queryText))"
+                $response = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop
+
+                if ($response -is [array] -and $response.Count -gt 0) {
+                    $apiNames = @($response | Select-Object -First 5 | ForEach-Object { $_.name })
+                    $allRefs += $apiNames
+                    $apiDiscoveredRefs += $apiNames
+                    Write-Verbose "Dashboard API brief search matched ($($apiNames.Count)): $($apiNames -join ', ')"
+                }
+            }
+            catch {
+                Write-Verbose "Dashboard API brief search failed (non-fatal): $_"
+            }
+        }
+    }
 }
 
-# Priority 3: Global role.json — ~/.ostwin/roles/{RoleName}/role.json (base definition)
+# Fallback 3: War-room config.json skill_refs (set by manager during assignment)
+if ($roomCfg -and $roomCfg.skill_refs) {
+    $allRefs += @($roomCfg.skill_refs)
+    Write-Verbose "Room config skill_refs (fallback): $($roomCfg.skill_refs -join ', ')"
+}
+
+# Fallback 4: Global role.json — ~/.ostwin/roles/{RoleName}/role.json (base definition)
 $homeRolePath = Join-Path $ostwinHome "roles" $RoleName
 $jsonFile = Join-Path $homeRolePath "role.json"
 $roleData = $null
@@ -299,76 +333,16 @@ trust_level: $($matchedSkill.trust_level)
             }
 
             if (-not $fetched) {
+                # API-discovered refs are best-effort — skip gracefully
+                if ($apiDiscoveredRefs -contains $ref) {
+                    Write-Verbose "API-suggested skill '$ref' not resolvable locally or via backend — skipping"
+                    continue
+                }
                 $errorMsg = "Skill Not Found: Explicitly referenced skill '$ref' not found."
                 if ($registryPath) { $errorMsg += " Registry path tried: $registryPath." }
                 $errorMsg += " Hierarchical paths tried: $($searchPaths -join '; ')."
                 if ($ApiKey) { $errorMsg += " Backend search also failed." }
                 throw $errorMsg
-            }
-        }
-    }
-}
-
-# --- Priority 4: Brief-based skill discovery ---
-# Extract keywords from brief.md and match against available skill names/tags.
-# Only runs when $RoomDir is provided and brief.md exists.
-if ($RoomDir) {
-    $briefFile = Join-Path $RoomDir "brief.md"
-    if (Test-Path $briefFile) {
-        $briefContent = (Get-Content $briefFile -Raw).ToLower()
-
-        # Build a searchable index of all available skills (name + tags)
-        $skillCandidates = @()
-        $scanDirs = @(
-            @{ Dir = (Join-Path $SkillsBaseDir "roles" $RoleName); Label = "own-role" }
-            @{ Dir = (Join-Path $SkillsBaseDir "global"); Label = "global" }
-        )
-        foreach ($scan in $scanDirs) {
-            if (-not (Test-Path $scan.Dir)) { continue }
-            Get-ChildItem -Path $scan.Dir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-                $md = Join-Path $_.FullName "SKILL.md"
-                if (Test-Path $md) {
-                    $skillCandidates += @{ Name = $_.Name; Path = $md; Source = $scan.Label }
-                }
-            }
-        }
-
-        foreach ($sc in $skillCandidates) {
-            if ($resolvedSkills.ContainsKey($sc.Name)) { continue }
-
-            $mdContent = Get-Content $sc.Path -Raw -ErrorAction SilentlyContinue
-            if (-not $mdContent) { continue }
-
-            # Extract tags from YAML frontmatter
-            $tags = @()
-            if ($mdContent -match '(?m)^tags:\s*\[([^\]]+)\]') {
-                $tags = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().Trim('"').Trim("'").ToLower() })
-            }
-            # Extract description
-            $desc = ''
-            if ($mdContent -match '(?m)^description:\s*["\u0027]?(.+?)["\u0027]?\s*$') {
-                $desc = $Matches[1].ToLower()
-            }
-
-            # Match: at least 2 tag words found in brief, or skill name segments match
-            $nameWords = @($sc.Name -split '-' | Where-Object { $_.Length -ge 3 })
-            $tagHits = @($tags | Where-Object { $_.Length -ge 3 -and $briefContent -match [regex]::Escape($_) })
-            $nameHits = @($nameWords | Where-Object { $briefContent -match [regex]::Escape($_) })
-
-            $isMatch = ($tagHits.Count -ge 2) -or
-            ($nameHits.Count -ge 2) -or
-            ($tagHits.Count -ge 1 -and $nameHits.Count -ge 1)
-
-            if ($isMatch) {
-                if (-not (Test-SkillPlatform -SkillMdPath $sc.Path)) { continue }
-                if (-not (Test-SkillEnabled -SkillMdPath $sc.Path)) { continue }
-
-                $resolvedSkills[$sc.Name] = [PSCustomObject]@{
-                    Name = $sc.Name
-                    Path = $sc.Path
-                    Tier = "BriefAuto"
-                }
-                Write-Verbose "Brief-matched skill '$($sc.Name)' (tags: $($tagHits -join ',') names: $($nameHits -join ','))"
             }
         }
     }
