@@ -70,7 +70,7 @@ def _serialize_env(entries: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 @router.get("/status")
-async def get_status(user: dict = Depends(get_current_user)):
+async def get_status():
     """Get current manager run status."""
     pid_file = AGENTS_DIR / "manager.pid"
     running = False

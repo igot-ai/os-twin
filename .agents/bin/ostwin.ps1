@@ -943,6 +943,15 @@ switch ($Command) {
     # ── stop ─────────────────────────────────────────────────────────────────
     "stop" {
         $forceStop = $Arguments -contains '--force'
+        $killTree = {
+            param([string]$PidToKill)
+            if ($IsWindows) {
+                & taskkill /F /T /PID $PidToKill 2>$null | Out-Null
+            }
+            else {
+                Stop-Process -Id $PidToKill -Force -ErrorAction SilentlyContinue
+            }
+        }
 
         # Stop dashboard
         $pidFile = Join-Path $OstwinHome "dashboard.pid"
@@ -952,17 +961,21 @@ switch ($Command) {
                 $proc = Get-Process -Id $dashPid -ErrorAction Stop
                 Write-Host "Stopping dashboard (PID $dashPid)..."
                 if ($forceStop) {
-                    Stop-Process -Id $dashPid -Force
+                    # Force kill entire process tree immediately
+                    & $killTree $dashPid
                 }
                 else {
-                    Stop-Process -Id $dashPid
-                    # Wait up to 5s for graceful shutdown
+                    # Graceful: send termination signal, wait up to 5s
+                    Stop-Process -Id $dashPid -ErrorAction SilentlyContinue
                     for ($w = 0; $w -lt 5; $w++) {
                         try { $null = Get-Process -Id $dashPid -ErrorAction Stop; Start-Sleep -Seconds 1 }
                         catch { break }
                     }
-                    # Force kill if still running
-                    try { Stop-Process -Id $dashPid -Force -ErrorAction SilentlyContinue } catch { }
+                    # Force kill tree if still alive
+                    try {
+                        $null = Get-Process -Id $dashPid -ErrorAction Stop
+                        & $killTree $dashPid
+                    } catch {}
                 }
                 Write-Host ([char]0x2713 + " Dashboard stopped")
             }
@@ -975,14 +988,72 @@ switch ($Command) {
             Write-Host "No dashboard PID file found"
         }
 
-        # Stop channel processes
+        # Stop channel processes — check both legacy and current PID file locations
         $channelPidFile = Join-Path $OstwinHome "channels.pid"
-        if (Test-Path $channelPidFile) {
-            $channelPid = (Get-Content $channelPidFile -Raw).Trim()
+        $channelPidFileAlt = Join-Path $OstwinHome ".agents\channel.pid"
+        $chanPid = $null
+        foreach ($cpf in @($channelPidFile, $channelPidFileAlt)) {
+            if (-not (Test-Path $cpf)) { continue }
+
+            $candidatePid = (Get-Content $cpf -Raw -ErrorAction SilentlyContinue).Trim()
+            # Only accept if non-empty AND looks like a valid numeric PID
+            if ($candidatePid -and $candidatePid -match '^\d+$') {
+                try {
+                    $proc = Get-Process -Id $candidatePid -ErrorAction Stop
+                    # Verify it's actually a channel process to avoid killing wrong process after PID reuse
+                    # Cross-platform: Win32_Process only exists on Windows
+                    $isValidChannel = $true
+                    if ($IsWindows -or (-not $IsLinux -and -not $IsMacOS)) {
+                        # Windows: use tight command-line validation
+                        $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$candidatePid" -ErrorAction SilentlyContinue).CommandLine
+                        # Must have channel-related path - tight validation to prevent PID reuse attacks
+                        # Accept: (tsx OR node as executable) AND (.agents/channel OR channel.ts/channels.ts OR src/index.ts)
+                        # Use word boundary to avoid false positives like "some_tsx_folder/script.sh"
+                        $hasRuntime = $cmdLine -match "(^|[\s/\\`"\'])(tsx|node)(\.exe)?(\s|$|`")"
+                        $hasChannelPath = $cmdLine -match "\.agents[/\\]channel" -or $cmdLine -match "channels?\.ts" -or $cmdLine -match "src[/\\]index\.ts"
+                        if (-not ($cmdLine -and $hasRuntime -and $hasChannelPath)) {
+                            $isValidChannel = $false
+                        }
+                    }
+                    # else: non-Windows - accept if process exists (no tight validation available cross-platform)
+
+                    if ($isValidChannel) {
+                        # Valid channel process - use this PID
+                        $chanPid = $candidatePid
+                        $channelPidFile = $cpf
+                        break
+                    }
+                    # Process exists but not a channel process - PID was reused, clean up and continue
+                    Remove-Item $cpf -Force -ErrorAction SilentlyContinue
+                    continue
+                } catch {
+                    # PID is numeric but process doesn't exist - stale, clean up and continue
+                    Remove-Item $cpf -Force -ErrorAction SilentlyContinue
+                    continue
+                }
+            }
+
+            # File exists but is empty/invalid — clean it up and continue to fallback
+            Remove-Item $cpf -Force -ErrorAction SilentlyContinue
+        }
+        if ($chanPid) {
             try {
-                $proc = Get-Process -Id $channelPid -ErrorAction Stop
-                Write-Host "Stopping channels (PID $channelPid)..."
-                Stop-Process -Id $channelPid -Force
+                $proc = Get-Process -Id $chanPid -ErrorAction Stop
+                Write-Host "Stopping channels (PID $chanPid)..."
+                if ($forceStop) {
+                    & $killTree $chanPid
+                }
+                else {
+                    Stop-Process -Id $chanPid -ErrorAction SilentlyContinue
+                    for ($w = 0; $w -lt 5; $w++) {
+                        try { $null = Get-Process -Id $chanPid -ErrorAction Stop; Start-Sleep -Seconds 1 }
+                        catch { break }
+                    }
+                    try {
+                        $null = Get-Process -Id $chanPid -ErrorAction Stop
+                        & $killTree $chanPid
+                    } catch {}
+                }
                 Write-Host ([char]0x2713 + " Channels stopped")
             }
             catch {
@@ -991,9 +1062,9 @@ switch ($Command) {
             Remove-Item $channelPidFile -Force -ErrorAction SilentlyContinue
         }
 
-        # Also try the bash stop script for any additional cleanup
+        # Also try the bash stop script for any additional cleanup (Unix-like only)
         $stopSh = Join-Path $AgentsDir "stop.sh"
-        if ((Test-Path $stopSh) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
+        if ((Test-Path $stopSh) -and (Get-Command bash -ErrorAction SilentlyContinue) -and ($IsLinux -or $IsMacOS)) {
             & bash $stopSh @Arguments 2>$null
         }
 

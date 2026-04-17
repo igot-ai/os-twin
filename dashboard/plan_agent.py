@@ -13,8 +13,7 @@ import logging
 from pathlib import Path
 from typing import Optional, AsyncIterator, Dict, Any
 
-from deepagents import create_deep_agent
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
 
 logger = logging.getLogger(__name__)
 
@@ -385,6 +384,7 @@ def create_plan_agent(
     )
     print(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
 
+    from deepagents import create_deep_agent
     agent = create_deep_agent(
         model=chat_model,
         tools=[read_existing_plan],
@@ -441,6 +441,7 @@ def build_messages(
     )
     plan_logger.debug("  images: %s", "yes" if images else "none")
 
+    from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
     messages = []
 
     # Inject current plan as system context
@@ -693,6 +694,7 @@ def create_brainstorm_agent(model: str = ""):
         BRAINSTORM_SYSTEM_PROMPT[:200].replace("\n", "\\n"),
     )
 
+    from deepagents import create_deep_agent
     agent = create_deep_agent(
         model=chat_model,
         tools=[],

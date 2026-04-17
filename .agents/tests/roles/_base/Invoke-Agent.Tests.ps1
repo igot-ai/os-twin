@@ -591,6 +591,17 @@ echo "ARGS: `$@"
                 $result.Output | Should -Match "--file"
             }
         }
+
+        It "always passes --dangerously-skip-permissions flag" {
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $args = Get-Content $script:argsDump
+                $args | Should -Contain "--dangerously-skip-permissions"
+            }
+        }
     }
 
     Context "Default AgentCmd resolution" {

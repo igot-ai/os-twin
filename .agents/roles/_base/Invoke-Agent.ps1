@@ -425,6 +425,7 @@ if (-not $NoMcp -and $ProjectDir) {
 }
 
 $extraCliArgs += $ExtraArgs
+$extraCliArgs += "--dangerously-skip-permissions"
 
 $argsLine = ($extraCliArgs | ForEach-Object {
         if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
