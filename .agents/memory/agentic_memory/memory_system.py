@@ -178,10 +178,21 @@ class AgenticMemorySystem:
 
     # --- Persistence helpers ---
 
-    def _save_note(self, note: MemoryNote):
-        """Save a single MemoryNote as a markdown file in its directory tree."""
+    def _save_note(self, note: MemoryNote, touch_modified: bool = True):
+        """Save a single MemoryNote as a markdown file in its directory tree.
+
+        Args:
+            note: The note to persist.
+            touch_modified: When True (default) update ``last_modified`` to now.
+                Pass False when writing a note whose timestamp should be
+                preserved (e.g. during merge when the disk version wins).
+        """
         if not self._notes_dir:
             return
+        if touch_modified:
+            from datetime import datetime
+
+            note.last_modified = datetime.now().strftime("%Y%m%d%H%M")
         filepath = os.path.join(self._notes_dir, note.filepath)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
@@ -548,6 +559,115 @@ class AgenticMemorySystem:
                 self.consolidate_memories()
         return note.id
 
+    # --- Disk ↔ Memory helpers ---
+
+    def _load_disk_notes(self) -> Dict[str, MemoryNote]:
+        """Read every ``.md`` file under ``notes/`` and return {id: note}."""
+        disk_notes: Dict[str, MemoryNote] = {}
+        if not self._notes_dir:
+            return disk_notes
+        for dirpath, _dirnames, filenames in os.walk(self._notes_dir):
+            for filename in filenames:
+                if not filename.endswith(".md"):
+                    continue
+                filepath = os.path.join(dirpath, filename)
+                with open(filepath, "r", encoding="utf-8") as f:
+                    text = f.read()
+                try:
+                    note = MemoryNote.from_markdown(text)
+                    disk_notes[note.id] = note
+                except Exception as e:
+                    logger.warning("Could not load note %s: %s", filepath, e)
+        return disk_notes
+
+    # --- Bidirectional merge ---
+
+    def merge_from_disk(self) -> Dict:
+        """Bidirectional merge between on-disk notes and in-memory state.
+
+        Reconciliation rules
+        --------------------
+        1. **On disk only** → add to ``self.memories`` + vectordb.
+        2. **In memory only** → keep (caller writes to disk afterwards).
+        3. **Both exist, same content** → skip (already consistent).
+        4. **Both exist, different content** → the version with the latest
+           ``last_modified`` wins. The loser is overwritten. Ties keep the
+           disk version (external edits are assumed intentional).
+
+        Unlike the old ``sync_from_disk``, this method **never deletes**
+        notes that exist only in memory (they were created by the current
+        process and just haven't been written yet). And it does **not** do
+        a full vectordb rebuild — only the notes that actually changed get
+        their embeddings updated.
+
+        Returns:
+            Dict with counts: added_from_disk, updated_from_disk,
+            updated_from_memory, unchanged, memory_only.
+        """
+        if not self._notes_dir:
+            return {"error": "No persist_dir configured"}
+
+        disk_notes = self._load_disk_notes()
+
+        added_from_disk = 0
+        updated_from_disk = 0  # disk won the conflict
+        updated_from_memory = 0  # memory won the conflict
+        unchanged = 0
+        memory_only = 0
+
+        disk_ids = set(disk_notes.keys())
+        mem_ids = set(self.memories.keys())
+
+        # 1. Notes on disk but not in memory → adopt from disk
+        for nid in disk_ids - mem_ids:
+            disk_note = disk_notes[nid]
+            self.memories[nid] = disk_note
+            metadata = self._build_note_metadata(disk_note)
+            self.retriever.add_document(disk_note.content, metadata, nid)
+            added_from_disk += 1
+
+        # 2. Notes in memory but not on disk → keep (no action needed here,
+        #    sync_to_disk will write them later)
+        memory_only = len(mem_ids - disk_ids)
+
+        # 3/4. Notes that exist in both
+        for nid in disk_ids & mem_ids:
+            disk_note = disk_notes[nid]
+            mem_note = self.memories[nid]
+
+            if disk_note.content == mem_note.content:
+                unchanged += 1
+                continue
+
+            # Conflict: pick winner by last_modified (ties → disk wins)
+            disk_ts = disk_note.last_modified or disk_note.timestamp
+            mem_ts = mem_note.last_modified or mem_note.timestamp
+
+            if mem_ts > disk_ts:
+                # Memory is newer — keep in-memory version, will be written
+                # to disk by sync_to_disk. No vectordb change needed.
+                updated_from_memory += 1
+            else:
+                # Disk is newer (or tie) — adopt disk version
+                self.memories[nid] = disk_note
+                # Update vectordb entry
+                self.retriever.delete_document(nid)
+                metadata = self._build_note_metadata(disk_note)
+                self.retriever.add_document(disk_note.content, metadata, nid)
+                updated_from_disk += 1
+
+        self._rebuild_backlinks()
+
+        return {
+            "added_from_disk": added_from_disk,
+            "updated_from_disk": updated_from_disk,
+            "updated_from_memory": updated_from_memory,
+            "unchanged": unchanged,
+            "memory_only": memory_only,
+        }
+
+    # --- One-directional syncs (kept for backwards compat) ---
+
     def sync_from_disk(self) -> Dict:
         """Sync: read current persistent files → update in-memory state + vectordb.
 
@@ -567,20 +687,7 @@ class AgenticMemorySystem:
         if not self._notes_dir:
             return {"error": "No persist_dir configured"}
 
-        # Load all notes from disk
-        disk_notes = {}
-        for dirpath, _dirnames, filenames in os.walk(self._notes_dir):
-            for filename in filenames:
-                if not filename.endswith(".md"):
-                    continue
-                filepath = os.path.join(dirpath, filename)
-                with open(filepath, "r", encoding="utf-8") as f:
-                    text = f.read()
-                try:
-                    note = MemoryNote.from_markdown(text)
-                    disk_notes[note.id] = note
-                except Exception as e:
-                    logger.warning(f"Could not load note {filepath}: {e}")
+        disk_notes = self._load_disk_notes()
 
         added = 0
         updated = 0
@@ -607,41 +714,32 @@ class AgenticMemorySystem:
         return {"added": added, "updated": updated, "removed": removed}
 
     def sync_to_disk(self) -> Dict:
-        """Sync: write current in-memory state → persistent files + vectordb.
+        """Sync: merge disk state, then write unified state to disk.
 
-        Saves all in-memory notes as markdown files, removes orphan files
-        that don't correspond to any in-memory note, and rebuilds the vector index.
+        1. Calls ``merge_from_disk()`` to reconcile disk ↔ memory.
+        2. Writes all in-memory notes to disk.
+        3. Does **not** delete orphan files (they may belong to another
+           agent process running concurrently).
 
         Returns:
-            Dict with counts of written and cleaned files.
+            Dict with merge result and count of files written.
         """
         if not self._notes_dir:
             return {"error": "No persist_dir configured"}
 
-        # Collect all existing .md filepaths on disk
-        existing_files = set()
-        for dirpath, _dirnames, filenames in os.walk(self._notes_dir):
-            for filename in filenames:
-                if filename.endswith(".md"):
-                    existing_files.add(os.path.join(dirpath, filename))
+        # Step 1: merge first so we don't clobber another agent's work
+        merge_result = self.merge_from_disk()
 
-        # Write all in-memory notes to disk
-        written_files = set()
+        # Step 2: write all in-memory notes (now includes merged disk notes)
+        written = 0
         for note in self.memories.values():
-            filepath = os.path.join(self._notes_dir, note.filepath)
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(note.to_markdown())
-            written_files.add(filepath)
+            self._save_note(note, touch_modified=False)
+            written += 1
 
-        # Remove orphan files (on disk but not in memory)
-        orphans = existing_files - written_files
-        self._remove_orphan_files(orphans)
-
-        # Rebuild vector index from memory
-        self.consolidate_memories()
-
-        return {"written": len(written_files), "orphans_removed": len(orphans)}
+        return {
+            "merge": merge_result,
+            "written": written,
+        }
 
     def _remove_orphan_files(self, orphans: set) -> None:
         """Delete orphan markdown files and clean up empty parent directories."""
@@ -912,9 +1010,7 @@ class AgenticMemorySystem:
             for doc_id, score in zip(results["ids"][0], results["distances"][0])
         ]
 
-    def _compute_time_decay_score(
-        self, similarity: float, last_accessed: str
-    ) -> float:
+    def _compute_time_decay_score(self, similarity: float, last_accessed: str) -> float:
         """Compute combined score using time-decay re-ranking.
 
         Formula: score = α * sim + (1 - α) * 0.5^(age_days / h)
