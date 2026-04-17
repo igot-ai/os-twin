@@ -51,10 +51,16 @@ function Setup-Venv {
                     Remove-Item -Path $script:VenvDir -Recurse -Force -ErrorAction SilentlyContinue
                 }
             }
-            & uv venv $script:VenvDir --python 3.12 --quiet 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $script:VenvDir "pyvenv.cfg"))) {
+            $venvOutput = & uv venv $script:VenvDir --python 3.12 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Fail "uv venv output: $venvOutput"
                 Write-Fail "Failed to create venv at $($script:VenvDir)"
                 throw "uv venv failed (exit code $LASTEXITCODE)"
+            }
+            if (-not (Test-Path (Join-Path $script:VenvDir "pyvenv.cfg"))) {
+                Write-Fail "uv venv output: $venvOutput"
+                Write-Fail "venv created but pyvenv.cfg missing at $($script:VenvDir)"
+                throw "uv venv failed - pyvenv.cfg not created"
             }
             Write-Ok "venv at $($script:VenvDir) (Python 3.12)"
         }
