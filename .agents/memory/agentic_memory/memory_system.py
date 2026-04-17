@@ -211,9 +211,8 @@ class AgenticMemorySystem:
         # Check for filepath collision with a different note
         if os.path.exists(filepath):
             try:
-                existing = MemoryNote.from_markdown(
-                    open(filepath, "r", encoding="utf-8").read()
-                )
+                with open(filepath, "r", encoding="utf-8") as _f:
+                    existing = MemoryNote.from_markdown(_f.read())
                 if existing.id != note.id:
                     if existing.content_hash == note.content_hash:
                         # True duplicate — same content, skip write
