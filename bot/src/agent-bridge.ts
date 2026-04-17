@@ -706,6 +706,14 @@ async function getContextCached(): Promise<{ plans: any; rooms: any }> {
 
 // ── Tool retry wrapper ───────────────────────────────────────────────────
 
+/** Tools that perform side-effects and must NOT be retried on failure. */
+const NON_IDEMPOTENT_TOOLS = new Set([
+  'create_plan',
+  'launch_plan',
+  'resume_plan',
+  'refine_plan',
+]);
+
 async function executeToolWithRetry(
   call: FunctionCall,
   ctx: AgentContext,
@@ -720,6 +728,8 @@ async function executeToolWithRetry(
       ),
     ]);
 
+  const canRetry = !NON_IDEMPOTENT_TOOLS.has(call.name);
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await withTimeout(
@@ -728,7 +738,7 @@ async function executeToolWithRetry(
         `tool:${call.name}`,
       );
     } catch (err: any) {
-      if (attempt === 0 && !err.message.includes('timed out')) {
+      if (attempt === 0 && canRetry && !err.message.includes('timed out')) {
         console.warn(`[BRIDGE] Tool ${call.name} failed (attempt 1), retrying: ${err.message}`);
         continue;
       }
@@ -759,8 +769,12 @@ export async function askAgent(
   const session = getSession(agentCtx.userId, agentCtx.platform);
 
   // ── Fast path: skip Gemini for trivial messages ──
+  // Only short-circuit when there's no active plan session.  In multi-turn
+  // workflows (drafting, editing), "yes"/"no"/"ok" are often confirmations
+  // that need to reach Gemini so tool calls can proceed.
   const hasAttachments = agentCtx.attachments && agentCtx.attachments.length > 0;
-  if (!hasAttachments) {
+  const hasActivePlan = session.activePlanId && session.activePlanId !== 'new';
+  if (!hasAttachments && !hasActivePlan) {
     const trivialType = detectTrivial(question);
     if (trivialType) {
       const responses = TRIVIAL_RESPONSES[trivialType] || ['Got it.'];
