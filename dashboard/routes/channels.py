@@ -140,7 +140,17 @@ async def connect_channel(
         config.pairing_code = secrets.token_hex(4)
 
     save_channels_config(configs)
-    _notify_bot_restart()
+
+    if global_state.bot_manager is not None:
+        if not global_state.bot_manager.is_running:
+            logger.info("[CHANNELS] Bot not running — starting it")
+            await global_state.bot_manager.start()
+        else:
+            logger.info("[CHANNELS] Bot already running — scheduling restart")
+            global_state.bot_manager.schedule_restart()
+    else:
+        logger.warning("[CHANNELS] No bot_manager — cannot start bot")
+
     return {"status": "ok", "message": f"{platform} connector enabled"}
 
 

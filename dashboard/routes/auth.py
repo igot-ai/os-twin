@@ -4,9 +4,12 @@ from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Read API key at module load (same as dashboard.auth)
-_API_KEY = os.environ.get("OSTWIN_API_KEY", "")
 AUTH_COOKIE_NAME = "ostwin_auth_key"
+
+
+def _get_expected_key() -> str:
+    """Get API key from environment at runtime (not cached)."""
+    return os.environ.get("OSTWIN_API_KEY", "")
 
 
 @router.post("/token")
@@ -26,28 +29,32 @@ async def login_for_access_token(request: Request):
         form = await request.form()
         key = form.get("key", "") or form.get("password", "")
 
-    if not key or not _API_KEY:
+    expected_key = _get_expected_key()
+    if not key or not expected_key:
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid API key"},
         )
 
     import secrets
-    if not secrets.compare_digest(str(key), _API_KEY):
+
+    if not secrets.compare_digest(str(key), expected_key):
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid API key"},
         )
 
     # Set cookie and return token
-    response = JSONResponse(content={
-        "access_token": _API_KEY,
-        "token_type": "bearer",
-        "username": "api-key-user",
-    })
+    response = JSONResponse(
+        content={
+            "access_token": expected_key,
+            "token_type": "bearer",
+            "username": "api-key-user",
+        }
+    )
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
-        value=_API_KEY,
+        value=expected_key,
         httponly=True,
         samesite="lax",
         max_age=60 * 60 * 24 * 30,  # 30 days
@@ -60,6 +67,7 @@ async def login_for_access_token(request: Request):
 async def read_users_me(request: Request):
     """Return current user info — validates the API key from header or cookie."""
     from dashboard.auth import get_current_user as _get_user
+
     user = await _get_user(request)
     return user
 

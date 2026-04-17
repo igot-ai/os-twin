@@ -19,9 +19,6 @@ from fastapi import Request, HTTPException
 # Kept for API compatibility with existing imports
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Read API key from environment (set during install.sh)
-_API_KEY = os.environ.get("OSTWIN_API_KEY", "")
-
 # Cookie name used by the frontend
 AUTH_COOKIE_NAME = "ostwin_auth_key"
 
@@ -82,7 +79,10 @@ async def get_current_user(request: Request) -> dict:
             detail="Missing API key. Provide via X-API-Key header, Authorization: Bearer <key>, or cookie.",
         )
 
-    if not _API_KEY or not secrets.compare_digest(provided_key, _API_KEY):
+    # Read API key from environment at runtime (not cached at module load)
+    # This ensures the key is available even if .env was loaded after module import
+    expected_key = os.environ.get("OSTWIN_API_KEY", "")
+    if not expected_key or not secrets.compare_digest(provided_key, expected_key):
         raise HTTPException(
             status_code=401,
             detail="Invalid API key",
