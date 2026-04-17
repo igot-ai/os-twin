@@ -2,7 +2,7 @@
 export AGENT_OS_ROOM_DIR='/Users/paulaan/Downloads/snakie/snakie_project/.war-rooms/room-001'
 export AGENT_OS_ROLE='game-engineer'
 export AGENT_OS_PARENT_PID='68846'
-export AGENT_OS_SKILLS_DIR='/Users/paulaan/Downloads/snakie/snakie_project/.war-rooms/room-001/skills'
+export AGENT_OS_SKILLS_DIR='/Users/paulaan/PycharmProjects/agent-os/.agents/skills'
 export AGENT_OS_PID_FILE='/Users/paulaan/Downloads/snakie/snakie_project/.war-rooms/room-001/pids/game-engineer.pid'
 export OSTWIN_HOME='/Users/paulaan/.ostwin'
 export AGENT_OS_PROJECT_DIR='/Users/paulaan/Downloads/snakie/snakie_project'
