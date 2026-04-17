@@ -1089,8 +1089,8 @@ export async function routeCommand(userId: string, platform: string, command: st
         return [text('✨ Usage: `/draft <your idea>`\nExample: `/draft build a todo app with authentication`\n\nOr just `@os-twin build me a todo app` — the AI will handle it.')];
       }
       // Route through askAgent — Gemini will call create_plan tool
+      // which sets activePlanId via setPlan() inside executeTool()
       const result = await askAgent(`Create a plan for: ${idea}`, { userId, platform });
-      setPlan(userId, platform, result.text.match(/`([^`]+\.plan)`/)?.[1] || 'new');
       return [text(result.text)];
     }
     case 'transcribe':  return cmdTranscribe(userId, platform);
