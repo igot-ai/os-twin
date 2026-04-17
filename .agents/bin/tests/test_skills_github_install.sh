@@ -125,13 +125,14 @@ printf -- '---\nname: \ndescription: has empty name\n---\n# Empty Name\n' > "$RE
 git -C "$REPO_F_WORK" add -A && git -C "$REPO_F_WORK" commit -q -m "init"
 git clone -q --bare "$REPO_F_WORK" "$REPO_F_BARE"
 
-# Repo G: .agents/skills/ preferred over root-level SKILL.md
+# Repo G: two skills in different subdirectories — flat scan should find both
 REPO_G_WORK="$FIXTURE_DIR/repo-g-work"
 REPO_G_BARE="$FIXTURE_DIR/agents-pref.git"
-mkdir -p "$REPO_G_WORK/.agents/skills/real-skill"
+mkdir -p "$REPO_G_WORK/toolset-a/skill-one" \
+         "$REPO_G_WORK/toolset-b/nested/skill-two"
 git -C "$REPO_G_WORK" init -q
-printf -- '---\nname: root-decoy\n---\n# Root\n' > "$REPO_G_WORK/SKILL.md"
-printf -- '---\nname: real-skill\n---\n# Real\n' > "$REPO_G_WORK/.agents/skills/real-skill/SKILL.md"
+printf -- '---\nname: skill-one\n---\n# Skill One\n' > "$REPO_G_WORK/toolset-a/skill-one/SKILL.md"
+printf -- '---\nname: skill-two\n---\n# Skill Two\n' > "$REPO_G_WORK/toolset-b/nested/skill-two/SKILL.md"
 git -C "$REPO_G_WORK" add -A && git -C "$REPO_G_WORK" commit -q -m "init"
 git clone -q --bare "$REPO_G_WORK" "$REPO_G_BARE"
 
@@ -416,9 +417,12 @@ assert_contains "$HELP_OUT" "github-url" "help mentions github-url"
 assert_contains "$HELP_OUT" "GitHub install examples" "help has GitHub examples section"
 
 # =============================================================================
-# 11. MULTI-SKILL REPO — source/skills/ PREFERRED OVER DUPLICATES (integration)
+# 11. MULTI-SKILL REPO — ALL SKILL.MD FILES INSTALLED (integration)
+#     With flat unlimited scan, all SKILL.md files anywhere in the repo are
+#     found. The nesting-detection skips sub-skills inside a parent skill's
+#     tree, but parallel copies (source/ vs .cursor/) are both installed.
 # =============================================================================
-section "11. Multi-skill: source/skills/ preferred, .cursor/ duplicates ignored"
+section "11. Multi-skill: flat scan installs all top-level SKILL.md folders"
 
 rm -rf "$FAKE_HOME/.ostwin/.agents/skills/global/"*
 rm -rf "$FAKE_HOME/.ostwin/skills/global/"*
@@ -428,10 +432,9 @@ RC_D=$?
 
 assert_ok "$RC_D" "exit code 0"
 assert_contains "$OUT_D" "alpha-skill" "installed alpha"
-assert_contains "$OUT_D" "beta-skill" "installed beta"
-# Should install exactly 2, not 4 (no .cursor/ duplicates)
-D_COUNT="$(echo "$OUT_D" | grep -c "Installed '")"
-assert_eq "$D_COUNT" "2" "exactly 2 skills installed (no dupes)"
+assert_contains "$OUT_D" "beta-skill"  "installed beta"
+# Flat scan finds both source/ and .cursor/ copies (4 total, but same skill name
+# overwrites — last-writer-wins for same skill name)
 assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/alpha-skill/SKILL.md" "alpha at dest1"
 assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/beta-skill/SKILL.md"  "beta at dest1"
 assert_file "$FAKE_HOME/.ostwin/skills/global/alpha-skill/SKILL.md" "alpha at dest2"
@@ -474,9 +477,10 @@ assert_contains "$OUT_F" "empty-name" "falls back to repo name when name is empt
 assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/empty-name/SKILL.md" "skill installed with repo name"
 
 # =============================================================================
-# 14. .agents/skills/ PREFERRED OVER ROOT SKILL.MD (integration)
+# 14. FLAT SCAN — ALL SKILL.MD FOUND REGARDLESS OF LOCATION (integration)
+#     With flat scan, skills at different subdirectory levels are all found.
 # =============================================================================
-section "14. .agents/skills/ preferred over root SKILL.md"
+section "14. Flat scan: skills at different depths both installed"
 
 rm -rf "$FAKE_HOME/.ostwin/.agents/skills/global/"*
 rm -rf "$FAKE_HOME/.ostwin/skills/global/"*
@@ -485,10 +489,10 @@ OUT_G="$(run_patched "file://$REPO_G_BARE")"
 RC_G=$?
 
 assert_ok "$RC_G" "exit code 0"
-assert_contains "$OUT_G" "real-skill" "installs from .agents/skills/"
-assert_not_contains "$OUT_G" "root-decoy" "root SKILL.md ignored"
-G_COUNT="$(echo "$OUT_G" | grep -c "Installed '")"
-assert_eq "$G_COUNT" "1" "exactly 1 skill from .agents/skills/"
+assert_contains "$OUT_G" "skill-one" "skill-one installed (depth 2)"
+assert_contains "$OUT_G" "skill-two" "skill-two installed (depth 3)"
+assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/skill-one/SKILL.md" "skill-one at dest"
+assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/skill-two/SKILL.md" "skill-two at dest"
 
 # =============================================================================
 # 15. STALE FILES REMOVED ON RE-INSTALL (integration)
@@ -573,6 +577,56 @@ assert_eq "$(extract_name '---
 name: first-name
 name: second-name
 ---')" "first-name" "first name: field wins"
+
+# =============================================================================
+# 19. DEEP FOLDER STRUCTURE — SKILL.MD AT ANY DEPTH (regression, integration)
+#     Reproduces: ostwin skills install https://github.com/bmad-code-org/BMAD-METHOD.git
+#     Strategy: scan the entire repo with no depth limit and install every
+#     folder that contains a SKILL.md (regardless of nesting level).
+# =============================================================================
+section "19. Deep folder: SKILL.md at any depth — unlimited scan"
+
+rm -rf "$FAKE_HOME/.ostwin/.agents/skills/global/"*
+rm -rf "$FAKE_HOME/.ostwin/skills/global/"*
+
+# Build a repo that mimics BMAD-METHOD mixed structure:
+#   src/bmm-skills/1-analysis/bmad-analyst/SKILL.md  (depth 4)
+#   src/bmm-skills/2-planning/bmad-pm/SKILL.md        (depth 4)
+#   src/core-skills/bmad-elicitation/SKILL.md          (depth 3)
+#   any-folder/deep-skill/SKILL.md                     (depth 2, generic)
+REPO_BMAD_WORK="$FIXTURE_DIR/repo-bmad-work"
+REPO_BMAD_BARE="$FIXTURE_DIR/bmad-deep.git"
+mkdir -p "$REPO_BMAD_WORK/src/bmm-skills/1-analysis/bmad-analyst" \
+         "$REPO_BMAD_WORK/src/bmm-skills/2-planning/bmad-pm" \
+         "$REPO_BMAD_WORK/src/core-skills/bmad-elicitation" \
+         "$REPO_BMAD_WORK/plugins/deep-skill"
+git -C "$REPO_BMAD_WORK" init -q
+printf -- '---\nname: bmad-analyst\ndescription: analyst\n---\n# Analyst\n' \
+  > "$REPO_BMAD_WORK/src/bmm-skills/1-analysis/bmad-analyst/SKILL.md"
+printf -- '---\nname: bmad-pm\ndescription: pm\n---\n# PM\n' \
+  > "$REPO_BMAD_WORK/src/bmm-skills/2-planning/bmad-pm/SKILL.md"
+printf -- '---\nname: bmad-elicitation\ndescription: elicitation\n---\n# Elicitation\n' \
+  > "$REPO_BMAD_WORK/src/core-skills/bmad-elicitation/SKILL.md"
+printf -- '---\nname: deep-skill\ndescription: generic deep\n---\n# Deep\n' \
+  > "$REPO_BMAD_WORK/plugins/deep-skill/SKILL.md"
+git -C "$REPO_BMAD_WORK" add -A && git -C "$REPO_BMAD_WORK" commit -q -m "bmad-like init"
+git clone -q --bare "$REPO_BMAD_WORK" "$REPO_BMAD_BARE"
+
+OUT_BMAD="$(run_patched "file://$REPO_BMAD_BARE")"
+RC_BMAD=$?
+
+assert_ok   "$RC_BMAD" "19: exit code 0 for deep-folder repo"
+assert_not_contains "$OUT_BMAD" "No SKILL.md found" "19: does NOT emit 'SKILL.md not found'"
+assert_contains "$OUT_BMAD" "bmad-analyst"    "19: bmad-analyst installed (depth 4)"
+assert_contains "$OUT_BMAD" "bmad-pm"         "19: bmad-pm installed (depth 4)"
+assert_contains "$OUT_BMAD" "bmad-elicitation" "19: bmad-elicitation installed (depth 3)"
+assert_contains "$OUT_BMAD" "deep-skill"       "19: deep-skill installed (depth 2, generic)"
+BMAD_COUNT="$(echo "$OUT_BMAD" | grep -c "Installed '")"
+assert_eq "$BMAD_COUNT" "4" "19: all 4 skills installed from flat unlimited scan"
+assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/bmad-analyst/SKILL.md"     "19: bmad-analyst at dest"
+assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/bmad-pm/SKILL.md"          "19: bmad-pm at dest"
+assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/bmad-elicitation/SKILL.md" "19: bmad-elicitation at dest"
+assert_file "$FAKE_HOME/.ostwin/.agents/skills/global/deep-skill/SKILL.md"       "19: deep-skill at dest"
 
 # =============================================================================
 # SUMMARY
