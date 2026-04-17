@@ -87,6 +87,7 @@ class AgenticMemorySystem:
         max_links: Optional[int] = None,
         similarity_weight: float = 0.8,
         decay_half_life_days: float = 30.0,
+        conflict_resolution: str = "last_modified",
     ):
         """Initialize the memory system.
 
@@ -124,6 +125,7 @@ class AgenticMemorySystem:
         self.max_links = max_links
         self.similarity_weight = max(0.0, min(1.0, similarity_weight))
         self.decay_half_life_days = max(0.01, decay_half_life_days)
+        self.conflict_resolution = conflict_resolution
         self._initialize_evolution_prompt()
 
         # Set up subdirectories for persistence
@@ -181,6 +183,13 @@ class AgenticMemorySystem:
     def _save_note(self, note: MemoryNote, touch_modified: bool = True):
         """Save a single MemoryNote as a markdown file in its directory tree.
 
+        Filepath collision handling:
+        - Same UUID → normal overwrite (update in place).
+        - Different UUID, same hash → true duplicate, skip the write.
+        - Different UUID, different hash → real conflict. Resolved by
+          ``last_modified`` (or LLM if configured). The loser's file
+          stays untouched; the winner is written.
+
         Args:
             note: The note to persist.
             touch_modified: When True (default) update ``last_modified`` to now.
@@ -193,10 +202,132 @@ class AgenticMemorySystem:
             from datetime import datetime
 
             note.last_modified = datetime.now().strftime("%Y%m%d%H%M")
+
+        # Refresh the hash so it reflects current content/metadata
+        note.refresh_hash()
+
         filepath = os.path.join(self._notes_dir, note.filepath)
+
+        # Check for filepath collision with a different note
+        if os.path.exists(filepath):
+            try:
+                existing = MemoryNote.from_markdown(
+                    open(filepath, "r", encoding="utf-8").read()
+                )
+                if existing.id != note.id:
+                    if existing.content_hash == note.content_hash:
+                        # True duplicate — same content, skip write
+                        logger.info(
+                            "skip duplicate: note %s has same hash as %s at %s",
+                            note.id,
+                            existing.id,
+                            filepath,
+                        )
+                        return
+                    # Real conflict — different content at same filepath
+                    winner = self._resolve_conflict(note, existing)
+                    if winner.id != note.id:
+                        # Existing file wins, don't overwrite
+                        logger.info(
+                            "filepath conflict: existing note %s wins over %s at %s",
+                            existing.id,
+                            note.id,
+                            filepath,
+                        )
+                        return
+                    logger.info(
+                        "filepath conflict: new note %s wins over %s at %s",
+                        note.id,
+                        existing.id,
+                        filepath,
+                    )
+            except Exception:
+                pass  # Can't parse existing file — safe to overwrite
+
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(note.to_markdown())
+
+    def _resolve_conflict(self, note_a: MemoryNote, note_b: MemoryNote) -> MemoryNote:
+        """Pick the winner between two conflicting notes.
+
+        Strategy depends on ``self.conflict_resolution``:
+        - ``"last_modified"`` (default): newer ``last_modified`` wins.
+          Ties go to note_a (the incoming/newer write attempt).
+        - ``"llm"``: asks the LLM to merge both versions into one.
+          The merged note keeps note_a's ID. Falls back to
+          ``last_modified`` if the LLM call fails.
+        """
+        if self.conflict_resolution == "llm":
+            try:
+                return self._llm_resolve_conflict(note_a, note_b)
+            except Exception:
+                logger.exception(
+                    "LLM conflict resolution failed for %s vs %s, "
+                    "falling back to last_modified",
+                    note_a.id,
+                    note_b.id,
+                )
+
+        # last_modified strategy (also the fallback)
+        ts_a = note_a.last_modified or note_a.timestamp
+        ts_b = note_b.last_modified or note_b.timestamp
+
+        if ts_a >= ts_b:
+            return note_a
+        return note_b
+
+    def _llm_resolve_conflict(
+        self, note_a: MemoryNote, note_b: MemoryNote
+    ) -> MemoryNote:
+        """Use the LLM to merge two conflicting notes into one.
+
+        The merged note keeps note_a's ID and has its ``last_modified``
+        set to now.
+        """
+        from datetime import datetime
+
+        prompt = (
+            "Two versions of the same memory note exist with different content. "
+            "Merge them into a single, comprehensive version that preserves all "
+            "unique information from both. Return ONLY the merged content text, "
+            "no headers or metadata.\n\n"
+            f"--- Version A (modified: {note_a.last_modified}) ---\n"
+            f"{note_a.content}\n\n"
+            f"--- Version B (modified: {note_b.last_modified}) ---\n"
+            f"{note_b.content}\n"
+        )
+
+        response = self.llm_controller.llm.get_completion(prompt)
+        merged_content = response.strip() if response else None
+        if not merged_content:
+            raise ValueError("LLM returned empty merge result")
+
+        logger.info(
+            "LLM merged conflict for notes %s and %s (%d + %d → %d chars)",
+            note_a.id,
+            note_b.id,
+            len(note_a.content),
+            len(note_b.content),
+            len(merged_content),
+        )
+
+        # Build merged note: keep note_a's identity, combine metadata
+        merged = MemoryNote(
+            content=merged_content,
+            id=note_a.id,
+            name=note_a.name or note_b.name,
+            path=note_a.path or note_b.path,
+            keywords=list(set(note_a.keywords + note_b.keywords)),
+            links=list(set(note_a.links + note_b.links)),
+            tags=list(set(note_a.tags + note_b.tags)),
+            context=note_a.context if note_a.context != "General" else note_b.context,
+            timestamp=min(note_a.timestamp, note_b.timestamp),
+            last_modified=datetime.now().strftime("%Y%m%d%H%M"),
+            summary=None,  # will be regenerated on next LLM analysis
+        )
+        merged.refresh_hash()
+        return merged
 
     def _delete_note_file(self, memory_id: str):
         """Delete a MemoryNote's markdown file and clean up empty parent dirs."""
@@ -524,6 +655,7 @@ class AgenticMemorySystem:
         """Build a metadata dict suitable for the vector store."""
         return {
             "id": note.id,
+            "content_hash": note.content_hash,
             "content": note.content,
             "keywords": note.keywords,
             "links": note.links,
@@ -630,25 +762,25 @@ class AgenticMemorySystem:
         #    sync_to_disk will write them later)
         memory_only = len(mem_ids - disk_ids)
 
-        # 3/4. Notes that exist in both
+        # 3/4. Notes that exist in both — compare by hash, not raw content
         for nid in disk_ids & mem_ids:
             disk_note = disk_notes[nid]
             mem_note = self.memories[nid]
 
-            if disk_note.content == mem_note.content:
+            if disk_note.content_hash == mem_note.content_hash:
                 unchanged += 1
                 continue
 
-            # Conflict: pick winner by last_modified (ties → disk wins)
-            disk_ts = disk_note.last_modified or disk_note.timestamp
-            mem_ts = mem_note.last_modified or mem_note.timestamp
-
-            if mem_ts > disk_ts:
-                # Memory is newer — keep in-memory version, will be written
+            # Conflict: use _resolve_conflict (last_modified or LLM)
+            # disk_note is note_a so ties go to disk (external edits
+            # are assumed intentional)
+            winner = self._resolve_conflict(disk_note, mem_note)
+            if winner.id == mem_note.id and winner is mem_note:
+                # Memory wins — keep in-memory version, will be written
                 # to disk by sync_to_disk. No vectordb change needed.
                 updated_from_memory += 1
             else:
-                # Disk is newer (or tie) — adopt disk version
+                # Disk wins — adopt disk version
                 self.memories[nid] = disk_note
                 # Update vectordb entry
                 self.retriever.delete_document(nid)
@@ -658,12 +790,43 @@ class AgenticMemorySystem:
 
         self._rebuild_backlinks()
 
+        # 5. Verify vectordb ↔ notes consistency using content_hash.
+        #    For each note, check if vectordb has the same hash. Three cases:
+        #    - Missing from vectordb entirely → embed and insert
+        #    - Hash mismatch (stale vector) → re-embed
+        #    - Hash matches → consistent, skip
+        all_mem_ids = list(self.memories.keys())
+        stored_hashes = self.retriever.get_stored_hashes(all_mem_ids)
+        vectors_repaired = 0
+        for nid in all_mem_ids:
+            note = self.memories[nid]
+            stored_hash = stored_hashes.get(nid)
+
+            if stored_hash == note.content_hash:
+                continue  # consistent
+
+            if stored_hash is None:
+                logger.warning("merge: note %s missing from vectordb, adding", nid)
+            else:
+                logger.warning(
+                    "merge: note %s has stale vector (hash %s vs %s), re-embedding",
+                    nid,
+                    stored_hash,
+                    note.content_hash,
+                )
+                self.retriever.delete_document(nid)
+
+            metadata = self._build_note_metadata(note)
+            self.retriever.add_document(note.content, metadata, nid)
+            vectors_repaired += 1
+
         return {
             "added_from_disk": added_from_disk,
             "updated_from_disk": updated_from_disk,
             "updated_from_memory": updated_from_memory,
             "unchanged": unchanged,
             "memory_only": memory_only,
+            "vectors_repaired": vectors_repaired,
         }
 
     # --- One-directional syncs (kept for backwards compat) ---

@@ -64,6 +64,7 @@ class EvolutionConfig:
 class SyncConfig:
     auto_sync: bool = True
     auto_sync_interval: int = 60  # seconds
+    conflict_resolution: str = "last_modified"  # "last_modified" or "llm"
 
 
 @dataclass
@@ -124,11 +125,18 @@ def load_config() -> MemoryConfig:
     config = MemoryConfig(
         llm=LLMConfig(
             backend=_env_str("MEMORY_LLM_BACKEND", llm_d.get("backend", "gemini")),
-            model=_env_str("MEMORY_LLM_MODEL", llm_d.get("model", "gemini-3-flash-preview")),
+            model=_env_str(
+                "MEMORY_LLM_MODEL", llm_d.get("model", "gemini-3-flash-preview")
+            ),
         ),
         embedding=EmbeddingConfig(
-            backend=_env_str("MEMORY_EMBEDDING_BACKEND", embedding_d.get("backend", "gemini")),
-            model=_env_str("MEMORY_EMBEDDING_MODEL", embedding_d.get("model", "gemini-embedding-001")),
+            backend=_env_str(
+                "MEMORY_EMBEDDING_BACKEND", embedding_d.get("backend", "gemini")
+            ),
+            model=_env_str(
+                "MEMORY_EMBEDDING_MODEL",
+                embedding_d.get("model", "gemini-embedding-001"),
+            ),
         ),
         vector=VectorConfig(
             backend=_env_str("MEMORY_VECTOR_BACKEND", vector_d.get("backend", "zvec")),
@@ -165,6 +173,10 @@ def load_config() -> MemoryConfig:
             auto_sync_interval=_env_int(
                 "MEMORY_AUTO_SYNC_INTERVAL",
                 sync_d.get("auto_sync_interval", 60),
+            ),
+            conflict_resolution=_env_str(
+                "MEMORY_CONFLICT_RESOLUTION",
+                sync_d.get("conflict_resolution", "last_modified"),
             ),
         ),
         disabled_tools=_parse_disabled_tools(d),

@@ -228,6 +228,7 @@ CONTEXT_AWARE_TREE = _cfg.evolution.context_aware_tree
 MAX_LINKS = _cfg.evolution.max_links
 AUTO_SYNC_ENABLED = _cfg.sync.auto_sync
 AUTO_SYNC_INTERVAL = _cfg.sync.auto_sync_interval
+CONFLICT_RESOLUTION = _cfg.sync.conflict_resolution
 SIMILARITY_WEIGHT = _cfg.search.similarity_weight
 DECAY_HALF_LIFE = _cfg.search.decay_half_life_days
 DISABLED_TOOLS = set(_cfg.disabled_tools)
@@ -306,6 +307,7 @@ def _init_memory():
                 max_links=MAX_LINKS,
                 similarity_weight=SIMILARITY_WEIGHT,
                 decay_half_life_days=DECAY_HALF_LIFE,
+                conflict_resolution=CONFLICT_RESOLUTION,
             )
         logger.info(
             "Background: memory system ready (%d memories loaded)",

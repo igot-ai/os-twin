@@ -10,6 +10,7 @@ go through this class.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -100,6 +101,44 @@ class MemoryNote:
         # Summary for long content embedding
         self.summary = summary
 
+        # Content hash for consistency checks.  Loaded from frontmatter
+        # when reading from disk; recomputed on save.
+        self._content_hash: Optional[str] = kwargs.get("content_hash")
+
+    # --- Hashing -------------------------------------------------------
+
+    def compute_hash(self) -> str:
+        """Compute a SHA-256 hash (16-char hex) of the fields that affect
+        the embedding: content, context, keywords, and tags.
+
+        This hash is used to:
+        - Detect whether a note has actually changed (merge conflict check)
+        - Verify vectordb consistency (hash in note vs hash stored in
+          vectordb metadata — mismatch means the vector is stale)
+        - Deduplicate filepath collisions (same hash = true duplicate)
+        """
+        parts = [
+            self.content or "",
+            self.context or "",
+            json.dumps(sorted(self.keywords), ensure_ascii=False),
+            json.dumps(sorted(self.tags), ensure_ascii=False),
+        ]
+        raw = "\n".join(parts).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()[:16]
+
+    @property
+    def content_hash(self) -> str:
+        """Return the cached hash, recomputing if needed."""
+        if self._content_hash is None:
+            self._content_hash = self.compute_hash()
+        return self._content_hash
+
+    def refresh_hash(self) -> str:
+        """Force-recompute and cache the hash.  Call after mutating
+        content, context, keywords, or tags."""
+        self._content_hash = self.compute_hash()
+        return self._content_hash
+
     @staticmethod
     def _slugify(text: str) -> str:
         """Convert text to a filesystem-safe slug."""
@@ -139,6 +178,7 @@ class MemoryNote:
             "id": self.id,
             "name": self.name,
             "path": self.path,
+            "content_hash": self.content_hash,
             "keywords": self.keywords,
             "links": self.links,
             "retrieval_count": self.retrieval_count,
@@ -199,6 +239,7 @@ class MemoryNote:
             category=metadata.get("category"),
             tags=metadata.get("tags"),
             summary=metadata.get("summary"),
+            content_hash=metadata.get("content_hash"),
         )
 
     @classmethod
