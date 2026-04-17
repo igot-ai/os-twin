@@ -45,7 +45,14 @@ function Setup-Env {
             
             $env:OSTWIN_API_KEY = $generatedApiKey
             $script:OstwinApiKey = $generatedApiKey
-            Write-Ok "OSTWIN_API_KEY generated and added to .env"
+            
+            # Set as persistent User-level environment variable so child processes (dashboard) inherit it
+            [System.Environment]::SetEnvironmentVariable("OSTWIN_API_KEY", $generatedApiKey, "User")
+            Write-Ok "OSTWIN_API_KEY generated, added to .env, and set as User env var"
+        }
+        else {
+            # Key exists in .env — also set as User env var to ensure it's available to child processes
+            [System.Environment]::SetEnvironmentVariable("OSTWIN_API_KEY", $env:OSTWIN_API_KEY, "User")
         }
         return
     }
@@ -138,6 +145,10 @@ MEMORY_AUTO_SYNC_INTERVAL=60
     # Export OSTWIN_API_KEY to current process and script scope
     $env:OSTWIN_API_KEY = $generatedApiKey
     $script:OstwinApiKey = $generatedApiKey
+
+    # Set as persistent User-level environment variable so child processes (dashboard) inherit it
+    [System.Environment]::SetEnvironmentVariable("OSTWIN_API_KEY", $generatedApiKey, "User")
+    Write-Ok "OSTWIN_API_KEY set as persistent User env var"
 
     # Create .env.ps1 hook for dynamic env logic
     Create-EnvPs1Hook

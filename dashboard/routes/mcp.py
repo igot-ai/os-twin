@@ -22,6 +22,7 @@ from dashboard.auth import get_current_user
 # Try to import vault and config_resolver from .agents/mcp
 import sys
 import os
+
 MCP_MODULE_PATH = str(AGENTS_DIR / "mcp")
 if MCP_MODULE_PATH not in sys.path:
     sys.path.append(MCP_MODULE_PATH)
@@ -51,9 +52,12 @@ SCRIPT = MCP_DIR / "mcp-extension.sh"
 
 class InstallRequest(BaseModel):
     """Request body for installing an MCP extension."""
-    repo: Optional[str] = None   # Git URL (alternative to name)
-    name: Optional[str] = None   # Package name from catalog, or override name for git URL
-    branch: Optional[str] = None # Git branch
+
+    repo: Optional[str] = None  # Git URL (alternative to name)
+    name: Optional[str] = (
+        None  # Package name from catalog, or override name for git URL
+    )
+    branch: Optional[str] = None  # Git branch
 
 
 class McpServerConfig(BaseModel):
@@ -104,7 +108,7 @@ def _read_json(path: Path) -> dict:
     """Read a JSON file, return empty dict if missing."""
     if not path.exists():
         return {}
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _get_servers(data: dict) -> dict:
@@ -121,9 +125,7 @@ async def _run_script(args: list[str], timeout: int = 120) -> dict:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(), timeout=timeout
-        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
         return {
             "stdout": stdout.decode(),
             "stderr": stderr.decode(),
@@ -151,11 +153,14 @@ async def list_extensions(user: dict = Depends(get_current_user)):
 def _mask_sensitive_config(config: dict) -> dict:
     """Return a copy of the MCP server config with env/header values masked."""
     import copy
+
     safe = copy.deepcopy(config)
     for section in ("environment", "headers"):
         if section in safe and isinstance(safe[section], dict):
             for k, v in safe[section].items():
-                if isinstance(v, str) and not (v.startswith("${") or v.startswith("{env:")):
+                if isinstance(v, str) and not (
+                    v.startswith("${") or v.startswith("{env:")
+                ):
                     # Plaintext value — mask it (skip template references)
                     safe[section][k] = v[:4] + "****" if len(v) > 4 else "****"
     return safe
@@ -178,34 +183,38 @@ async def list_mcp_servers(user: dict = Depends(get_current_user)):
     for name, config in merged.items():
         is_builtin = name in builtin
         server_type = config.get("type", "remote" if "url" in config else "local")
-        
+
         # Check credential status
-        credential_status = "ok" # Default if no vault refs
+        credential_status = "ok"  # Default if no vault refs
         missing_keys = []
         if resolver:
             refs = resolver.extract_vault_refs(config)
             for s, k in refs:
                 if vault and vault.get(s, k) is None:
                     missing_keys.append(f"{s}/{k}")
-            
+
             if missing_keys:
                 credential_status = "missing"
 
-        servers.append({
-            "name": name,
-            "type": server_type,
-            "status": "active", # Placeholder status
-            "credential_status": credential_status,
-            "missing_keys": missing_keys,
-            "builtin": is_builtin,
-            "config": _mask_sensitive_config(config)
-        })
+        servers.append(
+            {
+                "name": name,
+                "type": server_type,
+                "status": "active",  # Placeholder status
+                "credential_status": credential_status,
+                "missing_keys": missing_keys,
+                "builtin": is_builtin,
+                "config": _mask_sensitive_config(config),
+            }
+        )
 
     return {"servers": servers}
 
 
 @router.post("/servers")
-async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_current_user)):
+async def add_mcp_server(
+    server: McpServerConfig, user: dict = Depends(get_current_user)
+):
     """Add a new MCP server to home config."""
     server.normalize()  # Convert legacy stdio/http/env/args/httpUrl → OpenCode format
 
@@ -243,7 +252,7 @@ async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_curre
         config["timeout"] = server.timeout
 
     data["mcp"][server.name] = config
-    
+
     # Ensure directory exists
     HOME_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2))
@@ -260,7 +269,9 @@ async def remove_mcp_server(name: str, user: dict = Depends(get_current_user)):
         HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2))
         return {"status": "success"}
 
-    raise HTTPException(status_code=404, detail=f"Server {name} not found in home config")
+    raise HTTPException(
+        status_code=404, detail=f"Server {name} not found in home config"
+    )
 
 
 @router.post("/servers/{name}/test")
@@ -284,14 +295,21 @@ async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
         """Initialize session, list tools, and return structured result."""
         init_result = await asyncio.wait_for(session.initialize(), timeout=10)
         server_info = getattr(init_result, "serverInfo", None) or {}
-        server_name = getattr(server_info, "name", "unknown") if server_info else "unknown"
-        server_version = getattr(server_info, "version", "unknown") if server_info else "unknown"
+        server_name = (
+            getattr(server_info, "name", "unknown") if server_info else "unknown"
+        )
+        server_version = (
+            getattr(server_info, "version", "unknown") if server_info else "unknown"
+        )
 
         # Fetch available tools
         tools_result = await asyncio.wait_for(session.list_tools(), timeout=10)
         tools_list = getattr(tools_result, "tools", []) if tools_result else []
         tool_summaries = [
-            {"name": getattr(t, "name", str(t)), "description": getattr(t, "description", "")}
+            {
+                "name": getattr(t, "name", str(t)),
+                "description": getattr(t, "description", ""),
+            }
             for t in tools_list
         ]
 
@@ -318,7 +336,7 @@ async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
             def _resolve_env_placeholders(value: str) -> str:
                 """Replace {env:VAR} with os.environ[VAR], leave unresolved as-is."""
                 return re.sub(
-                    r'\{env:(\w+)\}',
+                    r"\{env:(\w+)\}",
                     lambda m: os.environ.get(m.group(1), m.group(0)),
                     value,
                 )
@@ -332,6 +350,7 @@ async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
             else:
                 # Legacy fallback: string command
                 import shlex
+
                 command = _resolve_env_placeholders(command)
                 parts = shlex.split(command)
                 executable = parts[0] if parts else command
@@ -341,17 +360,18 @@ async def test_mcp_server(name: str, user: dict = Depends(get_current_user)):
             full_command = shutil.which(executable) or executable
 
             # Resolve {env:VAR} in environment values too
-            env_vars = {k: _resolve_env_placeholders(v) for k, v in config.get("environment", {}).items()}
+            env_vars = {
+                k: _resolve_env_placeholders(v)
+                for k, v in config.get("environment", {}).items()
+            }
             server_params = StdioServerParameters(
-                command=full_command,
-                args=cmd_args,
-                env={**os.environ, **env_vars}
+                command=full_command, args=cmd_args, env={**os.environ, **env_vars}
             )
 
             async with stdio_client(server_params) as (read, write):
                 async with ClientSession(read, write) as session:
                     return await _test_session(session)
-                    
+
     except asyncio.TimeoutError:
         return {"status": "error", "message": "Connection timed out after 10 seconds"}
     except Exception as e:
@@ -376,7 +396,7 @@ async def list_server_credentials(name: str, user: dict = Depends(get_current_us
     # Filter refs that belong to this server (in vault terms)
     # The vault ref format is ${vault:vault_server_name/key}
     # Often vault_server_name matches name, but not always.
-    
+
     keys = []
     for s, k in refs:
         keys.append({"vault_server": s, "key": k})
@@ -386,10 +406,10 @@ async def list_server_credentials(name: str, user: dict = Depends(get_current_us
 
 @router.put("/servers/{name}/credentials/{key:path}")
 async def set_server_credential(
-    name: str, 
-    key: str, 
-    update: CredentialUpdate, 
-    user: dict = Depends(get_current_user)
+    name: str,
+    key: str,
+    update: CredentialUpdate,
+    user: dict = Depends(get_current_user),
 ):
     """Set a credential value in the vault."""
     vault = get_vault() if get_vault else None
@@ -409,9 +429,7 @@ async def set_server_credential(
 
 @router.delete("/servers/{name}/credentials/{key:path}")
 async def delete_server_credential(
-    name: str, 
-    key: str, 
-    user: dict = Depends(get_current_user)
+    name: str, key: str, user: dict = Depends(get_current_user)
 ):
     """Delete a credential from the vault."""
     vault = get_vault() if get_vault else None
@@ -440,9 +458,11 @@ def _compile_test_config() -> dict:
     import shutil
 
     builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
-    deploy = _get_servers(
-        _read_json(DEPLOY_CONFIG_FILE)
-    ) if DEPLOY_CONFIG_FILE.exists() else {}
+    deploy = (
+        _get_servers(_read_json(DEPLOY_CONFIG_FILE))
+        if DEPLOY_CONFIG_FILE.exists()
+        else {}
+    )
     home = _get_servers(_read_json(HOME_CONFIG_FILE))
 
     # Merge: builtin -> deploy -> home (each layer overrides the previous)
@@ -462,14 +482,14 @@ def _compile_test_config() -> dict:
         "PROJECT_DIR": str(Path.home() / ".ostwin"),
     }
 
-    env_ref_pattern = re.compile(r'\{env:(\w+)\}')
+    env_ref_pattern = re.compile(r"\{env:(\w+)\}")
 
     def resolve_env_refs(text: str) -> str:
         return env_ref_pattern.sub(
             lambda m: env_lookup.get(m.group(1), m.group(0)), text
         )
 
-    python_abs = shutil.which('python') or shutil.which('python3') or 'python'
+    python_abs = shutil.which("python") or shutil.which("python3") or "python"
     resolver = ConfigResolver() if ConfigResolver else None
 
     resolved_mcp: Dict[str, Any] = {}
@@ -483,16 +503,16 @@ def _compile_test_config() -> dict:
 
         out: Dict[str, Any] = {}
         for key, val in cfg.items():
-            if key == 'command' and isinstance(val, list):
+            if key == "command" and isinstance(val, list):
                 resolved_cmd = []
                 for i, c in enumerate(val):
                     if isinstance(c, str):
                         c = resolve_env_refs(c)
-                        if i == 0 and c in ('python', 'python3'):
+                        if i == 0 and c in ("python", "python3"):
                             c = python_abs
                     resolved_cmd.append(c)
                 out[key] = resolved_cmd
-            elif key in ('environment', 'headers') and isinstance(val, dict):
+            elif key in ("environment", "headers") and isinstance(val, dict):
                 cleaned = {}
                 for k, v in val.items():
                     if isinstance(v, str):
@@ -500,7 +520,7 @@ def _compile_test_config() -> dict:
                     cleaned[k] = v
                 if cleaned:
                     out[key] = cleaned
-            elif key == 'url' and isinstance(val, str):
+            elif key == "url" and isinstance(val, str):
                 out[key] = resolve_env_refs(val)
             else:
                 out[key] = val
@@ -529,15 +549,15 @@ def _parse_opencode_mcp_list(output: str) -> List[Dict[str, Any]]:
     import re
 
     # Strip ANSI escape codes
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    clean = ansi_escape.sub('', output)
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    clean = ansi_escape.sub("", output)
 
     servers: List[Dict[str, Any]] = []
     current_server: Optional[Dict[str, Any]] = None
 
-    for line in clean.split('\n'):
+    for line in clean.split("\n"):
         # Match connected: ✓ <name> connected
-        match_ok = re.search(r'✓\s+(\S+)\s+connected', line)
+        match_ok = re.search(r"✓\s+(\S+)\s+connected", line)
         if match_ok:
             if current_server:
                 servers.append(current_server)
@@ -550,7 +570,7 @@ def _parse_opencode_mcp_list(output: str) -> List[Dict[str, Any]]:
             continue
 
         # Match failed: ✗ <name> failed
-        match_fail = re.search(r'✗\s+(\S+)\s+failed', line)
+        match_fail = re.search(r"✗\s+(\S+)\s+failed", line)
         if match_fail:
             if current_server:
                 servers.append(current_server)
@@ -564,7 +584,7 @@ def _parse_opencode_mcp_list(output: str) -> List[Dict[str, Any]]:
 
         # Collect detail lines (indented text after │)
         if current_server:
-            detail_match = re.search(r'│\s{2,}(.+)', line)
+            detail_match = re.search(r"│\s{2,}(.+)", line)
             if detail_match:
                 detail = detail_match.group(1).strip()
                 if detail:
@@ -606,14 +626,14 @@ async def test_all_mcp_servers(user: dict = Depends(get_current_user)):
 
         # 3. Run opencode mcp list in the temp directory
         process = await asyncio.create_subprocess_exec(
-            "opencode", "mcp", "list",
+            "opencode",
+            "mcp",
+            "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(test_dir),
         )
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(), timeout=120
-        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
         raw_output = stdout.decode()
 
         # 4. Parse results
@@ -630,17 +650,26 @@ async def test_all_mcp_servers(user: dict = Depends(get_current_user)):
         }
     except asyncio.TimeoutError:
         return {
-            "servers": [], "total": 0, "connected": 0, "failed": 0,
+            "servers": [],
+            "total": 0,
+            "connected": 0,
+            "failed": 0,
             "error": "Test timed out after 120 seconds",
         }
     except FileNotFoundError:
         return {
-            "servers": [], "total": 0, "connected": 0, "failed": 0,
+            "servers": [],
+            "total": 0,
+            "connected": 0,
+            "failed": 0,
             "error": "opencode CLI not found — install from https://opencode.ai",
         }
     except Exception as e:
         return {
-            "servers": [], "total": 0, "connected": 0, "failed": 0,
+            "servers": [],
+            "total": 0,
+            "connected": 0,
+            "failed": 0,
             "error": str(e),
         }
     finally:
@@ -658,14 +687,16 @@ async def get_catalog(user: dict = Depends(get_current_user)):
 
     packages = []
     for name, spec in data.get("packages", {}).items():
-        packages.append({
-            "name": name,
-            "description": spec.get("description", ""),
-            "repo": spec.get("repo", ""),
-            "build_type": spec.get("build_type", ""),
-            "branch": spec.get("branch", "main"),
-            "installed": name in installed_names,
-        })
+        packages.append(
+            {
+                "name": name,
+                "description": spec.get("description", ""),
+                "repo": spec.get("repo", ""),
+                "build_type": spec.get("build_type", ""),
+                "branch": spec.get("branch", "main"),
+                "installed": name in installed_names,
+            }
+        )
 
     return {
         "catalog_version": data.get("catalog_version", ""),
@@ -675,7 +706,9 @@ async def get_catalog(user: dict = Depends(get_current_user)):
 
 
 @router.post("/extensions/install")
-async def install_extension(req: InstallRequest, user: dict = Depends(get_current_user)):
+async def install_extension(
+    req: InstallRequest, user: dict = Depends(get_current_user)
+):
     """Install an MCP extension by name (from catalog) or git URL."""
     if not SCRIPT.exists():
         raise HTTPException(status_code=500, detail="mcp-extension.sh not found")

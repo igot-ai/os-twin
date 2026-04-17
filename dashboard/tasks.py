@@ -11,6 +11,8 @@ from dashboard.api_utils import (
     read_room,
     read_channel,
     process_notification,
+    read_json_utf8,
+    read_text_utf8,
 )
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
@@ -55,7 +57,7 @@ async def poll_war_rooms():
         if plans_dir.exists():
             for meta_file in plans_dir.glob("*.meta.json"):
                 try:
-                    meta = json.loads(meta_file.read_text())
+                    meta = read_json_utf8(meta_file)
                     wd = meta.get("working_dir") or meta.get("warrooms_dir")
                     if wd:
                         warrooms_path = Path(wd)
@@ -77,7 +79,7 @@ async def poll_war_rooms():
         resolved = warroom_dir.resolve()
         for meta_file in PLANS_DIR.glob("*.meta.json"):
             try:
-                meta = json.loads(meta_file.read_text())
+                meta = read_json_utf8(meta_file)
                 wd = meta.get("warrooms_dir") or meta.get("working_dir")
                 if wd:
                     wd_path = Path(wd)
@@ -229,7 +231,7 @@ async def poll_war_rooms():
                 curr_mtime = release_file.stat().st_mtime
                 if curr_mtime != last_snapshot.get("__release__", {}).get("mtime", 0):
                     await global_state.broadcaster.broadcast(
-                        "release", {"content": release_file.read_text()}
+                        "release", {"content": read_text_utf8(release_file)}
                     )
                     current["__release__"] = {"mtime": curr_mtime}
 
@@ -257,9 +259,7 @@ async def poll_war_rooms():
             await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise
-        except (
-            Exception
-        ) as e:  # noqa: BLE001 - intentional catch-all for polling resilience
+        except Exception as e:  # noqa: BLE001 - intentional catch-all for polling resilience
             logger.error("poll_war_rooms error: %s", e, exc_info=True)
             await asyncio.sleep(2)
 
@@ -282,6 +282,7 @@ async def startup_all():
     # Planning thread store (initialized early/sync to avoid race conditions with first requests)
     try:
         from dashboard.planning_thread_store import PlanningThreadStore
+
         global_state.planning_store = PlanningThreadStore()
         logger.info("Planning thread store initialized (Sync)")
     except Exception as e:
@@ -304,25 +305,30 @@ async def startup_all():
         def _background_sync():
             try:
                 # ── Grace Period ──
-                # Give the browser 5 seconds to load HTML/JS/CSS before we 
+                # Give the browser 5 seconds to load HTML/JS/CSS before we
                 # start hogging the CPU with Torch and YAML parsing.
                 import time
+
                 time.sleep(5)
 
                 # Lazy import of heavy vector store
                 from dashboard.zvec_store import OSTwinStore
+
                 global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
 
                 # ── Load model catalog from models.dev ────────────────────────────
                 try:
-                    from dashboard.lib.settings.models_dev_loader import load_models_on_startup
+                    from dashboard.lib.settings.models_dev_loader import (
+                        load_models_on_startup,
+                    )
+
                     load_models_on_startup()
                 except Exception as e:
                     logger.error("Models catalog load failed: %s", e)
 
                 # Initialization (slow — loads 600MB model)
                 global_state.store.ensure_collections()
-                
+
                 # Syncing
                 global_state.store.sync_from_disk()
                 from dashboard.api_utils import SKILLS_DIRS

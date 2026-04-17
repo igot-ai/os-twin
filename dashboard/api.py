@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
 # ── Load ~/.ostwin/.env early ──
 # This makes the dashboard self-contained: it works whether started via
 # `ostwin dashboard` (which already sources .env) or directly via `python api.py`.
@@ -51,13 +52,27 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
+
 # --- Route Imports ---
 # Heavy libraries (torch, langchain) are now lazy-loaded inside these routes
 # so direct imports here translate to < 2s total dashboard boot time.
 from dashboard.routes import (
-    auth, system, mcp, threads, plans, rooms, skills, 
-    roles, memory, amem, channels, command, tunnel, 
-    files, settings, engagement
+    auth,
+    system,
+    mcp,
+    threads,
+    plans,
+    rooms,
+    skills,
+    roles,
+    memory,
+    amem,
+    channels,
+    command,
+    tunnel,
+    files,
+    settings,
+    engagement,
 )
 
 # Configure logging — file + console
@@ -236,7 +251,7 @@ if __name__ == "__main__":
 
     os.environ.setdefault("DASHBOARD_PORT", str(args.port))
 
-    print("⬡ OS Twin Command Center (Modular)")
+    print("[OsTwin] Command Center (Modular)")
     print(f"  Project:   {args.project_dir or PROJECT_ROOT}")
     print(f"  War-rooms: {WARROOMS_DIR}")
     uvicorn.run(app, host=args.host, port=args.port)

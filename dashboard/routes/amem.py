@@ -11,7 +11,7 @@ import json
 import re
 import sys
 
-from dashboard.api_utils import PLANS_DIR
+from dashboard.api_utils import PLANS_DIR, read_text_utf8, read_json_utf8
 from dashboard.auth import get_current_user
 
 # Reuse the canonical note parser from A-mem-sys instead of duplicating the
@@ -40,7 +40,7 @@ def _resolve_memory_dir(plan_id: str) -> Path:
     """Resolve .memory/ directory from a plan's working_dir."""
     meta_file = PLANS_DIR / f"{plan_id}.meta.json"
     if meta_file.exists():
-        meta = json.loads(meta_file.read_text())
+        meta = read_json_utf8(meta_file)
         working_dir = meta.get("working_dir", "")
         if working_dir:
             mem_dir = Path(working_dir) / ".memory"
@@ -50,7 +50,7 @@ def _resolve_memory_dir(plan_id: str) -> Path:
     # Fallback: try to parse working_dir from the plan .md file
     plan_file = PLANS_DIR / f"{plan_id}.md"
     if plan_file.exists():
-        content = plan_file.read_text()
+        content = read_text_utf8(plan_file)
         match = re.search(r"working_dir:\s*(.+)", content)
         if match:
             working_dir = match.group(1).strip()

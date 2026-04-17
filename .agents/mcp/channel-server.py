@@ -23,11 +23,15 @@ from typing import Annotated, Literal, Optional
 
 # Monkey patch pathlib to bypass macOS SIP PermissionError on .env files
 original_is_file = pathlib.Path.is_file
+
+
 def safe_is_file(self):
     try:
         return original_is_file(self)
     except PermissionError:
         return False
+
+
 pathlib.Path.is_file = safe_is_file
 
 from pydantic import Field
@@ -35,11 +39,21 @@ from mcp.server.fastmcp import FastMCP
 
 # ── Validation constants ─────────────────────────────────────────────────────
 
-VALID_ROLES = {"manager", "engineer", "qa", "architect", "devops", "tech-writer", "security", "product-owner"}
+VALID_ROLES = {
+    "manager",
+    "engineer",
+    "qa",
+    "architect",
+    "devops",
+    "tech-writer",
+    "security",
+    "product-owner",
+}
 
 MAX_BODY_BYTES = 65536
 
 # ── Module-level state ────────────────────────────────────────────────────────
+
 
 def _find_project_root() -> str:
     """Find project root from env vars, falling back to CWD."""
@@ -48,6 +62,7 @@ def _find_project_root() -> str:
         if val and os.path.isabs(val) and os.path.isdir(val):
             return val
     return os.getcwd()
+
 
 AGENT_OS_ROOT: str = _find_project_root()
 
@@ -66,10 +81,24 @@ mcp = FastMCP("ostwin-channel", log_level="CRITICAL")
 
 @mcp.tool()
 def post_message(
-    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory (e.g. .agents/war-rooms/room-001)")],
-    from_role: Annotated[str, Field(description="Sender role: manager | engineer | qa | architect")],
-    to_role: Annotated[str, Field(description="Recipient role: manager | engineer | qa | architect")],
-    msg_type: Annotated[str, Field(description="Message type: task | done | review | pass | fail | fix | error | signoff")],
+    room_dir: Annotated[
+        str,
+        Field(
+            description="Absolute or relative path to the war-room directory (e.g. .agents/war-rooms/room-001)"
+        ),
+    ],
+    from_role: Annotated[
+        str, Field(description="Sender role: manager | engineer | qa | architect")
+    ],
+    to_role: Annotated[
+        str, Field(description="Recipient role: manager | engineer | qa | architect")
+    ],
+    msg_type: Annotated[
+        str,
+        Field(
+            description="Message type: task | done | review | pass | fail | fix | error | signoff"
+        ),
+    ],
     ref: Annotated[str, Field(description="Task reference, e.g. TASK-001")],
     body: Annotated[str, Field(description="Message body text")],
 ) -> str:
@@ -81,7 +110,10 @@ def post_message(
     """
     # Enforce body size limit
     if len(body) > MAX_BODY_BYTES:
-        body = body[:MAX_BODY_BYTES] + f"\n[TRUNCATED: original {len(body)} bytes, max {MAX_BODY_BYTES}]"
+        body = (
+            body[:MAX_BODY_BYTES]
+            + f"\n[TRUNCATED: original {len(body)} bytes, max {MAX_BODY_BYTES}]"
+        )
 
     room_dir = _resolve_room_dir(room_dir)
     os.makedirs(room_dir, exist_ok=True)
@@ -102,7 +134,7 @@ def post_message(
         "body": body,
     }
 
-    with open(channel_file, "a") as f:
+    with open(channel_file, "a", encoding="utf-8") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
             f.write(json.dumps(msg) + "\n")
@@ -114,10 +146,14 @@ def post_message(
 
 @mcp.tool()
 def read_messages(
-    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
+    room_dir: Annotated[
+        str, Field(description="Absolute or relative path to the war-room directory")
+    ],
     msg_type: Annotated[
         Optional[str],
-        Field(description="Filter by message type (task/done/review/pass/fail/fix/error/signoff). Omit for all types."),
+        Field(
+            description="Filter by message type (task/done/review/pass/fail/fix/error/signoff). Omit for all types."
+        ),
     ] = None,
     from_role: Annotated[
         Optional[str],
@@ -129,11 +165,15 @@ def read_messages(
     ] = None,
     ref: Annotated[
         Optional[str],
-        Field(description="Filter by task reference (e.g. TASK-001). Omit for all refs."),
+        Field(
+            description="Filter by task reference (e.g. TASK-001). Omit for all refs."
+        ),
     ] = None,
     last_n: Annotated[
         Optional[int],
-        Field(description="Return only the last N messages. Omit for all messages.", ge=1),
+        Field(
+            description="Return only the last N messages. Omit for all messages.", ge=1
+        ),
     ] = None,
 ) -> str:
     """Read messages from the war-room channel with optional filters.
@@ -149,7 +189,7 @@ def read_messages(
         return "[]"
 
     messages = []
-    with open(channel_file, "r") as f:
+    with open(channel_file, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -177,8 +217,15 @@ def read_messages(
 
 @mcp.tool()
 def get_latest(
-    room_dir: Annotated[str, Field(description="Absolute or relative path to the war-room directory")],
-    msg_type: Annotated[str, Field(description="Message type to search for (task/done/review/pass/fail/fix/error/signoff)")],
+    room_dir: Annotated[
+        str, Field(description="Absolute or relative path to the war-room directory")
+    ],
+    msg_type: Annotated[
+        str,
+        Field(
+            description="Message type to search for (task/done/review/pass/fail/fix/error/signoff)"
+        ),
+    ],
 ) -> str:
     """Get the most recent message of a given type from the war-room channel.
 

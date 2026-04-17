@@ -176,6 +176,7 @@ function Print-CompletionBanner {
         Write-Host "    Use this key to authenticate with the dashboard frontend." -ForegroundColor DarkGray
         Write-Host "    The frontend will prompt you to enter this key on first visit." -ForegroundColor DarkGray
         Write-Host "    Stored in: $($script:InstallDir)\.env" -ForegroundColor DarkGray
+        Write-Host "    Also set as User environment variable (restart terminal to see it)." -ForegroundColor DarkGray
         Write-Host ""
     }
     else {

@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from typing import Optional, AsyncIterator, Dict, Any
 
-
+from dashboard.api_utils import read_text_utf8, read_json_utf8
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
         )
 
     try:
-        registry = json.loads(registry_file.read_text())
+        registry = read_json_utf8(registry_file)
         roles = registry.get("roles", [])
         if not roles:
             return "Available roles: engineer, qa, architect, or any custom role you define."
@@ -133,11 +133,11 @@ def get_system_prompt(
     if plans_dir:
         template_path = plans_dir / "PLAN.template.md"
         if template_path.exists():
-            plan_format_spec = template_path.read_text()
+            plan_format_spec = read_text_utf8(template_path)
         else:
             template_path = agents_dir / ".ostwin/plans/PLAN.template.md"
             if template_path.exists():
-                plan_format_spec = template_path.read_text()
+                plan_format_spec = read_text_utf8(template_path)
             else:
                 logger.warning(f"Plan template not found at {template_path}")
                 plan_format_spec = f"Template not found at {template_path}"
@@ -367,7 +367,7 @@ def create_plan_agent(
         plan_file = _plans_dir / f"{plan_id}.md"
         if not plan_file.exists():
             return f"Error: Plan '{plan_id}' not found."
-        return plan_file.read_text()
+        return read_text_utf8(plan_file)
 
     chat_model = _resolve_model(model, has_images=has_images)
     logger.info(
@@ -385,6 +385,7 @@ def create_plan_agent(
     print(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
 
     from deepagents import create_deep_agent
+
     agent = create_deep_agent(
         model=chat_model,
         tools=[read_existing_plan],
@@ -442,6 +443,7 @@ def build_messages(
     plan_logger.debug("  images: %s", "yes" if images else "none")
 
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
     messages = []
 
     # Inject current plan as system context
@@ -695,6 +697,7 @@ def create_brainstorm_agent(model: str = ""):
     )
 
     from deepagents import create_deep_agent
+
     agent = create_deep_agent(
         model=chat_model,
         tools=[],

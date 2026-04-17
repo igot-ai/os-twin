@@ -8,13 +8,19 @@ import shutil
 from pathlib import Path
 
 from dashboard.api_utils import (
-    WARROOMS_DIR, PROJECT_ROOT, AGENTS_DIR, PLANS_DIR,
-    read_room, read_channel, process_notification
+    WARROOMS_DIR,
+    PROJECT_ROOT,
+    AGENTS_DIR,
+    PLANS_DIR,
+    read_room,
+    read_channel,
+    process_notification,
 )
 import dashboard.global_state as global_state
 from dashboard.auth import get_current_user
 
 router = APIRouter(tags=["rooms"])
+
 
 @router.get("/api/rooms")
 async def list_rooms(user: dict = Depends(get_current_user)):
@@ -29,22 +35,17 @@ async def list_rooms(user: dict = Depends(get_current_user)):
 
     # Summary counts
     summary = {"total": len(rooms)}
-    statuses = (
-        "pending", "developing", "review", 
-        "fixing", "passed", "failed-final"
-    )
+    statuses = ("pending", "developing", "review", "fixing", "passed", "failed-final")
     for status in statuses:
         s_key = status.replace("-", "_")
         summary[s_key] = sum(1 for r in rooms if r["status"] == status)
 
     return {
-        "rooms": rooms, 
-        "summary": summary, 
-        "debug": {
-            "project_root": str(PROJECT_ROOT), 
-            "agents_dir": str(AGENTS_DIR)
-        }
+        "rooms": rooms,
+        "summary": summary,
+        "debug": {"project_root": str(PROJECT_ROOT), "agents_dir": str(AGENTS_DIR)},
     }
+
 
 @router.post("/api/rooms/reset")
 async def reset_rooms(user: dict = Depends(get_current_user)):
@@ -58,6 +59,7 @@ async def reset_rooms(user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to reset war-rooms: {e}")
 
+
 @router.get("/api/rooms/{room_id}/channel")
 async def get_channel(
     room_id: str,
@@ -67,7 +69,7 @@ async def get_channel(
     ref: str | None = Query(None),
     q: str | None = Query(None),
     limit: int | None = Query(None),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Get messages for a specific war-room with filtering support."""
     room_dir = WARROOMS_DIR / room_id
@@ -88,7 +90,7 @@ async def get_channel(
                     pass
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
-        
+
     messages = read_channel(
         room_dir,
         from_role=from_role,
@@ -96,9 +98,10 @@ async def get_channel(
         msg_type=msg_type,
         ref=ref,
         query=q,
-        limit=limit
+        limit=limit,
     )
     return {"messages": messages}
+
 
 @router.get("/api/rooms/{room_id}/analyze")
 async def analyze_messages(
@@ -108,32 +111,27 @@ async def analyze_messages(
     msg_type: str | None = Query(None, alias="type"),
     ref: str | None = Query(None),
     q: str | None = Query(None),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Analyze messages for a specific war-room (summaries, stats, etc.)."""
     room_dir = WARROOMS_DIR / room_id
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
-        
+
     messages = read_channel(
         room_dir,
         from_role=from_role,
         to_role=to_role,
         msg_type=msg_type,
         ref=ref,
-        query=q
+        query=q,
     )
 
     if not messages:
         return {"summary": "No messages found for analysis.", "stats": {}}
 
     # Simple stats
-    stats = {
-        "count": len(messages),
-        "types": {},
-        "roles": {},
-        "refs": {}
-    }
+    stats = {"count": len(messages), "types": {}, "roles": {}, "refs": {}}
 
     for msg in messages:
         msg_type_val = msg.get("type", "unknown")
@@ -154,24 +152,23 @@ async def analyze_messages(
 
     summary_text = f"Analyzed {len(messages)} messages."
     if latest_done:
-        body_snippet = latest_done.get('body', '')[:100]
+        body_snippet = latest_done.get("body", "")[:100]
         summary_text += f" Latest progress: {body_snippet}..."
     if latest_fail:
-        body_snippet = latest_fail.get('body', '')[:100]
+        body_snippet = latest_fail.get("body", "")[:100]
         summary_text += f" Latest issue: {body_snippet}..."
 
     return {
         "summary": summary_text,
         "stats": stats,
-        "latest_milestones": {
-            "done": latest_done,
-            "fail": latest_fail
-        }
+        "latest_milestones": {"done": latest_done, "fail": latest_fail},
     }
+
 
 @router.get("/api/events")
 async def sse_events():
     """Server-Sent Events stream."""
+
     async def event_generator() -> AsyncIterator[str]:
         queue = await global_state.broadcaster.subscribe_sse()
         try:
@@ -193,6 +190,7 @@ async def sse_events():
         },
     )
 
+
 @router.get("/api/search")
 async def search_messages(
     q: str = Query(..., min_length=1),
@@ -207,6 +205,7 @@ async def search_messages(
     results = store.search(q, room_id=room_id, msg_type=type, limit=limit)
     return {"results": results, "count": len(results)}
 
+
 @router.get("/api/rooms/{room_id}/context")
 async def search_room_context(
     room_id: str,
@@ -220,26 +219,29 @@ async def search_room_context(
     results = store.search(q, room_id=room_id, limit=limit)
     return {"results": results, "count": len(results)}
 
+
 @router.get("/api/rooms/{room_id}/state")
 async def get_room_state(room_id: str):
     """Get room metadata."""
     room_dir = WARROOMS_DIR / room_id
     if not room_dir.exists():
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
-    
+
     data = read_room(room_dir, include_metadata=True)
-    
+
     store = global_state.store
     if store:
         meta = store.get_room_metadata(room_id)
         if meta:
             data.update(meta)
-            
+
     return data
 
 
 @router.post("/api/rooms/{room_id}/action")
-async def room_action(room_id: str, background_tasks: BackgroundTasks, action: str = Query(...)):
+async def room_action(
+    room_id: str, background_tasks: BackgroundTasks, action: str = Query(...)
+):
     """Perform an action on a room (stop, pause, resume)."""
     room_dir = WARROOMS_DIR / room_id
     if not room_dir.exists():
@@ -265,7 +267,7 @@ async def advance_room_state(
     room_id: str,
     request: dict,
     background_tasks: BackgroundTasks,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
 ):
     """Advance the room to the next lifecycle state."""
     room_dir = WARROOMS_DIR / room_id
@@ -292,9 +294,9 @@ async def advance_room_state(
         "to": "all",
         "type": "state_changed",
         "ref": target_state,
-        "body": f"Lifecycle state advanced to: {target_state}"
+        "body": f"Lifecycle state advanced to: {target_state}",
     }
-    with open(channel_file, "a") as f:
+    with open(channel_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(event_msg) + "\n")
 
     # Broadcast update via notification channel
@@ -302,7 +304,7 @@ async def advance_room_state(
         "room_id": room_id,
         "new_state": target_state,
         "event": "state_changed",
-        "message": event_msg
+        "message": event_msg,
     }
     background_tasks.add_task(process_notification, "state_changed", data)
 

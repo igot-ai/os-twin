@@ -27,6 +27,8 @@ import zvec
 from datetime import datetime
 import uuid_utils
 
+from dashboard.api_utils import read_text_utf8, read_json_utf8
+
 logger = logging.getLogger("zvec_store")
 
 EMBEDDING_DIM = 384  # Default, will be updated dynamically
@@ -675,6 +677,7 @@ class OSTwinStore:
         try:
             model_name = OSTWIN_EMBED_MODEL
             from sentence_transformers import SentenceTransformer
+
             logger.info("Loading SentenceTransformer model: %s", model_name)
             self._embed_fn = SentenceTransformer(
                 model_name, model_kwargs={"dtype": "auto"}
@@ -760,7 +763,7 @@ class OSTwinStore:
         """Load embedding cache from disk."""
         try:
             if self._embed_cache_path.exists():
-                with open(self._embed_cache_path, "r") as f:
+                with open(self._embed_cache_path, "r", encoding="utf-8") as f:
                     self._embed_cache = json.load(f)
                 logger.info(
                     "Loaded %d cached embeddings from %s",
@@ -774,7 +777,7 @@ class OSTwinStore:
     def _save_embed_cache(self):
         """Persist embedding cache to disk."""
         try:
-            with open(self._embed_cache_path, "w") as f:
+            with open(self._embed_cache_path, "w", encoding="utf-8") as f:
                 json.dump(self._embed_cache, f)
         except Exception as e:
             logger.debug("Failed to save embedding cache: %s", e)
@@ -2047,7 +2050,7 @@ class OSTwinStore:
 
         if config_file.exists():
             try:
-                data = json.loads(config_file.read_text())
+                data = read_json_utf8(config_file)
                 for r in data:
                     role_id = r.get("id", "")
                     if role_id:
@@ -2056,7 +2059,7 @@ class OSTwinStore:
                 logger.warning("Failed to read roles config.json: %s", e)
         elif registry_file.exists():
             try:
-                data = json.loads(registry_file.read_text())
+                data = read_json_utf8(registry_file)
                 for r in data.get("roles", []):
                     role_name = r.get("name", "")
                     role_id = r.get("id", f"registry-{role_name}")
@@ -2218,7 +2221,7 @@ class OSTwinStore:
             channel_file = room_dir / "channel.jsonl"
             if channel_file.exists():
                 msgs = []
-                for line in channel_file.read_text().splitlines():
+                for line in read_text_utf8(channel_file).splitlines():
                     line = line.strip()
                     if not line:
                         continue
@@ -2234,7 +2237,7 @@ class OSTwinStore:
                 # Fallback: extract from TASKS.md
                 tasks_md = room_dir / "TASKS.md"
                 if tasks_md.exists():
-                    header = tasks_md.read_text().split("\n", 1)[0]
+                    header = read_text_utf8(tasks_md).split("\n", 1)[0]
                     m = re.search(r"(EPIC-\d+|TASK-\d+)", header)
                     if m:
                         task_ref = m.group(1)
@@ -2250,15 +2253,17 @@ class OSTwinStore:
             # Read description from brief.md or TASKS.md
             desc = None
             if (room_dir / "brief.md").exists():
-                desc = (room_dir / "brief.md").read_text()
+                desc = read_text_utf8(room_dir / "brief.md")
             elif (room_dir / "TASKS.md").exists():
-                desc = (room_dir / "TASKS.md").read_text()
+                desc = read_text_utf8(room_dir / "TASKS.md")
 
             channel_file = room_dir / "channel.jsonl"
             msg_count = 0
             last_activity = None
             if channel_file.exists():
-                lines = [l for l in channel_file.read_text().splitlines() if l.strip()]
+                lines = [
+                    l for l in read_text_utf8(channel_file).splitlines() if l.strip()
+                ]
                 msg_count = len(lines)
                 if lines:
                     try:
@@ -2326,7 +2331,7 @@ class OSTwinStore:
                 continue
 
             try:
-                content = plan_file.read_text()
+                content = read_text_utf8(plan_file)
             except FileNotFoundError:
                 continue
             if not content.strip():
@@ -2485,6 +2490,6 @@ class OSTwinStore:
     @staticmethod
     def _read_file(path: Path) -> str | None:
         try:
-            return path.read_text().strip() if path.exists() else None
+            return read_text_utf8(path).strip() if path.exists() else None
         except Exception:
             return None

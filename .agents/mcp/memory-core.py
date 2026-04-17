@@ -106,7 +106,7 @@ def _read_ledger() -> list[dict]:
     if not os.path.exists(path):
         return []
     entries = []
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -131,7 +131,7 @@ def _get_live(entries: list[dict]) -> list[dict]:
 def _write_index(live: list[dict]) -> None:
     """Write the materialized index to disk for dashboard/external consumption."""
     index_path = _index_path()
-    with open(index_path, "w") as f:
+    with open(index_path, "w", encoding="utf-8") as f:
         json.dump(
             {
                 "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -151,12 +151,12 @@ def _tokenize(text: str) -> list[str]:
 # Half-life in seconds per kind — how fast each kind loses relevance
 # relative to the newest entry in the set.
 _HALF_LIFE: dict[str, float] = {
-    "code": 7200,        # 2 hours
-    "interface": 7200,   # 2 hours
-    "decision": 3600,    # 1 hour
-    "artifact": 1800,    # 30 min
-    "convention": 86400, # 24 hours
-    "warning": 86400,    # 24 hours
+    "code": 7200,  # 2 hours
+    "interface": 7200,  # 2 hours
+    "decision": 3600,  # 1 hour
+    "artifact": 1800,  # 30 min
+    "convention": 86400,  # 24 hours
+    "warning": 86400,  # 24 hours
 }
 _DEFAULT_HALF_LIFE = 3600.0
 
@@ -166,7 +166,9 @@ def _parse_ts(ts_str: str) -> Optional[datetime]:
     if not ts_str:
         return None
     try:
-        return datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
     except (ValueError, TypeError):
         return None
 
@@ -206,7 +208,9 @@ def _time_decay(entry: dict, reference: Optional[datetime] = None) -> float:
     return math.pow(0.5, age_seconds / half_life)
 
 
-def _compute_scores(scored_raw: list[tuple[float, float, dict]]) -> list[tuple[float, dict]]:
+def _compute_scores(
+    scored_raw: list[tuple[float, float, dict]],
+) -> list[tuple[float, dict]]:
     """Normalize relevance and combine with recency into final scores.
 
     Input:  [(raw_relevance, recency, entry), ...]
@@ -230,23 +234,30 @@ def _compute_scores(scored_raw: list[tuple[float, float, dict]]) -> list[tuple[f
 # ── BM25 scoring ─────────────────────────────────────────────────────────────
 
 # BM25 parameters
-_BM25_K1 = 1.5   # term frequency saturation
-_BM25_B = 0.75   # length normalization strength
+_BM25_K1 = 1.5  # term frequency saturation
+_BM25_B = 0.75  # length normalization strength
 
 
 def _build_searchable(entry: dict) -> str:
     """Build the searchable text from an entry."""
-    return " ".join([
-        entry.get("summary", ""),
-        " ".join(entry.get("tags", [])),
-        entry.get("ref", ""),
-        entry.get("kind", ""),
-        entry.get("detail", ""),
-    ])
+    return " ".join(
+        [
+            entry.get("summary", ""),
+            " ".join(entry.get("tags", [])),
+            entry.get("ref", ""),
+            entry.get("kind", ""),
+            entry.get("detail", ""),
+        ]
+    )
 
 
-def _bm25_score(query_tokens: list[str], doc_tokens: list[str],
-                df: dict[str, int], n_docs: int, avgdl: float) -> float:
+def _bm25_score(
+    query_tokens: list[str],
+    doc_tokens: list[str],
+    df: dict[str, int],
+    n_docs: int,
+    avgdl: float,
+) -> float:
     """Compute BM25 relevance score for a single document.
 
     query_tokens: tokenized query (list, may have dupes)
@@ -292,7 +303,9 @@ def _bm25_score(query_tokens: list[str], doc_tokens: list[str],
         idf = math.log((n_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
 
         # BM25 TF component: (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * dl/avgdl))
-        tf_component = (freq * (_BM25_K1 + 1.0)) / (freq + _BM25_K1 * (1.0 - _BM25_B + _BM25_B * doc_len / avgdl))
+        tf_component = (freq * (_BM25_K1 + 1.0)) / (
+            freq + _BM25_K1 * (1.0 - _BM25_B + _BM25_B * doc_len / avgdl)
+        )
 
         score += idf * tf_component
 
@@ -385,7 +398,7 @@ def publish(
 
     # Append to ledger with exclusive lock
     ledger = _ledger_path()
-    with open(ledger, "a") as f:
+    with open(ledger, "a", encoding="utf-8") as f:
         _lock_file(f)
         try:
             f.write(json.dumps(entry) + "\n")
@@ -466,7 +479,9 @@ def search(
 
     # Combine with time decay: 0.7 * relevance + 0.3 * recency, cap at 1
     ref_ts = _newest_ts(candidates)
-    scored_raw = [(rel, _time_decay(entry, ref_ts), entry) for rel, entry in bm25_results]
+    scored_raw = [
+        (rel, _time_decay(entry, ref_ts), entry) for rel, entry in bm25_results
+    ]
     scored = _compute_scores(scored_raw)
     results = [entry for _, entry in scored[:max_results]]
     return json.dumps(results)
@@ -488,7 +503,9 @@ def get_context(
         bm25_results = _bm25_rank(query_text, candidates)
 
         ref_ts = _newest_ts(candidates)
-        scored_raw = [(rel, _time_decay(entry, ref_ts), entry) for rel, entry in bm25_results]
+        scored_raw = [
+            (rel, _time_decay(entry, ref_ts), entry) for rel, entry in bm25_results
+        ]
         scored = _compute_scores(scored_raw)
         candidates = [e for _, e in scored[:max_entries]]
     else:
