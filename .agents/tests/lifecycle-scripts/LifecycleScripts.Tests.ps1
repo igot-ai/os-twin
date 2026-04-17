@@ -231,6 +231,51 @@ Describe "uninstall.ps1" {
         $outputStr = $output -join "`n"
         $outputStr | Should -Match "Nothing to remove"
     }
+
+    It "Should remove install directory when it exists" {
+        $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "ostwin-uninstall-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tmpDir ".venv") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $tmpDir "test.txt") -Force | Out-Null
+
+        try {
+            Test-Path $tmpDir | Should -Be $true
+
+            $output = & pwsh -NoProfile -Command "& '$AgentsDir/uninstall.ps1' -Dir '$tmpDir' -Yes" 2>&1
+            $outputStr = $output -join "`n"
+            
+            $outputStr | Should -Match "Files removed"
+            $outputStr | Should -Match "Uninstall complete"
+            Test-Path $tmpDir | Should -Be $false
+        }
+        finally {
+            if (Test-Path $tmpDir) {
+                Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    It "Should remove nested directories and files" {
+        $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "ostwin-uninstall-nested-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        $nestedDir = Join-Path $tmpDir "deeply\nested\folder"
+        New-Item -ItemType Directory -Path $nestedDir -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $nestedDir "file.txt") -Force | Out-Null
+
+        try {
+            Test-Path $tmpDir | Should -Be $true
+
+            $output = & pwsh -NoProfile -Command "& '$AgentsDir/uninstall.ps1' -Dir '$tmpDir' -Yes" 2>&1
+            $outputStr = $output -join "`n"
+            
+            $outputStr | Should -Match "Files removed"
+            Test-Path $tmpDir | Should -Be $false
+        }
+        finally {
+            if (Test-Path $tmpDir) {
+                Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }
 
 # ─── sync.ps1 ────────────────────────────────────────────────────────────────

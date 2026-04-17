@@ -17,6 +17,16 @@ function Setup-Env {
 
     if (Test-Path $envFile) {
         Write-Ok ".env already exists at $envFile"
+        
+        # Load OSTWIN_API_KEY from existing .env into current process
+        $envContent = Get-Content $envFile
+        foreach ($line in $envContent) {
+            if ($line -match '^OSTWIN_API_KEY=(.+)$') {
+                $env:OSTWIN_API_KEY = $Matches[1].Trim()
+                $script:OstwinApiKey = $Matches[1].Trim()
+                break
+            }
+        }
         return
     }
 
@@ -91,6 +101,10 @@ MEMORY_AUTO_SYNC_INTERVAL=60
     Set-Content -Path $envFile -Value $envContent -Encoding UTF8
 
     Write-Ok ".env created — edit $envFile to add your API keys"
+
+    # Export OSTWIN_API_KEY to current process and script scope
+    $env:OSTWIN_API_KEY = $generatedApiKey
+    $script:OstwinApiKey = $generatedApiKey
 
     # Create .env.ps1 hook for dynamic env logic
     Create-EnvPs1Hook

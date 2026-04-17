@@ -44,11 +44,16 @@ function Setup-Venv {
         }
         else {
             if (Test-Path $script:VenvDir) {
+                Write-Step "Removing existing venv directory..."
                 if ($script:OS -eq "windows") {
-                    & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>$null
+                    $delOutput = & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>&1
+                    if (Test-Path $script:VenvDir) {
+                        Write-Fail "Failed to remove existing venv: $delOutput"
+                        throw "Cannot remove existing venv directory at $($script:VenvDir)"
+                    }
                 }
                 else {
-                    Remove-Item -Path $script:VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+                    Remove-Item -Path $script:VenvDir -Recurse -Force -ErrorAction Stop
                 }
             }
             $venvOutput = & uv venv $script:VenvDir --python 3.12 2>&1
@@ -72,11 +77,16 @@ function Setup-Venv {
         }
         else {
             if (Test-Path $script:VenvDir) {
+                Write-Step "Removing existing venv directory..."
                 if ($script:OS -eq "windows") {
-                    & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>$null
+                    $delOutput = & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>&1
+                    if (Test-Path $script:VenvDir) {
+                        Write-Fail "Failed to remove existing venv: $delOutput"
+                        throw "Cannot remove existing venv directory at $($script:VenvDir)"
+                    }
                 }
                 else {
-                    Remove-Item -Path $script:VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+                    Remove-Item -Path $script:VenvDir -Recurse -Force -ErrorAction Stop
                 }
             }
             if ($pyCmd) {

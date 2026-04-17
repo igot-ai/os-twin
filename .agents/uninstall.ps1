@@ -61,7 +61,15 @@ if (Get-Command pwsh -ErrorAction SilentlyContinue) {
 # ─── Remove installation directory ──────────────────────────────────────────
 
 Write-Host "  Removing $InstallDir..."
-Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+if ($IsWindows -or ($env:OS -eq "Windows_NT")) {
+    & cmd.exe /c "rd /s /q `"$InstallDir`"" 2>&1
+    if (Test-Path $InstallDir) {
+        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction Stop
+    }
+}
+else {
+    Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction Stop
+}
 Write-Host "    [OK] Files removed"
 
 # ─── Clean PATH from User environment (Windows) ─────────────────────────────
