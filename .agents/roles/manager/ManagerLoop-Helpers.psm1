@@ -77,45 +77,14 @@ function Resolve-RoomSkills {
         }
 
         if ($response -and $response.Count -gt 0) {
-            $topSkills  = @($response | Select-Object -First 10)
+            $topSkills  = @($response | Select-Object -First 5)
             $skillNames = @($topSkills | ForEach-Object { $_.name })
 
             $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
             $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
 
-            # Derive the project directory from the war-room path so skills
-            # land in $project_dir/.agents/skills/, not the ostwin install tree.
-            # War-room paths follow: $PROJECT/.war-rooms/<plan>/<room>/
-            $resolvedProjectDir = ""
-            $walkDir = $RoomDir
-            for ($wi = 0; $wi -lt 6; $wi++) {
-                $walkParent = Split-Path $walkDir -Parent
-                if (-not $walkParent -or $walkParent -eq $walkDir) { break }
-                if ((Split-Path $walkDir -Leaf) -eq ".war-rooms") {
-                    $resolvedProjectDir = $walkParent
-                    break
-                }
-                $walkDir = $walkParent
-            }
-            $targetAgentsDir = if ($resolvedProjectDir) { Join-Path $resolvedProjectDir ".agents" } else { $agentsDir }
-            $projectSkillsDir = Join-Path $targetAgentsDir "skills"
-            if (-not (Test-Path $projectSkillsDir)) {
-                New-Item -ItemType Directory -Path $projectSkillsDir -Force | Out-Null
-            }
-
-            foreach ($skill in $topSkills) {
-                $relPath = $skill.relative_path
-                if (-not $relPath) { continue }
-                $srcDir = Join-Path $agentsDir $relPath
-                if (-not (Test-Path $srcDir)) {
-                    $homeSrc = Join-Path (Join-Path $env:HOME ".ostwin") $relPath
-                    if (Test-Path $homeSrc) { $srcDir = $homeSrc } else { continue }
-                }
-                $destDir = Join-Path $projectSkillsDir $skill.name
-                if (Test-Path $destDir) { Remove-Item -Path $destDir -Recurse -Force -ErrorAction SilentlyContinue }
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-                Copy-Item -Path (Join-Path $srcDir "*") -Destination $destDir -Recurse -Force -ErrorAction SilentlyContinue
-            }
+            # Physical skill copying is handled by Invoke-Agent.ps1 via Resolve-RoleSkills.ps1.
+            # This function only writes skill_refs to config.json so the agent knows what to pull.
             Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for ${AssignedRole}: $($skillNames -join ', ')"
         }
     }

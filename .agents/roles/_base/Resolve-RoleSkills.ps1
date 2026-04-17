@@ -356,7 +356,10 @@ trust_level: $($matchedSkill.trust_level)
 # picked up without editing role.json. Both the project-local skills tree
 # and the user-global ~/.ostwin/.agents/skills tree are scanned.
 #
-# Opt-out: set "auto_load_skills": false in role.json to disable auto-loading.
+# Opt-out conditions (any one disables auto-loading):
+#   1. role.json: "auto_load_skills": false
+#   2. Room config.json already has skill_refs populated (manager pre-resolved)
+#      — explicit refs are sufficient; auto-loading all role-private skills bloats.
 # Individual skills can also be excluded via "skip_auto_skills": ["skill-name"].
 $skipAutoLoad = $false
 $skipAutoSkills = @()
@@ -369,8 +372,16 @@ if ($roleData) {
     }
 }
 
+# When room config already has skill_refs (set by manager's Resolve-RoomSkills),
+# skip auto-loading to prevent copying 50+ role-private skills per invocation.
+# The explicit refs (plan + API + room config + role.json) are authoritative.
+if (-not $skipAutoLoad -and $roomCfg -and $roomCfg.skill_refs -and $roomCfg.skill_refs.Count -gt 0) {
+    $skipAutoLoad = $true
+    Write-Verbose "Auto-loading skipped: room config.json already has $($roomCfg.skill_refs.Count) skill_refs"
+}
+
 if ($skipAutoLoad) {
-    Write-Verbose "Auto-loading of role-private skills disabled for role '$RoleName' via role.json"
+    Write-Verbose "Auto-loading of role-private skills disabled for role '$RoleName'"
     return $resolvedSkills.Values | Sort-Object Tier, Name
 }
 
