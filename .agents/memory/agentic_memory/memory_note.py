@@ -41,6 +41,7 @@ class MemoryNote:
         retrieval_count: Optional[int] = None,
         timestamp: Optional[str] = None,
         last_accessed: Optional[str] = None,
+        last_modified: Optional[str] = None,
         context: Optional[str] = None,
         tags: Optional[List[str]] = None,
         summary: Optional[str] = None,
@@ -59,6 +60,9 @@ class MemoryNote:
             retrieval_count: Number of times this memory has been accessed
             timestamp: Creation time in format YYYYMMDDHHMM
             last_accessed: Last access time in format YYYYMMDDHHMM
+            last_modified: Last content modification time in format YYYYMMDDHHMM.
+                Tracks when the note's content or metadata was last changed
+                (as opposed to last_accessed which tracks retrieval).
             context: The broader context or domain of the memory
             tags: Additional classification tags
             summary: Short summary for embedding when content exceeds token limit
@@ -85,6 +89,9 @@ class MemoryNote:
         current_time = datetime.now().strftime("%Y%m%d%H%M")
         self.timestamp = timestamp or current_time
         self.last_accessed = last_accessed or current_time
+        # last_modified defaults to timestamp for backwards compat with
+        # existing notes that don't have this field yet.
+        self.last_modified = last_modified or self.timestamp
 
         # Usage and evolution data
         self.retrieval_count = retrieval_count or 0
@@ -137,6 +144,7 @@ class MemoryNote:
             "retrieval_count": self.retrieval_count,
             "timestamp": self.timestamp,
             "last_accessed": self.last_accessed,
+            "last_modified": self.last_modified,
             "context": self.context,
             "evolution_history": self.evolution_history,
             "category": self.category,
@@ -185,6 +193,7 @@ class MemoryNote:
             retrieval_count=metadata.get("retrieval_count"),
             timestamp=metadata.get("timestamp"),
             last_accessed=metadata.get("last_accessed"),
+            last_modified=metadata.get("last_modified"),
             context=metadata.get("context"),
             evolution_history=metadata.get("evolution_history"),
             category=metadata.get("category"),
