@@ -21,11 +21,36 @@ function Setup-Venv {
     $venvValid = (Test-Path $script:VenvDir) -and (Test-Path (Join-Path $script:VenvDir "pyvenv.cfg"))
 
     if (Check-UV) {
+        # Ensure Python 3.12 is installed via uv
+        $py312Installed = $false
+        try {
+            $pyList = & uv python list 2>&1
+            $py312Installed = $pyList -match "3\.12"
+        }
+        catch { }
+        
+        if (-not $py312Installed) {
+            Write-Step "Installing Python 3.12 via uv..."
+            & uv python install 3.12 --quiet 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Fail "Failed to install Python 3.12 via uv"
+                throw "uv python install 3.12 failed (exit code $LASTEXITCODE)"
+            }
+            Write-Ok "Python 3.12 installed via uv"
+        }
+        
         if ($venvValid) {
             Write-Ok "venv exists at $($script:VenvDir) (reusing)"
         }
         else {
-            if (Test-Path $script:VenvDir) { & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>$null }
+            if (Test-Path $script:VenvDir) {
+                if ($script:OS -eq "windows") {
+                    & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>$null
+                }
+                else {
+                    Remove-Item -Path $script:VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
             & uv venv $script:VenvDir --python 3.12 --quiet 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $script:VenvDir "pyvenv.cfg"))) {
                 Write-Fail "Failed to create venv at $($script:VenvDir)"
@@ -40,7 +65,14 @@ function Setup-Venv {
             Write-Ok "venv exists at $($script:VenvDir) (reusing)"
         }
         else {
-            if (Test-Path $script:VenvDir) { & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>$null }
+            if (Test-Path $script:VenvDir) {
+                if ($script:OS -eq "windows") {
+                    & cmd.exe /c "rd /s /q `"$($script:VenvDir)`"" 2>$null
+                }
+                else {
+                    Remove-Item -Path $script:VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
             if ($pyCmd) {
                 & $pyCmd -m venv $script:VenvDir
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $script:VenvDir "pyvenv.cfg"))) {
@@ -96,40 +128,60 @@ function Setup-Venv {
     else {
         Write-Step "Syncing all Python dependencies (single resolver pass)..."
 
-        # Windows venv Python path
-        $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
+        # Platform-specific venv Python path
+        $venvPython = if ($script:OS -eq "windows") {
+            Join-Path $script:VenvDir "Scripts\python.exe"
+        }
+        else {
+            Join-Path $script:VenvDir "bin\python"
+        }
 
         if (Check-UV) {
             # Use CPU-only PyTorch index to avoid downloading ~2GB GPU builds.
-            # Run via bat file to fully isolate uv's console progress output on Windows
-            $uvExe = (Get-Command uv).Source
-            $uvArgs = @(
-                "pip", "install", "--quiet", "--upgrade", "--prerelease=allow",
-                "--python", "`"$venvPython`"",
-                "--extra-index-url", "https://download.pytorch.org/whl/cpu"
-            ) + $reqArgsCmd
-            $uvArgStr = $uvArgs -join " "
+            if ($script:OS -eq "windows") {
+                # Run via bat file to fully isolate uv's console progress output on Windows
+                $uvExe = (Get-Command uv).Source
+                $uvArgs = @(
+                    "pip", "install", "--quiet", "--upgrade", "--prerelease=allow",
+                    "--python", "`"$venvPython`"",
+                    "--extra-index-url", "https://download.pytorch.org/whl/cpu"
+                ) + $reqArgsCmd
+                $uvArgStr = $uvArgs -join " "
 
-            $logsDir = Join-Path $script:InstallDir "logs"
-            if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
-            $uvLog = Join-Path $logsDir "uv-install.log"
-            $batFile = Join-Path $logsDir "_uv-install.cmd"
-            $batContent = "@echo off`r`n`"$uvExe`" $uvArgStr >`"$uvLog`" 2>&1"
+                $logsDir = Join-Path $script:InstallDir "logs"
+                if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+                $uvLog = Join-Path $logsDir "uv-install.log"
+                $batFile = Join-Path $logsDir "_uv-install.cmd"
+                $batContent = "@echo off`r`n`"$uvExe`" $uvArgStr >`"$uvLog`" 2>&1"
 
-            # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
-            [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
+                # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
+                [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
 
-            $proc = Start-Process -FilePath "cmd.exe" `
-                -ArgumentList "/c", "`"$batFile`"" `
-                -WindowStyle Hidden -Wait -PassThru
+                $proc = Start-Process -FilePath "cmd.exe" `
+                    -ArgumentList "/c", "`"$batFile`"" `
+                    -WindowStyle Hidden -Wait -PassThru
 
-            if ($proc.ExitCode -ne 0) {
-                Write-Fail "uv pip install failed (exit $($proc.ExitCode)) — check $uvLog"
-                throw "Python dependency installation failed"
+                if ($proc.ExitCode -ne 0) {
+                    Write-Fail "uv pip install failed (exit $($proc.ExitCode)) — check $uvLog"
+                    throw "Python dependency installation failed"
+                }
+            }
+            else {
+                # macOS/Linux: run uv directly
+                & uv pip install --quiet --upgrade --prerelease=allow --python $venvPython --extra-index-url https://download.pytorch.org/whl/cpu @reqArgs 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Fail "uv pip install failed (exit $LASTEXITCODE)"
+                    throw "Python dependency installation failed"
+                }
             }
         }
         else {
-            $venvPip = Join-Path $script:VenvDir "Scripts\pip.exe"
+            $venvPip = if ($script:OS -eq "windows") {
+                Join-Path $script:VenvDir "Scripts\pip.exe"
+            }
+            else {
+                Join-Path $script:VenvDir "bin\pip"
+            }
             $pipArgs = @(
                 "install", "--quiet", "--upgrade",
                 "--extra-index-url", "https://download.pytorch.org/whl/cpu"
