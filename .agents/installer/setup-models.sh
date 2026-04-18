@@ -5,6 +5,10 @@
 # Provides: setup_models
 #
 # Requires: lib.sh, globals: INSTALL_DIR, VENV_DIR
+#
+# Usage:
+#   setup_models            # Only fetch if configured_models.json is missing
+#   setup_models --force    # Always fetch latest (used on first-time install)
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Guard against double-sourcing
@@ -12,55 +16,63 @@
 _SETUP_MODELS_SH_LOADED=1
 
 setup_models() {
+  local force=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
   local CONFIGURED_MODELS_PATH="$INSTALL_DIR/.agents/configured_models.json"
-  
-  if [[ -f "$CONFIGURED_MODELS_PATH" ]]; then
+  local RAW_MODELS_PATH="$INSTALL_DIR/.agents/models_dev_raw.json"
+  local OPENCODE_DIR="$HOME/.local/share/opencode"
+
+  if [[ -f "$CONFIGURED_MODELS_PATH" ]] && ! $force; then
     ok "Models catalog already exists at $CONFIGURED_MODELS_PATH"
     return
   fi
 
-  step "Initializing models catalog from models.dev..."
+  if $force; then
+    step "First-time install detected — fetching latest models catalog from models.dev..."
+  else
+    step "Initializing models catalog from models.dev..."
+  fi
 
-  # Ensure we use the venv python
+  mkdir -p "$(dirname "$CONFIGURED_MODELS_PATH")" "$OPENCODE_DIR"
+
+  # ── Try Python loader first (produces properly filtered configured_models) ─
   local py_cmd="$VENV_DIR/bin/python"
   if [[ ! -x "$py_cmd" ]]; then
-    # Fallback to system python if venv not yet ready (though it should be)
     py_cmd=$(command -v python3 || command -v python || echo "python3")
   fi
 
-  # Call the dashboard's loader to bootstrap the file.
-  # We set PYTHONPATH to include the project root so 'dashboard' is importable.
-  # We redirect stderr to /dev/null to keep the installer output clean, 
-  # as it might log warnings if providers aren't configured yet.
   if PYTHONPATH="$INSTALL_DIR" "$py_cmd" -c "from dashboard.lib.settings.models_dev_loader import load_models_on_startup; load_models_on_startup()" 2>/dev/null; then
     ok "Models catalog initialized at $CONFIGURED_MODELS_PATH"
-  else
-    # Last-ditch effort: use curl/wget to at least get the raw catalog
-    # if the Python import fails (e.g. missing dependencies).
-    local MODELS_DEV_URL="https://models.dev/api.json"
-    local OPENCODE_DIR="$HOME/.local/share/opencode"
-    local raw_ok=false
-    
-    mkdir -p "$OPENCODE_DIR"
-    
-    if command -v curl &>/dev/null; then
-      if curl -sSL --fail -o "$CONFIGURED_MODELS_PATH" "$MODELS_DEV_URL"; then
-        raw_ok=true
-      fi
-    elif command -v wget &>/dev/null; then
-      if wget -q -O "$CONFIGURED_MODELS_PATH" "$MODELS_DEV_URL"; then
-        raw_ok=true
-      fi
-    fi
+    return
+  fi
 
-    if $raw_ok; then
-      # Feed to both files in both locations
-      cp "$CONFIGURED_MODELS_PATH" "$(dirname "$CONFIGURED_MODELS_PATH")/models_dev_raw.json"
-      cp "$CONFIGURED_MODELS_PATH" "$OPENCODE_DIR/configured_models.json"
-      cp "$CONFIGURED_MODELS_PATH" "$OPENCODE_DIR/models_dev_raw.json"
-      warn "Models catalog downloaded as raw JSON to multiple locations (Python loader failed)"
-    else
-      warn "Failed to initialize models catalog — dashboard will fetch it on startup"
+  # ── Fallback: direct download of raw catalog ───────────────────────────────
+  local MODELS_DEV_URL="https://models.dev/api.json"
+  local raw_ok=false
+
+  if command -v curl &>/dev/null; then
+    if curl -sSL --fail -o "$RAW_MODELS_PATH" "$MODELS_DEV_URL"; then
+      raw_ok=true
     fi
+  elif command -v wget &>/dev/null; then
+    if wget -q -O "$RAW_MODELS_PATH" "$MODELS_DEV_URL"; then
+      raw_ok=true
+    fi
+  fi
+
+  if $raw_ok; then
+    # Distribute to all expected locations
+    cp "$RAW_MODELS_PATH" "$CONFIGURED_MODELS_PATH"
+    cp "$RAW_MODELS_PATH" "$OPENCODE_DIR/configured_models.json"
+    cp "$RAW_MODELS_PATH" "$OPENCODE_DIR/models_dev_raw.json"
+    warn "Models catalog downloaded as raw JSON (Python loader unavailable)"
+  else
+    warn "Failed to initialize models catalog — dashboard will fetch it on startup"
   fi
 }
