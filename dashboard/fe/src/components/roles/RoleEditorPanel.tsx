@@ -38,6 +38,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
     mcp_refs: [],
     description: '',
     instructions: '',
+    instance_type: 'worker',
     system_prompt_override: '',
   });
 
@@ -130,6 +131,7 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
         mcp_refs: [],
         description: '',
         instructions: '',
+        instance_type: 'worker',
         system_prompt_override: '',
       });
     }
@@ -237,6 +239,42 @@ export default function RoleEditorPanel({ role, isOpen, onClose, existingRoles }
                 value={formData.description || ''}
                 onChange={e => setFormData({ ...formData, description: e.target.value })}
               />
+            </div>
+
+            <div className="space-y-1.5 pt-2">
+              <label className="text-[11px] font-bold text-text-muted px-1 uppercase tracking-wider">Role Type / Function</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, instance_type: 'worker' })}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+                    formData.instance_type === 'worker' 
+                      ? 'border-primary bg-primary/5 text-primary scale-[1.02] shadow-sm' 
+                      : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-3xl">engineering</span>
+                  <div className="flex flex-col items-center">
+                    <span className="text-[11px] font-black uppercase tracking-widest leading-none">Worker</span>
+                    <span className="text-[9px] font-bold opacity-60 mt-1 uppercase">Task Execution</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, instance_type: 'evaluator' })}
+                  className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+                    formData.instance_type === 'evaluator' 
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-600 scale-[1.02] shadow-sm' 
+                      : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-3xl">fact_check</span>
+                  <div className="flex flex-col items-center">
+                    <span className="text-[11px] font-black uppercase tracking-widest leading-none">Evaluator</span>
+                    <span className="text-[9px] font-bold opacity-60 mt-1 uppercase">Quality Audit</span>
+                  </div>
+                </button>
+              </div>
             </div>
           </div>
 

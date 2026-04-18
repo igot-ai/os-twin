@@ -133,6 +133,7 @@ class Role(BaseModel):
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
+    instance_type: str = "worker" # 'worker' | 'evaluator'
     created_at: str
     updated_at: str
 
@@ -151,6 +152,7 @@ class CreateRoleRequest(BaseModel):
     timeout_seconds: int = Field(300, ge=60)
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
+    instance_type: str = "worker"
     system_prompt_override: Optional[str] = Field(None, max_length=2000)
 
 
@@ -258,6 +260,7 @@ class RoleSettings(BaseModel):
     system_prompt_override: Optional[str] = None
     skill_refs: List[str] = Field(default_factory=list)
     disabled_skills: List[str] = Field(default_factory=list)
+    instance_type: Optional[str] = None
 
 
 class RuntimeSettings(BaseModel):

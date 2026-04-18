@@ -182,6 +182,7 @@ class OSTwinStore:
                 schema = col.schema
                 has_time_id = any(f.name == "time_id" for f in schema.fields)
                 has_enabled = any(f.name == "enabled" for f in schema.fields)
+                has_instance_type = any(f.name == "instance_type" for f in schema.fields)
 
                 # Check vector dimension mismatch (Harrier migration).
                 # zvec exposes `schema.vectors` as either a list of VectorSchema
@@ -202,7 +203,8 @@ class OSTwinStore:
                 col = None
 
                 needs_enabled = name == SKILLS_COLLECTION and not has_enabled
-                if not has_time_id or dim_mismatch or needs_enabled:
+                needs_instance_type = name == ROLES_COLLECTION and not has_instance_type
+                if not has_time_id or dim_mismatch or needs_enabled or needs_instance_type:
                     reasons = []
                     if dim_mismatch:
                         reasons.append(f"dim {current_dim} → {EMBEDDING_DIM}")
@@ -210,6 +212,8 @@ class OSTwinStore:
                         reasons.append("missing time_id")
                     if needs_enabled:
                         reasons.append("missing enabled")
+                    if needs_instance_type:
+                        reasons.append("missing instance_type")
                     logger.info(
                         "Migrating collection %s (%s)", name, ", ".join(reasons)
                     )
@@ -647,6 +651,11 @@ class OSTwinStore:
                     zvec.FieldSchema("skill_refs", zvec.DataType.STRING),
                     zvec.FieldSchema(
                         "system_prompt_override", zvec.DataType.STRING, nullable=True
+                    ),
+                    zvec.FieldSchema(
+                        "instance_type",
+                        zvec.DataType.STRING,
+                        index_param=zvec.InvertIndexParam(),
                     ),
                     zvec.FieldSchema("created_at", zvec.DataType.STRING),
                     zvec.FieldSchema("updated_at", zvec.DataType.STRING),
@@ -1831,6 +1840,7 @@ class OSTwinStore:
         max_retries: int = 3,
         timeout_seconds: int = 300,
         skill_refs: list[str] | None = None,
+        instance_type: str = "worker",
         system_prompt_override: str | None = None,
         created_at: str = "",
         updated_at: str = "",
@@ -1842,8 +1852,9 @@ class OSTwinStore:
         skill_refs = skill_refs or []
         skill_refs_str = ",".join(skill_refs)
         desc_clean = self._sanitize_text(description)
+        inst_type_clean = self._sanitize_text(instance_type)
 
-        embed_text = f"{name} {provider} {desc_clean} {skill_refs_str}"
+        embed_text = f"{name} {provider} {desc_clean} {skill_refs_str} {inst_type_clean}"
         embedding = self._embed_text(embed_text, is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
@@ -1862,6 +1873,7 @@ class OSTwinStore:
                 "max_retries": str(max_retries),
                 "timeout_seconds": str(timeout_seconds),
                 "skill_refs": skill_refs_str,
+                "instance_type": inst_type_clean,
                 "system_prompt_override": system_prompt_override,
                 "created_at": created_at,
                 "updated_at": updated_at,
@@ -1921,6 +1933,7 @@ class OSTwinStore:
             "max_retries": max_retries,
             "timeout_seconds": timeout_seconds,
             "skill_refs": skill_refs,
+            "instance_type": doc.field("instance_type") or "worker",
             "system_prompt_override": doc.field("system_prompt_override"),
             "created_at": doc.field("created_at"),
             "updated_at": doc.field("updated_at"),

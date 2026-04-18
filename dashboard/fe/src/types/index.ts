@@ -167,6 +167,7 @@ export interface Role {
   timeout_seconds: number;
   skill_refs: string[];
   mcp_refs?: string[];
+  instance_type: 'worker' | 'evaluator';
   description?: string;
   instructions?: string;
   system_prompt_override?: string;
