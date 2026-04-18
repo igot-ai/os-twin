@@ -57,7 +57,7 @@ VENV_DIR="$INSTALL_DIR/.venv"
 
 # ─── Source all modules ──────────────────────────────────────────────────────
 for _mod in lib.sh versions.conf detect-os.sh check-deps.sh install-deps.sh \
-            install-files.sh setup-venv.sh setup-env.sh patch-mcp.sh \
+            install-files.sh setup-venv.sh setup-env.sh setup-models.sh patch-mcp.sh \
             build-frontend.sh setup-path.sh setup-opencode.sh sync-agents.sh \
             start-dashboard.sh start-channels.sh verify.sh; do
   # shellcheck disable=SC1090
@@ -118,6 +118,7 @@ header "5. Setting up Python environment"
 setup_venv
 header "5b. Setting up .env"
 setup_env
+setup_models
 patch_mcp_config; sync_opencode_agents; compute_build_hash
 header "5c. OpenCode agent permissions"
 setup_opencode_permissions

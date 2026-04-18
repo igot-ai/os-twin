@@ -118,6 +118,7 @@ $modules = @(
     "Install-Files.ps1",
     "Setup-Venv.ps1",
     "Setup-Env.ps1",
+    "Setup-Models.ps1",
     "Patch-MCP.ps1",
     "Build-Frontend.ps1",
     "Setup-Path.ps1",
@@ -191,6 +192,7 @@ Compute-BuildHash
 
 Write-Header "5b. Setting up .env"
 Setup-Env
+Setup-Models
 
 Write-Header "5c. OpenCode agent permissions"
 Setup-OpenCodePermissions
