@@ -148,7 +148,7 @@ class CreateRoleRequest(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0)
     budget_tokens_max: int = Field(500000, ge=1000, le=10000000)
     max_retries: int = Field(3, ge=1, le=10)
-    timeout_seconds: int = Field(300, ge=60, le=3600)
+    timeout_seconds: int = Field(300, ge=60)
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = Field(None, max_length=2000)
