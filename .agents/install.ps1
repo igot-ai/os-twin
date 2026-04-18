@@ -99,6 +99,7 @@ $script:DashboardOnly = $DashboardOnly.IsPresent
 $script:StartChannel = $Channel.IsPresent -or $true  # default: true (mirrors bash)
 $script:DashboardPort = $Port
 $script:VenvDir = Join-Path $script:InstallDir ".venv"
+$script:FirstInstall = -not (Test-Path $script:VenvDir)
 $script:PythonVersion = ""
 $script:PwshCurrentVersion = ""
 $script:PythonCmd = ""
@@ -192,9 +193,14 @@ Compute-BuildHash
 
 Write-Header "5b. Setting up .env"
 Setup-Env
-Setup-Models
+Write-Header "5c. Initializing models catalog"
+if ($script:FirstInstall) {
+    Setup-Models -Force
+} else {
+    Setup-Models
+}
 
-Write-Header "5c. OpenCode agent permissions"
+Write-Header "5d. OpenCode agent permissions"
 Setup-OpenCodePermissions
 
 # Step 6: Pester
