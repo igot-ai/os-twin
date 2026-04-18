@@ -8,7 +8,7 @@ On every server startup this module:
    the user has API keys for.
 3. Reads ``~/.config/opencode/opencode.json`` for any custom providers.
 4. Filters the catalog to only include models from configured providers.
-5. Writes the result to ``~/.local/share/opencode/configured_models.json``
+5. Writes the result to ``~/.ostwin/.agents/configured_models.json``
    so it can be served without re-fetching.
 
 The ``get_configured_models()`` function returns the current in-memory
@@ -34,7 +34,7 @@ MODELS_DEV_LOGO_URL = "https://models.dev/logos/{provider}.svg"
 AUTH_JSON_PATH = Path.home() / ".local" / "share" / "opencode" / "auth.json"
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
 CONFIGURED_MODELS_PATH = (
-    Path.home() / ".local" / "share" / "opencode" / "configured_models.json"
+    Path.home() / ".ostwin" / ".agents" / "configured_models.json"
 )
 
 # In-memory cache

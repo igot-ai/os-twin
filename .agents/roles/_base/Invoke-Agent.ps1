@@ -118,9 +118,10 @@ if (Test-Path $roomConfigFile) {
 
 # --- Plan roles resolution (highest priority after explicit -Model) ---
 # Runs unconditionally — does NOT depend on .agents/config.json existing.
-# Schema: { "<role>": { "default_model": "...", "timeout_seconds": N,
+# Schema: { "<role>": { "default_model": "...", "timeout_seconds": N, "max_retries": N,
 #                       "instances": { "<id>": { "default_model": "...", "timeout_seconds": N } } } }
 $timeoutWasExplicit = $PSBoundParameters.ContainsKey('TimeoutSeconds')
+$maxProcessRetries = 3  # default — overridden by plan roles / config / role.json below
 
 if ($planRolesConfig -and $planRolesConfig.$RoleName) {
     $planRoleNode = $planRolesConfig.$RoleName
@@ -147,6 +148,11 @@ if ($planRolesConfig -and $planRolesConfig.$RoleName) {
         elseif ($planRoleNode.timeout_seconds) {
             $TimeoutSeconds = [int]$planRoleNode.timeout_seconds
         }
+    }
+
+    # max_retries from plan roles (highest priority)
+    if ($planRoleNode.max_retries) {
+        $maxProcessRetries = [int]$planRoleNode.max_retries
     }
 }
 
@@ -206,6 +212,16 @@ if (Test-Path $configPath) {
         }
         elseif ($config.$RoleName.timeout_seconds) {
             $TimeoutSeconds = $config.$RoleName.timeout_seconds
+        }
+    }
+
+    # max_retries fallback chain: plan roles (already applied) → instance → role config.json
+    if ($maxProcessRetries -eq 3) {
+        if ($instanceConfig -and $instanceConfig.max_retries) {
+            $maxProcessRetries = [int]$instanceConfig.max_retries
+        }
+        elseif ($config.$RoleName.max_retries) {
+            $maxProcessRetries = [int]$config.$RoleName.max_retries
         }
     }
 
@@ -269,19 +285,23 @@ if (Test-Path $configPath) {
 
 if (-not $AgentCmd) { $AgentCmd = "opencode run" }
 
-# --- Role.json model fallback (runs even when config.json is absent) ---
+# --- Role.json model + max_retries fallback (runs even when config.json is absent) ---
 # If no model was resolved from -Model param, plan.roles.json, or config.json,
 # try role.json as the last config-based source before the hardcoded default.
 # Search order: HOME-based (authoritative) → project-local (legacy).
-if (-not $Model) {
+if (-not $Model -or $maxProcessRetries -eq 3) {
     $homeRoleJson = Join-Path $OstwinHome ".agents" "roles" $RoleName "role.json"
     $localRoleJson = Join-Path $agentsDir "roles" $RoleName "role.json"
     $roleJsonPath = if (Test-Path $homeRoleJson) { $homeRoleJson } elseif (Test-Path $localRoleJson) { $localRoleJson } else { $null }
     if ($roleJsonPath) {
         try {
             $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
-            if ($roleJson.model) {
+            if (-not $Model -and $roleJson.model) {
                 $Model = $roleJson.model
+            }
+            # max_retries from role.json (lowest config priority, above hardcoded default)
+            if ($maxProcessRetries -eq 3 -and $roleJson.max_retries) {
+                $maxProcessRetries = [int]$roleJson.max_retries
             }
         }
         catch { }
@@ -294,9 +314,9 @@ $envCmdVar = "${RoleName}_CMD".ToUpper()
 $envCmd = [System.Environment]::GetEnvironmentVariable($envCmdVar)
 if ($envCmd) { $AgentCmd = $envCmd }
 
-# --- Log resolved model/timeout for debugging ---
-# This is the value that will actually drive opencode run.
-Write-Host "[Invoke-Agent] Resolved Role=$RoleName Instance=$InstanceId Model=$Model Timeout=${TimeoutSeconds}s"
+# --- Log resolved model/timeout/retries for debugging ---
+# These are the values that will actually drive opencode run.
+Write-Host "[Invoke-Agent] Resolved Role=$RoleName Instance=$InstanceId Model=$Model Timeout=${TimeoutSeconds}s MaxRetries=$maxProcessRetries"
 
 # --- Prepare output directory ---
 $artifactsDir = Join-Path $absRoomDir "artifacts"
@@ -377,7 +397,7 @@ $pidFile = Join-Path $pidsDir "$RoleName.pid"
 
 
 # --- Execute with timeout and transient-error retry ---
-$maxProcessRetries = 3
+# $maxProcessRetries was resolved above from plan roles → config.json → role.json → default 3
 $exitCode = 0
 
 $stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }

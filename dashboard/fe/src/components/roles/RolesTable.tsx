@@ -15,6 +15,7 @@ interface RolesTableProps {
   onEdit: (role: Role) => void;
   onAdd: () => void;
   isLoading?: boolean;
+  totalRoles?: number;
 }
 
 type SortKey = 'name' | 'provider' | 'temperature' | 'budget_tokens_max';
@@ -78,7 +79,7 @@ const RoleSVGs: Record<string, React.ReactNode> = {
   )
 };
 
-export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onEdit, onAdd, isLoading }: RolesTableProps) {
+export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onEdit, onAdd, isLoading, totalRoles = 0 }: RolesTableProps) {
   const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' });
@@ -131,24 +132,34 @@ export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onE
   }
 
   if (roles.length === 0) {
+    const isSearching = totalRoles > 0;
+
     return (
       <div className="flex flex-col items-center justify-center p-20 text-center border-2 border-dashed rounded-2xl bg-surface-hover/30 border-border">
         <div className="w-16 h-16 rounded-2xl bg-surface shadow-sm mb-6 flex items-center justify-center">
-          <span className="material-symbols-outlined text-3xl text-text-faint" aria-hidden="true">smart_toy</span>
+          <span className="material-symbols-outlined text-3xl text-text-faint" aria-hidden="true">
+            {isSearching ? 'search_off' : 'smart_toy'}
+          </span>
         </div>
-        <h3 className="text-xl font-extrabold text-text-main mb-2">No Roles Configured</h3>
+        <h3 className="text-xl font-extrabold text-text-main mb-2">
+          {isSearching ? 'No Matching Roles' : 'No Roles Configured'}
+        </h3>
         <p className="text-sm text-text-muted max-w-[320px] mb-8">
-          Roles define how agents interact with LLMs and what skills they can utilize during plan execution.
+          {isSearching 
+            ? "We couldn't find any roles matching your current search criteria. Try a different query or clear the search."
+            : "Roles define how agents interact with LLMs and what skills they can utilize during plan execution."}
         </p>
-        <button 
-          onClick={onAdd}
-          className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-extrabold shadow-lg shadow-primary/20 hover:brightness-105 transition-all"
-          style={{ background: 'var(--color-primary)' }}
-          aria-label="Create First Role"
-        >
-          <span className="material-symbols-outlined text-xl" aria-hidden="true">add</span>
-          Create First Role
-        </button>
+        {!isSearching && (
+          <button 
+            onClick={onAdd}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-extrabold shadow-lg shadow-primary/20 hover:brightness-105 transition-all"
+            style={{ background: 'var(--color-primary)' }}
+            aria-label="Create First Role"
+          >
+            <span className="material-symbols-outlined text-xl" aria-hidden="true">add</span>
+            Create First Role
+          </button>
+        )}
       </div>
     );
   }
@@ -232,7 +243,19 @@ export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onE
                         {RoleSVGs[role.name.toLowerCase()] || RoleSVGs.default}
                       </div>
                       <div>
-                        <div className="text-sm font-extrabold capitalize text-slate-800">{role.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-sm font-extrabold capitalize text-slate-800">{role.name}</div>
+                          <div 
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
+                              role.instance_type === 'evaluator' 
+                                ? 'bg-indigo-50 text-indigo-600 border-indigo-100' 
+                                : 'bg-amber-50 text-amber-600 border-amber-100'
+                            }`}
+                          >
+                            <span className="material-symbols-outlined text-[10px]">{role.instance_type === 'evaluator' ? 'fact_check' : 'engineering'}</span>
+                            {role.instance_type}
+                          </div>
+                        </div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{role.id}</div>
                       </div>
                     </div>

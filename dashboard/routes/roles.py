@@ -179,7 +179,9 @@ def load_roles() -> List[Role]:
                 role_json = _read_role_json(name)
                 engine_role = engine_config.get(name, {})
                 model = engine_role.get("default_model") or role_json.get("model") or r.get("default_model", "google-vertex/gemini-3-flash-preview")
-                timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
+                timeout = engine_role.get("timeout_seconds") or role_json.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
+                retries = engine_role.get("max_retries") or role_json.get("max_retries", r.get("max_retries", 3))
+                instance_type = engine_role.get("instance_type") or role_json.get("instance_type") or r.get("instance_type", "worker")
                 skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
                 mcp_refs = role_json.get("mcp_refs", [])
                 description = role_json.get("description", r.get("description", ""))
@@ -202,10 +204,11 @@ def load_roles() -> List[Role]:
                     version=model,
                     temperature=0.7,
                     budget_tokens_max=500000,
-                    max_retries=3,
+                    max_retries=retries,
                     timeout_seconds=timeout,
                     skill_refs=skill_refs,
                     mcp_refs=mcp_refs,
+                    instance_type=instance_type,
                     system_prompt_override=None,
                     created_at=now,
                     updated_at=now
@@ -231,7 +234,9 @@ def load_roles() -> List[Role]:
                         role_json = _read_role_json(name)
                         engine_role = engine_config.get(name, {})
                         model = engine_role.get("default_model") or role_json.get("model") or "google-vertex/gemini-3-flash-preview"
-                        timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", 300)
+                        timeout = engine_role.get("timeout_seconds") or role_json.get("timeout_seconds") or role_json.get("timeout", 300)
+                        retries = engine_role.get("max_retries") or role_json.get("max_retries", 3)
+                        instance_type = engine_role.get("instance_type") or role_json.get("instance_type") or "worker"
                         skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
                         mcp_refs = role_json.get("mcp_refs", [])
                         description = role_json.get("description", "")
@@ -248,8 +253,8 @@ def load_roles() -> List[Role]:
                         role = Role(
                             id=str(uuid.uuid4()), name=name, description=description, instructions=instructions,
                             provider=_detect_provider(model).lower(), version=model, temperature=0.7,
-                            budget_tokens_max=500000, max_retries=3, timeout_seconds=timeout, skill_refs=skill_refs,
-                            mcp_refs=mcp_refs, system_prompt_override=None, created_at=now, updated_at=now
+                            budget_tokens_max=500000, max_retries=retries, timeout_seconds=timeout, skill_refs=skill_refs,
+                            mcp_refs=mcp_refs, instance_type=instance_type, system_prompt_override=None, created_at=now, updated_at=now
                         )
                         roles_list.append(role)
                         loaded_names.add(name)
@@ -278,6 +283,8 @@ def _sync_role_to_engine(role: Role):
         engine_config[role.name] = {}
     engine_config[role.name]["default_model"] = role.version
     engine_config[role.name]["timeout_seconds"] = role.timeout_seconds
+    engine_config[role.name]["max_retries"] = role.max_retries
+    engine_config[role.name]["instance_type"] = role.instance_type
     if role.skill_refs:
         engine_config[role.name]["skill_refs"] = role.skill_refs
     if role.mcp_refs:
@@ -295,7 +302,9 @@ def _sync_role_to_engine(role: Role):
     role_json["model"] = role.version
     role_json["skill_refs"] = role.skill_refs
     role_json["mcp_refs"] = role.mcp_refs
-    role_json["timeout"] = role.timeout_seconds
+    role_json["timeout_seconds"] = role.timeout_seconds
+    role_json["max_retries"] = role.max_retries
+    role_json["instance_type"] = role.instance_type
     role_json["description"] = role.description
     try:
         role_file.write_text(json.dumps(role_json, indent=2))
@@ -330,9 +339,17 @@ def sync_roles_from_disk() -> dict:
             role.version = disk_model
             role.provider = _detect_provider(disk_model)
             changed = True
-        disk_timeout = engine_role.get("timeout_seconds") or role_json.get("timeout")
+        disk_timeout = engine_role.get("timeout_seconds") or role_json.get("timeout_seconds") or role_json.get("timeout")
         if disk_timeout and disk_timeout != role.timeout_seconds:
             role.timeout_seconds = disk_timeout
+            changed = True
+        disk_retries = engine_role.get("max_retries") or role_json.get("max_retries")
+        if disk_retries and disk_retries != role.max_retries:
+            role.max_retries = disk_retries
+            changed = True
+        disk_instance_type = engine_role.get("instance_type") or role_json.get("instance_type")
+        if disk_instance_type and disk_instance_type != role.instance_type:
+            role.instance_type = disk_instance_type
             changed = True
         disk_description = role_json.get("description", "")
         if disk_description and disk_description != role.description:
@@ -363,6 +380,7 @@ def sync_roles_from_disk() -> dict:
                         version=role.version, temperature=role.temperature,
                         budget_tokens_max=role.budget_tokens_max, max_retries=role.max_retries,
                         timeout_seconds=role.timeout_seconds, skill_refs=role.skill_refs,
+                        instance_type=role.instance_type,
                         system_prompt_override=role.system_prompt_override,
                         created_at=role.created_at, updated_at=role.updated_at,
                     )
@@ -510,6 +528,7 @@ async def create_role(req: CreateRoleRequest, user: dict = Depends(get_current_u
             max_retries=new_role.max_retries,
             timeout_seconds=new_role.timeout_seconds,
             skill_refs=new_role.skill_refs,
+            instance_type=new_role.instance_type,
             system_prompt_override=new_role.system_prompt_override,
             created_at=new_role.created_at,
             updated_at=new_role.updated_at,
@@ -564,6 +583,7 @@ async def update_role(role_id: str, req: CreateRoleRequest, user: dict = Depends
                     max_retries=updated_role.max_retries,
                     timeout_seconds=updated_role.timeout_seconds,
                     skill_refs=updated_role.skill_refs,
+                    instance_type=updated_role.instance_type,
                     system_prompt_override=updated_role.system_prompt_override,
                     created_at=updated_role.created_at,
                     updated_at=updated_role.updated_at,
@@ -602,6 +622,21 @@ async def patch_role_by_name(
         role.provider = _detect_provider(model)
         changed = True
 
+    timeout = body.get("timeout_seconds") or body.get("timeout")
+    if timeout is not None and timeout != role.timeout_seconds:
+        role.timeout_seconds = int(timeout)
+        changed = True
+
+    retries = body.get("max_retries")
+    if retries is not None and retries != role.max_retries:
+        role.max_retries = int(retries)
+        changed = True
+
+    instance_type = body.get("instance_type")
+    if instance_type and instance_type != role.instance_type:
+        role.instance_type = instance_type
+        changed = True
+
     if not changed:
         return role
 
@@ -621,6 +656,7 @@ async def patch_role_by_name(
             version=role.version, temperature=role.temperature,
             budget_tokens_max=role.budget_tokens_max, max_retries=role.max_retries,
             timeout_seconds=role.timeout_seconds, skill_refs=role.skill_refs,
+            instance_type=role.instance_type,
             system_prompt_override=role.system_prompt_override,
             created_at=role.created_at, updated_at=role.updated_at,
         )
