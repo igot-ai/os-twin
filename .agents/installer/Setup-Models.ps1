@@ -21,7 +21,6 @@ function Setup-Models {
 
     $configuredModelsPath = Join-Path $script:InstallDir ".agents" "configured_models.json"
     $rawModelsPath = Join-Path $script:InstallDir ".agents" "models_dev_raw.json"
-    $opencodeDir = Join-Path $HOME ".local" "share" "opencode"
     
     if ((Test-Path $configuredModelsPath) -and -not $Force) {
         Write-Ok "Models catalog already exists at $configuredModelsPath"
@@ -38,9 +37,6 @@ function Setup-Models {
     $parentDir = Split-Path $configuredModelsPath
     if (-not (Test-Path $parentDir)) {
         New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
-    }
-    if (-not (Test-Path $opencodeDir)) {
-        New-Item -ItemType Directory -Path $opencodeDir -Force | Out-Null
     }
 
     # ── Try Python loader first ──────────────────────────────────────────────
@@ -69,12 +65,8 @@ function Setup-Models {
     try {
         Invoke-WebRequest -Uri $modelsDevUrl -OutFile $rawModelsPath -ErrorAction Stop
         
-        # Distribute to all expected locations
+        # Distribute to local locations
         Copy-Item $rawModelsPath $configuredModelsPath -Force
-        $opencodeConfigPath = Join-Path $opencodeDir "configured_models.json"
-        $opencodeRawPath = Join-Path $opencodeDir "models_dev_raw.json"
-        Copy-Item $rawModelsPath $opencodeConfigPath -Force
-        Copy-Item $rawModelsPath $opencodeRawPath -Force
         
         Write-Warn "Models catalog downloaded as raw JSON (Python loader unavailable)"
     } catch {

@@ -8,7 +8,7 @@ On every server startup this module:
    the user has API keys for.
 3. Reads ``~/.config/opencode/opencode.json`` for any custom providers.
 4. Filters the catalog to only include models from configured providers.
-5. Writes the result to ``~/.local/share/opencode/configured_models.json``
+5. Writes the result to ``~/.ostwin/.agents/configured_models.json``
    so it can be served without re-fetching.
 
 The ``get_configured_models()`` function returns the current in-memory
@@ -36,7 +36,6 @@ OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
 CONFIGURED_MODELS_PATH = (
     Path.home() / ".ostwin" / ".agents" / "configured_models.json"
 )
-OPENCODE_SHARE_DIR = Path.home() / ".local" / "share" / "opencode"
 
 # In-memory cache
 _cached_models: Optional[Dict[str, Any]] = None
@@ -65,9 +64,8 @@ def load_models_on_startup() -> Dict[str, Any]:
     configured_providers = _read_configured_providers()
     configured = _build_configured_models(raw_catalog, configured_providers)
 
-    # Persist to disk (project-local and opencode-shared)
+    # Persist to disk
     _write_json(CONFIGURED_MODELS_PATH, configured)
-    _write_json(OPENCODE_SHARE_DIR / "configured_models.json", configured)
 
     _cached_models = configured
     _cached_timestamp = time.time()
@@ -220,13 +218,9 @@ def _fetch_models_dev() -> Optional[Dict[str, Any]]:
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            # Cache the raw catalog for fallback (project-local and opencode-shared)
+            # Cache the raw catalog for fallback
             _write_json(
                 CONFIGURED_MODELS_PATH.parent / "models_dev_raw.json",
-                data,
-            )
-            _write_json(
-                OPENCODE_SHARE_DIR / "models_dev_raw.json",
                 data,
             )
             logger.info("Fetched models.dev catalog: %d providers", len(data))

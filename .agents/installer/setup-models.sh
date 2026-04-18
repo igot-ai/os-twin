@@ -26,7 +26,6 @@ setup_models() {
 
   local CONFIGURED_MODELS_PATH="$INSTALL_DIR/.agents/configured_models.json"
   local RAW_MODELS_PATH="$INSTALL_DIR/.agents/models_dev_raw.json"
-  local OPENCODE_DIR="$HOME/.local/share/opencode"
 
   if [[ -f "$CONFIGURED_MODELS_PATH" ]] && ! $force; then
     ok "Models catalog already exists at $CONFIGURED_MODELS_PATH"
@@ -39,7 +38,7 @@ setup_models() {
     step "Initializing models catalog from models.dev..."
   fi
 
-  mkdir -p "$(dirname "$CONFIGURED_MODELS_PATH")" "$OPENCODE_DIR"
+  mkdir -p "$(dirname "$CONFIGURED_MODELS_PATH")"
 
   # ── Try Python loader first (produces properly filtered configured_models) ─
   local py_cmd="$VENV_DIR/bin/python"
@@ -67,10 +66,8 @@ setup_models() {
   fi
 
   if $raw_ok; then
-    # Distribute to all expected locations
+    # Seed both local files
     cp "$RAW_MODELS_PATH" "$CONFIGURED_MODELS_PATH"
-    cp "$RAW_MODELS_PATH" "$OPENCODE_DIR/configured_models.json"
-    cp "$RAW_MODELS_PATH" "$OPENCODE_DIR/models_dev_raw.json"
     warn "Models catalog downloaded as raw JSON (Python loader unavailable)"
   else
     warn "Failed to initialize models catalog — dashboard will fetch it on startup"
