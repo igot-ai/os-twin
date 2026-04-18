@@ -58,7 +58,9 @@ class DeterministicLLM:
         self.analysis_calls = 0
         self.evolution_calls = 0
 
-    def get_completion(self, prompt: str, response_format: dict | None = None, temperature: float = 1.0) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict | None = None, temperature: float = 1.0
+    ) -> str:
         del temperature
         schema = ((response_format or {}).get("json_schema") or {}).get("schema", {})
         properties = schema.get("properties", {})
@@ -81,7 +83,9 @@ class DeterministicLLM:
             content = prompt.split("Content for analysis:", 1)[1].strip()
         else:
             content = prompt
-        return json.dumps(_build_analysis_payload(content, wants_summary="summary" in properties))
+        return json.dumps(
+            _build_analysis_payload(content, wants_summary="summary" in properties)
+        )
 
 
 class EvolvingLLM(DeterministicLLM):
@@ -89,14 +93,18 @@ class EvolvingLLM(DeterministicLLM):
         super().__init__()
         self.max_connections = max_connections
 
-    def get_completion(self, prompt: str, response_format: dict | None = None, temperature: float = 1.0) -> str:
+    def get_completion(
+        self, prompt: str, response_format: dict | None = None, temperature: float = 1.0
+    ) -> str:
         schema = ((response_format or {}).get("json_schema") or {}).get("schema", {})
         properties = schema.get("properties", {})
         if "should_evolve" not in properties:
             return super().get_completion(prompt, response_format, temperature)
 
         self.evolution_calls += 1
-        memory_ids = [match.strip() for match in re.findall(r"memory_id:([^\t\n]+)", prompt)]
+        memory_ids = [
+            match.strip() for match in re.findall(r"memory_id:([^\t\n]+)", prompt)
+        ]
         should_evolve = bool(memory_ids)
         return json.dumps(
             {
@@ -105,10 +113,12 @@ class EvolvingLLM(DeterministicLLM):
                 "suggested_connections": memory_ids[: self.max_connections],
                 "tags_to_update": ["evolved", "linked"] if should_evolve else [],
                 "new_context_neighborhood": [
-                    f"Updated context {index}" for index in range(1, len(memory_ids) + 1)
+                    f"Updated context {index}"
+                    for index in range(1, len(memory_ids) + 1)
                 ],
                 "new_tags_neighborhood": [
-                    [f"neighbor-{index}", "updated"] for index in range(1, len(memory_ids) + 1)
+                    [f"neighbor-{index}", "updated"]
+                    for index in range(1, len(memory_ids) + 1)
                 ],
             }
         )
@@ -134,6 +144,20 @@ class InMemoryRetriever:
 
     def clear(self):
         self._documents.clear()
+
+    def has_document(self, doc_id: str) -> bool:
+        return doc_id in self._documents
+
+    def existing_ids(self, doc_ids: list[str]) -> set:
+        return {did for did in doc_ids if did in self._documents}
+
+    def get_stored_hashes(self, doc_ids: list[str]) -> dict[str, str | None]:
+        out: dict[str, str | None] = {}
+        for did in doc_ids:
+            if did in self._documents:
+                meta = self._documents[did].get("metadata", {})
+                out[did] = meta.get("content_hash")
+        return out
 
     def delete_document(self, doc_id: str):
         self._documents.pop(doc_id, None)
@@ -179,8 +203,9 @@ def patched_memory_system(llm: DeterministicLLM | None = None, **kwargs):
         del args, inner_kwargs
         return SimpleNamespace(llm=fake_llm)
 
-    with patch("agentic_memory.memory_system.LLMController", new=_controller_factory), patch(
-        "agentic_memory.memory_system.ZvecRetriever", new=InMemoryRetriever
+    with (
+        patch("agentic_memory.memory_system.LLMController", new=_controller_factory),
+        patch("agentic_memory.memory_system.ZvecRetriever", new=InMemoryRetriever),
     ):
         system = AgenticMemorySystem(**kwargs)
         yield system, fake_llm
