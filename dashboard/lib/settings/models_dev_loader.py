@@ -34,8 +34,9 @@ MODELS_DEV_LOGO_URL = "https://models.dev/logos/{provider}.svg"
 AUTH_JSON_PATH = Path.home() / ".local" / "share" / "opencode" / "auth.json"
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
 CONFIGURED_MODELS_PATH = (
-    Path.home() / ".local" / "share" / "opencode" / "configured_models.json"
+    Path.home() / ".ostwin" / ".agents" / "configured_models.json"
 )
+OPENCODE_SHARE_DIR = Path.home() / ".local" / "share" / "opencode"
 
 # In-memory cache
 _cached_models: Optional[Dict[str, Any]] = None
@@ -64,8 +65,9 @@ def load_models_on_startup() -> Dict[str, Any]:
     configured_providers = _read_configured_providers()
     configured = _build_configured_models(raw_catalog, configured_providers)
 
-    # Persist to disk
+    # Persist to disk (project-local and opencode-shared)
     _write_json(CONFIGURED_MODELS_PATH, configured)
+    _write_json(OPENCODE_SHARE_DIR / "configured_models.json", configured)
 
     _cached_models = configured
     _cached_timestamp = time.time()
@@ -218,9 +220,13 @@ def _fetch_models_dev() -> Optional[Dict[str, Any]]:
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            # Cache the raw catalog for fallback
+            # Cache the raw catalog for fallback (project-local and opencode-shared)
             _write_json(
                 CONFIGURED_MODELS_PATH.parent / "models_dev_raw.json",
+                data,
+            )
+            _write_json(
+                OPENCODE_SHARE_DIR / "models_dev_raw.json",
                 data,
             )
             logger.info("Fetched models.dev catalog: %d providers", len(data))
