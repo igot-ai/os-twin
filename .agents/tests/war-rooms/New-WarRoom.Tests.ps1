@@ -222,7 +222,7 @@ Describe "New-WarRoom" {
 
     Context "Tasks block extraction from TaskDescription" {
         BeforeEach {
-            # Simulate a real EPIC with a ### Tasks block
+            # Simulate a real EPIC with a ### Tasks block (3 hashes)
             $script:epicWithTasks = @"
 Roles: @architect, @engineer
 **Goal**: Define the overall system architecture, technology decisions, and create ADRs.
@@ -243,6 +243,26 @@ Roles: @architect, @engineer
 
 - [ ] Each ADR follows the template
 - [ ] Team has reviewed and approved
+"@
+            # Simulate a real EPIC with a #### Tasks block (4 hashes)
+            # This is the format produced by PlanParser when sections are appended
+            $script:epicWithFourHashTasks = @"
+Roles: @engineer
+
+#### Mục tiêu
+
+Build the document scanner and classification pipeline.
+
+#### Tasks
+
+- [ ] TASK-1.1 — Scanner with deduplication
+- [ ] TASK-1.2 — Classify into 4 SAV groups
+- [ ] TASK-1.3 — Map to SAV appendices
+
+#### Definition of Done
+
+- 100% documents classified
+- Cross-reference matrix complete
 "@
 
             $script:epicWithoutTasks = @"
@@ -328,7 +348,7 @@ Set up health checks, Swagger docs, global error handling, and Docker-based loca
             Test-Path (Join-Path $script:warRoomsDir "room-tasks-07" "TASKS.md") | Should -BeFalse
         }
 
-        It "brief.md is unchanged when no ### Tasks block exists" {
+        It "brief.md is unchanged when no Tasks block exists" {
             & $script:NewWarRoom -RoomId "room-tasks-08" -TaskRef "EPIC-002" `
                 -TaskDescription $script:epicWithoutTasks `
                 -WarRoomsDir $script:warRoomsDir
@@ -336,6 +356,48 @@ Set up health checks, Swagger docs, global error handling, and Docker-based loca
             $brief = Get-Content (Join-Path $script:warRoomsDir "room-tasks-08" "brief.md") -Raw
             $brief | Should -Match "Scaffold the NestJS backend"
             $brief | Should -Match "health checks"
+        }
+
+        # --- #### Tasks (4-hash) heading level tests ---
+        # Covers the production format where PlanParser sections use ####
+
+        It "brief.md excludes #### Tasks block (4-hash heading)" {
+            & $script:NewWarRoom -RoomId "room-tasks-09" -TaskRef "EPIC-010" `
+                -TaskDescription $script:epicWithFourHashTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $brief = Get-Content (Join-Path $script:warRoomsDir "room-tasks-09" "brief.md") -Raw
+            $brief | Should -Not -Match "#### Tasks"
+            $brief | Should -Not -Match "TASK-1\.1"
+            $brief | Should -Not -Match "TASK-1\.3"
+            # Mục tiêu and non-task content preserved
+            $brief | Should -Match "document scanner"
+        }
+
+        It "TASKS.md extracts #### Tasks block content (4-hash heading)" {
+            & $script:NewWarRoom -RoomId "room-tasks-10" -TaskRef "EPIC-010" `
+                -TaskDescription $script:epicWithFourHashTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $tasks = Get-Content (Join-Path $script:warRoomsDir "room-tasks-10" "TASKS.md") -Raw
+            $tasks | Should -Match "TASK-1\.1"
+            $tasks | Should -Match "TASK-1\.2"
+            $tasks | Should -Match "TASK-1\.3"
+            $tasks | Should -Match "EPIC-010"
+            # DoD should NOT bleed into TASKS.md
+            $tasks | Should -Not -Match "Cross-reference matrix"
+        }
+
+        It "brief.md preserves #### Definition of Done when #### Tasks stripped" {
+            & $script:NewWarRoom -RoomId "room-tasks-11" -TaskRef "EPIC-010" `
+                -TaskDescription $script:epicWithFourHashTasks `
+                -WarRoomsDir $script:warRoomsDir `
+                -DefinitionOfDone @("100% documents classified")
+
+            $brief = Get-Content (Join-Path $script:warRoomsDir "room-tasks-11" "brief.md") -Raw
+            $brief | Should -Match "## Definition of Done"
+            $brief | Should -Match "100% documents classified"
+            $brief | Should -Not -Match "#### Tasks"
         }
     }
 
