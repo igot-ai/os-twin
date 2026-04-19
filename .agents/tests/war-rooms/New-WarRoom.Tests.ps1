@@ -220,6 +220,125 @@ Describe "New-WarRoom" {
         }
     }
 
+    Context "Tasks block extraction from TaskDescription" {
+        BeforeEach {
+            # Simulate a real EPIC with a ### Tasks block
+            $script:epicWithTasks = @"
+Roles: @architect, @engineer
+**Goal**: Define the overall system architecture, technology decisions, and create ADRs.
+
+### Tasks
+
+- [ ] Define bounded contexts and module boundaries
+- [ ] Select ORM and database migration strategy
+- [ ] Create ADR-001: Modular Monolith Architecture
+- [ ] Create ADR-002: API Design (REST vs GraphQL)
+
+### Definition of Done
+
+- [ ] All ADRs are documented and reviewed
+- [ ] Architecture diagram exists
+
+### Acceptance Criteria
+
+- [ ] Each ADR follows the template
+- [ ] Team has reviewed and approved
+"@
+
+            $script:epicWithoutTasks = @"
+**Goal**: Scaffold the NestJS backend following DDD and modular monolith principles.
+
+Set up health checks, Swagger docs, global error handling, and Docker-based local development.
+"@
+        }
+
+        It "brief.md excludes ### Tasks block when present in TaskDescription" {
+            & $script:NewWarRoom -RoomId "room-tasks-01" -TaskRef "EPIC-001" `
+                -TaskDescription $script:epicWithTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $brief = Get-Content (Join-Path $script:warRoomsDir "room-tasks-01" "brief.md") -Raw
+            $brief | Should -Not -Match "### Tasks"
+            $brief | Should -Not -Match "Define bounded contexts"
+            $brief | Should -Not -Match "Select ORM and database"
+        }
+
+        It "brief.md retains non-tasks content when tasks block extracted" {
+            & $script:NewWarRoom -RoomId "room-tasks-02" -TaskRef "EPIC-001" `
+                -TaskDescription $script:epicWithTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $brief = Get-Content (Join-Path $script:warRoomsDir "room-tasks-02" "brief.md") -Raw
+            $brief | Should -Match "Define the overall system architecture"
+            $brief | Should -Match "EPIC-001"
+        }
+
+        It "TASKS.md contains extracted tasks from TaskDescription for epics" {
+            & $script:NewWarRoom -RoomId "room-tasks-03" -TaskRef "EPIC-001" `
+                -TaskDescription $script:epicWithTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $tasks = Get-Content (Join-Path $script:warRoomsDir "room-tasks-03" "TASKS.md") -Raw
+            $tasks | Should -Match "Define bounded contexts"
+            $tasks | Should -Match "Select ORM and database migration"
+            $tasks | Should -Match "Create ADR-001"
+            $tasks | Should -Match "Create ADR-002"
+        }
+
+        It "TASKS.md includes header with EPIC reference" {
+            & $script:NewWarRoom -RoomId "room-tasks-04" -TaskRef "EPIC-001" `
+                -TaskDescription $script:epicWithTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $tasks = Get-Content (Join-Path $script:warRoomsDir "room-tasks-04" "TASKS.md") -Raw
+            $tasks | Should -Match "EPIC-001"
+        }
+
+        It "TASKS.md falls back to skeleton when no tasks block in description" {
+            & $script:NewWarRoom -RoomId "room-tasks-05" -TaskRef "EPIC-002" `
+                -TaskDescription $script:epicWithoutTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $tasksFile = Join-Path $script:warRoomsDir "room-tasks-05" "TASKS.md"
+            Test-Path $tasksFile | Should -BeTrue
+            $tasks = Get-Content $tasksFile -Raw
+            # Fallback skeleton still created
+            $tasks | Should -Match "EPIC-002"
+        }
+
+        It "brief.md still contains DoD/AC when tasks block is extracted" {
+            & $script:NewWarRoom -RoomId "room-tasks-06" -TaskRef "EPIC-001" `
+                -TaskDescription $script:epicWithTasks `
+                -WarRoomsDir $script:warRoomsDir `
+                -DefinitionOfDone @("All ADRs documented", "Arch diagram exists") `
+                -AcceptanceCriteria @("ADR follows template", "Team approved")
+
+            $brief = Get-Content (Join-Path $script:warRoomsDir "room-tasks-06" "brief.md") -Raw
+            $brief | Should -Match "## Definition of Done"
+            $brief | Should -Match "## Acceptance Criteria"
+            $brief | Should -Match "All ADRs documented"
+            $brief | Should -Not -Match "### Tasks"
+        }
+
+        It "TASK prefix does not create TASKS.md even with tasks-like content" {
+            & $script:NewWarRoom -RoomId "room-tasks-07" -TaskRef "TASK-001" `
+                -TaskDescription "Some task with a checklist" `
+                -WarRoomsDir $script:warRoomsDir
+
+            Test-Path (Join-Path $script:warRoomsDir "room-tasks-07" "TASKS.md") | Should -BeFalse
+        }
+
+        It "brief.md is unchanged when no ### Tasks block exists" {
+            & $script:NewWarRoom -RoomId "room-tasks-08" -TaskRef "EPIC-002" `
+                -TaskDescription $script:epicWithoutTasks `
+                -WarRoomsDir $script:warRoomsDir
+
+            $brief = Get-Content (Join-Path $script:warRoomsDir "room-tasks-08" "brief.md") -Raw
+            $brief | Should -Match "Scaffold the NestJS backend"
+            $brief | Should -Match "health checks"
+        }
+    }
+
     Context "Plan-specific roles.json resolution" {
         BeforeEach {
             # Create a mock ~/.ostwin/.agents/plans directory with plan roles config
