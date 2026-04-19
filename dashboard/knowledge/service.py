@@ -88,12 +88,36 @@ class KnowledgeService:
 
     # ---- Shared embedder / LLM (lazy) -----------------------------------
 
+    @staticmethod
+    def _resolve_settings_overrides() -> tuple[str, str]:
+        """Return ``(llm_model, embedding_model)`` overrides from MasterSettings.
+
+        Empty strings mean "no override; use env-var / hardcoded default".
+        Settings-resolver failures (config missing, vault offline, etc.)
+        are logged at DEBUG and treated as "no override" — knowledge work
+        must never crash because settings IO failed (ADR-15 graceful path).
+        """
+        try:
+            from dashboard.lib.settings import get_settings_resolver  # noqa: WPS433
+
+            ms = get_settings_resolver().get_master_settings()
+            ks = getattr(ms, "knowledge", None)
+            if ks is None:
+                return "", ""
+            return (ks.llm_model or ""), (ks.embedding_model or "")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("settings resolver unavailable: %s; using env defaults", exc)
+            return "", ""
+
     def _get_embedder(self) -> Any:
         """Lazily construct (or return the injected) embedder, shared service-wide.
 
         The Ingestor and the query engine both go through this so a single
         SentenceTransformer model load is amortised across ingestion + every
         subsequent query.
+
+        Effective model resolution (ADR-15): ``MasterSettings.knowledge.embedding_model``
+        > ``OSTWIN_KNOWLEDGE_EMBED_MODEL`` env var > hardcoded ``EMBEDDING_MODEL``.
         """
         if self._embedder is not None:
             return self._embedder
@@ -103,12 +127,20 @@ class KnowledgeService:
             if self._embedder_override is not None:
                 self._embedder = self._embedder_override
             else:
+                from dashboard.knowledge.config import EMBEDDING_MODEL as _DEFAULT_EMBED  # noqa: WPS433
                 from dashboard.knowledge.embeddings import KnowledgeEmbedder  # noqa: WPS433
 
-                self._embedder = KnowledgeEmbedder()
+                _, settings_embed = self._resolve_settings_overrides()
+                effective = settings_embed or _DEFAULT_EMBED
+                self._embedder = KnowledgeEmbedder(model_name=effective)
             return self._embedder
 
     def _get_llm(self) -> Any:
+        """Lazily construct (or return the injected) LLM, shared service-wide.
+
+        Effective model resolution (ADR-15): ``MasterSettings.knowledge.llm_model``
+        > ``OSTWIN_KNOWLEDGE_LLM_MODEL`` env var > hardcoded ``LLM_MODEL``.
+        """
         if self._llm is not None:
             return self._llm
         with self._cache_lock:
@@ -117,9 +149,12 @@ class KnowledgeService:
             if self._llm_override is not None:
                 self._llm = self._llm_override
             else:
+                from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM  # noqa: WPS433
                 from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
 
-                self._llm = KnowledgeLLM()
+                settings_llm, _ = self._resolve_settings_overrides()
+                effective = settings_llm or _DEFAULT_LLM
+                self._llm = KnowledgeLLM(model=effective)
             return self._llm
 
     # ---- Centralised per-namespace handle cache (EPIC-004) --------------

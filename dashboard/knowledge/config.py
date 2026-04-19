@@ -1,6 +1,11 @@
 """Configuration constants and path helpers for the knowledge package.
 
 All values are env-overridable. No heavy deps imported at module load.
+
+ADR-17: ``SUPPORTED_DOCUMENT_EXTENSIONS`` is the union of the base document
+extensions and :data:`IMAGE_EXTENSIONS` so the folder walker picks up images
+alongside text documents in a single pass; per-file LLM-vision parsing is
+gated separately by ADR-14 (see ``markitdown_reader.py``).
 """
 
 from __future__ import annotations
@@ -100,8 +105,15 @@ def manifest_path(namespace: str) -> Path:
 
 
 # --- File-type constants (moved from app.utils.constant) -------------------
+#
+# ADR-17: ``SUPPORTED_DOCUMENT_EXTENSIONS`` is the union of document + image
+# extensions so :class:`Ingestor._walk_folder` picks up both kinds in a single
+# pass. ADR-14 governs *how* images are parsed (Anthropic vision via
+# MarkItDown) — see :mod:`dashboard.knowledge.graph.parsers.markitdown_reader`.
+# Without an Anthropic key, image files are still walked but produce empty
+# markdown and are skipped with a single warning per file.
 
-SUPPORTED_DOCUMENT_EXTENSIONS = {
+_BASE_DOCUMENT_EXTENSIONS = {
     ".pdf",
     ".docx",
     ".pptx",
@@ -130,6 +142,9 @@ IMAGE_EXTENSIONS = {
     ".tiff",
     ".webp",
 }
+
+# Single source of truth for "what gets walked during ingestion" (ADR-17).
+SUPPORTED_DOCUMENT_EXTENSIONS = _BASE_DOCUMENT_EXTENSIONS | IMAGE_EXTENSIONS
 
 # --- Misc -------------------------------------------------------------------
 

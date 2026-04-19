@@ -67,13 +67,40 @@ class MarkitdownReader(DocParser):
     # -- Internals ------------------------------------------------------
 
     def _get_converter(self) -> Any:
-        """Lazy-instantiate the MarkItDown converter."""
+        """Lazy-instantiate the MarkItDown converter (alias of :meth:`_get_markitdown`)."""
         if self._converter is not None:
             return self._converter
+        self._converter = self._get_markitdown()
+        return self._converter
+
+    def _get_markitdown(self) -> Any:
+        """Lazy-construct a MarkItDown client (ADR-14).
+
+        When ``ANTHROPIC_API_KEY`` is set, attaches the Anthropic client +
+        configured LLM model so MarkItDown does image OCR / vision on PNG /
+        JPG / etc. inputs. Without the key, returns a plain ``MarkItDown()``
+        — image converters then fall back to alt-text only (or empty
+        markdown for binary images), which the ingestion layer treats as a
+        skip with a single warning per file.
+        """
         from markitdown import MarkItDown  # noqa: WPS433 — lazy import
 
-        self._converter = MarkItDown()
-        return self._converter
+        from dashboard.knowledge.config import LLM_MODEL
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if api_key:
+            try:
+                import anthropic  # noqa: WPS433 — lazy import
+
+                client = anthropic.Anthropic(api_key=api_key)
+                return MarkItDown(llm_client=client, llm_model=LLM_MODEL)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to initialize Anthropic vision client for MarkItDown: %s; "
+                    "image files will produce empty markdown.",
+                    exc,
+                )
+        return MarkItDown()
 
     # -- Public API -----------------------------------------------------
 

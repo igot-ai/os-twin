@@ -301,3 +301,79 @@ def test_lazy_imports_via_subprocess() -> None:
     loaded = last_line[len("LOADED:") :].split(",") if last_line[len("LOADED:") :] else []
     loaded = [m for m in loaded if m]
     assert loaded == [], f"Heavy deps were loaded eagerly: {loaded}"
+
+
+# ---------------------------------------------------------------------------
+# 7) CARRY-003 — KnowledgeService reads from MasterSettings (ADR-15)
+# ---------------------------------------------------------------------------
+
+
+def test_service_reads_knowledge_settings_from_master(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When MasterSettings.knowledge.llm_model is set, KnowledgeService picks it up.
+
+    Mocks ``dashboard.lib.settings.get_settings_resolver`` (the import path
+    KnowledgeService uses) so we don't need a real config file.
+    """
+    from unittest.mock import MagicMock
+
+    from dashboard.knowledge.service import KnowledgeService
+
+    fake_settings = MagicMock()
+    fake_settings.knowledge.llm_model = "claude-haiku-CUSTOM"
+    fake_settings.knowledge.embedding_model = ""
+    fake_resolver = MagicMock()
+    fake_resolver.get_master_settings.return_value = fake_settings
+
+    # Patch the path the helper actually imports.
+    import dashboard.lib.settings as settings_pkg
+
+    monkeypatch.setattr(settings_pkg, "get_settings_resolver", lambda: fake_resolver)
+
+    ks = KnowledgeService()
+    # Trigger LLM construction.
+    llm = ks._get_llm()
+    assert llm.model == "claude-haiku-CUSTOM"
+
+
+def test_service_falls_back_to_default_when_settings_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty knowledge settings → KnowledgeService uses the env-var default."""
+    from unittest.mock import MagicMock
+
+    from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM
+    from dashboard.knowledge.service import KnowledgeService
+
+    fake_settings = MagicMock()
+    fake_settings.knowledge.llm_model = ""
+    fake_settings.knowledge.embedding_model = ""
+    fake_resolver = MagicMock()
+    fake_resolver.get_master_settings.return_value = fake_settings
+
+    import dashboard.lib.settings as settings_pkg
+
+    monkeypatch.setattr(settings_pkg, "get_settings_resolver", lambda: fake_resolver)
+
+    ks = KnowledgeService()
+    llm = ks._get_llm()
+    assert llm.model == _DEFAULT_LLM
+
+
+def test_service_handles_missing_settings_resolver_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the settings resolver raises, KnowledgeService still constructs and uses defaults."""
+    from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM
+    from dashboard.knowledge.service import KnowledgeService
+
+    def _broken_resolver():
+        raise RuntimeError("config gone walkabout")
+
+    import dashboard.lib.settings as settings_pkg
+
+    monkeypatch.setattr(settings_pkg, "get_settings_resolver", _broken_resolver)
+
+    ks = KnowledgeService()
+    llm = ks._get_llm()
+    # Falls back to the hardcoded default — never crashes.
+    assert llm.model == _DEFAULT_LLM

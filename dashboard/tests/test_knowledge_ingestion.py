@@ -386,6 +386,112 @@ class TestChunk:
 
 
 # ---------------------------------------------------------------------------
+# 3.5) Image ingestion (CARRY-001 — ADR-14 / ADR-17)
+# ---------------------------------------------------------------------------
+
+
+class TestImageIngestion:
+    """Image-extension support added in EPIC-006 CARRY-001 (ADR-14 / ADR-17)."""
+
+    def test_image_extensions_in_supported_set(self):
+        """ADR-17: SUPPORTED_DOCUMENT_EXTENSIONS includes every IMAGE_EXTENSIONS."""
+        from dashboard.knowledge.config import (
+            IMAGE_EXTENSIONS,
+            SUPPORTED_DOCUMENT_EXTENSIONS,
+        )
+
+        assert IMAGE_EXTENSIONS.issubset(SUPPORTED_DOCUMENT_EXTENSIONS)
+        # All seven canonical image types are walkable.
+        for ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"):
+            assert ext in SUPPORTED_DOCUMENT_EXTENSIONS
+
+    def test_walk_includes_png_files(self, tmp_path, make_ingestor):
+        """Folder walker now picks up PNG files (was excluded before ADR-17)."""
+        sub = tmp_path / "imgs"
+        sub.mkdir()
+        # Minimal PNG header bytes — enough for the walker (it only stats / sniffs ext).
+        png = sub / "tiny.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        # Add a non-image alongside so we know we're not just listing everything.
+        (sub / "notes.md").write_text("# title\nbody")
+
+        ing = make_ingestor()
+        files = list(ing._walk_folder(sub, IngestOptions()))
+        names = sorted(Path(f.path).name for f in files)
+        assert "tiny.png" in names
+        assert "notes.md" in names
+        # Verify the file_entry for the PNG carries the right extension.
+        png_entries = [f for f in files if f.extension == ".png"]
+        assert len(png_entries) == 1
+
+    def test_image_with_no_anthropic_key_logs_and_skips(
+        self, tmp_path, monkeypatch, caplog, make_ingestor
+    ):
+        """Image with no key → empty chunks + warning log line."""
+        import logging as _logging
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        png = tmp_path / "img.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        ing = make_ingestor()
+        # Force the converter to be one without vision (ANTHROPIC_API_KEY just got cleared).
+        ing._markitdown = None
+
+        fe = FileEntry(
+            path=str(png),
+            size=png.stat().st_size,
+            mtime=png.stat().st_mtime,
+            extension=".png",
+            content_hash="hash-png",
+        )
+        with caplog.at_level(_logging.WARNING, logger="dashboard.knowledge.ingestion"):
+            chunks = ing._parse_file(fe, IngestOptions())
+        assert chunks == []
+        # Exactly one warning line per file.
+        warns = [
+            r for r in caplog.records
+            if r.levelno >= _logging.WARNING and "img.png" in r.getMessage()
+        ]
+        assert len(warns) >= 1
+        joined = " ".join(r.getMessage() for r in warns).lower()
+        assert "vision" in joined or "image" in joined
+
+    def test_image_with_mocked_markitdown_produces_chunks(
+        self, tmp_path, monkeypatch, make_ingestor
+    ):
+        """Image + vision-enabled MarkItDown returns markdown → chunks produced."""
+        png = tmp_path / "screenshot.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        ing = make_ingestor()
+
+        # Stub the cached MarkItDown converter to return fake markdown content.
+        class _FakeResult:
+            text_content = "# Screenshot caption\n\nA cat sitting on a windowsill."
+
+        class _FakeConverter:
+            def convert(self, *_args, **_kw):
+                return _FakeResult()
+
+        ing._markitdown = _FakeConverter()
+
+        fe = FileEntry(
+            path=str(png),
+            size=png.stat().st_size,
+            mtime=png.stat().st_mtime,
+            extension=".png",
+            content_hash="hash-png",
+        )
+        chunks = ing._parse_file(fe, IngestOptions())
+        assert len(chunks) >= 1
+        # First chunk carries proper metadata.
+        assert chunks[0]["metadata"]["filename"] == "screenshot.png"
+        assert chunks[0]["metadata"]["extension"] == ".png"
+        assert "cat" in chunks[0]["text"].lower() or "screenshot" in chunks[0]["text"].lower()
+
+
+# ---------------------------------------------------------------------------
 # 4) Ingestor end-to-end (with fakes)
 # ---------------------------------------------------------------------------
 

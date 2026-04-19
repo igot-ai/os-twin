@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 import time
 import uuid
@@ -405,6 +406,12 @@ class Ingestor:
         # across files in the same run.
         self._stores: dict[str, _NamespaceStore] = {}
         self._stores_lock = threading.Lock()
+        # Cached MarkItDown converter — vision-enabled when an Anthropic
+        # key is in the environment (ADR-14). Lazily constructed to keep
+        # __init__ cheap and to honour env-var changes between Ingestor
+        # constructions.
+        self._markitdown: Any = None
+        self._markitdown_lock = threading.Lock()
 
     # ---- Lazy accessors ------------------------------------------------
 
@@ -429,6 +436,26 @@ class Ingestor:
 
         self._llm = KnowledgeLLM()
         return self._llm
+
+    def _get_markitdown_converter(self) -> Any:
+        """Lazy-construct the per-Ingestor MarkItDown client (ADR-14).
+
+        Delegates to :class:`MarkitdownReader._get_markitdown` so the
+        Anthropic-vision configuration logic lives in exactly one place.
+        Cached for the lifetime of the Ingestor — env-var changes between
+        runs require constructing a new Ingestor.
+        """
+        if self._markitdown is not None:
+            return self._markitdown
+        with self._markitdown_lock:
+            if self._markitdown is not None:
+                return self._markitdown
+            from dashboard.knowledge.graph.parsers.markitdown_reader import (  # noqa: WPS433
+                MarkitdownReader,
+            )
+
+            self._markitdown = MarkitdownReader()._get_markitdown()
+            return self._markitdown
 
     def _get_store(self, namespace: str) -> _NamespaceStore:
         """Return the per-namespace store, creating it on first request.
@@ -518,12 +545,10 @@ class Ingestor:
         """
         path = Path(file_entry.path)
 
-        # --- 1) MarkItDown --------------------------------------------
+        # --- 1) MarkItDown (with Anthropic vision when key set, ADR-14) ---
         text = ""
         try:
-            from markitdown import MarkItDown  # noqa: WPS433 — lazy
-
-            converter = MarkItDown()
+            converter = self._get_markitdown_converter()
             result = converter.convert(str(path))
             text = (
                 getattr(result, "text_content", None)
@@ -541,6 +566,25 @@ class Ingestor:
             except OSError as exc:
                 logger.warning("Could not read %s as text: %s", path, exc)
                 return []
+
+        # --- 3) Image-specific empty-content warning (ADR-14) -----------
+        # Image files produce no markdown when no Anthropic key is present
+        # (or when MarkItDown's vision call fails). Log once per file then
+        # treat as a skip — never a hard failure.
+        if file_entry.extension in IMAGE_EXTENSIONS and not (text and text.strip()):
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                logger.warning(
+                    "Image %s: produced no text (ANTHROPIC_API_KEY set but vision "
+                    "failed or returned empty). Skipping.",
+                    file_entry.path,
+                )
+            else:
+                logger.warning(
+                    "Image %s: produced no text (ANTHROPIC_API_KEY not set; vision "
+                    "OCR disabled). Skipping.",
+                    file_entry.path,
+                )
+            return []
 
         if not text or not text.strip():
             return []

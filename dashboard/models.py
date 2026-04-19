@@ -311,6 +311,23 @@ class ObservabilitySettings(BaseModel):
     otel_enabled: bool = False
 
 
+class KnowledgeSettings(BaseModel):
+    """Knowledge service runtime settings (ADR-15).
+
+    Overrides the env-var defaults baked into ``dashboard/knowledge/config.py``.
+    Resolution precedence is ``MasterSettings.knowledge`` > env var >
+    hardcoded default — see :class:`KnowledgeService.__init__`.
+
+    Empty strings mean "no override; use the env-var / hardcoded default".
+    ``embedding_dimension`` is informational and read-only on the frontend
+    (the actual dim is determined by the embedding model that gets loaded).
+    """
+
+    llm_model: str = ""              # empty = use config.LLM_MODEL
+    embedding_model: str = ""        # empty = use config.EMBEDDING_MODEL
+    embedding_dimension: int = 384   # read-only / informational
+
+
 class MasterSettings(BaseModel):
     providers: ProvidersNamespace = Field(default_factory=ProvidersNamespace)
     roles: Dict[str, RoleSettings] = Field(default_factory=dict)
@@ -319,6 +336,7 @@ class MasterSettings(BaseModel):
     channels: ChannelsNamespace = Field(default_factory=ChannelsNamespace)
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
 
 
 class EffectiveResolution(BaseModel):
