@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { KnowledgeSettings, ModelInfo } from '@/types/settings';
+import { ModelSelect } from '@/components/settings/ModelSelect';
 
 export interface KnowledgePanelProps {
   knowledge: KnowledgeSettings;
@@ -105,7 +106,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     void commitEmbedding(id);
   };
 
-  // Match MemoryPanel input style
+  // Used only by the embedding text input
   const inputStyle = {
     background: '#f1f5f9',
     border: '1px solid #e2e8f0',
@@ -150,25 +151,19 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
             query mode. Pick any chat-capable model from your configured providers, or leave on
             server default.
           </p>
-          <select
+          <ModelSelect
             value={effective.llm_model}
-            onChange={(e) => handleLlmChange(e.target.value)}
-            className="w-full px-3 py-2 rounded-md text-xs font-mono"
-            style={inputStyle}
-          >
-            <option value="">— Use server default (env var / hardcoded) —</option>
-            {chatModels.length === 0 && (
-              <option value="" disabled>
-                (no providers configured — add one in Provider Config)
-              </option>
-            )}
-            {chatModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.id}
-                {m.provider_id ? ` · ${m.provider_id}` : ''}
-              </option>
-            ))}
-          </select>
+            onChange={handleLlmChange}
+            models={chatModels}
+            showTier={true}
+            showContext={true}
+            placeholder="— Use server default —"
+          />
+          {chatModels.length === 0 && (
+            <p className="text-[10px] text-amber-600 mt-2">
+              No providers configured — add one in Provider Config.
+            </p>
+          )}
           <p className="text-[10px] text-slate-400 mt-2">
             Currently effective:{' '}
             <code className="font-mono text-[10px] text-slate-600">

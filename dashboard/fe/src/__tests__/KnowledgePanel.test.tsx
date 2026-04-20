@@ -4,9 +4,13 @@
  * Verifies that the Knowledge settings panel:
  * - Renders the LLM, embedding, and dimension sections.
  * - Reflects the current effective values from props.
- * - Calls onUpdate when the LLM dropdown changes.
+ * - Calls onUpdate when the LLM ModelSelect trigger is used.
  * - Calls onUpdate when the embedding input is committed (blur / Enter).
  * - Picks up the embedding dimension when a suggested model is selected.
+ *
+ * NOTE: The LLM section now uses <ModelSelect> (not a plain <select>).
+ *       ModelSelect renders a <button> trigger + a searchable <input> inside
+ *       a floating dropdown — so tests interact with those instead of a combobox.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -28,6 +32,21 @@ const defaults: KnowledgeSettings = {
   embedding_dimension: 384,
 };
 
+// Helper: open the ModelSelect dropdown (click the trigger button)
+function openLlmDropdown() {
+  // The trigger is the first <button> in the LLM section.
+  // It is identified by either the placeholder text or the selected model label.
+  const trigger = screen.getAllByRole('button').find(
+    (b) =>
+      b.textContent?.includes('Use server default') ||
+      b.textContent?.includes('Claude Haiku') ||
+      b.textContent?.includes('GPT-5'),
+  );
+  if (!trigger) throw new Error('ModelSelect trigger button not found');
+  fireEvent.click(trigger);
+  return trigger;
+}
+
 describe('KnowledgePanel', () => {
   it('renders LLM, embedding, and dimension sections', () => {
     const onUpdate = vi.fn();
@@ -39,7 +58,7 @@ describe('KnowledgePanel', () => {
     expect(screen.getByText(/^Embedding Dimension$/i)).toBeInTheDocument();
   });
 
-  it('shows the current LLM model selected in the dropdown', () => {
+  it('shows the selected model label in the trigger when an LLM is set', () => {
     const onUpdate = vi.fn();
     render(
       <KnowledgePanel
@@ -48,34 +67,40 @@ describe('KnowledgePanel', () => {
         allModels={mockModels}
       />,
     );
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('anthropic/claude-haiku-4-5');
+    // The trigger button should contain the model label (or id)
+    expect(screen.getByText(/Claude Haiku 4\.5/i)).toBeInTheDocument();
   });
 
-  it('filters out embedding models from the chat-model dropdown', () => {
+  it('filters out embedding models from the LLM picker dropdown', () => {
     const onUpdate = vi.fn();
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={mockModels} />);
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    const optionTexts = Array.from(select.options).map((o) => o.value);
-    expect(optionTexts).toContain('anthropic/claude-haiku-4-5');
-    expect(optionTexts).toContain('openai/gpt-5');
-    expect(optionTexts).not.toContain('openai/text-embedding-3-small');
+
+    openLlmDropdown();
+
+    // Chat models should appear in the list
+    expect(screen.getByText(/Claude Haiku 4\.5/)).toBeInTheDocument();
+    expect(screen.getByText(/GPT-5/)).toBeInTheDocument();
+    // Embedding model should NOT appear
+    expect(screen.queryByText(/OpenAI Embedding/)).not.toBeInTheDocument();
   });
 
-  it('falls back to the "server default" option when no LLM is set', () => {
+  it('shows the placeholder when no LLM is set', () => {
     const onUpdate = vi.fn();
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={mockModels} />);
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('');
-    // Both an <option> and a "Currently effective" line render with this phrase
-    expect(screen.getAllByText(/server default/i).length).toBeGreaterThanOrEqual(1);
+    // The trigger shows the placeholder text; multiple elements contain "server default" (prose + trigger + code)
+    expect(screen.getAllByText(/server default/i).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('calls onUpdate when the LLM dropdown is changed', async () => {
+  it('calls onUpdate when a model is selected from the LLM picker', async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined);
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={mockModels} />);
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'openai/gpt-5' } });
+
+    openLlmDropdown();
+
+    // Click the GPT-5 option in the open dropdown
+    const option = screen.getByRole('button', { name: /GPT-5/ });
+    fireEvent.click(option);
+
     expect(onUpdate).toHaveBeenCalledWith({ llm_model: 'openai/gpt-5' });
   });
 
@@ -133,11 +158,12 @@ describe('KnowledgePanel', () => {
     expect(screen.getByText(/dimensions/i)).toBeInTheDocument();
   });
 
-  it('still shows the "server default" option when no providers are configured', () => {
+  it('shows the "no providers" warning and placeholder when no models are configured', () => {
     const onUpdate = vi.fn();
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={[]} />);
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    // the default option is always present so the user is not blocked
-    expect(Array.from(select.options).some((o) => /server default/i.test(o.text))).toBe(true);
+    // The placeholder still appears on the dropdown trigger
+    expect(screen.getByText(/Use server default/)).toBeInTheDocument();
+    // The amber warning text is shown below the picker
+    expect(screen.getByText(/No providers configured/i)).toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { apiPost, apiPut, apiGet } from '@/lib/api-client';
+import { apiPost, apiPut } from '@/lib/api-client';
 
 interface NamespaceActionsProps {
   namespace: string;
@@ -23,8 +23,19 @@ export default function NamespaceActions({ namespace, onRefresh }: NamespaceActi
     setIsBackingUp(true);
     setShowMenu(false);
     try {
-      const response = await apiPost(`/api/knowledge/namespaces/${namespace}/backup?stream=true`);
-      
+      // The backup endpoint returns a binary stream, so we need the raw Response
+      // rather than going through apiPost (which parses JSON and returns T).
+      const { getApiBaseUrl } = await import('@/lib/runtime-config');
+      const BASE_URL = getApiBaseUrl();
+      const response = await fetch(
+        `${BASE_URL}/api/knowledge/namespaces/${namespace}/backup?stream=true`,
+        { method: 'POST', credentials: 'include' },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Backup failed: ${response.statusText}`);
+      }
+
       // Create download link
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -59,16 +70,18 @@ export default function NamespaceActions({ namespace, onRefresh }: NamespaceActi
     setIsRefreshing(true);
     setShowMenu(false);
     try {
-      const response = await apiPost(`/api/knowledge/namespaces/${namespace}/refresh`);
-      const data = await response.json();
-      
+      // apiPost<T> parses JSON and returns T directly — no .json() needed
+      const data = await apiPost<{ imports_count: number }>(
+        `/api/knowledge/namespaces/${namespace}/refresh`,
+      );
+
       addToast({
         type: 'success',
         title: 'Refresh Started',
         message: `Re-importing ${data.imports_count} folder(s) into "${namespace}".`,
         autoDismiss: true,
       });
-      
+
       onRefresh?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Refresh failed';
