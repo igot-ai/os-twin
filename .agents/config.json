@@ -158,5 +158,10 @@
     "mcp_refs": [
       "memory"
     ]
+  },
+  "knowledge": {
+    "llm_model": "",
+    "embedding_model": "",
+    "embedding_dimension": 384
   }
 }

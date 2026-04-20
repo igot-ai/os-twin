@@ -50,6 +50,13 @@
       "environment": {
         "PATH": "{env:PATH}"
       }
+    },
+    "knowledge": {
+      "type": "remote",
+      "url": "http://localhost:3366/mcp/",
+      "headers": {
+        "Authorization": "Bearer {env:OSTWIN_API_KEY}"
+      }
     }
   }
 }

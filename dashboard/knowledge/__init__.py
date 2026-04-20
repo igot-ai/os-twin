@@ -67,9 +67,19 @@ from dashboard.knowledge.namespace import (
     NamespaceMeta,
     NamespaceNotFoundError,
     NamespaceStats,
+    RetentionPolicy,  # EPIC-004
 )
 from dashboard.knowledge.service import KnowledgeService
 from dashboard.knowledge.vector_store import NamespaceVectorStore, VectorHit
+from dashboard.knowledge.backup import (  # EPIC-004
+    BackupError,
+    BackupChecksumMismatchError,
+    InvalidBackupArchiveError,
+    NamespaceBackupNotFoundError,
+    backup_namespace,
+    restore_namespace,
+    list_backup_contents,
+)
 
 __all__ = [
     "KNOWLEDGE_DIR",
@@ -93,6 +103,7 @@ __all__ = [
     "NamespaceNotFoundError",
     "NamespaceExistsError",
     "InvalidNamespaceIdError",
+    "RetentionPolicy",  # EPIC-004
     # Ingestion + jobs (EPIC-003)
     "Ingestor",
     "IngestOptions",
@@ -110,4 +121,12 @@ __all__ = [
     "ChunkHit",
     "EntityHit",
     "Citation",
+    # Backup/restore (EPIC-004)
+    "BackupError",
+    "BackupChecksumMismatchError",
+    "InvalidBackupArchiveError",
+    "NamespaceBackupNotFoundError",
+    "backup_namespace",
+    "restore_namespace",
+    "list_backup_contents",
 ]

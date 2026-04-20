@@ -66,6 +66,29 @@ def _err(code: str, msg: str) -> dict:
     return {"error": msg, "code": code}
 
 
+def _get_mcp_actor() -> str | None:
+    """Get the current MCP actor from environment or session context.
+    
+    The actor is set via:
+    - OSTWIN_MCP_ACTOR environment variable (set by the agent runtime)
+    - Session header (for HTTP-based MCP clients)
+    
+    Returns None if no actor is identified (non-curator session).
+    """
+    import os
+    return os.environ.get("OSTWIN_MCP_ACTOR")
+
+
+def _requires_confirmation() -> bool:
+    """Check if the current session requires confirmation for destructive ops.
+    
+    Returns True if OSTWIN_MCP_ACTOR is set to "knowledge-curator".
+    Other actors and anonymous sessions do NOT require confirmation.
+    """
+    actor = _get_mcp_actor()
+    return actor == "knowledge-curator"
+
+
 # The FastMCP instance — module-level so the @mcp.tool() decorators run at
 # import time. The instance itself is cheap (no transport / network setup
 # happens until ``get_mcp_app()`` is called).
@@ -155,7 +178,7 @@ def knowledge_create_namespace(
 
     Returns the created NamespaceMeta as a dict, OR
     ``{"error", "code"}`` on failure (codes: ``INVALID_NAMESPACE_ID``,
-    ``NAMESPACE_EXISTS``, ``INTERNAL_ERROR``).
+    ``NAMESPACE_EXISTS``, ``MAX_NAMESPACES_REACHED``, ``INTERNAL_ERROR``).
 
     Use when: starting a new knowledge base. NOT needed before
     ``knowledge_import_folder`` — that auto-creates the namespace if missing.
@@ -165,18 +188,26 @@ def knowledge_create_namespace(
     """
     try:
         ks = _get_service()
-        meta = ks.create_namespace(name, language=language, description=description or None)
+        meta = ks.create_namespace(name, language=language, description=description or None, actor="anonymous")
         return meta.model_dump(mode="json")
     except Exception as exc:  # noqa: BLE001
         from dashboard.knowledge.namespace import (  # noqa: WPS433
             InvalidNamespaceIdError,
             NamespaceExistsError,
         )
+        from dashboard.knowledge.audit import (  # noqa: WPS433
+            ImportInProgressError,
+            MaxNamespacesReachedError,
+        )
 
         if isinstance(exc, InvalidNamespaceIdError):
             return _err("INVALID_NAMESPACE_ID", str(exc))
         if isinstance(exc, NamespaceExistsError):
             return _err("NAMESPACE_EXISTS", str(exc))
+        if isinstance(exc, MaxNamespacesReachedError):
+            return _err("MAX_NAMESPACES_REACHED", str(exc))
+        if isinstance(exc, ImportInProgressError):
+            return _err("IMPORT_IN_PROGRESS", str(exc))
         logger.exception("knowledge_create_namespace failed")
         return _err("INTERNAL_ERROR", str(exc))
 
@@ -187,8 +218,13 @@ def knowledge_create_namespace(
 
 
 @mcp.tool()
-def knowledge_delete_namespace(name: str) -> dict:
+def knowledge_delete_namespace(name: str, confirm: bool = False) -> dict:
     """Delete a knowledge namespace and all its data permanently.
+
+    Args:
+        name: Namespace to delete.
+        confirm: Required when called by knowledge-curator to prevent accidental
+            deletion. Must be explicitly set to True to proceed.
 
     Returns ``{"deleted": bool}`` — ``false`` if the namespace did not exist
     (no error), ``true`` if it was removed. On unexpected failure returns
@@ -197,10 +233,19 @@ def knowledge_delete_namespace(name: str) -> dict:
     DANGEROUS: this is irreversible. Confirm with the user before calling.
 
     Example: ``knowledge_delete_namespace("temp_test_kb")``
+    Example (curator): ``knowledge_delete_namespace("temp_test_kb", confirm=True)``
     """
     try:
+        # EPIC-006: Confirmation gate for knowledge-curator sessions
+        if _requires_confirmation() and not confirm:
+            return _err(
+                "CONFIRMATION_REQUIRED",
+                f"knowledge_delete_namespace requires confirm=True when called by knowledge-curator. "
+                f"Explicitly set confirm=True to proceed with deleting namespace '{name}'."
+            )
+        
         ks = _get_service()
-        return {"deleted": ks.delete_namespace(name)}
+        return {"deleted": ks.delete_namespace(name, actor="anonymous")}
     except Exception as exc:  # noqa: BLE001
         logger.exception("knowledge_delete_namespace failed")
         return _err("INTERNAL_ERROR", str(exc))
@@ -235,7 +280,7 @@ def knowledge_import_folder(
     Returns ``{"job_id": str, "status": "submitted", "message": str}`` on
     success, OR ``{"error", "code"}`` on failure (codes:
     ``INVALID_FOLDER_PATH``, ``FOLDER_NOT_FOUND``, ``NOT_A_DIRECTORY``,
-    ``INVALID_NAMESPACE_ID``, ``INTERNAL_ERROR``).
+    ``INVALID_NAMESPACE_ID``, ``IMPORT_IN_PROGRESS``, ``INTERNAL_ERROR``).
 
     The import runs in the background — poll
     ``knowledge_get_import_status`` with the returned ``job_id`` to track
@@ -257,7 +302,7 @@ def knowledge_import_folder(
         if not p.is_dir():
             return _err("NOT_A_DIRECTORY", f"path is not a directory: {folder_path}")
         ks = _get_service()
-        job_id = ks.import_folder(namespace, str(p), options={"force": force})
+        job_id = ks.import_folder(namespace, str(p), options={"force": force}, actor="anonymous")
         return {
             "job_id": job_id,
             "status": "submitted",
@@ -265,9 +310,12 @@ def knowledge_import_folder(
         }
     except Exception as exc:  # noqa: BLE001
         from dashboard.knowledge.namespace import InvalidNamespaceIdError  # noqa: WPS433
+        from dashboard.knowledge.audit import ImportInProgressError  # noqa: WPS433
 
         if isinstance(exc, InvalidNamespaceIdError):
             return _err("INVALID_NAMESPACE_ID", str(exc))
+        if isinstance(exc, ImportInProgressError):
+            return _err("IMPORT_IN_PROGRESS", str(exc))
         if isinstance(exc, FileNotFoundError):
             return _err("FOLDER_NOT_FOUND", str(exc))
         if isinstance(exc, NotADirectoryError):
@@ -354,7 +402,7 @@ def knowledge_query(
     """
     try:
         ks = _get_service()
-        result = ks.query(namespace, query, mode=mode, top_k=top_k)
+        result = ks.query(namespace, query, mode=mode, top_k=top_k, actor="anonymous")
         return result.model_dump(mode="json")
     except Exception as exc:  # noqa: BLE001
         from dashboard.knowledge.namespace import NamespaceNotFoundError  # noqa: WPS433
@@ -391,13 +439,271 @@ def knowledge_get_graph(namespace: str, limit: int = 100) -> dict:
     """
     try:
         ks = _get_service()
-        return ks.get_graph(namespace, limit=limit)
+        return ks.get_graph(namespace, limit=limit, actor="anonymous")
     except Exception as exc:  # noqa: BLE001
         from dashboard.knowledge.namespace import NamespaceNotFoundError  # noqa: WPS433
 
         if isinstance(exc, NamespaceNotFoundError):
             return _err("NAMESPACE_NOT_FOUND", str(exc))
         logger.exception("knowledge_get_graph failed")
+        return _err("INTERNAL_ERROR", str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: knowledge_backup_namespace (EPIC-004)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def knowledge_backup_namespace(name: str) -> dict:
+    """Create a backup archive of a knowledge namespace.
+
+    Args:
+        name: namespace to backup.
+
+    Returns ``{"archive_path": str, "size_bytes": int, "compression": str}``
+    on success, OR ``{"error", "code"}`` on failure (codes:
+    ``NAMESPACE_NOT_FOUND``, ``INTERNAL_ERROR``).
+
+    The archive is created in the default backup location (typically
+    the current working directory). Use the returned path to download
+    or transfer the backup.
+
+    Example: ``knowledge_backup_namespace("project_docs")``
+    """
+    try:
+        from pathlib import Path
+        from dashboard.knowledge.backup import backup_namespace as do_backup
+        
+        ks = _get_service()
+        
+        # Verify namespace exists
+        meta = ks.get_namespace(name)
+        if meta is None:
+            return _err("NAMESPACE_NOT_FOUND", f"Namespace {name!r} not found")
+        
+        archive_path = do_backup(name, namespace_manager=ks._nm)  # noqa: SLF001
+        
+        return {
+            "archive_path": str(archive_path),
+            "size_bytes": archive_path.stat().st_size,
+            "compression": "zstd" if str(archive_path).endswith(".zst") else "gzip",
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("knowledge_backup_namespace failed")
+        return _err("INTERNAL_ERROR", str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: knowledge_restore_namespace (EPIC-004)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def knowledge_restore_namespace(
+    archive_path: str,
+    as_name: Optional[str] = None,
+    overwrite: bool = False,
+    confirm: bool = False,
+) -> dict:
+    """Restore a knowledge namespace from a backup archive.
+
+    Args:
+        archive_path: absolute path to the backup archive file.
+        as_name: optional target namespace name (defaults to archive's
+            original namespace name).
+        overwrite: if True, allows overwriting an existing namespace
+            (default: False).
+        confirm: Required when overwrite=True and called by knowledge-curator.
+            Must be explicitly set to True to proceed with overwrite.
+
+    Returns the restored NamespaceMeta as a dict, OR ``{"error", "code"}``
+    on failure (codes: ``NAMESPACE_EXISTS``, ``INVALID_BACKUP_ARCHIVE``,
+    ``BACKUP_CHECKSUM_MISMATCH``, ``INTERNAL_ERROR``).
+
+    DANGEROUS: with overwrite=True, existing namespace data is permanently
+    deleted. Confirm with the user before setting overwrite=True.
+
+    Example: ``knowledge_restore_namespace("/backups/docs.tar.zst")``
+    Example (curator with overwrite): ``knowledge_restore_namespace("/backups/docs.tar.zst", overwrite=True, confirm=True)``
+    """
+    try:
+        from pathlib import Path
+        from dashboard.knowledge.backup import (
+            restore_namespace as do_restore,
+            BackupError,
+            BackupChecksumMismatchError,
+            InvalidBackupArchiveError,
+            NamespaceBackupNotFoundError,
+        )
+        
+        # EPIC-006: Confirmation gate for knowledge-curator sessions
+        if overwrite and _requires_confirmation() and not confirm:
+            return _err(
+                "CONFIRMATION_REQUIRED",
+                f"knowledge_restore_namespace with overwrite=True requires confirm=True when called by knowledge-curator. "
+                f"Explicitly set confirm=True to proceed with overwriting the namespace."
+            )
+        
+        ks = _get_service()
+        p = Path(archive_path)
+        
+        if not p.is_absolute():
+            return _err("INVALID_PATH", f"archive_path must be absolute, got: {archive_path}")
+        if not p.exists():
+            return _err("FILE_NOT_FOUND", f"Archive not found: {archive_path}")
+        
+        meta = do_restore(
+            p,
+            name=as_name,
+            namespace_manager=ks._nm,  # noqa: SLF001
+            knowledge_service=ks,
+            overwrite=overwrite,
+        )
+        return meta.model_dump(mode="json")
+    except Exception as exc:  # noqa: BLE001
+        from dashboard.knowledge.namespace import NamespaceExistsError  # noqa: WPS433
+        from dashboard.knowledge.backup import (
+            BackupChecksumMismatchError,
+            InvalidBackupArchiveError,
+        )
+        
+        if isinstance(exc, NamespaceExistsError):
+            return _err("NAMESPACE_EXISTS", str(exc))
+        if isinstance(exc, BackupChecksumMismatchError):
+            return _err("BACKUP_CHECKSUM_MISMATCH", str(exc))
+        if isinstance(exc, InvalidBackupArchiveError):
+            return _err("INVALID_BACKUP_ARCHIVE", str(exc))
+        logger.exception("knowledge_restore_namespace failed")
+        return _err("INTERNAL_ERROR", str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: knowledge_refresh_namespace (EPIC-004)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def knowledge_refresh_namespace(name: str) -> dict:
+    """Refresh a namespace by re-importing all source folders.
+
+    Triggers a new import job for each completed import in the namespace's
+    history. Useful when source files have been updated and you want to
+    re-index them.
+
+    Args:
+        name: namespace to refresh.
+
+    Returns ``{"job_ids": [...], "imports_count": N}`` on success, OR
+    ``{"error", "code": "NAMESPACE_NOT_FOUND"}`` if the namespace doesn't
+    exist.
+
+    Example: ``knowledge_refresh_namespace("project_docs")``
+    """
+    try:
+        ks = _get_service()
+        
+        # Get namespace
+        meta = ks.get_namespace(name)
+        if meta is None:
+            return _err("NAMESPACE_NOT_FOUND", f"Namespace {name!r} not found")
+        
+        # Get imports to refresh
+        imports = meta.imports
+        if not imports:
+            return {"job_ids": [], "imports_count": 0}
+        
+        # Trigger re-import for each completed folder
+        job_ids = []
+        for imp in imports:
+            if imp.status != "completed":
+                continue
+            try:
+                job_id = ks.import_folder(
+                    name,
+                    imp.folder_path,
+                    {"force": True},
+                    actor="anonymous",
+                )
+                job_ids.append(job_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to refresh import %s: %s", imp.folder_path, exc)
+        
+        return {"job_ids": job_ids, "imports_count": len(job_ids)}
+    except Exception as exc:  # noqa: BLE001
+        from dashboard.knowledge.namespace import NamespaceNotFoundError  # noqa: WPS433
+        
+        if isinstance(exc, NamespaceNotFoundError):
+            return _err("NAMESPACE_NOT_FOUND", str(exc))
+        logger.exception("knowledge_refresh_namespace failed")
+        return _err("INTERNAL_ERROR", str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: find_notes_by_knowledge_link (EPIC-007)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def find_notes_by_knowledge_link(
+    namespace: str,
+    file_hash: str,
+    chunk_idx: Optional[int] = None,
+) -> dict:
+    """Find memory notes that link to a specific knowledge chunk.
+
+    This is part of the Memory ↔ Knowledge Bridge (EPIC-007) that enables
+    bidirectional linking between memory notes and knowledge chunks.
+
+    Args:
+        namespace: The knowledge namespace to search.
+        file_hash: SHA256 hash of the source file.
+        chunk_idx: Optional chunk index. If provided, returns notes that link
+            to this specific chunk. If None, returns notes that link to ANY
+            chunk in the file.
+
+    Returns:
+        ``{"note_ids": [...], "count": N}`` on success, OR
+        ``{"error", "code": "BRIDGE_DISABLED"}`` if the bridge is not enabled,
+        OR ``{"error", "code": "INTERNAL_ERROR"}`` on other failures.
+
+    Example:
+        # Find notes linking to a specific chunk
+        ``find_notes_by_knowledge_link("docs", "abc123def456", 0)``
+
+        # Find notes linking to any chunk in a file
+        ``find_notes_by_knowledge_link("docs", "abc123def456")``
+    """
+    try:
+        from dashboard.knowledge.bridge import (
+            BridgeIndex,
+            BridgeConfig,
+            is_bridge_enabled,
+        )
+        
+        if not is_bridge_enabled():
+            return _err(
+                "BRIDGE_DISABLED",
+                "Memory-Knowledge bridge is not enabled. "
+                "Set OSTWIN_KNOWLEDGE_MEMORY_BRIDGE=1 to enable.",
+            )
+        
+        # Create bridge index instance
+        config = BridgeConfig.from_env()
+        bridge = BridgeIndex(config=config)
+        
+        # Perform lookup
+        note_ids = bridge.lookup(namespace, file_hash, chunk_idx)
+        
+        # Close the bridge connection
+        bridge.close()
+        
+        return {
+            "note_ids": note_ids,
+            "count": len(note_ids),
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("find_notes_by_knowledge_link failed")
         return _err("INTERNAL_ERROR", str(exc))
 
 
@@ -454,4 +760,10 @@ __all__ = [
     "knowledge_get_import_status",
     "knowledge_query",
     "knowledge_get_graph",
+    # EPIC-004
+    "knowledge_backup_namespace",
+    "knowledge_restore_namespace",
+    "knowledge_refresh_namespace",
+    # EPIC-007
+    "find_notes_by_knowledge_link",
 ]

@@ -40,7 +40,51 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from dashboard.knowledge.metrics import get_metrics_registry
+
 logger = logging.getLogger(__name__)
+
+
+# Import bridge lazily to avoid circular imports
+_bridge_index = None
+_bridge_warned_unavailable = False  # Track if we've logged the "unavailable" warning
+
+
+def _get_bridge_index():
+    """Lazily import and get the bridge index singleton.
+    
+    Returns None if:
+    - Bridge is disabled (OSTWIN_KNOWLEDGE_MEMORY_BRIDGE != "1")
+    - Bridge module import fails
+    - Memory server is unavailable
+    
+    Logs a warning ONCE when the bridge is unavailable.
+    """
+    global _bridge_index, _bridge_warned_unavailable
+    
+    if _bridge_index is None:
+        try:
+            from dashboard.knowledge.bridge import get_bridge_index, is_bridge_enabled
+            if is_bridge_enabled():
+                _bridge_index = get_bridge_index()
+                if _bridge_index is None:
+                    # Bridge enabled but not available
+                    if not _bridge_warned_unavailable:
+                        logger.warning(
+                            "Memory-Knowledge bridge enabled but unavailable; "
+                            "memory_links will be empty for all queries. "
+                            "This warning will not repeat."
+                        )
+                        _bridge_warned_unavailable = True
+            # If bridge is disabled, we silently return None (no warning needed)
+        except ImportError:
+            if not _bridge_warned_unavailable:
+                logger.warning(
+                    "Bridge module not available; memory_links will be empty. "
+                    "This warning will not repeat."
+                )
+                _bridge_warned_unavailable = True
+    return _bridge_index
 
 
 # Hard ceiling on PageRank result count — even the most graph-heavy
@@ -66,6 +110,7 @@ class ChunkHit(BaseModel):
     file_hash: str = ""
     mime_type: Optional[str] = None
     category_id: Optional[str] = None
+    memory_links: list[str] = Field(default_factory=list)
 
 
 class EntityHit(BaseModel):
@@ -187,6 +232,10 @@ class KnowledgeQueryEngine:
         t0 = time.perf_counter()
         result = QueryResult(query=query, mode=mode, namespace=self.namespace)
 
+        # Get metrics registry
+        metrics = get_metrics_registry()
+        metrics.counter("query_total").inc()
+
         # --- 1) Embed the query --------------------------------------
         try:
             q_embed = self.embedder.embed_one(query)
@@ -194,12 +243,14 @@ class KnowledgeQueryEngine:
             logger.error("Failed to embed query %r: %s", query, exc)
             result.warnings.append(f"embed_failed: {exc}")
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
+            metrics.counter("query_errors_total").inc()
             return result
 
         if not q_embed:
             # Embedder returned nothing — surface as a warning and bail.
             result.warnings.append("embed_returned_empty")
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
+            metrics.counter("query_errors_total").inc()
             return result
 
         # --- 2) Vector search ----------------------------------------
@@ -209,12 +260,16 @@ class KnowledgeQueryEngine:
             logger.error("Vector search failed for %r: %s", query, exc)
             result.warnings.append(f"vector_search_failed: {exc}")
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
+            metrics.counter("query_errors_total").inc()
             return result
 
         # Threshold filter (COSINE — higher is better).
         hits = [h for h in hits if float(h.score) >= float(threshold)]
         result.chunks = [self._to_chunk_hit(h) for h in hits]
         result.citations = [self._to_citation(h) for h in hits]
+
+        # Enrich chunks with memory_links via bridge (if enabled)
+        self._enrich_memory_links(result.chunks)
 
         if mode == "raw":
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -263,6 +318,8 @@ class KnowledgeQueryEngine:
                     result.answer = None
 
         result.latency_ms = int((time.perf_counter() - t0) * 1000)
+        # Record query latency histogram (convert ms to seconds)
+        metrics.histogram("query_latency_seconds").observe(result.latency_ms / 1000.0)
         return result
 
     # ---- Graph visualisation ---------------------------------------------
@@ -342,6 +399,35 @@ class KnowledgeQueryEngine:
             mime_type=md.get("mime_type"),
             category_id=md.get("category_id"),
         )
+
+    def _enrich_memory_links(self, chunks: list[ChunkHit]) -> None:
+        """Enrich chunks with memory_links from the bridge index.
+        
+        This is a no-op if the bridge is disabled or unavailable.
+        Modifies chunks in-place.
+        """
+        bridge = _get_bridge_index()
+        if bridge is None:
+            return
+        
+        for chunk in chunks:
+            if not chunk.file_hash:
+                continue
+            try:
+                note_ids = bridge.lookup(
+                    namespace=self.namespace,
+                    file_hash=chunk.file_hash,
+                    chunk_idx=chunk.chunk_index,
+                )
+                chunk.memory_links = note_ids
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Bridge lookup failed for %s/%s#%d: %s",
+                    self.namespace,
+                    chunk.file_hash,
+                    chunk.chunk_index,
+                    exc,
+                )
 
     def _to_citation(self, vh: Any) -> Citation:
         md = getattr(vh, "metadata", None) or {}

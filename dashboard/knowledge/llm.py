@@ -6,6 +6,9 @@ the missing-key path.
 
 Heavy `anthropic` SDK is imported lazily inside methods to keep package import
 time fast.
+
+EPIC-003 Hardening: LLM calls honour OSTWIN_KNOWLEDGE_LLM_TIMEOUT (default 60s).
+On timeout, log WARNING and return graceful empty result.
 """
 
 from __future__ import annotations
@@ -14,9 +17,12 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any
 
 from dashboard.knowledge.config import LLM_MODEL
+from dashboard.knowledge.audit import LLM_TIMEOUT  # noqa: WPS433
+from dashboard.knowledge.metrics import get_metrics_registry  # noqa: WPS433
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +152,15 @@ class KnowledgeLLM:
         return None
 
     def _complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
-        """Run a single Anthropic Messages call. Returns the text content."""
+        """Run a single Anthropic Messages call. Returns the text content.
+
+        EPIC-003: Honours OSTWIN_KNOWLEDGE_LLM_TIMEOUT (default 60s).
+        On timeout, logs WARNING and returns empty string (graceful degradation).
+        """
+        metrics = get_metrics_registry()
+        metrics.counter("llm_calls_total").inc()
+        t0 = time.perf_counter()
+        
         client = self._get_client()
         try:
             response = client.messages.create(
@@ -154,6 +168,7 @@ class KnowledgeLLM:
                 max_tokens=max_tokens,
                 system=system,
                 messages=[{"role": "user", "content": user}],
+                timeout=LLM_TIMEOUT,
             )
             # Anthropic response: content is list of blocks; pick text blocks.
             parts = []
@@ -162,8 +177,22 @@ class KnowledgeLLM:
                 text = getattr(block, "text", None)
                 if text:
                     parts.append(text)
-            return "".join(parts)
+            result_text = "".join(parts)
+            # Record successful latency
+            elapsed = time.perf_counter() - t0
+            metrics.histogram("llm_latency_seconds").observe(elapsed)
+            return result_text
         except Exception as exc:  # noqa: BLE001
+            metrics.counter("llm_errors_total").inc()
+            # Check for timeout specifically
+            exc_name = type(exc).__name__
+            if "Timeout" in exc_name or "timeout" in str(exc).lower():
+                logger.warning(
+                    "llm_timeout: Anthropic call timed out after %ss (model=%s)",
+                    LLM_TIMEOUT,
+                    self.model,
+                )
+                return ""
             logger.error("Anthropic call failed: %s", exc)
             return ""
 

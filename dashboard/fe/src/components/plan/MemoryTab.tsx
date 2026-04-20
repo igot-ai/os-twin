@@ -837,7 +837,7 @@ function Splitter({
 // ── Main MemoryTab ───────────────────────────────────────────────────
 
 export default function MemoryTab() {
-  const { planId } = usePlanContext();
+  const { planId, highlightNoteId, setHighlightNoteId } = usePlanContext();
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -914,6 +914,20 @@ export default function MemoryTab() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // EPIC-007: Handle highlightNoteId from cross-tab navigation (e.g., from KnowledgeTab BacklinkBadge)
+  useEffect(() => {
+    if (highlightNoteId && graphData?.nodes) {
+      // Check if the note exists in the graph
+      const noteExists = graphData.nodes.some(n => n.id === highlightNoteId);
+      if (noteExists) {
+        // Select the highlighted note
+        setSelectedNodeId(highlightNoteId);
+        // Clear the highlightNoteId so it doesn't persist
+        setHighlightNoteId(null);
+      }
+    }
+  }, [highlightNoteId, graphData?.nodes, setHighlightNoteId]);
 
   const selectedNode = graphData?.nodes.find(n => n.id === selectedNodeId) || null;
 

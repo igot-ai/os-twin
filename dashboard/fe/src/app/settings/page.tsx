@@ -12,6 +12,7 @@ import { AddProviderModal } from '@/components/settings/AddProviderModal';
 import { VaultSecretModal } from '@/components/settings/VaultSecretModal';
 import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
+import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
 import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
 
@@ -369,6 +370,20 @@ export default function SettingsPage() {
             onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
           />
         );
+
+      case 'knowledge': {
+        const knowledgeDefaults = { llm_model: '', embedding_model: '', embedding_dimension: 384 };
+        const knowledgeCurrent = settings.knowledge ?? knowledgeDefaults;
+        return (
+          <KnowledgePanel
+            knowledge={knowledgeCurrent}
+            onUpdate={(value) =>
+              updateNamespace('knowledge', { ...knowledgeCurrent, ...value })
+            }
+            allModels={allModels}
+          />
+        );
+      }
 
       default:
         return null;

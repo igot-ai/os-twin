@@ -58,7 +58,7 @@ from dashboard.tasks import startup_all
 from dashboard.routes import (
     auth, system, mcp, threads, plans, rooms, skills, 
     roles, memory, amem, channels, command, tunnel, 
-    files, settings, engagement
+    files, settings, engagement, knowledge
 )
 
 # Configure logging — file + console
@@ -121,6 +121,14 @@ async def app_lifespan(_app):
     # create_task so the lifecycle doesn't block the server from accepting
     # connections.
     asyncio.create_task(startup_all())
+    
+    # Start knowledge service background tasks (retention sweeper)
+    try:
+        from dashboard.routes.knowledge import _get_service
+        service = _get_service()
+        service.start_background()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to start knowledge background services: %s", exc)
 
     # Drive the FastMCP app's own lifespan inside ours so its
     # ``session_manager.run()`` initialises the task group. Without this,
@@ -208,6 +216,14 @@ async def _shutdown_app() -> None:
 
     if gs.bot_manager and gs.bot_manager.is_running:
         await gs.bot_manager.stop()
+    
+    # Shutdown knowledge service (stop retention sweeper, release caches)
+    try:
+        from dashboard.routes.knowledge import _get_service
+        service = _get_service()
+        service.shutdown()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to shutdown knowledge service: %s", exc)
 
 
 app = FastAPI(title="OS Twin Command Center", version="0.1.0", lifespan=app_lifespan)
@@ -276,6 +292,7 @@ app.include_router(command.router)
 app.include_router(tunnel.router)
 app.include_router(files.router)
 app.include_router(settings.router)
+app.include_router(knowledge.router)  # EPIC-001: /api/knowledge/* REST API
 
 # --- MCP endpoint (knowledge) -------------------------------------------
 # Mounted as a sub-app at /mcp via FastMCP's streamable-HTTP transport.

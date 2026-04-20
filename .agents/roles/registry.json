@@ -487,6 +487,30 @@
       "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
+      "name": "knowledge-curator",
+      "description": "Knowledge curator — manages knowledge namespaces, refresh schedules, retention decisions, ingest curation, and query-quality monitoring",
+      "definition": "contributes/roles/knowledge-curator/role.json",
+      "prompt": "contributes/roles/knowledge-curator/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "knowledge-management",
+        "namespace-curation",
+        "retention-policy",
+        "quality-monitoring",
+        "curation-reporting"
+      ],
+      "quality_gates": [
+        "curation-report-produced",
+        "retention-policy-documented",
+        "no-unsafe-destructive-ops"
+      ],
+      "default_model": "google-vertex/gemini-3-flash-preview"
+    },
+    {
       "name": "technical-writer",
       "description": "Document gameplay instructions and verify final project state",
       "runner": "roles/_base/Start-DynamicRole.ps1",
@@ -723,6 +747,68 @@
           "governance"
         ],
         "trust_level": "core"
+      },
+      {
+        "name": "curate-namespace",
+        "description": "Perform a comprehensive curation audit of a knowledge namespace, assessing health and generating recommendations",
+        "path": "skills/roles/knowledge-curator/curate-namespace/SKILL.md",
+        "skills": "knowledge-curator, curation, audit",
+        "tags": [
+          "knowledge",
+          "curation",
+          "audit",
+          "namespace"
+        ],
+        "trust_level": "standard"
+      },
+      {
+        "name": "set-retention",
+        "description": "Configure retention policy for a knowledge namespace, controlling automatic cleanup of old imports",
+        "path": "skills/roles/knowledge-curator/set-retention/SKILL.md",
+        "skills": "knowledge-curator, retention, ttl",
+        "tags": [
+          "knowledge",
+          "retention",
+          "ttl",
+          "cleanup"
+        ],
+        "trust_level": "standard"
+      },
+      {
+        "name": "schedule-refresh",
+        "description": "Schedule or trigger a refresh of a knowledge namespace by re-importing all source folders",
+        "path": "skills/roles/knowledge-curator/schedule-refresh/SKILL.md",
+        "skills": "knowledge-curator, refresh, update",
+        "tags": [
+          "knowledge",
+          "refresh",
+          "reindex"
+        ],
+        "trust_level": "standard"
+      },
+      {
+        "name": "audit-quality",
+        "description": "Audit the quality of a knowledge namespace by analyzing query performance and index health",
+        "path": "skills/roles/knowledge-curator/audit-quality/SKILL.md",
+        "skills": "knowledge-curator, quality, monitoring",
+        "tags": [
+          "knowledge",
+          "quality",
+          "performance"
+        ],
+        "trust_level": "standard"
+      },
+      {
+        "name": "propose-rebuild",
+        "description": "Propose a rebuild of a corrupted or degraded knowledge namespace with backup and recovery steps",
+        "path": "skills/roles/knowledge-curator/propose-rebuild/SKILL.md",
+        "skills": "knowledge-curator, rebuild, recovery",
+        "tags": [
+          "knowledge",
+          "rebuild",
+          "repair"
+        ],
+        "trust_level": "standard"
       }
     ]
   }

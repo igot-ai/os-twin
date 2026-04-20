@@ -198,3 +198,22 @@ class MemoryNote:
         from pathlib import Path
 
         return cls.from_markdown(Path(path).read_text(encoding="utf-8"))
+
+    def get_knowledge_links(self) -> list:
+        """Extract all knowledge:// links from this note's links.
+        
+        Returns:
+            List of KnowledgeLink objects for valid knowledge:// links.
+            Regular memory ID links are ignored.
+        """
+        from .knowledge_link import parse_knowledge_links
+        return parse_knowledge_links(self.links or [])
+    
+    def get_memory_links(self) -> List[str]:
+        """Get all non-knowledge links (regular memory IDs) from this note.
+        
+        Returns:
+            List of memory ID strings that are not knowledge:// links.
+        """
+        from .knowledge_link import is_knowledge_link
+        return [link for link in (self.links or []) if not is_knowledge_link(link)]

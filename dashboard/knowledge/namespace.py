@@ -99,6 +99,9 @@ class NamespaceStats(BaseModel):
 
     All counters default to 0 and are updated by the ingestor / query layer.
     ``bytes_on_disk`` is computed lazily (e.g. by ``Ingestor`` after a run).
+    
+    EPIC-005: Added disk_bytes (computed), last_query_at, query_count_24h, 
+    ingest_count_24h for observability.
     """
 
     files_indexed: int = 0
@@ -107,6 +110,11 @@ class NamespaceStats(BaseModel):
     relations: int = 0
     vectors: int = 0
     bytes_on_disk: int = 0
+    # EPIC-005: New observability fields
+    disk_bytes: int = 0  # Computed lazily; actual disk usage
+    last_query_at: Optional[datetime] = None  # Timestamp of last query
+    query_count_24h: int = 0  # Queries in last 24 hours
+    ingest_count_24h: int = 0  # Ingestions in last 24 hours
 
 
 class ImportRecord(BaseModel):
@@ -121,10 +129,28 @@ class ImportRecord(BaseModel):
     job_id: Optional[str] = None
 
 
-class NamespaceMeta(BaseModel):
-    """Manifest metadata for a single namespace."""
+class RetentionPolicy(BaseModel):
+    """Retention policy for a namespace (EPIC-004).
 
-    schema_version: int = 1
+    Controls automatic cleanup of import records and optional namespace deletion
+    when all imports expire.
+    """
+
+    policy: str = "manual"  # "manual" | "ttl_days"
+    ttl_days: Optional[int] = None  # Only used when policy == "ttl_days"
+    last_swept_at: Optional[datetime] = None  # Timestamp of last TTL sweep
+    auto_delete_when_empty: bool = False  # Delete namespace when all imports purged
+
+
+class NamespaceMeta(BaseModel):
+    """Manifest metadata for a single namespace.
+
+    Schema versions:
+    - v1: Original schema (EPIC-002)
+    - v2: Added retention field (EPIC-004)
+    """
+
+    schema_version: int = 2  # Bumped from 1 to 2 in EPIC-004
     name: str
     created_at: datetime
     updated_at: datetime
@@ -136,6 +162,8 @@ class NamespaceMeta(BaseModel):
     embedding_dimension: int = EMBEDDING_DIMENSION
     stats: NamespaceStats = Field(default_factory=NamespaceStats)
     imports: list[ImportRecord] = Field(default_factory=list)
+    # EPIC-004: Retention policy for automatic cleanup
+    retention: RetentionPolicy = Field(default_factory=RetentionPolicy)
 
 
 # ---------------------------------------------------------------------------
@@ -360,15 +388,18 @@ class NamespaceManager:
 
     # ---- Stats / imports -------------------------------------------------
 
-    def update_stats(self, namespace: str, **stats_delta: int) -> NamespaceMeta:
-        """Apply integer deltas to the namespace's ``stats`` block.
+    def update_stats(self, namespace: str, **stats_delta: Any) -> NamespaceMeta:
+        """Apply deltas or set values in the namespace's ``stats`` block.
+
+        EPIC-005: Extended to handle both integer deltas and direct assignments
+        (for non-integer fields like last_query_at).
 
         Example::
 
-            nm.update_stats("docs", chunks=42, entities=10)
+            nm.update_stats("docs", chunks=42, entities=10)  # Integer deltas
+            nm.update_stats("docs", last_query_at=datetime.now())  # Direct assignment
 
-        Held under the manager lock so concurrent ingestion threads can't lose
-        increments. Read-modify-write — slow but correct.
+        Integer fields are incremented; other fields (datetime, etc.) are set directly.
         """
         self._require_valid_id(namespace)
         with self._lock:
@@ -376,10 +407,15 @@ class NamespaceManager:
             if meta is None:
                 raise NamespaceNotFoundError(namespace)
             stats = meta.stats.model_dump()
-            for key, delta in stats_delta.items():
+            for key, value in stats_delta.items():
                 if key not in stats:
                     raise ValueError(f"Unknown stats field: {key!r}")
-                stats[key] = stats[key] + int(delta)
+                # Integer fields: apply delta
+                if isinstance(value, (int, float)) and isinstance(stats[key], (int, float)):
+                    stats[key] = stats[key] + int(value)
+                else:
+                    # Non-integer fields (datetime, etc.): set directly
+                    stats[key] = value
             meta.stats = NamespaceStats(**stats)
             meta.updated_at = _utcnow()
             self.write_manifest(namespace, meta)
@@ -440,6 +476,11 @@ class NamespaceManager:
         Returns None if the directory doesn't exist, the manifest is missing,
         or the JSON is unreadable / invalid. Logs a warning on parse failure
         so corruption isn't silently masked as "namespace doesn't exist".
+
+        Schema migration (EPIC-004):
+        - v1 manifests (schema_version=1 or missing) are auto-migrated to v2
+          by adding the default retention field.
+        - Migration is persisted in-place so subsequent loads are fast.
         """
         path = self._manifest_path_for(namespace)
         if not path.exists():
@@ -450,11 +491,35 @@ class NamespaceManager:
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Failed to read manifest for %r at %s: %s", namespace, path, exc)
             return None
+
+        # Schema migration: v1 → v2 (EPIC-004)
+        # v1 manifests have schema_version=1 or no schema_version field
+        # v2 adds the 'retention' field
+        migrated = False
+        if raw.get("schema_version", 1) < 2:
+            logger.info("Migrating manifest for %r from v%d to v2", namespace, raw.get("schema_version", 1))
+            # Add default retention field
+            if "retention" not in raw:
+                raw["retention"] = RetentionPolicy().model_dump(mode="json")
+            raw["schema_version"] = 2
+            migrated = True
+
         try:
-            return NamespaceMeta.model_validate(raw)
+            meta = NamespaceMeta.model_validate(raw)
         except Exception as exc:  # pydantic.ValidationError, etc.
             logger.warning("Manifest at %s failed validation: %s", path, exc)
             return None
+
+        # Persist migration in-place
+        if migrated:
+            try:
+                self.write_manifest(namespace, meta)
+                logger.info("Migrated manifest for %r saved", namespace)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to persist migrated manifest for %r: %s", namespace, exc)
+                # Continue with in-memory migration
+
+        return meta
 
 
 __all__ = [
@@ -468,4 +533,5 @@ __all__ = [
     "NamespaceMeta",
     "NamespaceNotFoundError",
     "NamespaceStats",
+    "RetentionPolicy",  # EPIC-004
 ]

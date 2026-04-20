@@ -53,6 +53,7 @@ from dashboard.knowledge.config import (
     SUPPORTED_DOCUMENT_EXTENSIONS,
 )
 from dashboard.knowledge.jobs import JobEvent, JobState
+from dashboard.knowledge.metrics import get_metrics_registry
 from dashboard.knowledge.namespace import (
     ImportRecord,
     NamespaceManager,
@@ -752,6 +753,9 @@ class Ingestor:
         started_at = _utcnow()
         run_t0 = time.monotonic()
 
+        # Get metrics registry for instrumentation
+        metrics = get_metrics_registry()
+
         # ---- 1) Validate inputs --------------------------------------
         folder = Path(folder_path)
         if not folder.exists():
@@ -926,6 +930,9 @@ class Ingestor:
             total_chunks += counts["chunks_added"]
             total_entities += counts["entities_added"]
             total_relations += counts["relations_added"]
+            # Record metrics for this file
+            metrics.counter("ingest_files_total").inc()
+            metrics.counter("ingest_bytes_total").inc(fe.size)
             emit(
                 JobEvent(
                     timestamp=_utcnow(),
@@ -972,6 +979,8 @@ class Ingestor:
             logger.warning("Could not append import record: %s", exc)
 
         elapsed = time.monotonic() - run_t0
+        # Record ingestion latency
+        metrics.histogram("ingest_latency_seconds").observe(elapsed)
         result = {
             "namespace": namespace,
             "folder_path": str(folder),

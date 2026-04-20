@@ -159,6 +159,15 @@ export interface ObservabilitySettings {
   trace_enabled: boolean;
 }
 
+export interface KnowledgeSettings {
+  /** Empty string means "use server default (config.LLM_MODEL / env var)". */
+  llm_model: string;
+  /** Empty string means "use server default (config.EMBEDDING_MODEL / env var)". */
+  embedding_model: string;
+  /** Read-only / informational. The actual dim is determined by the loaded embedding model. */
+  embedding_dimension: number;
+}
+
 export interface MasterSettings {
   providers: ProvidersNamespace;
   roles: Record<string, RoleSettings>;
@@ -167,6 +176,7 @@ export interface MasterSettings {
   memory: MemorySettings;
   channels: ChannelsNamespace;
   observability: ObservabilitySettings;
+  knowledge?: KnowledgeSettings;
 }
 
 export interface EffectiveResolution {
@@ -174,7 +184,7 @@ export interface EffectiveResolution {
   provenance: Record<string, string>;
 }
 
-export type SettingsNamespace = 'providers' | 'runtime' | 'memory';
+export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge';
 
 export interface VaultStatus {
   is_set: boolean;

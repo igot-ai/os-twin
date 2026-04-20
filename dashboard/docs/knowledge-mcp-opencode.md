@@ -113,3 +113,121 @@ Once registered, opencode (or any MCP client) can chain calls like:
 
 The `summarized` answer comes back with citations pointing to the
 original files, so the LLM client can present a sourced response.
+
+## 6) Authentication
+
+### Dev Mode (No Auth)
+
+When `OSTWIN_DEV_MODE=1` is set in the dashboard environment, the MCP endpoint accepts unauthenticated connections. This is useful for:
+- Local development
+- Testing in CI
+- Quick prototyping
+
+### Production Mode (Bearer Auth)
+
+In production, set `OSTWIN_API_KEY` in `~/.ostwin/.env`:
+
+```bash
+# In ~/.ostwin/.env
+OSTWIN_API_KEY=your-secure-api-key-here
+```
+
+Then configure opencode with the key:
+
+```json
+{
+  "mcp": {
+    "ostwin-knowledge": {
+      "type": "remote",
+      "url": "http://localhost:3366/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${env:OSTWIN_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+### Security Notes
+
+- **Never commit API keys** to source control
+- Use environment variable substitution (`${env:VAR}`) in opencode.json
+- Rotate keys periodically
+- For multi-tenant setups, consider per-namespace access controls
+
+## 7) Memory ↔ Knowledge Bridge
+
+The Knowledge system integrates with the Memory (A-mem-sys) MCP server via a bridge that allows:
+
+### Knowledge Links in Memory Notes
+
+Memory notes can reference Knowledge entities using `knowledge://` URIs:
+
+```
+knowledge://namespace-name/file-hash#chunk-index
+```
+
+### Bridge MCP Tool
+
+The `find_notes_by_knowledge_link` tool searches memory notes that reference specific knowledge entities:
+
+```python
+# Find memory notes linked to a knowledge chunk
+result = find_notes_by_knowledge_link(
+    namespace="my-docs",
+    file_hash="abc123",
+    chunk_idx=0
+)
+# Returns: {"note_ids": ["uuid1", "uuid2"], "count": 2}
+```
+
+### Configuring the Bridge
+
+The bridge is enabled by default when both Knowledge and Memory MCP servers are configured. No additional configuration needed.
+
+## 8) Troubleshooting
+
+### Connection Refused
+
+```
+Error: Failed to connect to MCP server
+```
+
+**Solution**: Ensure the dashboard is running on the expected port (default 9000, or 3366 for the standalone MCP endpoint).
+
+### 401 Unauthorized
+
+```
+{"error": "Missing API key", "code": "AUTH_REQUIRED"}
+```
+
+**Solution**: Either set `OSTWIN_DEV_MODE=1` for dev, or provide a valid `OSTWIN_API_KEY` in the Authorization header.
+
+### Tools Not Appearing
+
+```
+opencode mcp list
+# Shows 0 tools
+```
+
+**Solution**: 
+1. Verify the MCP mount is correctly configured in `dashboard/api.py`
+2. Check dashboard logs for startup errors
+3. Ensure `OSTWIN_API_KEY` matches between client and server
+
+### Import Timeout
+
+Imports for large folders may take minutes. Check job status:
+
+```python
+status = knowledge_get_import_status(namespace="x", job_id="y")
+print(f"State: {status['state']}")
+print(f"Progress: {status['progress_current']}/{status['progress_total']}")
+print(f"Errors: {status['errors']}")
+```
+
+## 9) Further Reading
+
+- [Knowledge User Guide](./knowledge.md) — Full REST API reference
+- [Architecture Guide](./knowledge-architecture.md) — Internal design
+- [Curator Guide](./knowledge-curator-guide.md) — Agent role documentation
