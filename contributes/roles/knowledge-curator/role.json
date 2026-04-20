@@ -1,0 +1,47 @@
+{
+  "name": "knowledge-curator",
+  "description": "Knowledge curator — manages knowledge namespaces, refresh schedules, retention decisions, ingest curation, and query-quality monitoring",
+  "capabilities": [
+    "knowledge-management",
+    "namespace-curation",
+    "retention-policy",
+    "quality-monitoring",
+    "curation-reporting"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "curation-report-produced",
+    "retention-policy-documented",
+    "no-unsafe-destructive-ops"
+  ],
+  "cli": "agent",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600,
+  "skill_refs": [
+    "curate-namespace",
+    "set-retention",
+    "schedule-refresh",
+    "audit-quality",
+    "propose-rebuild"
+  ],
+  "instance_type": "worker",
+  "allowed_mcp_tools": [
+    "knowledge_list_namespaces",
+    "knowledge_create_namespace",
+    "knowledge_delete_namespace",
+    "knowledge_import_folder",
+    "knowledge_get_import_status",
+    "knowledge_query",
+    "knowledge_get_graph",
+    "knowledge_backup_namespace",
+    "knowledge_restore_namespace",
+    "knowledge_refresh_namespace"
+  ],
+  "_comment_restricted_tools": "These are behavioral restrictions enforced via prompt instructions. Opencode does not have a native mechanism to restrict built-in tools per-agent. The MCP tool allowlist above IS technically enforced.",
+  "restricted_tools": [
+    "bash",
+    "write",
+    "edit",
+    "read"
+  ]
+}
