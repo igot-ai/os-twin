@@ -2,7 +2,7 @@
 name: structure-data-request
 description: Use this skill to compose a formal, structured data request using the DATA template and send it as a task message to the data analyst via the war-room channel.
 tags: [audit, risk-officer, data-request, data-analyst-handoff, war-room]
-trust_level: core
+: core
 ---
 
 # structure-data-request

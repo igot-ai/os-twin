@@ -2,7 +2,7 @@
 name: qa-knowledge
 description: Unity game testing reference — testing strategies, automation patterns, QA workflows for mobile Unity games
 tags: [qa, testing, knowledge, unity]
-trust_level: core
+: core
 source: project
 ---
 

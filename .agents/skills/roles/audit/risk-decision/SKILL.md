@@ -2,7 +2,7 @@
 name: risk-decision
 description: Use this skill to convert validated analytical findings into one of four decision categories (Accept, Mitigate, Investigate, Escalate) and produce a Risk Decision Record."
 tags: [audit, risk-officer, decision-making, risk-management, governance]
-trust_level: core
+: core
 ---
 
 # risk-decision

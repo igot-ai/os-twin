@@ -2,7 +2,7 @@
 name: brainstorm-game
 description: Brainstorm game concepts and mechanics
 tags: [game-designer, design, brainstorm]
-trust_level: core
+: core
 source: project
 ---
 

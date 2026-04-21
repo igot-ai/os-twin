@@ -2,7 +2,7 @@
 name: implement-epic
 description: Use this skill to break an epic into sub-tasks, implement them sequentially, write tests, and deliver a structured done report.
 tags: [engineer, implementation, epic, planning]
-trust_level: core
+: core
 ---
 
 # implement-epic

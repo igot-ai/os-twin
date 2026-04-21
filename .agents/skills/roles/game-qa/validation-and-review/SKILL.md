@@ -2,7 +2,7 @@
 name: validation-and-review
 description: Validate deliverables against acceptance criteria
 tags: [qa, validation, review]
-trust_level: core
+: core
 source: project
 ---
 

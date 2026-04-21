@@ -2,7 +2,7 @@
 name: review-epic
 description: Use this skill to perform a full epic review — verify TASKS.md, cross-check code changes, run the test suite, and post a structured verdict.
 tags: [qa, review, epic, verification]
-trust_level: core
+: core
 ---
 
 # review-epic

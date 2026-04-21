@@ -2,7 +2,7 @@
 name: test-review
 description: Review test coverage and quality
 tags: [qa, testing, review]
-trust_level: core
+: core
 source: project
 ---
 

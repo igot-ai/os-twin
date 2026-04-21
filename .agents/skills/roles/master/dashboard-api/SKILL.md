@@ -2,7 +2,7 @@
 name: dashboard-api
 description: Use this skill to query the Ostwin dashboard REST API for plan status, war-room state, semantic search, and aggregate stats. Essential for answering user questions about project progress.
 tags: [global, api, dashboard, context]
-trust_level: core
+: core
 ---
 
 # dashboard-api

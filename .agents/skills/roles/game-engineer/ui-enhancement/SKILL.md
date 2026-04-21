@@ -2,7 +2,7 @@
 name: ui-enhancement
 description: Enhance existing Unity UI components
 tags: [engineer, implementation, ui]
-trust_level: core
+: core
 source: project
 ---
 
