@@ -245,15 +245,25 @@ exit 0
 
         It "timeout kill uses confirmed PID from self-registration" {
             # Create a slow mock that writes its PID, then sleeps forever
-            $slowPidAgent = Join-Path $TestDrive "slow-pid.sh"
-            @"
+            if ($IsWindows) {
+                $slowPidAgent = Join-Path $TestDrive "slow-pid.ps1"
+                @"
+if (`$env:AGENT_OS_PID_FILE) {
+  `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
+}
+Start-Sleep -Seconds 300
+"@ | Out-File $slowPidAgent -Encoding utf8 -NoNewline
+            } else {
+                $slowPidAgent = Join-Path $TestDrive "slow-pid.sh"
+                @"
 #!/bin/bash
 if [[ -n "`${AGENT_OS_PID_FILE:-}" ]]; then
   echo "`$$" > "`$AGENT_OS_PID_FILE"
 fi
 sleep 300
 "@ | Out-File $slowPidAgent -Encoding utf8 -NoNewline
-            chmod +x $slowPidAgent
+                chmod +x $slowPidAgent
+            }
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "slow" `
@@ -289,20 +299,27 @@ sleep 300
         It "complete flow: wrapper sets env, agent writes PID, Invoke-Agent confirms" {
             # Simulate the full chain: wrapper exports AGENT_OS_PID_FILE,
             # mock agent reads it and writes PID, Invoke-Agent picks it up
-            $fullChainAgent = Join-Path $TestDrive "full-chain.sh"
-            @"
+            if ($IsWindows) {
+                $fullChainAgent = Join-Path $TestDrive "full-chain.ps1"
+                @"
+if (`$env:AGENT_OS_PID_FILE) {
+  `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
+}
+Write-Output 'work complete'
+exit 0
+"@ | Out-File $fullChainAgent -Encoding utf8 -NoNewline
+            } else {
+                $fullChainAgent = Join-Path $TestDrive "full-chain.sh"
+                @"
 #!/bin/bash
-# This simulates what bin/agent does:
-# 1. Check for AGENT_OS_PID_FILE
-# 2. Write $$ to it
-# 3. Do work
 if [[ -n "`${AGENT_OS_PID_FILE:-}" ]]; then
   echo "`$$" > "`$AGENT_OS_PID_FILE"
 fi
 echo "work complete"
 exit 0
 "@ | Out-File $fullChainAgent -Encoding utf8 -NoNewline
-            chmod +x $fullChainAgent
+                chmod +x $fullChainAgent
+            }
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "architect" -Prompt "review" `

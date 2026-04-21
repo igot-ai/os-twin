@@ -690,8 +690,15 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
             if ($confirmedPid -and $confirmedPid -ne $proc.Id) {
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             }
+            # Wait for process to fully exit so file handles are released
+            # (Windows doesn't release locks immediately after Stop-Process)
+            try { $proc.WaitForExit(3000) } catch {}
             $exitCode = 124
-            "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+            try {
+                "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+            } catch {
+                Write-Warning "[Invoke-Agent] Could not write timeout message to output file: $_"
+            }
         }
         else {
             $exitCode = $proc.ExitCode
