@@ -2,7 +2,7 @@
 name: check-readiness
 description: Validate architecture readiness before engineering
 tags: [architect, gate, readiness]
-: core
+
 source: project
 ---
 

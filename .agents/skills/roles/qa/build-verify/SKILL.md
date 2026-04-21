@@ -2,7 +2,7 @@
 name: build-verify
 description: Use this skill to install project dependencies and build the application — detect the project type, run the correct install and build commands, and report any failures.
 tags: [qa, build, dependencies, install, verification]
-: core
+
 ---
 
 # build-verify

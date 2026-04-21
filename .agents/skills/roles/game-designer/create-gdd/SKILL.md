@@ -2,7 +2,7 @@
 name: create-gdd
 description: Create a Game Design Document from game brief
 tags: [game-designer, design, gdd]
-: core
+
 source: project
 ---
 

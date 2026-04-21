@@ -8,14 +8,6 @@ project_root = Path(__file__).parent.parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-
-def pytest_configure(config):
-    """Register custom pytest markers used across the suite."""
-    config.addinivalue_line(
-        "markers",
-        "slow: marks tests as slow (real model load / network — deselect with -m 'not slow')",
-    )
-
 @pytest.fixture(autouse=True)
 def isolated_test_env(tmp_path):
     """

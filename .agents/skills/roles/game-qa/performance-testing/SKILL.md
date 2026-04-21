@@ -2,7 +2,7 @@
 name: performance-testing
 description: Run performance profiling and 60fps validation
 tags: [qa, testing, performance]
-: core
+
 source: project
 ---
 

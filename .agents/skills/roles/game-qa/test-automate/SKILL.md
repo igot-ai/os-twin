@@ -2,7 +2,7 @@
 name: test-automate
 description: Automate test cases using Unity test frameworks
 tags: [qa, testing, automation]
-: core
+
 source: project
 ---
 

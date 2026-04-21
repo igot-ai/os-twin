@@ -2,7 +2,7 @@
 name: correct-course
 description: Course-correct when implementation diverges from architecture
 tags: [architect, escalation, correction]
-: core
+
 source: project
 ---
 

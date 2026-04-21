@@ -2,7 +2,7 @@
 name: document-project
 description: Document project architecture and features
 tags: [tech-writer, documentation, project]
-: core
+
 source: project
 ---
 

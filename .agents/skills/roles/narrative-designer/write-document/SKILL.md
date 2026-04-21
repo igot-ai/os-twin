@@ -2,7 +2,7 @@
 name: write-document
 description: Write technical documentation or guides"
 tags: [tech-writer, documentation, writing]
-: core
+
 ---
 
 # Workflow: Write Document

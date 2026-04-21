@@ -2,7 +2,7 @@
 name: war-room-communication
 description: Use this skill for standard war-room channel communication — message types, progress reporting, handoff patterns, and protocol rules.
 tags: [global, communication, protocol, war-room]
-trust_level: core
+
 ---
 
 # war-room-communication
