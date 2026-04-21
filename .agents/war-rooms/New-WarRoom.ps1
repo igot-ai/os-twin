@@ -181,7 +181,8 @@ if (Test-Path $configPath) {
 # --- Load plan-specific roles config (~/.ostwin/.agents/plans/{plan_id}.roles.json) ---
 $planRolesConfig = $null
 if ($PlanId) {
-    $planRolesFile = Join-Path $env:HOME ".ostwin" ".agents" "plans" "$PlanId.roles.json"
+    $_home = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+    $planRolesFile = Join-Path $_home ".ostwin" ".agents" "plans" "$PlanId.roles.json"
     if (Test-Path $planRolesFile) {
         $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
     }
@@ -211,7 +212,8 @@ if ($planRolesConfig -and $planRolesConfig.$baseRole) {
 }
 # Priority 1b: fallback to role.json skill_refs when plan roles.json is missing/empty
 if ($roleSkillRefs.Count -eq 0) {
-    $homeRoleJsonPath = Join-Path $env:HOME ".ostwin" "roles" $baseRole "role.json"
+    $homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+    $homeRoleJsonPath = Join-Path $homeDir ".ostwin" "roles" $baseRole "role.json"
     if (Test-Path $homeRoleJsonPath) {
         try {
             $homeRoleData = Get-Content $homeRoleJsonPath -Raw | ConvertFrom-Json

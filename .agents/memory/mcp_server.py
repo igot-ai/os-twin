@@ -110,7 +110,8 @@ def _find_project_root() -> str:
             return parent_cwd
         # Walk up parent chain (deepagents -> langgraph -> wrapper -> shell)
         for _ in range(5):
-            ppid_stat = open(f"/proc/{ppid}/stat").read()
+            with open(f"/proc/{ppid}/stat") as _f:
+                ppid_stat = _f.read()
             ppid = int(ppid_stat.split(")")[1].split()[1])  # 4th field = ppid
             if ppid <= 1:
                 break
