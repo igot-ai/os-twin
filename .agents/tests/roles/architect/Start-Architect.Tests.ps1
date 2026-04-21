@@ -32,22 +32,29 @@ $TestDrive
         New-Item -ItemType File -Path (Join-Path $script:roomDir "channel.jsonl") -Force | Out-Null
 
         # Create a config with mock that ignores the prompt and prints MOCK_OUT
-        $script:mockAgentPath = Join-Path $TestDrive "mock-arch.sh"
-        "echo `"`$MOCK_OUT`"" | Out-File $script:mockAgentPath -Encoding ascii
+        if ($IsWindows) {
+            $script:mockAgentPath = Join-Path $TestDrive "mock-arch.ps1"
+            "Write-Output `"`$env:MOCK_OUT`"" | Out-File $script:mockAgentPath -Encoding ascii
+            $mockCli = "pwsh -NoProfile -File ""$script:mockAgentPath"""
+        } else {
+            $script:mockAgentPath = Join-Path $TestDrive "mock-arch.sh"
+            "echo `"`$MOCK_OUT`"" | Out-File $script:mockAgentPath -Encoding ascii
+            $mockCli = "bash ""$script:mockAgentPath"""
+        }
         $script:configFile = Join-Path $TestDrive "config-arch.json"
         @{
             engineer = @{
-                cli              = "bash ""$script:mockAgentPath"""
+                cli              = $mockCli
                 default_model    = "test-model"
                 timeout_seconds  = 10
             }
             qa = @{
-                cli             = "bash ""$script:mockAgentPath"""
+                cli             = $mockCli
                 default_model   = "test-model"
                 timeout_seconds = 10
             }
             architect = @{
-                cli             = "bash ""$script:mockAgentPath"""
+                cli             = $mockCli
                 default_model   = "test-model"
                 timeout_seconds = 10
             }
@@ -57,7 +64,7 @@ $TestDrive
             }
         } | ConvertTo-Json -Depth 3 | Out-File $script:configFile -Encoding utf8
         $env:AGENT_OS_CONFIG = $script:configFile
-        $env:ARCHITECT_CMD = "bash ""$script:mockAgentPath"""
+        $env:ARCHITECT_CMD = $mockCli
     }
 
     AfterEach {
