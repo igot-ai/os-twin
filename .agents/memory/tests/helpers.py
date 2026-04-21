@@ -180,18 +180,26 @@ class InMemoryRetriever:
             substring_bonus = 1 if query.lower() and query.lower() in haystack else 0
             score = overlap * 10 + substring_bonus
 
+            # Assign a small baseline score to non-matching docs so
+            # this retriever behaves like vector search (always returns
+            # k nearest neighbors, even with low similarity).
             if score <= 0:
-                continue
+                score = 0.01
 
             ranked.append((score, doc_id, deepcopy(metadata)))
 
         ranked.sort(key=lambda item: (-item[0], item[1]))
         ranked = ranked[:k]
 
+        # Normalize scores to 0.0-1.0 range (cosine-like) so time-decay
+        # tests get float similarity values instead of raw integer counts.
+        max_score = ranked[0][0] if ranked else 1
+        max_score = max(max_score, 1)  # avoid div-by-zero
+
         return {
             "ids": [[item[1] for item in ranked]],
             "metadatas": [[item[2] for item in ranked]],
-            "distances": [[item[0] for item in ranked]],
+            "distances": [[float(item[0]) / max_score for item in ranked]],
         }
 
 
