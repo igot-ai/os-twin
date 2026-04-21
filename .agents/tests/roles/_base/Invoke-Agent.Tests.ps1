@@ -84,9 +84,14 @@ Describe "Invoke-Agent" {
     Context "Timeout handling" {
         It "sets TimedOut flag when command times out" {
             # Create a mock that ignores all args and sleeps
-            $sleepScript = Join-Path $TestDrive "slow-mock.sh"
-            "#!/bin/bash`nsleep 30" | Out-File $sleepScript -Encoding utf8
-            chmod +x $sleepScript
+            if ($IsWindows) {
+                $sleepScript = Join-Path $TestDrive "slow-mock.ps1"
+                "Start-Sleep -Seconds 30" | Out-File $sleepScript -Encoding utf8
+            } else {
+                $sleepScript = Join-Path $TestDrive "slow-mock.sh"
+                "#!/bin/bash`nsleep 30" | Out-File $sleepScript -Encoding utf8
+                chmod +x $sleepScript
+            }
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "slow" `
@@ -270,17 +275,22 @@ Describe "Invoke-Agent" {
         }
 
         It "exports AGENT_OS_SKILLS_DIR pointing to project-level path (verified via echo mock)" {
-            # Create a mock bash script that echoes AGENT_OS_SKILLS_DIR with a tag
-            $echoMock = Join-Path $TestDrive "echo-env.sh"
-            "#!/bin/bash`necho SKILLS_DIR_IS:`$AGENT_OS_SKILLS_DIR" | Out-File $echoMock -Encoding utf8
-            chmod +x $echoMock
+            # Create a mock script that echoes AGENT_OS_SKILLS_DIR with a tag
+            if ($IsWindows) {
+                $echoMock = Join-Path $TestDrive "echo-env.ps1"
+                "Write-Output `"SKILLS_DIR_IS:`$env:AGENT_OS_SKILLS_DIR`"" | Out-File $echoMock -Encoding utf8
+            } else {
+                $echoMock = Join-Path $TestDrive "echo-env.sh"
+                "#!/bin/bash`necho SKILLS_DIR_IS:`$AGENT_OS_SKILLS_DIR" | Out-File $echoMock -Encoding utf8
+                chmod +x $echoMock
+            }
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd $echoMock -TimeoutSeconds 5
 
-            # Must match .agents/skills (not .war-rooms/.../skills)
-            $result.Output | Should -Match "SKILLS_DIR_IS:.*\.agents/skills"
+            # Must match .agents/skills or .agents\skills (cross-platform)
+            $result.Output | Should -Match "SKILLS_DIR_IS:.*\.agents[/\\]skills"
             $result.Output | Should -Not -Match "SKILLS_DIR_IS:.*\.war-rooms"
         }
 
@@ -301,12 +311,20 @@ Describe "Invoke-Agent" {
             Remove-Item Env:AGENT_OS_PROJECT_DIR -ErrorAction SilentlyContinue
 
             try {
-                $echoMock = Join-Path $TestDrive "echo-no-projdir-$(Get-Random).sh"
-                @"
+                if ($IsWindows) {
+                    $echoMock = Join-Path $TestDrive "echo-no-projdir-$(Get-Random).ps1"
+                    @"
+`$val = if (`$env:AGENT_OS_PROJECT_DIR) { `$env:AGENT_OS_PROJECT_DIR } else { 'UNSET' }
+Write-Output "PROJDIR_CHECK:`$val"
+"@ | Out-File $echoMock -Encoding utf8
+                } else {
+                    $echoMock = Join-Path $TestDrive "echo-no-projdir-$(Get-Random).sh"
+                    @"
 #!/bin/bash
 echo "PROJDIR_CHECK:`${AGENT_OS_PROJECT_DIR:-UNSET}"
 "@ | Out-File $echoMock -Encoding utf8
-                chmod +x $echoMock
+                    chmod +x $echoMock
+                }
 
                 $projectDir = Join-Path $TestDrive "project-noexport-$(Get-Random)"
                 $roomDir = Join-Path $projectDir ".war-rooms" "room-noexport"
@@ -334,13 +352,19 @@ echo "PROJDIR_CHECK:`${AGENT_OS_PROJECT_DIR:-UNSET}"
         BeforeEach {
             # Create a mock that dumps all args to a file
             $script:argsDump = Join-Path $TestDrive "args-$(Get-Random).txt"
-            $script:argsMock = Join-Path $TestDrive "argsmock-$(Get-Random).sh"
-            @"
+            if ($IsWindows) {
+                $script:argsMock = Join-Path $TestDrive "argsmock-$(Get-Random).ps1"
+                @"
+`$args | ForEach-Object { `$_ } | Out-File -FilePath '$($script:argsDump)' -Encoding utf8
+"@ | Out-File $script:argsMock -Encoding utf8
+            } else {
+                $script:argsMock = Join-Path $TestDrive "argsmock-$(Get-Random).sh"
+                @"
 #!/bin/bash
-# Write all args to the dump file
 for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
 "@ | Out-File $script:argsMock -Encoding utf8
-            chmod +x $script:argsMock
+                chmod +x $script:argsMock
+            }
         }
 
         It "passes a short positional message and prompt via --file" {
@@ -569,12 +593,19 @@ for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
         }
 
         It "passes short message positional, not legacy 'start' or inline prompt" {
-            $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).sh"
-            @"
+            if ($IsWindows) {
+                $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).ps1"
+                @"
+Write-Output "ARGS: `$(`$args -join ' ')"
+"@ | Out-File $captureMock -Encoding utf8
+            } else {
+                $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).sh"
+                @"
 #!/bin/bash
 echo "ARGS: `$@"
 "@ | Out-File $captureMock -Encoding utf8
-            chmod +x $captureMock
+                chmod +x $captureMock
+            }
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test positional prompt" `
