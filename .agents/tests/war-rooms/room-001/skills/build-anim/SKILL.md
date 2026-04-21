@@ -2,7 +2,7 @@
 name: build-anim
 description: Build Unity UI animations from a reference video and an animation detection JSON. Analyses the JSON for keyframe data (position, scale, opacity, timing), identifies animated object categories (tiles, effects, text pop-ups, particles), writes PrimeTween-based C# scripts with UniTask async orchestration, wires them to scene GameObjects via MCP tools, and validates in Play Mode. Trigger on 'build animation', 'implement animation from video', 'animate this UI', 'set up animations', 'wire up animation scripts', 'create animation system', or when the user provides an animation detection JSON and a reference video. Also invoke proactively when the user has run detect-anim and has the JSON output but hasn't yet built the runtime scripts."
 tags: []
-trust_level: experimental
+
 ---
 
 **Quick Start:** Read animation_clips JSON (v6.1.0) from `unity-animation-analyzer` -> classify objects by category -> write PrimeTween + UniTask C# scripts -> wire to scene via MCP -> validate in Play Mode.
