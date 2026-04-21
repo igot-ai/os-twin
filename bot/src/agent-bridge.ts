@@ -15,9 +15,45 @@ import {
   type FunctionCall,
 } from '@google/generative-ai';
 import config from './config';
-import api from './api';
+import api, {
+  type Plan,
+  type Room,
+  type PlanAsset,
+  type PlansResult,
+  type RoomsResult,
+  type Stats,
+  type ClawhubSkill,
+  type RoomMessage,
+} from './api';
 import { getSession, setPlan, clearSession, getStagedImages, getStagedFiles, persistAfterMessage } from './sessions';
 import { flushStagedAttachments } from './asset-staging';
+
+/** Tool call arguments — maps tool name to expected args shape. */
+interface ToolArgs {
+  plan_id?: string;
+  idea?: string;
+  instruction?: string;
+  room_id?: string;
+  limit?: number;
+  query?: string;
+}
+
+/** Memory note from the amem API. */
+interface MemoryNote {
+  title?: string;
+  path?: string;
+  tags?: string[];
+  keywords?: string[];
+  excerpt?: string;
+  body?: string;
+  links?: string[];
+}
+
+/** Staged file metadata. */
+interface StagedFile {
+  name: string;
+  contentType?: string;
+}
 
 // ── Chat history helpers ──────────────────────────────────────────────────
 
@@ -263,7 +299,7 @@ async function executeTool(
         name,
         response: {
           success: true,
-          plans: data.plans.map((p: any) => ({
+          plans: data.plans.map((p: Plan) => ({
             plan_id: p.plan_id,
             title: p.title,
             status: p.status,
@@ -276,28 +312,28 @@ async function executeTool(
     }
 
     case 'get_plan_status': {
-      const planId = (args as any).plan_id;
+      const planId = (args as ToolArgs).plan_id || '';
       const [plan, epics, rooms] = await Promise.all([
-        api.getPlan(planId),
+        api.getPlan(planId) as Promise<Plan & { _error?: string }>,
         api.getPlanEpics(planId),
         api.getRooms(),
       ]);
-      if ((plan as any)?._error) {
+      if (plan?._error) {
         return { name, response: { success: false, error: `Plan "${planId}" not found.` } };
       }
-      const planRooms = rooms.rooms.filter((r: any) =>
-        r.plan_id === planId || r.epic_ref?.startsWith('EPIC-'),
+      const planRooms = rooms.rooms.filter((r: Room) =>
+        (r as Room & { plan_id?: string }).plan_id === planId || r.epic_ref?.startsWith('EPIC-'),
       );
       return {
         name,
         response: {
           success: true,
           plan_id: planId,
-          title: (plan as any).title,
-          status: (plan as any).status,
-          pct_complete: (plan as any).pct_complete,
+          title: plan.title,
+          status: plan.status,
+          pct_complete: plan.pct_complete,
           epics: epics,
-          active_rooms: planRooms.map((r: any) => ({
+          active_rooms: planRooms.map((r: Room) => ({
             room_id: r.room_id,
             epic_ref: r.epic_ref,
             status: r.status,
@@ -307,11 +343,11 @@ async function executeTool(
     }
 
     case 'create_plan': {
-      const idea = (args as any).idea;
+      const idea = (args as ToolArgs).idea || '';
       const session = getSession(ctx.userId, ctx.platform);
       const workingDir =
         session.workingDir ||
-        registry.getConfig(ctx.platform as any)?.settings?.working_dir ||
+        registry.getConfig(ctx.platform as 'discord' | 'telegram' | 'slack')?.settings?.working_dir ||
         '';
 
       // Get staged files (all types) and images (for vision API)
@@ -322,13 +358,13 @@ async function executeTool(
       
       console.log(`[AGENT] create_plan: hasImages=${hasImages}, hasFiles=${hasFiles}, stagedFiles=${stagedFiles.length}`);
       if (hasFiles) {
-        console.log(`[AGENT] Staged files:`, stagedFiles.map((f: any) => ({ name: f.name, type: f.contentType })));
+        console.log(`[AGENT] Staged files:`, stagedFiles.map((f: StagedFile) => ({ name: f.name, type: f.contentType })));
       }
 
       // Step 1: AI generates the plan content (include files/images if available)
       let refineMessage = `Draft a new plan for: ${idea}`;
       if (hasFiles) {
-        const fileList = stagedFiles.map((f: any) => `- ${f.name} (${f.contentType})`).join('\n');
+        const fileList = stagedFiles.map((f: StagedFile) => `- ${f.name} (${f.contentType})`).join('\n');
         refineMessage += `\n\nThe user has attached ${stagedFiles.length} file(s):\n${fileList}\n\nIMPORTANT INSTRUCTIONS FOR ASSETS:\n1. These files WILL BE SAVED as plan assets automatically after the plan is created.\n2. In each epic, explicitly reference these assets by filename.\n3. Describe HOW each asset should be used in that epic's implementation.\n4. For images: specify which UI components they belong to, their placement, and styling.\n5. For design mockups: break them down into sections and map each section to an epic.\n6. Create a dedicated "Assets" section in the plan listing all files and their intended use.`;
       }
       const result = await api.refinePlan({
@@ -393,13 +429,13 @@ async function executeTool(
     }
 
     case 'refine_plan': {
-      const planId = (args as any).plan_id;
-      const instruction = (args as any).instruction;
-      const plan = await api.getPlan(planId);
-      if ((plan as any)?._error) {
+      const planId = (args as ToolArgs).plan_id || '';
+      const instruction = (args as ToolArgs).instruction || '';
+      const plan = await api.getPlan(planId) as Plan & { _error?: string };
+      if (plan?._error) {
         return { name, response: { success: false, error: `Plan "${planId}" not found.` } };
       }
-      const planContent = (plan as any).content || '';
+      const planContent = plan.content || '';
 
       // Get session for chat history context
       const session = getSession(ctx.userId, ctx.platform);
@@ -429,12 +465,12 @@ async function executeTool(
     }
 
     case 'launch_plan': {
-      const planId = (args as any).plan_id;
-      const plan = await api.getPlan(planId);
-      if ((plan as any)?._error) {
+      const planId = (args as ToolArgs).plan_id || '';
+      const plan = await api.getPlan(planId) as Plan & { _error?: string };
+      if (plan?._error) {
         return { name, response: { success: false, error: `Plan "${planId}" not found.` } };
       }
-      const content = (plan as any).content || '';
+      const content = plan.content || '';
       const result = await api.launchPlan(planId, content);
       if (result?._error) {
         return { name, response: { success: false, error: result._error } };
@@ -455,30 +491,30 @@ async function executeTool(
         name,
         response: {
           success: true,
-          rooms: roomsData.rooms.map((r: any) => ({
+          rooms: roomsData.rooms.map((r: Room) => ({
             room_id: r.room_id,
             epic_ref: r.epic_ref,
             status: r.status,
-            plan_id: r.plan_id,
+            plan_id: (r as Room & { plan_id?: string }).plan_id,
           })),
           summary: roomsData.summary,
           stats: {
-            total_plans: (stats as any)?.total_plans?.value ?? '?',
-            active_epics: (stats as any)?.active_epics?.value ?? '?',
-            completion_rate: (stats as any)?.completion_rate?.value ?? '?',
-            escalations: (stats as any)?.escalations_pending?.value ?? 0,
+            total_plans: stats?.total_plans?.value ?? '?',
+            active_epics: stats?.active_epics?.value ?? '?',
+            completion_rate: stats?.completion_rate?.value ?? '?',
+            escalations: stats?.escalations_pending?.value ?? 0,
           },
         },
       };
     }
 
     case 'resume_plan': {
-      const planId = (args as any).plan_id;
-      const plan = await api.getPlan(planId);
-      if ((plan as any)?._error) {
+      const planId = (args as ToolArgs).plan_id || '';
+      const plan = await api.getPlan(planId) as Plan & { _error?: string };
+      if (plan?._error) {
         return { name, response: { success: false, error: `Plan "${planId}" not found.` } };
       }
-      const content = (plan as any).content || '';
+      const content = plan.content || '';
       const result = await api.resumePlan(planId, content);
       if (result?._error) {
         return { name, response: { success: false, error: result._error } };
@@ -494,8 +530,8 @@ async function executeTool(
     }
 
     case 'get_logs': {
-      const roomId = (args as any).room_id;
-      const limit = (args as any).limit || 10;
+      const roomId = (args as ToolArgs).room_id || '';
+      const limit = (args as ToolArgs).limit || 10;
       const data = await api.getRoomChannel(roomId, limit);
       if (data?._error) {
         return { name, response: { success: false, error: data._error } };
@@ -507,7 +543,7 @@ async function executeTool(
           success: true,
           room_id: roomId,
           messages: Array.isArray(msgs)
-            ? msgs.map((m: any) => ({
+             ? msgs.map((m: RoomMessage) => ({
                 from: m.from,
                 type: m.type,
                 body: (m.body || '').slice(0, 300),
@@ -551,14 +587,14 @@ async function executeTool(
     }
 
     case 'search_skills': {
-      const query = (args as any).query;
+      const query = (args as ToolArgs).query || '';
       const results = await api.searchSkillsClawhub(query);
       return {
         name,
         response: {
           success: true,
           query,
-          skills: results.slice(0, 10).map((s: any) => ({
+          skills: results.slice(0, 10).map((s: ClawhubSkill) => ({
             slug: s.slug || s.name,
             description: s.description,
             author: s.author,
@@ -573,7 +609,7 @@ async function executeTool(
     }
 
     case 'get_plan_assets': {
-      const planId = (args as any).plan_id;
+      const planId = (args as ToolArgs).plan_id || '';
       const result = await api.getPlanAssets(planId);
       if (result?.error) {
         return { name, response: { success: false, error: result.error } };
@@ -584,12 +620,12 @@ async function executeTool(
           success: true,
           plan_id: planId,
           total: result.count || result.assets?.length || 0,
-          assets: (result.assets || []).map((a: any) => ({
-            name: a.name || a.filename,
-            path: a.path || a.relative_path,
-            type: a.asset_type || a.type || 'unknown',
-            epic_ref: a.epic_ref || null,
-            size: a.size_bytes || a.size || null,
+          assets: (result.assets || []).map((a: PlanAsset) => ({
+            name: a.original_name || a.filename,
+            path: a.path,
+            type: a.asset_type || 'unknown',
+            epic_ref: a.bound_epics?.[0] || null,
+            size: a.size_bytes || null,
           })),
           message: result.assets?.length
             ? `Found ${result.assets.length} asset(s) for plan "${planId}".`
@@ -599,7 +635,7 @@ async function executeTool(
     }
 
     case 'get_memories': {
-      const planId = (args as any).plan_id;
+      const planId = (args as ToolArgs).plan_id || '';
       try {
         const [notesRes, statsRes, treeRes, graphImage] = await Promise.all([
           api.fetchJSON(`/api/amem/${planId}/notes`),
@@ -627,7 +663,7 @@ async function executeTool(
               total_keywords: statsRes?.total_keywords || 0,
               categories: statsRes?.categories || [],
             },
-            memories: notes.slice(0, 15).map((n: any) => ({
+            memories: notes.slice(0, 15).map((n: MemoryNote) => ({
               title: n.title,
               path: n.path,
               tags: n.tags || [],
@@ -640,8 +676,9 @@ async function executeTool(
               : `No memories found for plan "${planId}".`,
           },
         };
-      } catch (err: any) {
-        return { name, response: { success: false, error: `Failed to fetch memories: ${err.message}` } };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { name, response: { success: false, error: `Failed to fetch memories: ${message}` } };
       }
     }
 
@@ -682,8 +719,8 @@ function detectTrivial(text: string): string | null {
 // ── Context cache: avoid fetching plans/rooms on every message ───────────
 
 interface CachedContext {
-  plans: any;
-  rooms: any;
+  plans: PlansResult;
+  rooms: RoomsResult;
   fetchedAt: number;
 }
 
@@ -695,7 +732,7 @@ export function invalidateContextCache(): void {
   _contextCache = null;
 }
 
-async function getContextCached(): Promise<{ plans: any; rooms: any }> {
+async function getContextCached(): Promise<{ plans: PlansResult; rooms: RoomsResult }> {
   if (_contextCache && Date.now() - _contextCache.fetchedAt < CONTEXT_CACHE_TTL_MS) {
     return { plans: _contextCache.plans, rooms: _contextCache.rooms };
   }
@@ -737,12 +774,13 @@ async function executeToolWithRetry(
         timeoutMs,
         `tool:${call.name}`,
       );
-    } catch (err: any) {
-      if (attempt === 0 && canRetry && !err.message.includes('timed out')) {
-        console.warn(`[BRIDGE] Tool ${call.name} failed (attempt 1), retrying: ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt === 0 && canRetry && !message.includes('timed out')) {
+        console.warn(`[BRIDGE] Tool ${call.name} failed (attempt 1), retrying: ${message}`);
         continue;
       }
-      return { name: call.name, response: { error: err.message } as Record<string, unknown> };
+      return { name: call.name, response: { error: message } as Record<string, unknown> };
     }
   }
   return { name: call.name, response: { error: 'Unexpected retry exhaustion' } };
@@ -811,7 +849,7 @@ export async function askAgent(
   // Fetch cached context — only a summary line, not full data dump
   const { plans: plansData, rooms: roomsData } = await getContextCached();
   const planCount = plansData.plans?.length || 0;
-  const activeRooms = roomsData.rooms?.filter((r: any) => !['passed', 'failed-final'].includes(r.status))?.length || 0;
+  const activeRooms = roomsData.rooms?.filter((r: Room) => !['passed', 'failed-final'].includes(r.status))?.length || 0;
   const contextSummary = `You have access to ${planCount} plan(s) and ${activeRooms} active war-room(s). Use list_plans or get_war_room_status tools to get details when needed.`;
 
   const systemPrompt = `You are OS Twin, an autonomous AI assistant that manages software projects through the Ostwin multi-agent war-room orchestrator.
@@ -911,8 +949,9 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
       text: answer,
       attachments: pendingAttachments.length > 0 ? [...pendingAttachments] : undefined,
     };
-  } catch (err: any) {
-    console.error('[BRIDGE] AI API error:', err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[BRIDGE] AI API error:', message);
     return { text: '⚠️ Failed to get a response from the AI model.' };
   }
 }
