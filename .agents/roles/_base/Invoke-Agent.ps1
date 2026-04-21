@@ -89,7 +89,8 @@ param(
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
 
 # Resolve OSTWIN_HOME: env var → ~/.ostwin
-$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+$_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
 
 # Ensure RoomDir is absolute for bash wrapper consistency (EPIC-002)
 # Using GetUnresolvedProviderPathFromPSPath to handle non-existent paths (unlikely but safe)
