@@ -1,4 +1,4 @@
-# OS Twin (Ostwin) -- Multi-Agent War-Room Orchestration
+# Update OS Twin (Ostwin) -- Multi-Agent War-Room Orchestration
 
 An operating system for AI agents where an **Engineering Manager** orchestrates parallel **War-Rooms**, each containing an **Engineer** and a **QA Engineer** collaborating through shared JSONL channels until all tasks pass quality gates.
 
