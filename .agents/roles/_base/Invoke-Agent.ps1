@@ -505,12 +505,37 @@ export OSTWIN_PYTHON='$venvPythonUnix'
             $winOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig.Replace('/', '\') } else { "" }
             
             # Tokenize AgentCmd and args for PowerShell execution
-            # $AgentCmd may be "opencode run" or "'/path/to/agent'" - must split on spaces
-            # $extraCliArgs is already a proper array, use it directly instead of bash-escaped $argsLine
+            # $AgentCmd may be "opencode run", "'/path/to/agent'", or "/path/to/mock.ps1"
             $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
             $exe = $cmdParts[0]
             $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length - 1)] } else { @() }
-            $allArgs = $cmdArgs + $extraCliArgs
+
+            # If the command is a .ps1 script (possibly wrapped in "pwsh -NoProfile -File script.ps1"),
+            # extract the script path and run it directly via call operator in the wrapper.
+            # This avoids nested pwsh invocations with broken argument passing.
+            if ($exe -match '\.ps1$') {
+                # exe is already the .ps1 file — cmdArgs are its parameters
+                $allArgs = $cmdArgs + $extraCliArgs
+            } elseif ($exe -eq 'pwsh' -or $exe -eq 'powershell') {
+                # Look for -File flag and extract the script path
+                $fileIdx = [Array]::FindIndex($cmdArgs, [Predicate[object]]{ param($a) $a -eq '-File' })
+                if ($fileIdx -ge 0 -and ($fileIdx + 1) -lt $cmdArgs.Length) {
+                    $exe = $cmdArgs[$fileIdx + 1].Trim('"').Trim("'")
+                    # Drop -NoProfile, -File, and the script path from cmdArgs; keep the rest
+                    $remaining = @()
+                    for ($i = 0; $i -lt $cmdArgs.Length; $i++) {
+                        if ($i -eq $fileIdx -or $i -eq ($fileIdx + 1)) { continue }
+                        if ($cmdArgs[$i] -eq '-NoProfile' -or $cmdArgs[$i] -eq '-ExecutionPolicy' -or
+                            ($i -gt 0 -and $cmdArgs[$i - 1] -eq '-ExecutionPolicy')) { continue }
+                        $remaining += $cmdArgs[$i]
+                    }
+                    $allArgs = $remaining + $extraCliArgs
+                } else {
+                    $allArgs = $cmdArgs + $extraCliArgs
+                }
+            } else {
+                $allArgs = $cmdArgs + $extraCliArgs
+            }
             
             # Serialize args array into the wrapper script as a PowerShell array literal
             # Each arg must be properly escaped for PowerShell string handling
