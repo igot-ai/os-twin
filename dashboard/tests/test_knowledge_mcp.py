@@ -5,7 +5,7 @@ Validates:
 1. ``mcp_server`` module imports cheaply (no kuzu / zvec / sentence_transformers
    / markitdown / anthropic loaded eagerly).
 2. All 7 tools are registered on the FastMCP instance.
-3. The ``/mcp`` endpoint is mounted on the FastAPI app.
+3. The ``/api/knowledge/mcp`` endpoint is mounted on the FastAPI app.
 4. Each tool's body works when invoked directly (bypassing the JSON-RPC
    transport — separate concerns).
 5. Error paths return structured ``{"error", "code"}`` dicts (no raises).
@@ -150,15 +150,15 @@ def _captured_mcp_bearer_token() -> str | None:
 
 
 def test_mcp_endpoint_handshake_via_post() -> None:
-    """POST a real MCP initialize request to /mcp and confirm a JSON-RPC response.
+    """POST a real MCP initialize request to /api/knowledge/mcp and confirm a JSON-RPC response.
 
     Doesn't require a real MCP client — uses ``TestClient`` directly so we
     test the raw HTTP transport. If this passes, opencode and other MCP
     clients can connect.
 
     Catches both:
-      * D1 — FE catch-all shadowing the /mcp mount (would return 200 SPA HTML
-        on GET or 405 on POST).
+      * D1 — FE catch-all shadowing the /api/knowledge/mcp mount (would
+        return 200 SPA HTML on GET or 405 on POST).
       * D2 — FastMCP session manager task-group not initialised (would return
         500 with ``RuntimeError: Task group is not initialized``).
     """
@@ -167,7 +167,7 @@ def test_mcp_endpoint_handshake_via_post() -> None:
     # Use TestClient as a context manager so the FastAPI lifespan runs —
     # this is what kicks off the FastMCP session manager's task group via
     # the lifespan-forwarding hook in api.py. Without entering the
-    # context, every POST to /mcp/* returns 500 with
+    # context, every POST to /api/knowledge/mcp/* returns 500 with
     # "Task group is not initialized".
     payload = {
         "jsonrpc": "2.0",
@@ -194,7 +194,11 @@ def test_mcp_endpoint_handshake_via_post() -> None:
     successful_path = None
     last_response = None
     with TestClient(app, raise_server_exceptions=False) as client:
-        for path in ("/mcp/", "/mcp/mcp", "/mcp"):
+        for path in (
+            "/api/knowledge/mcp/",
+            "/api/knowledge/mcp/mcp",
+            "/api/knowledge/mcp",
+        ):
             r = client.post(path, json=payload, headers=headers)
             last_response = r
             if r.status_code == 200 and ("jsonrpc" in r.text or "result" in r.text):
@@ -202,7 +206,7 @@ def test_mcp_endpoint_handshake_via_post() -> None:
                 break
 
     assert successful_path is not None, (
-        f"No /mcp path returned a JSON-RPC handshake. "
+        f"No /api/knowledge/mcp path returned a JSON-RPC handshake. "
         f"Last status={last_response.status_code if last_response else 'n/a'}, "
         f"body={last_response.text[:500] if last_response else 'n/a'!r}"
     )
@@ -214,11 +218,12 @@ def test_mcp_endpoint_handshake_via_post() -> None:
 
 
 def test_mcp_endpoint_not_shadowed_by_fe_catchall() -> None:
-    """``GET /mcp`` must NOT return SPA HTML.
+    """``GET /api/knowledge/mcp`` must NOT return SPA HTML.
 
-    Direct regression test for D1. The FE catch-all used to intercept
-    ``/mcp`` and serve ``index.html``, returning 200 + 20 KB of HTML. The
-    fix adds an exception so the catch-all skips ``mcp`` paths.
+    Direct regression test for D1. The FE catch-all must never serve
+    ``index.html`` for the knowledge MCP mount path. The catch-all has a
+    blanket ``api/`` prefix exception that already handles this — this
+    test guards that the exception keeps working.
 
     A correct response is anything that is NOT an HTML SPA payload:
       * 405 / 406 / 404 from the MCP transport itself (acceptable — MCP
@@ -228,7 +233,7 @@ def test_mcp_endpoint_not_shadowed_by_fe_catchall() -> None:
     from dashboard.api import app
 
     client = TestClient(app, raise_server_exceptions=False)
-    r = client.get("/mcp")
+    r = client.get("/api/knowledge/mcp")
     body = r.text
     # The bug signature is a 200 status with HTML body containing <!DOCTYPE
     # html> — that's the dashboard SPA index.html being served.
@@ -238,8 +243,8 @@ def test_mcp_endpoint_not_shadowed_by_fe_catchall() -> None:
         and "_next" in body  # Next.js fingerprint
     )
     assert not is_spa_html, (
-        f"GET /mcp returned dashboard SPA HTML — FE catch-all is shadowing "
-        f"the MCP mount (body[:200]={body[:200]!r})"
+        f"GET /api/knowledge/mcp returned dashboard SPA HTML — FE catch-all "
+        f"is shadowing the MCP mount (body[:200]={body[:200]!r})"
     )
 
 
@@ -301,7 +306,7 @@ def test_mcp_full_lifecycle_via_real_client(
         from mcp import ClientSession  # noqa: WPS433
         from mcp.client.streamable_http import streamablehttp_client  # noqa: WPS433
 
-        url = f"http://127.0.0.1:{port}/mcp/"
+        url = f"http://127.0.0.1:{port}/api/knowledge/mcp/"
         async with streamablehttp_client(url) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
@@ -318,8 +323,8 @@ def test_mcp_full_lifecycle_via_real_client(
         while time.time() < deadline:
             try:
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/system/status", timeout=1
-                ) as resp:
+                        f"http://127.0.0.1:{port}/api/status", timeout=1
+                    ) as resp:
                     if resp.status < 500:
                         break
             except (urllib.error.URLError, ConnectionError, TimeoutError):

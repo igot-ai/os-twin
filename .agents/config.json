@@ -137,8 +137,10 @@
     "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "gemini-3.1-flash-lite-preview",
-    "timeout_seconds": 300
+    "default_model": "google-vertex/zai-org/glm-5-maas",
+    "timeout_seconds": 300,
+    "max_retries": 3,
+    "instance_type": "worker"
   },
   "autonomy": {
     "idle_explore_enabled": true,
@@ -160,7 +162,7 @@
     ]
   },
   "knowledge": {
-    "llm_model": "",
+    "llm_model": "google-vertex-anthropic/claude-haiku-4-5@20251001",
     "embedding_model": "",
     "embedding_dimension": 384
   }

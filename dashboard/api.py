@@ -99,7 +99,7 @@ logger.info("Dashboard log file: %s", _log_file)
 # --- App + lifespan ----------------------------------------------------
 # We need to drive the FastMCP streamable-HTTP app's lifespan from the
 # parent FastAPI app, otherwise the FastMCP session manager's task group
-# never starts and the first POST to /mcp/* dies with
+# never starts and the first POST to /api/knowledge/mcp/* dies with
 # ``RuntimeError: Task group is not initialized. Make sure to use run().``
 #
 # FastAPI/Starlette do NOT propagate lifespans to mounted sub-apps, so we
@@ -132,7 +132,7 @@ async def app_lifespan(_app):
 
     # Drive the FastMCP app's own lifespan inside ours so its
     # ``session_manager.run()`` initialises the task group. Without this,
-    # the first POST to /mcp/* dies with "Task group is not initialized".
+    # the first POST to /api/knowledge/mcp/* dies with "Task group is not initialized".
     #
     # IMPORTANT: ``StreamableHTTPSessionManager`` is single-use — it
     # raises ``RuntimeError`` on a second ``run()`` call. In production
@@ -173,7 +173,7 @@ async def app_lifespan(_app):
 
 
 def _replace_mounted_mcp_app(parent_app, fresh_mcp_app) -> None:
-    """Swap the inner FastMCP ASGI app on the existing /mcp mount.
+    """Swap the inner FastMCP ASGI app on the existing /api/knowledge/mcp mount.
 
     The parent FastAPI app's mount routes hold a reference to whatever was
     passed to ``app.mount(...)`` at startup. When we recreate the FastMCP
@@ -187,7 +187,7 @@ def _replace_mounted_mcp_app(parent_app, fresh_mcp_app) -> None:
     from starlette.routing import Mount
 
     for route in parent_app.router.routes:
-        if isinstance(route, Mount) and route.path == "/mcp":
+        if isinstance(route, Mount) and route.path == "/api/knowledge/mcp":
             existing = route.app
             # Direct mount (dev mode, no auth) — replace and we're done.
             if hasattr(existing, "router") and any(
@@ -295,7 +295,10 @@ app.include_router(settings.router)
 app.include_router(knowledge.router)  # EPIC-001: /api/knowledge/* REST API
 
 # --- MCP endpoint (knowledge) -------------------------------------------
-# Mounted as a sub-app at /mcp via FastMCP's streamable-HTTP transport.
+# Mounted as a sub-app at /api/knowledge/mcp via FastMCP's streamable-HTTP
+# transport. The /api/knowledge prefix keeps the MCP endpoint inside the
+# REST API namespace, freeing the bare /mcp path for the frontend SPA page
+# (the MCP server registry UI at fe/src/app/mcp/page.tsx).
 # Lazy: importing dashboard.knowledge.mcp_server does NOT pull kuzu / zvec /
 # sentence_transformers / anthropic — those load on the first tool call.
 # Auth: when OSTWIN_API_KEY is set AND OSTWIN_DEV_MODE != "1", a Starlette
@@ -339,18 +342,20 @@ try:
             routes=[Mount("/", app=_mcp_app)],
             middleware=[Middleware(_MCPBearerAuth)],
         )
-        app.mount("/mcp", wrapped_mcp)
-        logger.info("Knowledge MCP server mounted at /mcp (auth required)")
+        app.mount("/api/knowledge/mcp", wrapped_mcp)
+        logger.info("Knowledge MCP server mounted at /api/knowledge/mcp (auth required)")
     else:
-        app.mount("/mcp", _mcp_app)
+        app.mount("/api/knowledge/mcp", _mcp_app)
         if os.environ.get("OSTWIN_DEV_MODE") == "1":
             _port = os.environ.get("DASHBOARD_PORT", "3366")
             logger.info(
-                "Knowledge MCP server live at http://localhost:%s/mcp (dev mode, no auth)",
+                "Knowledge MCP server live at http://localhost:%s/api/knowledge/mcp (dev mode, no auth)",
                 _port,
             )
         else:
-            logger.info("Knowledge MCP server mounted at /mcp (no auth — OSTWIN_API_KEY unset)")
+            logger.info(
+                "Knowledge MCP server mounted at /api/knowledge/mcp (no auth — OSTWIN_API_KEY unset)"
+            )
 except Exception as _mcp_exc:
     logger.warning("Failed to mount knowledge MCP server: %s", _mcp_exc)
 
@@ -375,11 +380,12 @@ if USE_FE:
 
     @app.api_route("/{path:path}", methods=["GET", "HEAD"])
     async def fe_catch_all(path: str):
-        # Never serve SPA HTML for /api/* or /mcp/* paths — let those mounts
-        # handle them. The /mcp exception is required because Starlette's
-        # mount dispatch otherwise loses to this catch-all for the bare
-        # ``/mcp`` path (no trailing slash).
-        if path.startswith("api/") or path == "mcp" or path.startswith("mcp/"):
+        # Never serve SPA HTML for /api/* paths — let those routes/mounts
+        # handle them. The knowledge MCP server is mounted at
+        # /api/knowledge/mcp which is already covered by this prefix check,
+        # so the bare /mcp path is free to be served as the frontend SPA
+        # page (the MCP server registry UI).
+        if path.startswith("api/"):
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404, detail=f"Route not found: /{path}")

@@ -108,7 +108,7 @@ class TestKnowledgeE2EMcpLifecycle:
             while time.time() < deadline:
                 try:
                     with urllib.request.urlopen(
-                        f"http://127.0.0.1:{port}/api/system/status", timeout=1
+                        f"http://127.0.0.1:{port}/api/status", timeout=1
                     ) as resp:
                         if resp.status < 500:
                             break
@@ -134,7 +134,7 @@ class TestKnowledgeE2EMcpLifecycle:
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
-        url = f"http://127.0.0.1:{port}/mcp/"
+        url = f"http://127.0.0.1:{port}/api/knowledge/mcp/"
 
         async with streamablehttp_client(url) as (read, write, _):
             async with ClientSession(read, write) as session:
@@ -254,10 +254,9 @@ class TestKnowledgeE2EMcpLifecycle:
 
                 # ============================================================
                 # STEP 7: Delete namespace via MCP tool
-                # ============================================================
                 result = await session.call_tool(
                     "knowledge_delete_namespace",
-                    arguments={"namespace": "e2e-test-mcp"},
+                    arguments={"name": "e2e-test-mcp"},
                 )
                 assert result.isError is False, f"Delete failed: {result.content}"
                 print(f"[{time.perf_counter() - start_time:.1f}s] Namespace deleted via MCP")
@@ -291,10 +290,9 @@ class TestKnowledgeE2EMcpLifecycle:
 
                 # ============================================================
                 # STEP 10: Final cleanup
-                # ============================================================
                 result = await session.call_tool(
                     "knowledge_delete_namespace",
-                    arguments={"namespace": "e2e-test-mcp"},
+                    arguments={"name": "e2e-test-mcp"},
                 )
                 print(f"[{time.perf_counter() - start_time:.1f}s] Final cleanup complete")
 

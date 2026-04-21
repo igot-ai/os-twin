@@ -1,9 +1,13 @@
 # Connecting opencode to the Ostwin Knowledge MCP server
 
-The dashboard exposes a streamable-HTTP MCP server at **`/mcp/`** (note
-the trailing slash) that provides 7 tools for graph-RAG knowledge
+The dashboard exposes a streamable-HTTP MCP server at **`/api/knowledge/mcp/`**
+(note the trailing slash) that provides 7 tools for graph-RAG knowledge
 management. opencode (and any other MCP-compatible client) can connect
 and call them as native tools.
+
+> **Note:** The endpoint moved from `/mcp/` → `/api/knowledge/mcp/` so the
+> bare `/mcp` path can be used by the dashboard frontend (the MCP server
+> registry UI). Update any old client configs to the new URL.
 
 ## 1) Configuration
 
@@ -15,7 +19,7 @@ Add this block to `~/.config/opencode/opencode.json` (or to your project's
   "mcp": {
     "ostwin-knowledge": {
       "type": "remote",
-      "url": "http://localhost:3366/mcp/",
+      "url": "http://localhost:3366/api/knowledge/mcp/",
       "headers": {
         "Authorization": "Bearer ${env:OSTWIN_API_KEY}"
       }
@@ -24,8 +28,9 @@ Add this block to `~/.config/opencode/opencode.json` (or to your project's
 }
 ```
 
-> The trailing slash is required — `http://localhost:3366/mcp` (no slash)
-> returns a 404 because the FastAPI mount point is `/mcp/...`.
+> The trailing slash is required — `http://localhost:3366/api/knowledge/mcp`
+> (no slash) returns a 404 because the FastAPI mount point is
+> `/api/knowledge/mcp/...`.
 
 Then in your shell:
 
@@ -87,14 +92,14 @@ After configuring `opencode.json`, run:
 
 ```bash
 opencode mcp list
-# expected output: ostwin-knowledge   7 tools   http://localhost:3366/mcp/
+# expected output: ostwin-knowledge   7 tools   http://localhost:3366/api/knowledge/mcp/
 ```
 
 Or hand-poke the endpoint to confirm it's reachable:
 
 ```bash
 # Real MCP handshake — should return HTTP 200 with a JSON-RPC result body.
-curl -i -X POST http://localhost:3366/mcp/ \
+curl -i -X POST http://localhost:3366/api/knowledge/mcp/ \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"0.1"}}}'
@@ -139,7 +144,7 @@ Then configure opencode with the key:
   "mcp": {
     "ostwin-knowledge": {
       "type": "remote",
-      "url": "http://localhost:3366/mcp/",
+      "url": "http://localhost:3366/api/knowledge/mcp/",
       "headers": {
         "Authorization": "Bearer ${env:OSTWIN_API_KEY}"
       }

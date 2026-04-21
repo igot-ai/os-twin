@@ -1,7 +1,8 @@
 """FastMCP server exposing knowledge-management tools (EPIC-006).
 
-Mounted at ``/mcp`` in :mod:`dashboard.api`. External MCP clients
-(opencode, claude-desktop, custom) can connect, list tools, and call them.
+Mounted at ``/api/knowledge/mcp`` in :mod:`dashboard.api`. External MCP
+clients (opencode, claude-desktop, custom) can connect, list tools, and
+call them.
 
 All tools return JSON-serialisable dicts. Errors come back as
 ``{"error": "...", "code": "..."}`` — the tool body NEVER raises an
@@ -97,8 +98,8 @@ def _requires_confirmation() -> bool:
 # as a sub-app inside FastAPI (see ``dashboard/api.py``). The default mode
 # uses a long-running session manager whose task group is started by the
 # inner app's lifespan — which FastAPI does NOT propagate to mounted
-# sub-apps. Without stateless mode, the first POST to ``/mcp/...`` crashes
-# with ``RuntimeError: Task group is not initialized``. Stateless mode
+# sub-apps. Without stateless mode, the first POST to ``/api/knowledge/mcp/...``
+# crashes with ``RuntimeError: Task group is not initialized``. Stateless mode
 # spins up a per-request transport and avoids the problem entirely. Our
 # tools are pure functions with no per-session state, so this is safe.
 # DNS-rebinding protection: FastMCP auto-enables it when host is the default
@@ -116,10 +117,11 @@ _mcp_transport_security = TransportSecuritySettings(
 )
 
 # ``streamable_http_path="/"`` makes the FastMCP transport serve at the
-# root of its sub-app (so the externally-reachable URL is ``/mcp/`` —
-# matching the path the parent FastAPI mounts us at). The default is
-# ``/mcp`` which would push the real endpoint to ``/mcp/mcp`` — confusing
-# for users who follow the install snippet that just says ``/mcp``.
+# root of its sub-app (so the externally-reachable URL matches the parent
+# mount path — ``/api/knowledge/mcp/`` — without a duplicated ``/mcp``
+# segment). The default is ``/mcp`` which would push the real endpoint to
+# ``/api/knowledge/mcp/mcp`` — confusing for users following the install
+# snippet that just says ``/api/knowledge/mcp``.
 mcp = FastMCP(
     "ostwin-knowledge",
     stateless_http=True,
