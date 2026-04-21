@@ -5,7 +5,7 @@ version: 1.0.0
 category: Quality Assurance
 applicable_roles: [engineer, game-engineer, qa]
 tags: [engineer, implementation, testing, qa, coverage]
-trust_level: core
+
 source: project
 author: Agent OS Core
 ---

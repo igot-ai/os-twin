@@ -2,7 +2,7 @@
 name: explain-concept
 description: Explain a technical concept clearly
 tags: [tech-writer, documentation, explanation]
-trust_level: core
+
 source: project
 ---
 

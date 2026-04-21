@@ -1,0 +1,14 @@
+Project Notes — Acme Widget Toolkit
+
+These notes capture some implementation details discussed during the Acme
+Widget Toolkit (AWT) design review on April 1.
+
+The reactive Reactor uses topic-based subscriptions. Subscribers receive the
+most recent value on attach. Backpressure is intentionally not handled at the
+Reactor layer — consumers must throttle if needed.
+
+Themes are pure data — a theme is just a dict of token => value pairs. We
+considered making them classes but rejected that to keep theming serializable.
+
+Widget instances are cheap; do not pool them. Profiling on the Acme reference
+device showed allocation cost was negligible compared to layout cost.

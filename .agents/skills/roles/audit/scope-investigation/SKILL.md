@@ -2,7 +2,7 @@
 name: scope-investigation
 description: Use this skill to define the boundaries of a risk investigation using the DEPT framework before commissioning analytical work from a data analyst.
 tags: [audit, risk-officer, scoping, investigation, data-analyst-handoff]
-trust_level: core
+
 ---
 
 # scope-investigation

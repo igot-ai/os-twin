@@ -2,7 +2,7 @@
 name: runnable-verify
 description: Ensure each epic's code is runnable with valid dependencies. Detects conflicts, validates versions, runs the application, and provides fix instructions for dependency issues.
 tags: [qa, dependencies, runtime, verification, runnable]
-trust_level: core
+
 ---
 
 # runnable-verify

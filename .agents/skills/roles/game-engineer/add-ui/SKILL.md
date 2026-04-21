@@ -5,7 +5,7 @@ version: 1.1.0
 category: Implementation
 applicable_roles: [game-engineer, engineer, ui-designer]
 tags: [engineer, implementation, ui, unity, ugui]
-trust_level: core
+
 source: project
 author: Agent OS Core
 ---

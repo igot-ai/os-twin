@@ -1,0 +1,11 @@
+{
+  "name": "acme-widget-toolkit",
+  "version": "0.1.0",
+  "description": "Fictional UI framework used in Knowledge MCP test fixtures.",
+  "components": [
+    "Widget",
+    "Theme",
+    "Reactor"
+  ],
+  "license": "MIT"
+}

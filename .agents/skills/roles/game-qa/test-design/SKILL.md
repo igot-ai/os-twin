@@ -2,7 +2,7 @@
 name: test-design
 description: Design test plans from acceptance criteria
 tags: [qa, testing, design]
-trust_level: core
+
 source: project
 ---
 

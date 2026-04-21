@@ -146,5 +146,17 @@
   },
   "runtime": {
     "max_concurrent_rooms": 9999
+  },
+  "ceo": {
+    "default_model": "google-vertex/zai-org/glm-5-maas",
+    "timeout_seconds": 7000,
+    "max_retries": 3,
+    "instance_type": "evaluator",
+    "skill_refs": [
+      "bmad-sprint-planning"
+    ],
+    "mcp_refs": [
+      "memory"
+    ]
   }
 }

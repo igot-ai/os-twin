@@ -2,7 +2,7 @@
 name: create-lifecycle
 description: Use this skill to define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, and escalation rules within a war-room.
 tags: [architect, manager, process]
-trust_level: core
+
 ---
 
 # create-lifecycle

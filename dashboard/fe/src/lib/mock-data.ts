@@ -548,6 +548,7 @@ export const mockRoles: Role[] = [
     max_retries: 3,
     timeout_seconds: 900,
     skill_refs: ['implement-epic', 'fix-from-qa'],
+    instance_type: 'worker',
   },
   {
     id: 'role-002',
@@ -559,6 +560,7 @@ export const mockRoles: Role[] = [
     max_retries: 3,
     timeout_seconds: 600,
     skill_refs: ['review-epic'],
+    instance_type: 'evaluator',
   },
   {
     id: 'role-003',
@@ -570,6 +572,7 @@ export const mockRoles: Role[] = [
     max_retries: 2,
     timeout_seconds: 1200,
     skill_refs: ['review-epic', 'triage-escalation'],
+    instance_type: 'worker',
   },
   {
     id: 'role-004',
@@ -581,6 +584,7 @@ export const mockRoles: Role[] = [
     max_retries: 2,
     timeout_seconds: 1200,
     skill_refs: ['compliance-check'],
+    instance_type: 'evaluator',
   },
 ];
 
