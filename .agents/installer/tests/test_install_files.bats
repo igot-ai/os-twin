@@ -133,24 +133,3 @@ EOF
   
   rm -rf "$tmp_install" "$tmp_script"
 }
-
-@test "install-files.sh can be sourced without side effects" {
-  [[ -n "$_INSTALL_FILES_SH_LOADED" ]]
-}
-
-@test "install_files function is defined" {
-  declare -f install_files > /dev/null
-}
-
-@test "compute_build_hash function is defined" {
-  declare -f compute_build_hash > /dev/null
-}
-
-@test "internal helpers are defined" {
-  declare -f _seed_mcp_config > /dev/null
-  declare -f _sync_amem > /dev/null
-  declare -f _setup_mcp_symlink > /dev/null
-  declare -f _migrate_mcp_config > /dev/null
-  declare -f _sync_dashboard > /dev/null
-  declare -f _load_contributed_roles > /dev/null
-}

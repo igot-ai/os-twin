@@ -209,8 +209,8 @@ Describe "Sync-Bot" {
 
     It "Should sync bot directory when package.json exists" {
         Set-Content -Path (Join-Path $botSrc "package.json") -Value '{"name": "test-bot"}'
-        Set-Content -Path (Join-Path $botSrc "src" "index.ts") -Value "console.log('hello')"
         New-Item -ItemType Directory -Path (Join-Path $botSrc "src") -Force | Out-Null
+        Set-Content -Path (Join-Path $botSrc "src" "index.ts") -Value "console.log('hello')"
 
         Sync-Bot
 
