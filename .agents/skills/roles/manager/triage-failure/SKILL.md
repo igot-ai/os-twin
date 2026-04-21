@@ -2,7 +2,7 @@
 name: triage-failure
 description: Use this skill to classify QA failures using the error taxonomy -- route to fixing, architect-review, or plan-revision with documented context."
 tags: [manager, triage, routing, failure-handling]
-: core
+
 ---
 
 # triage-failure

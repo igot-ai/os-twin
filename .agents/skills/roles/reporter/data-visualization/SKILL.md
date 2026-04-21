@@ -2,7 +2,7 @@
 name: data-visualization
 description: Use this skill to create charts and visual components — bar charts, pie charts, metrics cards, and timelines with proper data formatting and labeling.
 tags: [reporter, data-visualization, charts, metrics]
-: core
+
 ---
 
 # data-visualization

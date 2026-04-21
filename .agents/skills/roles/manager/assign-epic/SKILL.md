@@ -2,7 +2,7 @@
 name: assign-epic
 description: Use this skill to assign epics from PLAN.md to war-rooms -- create rooms, assign creative specialist roles, and write briefs."
 tags: [manager, orchestration, assignment, war-room]
-: core
+
 ---
 
 # assign-epic

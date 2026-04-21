@@ -2,7 +2,7 @@
 name: playtest-plan
 description: Create playtest plans for user experience validation
 tags: [qa, testing, playtesting]
-: core
+
 source: project
 ---
 

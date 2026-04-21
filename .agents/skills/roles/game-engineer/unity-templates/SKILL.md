@@ -2,7 +2,7 @@
 name: unity-templates
 description: C# code templates for standard Unity feature structure (GameLogic, Events, Controller, Model, View, UI, Config, Installer)
 tags: [engineer, unity, templates, scaffolding]
-: core
+
 source: project
 ---
 

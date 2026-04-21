@@ -2,7 +2,7 @@
 name: create-ux-design
 description: Create UX design with screen flows and wireframes
 tags: [game-designer, design, ux]
-trust_level: core
+
 source: project
 ---
 

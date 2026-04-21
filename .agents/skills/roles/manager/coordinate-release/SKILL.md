@@ -2,7 +2,7 @@
 name: coordinate-release
 description: Use this skill to draft RELEASE.md when all war-rooms pass -- collect signoffs from all roles and finalize the release."
 tags: [manager, release, coordination, signoff]
-: core
+
 ---
 
 # coordinate-release

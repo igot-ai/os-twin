@@ -2,7 +2,7 @@
 name: create-story
 description: Create a dev story with acceptance criteria"
 tags: [game-designer, planning, story]
-trust_level: core
+
 ---
 
 # Workflow: Create Story

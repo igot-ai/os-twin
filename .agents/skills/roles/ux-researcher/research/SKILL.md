@@ -2,7 +2,7 @@
 name: research
 description: Conduct market, technical, or domain research
 tags: [researcher, research, analysis]
-: core
+
 source: project
 ---
 

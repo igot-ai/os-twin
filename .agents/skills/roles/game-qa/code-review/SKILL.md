@@ -2,7 +2,7 @@
 name: code-review
 description: Review Unity C# code for quality and correctness"
 tags: [qa, review, code-quality]
-: core
+
 ---
 
 # Workflow: Code Review Gate

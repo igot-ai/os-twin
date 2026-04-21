@@ -2,7 +2,7 @@
 name: create-role
 description: Use this skill to scaffold a new agent role — generates role.json, ROLE.md, and registers the role in registry.json.
 tags: [architect, manager, scaffolding]
-: core
+
 ---
 
 # create-role

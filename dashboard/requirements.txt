@@ -10,16 +10,3 @@ python-dotenv>=1.0.0
 httpx
 mcp[cli]>=1.1.3
 pyngrok>=7.0.0
-
-# --- Knowledge MCP (EPIC-001) ---
-# Vector store: zvec (already pinned at the top of this file). chromadb was
-# previously listed here but was dropped in favour of zvec — see
-# docs/done-reports/EPIC-003-engineer-v2.md and the revised ADR-04 in
-# docs/knowledge-mcp.plan.md.
-kuzu>=0.6,<1.0
-markitdown>=0.0.1
-anthropic>=0.40
-networkx>=3.0
-pyyaml
-tenacity
-llama-index-core>=0.11
