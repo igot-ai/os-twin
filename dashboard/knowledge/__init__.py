@@ -1,0 +1,113 @@
+"""Knowledge — Graph-RAG over imported folders.
+
+Public surface (post EPIC-003 v2):
+
+- :class:`KnowledgeService` — sync façade. Namespace lifecycle wired here;
+  ingestion (``import_folder``) lands in EPIC-003 and query (``query``,
+  ``get_graph``) in EPIC-004.
+- :class:`NamespaceManager`, :class:`NamespaceMeta`, :class:`NamespaceStats`,
+  :class:`ImportRecord` — namespace lifecycle primitives.
+- Namespace exceptions: :class:`NamespaceError`, :class:`NamespaceNotFoundError`,
+  :class:`NamespaceExistsError`, :class:`InvalidNamespaceIdError`.
+- :class:`KnowledgeLLM` — Anthropic wrapper for entity extraction, query
+  planning, and answer aggregation.
+- :class:`KnowledgeEmbedder` — sentence-transformers embedding helper.
+- :class:`NamespaceVectorStore`, :class:`VectorHit` — per-namespace zvec
+  vector wrapper used by ingestion and (in EPIC-004) query.
+- Graph internals: :class:`KuzuLabelledPropertyGraph`, :class:`GraphRAGExtractor`,
+  :class:`GraphRAGQueryEngine`, :class:`GraphRAGStore`,
+  :class:`TrackVectorRetriever`.
+
+Importing this module is intentionally cheap — heavy deps (kuzu, zvec,
+sentence_transformers, markitdown, anthropic) are imported lazily inside the
+methods that need them.
+"""
+
+from __future__ import annotations
+
+from dashboard.knowledge.config import (
+    EMBEDDING_DIMENSION,
+    EMBEDDING_MODEL,
+    KNOWLEDGE_DIR,
+    LLM_MODEL,
+)
+from dashboard.knowledge.embeddings import KnowledgeEmbedder
+from dashboard.knowledge.graph.core import (
+    GraphRAGExtractor,
+    GraphRAGQueryEngine,
+    GraphRAGStore,
+    TrackVectorRetriever,
+)
+from dashboard.knowledge.graph.index import KuzuLabelledPropertyGraph
+from dashboard.knowledge.ingestion import (
+    FileEntry,
+    IngestOptions,
+    Ingestor,
+)
+from dashboard.knowledge.jobs import (
+    JobEvent,
+    JobManager,
+    JobState,
+    JobStatus,
+)
+from dashboard.knowledge.llm import KnowledgeLLM
+from dashboard.knowledge.query import (
+    ChunkHit,
+    Citation,
+    EntityHit,
+    KnowledgeQueryEngine,
+    QueryResult,
+)
+from dashboard.knowledge.namespace import (
+    ImportRecord,
+    InvalidNamespaceIdError,
+    NamespaceError,
+    NamespaceExistsError,
+    NamespaceManager,
+    NamespaceMeta,
+    NamespaceNotFoundError,
+    NamespaceStats,
+)
+from dashboard.knowledge.service import KnowledgeService
+from dashboard.knowledge.vector_store import NamespaceVectorStore, VectorHit
+
+__all__ = [
+    "KNOWLEDGE_DIR",
+    "EMBEDDING_DIMENSION",
+    "EMBEDDING_MODEL",
+    "LLM_MODEL",
+    "KnowledgeService",
+    "KnowledgeLLM",
+    "KnowledgeEmbedder",
+    "KuzuLabelledPropertyGraph",
+    "GraphRAGExtractor",
+    "GraphRAGQueryEngine",
+    "GraphRAGStore",
+    "TrackVectorRetriever",
+    # Namespace primitives (EPIC-002)
+    "NamespaceManager",
+    "NamespaceMeta",
+    "NamespaceStats",
+    "ImportRecord",
+    "NamespaceError",
+    "NamespaceNotFoundError",
+    "NamespaceExistsError",
+    "InvalidNamespaceIdError",
+    # Ingestion + jobs (EPIC-003)
+    "Ingestor",
+    "IngestOptions",
+    "FileEntry",
+    "JobManager",
+    "JobStatus",
+    "JobEvent",
+    "JobState",
+    # Vector store (EPIC-003 v2 — zvec migration)
+    "NamespaceVectorStore",
+    "VectorHit",
+    # Query engine (EPIC-004)
+    "KnowledgeQueryEngine",
+    "QueryResult",
+    "ChunkHit",
+    "EntityHit",
+    "Citation",
+]

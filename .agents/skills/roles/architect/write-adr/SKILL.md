@@ -2,7 +2,7 @@
 name: write-adr
 description: Use this skill to write an Architecture Decision Record — document context, options, decision rationale, and consequences for key technical choices."
 tags: [architect, documentation, adr, technical-decisions]
-trust_level: core
+: core
 ---
 
 # write-adr

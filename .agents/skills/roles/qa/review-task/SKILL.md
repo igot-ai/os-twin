@@ -2,7 +2,7 @@
 name: review-task
 description: Use this skill to review a single task — read the done message, check code changes, validate acceptance criteria, and post a verdict.
 tags: [qa, review, task, verification]
-trust_level: core
+: core
 ---
 
 # review-task

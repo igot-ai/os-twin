@@ -2,7 +2,7 @@
 name: quick-spec
 description: Rapidly produce a feature specification
 tags: [game-designer, design, spec]
-trust_level: core
+: core
 source: project
 ---
 

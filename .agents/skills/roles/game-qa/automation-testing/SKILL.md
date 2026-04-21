@@ -2,7 +2,7 @@
 name: automation-testing
 description: Design and implement automated test suites"
 tags: [qa, testing, automation]
-trust_level: core
+: core
 ---
 
 # Workflow: Automation Testing

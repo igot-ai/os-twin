@@ -2,7 +2,7 @@
 name: axbridge
 description: Inspect and interact with macOS Accessibility (AX) UI elements via JXA: dump UI trees, read text, find/click buttons, click menus, and read attributes."
 tags: [macos-automation-engineer, automation, macos, accessibility, jxa, ui-elements]
-trust_level: core
+: core
 platform: [macos]
 requires_permissions: [Accessibility]
 shell: bash

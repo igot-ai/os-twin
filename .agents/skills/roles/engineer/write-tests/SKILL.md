@@ -2,7 +2,7 @@
 name: write-tests
 description: Use this skill to write unit and integration tests -- covers framework conventions, coverage thresholds, and quality gate compliance."
 tags: [engineer, testing, quality-assurance]
-trust_level: core
+: core
 ---
 
 # write-tests

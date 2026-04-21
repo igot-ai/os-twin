@@ -2,7 +2,7 @@
 name: write-document
 description: Write technical documentation or guides"
 tags: [tech-writer, documentation, writing]
-trust_level: core
+: core
 ---
 
 # Workflow: Write Document

@@ -2,7 +2,7 @@
 name: validate-output
 description: Use this skill to pressure-test data analyst output using the Five Validation Questions before acting on findings.
 tags: [audit, risk-officer, validation, quality-gate, data-analyst-handoff]
-trust_level: core
+: core
 ---
 
 # validate-output
