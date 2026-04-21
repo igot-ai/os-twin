@@ -105,3 +105,11 @@ A-mem-sys*/**
 
 AGENTS.md
 image.png
+img_*.png
+img_*.jpg
+test-results/
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+.agents/*
+!.agents/memory/
