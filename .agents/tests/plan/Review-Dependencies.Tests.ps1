@@ -4,6 +4,45 @@ BeforeAll {
     $script:ReviewDeps = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Review-Dependencies.ps1"
     $script:NewWarRoom = Join-Path (Resolve-Path "$PSScriptRoot/../../war-rooms").Path "New-WarRoom.ps1"
     $script:BuildDag = Join-Path (Resolve-Path "$PSScriptRoot/../../plan").Path "Build-DependencyGraph.ps1"
+
+    # Helper: create a cross-platform mock script that echoes the given output.
+    # On Windows, creates a .ps1 script. On Linux/macOS, creates a .sh script.
+    function New-MockScript {
+        param(
+            [string]$Dir,
+            [string]$Name,
+            [string]$Output
+        )
+        if ($IsWindows) {
+            $path = Join-Path $Dir "$Name.ps1"
+            "Write-Output '$Output'" | Out-File -FilePath $path -Encoding utf8 -NoNewline
+        } else {
+            $path = Join-Path $Dir "$Name.sh"
+            "#!/bin/bash`necho '$Output'" | Out-File -FilePath $path -Encoding utf8 -NoNewline
+            chmod +x $path
+        }
+        return $path
+    }
+
+    # Helper for multi-line mock output (e.g. noisy output with preamble)
+    function New-MockScriptRaw {
+        param(
+            [string]$Dir,
+            [string]$Name,
+            [string]$BashBody
+        )
+        if ($IsWindows) {
+            $path = Join-Path $Dir "$Name.ps1"
+            # Convert bash echo/cat to PowerShell Write-Output
+            $psBody = $BashBody -replace '#!/bin/bash', '' -replace "echo '", "Write-Output '" -replace 'echo "', 'Write-Output "' -replace 'cat <<', '# cat <<'
+            $psBody | Out-File -FilePath $path -Encoding utf8 -NoNewline
+        } else {
+            $path = Join-Path $Dir "$Name.sh"
+            $BashBody | Out-File -FilePath $path -Encoding utf8 -NoNewline
+            chmod +x $path
+        }
+        return $path
+    }
 }
 
 Describe "Review-Dependencies.ps1" {
@@ -77,12 +116,8 @@ depends_on: []
                 -DefinitionOfDone @("API endpoints implemented", "Integration tests pass") | Out-Null
 
             # Mock agent that returns dependency analysis in new format
-            $script:depMock = Join-Path $script:tempDir "dep-mock.sh"
-            @'
-#!/bin/bash
-echo '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": ["EPIC-001"]}}'
-'@ | Out-File -FilePath $script:depMock -Encoding utf8 -NoNewline
-            chmod +x $script:depMock
+            $script:depMock = New-MockScript -Dir $script:tempDir -Name "dep-mock" `
+                -Output '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": ["EPIC-001"]}}'
         }
 
         It "detects dependency changes and shows diff with AutoApprove" {
@@ -235,15 +270,21 @@ depends_on: ["EPIC-001"]
 
             # Mock agent that CAPTURES the prompt to a file, then returns JSON
             $script:promptCapture = Join-Path $script:tempDir "captured-prompt.txt"
-            $script:captureMock = Join-Path $script:tempDir "capture-mock.sh"
-            @"
+            if ($IsWindows) {
+                $script:captureMock = Join-Path $script:tempDir "capture-mock.ps1"
+                @"
+`$args -join ' ' | Out-File -FilePath '$($script:promptCapture)' -Encoding utf8
+Write-Output '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": ["EPIC-001"]}}'
+"@ | Out-File -FilePath $script:captureMock -Encoding utf8 -NoNewline
+            } else {
+                $script:captureMock = Join-Path $script:tempDir "capture-mock.sh"
+                @"
 #!/bin/bash
-# Dump the full prompt to a file for test inspection
 echo "`$*" > '$($script:promptCapture)'
-# Return valid dependency JSON in new format
 echo '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": ["EPIC-001"]}}'
 "@ | Out-File -FilePath $script:captureMock -Encoding utf8 -NoNewline
-            chmod +x $script:captureMock
+                chmod +x $script:captureMock
+            }
         }
 
         It "sends plan header context (dependency diagram, data assets) to the AI" {
@@ -333,12 +374,8 @@ Short desc B.
             & $script:NewWarRoom -RoomId "room-002" -TaskRef "EPIC-002" `
                 -TaskDescription "Feature B" -WarRoomsDir $script:warRoomsDir | Out-Null
 
-            $noDeps = Join-Path $script:tempDir "no-deps-mock.sh"
-            @'
-#!/bin/bash
-echo '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": []}}'
-'@ | Out-File -FilePath $noDeps -Encoding utf8 -NoNewline
-            chmod +x $noDeps
+            $noDeps = New-MockScript -Dir $script:tempDir -Name "no-deps-mock" `
+                -Output '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": []}}'
 
             $output = pwsh -NoProfile -Command "& '$script:ReviewDeps' -WarRoomsDir '$script:warRoomsDir' -PlanFile '$script:planFile' -AgentCmd '$noDeps'" 2>&1
             ($output -join "`n") | Should -Match "No dependency changes detected"
@@ -376,16 +413,12 @@ Build on the base.
         }
 
         It "extracts JSON from output with preamble text" {
-            $noisyMock = Join-Path $script:tempDir "noisy-mock.sh"
-            @'
-#!/bin/bash
-echo "Here is my analysis of the dependencies:"
-echo ""
-echo '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": ["EPIC-001"]}}'
-echo ""
-echo "Let me know if you need changes."
-'@ | Out-File -FilePath $noisyMock -Encoding utf8 -NoNewline
-            chmod +x $noisyMock
+            $noisyBody = if ($IsWindows) {
+                "Write-Output 'Here is my analysis of the dependencies:'`nWrite-Output ''`nWrite-Output '{""EPIC-001"": {""depends_on"": []}, ""EPIC-002"": {""depends_on"": [""EPIC-001""]}}'`nWrite-Output ''`nWrite-Output 'Let me know if you need changes.'"
+            } else {
+                "#!/bin/bash`necho 'Here is my analysis of the dependencies:'`necho ''`necho '{""EPIC-001"": {""depends_on"": []}, ""EPIC-002"": {""depends_on"": [""EPIC-001""]}}'`necho ''`necho 'Let me know if you need changes.'"
+            }
+            $noisyMock = New-MockScriptRaw -Dir $script:tempDir -Name "noisy-mock" -BashBody $noisyBody
 
             $output = pwsh -NoProfile -Command "& '$script:ReviewDeps' -WarRoomsDir '$script:warRoomsDir' -PlanFile '$script:planFile' -AgentCmd '$noisyMock' -AutoApprove" 2>&1
             $outputStr = $output -join "`n"
@@ -397,15 +430,12 @@ echo "Let me know if you need changes."
         }
 
         It "extracts JSON wrapped in markdown fences" {
-            $fencedMock = Join-Path $script:tempDir "fenced-mock.sh"
-            @'
-#!/bin/bash
-echo 'Based on the analysis:'
-echo '```json'
-echo '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": ["EPIC-001"]}}'
-echo '```'
-'@ | Out-File -FilePath $fencedMock -Encoding utf8 -NoNewline
-            chmod +x $fencedMock
+            $fencedBody = if ($IsWindows) {
+                "Write-Output 'Based on the analysis:'`nWrite-Output '``````json'`nWrite-Output '{""EPIC-001"": {""depends_on"": []}, ""EPIC-002"": {""depends_on"": [""EPIC-001""]}}'`nWrite-Output '``````'"
+            } else {
+                "#!/bin/bash`necho 'Based on the analysis:'`necho '``````json'`necho '{""EPIC-001"": {""depends_on"": []}, ""EPIC-002"": {""depends_on"": [""EPIC-001""]}}'`necho '``````'"
+            }
+            $fencedMock = New-MockScriptRaw -Dir $script:tempDir -Name "fenced-mock" -BashBody $fencedBody
 
             $output = pwsh -NoProfile -Command "& '$script:ReviewDeps' -WarRoomsDir '$script:warRoomsDir' -PlanFile '$script:planFile' -AgentCmd '$fencedMock' -AutoApprove" 2>&1
             $outputStr = $output -join "`n"
@@ -414,15 +444,12 @@ echo '```'
         }
 
         It "extracts JSON from wrapper noise with PID lines" {
-            $wrapperMock = Join-Path $script:tempDir "wrapper-mock.sh"
-            @'
-#!/bin/bash
-echo "[wrapper] PID=12345, CMD=opencode"
-echo "Running task non-interactively..."
-echo '{"EPIC-001": {"depends_on": []}, "EPIC-002": {"depends_on": ["EPIC-001"]}}'
-echo "✓ Task completed"
-'@ | Out-File -FilePath $wrapperMock -Encoding utf8 -NoNewline
-            chmod +x $wrapperMock
+            $wrapperBody = if ($IsWindows) {
+                "Write-Output '[wrapper] PID=12345, CMD=opencode'`nWrite-Output 'Running task non-interactively...'`nWrite-Output '{""EPIC-001"": {""depends_on"": []}, ""EPIC-002"": {""depends_on"": [""EPIC-001""]}}'`nWrite-Output 'Task completed'"
+            } else {
+                "#!/bin/bash`necho '[wrapper] PID=12345, CMD=opencode'`necho 'Running task non-interactively...'`necho '{""EPIC-001"": {""depends_on"": []}, ""EPIC-002"": {""depends_on"": [""EPIC-001""]}}'`necho 'Task completed'"
+            }
+            $wrapperMock = New-MockScriptRaw -Dir $script:tempDir -Name "wrapper-mock" -BashBody $wrapperBody
 
             $output = pwsh -NoProfile -Command "& '$script:ReviewDeps' -WarRoomsDir '$script:warRoomsDir' -PlanFile '$script:planFile' -AgentCmd '$wrapperMock' -AutoApprove" 2>&1
             $outputStr = $output -join "`n"
@@ -431,12 +458,8 @@ echo "✓ Task completed"
         }
 
         It "fails gracefully when no JSON found in output" {
-            $badMock = Join-Path $script:tempDir "bad-mock.sh"
-            @'
-#!/bin/bash
-echo "I could not determine the dependencies. Please provide more context."
-'@ | Out-File -FilePath $badMock -Encoding utf8 -NoNewline
-            chmod +x $badMock
+            $badMock = New-MockScript -Dir $script:tempDir -Name "bad-mock" `
+                -Output 'I could not determine the dependencies. Please provide more context.'
 
             $output = pwsh -NoProfile -Command "& '$script:ReviewDeps' -WarRoomsDir '$script:warRoomsDir' -PlanFile '$script:planFile' -AgentCmd '$badMock' -AutoApprove" 2>&1
             $outputStr = $output -join "`n"
