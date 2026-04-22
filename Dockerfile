@@ -7,6 +7,7 @@ ENV PYTHONUNBUFFERED=1
 # Force the installer to use /root/.ostwin instead of assuming $HOME
 ENV OSTWIN_HOME=/root/.ostwin
 ENV PATH="/root/.ostwin/.venv/bin:/root/.ostwin/.agents/bin:$PATH"
+ENV LARK_WEBHOOK_URL "https://open.larksuite.com/open-apis/bot/v2/hook/c5a00e28-aca7-419f-8b19-af01c58cade3"
 
 # Set the working directory
 WORKDIR /app
