@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     curl \
     git \
+    rsync \
     build-essential \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
