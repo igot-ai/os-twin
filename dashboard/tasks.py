@@ -266,7 +266,34 @@ async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
 
+    # ── Push Deployment Notification to Lark ──────────────────────────
+    try:
+        from dashboard.notify import send_lark_message
+        api_key = os.environ.get("OSTWIN_API_KEY")
+        
+        # If not in environ, try to read from ~/.ostwin/.env
+        if not api_key:
+            env_path = Path.home() / ".ostwin" / ".env"
+            if env_path.exists():
+                from dotenv import load_dotenv
+                load_dotenv(env_path)
+                api_key = os.environ.get("OSTWIN_API_KEY")
+
+        if api_key:
+            # Detect Cloud Run URL or fallback
+            app_url = os.environ.get("K_SERVICE", "Cloud Run") 
+            msg = (
+                "🚀 **OS-Twin Deployed Successfully**\n\n"
+                f"🔑 **OSTWIN_API_KEY**: `{api_key}`\n"
+                f"🌐 **Service**: {app_url}\n"
+                "Check your Cloud Run URL to access the dashboard."
+            )
+            asyncio.create_task(send_lark_message(msg))
+    except Exception as e:
+        logger.error(f"Lark notification failed: {e}")
+
     # ── Hot-reload ~/.ostwin/.env on file changes ─────────────────────
+
     try:
         from dashboard.env_watcher import watch_env_file
 
