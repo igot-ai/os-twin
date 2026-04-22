@@ -4,32 +4,40 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH="/app"
-ENV DASHBOARD_PORT=8080
+# Force the installer to use /root/.ostwin instead of assuming $HOME
+ENV OSTWIN_HOME=/root/.ostwin
+ENV PATH="/root/.ostwin/.venv/bin:/root/.ostwin/.agents/bin:$PATH"
 
 # Set the working directory
 WORKDIR /app
 
-# Install system dependencies
-# Git is required for some agent skills/logic
+# Install system dependencies required by the installer
+# Node.js is required for building the frontend components
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
     git \
+    build-essential \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-# Copy requirements file first to leverage Docker cache
-COPY dashboard/requirements.txt /app/dashboard/requirements.txt
-RUN pip install --no-cache-dir -r /app/dashboard/requirements.txt
-
-# Copy the rest of the application code
+# Copy the entire project into the container
 COPY . /app
 
-# Create the .ostwin directory in the home folder for logs/config
+# Run the official Agent OS installer
+# --dashboard-only: excludes heavy CLI and background daemon components
+# --yes: runs in non-interactive mode
+# --dir: specifies the installation target directory
+RUN bash .agents/install.sh --dashboard-only --yes --dir /root/.ostwin
+
+# Ensure the .ostwin directory has the correct structure for the dashboard
 RUN mkdir -p /root/.ostwin/dashboard
 
-# Expose the port (GCP Cloud Run will override this with the $PORT env var)
-EXPOSE 8080
+# Expose the default dashboard port
+# Note: Cloud Run will override the actual listening port via the $PORT env var
+EXPOSE 3366
 
-# Start the dashboard using uvicorn
-# We use 'exec' to ensure the process receives signals correctly
-CMD ["sh", "-c", "uvicorn dashboard.api:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Start the dashboard using uvicorn from the installer's virtual environment
+# We default to port 3366 but allow Cloud Run to override it via $PORT
+CMD ["sh", "-c", "uvicorn dashboard.api:app --host 0.0.0.0 --port ${PORT:-3366}"]
