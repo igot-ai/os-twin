@@ -271,34 +271,36 @@ async def startup_all():
     # ── Push Deployment Notification to Lark ──────────────────────────
     # Only trigger at runtime on Cloud Run (excludes Docker build phase)
     if os.environ.get("K_SERVICE"):
-        try:
-            from dashboard.notify import send_lark_message
-            api_key = os.environ.get("OSTWIN_API_KEY")
-            
-            if not api_key:
+        async def _notify_lark_delayed():
+            try:
+                # Small delay to ensure networking is fully up and stable
+                await asyncio.sleep(5)
+                
+                from dashboard.notify import send_lark_message
                 env_path = Path.home() / ".ostwin" / ".env"
                 if env_path.exists():
                     from dotenv import load_dotenv
                     load_dotenv(env_path)
-                    api_key = os.environ.get("OSTWIN_API_KEY")
 
-            if api_key:
-                app_url = os.environ.get("BASE_URL")
-                # Construct the message
-                msg_lines = [
-                    f"🔑 **OSTWIN_API_KEY**: {api_key}",
-                    f"📦 **Revision**: {os.environ.get('K_REVISION', 'unknown')}",
-                ]
-                
-                if app_url:
-                    msg_lines.append(f"🌐 **Dashboard**: {app_url}")
-                else:
-                    msg_lines.append("🌐 **Service**: Cloud Run (URL not set)")
+                api_key = os.environ.get("OSTWIN_API_KEY")
+                if api_key:
+                    app_url = os.environ.get("BASE_URL")
+                    msg_lines = [
+                        f"🔑 **OSTWIN_API_KEY**: {api_key}",
+                        f"📦 **Revision**: {os.environ.get('K_REVISION', 'unknown')}",
+                    ]
+                    if app_url:
+                        msg_lines.append(f"🌐 **Dashboard**: {app_url}")
+                    else:
+                        msg_lines.append("🌐 **Service**: Cloud Run (URL not set)")
 
-                msg = "\n".join(msg_lines)
-                asyncio.create_task(send_lark_message(msg, title="🚀 OS-Twin Deployed Successfully"))
-        except Exception as e:
-            logger.error(f"Lark notification failed: {e}")
+                    msg = "\n".join(msg_lines)
+                    await send_lark_message(msg, title="🚀 OS-Twin Deployed Successfully")
+            except Exception as e:
+                logger.error(f"Lark notification background task failed: {e}")
+
+        asyncio.create_task(_notify_lark_delayed())
+
 
 
     # ── Hot-reload ~/.ostwin/.env on file changes ─────────────────────
