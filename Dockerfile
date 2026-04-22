@@ -19,8 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     rsync \
     wget \
-    apt-transport-https \
-    software-properties-common \
+    ca-certificates \
     build-essential \
     && wget -q https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb \
     && dpkg -i packages-microsoft-prod.deb \
