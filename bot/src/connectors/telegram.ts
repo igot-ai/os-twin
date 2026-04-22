@@ -6,6 +6,19 @@ import { getSession, getStagedFiles } from '../sessions';
 import { askAgent } from '../agent-bridge';
 import { flushStagedAttachments, getStagedCount } from '../asset-staging';
 
+function escapeMarkdown(text: string): string {
+  return text.replace(/([_*\[\]()`~>#+\-=|{}.!\\])/g, '\\$1');
+}
+
+async function safeReply(ctx: Context, text: string): Promise<void> {
+  const truncated = text.length > 4000 ? text.slice(0, 4000) + '\n\n_(truncated)_' : text;
+  try {
+    await ctx.reply(truncated, { parse_mode: 'Markdown' });
+  } catch {
+    await ctx.reply(escapeMarkdown(truncated), { parse_mode: 'Markdown' });
+  }
+}
+
 // Force IPv4 — IPv6 to Telegram's servers is unreachable on many networks,
 // and Node 20's Happy Eyeballs fallback can stall instead of recovering.
 const ipv4Agent = new https.Agent({ keepAlive: true, keepAliveMsecs: 10000, family: 4 });
@@ -113,10 +126,7 @@ export class TelegramConnector implements Connector {
             ? stagedFiles.map(f => ({ name: f.name, contentType: f.contentType, sizeBytes: f.sizeBytes }))
             : undefined;
           const result = await askAgent(msgText, { userId, platform: 'telegram', attachments });
-          const telegramText = result.text.length > 4000
-            ? result.text.slice(0, 4000) + '\n\n_…(truncated)_'
-            : result.text;
-          await ctx.reply(telegramText, { parse_mode: 'Markdown' });
+          await safeReply(ctx, result.text);
           // Send image attachments as photos
           if (result.attachments?.length) {
             for (const att of result.attachments) {
@@ -212,7 +222,7 @@ export class TelegramConnector implements Connector {
             try {
               const attachments = downloadable.map(d => ({ name: d.name, contentType: d.contentType, sizeBytes: d.data.byteLength }));
               const result = await askAgent(caption, { userId, platform: 'telegram', attachments });
-              await ctx.reply(result.text, { parse_mode: 'Markdown' });
+              await safeReply(ctx, result.text);
             } catch (err: any) {
               console.warn('[TELEGRAM] Agent bridge error:', err.message);
               await ctx.reply('⚠️ Failed to process your request.', { parse_mode: 'Markdown' });
@@ -320,14 +330,16 @@ export class TelegramConnector implements Connector {
 
   private async sendResponses(ctx: Context, responses: BotResponse[]): Promise<void> {
     for (const resp of responses) {
+      const text = resp.text.length > 4000 ? resp.text.slice(0, 4000) + '\n\n_(truncated)_' : resp.text;
       if (resp.buttons && resp.buttons.length) {
         const keyboard = TelegramConnector.buildKeyboard(resp.buttons);
-        await ctx.reply(resp.text, {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard(keyboard),
-        });
+        try {
+          await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(keyboard) });
+        } catch {
+          await ctx.reply(escapeMarkdown(text), { parse_mode: 'Markdown', ...Markup.inlineKeyboard(keyboard) });
+        }
       } else {
-        await ctx.reply(resp.text, { parse_mode: 'Markdown' });
+        await safeReply(ctx, resp.text);
       }
     }
   }
@@ -335,14 +347,20 @@ export class TelegramConnector implements Connector {
   private async sendResponsesChat(chatId: string, responses: BotResponse[]): Promise<void> {
     if (!this.bot) return;
     for (const resp of responses) {
+      const text = resp.text.length > 4000 ? resp.text.slice(0, 4000) + '\n\n_(truncated)_' : resp.text;
       if (resp.buttons && resp.buttons.length) {
         const keyboard = TelegramConnector.buildKeyboard(resp.buttons);
-        await this.bot.telegram.sendMessage(chatId, resp.text, {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard(keyboard),
-        });
+        try {
+          await this.bot.telegram.sendMessage(chatId, text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(keyboard) });
+        } catch {
+          await this.bot.telegram.sendMessage(chatId, escapeMarkdown(text), { parse_mode: 'Markdown', ...Markup.inlineKeyboard(keyboard) });
+        }
       } else {
-        await this.bot.telegram.sendMessage(chatId, resp.text, { parse_mode: 'Markdown' });
+        try {
+          await this.bot.telegram.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+        } catch {
+          await this.bot.telegram.sendMessage(chatId, escapeMarkdown(text), { parse_mode: 'Markdown' });
+        }
       }
     }
   }

@@ -887,8 +887,8 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
     });
 
     // ── Gemini interaction with timeouts ──
-    const AGENT_TIMEOUT_MS = 25_000;
-    const TOOL_TIMEOUT_MS = 10_000;
+    const AGENT_TIMEOUT_MS = 45_000;
+    const TOOL_TIMEOUT_MS = 30_000;
 
     const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
       Promise.race([
@@ -905,6 +905,7 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
 
     // Function-calling loop with timeout + retry
     const MAX_TOOL_ROUNDS = 5;
+    let lastToolResults: Array<{ name: string; response: Record<string, unknown> }> = [];
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const elapsed = Date.now() - agentStart;
       if (elapsed > AGENT_TIMEOUT_MS) {
@@ -919,6 +920,7 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
       const toolResults = await Promise.all(
         calls.map((call) => executeToolWithRetry(call, agentCtx, pendingAttachments, TOOL_TIMEOUT_MS)),
       );
+      lastToolResults = toolResults;
 
       // Send tool results back to Gemini
       const remainingMs = Math.max(5000, AGENT_TIMEOUT_MS - (Date.now() - agentStart));
@@ -931,10 +933,22 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
         remainingMs,
         'Gemini',
       );
+      console.log('result', JSON.stringify(result, null, 2));
       response = result.response;
     }
 
-    const answer = response.text?.();
+    let answer = response.text?.();
+    if (!answer && lastToolResults.length > 0) {
+      const successResult = lastToolResults.find(r => r.response?.success && r.response?.message);
+      if (successResult?.response?.message && typeof successResult.response.message === 'string') {
+        answer = successResult.response.message;
+      } else {
+        const errorResult = lastToolResults.find(r => r.response?.error);
+        if (errorResult?.response?.error) {
+          answer = `⚠️ Tool ${errorResult.name} failed: ${errorResult.response.error}`;
+        }
+      }
+    }
     if (!answer) return { text: '⚠️ AI returned an empty response.' };
 
     // Persist conversation turn
