@@ -201,7 +201,7 @@ async def list_skill_roles(user: dict = Depends(get_current_user)):
 _CLAWHUB_CONVEX_BASE = "https://wry-manatee-359.convex.cloud/api"
 
 # Global skills directory — all ClawhHub installs go here
-_GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / ".agents" / "skills"
+_GLOBAL_SKILLS_DIR = Path.home() / ".ostwin" / ".agents" / "skills" / "global"
 # clawhub CLI writes its lock to <workdir>/.clawhub/lock.json
 _CLAWHUB_WORKDIR = Path.home() / ".ostwin" / ".agents"
 _GLOBAL_CLAWHUB_LOCK = _CLAWHUB_WORKDIR / ".clawhub" / "lock.json"
@@ -771,7 +771,7 @@ async def clawhub_install(
             # --force ensures idempotent behavior (re-installs if exists)
             if platform.system() == "Windows":
                 proc = await asyncio.create_subprocess_shell(
-                    f'npx clawhub install {skill_name} --workdir "{str(_CLAWHUB_WORKDIR)}" --dir skills --no-input --force',
+                    f'npx clawhub install {skill_name} --workdir "{str(_CLAWHUB_WORKDIR)}" --dir skills/global --no-input --force',
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -779,7 +779,7 @@ async def clawhub_install(
                 proc = await asyncio.create_subprocess_exec(
                     "npx", "clawhub", "install", skill_name,
                     "--workdir", str(_CLAWHUB_WORKDIR),
-                    "--dir", "skills",
+                    "--dir", "skills/global",
                     "--no-input",
                     "--force",
                     stdout=asyncio.subprocess.PIPE,
