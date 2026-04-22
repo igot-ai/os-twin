@@ -3,6 +3,7 @@ import shutil
 import logging
 import re
 import asyncio
+import platform
 import httpx
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
@@ -767,14 +768,23 @@ async def clawhub_install(
 
             # Use --workdir and --dir so clawhub installs into
             # ~/.ostwin/.agents/skills/<slug> regardless of its own global defaults.
-            proc = await asyncio.create_subprocess_exec(
-                "npx", "clawhub", "install", skill_name,
-                "--workdir", str(_CLAWHUB_WORKDIR),
-                "--dir", "skills",
-                "--no-input",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            # --force ensures idempotent behavior (re-installs if exists)
+            if platform.system() == "Windows":
+                proc = await asyncio.create_subprocess_shell(
+                    f'npx clawhub install {skill_name} --workdir "{str(_CLAWHUB_WORKDIR)}" --dir skills --no-input --force',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                proc = await asyncio.create_subprocess_exec(
+                    "npx", "clawhub", "install", skill_name,
+                    "--workdir", str(_CLAWHUB_WORKDIR),
+                    "--dir", "skills",
+                    "--no-input",
+                    "--force",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             except asyncio.TimeoutError:
@@ -787,7 +797,7 @@ async def clawhub_install(
                 logger.error("clawhub-install failed by=%s skill=%s: %s", username, skill_name, detail)
                 raise HTTPException(
                     status_code=500,
-                    detail="clawhub install failed. Check server logs for details.",
+                    detail=f"clawhub install failed: {detail}",
                 )
 
             # Skill is now in ~/.ostwin/.agents/skills/<skill_name>
