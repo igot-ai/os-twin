@@ -144,17 +144,32 @@ async def send_message(text: str, specific_chat_id: str = None) -> bool:
         logger.error(f"Failed to send Telegram message: {e}")
         return False
 
-async def send_lark_message(text: str) -> bool:
-    """Send a text message to the configured Lark (Feishu) webhook."""
+async def send_lark_message(message: str, title: str = "🚀 OS-Twin Notification") -> bool:
+    """Send a rich-text message to the configured Lark (Feishu) webhook using Post format."""
     webhook_url = os.environ.get("LARK_WEBHOOK_URL")
     if not webhook_url:
         logger.warning("LARK_WEBHOOK_URL is not configured. Skipping message.")
         return False
 
+    # Process multi-line message into Lark Post segments
+    lines = message.split("\n")
+    content_segments = []
+    for line in lines:
+        if not line.strip():
+            continue
+        # Convert simple markdown **bold** to something cleaner for Lark text
+        clean_line = line.replace("**", "").replace("`", "")
+        content_segments.append([{"tag": "text", "text": clean_line}])
+
     payload = {
-        "msg_type": "text",
+        "msg_type": "post",
         "content": {
-            "text": text
+            "post": {
+                "en_us": {
+                    "title": title,
+                    "content": content_segments
+                }
+            }
         }
     }
 
@@ -162,9 +177,10 @@ async def send_lark_message(text: str) -> bool:
         async with httpx.AsyncClient() as client:
             response = await client.post(webhook_url, json=payload, timeout=10.0)
             response.raise_for_status()
-            logger.info("Successfully sent message to Lark")
+            logger.info("Successfully sent rich-text message to Lark")
             return True
     except Exception as e:
         logger.error(f"Failed to send Lark message: {e}")
         return False
+
 

@@ -63,12 +63,14 @@ jobs:
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: ${{ env.SERVICE_NAME }}
-          region: ${{ env.REGION }}
-          image: ${{ steps.build-image.outputs.image }}
-          # Recommended: use --allow-unauthenticated for public dashboards
-          # or remove this flag for private internal tools
-          flags: '--allow-unauthenticated --memory=1Gi --cpu=1'
+            service: ${{ env.SERVICE_NAME }}
+            region: ${{ env.REGION }}
+            image: ${{ steps.build-image.outputs.image }}
+            # Pass environment variables to Cloud Run
+            env_vars: |
+                LARK_WEBHOOK_URL=${{ secrets.BOT_WEBHOOK_URL }}
+                BASE_URL=${{ secrets.GCP_CLOUDRUN_URL }}
+            flags: '--allow-unauthenticated --memory=1Gi --cpu=1'
 
       - name: Show Deployment URL
         run: |
