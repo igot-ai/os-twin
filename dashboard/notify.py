@@ -143,3 +143,28 @@ async def send_message(text: str, specific_chat_id: str = None) -> bool:
     except Exception as e:
         logger.error(f"Failed to send Telegram message: {e}")
         return False
+
+async def send_lark_message(text: str) -> bool:
+    """Send a text message to the configured Lark (Feishu) webhook."""
+    webhook_url = os.environ.get("LARK_WEBHOOK_URL")
+    if not webhook_url:
+        logger.warning("LARK_WEBHOOK_URL is not configured. Skipping message.")
+        return False
+
+    payload = {
+        "msg_type": "text",
+        "content": {
+            "text": text
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(webhook_url, json=payload, timeout=10.0)
+            response.raise_for_status()
+            logger.info("Successfully sent message to Lark")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to send Lark message: {e}")
+        return False
+
