@@ -1,4 +1,4 @@
-"""Tests for Agentic Memory (A-mem-sys) dashboard API routes.
+"""Tests for Agentic Memory dashboard API routes.
 
 Tests the /api/amem/{plan_id}/... endpoints that serve memory graph data,
 note listings, individual notes, and statistics from the .memory/ directory.

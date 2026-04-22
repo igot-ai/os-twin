@@ -85,7 +85,7 @@ These resolve the open questions surfaced during exploration. Engineer MUST foll
 | ADR-01 | Storage at `~/.ostwin/knowledge/{namespace}/` | Global, cross-plan reuse. Knowledge isn't owned by a single plan. | New env var `OSTWIN_KNOWLEDGE_DIR` overrides default. |
 | ADR-02 | LLM = **Direct Anthropic SDK** | Avoid DSPy/litellm complexity; project already favors Claude. | New env var `ANTHROPIC_API_KEY` required. Fallback: graceful degradation when key missing → embedding-only mode (no graph extraction, but vector search still works). |
 | ADR-03 | Embeddings = **sentence-transformers** with `BAAI/bge-small-en-v1.5` (384-dim) | No new heavy deps; offline-capable; matches existing zvec stack. | Configurable via `OSTWIN_KNOWLEDGE_EMBED_MODEL`. Kuzu `EMBEDDING_DIMENSION` = 384. |
-| ADR-04 | Vector store = **zvec** (persistent local) — *revised 2026-04-19, originally ChromaDB* | chromadb in this env has a fragile dep on `opentelemetry` that breaks reliably; zvec is already in `requirements.txt`, used by A-mem-sys/zvec_store, supports HNSW vector index + filterable string fields, and has fewer transitive deps. | Removes `chromadb` from requirements. zvec already pinned at `>=0.2.0`. Storage path becomes `~/.ostwin/knowledge/{namespace}/vectors/`. |
+| ADR-04 | Vector store = **zvec** (persistent local) — *revised 2026-04-19, originally ChromaDB* | chromadb in this env has a fragile dep on `opentelemetry` that breaks reliably; zvec is already in `requirements.txt`, used by `.agents/memory/agentic_memory/retrievers.py`, supports HNSW vector index + filterable string fields, and has fewer transitive deps. | Removes `chromadb` from requirements. zvec already pinned at `>=0.2.0`. Storage path becomes `~/.ostwin/knowledge/{namespace}/vectors/`. |
 | ADR-05 | Graph store = **KuzuDB** (single .db file per namespace) | Existing knowledge code uses it; supports vector indexes natively; embedded (no server). | Adds `kuzu` to requirements. |
 | ADR-06 | Document parsing = **MarkItDown** | Universal coverage (Office, HTML, PDF, etc.); MIT-licensed. | Adds `markitdown` to requirements. |
 | ADR-07 | MCP transport = **Streamable-HTTP** mounted at `/mcp` | Modern MCP spec; opencode-compatible. | Use FastMCP from `mcp[cli]`. |
@@ -786,7 +786,7 @@ The following are deliberately **NOT** part of this plan. Engineer must NOT sile
 | Incremental re-indexing on file change | Idempotency skips identical files; full re-index sufficient for v1. | Future enhancement after watchdog integration. |
 | OCR for image PDFs | MarkItDown handles text PDFs; OCR adds tesseract dep. | Optional follow-up. |
 | Cross-namespace federated query | Each namespace is isolated by design. | Future feature once we have user demand. |
-| Memory short-term graph (mem0) | Different problem (per-conversation vs per-corpus). The existing `A-mem-sys` solves it for war-rooms. | Stays separate; not merged into knowledge. |
+| Memory short-term graph (mem0) | Different problem (per-conversation vs per-corpus). The existing `.agents/memory/` system solves it for war-rooms. | Stays separate; not merged into knowledge. |
 | Migration from old `app.core.graph` data files | No existing data to migrate (the package was never wired in). | N/A. |
 
 ---
@@ -795,7 +795,7 @@ The following are deliberately **NOT** part of this plan. Engineer must NOT sile
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| R-1 | KuzuDB single-process limitation causes lock contention with concurrent ingest+query | Med | High | EPIC-002: each namespace = its own .db file (process-wide cache by path, like A-mem-sys). EPIC-004 QA gate explicitly tests concurrent read+write. |
+| R-1 | KuzuDB single-process limitation causes lock contention with concurrent ingest+query | Med | High | EPIC-002: each namespace = its own .db file (process-wide cache by path, similar to `.agents/memory/`). EPIC-004 QA gate explicitly tests concurrent read+write. |
 | R-2 | sentence-transformers model download blocks first request | High | Med | Pre-warm on dashboard startup if `OSTWIN_KNOWLEDGE_PREWARM=1`. Document the cold-start cost. |
 | R-3 | Anthropic API rate limits or outages stall ingestion | Med | High | EPIC-007 circuit breaker + graceful degradation. Per-call timeout. |
 | R-4 | MarkItDown choking on unusual file formats | Med | Low | Per-file error isolation in ingestion (EPIC-003 TASK-011). Fallback to plain-text read. |
