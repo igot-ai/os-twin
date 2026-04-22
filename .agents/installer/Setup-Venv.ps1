@@ -1,11 +1,11 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Setup-Venv.ps1 — Python virtual environment creation and dependency sync
+﻿# ------------------------------------------------------------------------------
+# Setup-Venv.ps1 - Python virtual environment creation and dependency sync
 #
 # Provides: Setup-Venv
 #
 # Requires: Lib.ps1, Check-Deps.ps1 (Check-UV, Check-Python),
 #           globals: $script:InstallDir, $script:VenvDir
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_SetupVenvPs1Loaded) { return }
 $script:_SetupVenvPs1Loaded = $true
@@ -16,7 +16,7 @@ function Setup-Venv {
 
     Write-Step "Setting up Python virtual environment..."
 
-    # Pin to Python 3.12 — some deps lack cp313 wheels
+    # Pin to Python 3.12 - some deps lack cp313 wheels
     # Check for valid venv (pyvenv.cfg must exist, not just the directory)
     $venvValid = (Test-Path $script:VenvDir) -and (Test-Path (Join-Path $script:VenvDir "pyvenv.cfg"))
 
@@ -50,13 +50,13 @@ function Setup-Venv {
                 Write-Ok "venv at $($script:VenvDir)"
             }
             else {
-                Write-Fail "No Python found — cannot create venv"
+                Write-Fail "No Python found - cannot create venv"
                 throw "Python required for venv creation"
             }
         }
     }
 
-    # Always sync requirements — even if the venv was reused.
+    # Always sync requirements - even if the venv was reused.
     # Collect all requirement file paths (unquoted).
     # Quoting for .cmd bat files is done at the point of use, not here,
     # because PowerShell native calls (pip.exe) need raw paths.
@@ -91,7 +91,7 @@ function Setup-Venv {
     }
 
     if ($reqPaths.Count -eq 0) {
-        Write-Warn "No requirements files found — skipping dependency sync"
+        Write-Warn "No requirements files found - skipping dependency sync"
     }
     else {
         Write-Step "Syncing all Python dependencies (single resolver pass)..."
@@ -124,7 +124,7 @@ function Setup-Venv {
                 -WindowStyle Hidden -Wait -PassThru
 
             if ($proc.ExitCode -ne 0) {
-                Write-Fail "uv pip install failed (exit $($proc.ExitCode)) — check $uvLog"
+                Write-Fail "uv pip install failed (exit $($proc.ExitCode)) - check $uvLog"
                 throw "Python dependency installation failed"
             }
         }

@@ -1,17 +1,17 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Install-Deps.ps1 — Dependency installers (Windows-specific)
+﻿# ------------------------------------------------------------------------------
+# Install-Deps.ps1 - Dependency installers (Windows-specific)
 #
 # Provides: Install-UV, Install-Python, Install-Pwsh, Install-Node,
 #           Install-OpenCode, Install-Pester
 #
 # Requires: Lib.ps1, Versions.ps1, Detect-OS.ps1 ($script:PkgMgr, $script:ARCH),
 #           Check-Deps.ps1 (Check-UV, Check-OpenCode)
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_InstallDepsPs1Loaded) { return }
 $script:_InstallDepsPs1Loaded = $true
 
-# ─── uv ──────────────────────────────────────────────────────────────────────
+# --- uv ----------------------------------------------------------------------
 
 function Install-UV {
     [CmdletBinding()]
@@ -63,7 +63,7 @@ function Install-UV {
     }
 }
 
-# ─── Python ──────────────────────────────────────────────────────────────────
+# --- Python ------------------------------------------------------------------
 
 function Install-Python {
     [CmdletBinding()]
@@ -112,7 +112,7 @@ function Install-Python {
     }
 }
 
-# ─── PowerShell 7+ ──────────────────────────────────────────────────────────
+# --- PowerShell 7+ ----------------------------------------------------------
 
 function Install-Pwsh {
     [CmdletBinding()]
@@ -152,7 +152,7 @@ function Install-Pwsh {
     }
 }
 
-# ─── Node.js ─────────────────────────────────────────────────────────────────
+# --- Node.js -----------------------------------------------------------------
 
 function Install-Node {
     [CmdletBinding()]
@@ -212,7 +212,7 @@ function Install-Node {
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + $env:PATH
 }
 
-# ─── opencode ────────────────────────────────────────────────────────────────
+# --- opencode ----------------------------------------------------------------
 
 function Install-OpenCode {
     [CmdletBinding()]
@@ -286,11 +286,11 @@ function Install-OpenCode {
     else {
         Write-Fail "opencode installed but not in PATH"
         Write-Info "Restart your terminal or run: . `$PROFILE"
-        throw "opencode not available in PATH — installation cannot continue"
+        throw "opencode not available in PATH - installation cannot continue"
     }
 }
 
-# ─── ngrok ───────────────────────────────────────────────────────────────────
+# --- ngrok -------------------------------------------------------------------
 
 function Install-Ngrok {
     [CmdletBinding()]
@@ -316,7 +316,7 @@ function Install-Ngrok {
             Write-Ok "ngrok $ngrokVer installed via winget"
             return
         }
-        Write-Warn "winget install returned but ngrok not found in PATH — trying fallback..."
+        Write-Warn "winget install returned but ngrok not found in PATH - trying fallback..."
     }
 
     # 2nd choice: scoop
@@ -336,16 +336,16 @@ function Install-Ngrok {
     Write-Host ""
     Write-Fail "Cannot install ngrok: neither winget nor scoop is available."
     Write-Host "    Please install a package manager first:" -ForegroundColor Yellow
-    Write-Host "      • winget — comes with Windows 10/11 App Installer (recommended)" -ForegroundColor Yellow
+    Write-Host "      * winget - comes with Windows 10/11 App Installer (recommended)" -ForegroundColor Yellow
     Write-Host "        https://learn.microsoft.com/windows/package-manager/winget/" -ForegroundColor DarkGray
-    Write-Host "      • scoop  — https://scoop.sh" -ForegroundColor Yellow
+    Write-Host "      * scoop  - https://scoop.sh" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "    Then re-run the installer, or install ngrok manually:" -ForegroundColor Yellow
     Write-Host "      https://ngrok.com/download" -ForegroundColor DarkGray
     Write-Host ""
 }
 
-# ─── Pester (PowerShell test framework) ──────────────────────────────────────
+# --- Pester (PowerShell test framework) --------------------------------------
 
 function Install-PesterModule {
     [CmdletBinding()]

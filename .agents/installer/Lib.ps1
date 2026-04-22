@@ -1,5 +1,5 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Lib.ps1 — Shared utility functions for the Ostwin Windows installer
+﻿# ------------------------------------------------------------------------------
+# Lib.ps1 - Shared utility functions for the Ostwin Windows installer
 #
 # Provides: colors, formatting helpers (Write-Header, Write-Ok, Write-Warn,
 #           Write-Fail, Write-Info, Write-Step), interactive prompt (Ask-User),
@@ -7,13 +7,13 @@
 #
 # Usage:  . "$PSScriptRoot\installer\Lib.ps1"
 #
-# This module has NO side effects when sourced — it only defines functions.
-# ──────────────────────────────────────────────────────────────────────────────
+# This module has NO side effects when sourced - it only defines functions.
+# ------------------------------------------------------------------------------
 
 if ($script:_LibPs1Loaded) { return }
 $script:_LibPs1Loaded = $true
 
-# ─── Output helpers ──────────────────────────────────────────────────────────
+# --- Output helpers ----------------------------------------------------------
 
 function Write-Header {
     [CmdletBinding()]
@@ -49,10 +49,10 @@ function Write-Info {
 function Write-Step {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Message)
-    Write-Host "  → $Message" -ForegroundColor Cyan
+    Write-Host "  -> $Message" -ForegroundColor Cyan
 }
 
-# ─── Interactive prompt ──────────────────────────────────────────────────────
+# --- Interactive prompt ------------------------------------------------------
 # Returns $true if AutoYes is set or user answers Y/y.
 
 function Ask-User {
@@ -71,7 +71,7 @@ function Ask-User {
     return $false
 }
 
-# ─── Version comparison ─────────────────────────────────────────────────────
+# --- Version comparison -----------------------------------------------------
 # Returns $true if $Current >= $Minimum (semantic version comparison).
 
 function Compare-VersionGte {

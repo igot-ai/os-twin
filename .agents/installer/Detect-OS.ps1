@@ -1,12 +1,12 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Detect-OS.ps1 — Windows platform detection
+﻿# ------------------------------------------------------------------------------
+# Detect-OS.ps1 - Windows platform detection
 #
 # Sets: $script:OS, $script:WinVersion, $script:WinBuild,
 #       $script:ARCH, $script:PkgMgr
 #
 # Usage:  . "$PSScriptRoot\Detect-OS.ps1"
 #         Detect-WindowsOS
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_DetectOSPs1Loaded) { return }
 $script:_DetectOSPs1Loaded = $true
@@ -75,6 +75,6 @@ function Detect-WindowsOS {
         }
     }
     catch {
-        # Registry key may not exist — not in dev mode
+        # Registry key may not exist - not in dev mode
     }
 }

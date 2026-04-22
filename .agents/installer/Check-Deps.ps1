@@ -1,17 +1,17 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Check-Deps.ps1 — Dependency presence checks (pure — no installs)
+﻿# ------------------------------------------------------------------------------
+# Check-Deps.ps1 - Dependency presence checks (pure - no installs)
 #
 # Provides: Check-Python, Check-Pwsh, Check-Node, Check-UV, Check-OpenCode
 #
 # Requires: Lib.ps1 (Compare-VersionGte), Versions.ps1 (MinPythonVersion, MinPwshVersion)
 #
 # Side effects: sets $script:PythonVersion and $script:PwshCurrentVersion on success.
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_CheckDepsPs1Loaded) { return }
 $script:_CheckDepsPs1Loaded = $true
 
-# ─── Python ──────────────────────────────────────────────────────────────────
+# --- Python ------------------------------------------------------------------
 # Returns the path to a suitable python command, or empty string.
 
 function Check-Python {
@@ -55,13 +55,13 @@ function Check-Python {
     return ""
 }
 
-# ─── PowerShell 7+ ──────────────────────────────────────────────────────────
+# --- PowerShell 7+ ----------------------------------------------------------
 
 function Check-Pwsh {
     [CmdletBinding()]
     param()
 
-    # We're already running in PowerShell — check current version
+    # We're already running in PowerShell - check current version
     if ($PSVersionTable.PSVersion.Major -ge 7) {
         $script:PwshCurrentVersion = "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor)"
         return $true
@@ -86,7 +86,7 @@ function Check-Pwsh {
     return $false
 }
 
-# ─── Node.js ─────────────────────────────────────────────────────────────────
+# --- Node.js -----------------------------------------------------------------
 
 function Check-Node {
     [CmdletBinding()]
@@ -95,7 +95,7 @@ function Check-Node {
     $null -ne (Get-Command node -ErrorAction SilentlyContinue)
 }
 
-# ─── uv (Python package manager) ────────────────────────────────────────────
+# --- uv (Python package manager) --------------------------------------------
 
 function Check-UV {
     [CmdletBinding()]
@@ -104,7 +104,7 @@ function Check-UV {
     $null -ne (Get-Command uv -ErrorAction SilentlyContinue)
 }
 
-# ─── opencode (Agent execution engine) ──────────────────────────────────────
+# --- opencode (Agent execution engine) --------------------------------------
 
 function Check-OpenCode {
     [CmdletBinding()]

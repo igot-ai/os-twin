@@ -1,11 +1,11 @@
-<#
+﻿<#
 .SYNOPSIS
-    ostwin CLI — unified entry point for Agent OS (Windows PowerShell port)
+    ostwin CLI - unified entry point for Agent OS (Windows PowerShell port)
 
 .DESCRIPTION
     Multi-Agent War-Room Orchestrator.
     Full parity with the bash ostwin CLI, ported to native PowerShell.
-    No dual-dispatch / ps_dispatch() pattern — commands invoke .ps1 scripts directly.
+    No dual-dispatch / ps_dispatch() pattern - commands invoke .ps1 scripts directly.
 
 .EXAMPLE
     ostwin.ps1 run plans/my-feature.md
@@ -24,19 +24,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 1. Activate the Ostwin venv — makes `python` resolve to the managed interpreter
-# ──────────────────────────────────────────────────────────────────────────────
-$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path ($env:USERPROFILE ?? $HOME) ".ostwin" }
+# 1. Activate the Ostwin venv - makes `python` resolve to the managed interpreter
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME })) ".ostwin" }
 
 $venvActivate = Join-Path $OstwinHome ".venv\Scripts\Activate.ps1"
 if (Test-Path $venvActivate) {
     . $venvActivate
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
 # 2. Load global .env (from ~/.ostwin/.env)
-# ──────────────────────────────────────────────────────────────────────────────
 function Import-EnvFile {
     [CmdletBinding()]
     param([string]$Path)
@@ -63,9 +59,7 @@ function Import-EnvFile {
 $globalEnv = Join-Path $OstwinHome ".env"
 Import-EnvFile -Path $globalEnv
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 3. Resolve AGENTS_DIR — search from cwd upward for .agents/
-# ──────────────────────────────────────────────────────────────────────────────
+# 3. Resolve AGENTS_DIR - search from cwd upward for .agents/
 $AgentsDir = ""
 
 $cwd = (Get-Location).Path
@@ -105,15 +99,15 @@ $PythonCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" }
 elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" }
 else { "python" }
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # 4. Load project .env (from AGENTS_DIR/.env)
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 Import-EnvFile -Path (Join-Path (Split-Path $AgentsDir -Parent) ".env")  # project root .env
 Import-EnvFile -Path (Join-Path $AgentsDir ".env")
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # 5. Global variables
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # Version from config.json
 $Version = "unknown"
 try {
@@ -152,9 +146,9 @@ if (-not $env:WARROOMS_DIR) {
     $env:WARROOMS_DIR = Join-Path $cwd ".war-rooms"
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # 6. Helper functions
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 function Test-DashboardReachable {
     [CmdletBinding()]
@@ -279,13 +273,13 @@ function Resolve-PlanId {
         }
     }
 
-    # Not a file and not hex — pass through
+    # Not a file and not hex - pass through
     return [PSCustomObject]@{ PlanFile = $Arg; WorkingDir = "" }
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # 7. Help text
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 function Show-OstwinHelp {
     $hashSuffix = if ($BuildHash) { " ($BuildHash)" } else { "" }
     Write-Host @"
@@ -354,12 +348,12 @@ Environment:
 "@
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # 8. Command dispatch
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 switch ($Command) {
 
-    # ── agent ────────────────────────────────────────────────────────────────
+    # -- agent ----------------------------------------------------------------
     "agent" {
         # Prefer local repo's agent script, fallback to OSTWIN_HOME copy
         $scriptDir = Split-Path $PSCommandPath -Parent
@@ -370,7 +364,7 @@ switch ($Command) {
             & pwsh -NoProfile -File $localAgentPs1 @Arguments
         }
         elseif (Test-Path $localAgent) {
-            # Unix agent script — try via bash if available
+            # Unix agent script - try via bash if available
             if (Get-Command bash -ErrorAction SilentlyContinue) {
                 & bash $localAgent @Arguments
             }
@@ -397,7 +391,7 @@ switch ($Command) {
         }
     }
 
-    # ── run ──────────────────────────────────────────────────────────────────
+    # -- run ------------------------------------------------------------------
     "run" {
         $runArgs = [System.Collections.ArrayList]::new()
         $planArgResolved = $false
@@ -423,7 +417,7 @@ switch ($Command) {
             }
         }
 
-        # ── Check for missing roles ──
+        # -- Check for missing roles --
         if ($planArgResolved -and (Test-Path $resolvedPlanFile)) {
             $planContent = Get-Content $resolvedPlanFile -Raw
             $neededRoles = [regex]::Matches($planContent, '(?m)^Role:\s*(.+)$') |
@@ -509,7 +503,7 @@ switch ($Command) {
             }
         }
 
-        # ── Ensure working_dir exists and is initialized ──
+        # -- Ensure working_dir exists and is initialized --
         if (-not $resolvedWorkingDir -and (Test-Path $resolvedPlanFile)) {
             $pc = Get-Content $resolvedPlanFile -Raw
             if ($pc -match '(?m)^\s*working_dir:\s*(.+)$') {
@@ -575,7 +569,7 @@ switch ($Command) {
         }
     }
 
-    # ── plan ─────────────────────────────────────────────────────────────────
+    # -- plan -----------------------------------------------------------------
     "plan" {
         $planSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "create" }
         $planArgs = if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() }
@@ -847,7 +841,7 @@ switch ($Command) {
         }
     }
 
-    # ── init ─────────────────────────────────────────────────────────────────
+    # -- init -----------------------------------------------------------------
     "init" {
         $initPs1 = Join-Path $AgentsDir "init.ps1"
         $initSh = Join-Path $AgentsDir "init.sh"
@@ -873,7 +867,7 @@ switch ($Command) {
         }
     }
 
-    # ── sync ─────────────────────────────────────────────────────────────────
+    # -- sync -----------------------------------------------------------------
     "sync" {
         $syncPs1 = Join-Path $AgentsDir "sync.ps1"
         $syncSh = Join-Path $AgentsDir "sync.sh"
@@ -889,7 +883,7 @@ switch ($Command) {
         }
     }
 
-    # ── status ───────────────────────────────────────────────────────────────
+    # -- status ---------------------------------------------------------------
     "status" {
         $statusPs1 = Join-Path $AgentsDir "war-rooms\Get-WarRoomStatus.ps1"
         if (Test-Path $statusPs1) {
@@ -912,7 +906,7 @@ switch ($Command) {
         }
     }
 
-    # ── logs ─────────────────────────────────────────────────────────────────
+    # -- logs -----------------------------------------------------------------
     "logs" {
         $logsPs1 = Join-Path $AgentsDir "logs.ps1"
         $logsSh = Join-Path $AgentsDir "logs.sh"
@@ -940,7 +934,7 @@ switch ($Command) {
         }
     }
 
-    # ── stop ─────────────────────────────────────────────────────────────────
+    # -- stop -----------------------------------------------------------------
     "stop" {
         $forceStop = $Arguments -contains '--force'
         $killTree = {
@@ -988,7 +982,7 @@ switch ($Command) {
             Write-Host "No dashboard PID file found"
         }
 
-        # Stop channel processes — check both legacy and current PID file locations
+        # Stop channel processes - check both legacy and current PID file locations
         $channelPidFile = Join-Path $OstwinHome "channels.pid"
         $channelPidFileAlt = Join-Path $OstwinHome ".agents\channel.pid"
         $chanPid = $null
@@ -1033,7 +1027,7 @@ switch ($Command) {
                 }
             }
 
-            # File exists but is empty/invalid — clean it up and continue to fallback
+            # File exists but is empty/invalid - clean it up and continue to fallback
             Remove-Item $cpf -Force -ErrorAction SilentlyContinue
         }
         if ($chanPid) {
@@ -1071,7 +1065,7 @@ switch ($Command) {
         Write-Host ([char]0x2713 + " Shutdown complete")
     }
 
-    # ── dashboard ────────────────────────────────────────────────────────────
+    # -- dashboard ------------------------------------------------------------
     "dashboard" {
         $dashPs1 = Join-Path $AgentsDir "dashboard.ps1"
         $dashSh = Join-Path $AgentsDir "dashboard.sh"
@@ -1115,7 +1109,7 @@ switch ($Command) {
         }
     }
 
-    # ── channel ──────────────────────────────────────────────────────────────
+    # -- channel --------------------------------------------------------------
     "channel" {
         $channelCmd = Join-Path $AgentsDir "bin\channel_cmd.py"
         if (Test-Path $channelCmd) {
@@ -1127,7 +1121,7 @@ switch ($Command) {
         }
     }
 
-    # ── clone-role ───────────────────────────────────────────────────────────
+    # -- clone-role -----------------------------------------------------------
     "clone-role" {
         if ($Arguments.Count -eq 0) {
             Write-Host "Usage: ostwin clone-role <role> [--project-dir <path>]"
@@ -1149,7 +1143,7 @@ switch ($Command) {
         & $PSCommandPath role manager clone -RoleName $roleName -ProjectDir $cloneProjectDir
     }
 
-    # ── skills ───────────────────────────────────────────────────────────────
+    # -- skills ---------------------------------------------------------------
     "skills" {
         $skillsSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "sync" }
         $skillsArgs = if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() }
@@ -1210,7 +1204,7 @@ switch ($Command) {
                 if (-not $fromDir -and $extraArgs.Count -gt 0) {
                     $firstArg = $extraArgs[0]
 
-                    # ── GitHub URL install ──
+                    # -- GitHub URL install --
                     if ($firstArg -match '^https?://github\.com/' -or $firstArg -match '^git@github\.com:') {
                         if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
                             Write-Error ([char]0x2717 + " git is required for GitHub installs but was not found in PATH.")
@@ -1239,7 +1233,7 @@ switch ($Command) {
 
                             # Find skills root
                             # Scan the entire repo for SKILL.md at any depth.
-                            # No assumptions about folder structure — any directory
+                            # No assumptions about folder structure - any directory
                             # containing a SKILL.md is a candidate skill to install.
                             $ghSkillsRoot = "$ghTmp\repo"
 
@@ -1353,7 +1347,7 @@ switch ($Command) {
                         exit 0
                     }
 
-                    # ── ClawHub slug install ──
+                    # -- ClawHub slug install --
                     if ($firstArg -notmatch '^[/\\.]' -and -not (Test-Path $firstArg -PathType Container)) {
                         if (Test-Path $clawHubScript) {
                             $env:OSTWIN_HOME = $OstwinHome
@@ -1495,7 +1489,7 @@ switch ($Command) {
         }
     }
 
-    # ── mcp ──────────────────────────────────────────────────────────────────
+    # -- mcp ------------------------------------------------------------------
     "mcp" {
         # Resolve project root by walking up from cwd
         $mcpProjectRoot = ""
@@ -1522,7 +1516,7 @@ switch ($Command) {
         }
     }
 
-    # ── reload-env ───────────────────────────────────────────────────────────
+    # -- reload-env -----------------------------------------------------------
     "reload-env" {
         $envFile = Join-Path $OstwinHome ".env"
         if (-not (Test-Path $envFile)) {
@@ -1597,7 +1591,7 @@ switch ($Command) {
         Write-Host "Done."
     }
 
-    # ── role ─────────────────────────────────────────────────────────────────
+    # -- role -----------------------------------------------------------------
     "role" {
         $roleName = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "" }
 
@@ -1730,13 +1724,13 @@ switch ($Command) {
         }
     }
 
-    # ── mac ──────────────────────────────────────────────────────────────────
+    # -- mac ------------------------------------------------------------------
     "mac" {
         # Shorthand for: ostwin role macos-automation-engineer <sub> [args]
         & $PSCommandPath role macos-automation-engineer @Arguments
     }
 
-    # ── config ───────────────────────────────────────────────────────────────
+    # -- config ---------------------------------------------------------------
     "config" {
         $configPs1 = Join-Path $AgentsDir "config.ps1"
         $configSh = Join-Path $AgentsDir "config.sh"
@@ -1763,7 +1757,7 @@ switch ($Command) {
         }
     }
 
-    # ── health ───────────────────────────────────────────────────────────────
+    # -- health ---------------------------------------------------------------
     "health" {
         $healthPs1 = Join-Path $AgentsDir "health.ps1"
         $healthSh = Join-Path $AgentsDir "health.sh"
@@ -1784,7 +1778,7 @@ switch ($Command) {
         }
     }
 
-    # ── test ─────────────────────────────────────────────────────────────────
+    # -- test -----------------------------------------------------------------
     "test" {
         $testScript = Join-Path $AgentsDir "tests\run-all.sh"
         if (Test-Path $testScript) {
@@ -1796,7 +1790,7 @@ switch ($Command) {
         }
     }
 
-    # ── test-ps ──────────────────────────────────────────────────────────────
+    # -- test-ps --------------------------------------------------------------
     "test-ps" {
         if (Get-Command pwsh -ErrorAction SilentlyContinue) {
             & pwsh -NoProfile -Command @"
@@ -1809,7 +1803,7 @@ Invoke-Pester '$AgentsDir\lib','$AgentsDir\channel','$AgentsDir\war-rooms','$Age
         }
     }
 
-    # ── version ──────────────────────────────────────────────────────────────
+    # -- version --------------------------------------------------------------
     { $_ -in @('version', '-v', '--version') } {
         if ($BuildHash) {
             Write-Host "ostwin v${Version} (${BuildHash})"
@@ -1819,12 +1813,12 @@ Invoke-Pester '$AgentsDir\lib','$AgentsDir\channel','$AgentsDir\war-rooms','$Age
         }
     }
 
-    # ── help ─────────────────────────────────────────────────────────────────
+    # -- help -----------------------------------------------------------------
     { $_ -in @('-h', '--help', 'help', '') } {
         Show-OstwinHelp
     }
 
-    # ── unknown ──────────────────────────────────────────────────────────────
+    # -- unknown --------------------------------------------------------------
     default {
         if (-not $Command) {
             Show-OstwinHelp

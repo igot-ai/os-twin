@@ -1,14 +1,14 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Orchestrate-Deps.ps1 — Dependency check & install orchestration (step 2)
+﻿# ------------------------------------------------------------------------------
+# Orchestrate-Deps.ps1 - Dependency check & install orchestration (step 2)
 #
 # Provides: Invoke-DependencyOrchestration
 #
-# This mirrors _orchestrate-deps.sh — handles the branching logic for
+# This mirrors _orchestrate-deps.sh - handles the branching logic for
 # -DashboardOnly vs full install.
 #
 # Requires: Check-Deps.ps1, Install-Deps.ps1, Lib.ps1,
 #           globals: $script:DashboardOnly, $script:AutoYes
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_OrchestrateDepsPs1Loaded) { return }
 $script:_OrchestrateDepsPs1Loaded = $true
@@ -18,7 +18,7 @@ function Invoke-DependencyOrchestration {
     param()
 
     if ($script:DashboardOnly) {
-        Write-Header "2. Checking dependencies (dashboard-only — minimal)"
+        Write-Header "2. Checking dependencies (dashboard-only - minimal)"
 
         # PowerShell version (we're already running)
         $psVer = "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor)"
@@ -81,11 +81,11 @@ function Invoke-DependencyOrchestration {
         }
         else {
             Write-Warn "uv not found"
-            if (Ask-User "Install uv? (recommended — fast Python package manager)") {
+            if (Ask-User "Install uv? (recommended - fast Python package manager)") {
                 Install-UV
             }
             else {
-                Write-Info "Skipping uv — will use pip fallback"
+                Write-Info "Skipping uv - will use pip fallback"
             }
         }
 
@@ -167,7 +167,7 @@ function Invoke-DependencyOrchestration {
                 }
             }
             else {
-                Write-Warn "Skipping Node.js — dashboard UI will not be built"
+                Write-Warn "Skipping Node.js - dashboard UI will not be built"
             }
         }
     }

@@ -1,11 +1,11 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Setup-OpenCode.ps1 — OpenCode permissions patching
+﻿# ------------------------------------------------------------------------------
+# Setup-OpenCode.ps1 - OpenCode permissions patching
 #
 # Provides: Setup-OpenCodePermissions
 #
 # Requires: Lib.ps1, globals: $script:VenvDir
 #           Python script: installer/scripts/patch_opencode_permissions.py
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_SetupOpenCodePs1Loaded) { return }
 $script:_SetupOpenCodePs1Loaded = $true
@@ -33,7 +33,7 @@ function Setup-OpenCodePermissions {
     $pyCmd = if (Test-Path $venvPython) { $venvPython } else { "python" }
 
     if (-not (Get-Command $pyCmd -ErrorAction SilentlyContinue) -and -not (Test-Path $pyCmd)) {
-        Write-Warn "Python not available — skipping OpenCode permission patch"
+        Write-Warn "Python not available - skipping OpenCode permission patch"
         return
     }
 
@@ -54,7 +54,7 @@ function Setup-OpenCodePermissions {
             }
         }
         catch {
-            Write-Warn "Failed to patch OpenCode permissions — agents may not be able to read .env files"
+            Write-Warn "Failed to patch OpenCode permissions - agents may not be able to read .env files"
             Write-Info "Manually add to ${ocConfig}:"
             Write-Info '  "permission": { "read": { "*": "allow", "*.env": "allow", "*.env.*": "allow" } }'
         }

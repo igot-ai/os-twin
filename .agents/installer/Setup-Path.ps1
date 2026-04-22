@@ -1,14 +1,14 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Setup-Path.ps1 — PATH configuration for Windows
+﻿# ------------------------------------------------------------------------------
+# Setup-Path.ps1 - PATH configuration for Windows
 #
 # Provides: Setup-Path
 #
 # Writes to:
-#   1. $PROFILE (PowerShell profile) — so new shells see the ostwin bin dir
-#   2. User PATH environment variable — so CMD/Explorer/other apps see it too
+#   1. $PROFILE (PowerShell profile) - so new shells see the ostwin bin dir
+#   2. User PATH environment variable - so CMD/Explorer/other apps see it too
 #
 # Requires: Lib.ps1, globals: $script:InstallDir
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_SetupPathPs1Loaded) { return }
 $script:_SetupPathPs1Loaded = $true

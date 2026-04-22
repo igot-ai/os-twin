@@ -1,10 +1,10 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Setup-Env.ps1 — .env file creation, API key prompting, .env.ps1 hook
+﻿# ------------------------------------------------------------------------------
+# Setup-Env.ps1 - .env file creation, API key prompting, .env.ps1 hook
 #
 # Provides: Setup-Env
 #
 # Requires: Lib.ps1, Detect-OS.ps1, globals: $script:InstallDir, $script:AutoYes
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_SetupEnvPs1Loaded) { return }
 $script:_SetupEnvPs1Loaded = $true
@@ -31,11 +31,11 @@ function Setup-Env {
     $generatedApiKey = "ostwin_" + [Convert]::ToBase64String($randomBytes).Replace("/", "").Replace("+", "").Replace("=", "").Substring(0, 32)
 
     $envContent = @"
-# Ostwin — Environment Variables
+# Ostwin - Environment Variables
 # Edit this file and re-start the dashboard (ostwin stop && ostwin start)
 # Lines starting with # are comments.
 
-# ── AI Provider Keys (set at least one) ────────────────────────────────────
+# -- AI Provider Keys (set at least one) ------------------------------------
 # GOOGLE_API_KEY=your-google-api-key-here
 # OPENAI_API_KEY=your-openai-api-key-here
 # ANTHROPIC_API_KEY=your-anthropic-api-key-here
@@ -45,28 +45,28 @@ function Setup-Env {
 # AWS_ACCESS_KEY_ID=your-aws-access-key-id-here
 # AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
 
-# ── Dashboard settings ──────────────────────────────────────────────────────
+# -- Dashboard settings ------------------------------------------------------
 # DASHBOARD_PORT=3366
 # DASHBOARD_HOST=0.0.0.0
 
-# ── Dashboard Authentication ────────────────────────────────────────────────
-# API key for CLI ↔ Dashboard communication. Auto-generated on first install.
+# -- Dashboard Authentication ------------------------------------------------
+# API key for CLI <-> Dashboard communication. Auto-generated on first install.
 OSTWIN_API_KEY=$generatedApiKey
 
-# ── ngrok Tunnel (auto-starts when NGROK_AUTHTOKEN is set) ─────────────────
+# -- ngrok Tunnel (auto-starts when NGROK_AUTHTOKEN is set) -----------------
 # NGROK_AUTHTOKEN=
 # NGROK_DOMAIN=              # Optional: custom/static domain (paid ngrok plans)
 
-# ── Agent OS settings ───────────────────────────────────────────────────────
+# -- Agent OS settings -------------------------------------------------------
 # OSTWIN_LOG_LEVEL=INFO
 
-# ── Agentic Memory Platform ────────────────────────────────────────────────
-# Processing LLM — the model that analyses, summarises, and evolves memories.
+# -- Agentic Memory Platform ------------------------------------------------
+# Processing LLM - the model that analyses, summarises, and evolves memories.
 # Backend: huggingface | gemini | openai | ollama | openrouter | sglang
 MEMORY_LLM_BACKEND=huggingface
 MEMORY_LLM_MODEL=LiquidAI/LFM2-1.2B-Extract
 
-# Embedding — converts text into vectors for similarity search.
+# Embedding - converts text into vectors for similarity search.
 # Backend: sentence-transformer | gemini
 MEMORY_EMBEDDING_BACKEND=sentence-transformer
 MEMORY_EMBEDDING_MODEL=microsoft/harrier-oss-v1-0.6b
@@ -79,7 +79,7 @@ MEMORY_CONTEXT_AWARE=true
 MEMORY_AUTO_SYNC=true
 MEMORY_AUTO_SYNC_INTERVAL=60
 
-# ── Gemini override ────────────────────────────────────────────────────────
+# -- Gemini override --------------------------------------------------------
 # To use Gemini for memory instead of local HuggingFace, uncomment below
 # (requires GOOGLE_API_KEY to be set above):
 # MEMORY_LLM_BACKEND=gemini
@@ -90,7 +90,7 @@ MEMORY_AUTO_SYNC_INTERVAL=60
 
     Set-Content -Path $envFile -Value $envContent -Encoding UTF8
 
-    Write-Ok ".env created — edit $envFile to add your API keys"
+    Write-Ok ".env created - edit $envFile to add your API keys"
 
     # Create .env.ps1 hook for dynamic env logic
     Create-EnvPs1Hook
@@ -101,7 +101,7 @@ MEMORY_AUTO_SYNC_INTERVAL=60
     # Prompt for ngrok tunnel token (optional)
     if (-not $script:AutoYes -and -not $env:NGROK_AUTHTOKEN) {
         Write-Host ""
-        Write-Host -NoNewline "    → Enter NGROK_AUTHTOKEN for dashboard port-forwarding (or press Enter to skip): " -ForegroundColor Cyan
+        Write-Host -NoNewline "    -> Enter NGROK_AUTHTOKEN for dashboard port-forwarding (or press Enter to skip): " -ForegroundColor Cyan
         $ngrokToken = Read-Host
         if ($ngrokToken) {
             # Ensure ngrok is installed before saving the token
@@ -110,12 +110,12 @@ MEMORY_AUTO_SYNC_INTERVAL=60
             $content = Get-Content $envFile -Raw
             $content = $content -replace '^# NGROK_AUTHTOKEN=.*', "NGROK_AUTHTOKEN=$ngrokToken"
             Set-Content -Path $envFile -Value $content -Encoding UTF8
-            Write-Ok "Saved NGROK_AUTHTOKEN — tunnel will auto-start with dashboard"
+            Write-Ok "Saved NGROK_AUTHTOKEN - tunnel will auto-start with dashboard"
         }
     }
 }
 
-# ─── Internal helpers ────────────────────────────────────────────────────────
+# --- Internal helpers --------------------------------------------------------
 
 function Create-EnvPs1Hook {
     [CmdletBinding()]
@@ -124,7 +124,7 @@ function Create-EnvPs1Hook {
     $envPs1 = Join-Path $script:InstallDir ".env.ps1"
     if (-not (Test-Path $envPs1)) {
         $hookContent = @'
-# Ostwin — dynamic environment hook (Windows)
+# Ostwin - dynamic environment hook (Windows)
 # Sourced by generated agent wrappers before the agent execs.
 # Use this for env vars that require shell logic (subshells, conditionals,
 # token refresh, etc.). Static KEY=VALUE pairs belong in ~/.ostwin/.env.
@@ -144,7 +144,7 @@ if ($env:GOOGLE_API_KEY -and ($env:MEMORY_LLM_BACKEND -eq 'huggingface' -or -not
 }
 '@
         Set-Content -Path $envPs1 -Value $hookContent -Encoding UTF8
-        Write-Ok ".env.ps1 created — add dynamic env hooks (e.g. token refresh) here"
+        Write-Ok ".env.ps1 created - add dynamic env hooks (e.g. token refresh) here"
     }
 }
 
@@ -198,7 +198,7 @@ function Migrate-EnvKeys {
             }
 
             foreach ($keyName in $selectedKeys) {
-                Write-Host -NoNewline "    → Enter ${keyName}: " -ForegroundColor Cyan
+                Write-Host -NoNewline "    -> Enter ${keyName}: " -ForegroundColor Cyan
                 $userVal = Read-Host -AsSecureString
                 $plainVal = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
                     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($userVal)

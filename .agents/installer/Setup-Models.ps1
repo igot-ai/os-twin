@@ -1,5 +1,5 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Setup-Models.ps1 — Model catalog initialization
+﻿# ------------------------------------------------------------------------------
+# Setup-Models.ps1 - Model catalog initialization
 #
 # Provides: Setup-Models
 #
@@ -8,7 +8,7 @@
 # Usage:
 #   Setup-Models            # Only fetch if configured_models.json is missing
 #   Setup-Models -Force     # Always fetch latest (used on first-time install)
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_SetupModelsPs1Loaded) { return }
 $script:_SetupModelsPs1Loaded = $true
@@ -19,8 +19,8 @@ function Setup-Models {
         [switch]$Force
     )
 
-    $configuredModelsPath = Join-Path $script:InstallDir ".agents" "configured_models.json"
-    $rawModelsPath = Join-Path $script:InstallDir ".agents" "models_dev_raw.json"
+    $configuredModelsPath = Join-Path (Join-Path $script:InstallDir ".agents") "configured_models.json"
+    $rawModelsPath = Join-Path (Join-Path $script:InstallDir ".agents") "models_dev_raw.json"
     
     if ((Test-Path $configuredModelsPath) -and -not $Force) {
         Write-Ok "Models catalog already exists at $configuredModelsPath"
@@ -28,7 +28,7 @@ function Setup-Models {
     }
 
     if ($Force) {
-        Write-Step "First-time install detected — fetching latest models catalog from models.dev..."
+        Write-Step "First-time install detected - fetching latest models catalog from models.dev..."
     } else {
         Write-Step "Initializing models catalog from models.dev..."
     }
@@ -39,7 +39,7 @@ function Setup-Models {
         New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
     }
 
-    # ── Try Python loader first ──────────────────────────────────────────────
+    # -- Try Python loader first ----------------------------------------------
     $pyCmd = Join-Path $script:VenvDir "bin" "python.exe"
     if (-not (Test-Path $pyCmd)) {
         $pyCmd = Join-Path $script:VenvDir "Scripts" "python.exe"
@@ -60,7 +60,7 @@ function Setup-Models {
         # Fall through to direct download
     }
 
-    # ── Fallback: direct download ────────────────────────────────────────────
+    # -- Fallback: direct download --------------------------------------------
     $modelsDevUrl = "https://models.dev/api.json"
     try {
         Invoke-WebRequest -Uri $modelsDevUrl -OutFile $rawModelsPath -ErrorAction Stop
@@ -70,6 +70,6 @@ function Setup-Models {
         
         Write-Warn "Models catalog downloaded as raw JSON (Python loader unavailable)"
     } catch {
-        Write-Warn "Failed to initialize models catalog — dashboard will fetch it on startup"
+        Write-Warn "Failed to initialize models catalog - dashboard will fetch it on startup"
     }
 }

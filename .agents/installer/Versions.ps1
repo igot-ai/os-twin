@@ -1,11 +1,11 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Versions.ps1 — Centralized version constants for the Ostwin Windows installer
+﻿# ------------------------------------------------------------------------------
+# Versions.ps1 - Centralized version constants for the Ostwin Windows installer
 #
 # All hard-coded version strings live here. Modules dot-source this file
 # instead of embedding version literals.
 #
 # Usage:  . "$PSScriptRoot\Versions.ps1"
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_VersionsPs1Loaded) { return }
 $script:_VersionsPs1Loaded = $true

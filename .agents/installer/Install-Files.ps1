@@ -1,5 +1,5 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Install-Files.ps1 — File installation, robocopy, MCP seeding, symlinks,
+﻿# ------------------------------------------------------------------------------
+# Install-Files.ps1 - File installation, robocopy, MCP seeding, symlinks,
 #                      migrations
 #
 # Provides: Install-Files, Compute-BuildHash
@@ -7,7 +7,7 @@
 # Requires: Lib.ps1, Versions.ps1, Detect-OS.ps1,
 #           globals: $script:InstallDir, $script:ScriptDir, $script:SourceDir,
 #                    $script:VenvDir
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_InstallFilesPs1Loaded) { return }
 $script:_InstallFilesPs1Loaded = $true
@@ -64,7 +64,7 @@ function Install-Files {
             }
     }
 
-    # Seed plans/ on first install — never overwrite
+    # Seed plans/ on first install - never overwrite
     $plansDir = Join-Path $agentsDir "plans"
     if (-not (Test-Path $plansDir)) {
         New-Item -ItemType Directory -Path $plansDir -Force | Out-Null
@@ -84,7 +84,7 @@ function Install-Files {
     # Symlink ~/.ostwin/mcp -> ~/.ostwin/.agents/mcp
     Setup-McpSymlink
 
-    # MCP: migrate legacy mcp-config.json → config.json
+    # MCP: migrate legacy mcp-config.json -> config.json
     Migrate-McpConfig
 
     # Dashboard: always override from source repo
@@ -102,7 +102,7 @@ function Install-Files {
     }
 }
 
-# ─── Internal helpers ────────────────────────────────────────────────────────
+# --- Internal helpers --------------------------------------------------------
 
 function Seed-McpConfig {
     [CmdletBinding()]
@@ -132,7 +132,7 @@ function Seed-McpConfig {
             Write-Ok "mcp/config.json seeded from $(Split-Path $seedSrc -Leaf)"
         }
         else {
-            Write-Warn "No source mcp config found — skipping seed"
+            Write-Warn "No source mcp config found - skipping seed"
         }
     }
     else {
@@ -228,7 +228,7 @@ function Setup-McpSymlink {
     if (Test-Path $mcpLink) {
         $item = Get-Item $mcpLink -Force
         if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-            # Already a symlink — update if target changed
+            # Already a symlink - update if target changed
             $currentTarget = $item.Target
             if ($currentTarget -ne $mcpReal) {
                 Remove-Item $mcpLink -Force
@@ -236,7 +236,7 @@ function Setup-McpSymlink {
             }
         }
         elseif ($item.PSIsContainer) {
-            # Legacy real directory — migrate
+            # Legacy real directory - migrate
             Write-Step "Migrating $mcpLink to symlink..."
             Get-ChildItem -Path $mcpLink -File | ForEach-Object {
                 $dstFile = Join-Path $mcpReal $_.Name
@@ -278,9 +278,9 @@ function Migrate-McpConfig {
     $newConfig = Join-Path $mcpDir "config.json"
 
     if ((Test-Path $oldConfig) -and -not (Test-Path $newConfig)) {
-        Write-Step "Migrating mcp-config.json → config.json..."
+        Write-Step "Migrating mcp-config.json -> config.json..."
         Move-Item -Path $oldConfig -Destination $newConfig
-        Write-Ok "Renamed mcp-config.json → config.json"
+        Write-Ok "Renamed mcp-config.json -> config.json"
     }
     elseif ((Test-Path $oldConfig) -and (Test-Path $newConfig)) {
         Remove-Item $oldConfig -Force
@@ -309,21 +309,58 @@ function Sync-Dashboard {
     if ($dashSrc) {
         Write-Step "Syncing dashboard from $dashSrc (override)..."
         $dashDst = Join-Path $script:InstallDir "dashboard"
-        if (Test-Path $dashDst) {
-            & cmd.exe /c "rd /s /q `"$dashDst`"" 2>$null
+        
+        # Stop any running dashboard process to release file locks
+        $pidFile = Join-Path $script:InstallDir "dashboard.pid"
+        if (Test-Path $pidFile) {
+            $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
+            if ($oldPid) {
+                try {
+                    $proc = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+                    if ($proc) {
+                        Write-Step "Stopping running dashboard (PID $oldPid)..."
+                        & taskkill /F /T /PID $oldPid 2>$null | Out-Null
+                        Start-Sleep -Seconds 2
+                    }
+                } catch {}
+                Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            }
         }
-        New-Item -ItemType Directory -Path $dashDst -Force | Out-Null
-
-        if (Get-Command robocopy -ErrorAction SilentlyContinue) {
-            & robocopy $dashSrc $dashDst /E /XD '__pycache__' 'node_modules' '.next' /XF '*.pyc' '.DS_Store' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
+        
+        try {
+            $portProcs = Get-NetTCPConnection -LocalPort 3366 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+            foreach ($p in $portProcs) {
+                if ($p) {
+                    Write-Step "Stopping process on port 3366 (PID $p)..."
+                    & taskkill /F /T /PID $p 2>$null | Out-Null
+                }
+            }
+            Start-Sleep -Seconds 1
+        } catch {}
+        
+        if (Test-Path $dashDst) {
+            if (Get-Command robocopy -ErrorAction SilentlyContinue) {
+                & robocopy $dashSrc $dashDst /E /PURGE /XD 'node_modules' '__pycache__' '.next' 'fe\src' 'fe\.next' 'fe\.turbo' /XF '*.pyc' '.DS_Store' 'debug.log' /NFL /NDL /NJH /NJS /NP /R:0 /W:0 2>&1 | Out-Null
+            }
+            else {
+                try { Remove-Item -Path $dashDst -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+                New-Item -ItemType Directory -Path $dashDst -Force | Out-Null
+                Copy-Item -Path "$dashSrc\*" -Destination $dashDst -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
         else {
-            Copy-Item -Path "$dashSrc\*" -Destination $dashDst -Recurse -Force
+            New-Item -ItemType Directory -Path $dashDst -Force | Out-Null
+            if (Get-Command robocopy -ErrorAction SilentlyContinue) {
+                & robocopy $dashSrc $dashDst /E /XD 'node_modules' '__pycache__' '.next' 'fe\src' 'fe\.next' 'fe\.turbo' /XF '*.pyc' '.DS_Store' 'debug.log' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
+            }
+            else {
+                Copy-Item -Path "$dashSrc\*" -Destination $dashDst -Recurse -Force
+            }
         }
-        Write-Ok "Dashboard → $dashDst"
+        Write-Ok "Dashboard -> $dashDst"
     }
     else {
-        Write-Warn "Dashboard source not found — dashboard/ not updated"
+        Write-Warn "Dashboard source not found - dashboard/ not updated"
         Write-Info "Pass the repo root: .\install.ps1 -SourceDir C:\path\to\agent-os"
     }
 }
@@ -363,7 +400,7 @@ function Load-ContributedRoles {
     }
 }
 
-# ─── Build hash ──────────────────────────────────────────────────────────────
+# --- Build hash --------------------------------------------------------------
 
 function Compute-BuildHash {
     [CmdletBinding()]
@@ -426,10 +463,10 @@ function Compute-BuildHash {
     }
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Sync-Bot — copies the bot/ directory from source to install, excluding
+# ------------------------------------------------------------------------------
+# Sync-Bot - copies the bot/ directory from source to install, excluding
 # node_modules. No-op if bot/ does not exist in source.
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 function Sync-Bot {
     [CmdletBinding()]
     param()

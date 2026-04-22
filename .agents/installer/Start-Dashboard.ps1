@@ -1,12 +1,12 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Start-Dashboard.ps1 — Dashboard launch, health check, tunnel detection
+﻿# ------------------------------------------------------------------------------
+# Start-Dashboard.ps1 - Dashboard launch, health check, tunnel detection
 #
 # Provides: Start-Dashboard, Publish-Skills
 #
 # Requires: Lib.ps1, Check-Deps.ps1,
 #           globals: $script:InstallDir, $script:VenvDir,
 #                    $script:DashboardPort, $script:OstwinApiKey
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_StartDashboardPs1Loaded) { return }
 $script:_StartDashboardPs1Loaded = $true
@@ -17,7 +17,7 @@ function Start-Dashboard {
 
     $dashboardApi = Join-Path $script:InstallDir "dashboard\api.py"
     if (-not (Test-Path $dashboardApi)) {
-        Write-Warn "Dashboard not found — skipping auto-start"
+        Write-Warn "Dashboard not found - skipping auto-start"
         Write-Info "Re-run: .\install.ps1 -SourceDir C:\path\to\agent-os"
         return
     }
@@ -70,7 +70,7 @@ function Start-Dashboard {
         }
     }
     catch {
-        # Get-NetTCPConnection may not be available — continue
+        # Get-NetTCPConnection may not be available - continue
     }
     Start-Sleep -Seconds 2
 
@@ -135,7 +135,7 @@ function Start-Dashboard {
     $dashOk = $false
     for ($i = 1; $i -le 180; $i++) {
         try {
-            # Use System.Net.Http directly — avoids PowerShell cmdlet exception handling quirks
+            # Use System.Net.Http directly - avoids PowerShell cmdlet exception handling quirks
             $httpClient = [System.Net.Http.HttpClient]::new()
             $httpClient.Timeout = [TimeSpan]::FromSeconds(10)
             $task = $httpClient.GetAsync("http://localhost:$($script:DashboardPort)/api/status")
@@ -170,9 +170,9 @@ function Start-Dashboard {
         Check-Tunnel
     }
     else {
-        Write-Warn "Dashboard did not respond in 180s — check $errorLog"
+        Write-Warn "Dashboard did not respond in 180s - check $errorLog"
         $dashDir = Join-Path $script:InstallDir "dashboard"
-        Write-Info "Start manually: cd `"$dashDir`" && `"$venvPython`" api.py --port $($script:DashboardPort) --project-dir `"$($script:InstallDir)`""
+        Write-Info "Start manually: cd `"$dashDir`"; & `"$venvPython`" api.py --port $($script:DashboardPort) --project-dir `"$($script:InstallDir)`""
         $script:DashboardHealthy = $false
     }
 }
@@ -184,7 +184,7 @@ function Publish-Skills {
     Write-Header "9b. Publishing skills to backend"
 
     if (-not $script:DashboardHealthy) {
-        Write-Warn "Dashboard not healthy — skipping skill sync (run 'ostwin sync-skills' later)"
+        Write-Warn "Dashboard not healthy - skipping skill sync (run 'ostwin sync-skills' later)"
         return
     }
 
@@ -195,7 +195,7 @@ function Publish-Skills {
     $logsDir = Join-Path $script:InstallDir "logs"
     $skillLogFile = Join-Path $logsDir "sync-skills.log"
 
-    if (Test-Path $syncScriptPs1) {
+    if ((Test-Path $syncScriptPs1) -and (Get-Command pwsh -ErrorAction SilentlyContinue)) {
         $env:OSTWIN_HOME = $script:InstallDir
         $env:DASHBOARD_PORT = $script:DashboardPort
         $installFrom = Join-Path $script:InstallDir ".agents"
@@ -205,7 +205,7 @@ function Publish-Skills {
         # Use UTF-8 without BOM to avoid encoding issues with non-ASCII paths
         [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
         Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$batFile`"" -WindowStyle Hidden
-        Write-Ok "Skill sync started in background — log: $skillLogFile"
+        Write-Ok "Skill sync started in background - log: $skillLogFile"
     }
     elseif ((Test-Path $syncScript) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
         $env:OSTWIN_HOME = $script:InstallDir
@@ -213,11 +213,11 @@ function Publish-Skills {
         & bash $syncScript --install-from (Join-Path $script:InstallDir ".agents")
     }
     else {
-        Write-Warn "sync-skills script not found — skipping skill sync"
+        Write-Warn "sync-skills script not found - skipping skill sync"
     }
 }
 
-# ─── Internal helpers ────────────────────────────────────────────────────────
+# --- Internal helpers --------------------------------------------------------
 
 function Check-Tunnel {
     [CmdletBinding()]
@@ -247,9 +247,9 @@ function Check-Tunnel {
         Write-Warn "Tunnel failed: $tunnelError"
     }
     elseif (-not $env:NGROK_AUTHTOKEN) {
-        Write-Info "Tunnel not configured — set NGROK_AUTHTOKEN in ~\.ostwin\.env to enable port forwarding"
+        Write-Info "Tunnel not configured - set NGROK_AUTHTOKEN in ~\.ostwin\.env to enable port forwarding"
     }
     else {
-        Write-Warn "Tunnel not active — check dashboard logs"
+        Write-Warn "Tunnel not active - check dashboard logs"
     }
 }

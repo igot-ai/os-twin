@@ -1,12 +1,12 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Verify.ps1 — Component status display
+﻿# ------------------------------------------------------------------------------
+# Verify.ps1 - Component status display
 #
 # Provides: Verify-Components, Print-CompletionBanner
 #
 # Requires: Lib.ps1, Check-Deps.ps1, globals: $script:InstallDir, $script:VenvDir,
 #           $script:DashboardOnly, $script:PythonVersion, $script:PwshCurrentVersion,
 #           $script:DashboardPort, $script:StartChannel, $script:TunnelUrl
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_VerifyPs1Loaded) { return }
 $script:_VerifyPs1Loaded = $true
@@ -22,25 +22,25 @@ function Verify-Components {
 
         $pyCmd = Check-Python
         if ($pyCmd) {
-            Write-Host "    python:           ✅ $($script:PythonVersion)" -ForegroundColor Green
+            Write-Host "    python:           [OK] $($script:PythonVersion)" -ForegroundColor Green
         }
         else {
-            Write-Host "    python:           ❌ not found" -ForegroundColor Red
+            Write-Host "    python:           [X] not found" -ForegroundColor Red
         }
 
         if (Test-Path $script:VenvDir) {
-            Write-Host "    venv:             ✅ $($script:VenvDir)" -ForegroundColor Green
+            Write-Host "    venv:             [OK] $($script:VenvDir)" -ForegroundColor Green
         }
         else {
-            Write-Host "    venv:             ❌ not created" -ForegroundColor Red
+            Write-Host "    venv:             [X] not created" -ForegroundColor Red
         }
 
         $dashApi = Join-Path $script:InstallDir "dashboard\api.py"
         if (Test-Path $dashApi) {
-            Write-Host "    dashboard api:    ✅ installed" -ForegroundColor Green
+            Write-Host "    dashboard api:    [OK] installed" -ForegroundColor Green
         }
         else {
-            Write-Host "    dashboard api:    ❌ not found" -ForegroundColor Red
+            Write-Host "    dashboard api:    [X] not found" -ForegroundColor Red
         }
     }
     else {
@@ -48,62 +48,62 @@ function Verify-Components {
 
         # PowerShell version (we're running in it)
         $psVer = "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor)"
-        Write-Host "    powershell:       ✅ $psVer" -ForegroundColor Green
+        Write-Host "    powershell:       [OK] $psVer" -ForegroundColor Green
 
         # Windows version
-        Write-Host "    windows:          ✅ $($script:WinVersion) (build $($script:WinBuild))" -ForegroundColor Green
+        Write-Host "    windows:          [OK] $($script:WinVersion) (build $($script:WinBuild))" -ForegroundColor Green
 
         # Python
         $pyCmd = Check-Python
         if ($pyCmd) {
-            Write-Host "    python:           ✅ $($script:PythonVersion)" -ForegroundColor Green
+            Write-Host "    python:           [OK] $($script:PythonVersion)" -ForegroundColor Green
         }
         else {
-            Write-Host "    python:           ❌ not found" -ForegroundColor Red
+            Write-Host "    python:           [X] not found" -ForegroundColor Red
         }
 
         # uv
         if (Check-UV) {
             $uvVer = (& uv --version 2>&1) -replace '[^0-9.]', '' | Select-Object -First 1
-            Write-Host "    uv:               ✅ $uvVer" -ForegroundColor Green
+            Write-Host "    uv:               [OK] $uvVer" -ForegroundColor Green
         }
         else {
-            Write-Host "    uv:               ⚠️  not installed" -ForegroundColor Yellow
+            Write-Host "    uv:               [!]  not installed" -ForegroundColor Yellow
         }
 
         # opencode
         if (Check-OpenCode) {
             $ocVer = (& opencode --version 2>&1) -replace '[^0-9.]', '' | Select-Object -First 1
             if (-not $ocVer) { $ocVer = "installed" }
-            Write-Host "    opencode:         ✅ $ocVer" -ForegroundColor Green
+            Write-Host "    opencode:         [OK] $ocVer" -ForegroundColor Green
         }
         else {
-            Write-Host "    opencode:         ⚠️  not in PATH" -ForegroundColor Yellow
+            Write-Host "    opencode:         [!]  not in PATH" -ForegroundColor Yellow
         }
 
         # Node.js
         if (Check-Node) {
             $nodeVer = (& node --version 2>&1) | Select-Object -First 1
-            Write-Host "    node:             ✅ $nodeVer" -ForegroundColor Green
+            Write-Host "    node:             [OK] $nodeVer" -ForegroundColor Green
         }
         else {
-            Write-Host "    node:             ⚠️  not installed" -ForegroundColor Yellow
+            Write-Host "    node:             [!]  not installed" -ForegroundColor Yellow
         }
 
         # venv
         if (Test-Path $script:VenvDir) {
-            Write-Host "    venv:             ✅ $($script:VenvDir)" -ForegroundColor Green
+            Write-Host "    venv:             [OK] $($script:VenvDir)" -ForegroundColor Green
         }
         else {
-            Write-Host "    venv:             ❌ not created" -ForegroundColor Red
+            Write-Host "    venv:             [X] not created" -ForegroundColor Red
         }
 
         # Developer Mode
         if ($script:DevModeEnabled) {
-            Write-Host "    developer mode:   ✅ enabled" -ForegroundColor Green
+            Write-Host "    developer mode:   [OK] enabled" -ForegroundColor Green
         }
         else {
-            Write-Host "    developer mode:   ⚠️  disabled (symlinks may require elevation)" -ForegroundColor Yellow
+            Write-Host "    developer mode:   [!]  disabled (symlinks may require elevation)" -ForegroundColor Yellow
         }
     }
 }
@@ -113,7 +113,7 @@ function Print-CompletionBanner {
     param()
 
     Write-Host ""
-    Write-Host "  Installation complete! ✅" -ForegroundColor Green
+    Write-Host "  Installation complete! [OK]" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Next steps:" -ForegroundColor White
     Write-Host ""
@@ -142,7 +142,7 @@ function Print-CompletionBanner {
     if ($script:StartChannel) {
         Write-Host ""
         Write-Host "  Channels (Telegram + Discord + Slack):" -ForegroundColor White
-        Write-Host "    Running in background — log: $($script:InstallDir)\logs\channel.log" -ForegroundColor DarkGray
+        Write-Host "    Running in background - log: $($script:InstallDir)\logs\channel.log" -ForegroundColor DarkGray
         Write-Host "    Stop with: ostwin channel stop" -ForegroundColor DarkGray
     }
     Write-Host ""
@@ -159,7 +159,7 @@ function Print-CompletionBanner {
         }
     }
     if ($apiKey) {
-        Write-Host "  🔑 Dashboard Authentication Key:" -ForegroundColor White
+        Write-Host "  ≡ƒöæ Dashboard Authentication Key:" -ForegroundColor White
         Write-Host ""
         Write-Host "    $apiKey" -ForegroundColor Yellow
         Write-Host ""

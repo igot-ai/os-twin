@@ -1,11 +1,11 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Start-Channels.ps1 — Channel connector install + launch (Telegram, Discord, Slack)
+﻿# ------------------------------------------------------------------------------
+# Start-Channels.ps1 - Channel connector install + launch (Telegram, Discord, Slack)
 #
 # Provides: Install-Channels, Start-Channels
 #
 # Requires: Lib.ps1, Check-Deps.ps1 (Check-Node),
 #           globals: $script:InstallDir, $script:SourceDir, $script:ScriptDir
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_StartChannelsPs1Loaded) { return }
 $script:_StartChannelsPs1Loaded = $true
@@ -29,19 +29,19 @@ function Install-Channels {
     }
 
     if (-not $script:ChanDir) {
-        Write-Warn "Channel connector dir (bot/) not found — skipping"
+        Write-Warn "Channel connector dir (bot/) not found - skipping"
         Write-Info "Expected at bot\package.json relative to the repo root"
         return
     }
 
     if (-not (Check-Node)) {
-        Write-Warn "Node.js not found — cannot install channel connectors"
+        Write-Warn "Node.js not found - cannot install channel connectors"
         Write-Info "Install Node.js and re-run"
         return
     }
 
     if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-        Write-Warn "pnpm not found — cannot install channel connectors"
+        Write-Warn "pnpm not found - cannot install channel connectors"
         Write-Info "Install pnpm and re-run"
         return
     }
@@ -102,7 +102,7 @@ function Start-Channels {
         }
     }
 
-    # Stop previous channel process — check both legacy and current PID file locations
+    # Stop previous channel process - check both legacy and current PID file locations
     $chanPidFile = Join-Path $script:InstallDir "channels.pid"
     foreach ($legacyPid in @($chanPidFile, (Join-Path $script:InstallDir ".agents\channel.pid"))) {
         if (Test-Path $legacyPid) {
@@ -152,7 +152,7 @@ function Start-Channels {
     # bot/package.json "start" is: tsx src/index.ts
     $tsxCmd = Join-Path $script:ChanDir "node_modules\.bin\tsx.cmd"
     if (-not (Test-Path $tsxCmd)) {
-        Write-Warn "tsx not found — cannot start channels"
+        Write-Warn "tsx not found - cannot start channels"
         return
     }
 
@@ -173,7 +173,7 @@ function Start-Channels {
     $chanPid = $wrapperPid  # fallback: use wrapper if tree walk fails
 
     try {
-        # Walk cmd.exe → tsx.cmd → node.exe via WMI parent-child relationship
+        # Walk cmd.exe -> tsx.cmd -> node.exe via WMI parent-child relationship
         # Find the actual channel process (node/tsx) by matching executable, not just last visited
         $frontier = @($wrapperPid)
         $foundPid = $null
@@ -197,7 +197,7 @@ function Start-Channels {
     } catch {}
 
     Set-Content -Path $chanPidFile -Value $chanPid -NoNewline
-    Write-Ok "Channels started (PID $chanPid) — log: $chanLogFile"
+    Write-Ok "Channels started (PID $chanPid) - log: $chanLogFile"
 
     if ($env:TELEGRAM_BOT_TOKEN) { Write-Ok "Telegram: enabled" } else { Write-Info "Telegram: disabled (set TELEGRAM_BOT_TOKEN)" }
     if ($env:DISCORD_TOKEN) { Write-Ok "Discord: enabled" } else { Write-Info "Discord: disabled (set DISCORD_TOKEN)" }

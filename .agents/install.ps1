@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Agent OS (Ostwin) — Windows Installer
+    Agent OS (Ostwin) - Windows Installer
 
 .DESCRIPTION
     Installs all dependencies and the ostwin CLI on Windows 10/11.
@@ -19,7 +19,7 @@
     No dependency on WSL, Cygwin, or Git Bash.
 
 .PARAMETER Yes
-    Non-interactive mode — auto-approve all installs.
+    Non-interactive mode - auto-approve all installs.
 
 .PARAMETER Dir
     Install to custom location (default: $HOME\.ostwin).
@@ -75,9 +75,9 @@ param(
     [switch]$Help
 )
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # SETUP
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 $ErrorActionPreference = "Stop"
 
@@ -106,9 +106,9 @@ $script:PythonCmd = ""
 $script:TunnelUrl = ""
 $script:OstwinApiKey = ""
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # SOURCE ALL MODULES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 $modules = @(
     "Lib.ps1",
@@ -141,17 +141,17 @@ foreach ($mod in $modules) {
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # MAIN
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 Write-Host ""
-Write-Host "  ╔══════════════════════════════════════════════════╗" -ForegroundColor White
-Write-Host "  ║     " -ForegroundColor White -NoNewline
+Write-Host "  +==================================================+" -ForegroundColor White
+Write-Host "  |     " -ForegroundColor White -NoNewline
 Write-Host "Ostwin" -ForegroundColor Cyan -NoNewline
-Write-Host " — Agent OS Installer (Windows)        ║" -ForegroundColor White
-Write-Host "  ║     Multi-Agent War-Room Orchestrator            ║" -ForegroundColor White
-Write-Host "  ╚══════════════════════════════════════════════════╝" -ForegroundColor White
+Write-Host " - Agent OS Installer (Windows)        |" -ForegroundColor White
+Write-Host "  |     Multi-Agent War-Room Orchestrator            |" -ForegroundColor White
+Write-Host "  +==================================================+" -ForegroundColor White
 Write-Host ""
 
 # Step 1: Detect platform
@@ -162,7 +162,7 @@ if ($script:DevModeEnabled) {
     Write-Ok "Developer Mode enabled (symlinks without elevation)"
 }
 else {
-    Write-Info "Developer Mode not enabled — symlinks may fall back to junctions"
+    Write-Info "Developer Mode not enabled - symlinks may fall back to junctions"
 }
 
 # Step 2: Dependencies
@@ -205,7 +205,7 @@ Setup-OpenCodePermissions
 
 # Step 6: Pester
 if ($script:DashboardOnly) {
-    Write-Header "6. PowerShell modules (skipped — dashboard-only)"
+    Write-Header "6. PowerShell modules (skipped - dashboard-only)"
     Write-Info "Skipping in dashboard-only mode"
 }
 elseif (-not $script:SkipOptional) {
@@ -223,7 +223,7 @@ if (-not $script:DashboardOnly) {
     Setup-Path
 }
 else {
-    Write-Header "7. PATH (skipped — dashboard-only)"
+    Write-Header "7. PATH (skipped - dashboard-only)"
     Write-Info "Skipping PATH setup in dashboard-only mode"
     $binDir = Join-Path $script:InstallDir ".agents\bin"
     if ($env:PATH -notlike "*$binDir*") {

@@ -1,11 +1,11 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Patch-MCP.ps1 — MCP config patching, env injection, OpenCode merge
+﻿# ------------------------------------------------------------------------------
+# Patch-MCP.ps1 - MCP config patching, env injection, OpenCode merge
 #
 # Provides: Patch-McpConfig
 #
 # Requires: Lib.ps1, globals: $script:InstallDir, $script:VenvDir
 #           Python scripts in installer/scripts/ (reused from EPIC-001)
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_PatchMcpPs1Loaded) { return }
 $script:_PatchMcpPs1Loaded = $true
@@ -65,7 +65,7 @@ function Patch-McpConfig {
     }
 
     # 3. Normalize + validate + merge MCP servers into opencode config
-    # On Windows, XDG_CONFIG_HOME may not exist — use LOCALAPPDATA or USERPROFILE
+    # On Windows, XDG_CONFIG_HOME may not exist - use LOCALAPPDATA or USERPROFILE
     $opencodeHome = if ($env:XDG_CONFIG_HOME) {
         Join-Path $env:XDG_CONFIG_HOME "opencode"
     }

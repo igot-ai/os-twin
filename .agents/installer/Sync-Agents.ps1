@@ -1,5 +1,5 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Sync-Agents.ps1 — Sync roles to OpenCode agents directory
+﻿# ------------------------------------------------------------------------------
+# Sync-Agents.ps1 - Sync roles to OpenCode agents directory
 #
 # Copies ROLE.md from each role directory to the OpenCode agents folder
 # so the OpenCode CLI can discover and invoke them as named agents.
@@ -7,7 +7,7 @@
 # Provides: Sync-OpenCodeAgents
 #
 # Requires: Lib.ps1, globals: $script:InstallDir
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_SyncAgentsPs1Loaded) { return }
 $script:_SyncAgentsPs1Loaded = $true
@@ -68,5 +68,5 @@ function Sync-OpenCodeAgents {
         }
     }
 
-    Write-Ok "$synced agent(s) synced to $agentsDir ($skipped skipped — no ROLE.md)"
+    Write-Ok "$synced agent(s) synced to $agentsDir ($skipped skipped - no ROLE.md)"
 }

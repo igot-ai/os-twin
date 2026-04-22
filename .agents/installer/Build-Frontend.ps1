@@ -1,5 +1,5 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Build-Frontend.ps1 — Unified frontend build function
+﻿# ------------------------------------------------------------------------------
+# Build-Frontend.ps1 - Unified frontend build function
 #
 # Provides: Build-Frontend
 #
@@ -7,7 +7,7 @@
 # function that can build any frontend project.
 #
 # Requires: Lib.ps1, globals: $script:SourceDir, $script:ScriptDir
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 if ($script:_BuildFrontendPs1Loaded) { return }
 $script:_BuildFrontendPs1Loaded = $true
@@ -37,7 +37,7 @@ function Build-Frontend {
     }
 
     if (-not $feDir) {
-        Write-Warn "$Label not found — skipping build"
+        Write-Warn "$Label not found - skipping build"
         Write-Info "Expected at $SubDir\package.json"
         return
     }
@@ -52,7 +52,7 @@ function Build-Frontend {
     }
 
     if (-not $pm) {
-        Write-Warn "No package manager (bun/pnpm/npm/yarn) found — skipping $Label build"
+        Write-Warn "No package manager (bun/pnpm/npm/yarn) found - skipping $Label build"
         Write-Info "Install Node.js and a package manager to enable $Label"
         return
     }
