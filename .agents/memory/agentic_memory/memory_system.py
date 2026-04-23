@@ -19,37 +19,25 @@ import pickle
 from pathlib import Path
 import time
 
-# Lazy imports for heavy ML libraries (torch, transformers, sentence-transformers, litellm)
-# These take 6+ seconds to import and are not all needed for every backend.
-SentenceTransformer = None
+# Lazy imports for heavy ML libraries (transformers, nltk, sklearn)
+# LLM/embedding calls go through shared.ai — no litellm or sentence-transformers needed here.
 AutoModel = None
 AutoTokenizer = None
 word_tokenize = None
 BM25Okapi = None
 cosine_similarity = None
-completion = None
 
 
 def _ensure_ml_imports():
     """Import heavy ML libraries on first use."""
-    global \
-        SentenceTransformer, \
-        AutoModel, \
-        AutoTokenizer, \
-        word_tokenize, \
-        BM25Okapi, \
-        cosine_similarity, \
-        completion
-    if completion is not None:
+    global AutoModel, AutoTokenizer, word_tokenize, BM25Okapi, cosine_similarity
+    if cosine_similarity is not None:
         return  # already imported
-    from sentence_transformers import SentenceTransformer as _ST
     from transformers import AutoModel as _AM, AutoTokenizer as _AT
     from nltk.tokenize import word_tokenize as _wt
     from rank_bm25 import BM25Okapi as _BM
     from sklearn.metrics.pairwise import cosine_similarity as _cs
-    from litellm import completion as _comp
 
-    SentenceTransformer = _ST
     AutoModel = _AM
     AutoTokenizer = _AT
     word_tokenize = _wt
