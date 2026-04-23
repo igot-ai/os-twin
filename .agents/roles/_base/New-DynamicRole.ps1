@@ -22,7 +22,7 @@
 .PARAMETER Timeout
     Timeout in seconds. Default: 600.
 .PARAMETER CLI
-    CLI tool to use. Default: deepagents.
+    CLI tool to use. Default: agent.
 .PARAMETER PromptContent
     Content for ROLE.md (the role's system prompt template).
 

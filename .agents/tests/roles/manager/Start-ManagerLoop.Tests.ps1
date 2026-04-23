@@ -1967,8 +1967,8 @@ export AGENT_OS_PID_FILE='$pidFile'
 export OSTWIN_HOME='/Users/test/.ostwin'
 export AGENT_OS_PROJECT_DIR='/Users/test/project'
 echo "`$`$" > '$pidFile'
-echo "[wrapper] PID=`$`$, CMD=deepagents, CWD=`$(pwd)" >> '$outputFile'
-exec deepagents -n "`$(cat '$promptFile')" --agent $Role --auto-approve --model $Model --quiet >> '$outputFile' 2>&1
+echo "[wrapper] PID=`$`$, CMD=agent, CWD=`$(pwd)" >> '$outputFile'
+exec '$($OstwinHome)/.agents/bin/agent' -n "`$(cat '$promptFile')" --agent $Role --auto-approve --model $Model --quiet >> '$outputFile' 2>&1
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
 "@
                 $scriptPath = Join-Path $artifactsDir "run-agent.sh"
