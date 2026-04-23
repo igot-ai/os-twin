@@ -1,5 +1,5 @@
-# Use a slim Python 3.11 base image
-FROM python:3.11-slim
+# Use a pinned stable image (Bookworm) to avoid "Testing" distribution (Trixie) policy changes
+FROM python:3.11-slim-bookworm
 
 # Force the installer to use /root/.ostwin instead of assuming $HOME
 ENV OSTWIN_HOME=/root/.ostwin
@@ -11,8 +11,8 @@ ENV LARK_WEBHOOK_URL ""
 # Set the working directory
 WORKDIR /app
 
-# 1. Install System Dependencies & PowerShell (pwsh)
-# Includes nodejs for frontend builds and rsync for the installer
+# 1. Install System Dependencies
+# Includes nodejs 20.x and PowerShell 7.4.x
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     curl \
@@ -21,12 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     ca-certificates \
     build-essential \
-    && wget -q https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb \
-    && dpkg -i packages-microsoft-prod.deb \
-    && rm packages-microsoft-prod.deb \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get update \
-    && apt-get install -y powershell nodejs \
+    && apt-get install -y nodejs \
+    # Install PowerShell directly from Microsoft to bypass APT repo signature issues (SHA1 rejection in newer Debian)
+    && wget -q https://github.com/PowerShell/PowerShell/releases/download/v7.4.7/powershell_7.4.7-1.debian.12_amd64.deb \
+    && dpkg -i powershell_7.4.7-1.debian.12_amd64.deb || apt-get install -fy \
+    && rm powershell_7.4.7-1.debian.12_amd64.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Install OpenCode CLI
@@ -56,7 +57,7 @@ RUN cd /app/dashboard/fe && npm run build
 COPY . /app
 
 # 9. Run Installer (Full install to enable agent orchestration)
-# Removed --dashboard-only to ensure opencode/mcp/agents are correctly synced
+# The installer supports --yes to skip prompts
 RUN bash .agents/install.sh --yes --dir /root/.ostwin
 
 # Expose the default port (Cloud Run will override this via $PORT)
