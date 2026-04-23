@@ -12,6 +12,7 @@ import { AddProviderModal } from '@/components/settings/AddProviderModal';
 import { VaultSecretModal } from '@/components/settings/VaultSecretModal';
 import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
+import { AIMonitorPanel } from '@/components/settings/AIMonitorPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
 import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
 
@@ -369,6 +370,9 @@ export default function SettingsPage() {
             onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
           />
         );
+
+      case 'ai':
+        return <AIMonitorPanel />;
 
       default:
         return null;
