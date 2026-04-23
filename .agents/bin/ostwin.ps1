@@ -588,7 +588,7 @@ switch ($Command) {
     # ── plan ─────────────────────────────────────────────────────────────────
     "plan" {
         $planSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "create" }
-        $planArgs = if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() }
+        $planArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
 
         switch ($planSub) {
             "create" {
@@ -1162,7 +1162,7 @@ switch ($Command) {
     # ── skills ───────────────────────────────────────────────────────────────
     "skills" {
         $skillsSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "sync" }
-        $skillsArgs = if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() }
+        $skillsArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
 
         # Find sync-skills script (prefer .ps1 over .sh)
         $syncScript = Join-Path $AgentsDir "sync-skills.ps1"
@@ -1645,9 +1645,9 @@ switch ($Command) {
             exit 0
         }
 
-        $roleArgs = if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() }
+        $roleArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
         $subName = if ($roleArgs.Count -gt 0) { $roleArgs[0] } else { "" }
-        $subArgs = if ($roleArgs.Count -gt 1) { $roleArgs[1..($roleArgs.Count - 1)] } else { @() }
+        $subArgs = @(if ($roleArgs.Count -gt 1) { $roleArgs[1..($roleArgs.Count - 1)] } else { @() })
 
         # Find subcommands.json
         $roleManifest = ""
