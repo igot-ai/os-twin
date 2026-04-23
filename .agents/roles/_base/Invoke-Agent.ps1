@@ -560,6 +560,48 @@ if (Test-Path `$envSh) { . `$envSh }
             $psi.CreateNoWindow = $true
             $proc = [System.Diagnostics.Process]::Start($psi)
             $proc.StandardInput.Close()
+
+            # Assign to a Win32 Job Object so all descendants can be killed as a group.
+            # This is the Windows equivalent of Unix PGID — survives parent death.
+            # NOTE: The Job handle is intentionally kept open (never CloseHandle'd here).
+            # KILL_ON_JOB_CLOSE ensures all child processes die when this handle is
+            # garbage-collected or the manager exits. Explicit termination goes through
+            # Stop-ProcessTree which reads job-handle.txt and calls TerminateJobObject.
+            try {
+                Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class JobObject {
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string lpName);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetInformationJobObject(IntPtr hJob, int infoType, IntPtr lpInfo, uint cbInfoLength);
+    [DllImport("kernel32.dll")]
+    public static extern bool CloseHandle(IntPtr hObject);
+    public static IntPtr CreateAndAssign(IntPtr processHandle) {
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) return IntPtr.Zero;
+        // JOBOBJECT_EXTENDED_LIMIT_INFORMATION with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        var info = new byte[112]; // sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION) on x64
+        BitConverter.GetBytes((uint)0x2000).CopyTo(info, 16); // LimitFlags = KILL_ON_JOB_CLOSE at offset 16
+        var pin = GCHandle.Alloc(info, GCHandleType.Pinned);
+        SetInformationJobObject(job, 9, pin.AddrOfPinnedObject(), (uint)info.Length); // 9 = ExtendedLimitInformation
+        pin.Free();
+        AssignProcessToJobObject(job, processHandle);
+        return job;
+    }
+}
+'@ -ErrorAction SilentlyContinue
+                $jobHandle = [JobObject]::CreateAndAssign($proc.Handle)
+                if ($jobHandle -ne [IntPtr]::Zero) {
+                    $jobHandleFile = Join-Path $artifactsDir "job-handle.txt"
+                    $jobHandle.ToInt64().ToString() | Out-File -FilePath $jobHandleFile -Encoding utf8 -NoNewline
+                }
+            } catch { }
             
             $wrapperScript = $psWrapperScript
             Write-Host "[Invoke-Agent] Windows branch: wrapperScript=$wrapperScript"

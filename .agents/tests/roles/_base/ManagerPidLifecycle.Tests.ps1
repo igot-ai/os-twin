@@ -16,7 +16,15 @@ Describe "Manager PID Lifecycle Ownership" {
         $headerRaw = $lines[0..($loopIdx - 1)] -join "`n"
         $headerRaw = $headerRaw -replace '\$PSScriptRoot', "'$global:ManagerDir'"
         $headerRaw = $headerRaw -replace '\$PID \| Out-File -FilePath \$managerPidFile', '# Bypassed pid'
+        $headerRaw = $headerRaw -replace '(?m)^\$pgidFile = .*$', '# Bypassed pgid file'
+        $headerRaw = $headerRaw -replace '(?ms)if \(\$IsLinux -or \$IsMacOS\) \{\s*try \{.*?\$pgid.*?catch \{ \}\s*\}', '# Bypassed PGID write'
+        $headerRaw = $headerRaw -replace '(?ms)if \(\$IsLinux -or \$IsMacOS\) \{ # SIGHUP.*?catch \{ \}\s*\}', '# Bypassed SIGHUP handler'
         Invoke-Expression $headerRaw
+    }
+
+    AfterAll {
+        $pgidFile = Join-Path $global:AgentsDir "manager.pgid"
+        Remove-Item $pgidFile -Force -ErrorAction SilentlyContinue
     }
     
     Context "Write-RoomStatus" {

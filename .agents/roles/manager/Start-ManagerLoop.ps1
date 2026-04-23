@@ -81,14 +81,34 @@ $script:dagMtime = $null
 $script:rolesCache = $null
 $script:rolesCacheMtime = 0
 
-# --- Write PID ---
+# --- Write PID + PGID ---
 $PID | Out-File -FilePath $managerPidFile -Encoding utf8 -NoNewline
+$pgidFile = Join-Path $agentsDir "manager.pgid"
+if ($IsLinux -or $IsMacOS) {
+    try {
+        $pgid = $null
+        for ($__retry = 0; $__retry -lt 3; $__retry++) { # retry up to 3× — kernel may not have assigned PGID yet
+            $pgid = (bash -c "ps -o pgid= -p $PID" 2>$null).Trim()
+            if ($pgid) { break }
+            Start-Sleep -Milliseconds 100
+        }
+        if ($pgid) { $pgid | Out-File -FilePath $pgidFile -Encoding utf8 -NoNewline }
+    } catch { }
+}
 
-# --- Graceful shutdown handler ---
+# --- Graceful shutdown handler (SIGTERM, SIGHUP, PowerShell exit) ---
 $script:shuttingDown = $false
-Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+$shutdownAction = {
     $script:shuttingDown = $true
-} | Out-Null
+}
+Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action $shutdownAction | Out-Null
+if ($IsLinux -or $IsMacOS) { # SIGHUP = terminal closed; treat same as SIGTERM
+    try { Register-EngineEvent -SourceIdentifier POSIX.SIGHUP -Action $shutdownAction -ErrorAction SilentlyContinue | Out-Null } catch { }
+}
+
+# --- Startup sweep: clean stale PID files from previous unclean shutdowns ---
+$stalePids = Invoke-StalePidSweep -WarRoomsDir $WarRoomsDir
+if ($stalePids -gt 0) { Write-Host "[MANAGER] Cleaned $stalePids stale PID file(s) from previous run." }
 
 # --- Log startup ---
 $logFn = Get-Command Write-OstwinLog -ErrorAction SilentlyContinue
@@ -812,5 +832,7 @@ if ($script:shuttingDown) {
         Stop-RoomProcesses $_.FullName
     }
     Remove-Item $managerPidFile -Force -ErrorAction SilentlyContinue
+    $pgidFile = Join-Path $agentsDir "manager.pgid"
+    Remove-Item $pgidFile -Force -ErrorAction SilentlyContinue
     Write-Log "INFO" "Shutdown complete."
 }

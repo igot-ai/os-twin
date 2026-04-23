@@ -1,9 +1,13 @@
 <#
 .SYNOPSIS
-    Agent OS — Graceful Shutdown (PowerShell port of stop.sh)
+    Agent OS — Graceful Shutdown (cross-platform PowerShell)
 
 .DESCRIPTION
     Stops the running manager loop, dashboard, and all child agent processes.
+    Uses three strategies in order:
+      1. Stop-Process on manager (graceful — it cleans up its own children)
+      2. Process-tree kill via recursive child enumeration
+      3. Force-kill all tracked PIDs (with -Force)
 
 .PARAMETER Force
     Force-kill processes that don't respond to graceful shutdown.
@@ -18,119 +22,137 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path $PSCommandPath -Parent
 $AgentsDir = $ScriptDir
 $ManagerPidFile = Join-Path $AgentsDir "manager.pid"
+$ManagerPgidFile = Join-Path $AgentsDir "manager.pgid"
 $DashboardPidFile = Join-Path $AgentsDir "dashboard.pid"
 $WarroomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR } else { Join-Path $AgentsDir "war-rooms" }
 
-# ─── Stop Dashboard ──────────────────────────────────────────────────────────
+function Stop-ProcessTree { # Kill a process and all its descendants (depth-first)
+    param([int]$TargetPid)
+    if ($IsLinux -or $IsMacOS) {
+        $childPids = @()
+        try { $childPids = (pgrep -P $TargetPid 2>$null) -split "`n" | Where-Object { $_ -match '^\d+$' } } catch { }
+        foreach ($cp in $childPids) { Stop-ProcessTree -TargetPid ([int]$cp) }
+    } else {
+        try {
+            Get-CimInstance Win32_Process -Filter "ParentProcessId=$TargetPid" -ErrorAction SilentlyContinue | ForEach-Object {
+                Stop-ProcessTree -TargetPid $_.ProcessId
+            }
+        } catch { }
+    }
+    try { Stop-Process -Id $TargetPid -Force -ErrorAction SilentlyContinue } catch { }
+}
 
 function Stop-Dashboard {
     if (-not (Test-Path $DashboardPidFile)) { return }
-
     $dashPid = (Get-Content $DashboardPidFile -Raw).Trim()
+    if ($dashPid -notmatch '^\d+$') { Remove-Item $DashboardPidFile -Force -ErrorAction SilentlyContinue; return }
     try {
-        $proc = Get-Process -Id $dashPid -ErrorAction Stop
+        $null = Get-Process -Id $dashPid -ErrorAction Stop
         Write-Host "[STOP] Stopping dashboard (PID $dashPid)..."
-
-        # Graceful stop attempt
         Stop-Process -Id $dashPid -ErrorAction SilentlyContinue
-
-        # Wait up to 5s for graceful shutdown (tunnel cleanup needs time)
         for ($i = 0; $i -lt 5; $i++) {
-            try { $null = Get-Process -Id $dashPid -ErrorAction Stop; Start-Sleep -Seconds 1 }
-            catch { break }
+            try { $null = Get-Process -Id $dashPid -ErrorAction Stop; Start-Sleep -Seconds 1 } catch { break }
         }
-
-        # Force kill if still alive
-        try {
-            $null = Get-Process -Id $dashPid -ErrorAction Stop
-            Write-Host "[STOP] Dashboard still alive, force-killing..."
-            Stop-Process -Id $dashPid -Force -ErrorAction SilentlyContinue
-        }
-        catch { }
-
+        try { $null = Get-Process -Id $dashPid -ErrorAction Stop; Write-Host "[STOP] Dashboard still alive, force-killing..."; Stop-Process -Id $dashPid -Force -ErrorAction SilentlyContinue } catch { }
         Write-Host "[STOP] Dashboard stopped."
-    }
-    catch {
-        # Process not running
-    }
+    } catch { }
     Remove-Item $DashboardPidFile -Force -ErrorAction SilentlyContinue
 }
 
-# Register cleanup — always stop dashboard on exit
-try {
-    # ─── Check for manager PID ────────────────────────────────────────────────
+function Stop-AllRoomPids { # Kill every PID recorded in war-room pid files + their trees
+    param([switch]$ForceKill)
+    if (-not (Test-Path $WarroomsDir)) { return }
+    foreach ($pidFile in Get-ChildItem -Path $WarroomsDir -Filter "*.pid" -Recurse -ErrorAction SilentlyContinue) {
+        $agentPid = (Get-Content $pidFile.FullName -Raw -ErrorAction SilentlyContinue)
+        if ($agentPid) { $agentPid = $agentPid.Trim() }
+        if ($agentPid -match '^\d+$') {
+            $intPid = [int]$agentPid
+            if (Get-Process -Id $intPid -ErrorAction SilentlyContinue) {
+                Stop-ProcessTree -TargetPid $intPid
+            }
+        }
+        Remove-Item $pidFile.FullName -Force -ErrorAction SilentlyContinue
+    }
+    Get-ChildItem -Path $WarroomsDir -Filter "*.spawned_at" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+}
 
+function Remove-PidFiles {
+    Remove-Item $ManagerPidFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $ManagerPgidFile -Force -ErrorAction SilentlyContinue
+}
+
+try {
     if (-not (Test-Path $ManagerPidFile)) {
-        Write-Host "[STOP] No manager running (no PID file)."
+        Write-Host "[STOP] No manager PID file. Sweeping for orphaned room processes..."
+        Stop-AllRoomPids
+        Remove-PidFiles
         Stop-Dashboard
         exit 0
     }
 
     $managerPid = (Get-Content $ManagerPidFile -Raw).Trim()
-
-    # Check if manager process is alive
     $managerAlive = $false
-    try {
-        $null = Get-Process -Id $managerPid -ErrorAction Stop
-        $managerAlive = $true
-    }
-    catch { }
+    try { $null = Get-Process -Id $managerPid -ErrorAction Stop; $managerAlive = $true } catch { }
 
     if (-not $managerAlive) {
-        Write-Host "[STOP] Manager PID $managerPid not running. Cleaning up PID file."
-        Remove-Item $ManagerPidFile -Force -ErrorAction SilentlyContinue
+        Write-Host "[STOP] Manager PID $managerPid not running. Sweeping orphaned processes..."
+        Stop-AllRoomPids
+        Remove-PidFiles
         Stop-Dashboard
         exit 0
     }
 
-    # ─── Graceful shutdown ────────────────────────────────────────────────────
-
+    # --- Strategy 1: graceful stop (manager cleans up its own children) ---
     Write-Host "[STOP] Sending stop signal to manager (PID $managerPid)..."
     Stop-Process -Id $managerPid -ErrorAction SilentlyContinue
 
-    # Wait up to 10 seconds for graceful shutdown
     for ($i = 0; $i -lt 10; $i++) {
-        try {
-            $null = Get-Process -Id $managerPid -ErrorAction Stop
-            Start-Sleep -Seconds 1
-        }
+        try { $null = Get-Process -Id $managerPid -ErrorAction Stop; Start-Sleep -Seconds 1 }
         catch {
             Write-Host "[STOP] Manager stopped gracefully."
-            Remove-Item $ManagerPidFile -Force -ErrorAction SilentlyContinue
+            Stop-AllRoomPids
+            Remove-PidFiles
             Stop-Dashboard
             exit 0
         }
     }
 
-    # ─── Force kill if still alive ────────────────────────────────────────────
+    # --- Strategy 2: process-tree kill ---
+    Write-Host "[STOP] Manager still alive after 10s. Killing process tree..."
+    Stop-ProcessTree -TargetPid ([int]$managerPid)
+    Stop-AllRoomPids
+    Start-Sleep -Seconds 2
 
     $stillAlive = $false
     try { $null = Get-Process -Id $managerPid -ErrorAction Stop; $stillAlive = $true } catch { }
 
-    if ($stillAlive) {
-        if ($Force) {
-            Write-Host "[STOP] Force-killing manager (PID $managerPid)..."
-            Stop-Process -Id $managerPid -Force -ErrorAction SilentlyContinue
-
-            # Kill any remaining agent processes in war-rooms
-            if (Test-Path $WarroomsDir) {
-                foreach ($pidFile in Get-ChildItem -Path $WarroomsDir -Filter "*.pid" -Recurse -ErrorAction SilentlyContinue) {
-                    $agentPid = (Get-Content $pidFile.FullName -Raw).Trim()
-                    try { Stop-Process -Id $agentPid -Force -ErrorAction SilentlyContinue } catch { }
-                    Remove-Item $pidFile.FullName -Force -ErrorAction SilentlyContinue
-                }
-            }
-
-            Remove-Item $ManagerPidFile -Force -ErrorAction SilentlyContinue
-            Write-Host "[STOP] Force shutdown complete."
-        }
-        else {
-            Write-Error "[STOP] Manager still running after 10s. Use -Force to kill."
-            exit 1
-        }
+    if (-not $stillAlive) {
+        Write-Host "[STOP] Process tree killed."
+        Remove-PidFiles
+        Stop-Dashboard
+        exit 0
     }
-}
-finally {
-    # Dashboard is always stopped on exit
+
+    # --- Strategy 3: force-kill (requires -Force) ---
+    if ($Force) {
+        Write-Host "[STOP] Force-killing remaining processes..."
+        if (($IsLinux -or $IsMacOS) -and (Test-Path $ManagerPgidFile)) { # PGID group kill on Unix
+            $pgid = (Get-Content $ManagerPgidFile -Raw -ErrorAction SilentlyContinue)
+            if ($pgid) { $pgid = $pgid.Trim() }
+            if ($pgid -match '^\d+$') {
+                Write-Host "[STOP]   Killing process group $pgid..."
+                bash -c "kill -9 -- -$pgid" 2>$null
+            }
+        }
+        Stop-ProcessTree -TargetPid ([int]$managerPid)
+        Stop-AllRoomPids -ForceKill
+        try { Stop-Process -Id $managerPid -Force -ErrorAction SilentlyContinue } catch { }
+        Remove-PidFiles
+        Write-Host "[STOP] Force shutdown complete."
+    } else {
+        Write-Error "[STOP] Still alive. Use -Force to kill the entire tree."
+        exit 1
+    }
+} finally {
     Stop-Dashboard
 }

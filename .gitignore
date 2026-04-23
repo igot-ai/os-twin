@@ -4,6 +4,7 @@ gold-mining/
 # ── Runtime / Process ─────────────────────────────────────────────────────────
 .env
 *pid
+*.pgid
 .build-hash
 **/.war-rooms/
 .war-rooms/

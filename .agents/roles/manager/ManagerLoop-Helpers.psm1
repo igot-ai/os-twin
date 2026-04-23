@@ -152,14 +152,77 @@ function Test-StateTimedOut {
 # ---------------------------------------------------------------------------
 # Stop-RoomProcesses
 # ---------------------------------------------------------------------------
+function Invoke-StalePidSweep { # Remove PID/spawned_at files for dead processes across all war rooms
+    param([string]$WarRoomsDir)
+    if (-not $WarRoomsDir -or -not (Test-Path $WarRoomsDir)) { return 0 }
+    $stalePids = 0
+    Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue | ForEach-Object {
+        $pidDir = Join-Path $_.FullName "pids"
+        if (Test-Path $pidDir) {
+            Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
+                $pidVal = (Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue)
+                if ($pidVal) { $pidVal = $pidVal.Trim() }
+                $isStale = $true
+                if ($pidVal -match '^\d+$') {
+                    try { $isStale = -not (Get-Process -Id ([int]$pidVal) -ErrorAction SilentlyContinue) } catch { }
+                }
+                if ($isStale) {
+                    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+                    $stalePids++
+                }
+            }
+            Get-ChildItem $pidDir -Filter "*.spawned_at" -ErrorAction SilentlyContinue | ForEach-Object {
+                Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    return $stalePids
+}
+
+function Stop-ProcessTree { # Kill a process and all its descendants (depth-first)
+    param([int]$ParentPid, [string]$RoomDir)
+    if ($ParentPid -le 0) { return } # guard: never kill PID 0 (kernel) or negative
+    if (-not ($IsLinux -or $IsMacOS) -and $RoomDir) { # Windows: try Job Object handle first (catches orphans)
+        $jobFile = Join-Path $RoomDir "artifacts" "job-handle.txt"
+        if (Test-Path $jobFile) {
+            try {
+                $handleVal = (Get-Content $jobFile -Raw).Trim()
+                if ($handleVal -match '^\d+$') {
+                    $ptr = [IntPtr]::new([long]$handleVal)
+                    [JobObject]::TerminateJobObject($ptr, 1) | Out-Null
+                    [JobObject]::CloseHandle($ptr) | Out-Null
+                    Remove-Item $jobFile -Force -ErrorAction SilentlyContinue
+                    return
+                }
+            } catch { }
+        }
+    }
+    if ($IsLinux -or $IsMacOS) { # Unix: pgrep -P recursive walk
+        $childPids = @()
+        try { $childPids = (pgrep -P $ParentPid 2>$null) -split "`n" | Where-Object { $_ -match '^\d+$' } } catch { }
+        foreach ($cp in $childPids) { Stop-ProcessTree -ParentPid ([int]$cp) }
+    } else { # Windows fallback: CIM parent-child walk
+        try {
+            Get-CimInstance Win32_Process -Filter "ParentProcessId=$ParentPid" -ErrorAction SilentlyContinue | ForEach-Object {
+                Stop-ProcessTree -ParentPid $_.ProcessId
+            }
+        } catch { }
+    }
+    try { Stop-Process -Id $ParentPid -Force -ErrorAction SilentlyContinue } catch { }
+}
+
 function Stop-RoomProcesses {
     param([string]$RoomDir)
     $pidDir = Join-Path $RoomDir "pids"
     if (-not (Test-Path $pidDir)) { return }
     Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
-        $pidVal = (Get-Content $_.FullName -Raw).Trim()
+        $pidVal = (Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue)
+        if ($pidVal) { $pidVal = $pidVal.Trim() }
         if ($pidVal -match '^\d+$') {
-            try { Stop-Process -Id ([int]$pidVal) -Force -ErrorAction SilentlyContinue } catch { }
+            $intPid = [int]$pidVal
+            if (Get-Process -Id $intPid -ErrorAction SilentlyContinue) {
+                Stop-ProcessTree -ParentPid $intPid -RoomDir $RoomDir
+            }
         }
         Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
     }

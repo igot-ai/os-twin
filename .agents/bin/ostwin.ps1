@@ -948,6 +948,14 @@ switch ($Command) {
             if ($IsWindows) {
                 & taskkill /F /T /PID $PidToKill 2>$null | Out-Null
             }
+            elseif ($IsLinux -or $IsMacOS) { # recursive pgrep-based tree kill
+                function local:KillDescendants([int]$p) {
+                    $kids = @(); try { $kids = (pgrep -P $p 2>$null) -split "`n" | Where-Object { $_ -match '^\d+$' } } catch {}
+                    foreach ($k in $kids) { local:KillDescendants ([int]$k) }
+                    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+                }
+                local:KillDescendants ([int]$PidToKill)
+            }
             else {
                 Stop-Process -Id $PidToKill -Force -ErrorAction SilentlyContinue
             }
