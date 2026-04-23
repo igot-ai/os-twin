@@ -210,10 +210,11 @@ async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_curre
     server.normalize()  # Convert legacy stdio/http/env/args/httpUrl → OpenCode format
 
     data = _read_json(HOME_CONFIG_FILE)
-    if "mcp" not in data:
-        data["mcp"] = {}
+    if "mcpServers" not in data:
+        data["mcpServers"] = {}
 
     config = {"type": server.type}
+
     vault = get_vault() if get_vault else None
 
     def process_dict(d: Dict[str, str], prefix: str):
@@ -242,7 +243,8 @@ async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_curre
     if server.timeout is not None:
         config["timeout"] = server.timeout
 
-    data["mcp"][server.name] = config
+    data["mcpServers"][server.name] = config
+
     
     # Ensure directory exists
     HOME_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -255,10 +257,11 @@ async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_curre
 async def remove_mcp_server(name: str, user: dict = Depends(get_current_user)):
     """Remove an MCP server from home config."""
     data = _read_json(HOME_CONFIG_FILE)
-    if "mcp" in data and name in data["mcp"]:
-        del data["mcp"][name]
+    if "mcpServers" in data and name in data["mcpServers"]:
+        del data["mcpServers"][name]
         HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2))
         return {"status": "success"}
+
 
     raise HTTPException(status_code=404, detail=f"Server {name} not found in home config")
 
@@ -507,7 +510,8 @@ def _compile_test_config() -> dict:
 
         resolved_mcp[name] = out
 
-    return {"$schema": "https://opencode.ai/config.json", "mcp": resolved_mcp}
+    return {"$schema": "https://opencode.ai/config.json", "mcpServers": resolved_mcp}
+
 
 
 def _parse_opencode_mcp_list(output: str) -> List[Dict[str, Any]]:
@@ -752,7 +756,7 @@ async def sync_config(user: dict = Depends(get_current_user)):
     # Merge builtin + home config to return the current state
     builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
     home = _get_servers(_read_json(HOME_CONFIG_FILE))
-    merged = {"mcp": {**builtin, **home}}
+    merged = {"mcpServers": {**builtin, **home}}
     return {
         "status": "synced",
         "output": result["stdout"],
@@ -760,9 +764,11 @@ async def sync_config(user: dict = Depends(get_current_user)):
     }
 
 
+
 @router.get("/config")
 async def get_mcp_config(user: dict = Depends(get_current_user)):
     """Get the current merged mcp-config.json (builtin + home)."""
     builtin = _get_servers(_read_json(BUILTIN_CONFIG_FILE))
     home = _get_servers(_read_json(HOME_CONFIG_FILE))
-    return {"mcp": {**builtin, **home}}
+    return {"mcpServers": {**builtin, **home}}
+
