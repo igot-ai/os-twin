@@ -210,106 +210,37 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
         </div>
       </section>
 
-      {/* ── Section 2: Embedding ───────────────────────────── */}
+      {/* ── Section 2: Embedding (read-only, configured via shared/ai) ── */}
       <section>
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-purple-600 text-lg">layers</span>
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Embedding</h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">MEMORY_EMBEDDING_BACKEND / MEMORY_EMBEDDING_MODEL</span>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">via shared/ai gateway</span>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Embedding Backend */}
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
-              Embedding Backend
-            </label>
-            <div className="space-y-1.5">
-              {EMBEDDING_BACKENDS.map((opt) => {
-                const isSelected = effective.embedding_backend === opt.value;
-                const keyAvailable = isKeyAvailable(opt.requiresKey);
-                const isDisabled = keyAvailable === false;
-                return (
-                  <button
-                    key={opt.value}
-                    onClick={() => !isDisabled && handleEmbeddingBackendChange(opt.value as MemoryEmbeddingBackend)}
-                    disabled={isDisabled}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
-                      isSelected
-                        ? 'bg-purple-50 border-2 border-purple-500 shadow-sm'
-                        : isDisabled
-                        ? 'bg-slate-50 border border-slate-100 opacity-50 cursor-not-allowed'
-                        : 'bg-white border border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 cursor-pointer'
-                    }`}
-                  >
-                    <span className={`material-symbols-outlined text-base ${isSelected ? 'text-purple-600' : 'text-slate-400'}`}>
-                      {opt.icon}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-xs font-semibold ${isSelected ? 'text-purple-700' : 'text-slate-700'}`}>
-                          {opt.label}
-                        </span>
-                        {keyAvailable === true && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-green-100 text-green-700">Key Set</span>
-                        )}
-                        {keyAvailable === false && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">No Key</span>
-                        )}
-                        {keyAvailable === null && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Local</span>
-                        )}
-                      </div>
-                      <p className="text-[9px] text-slate-400 truncate">{opt.description}</p>
-                    </div>
-                    {isSelected && (
-                      <span className="material-symbols-outlined text-purple-600 text-sm">check_circle</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {provenance.embedding_backend && <ProvenanceChip source={provenance.embedding_backend} />}
-          </div>
-
-          {/* Embedding Model */}
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
-              Embedding Model
-            </label>
-            {(EMBEDDING_MODEL_SUGGESTIONS[effective.embedding_backend] ?? []).length > 0 && (
-              <div className="space-y-1 mb-3">
-                {(EMBEDDING_MODEL_SUGGESTIONS[effective.embedding_backend] ?? []).map((s) => {
-                  const isActive = effective.embedding_model === s.model;
-                  return (
-                    <button
-                      key={s.model}
-                      onClick={() => onUpdate({ embedding_model: s.model })}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between ${
-                        isActive
-                          ? 'bg-purple-50 border border-purple-400 text-purple-700 font-semibold'
-                          : 'bg-white border border-slate-200 text-slate-600 hover:border-purple-300'
-                      }`}
-                    >
-                      <span className="font-mono text-[10px]">{s.label}</span>
-                      {isActive && <span className="material-symbols-outlined text-purple-500 text-sm">check</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+        <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-4">
+          <div className="flex items-start gap-3">
+            <span className="material-symbols-outlined text-purple-600 text-lg mt-0.5">info</span>
             <div>
-              <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
-              <input
-                type="text"
-                value={effective.embedding_model}
-                onChange={(e) => onUpdate({ embedding_model: e.target.value })}
-                placeholder="e.g. microsoft/harrier-oss-v1-0.6b"
-                className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                style={inputStyle}
-              />
+              <p className="text-xs text-slate-700 font-semibold mb-1">
+                Embedding calls are routed through the unified AI gateway
+              </p>
+              <p className="text-[11px] text-slate-500 mb-3">
+                The embedding model is configured in <strong>Settings &rarr; AI Monitor</strong>.
+                All calls go through <code className="font-mono text-[10px] bg-white px-1 py-0.5 rounded">shared/ai.get_embedding()</code> which
+                routes to Gemini cloud or local SentenceTransformer based on the model prefix.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-mono text-slate-600">
+                  <span className="material-symbols-outlined text-[12px] text-green-600">check_circle</span>
+                  gemini-embedding-001 (cloud)
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-mono text-slate-600">
+                  <span className="material-symbols-outlined text-[12px] text-purple-600">computer</span>
+                  local models available via &quot;local/&quot; prefix
+                </span>
+              </div>
             </div>
-            {provenance.embedding_model && <ProvenanceChip source={provenance.embedding_model} />}
           </div>
         </div>
       </section>
