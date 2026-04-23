@@ -28,7 +28,8 @@ export interface ToolCall {
 
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | null;
+  /** Text content or multimodal parts (e.g. base64 audio/image + text). */
+  content?: string | Array<Record<string, unknown>> | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }

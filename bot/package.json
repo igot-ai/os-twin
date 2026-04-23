@@ -13,7 +13,6 @@
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.19.2",
-    "@google/generative-ai": "^0.24.1",
     "@slack/bolt": "^4.6.0",
     "@types/ws": "^8.18.1",
     "discord.js": "^14.25.1",
