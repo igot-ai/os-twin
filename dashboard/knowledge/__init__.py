@@ -71,16 +71,6 @@ from dashboard.knowledge.namespace import (
 )
 from dashboard.knowledge.service import KnowledgeService
 from dashboard.knowledge.vector_store import NamespaceVectorStore, VectorHit
-from dashboard.knowledge.backup import (  # EPIC-004
-    BackupError,
-    BackupChecksumMismatchError,
-    InvalidBackupArchiveError,
-    NamespaceBackupNotFoundError,
-    backup_namespace,
-    restore_namespace,
-    list_backup_contents,
-)
-
 __all__ = [
     "KNOWLEDGE_DIR",
     "EMBEDDING_DIMENSION",
@@ -121,12 +111,4 @@ __all__ = [
     "ChunkHit",
     "EntityHit",
     "Citation",
-    # Backup/restore (EPIC-004)
-    "BackupError",
-    "BackupChecksumMismatchError",
-    "InvalidBackupArchiveError",
-    "NamespaceBackupNotFoundError",
-    "backup_namespace",
-    "restore_namespace",
-    "list_backup_contents",
 ]

@@ -1,6 +1,6 @@
 """Knowledge REST API routes (EPIC-001).
 
-All 9 endpoints:
+All 8 endpoints:
   - GET    /api/knowledge/namespaces
   - POST   /api/knowledge/namespaces
   - GET    /api/knowledge/namespaces/{namespace}
@@ -9,7 +9,6 @@ All 9 endpoints:
   - GET    /api/knowledge/namespaces/{namespace}/jobs
   - GET    /api/knowledge/namespaces/{namespace}/jobs/{job_id}
   - POST   /api/knowledge/namespaces/{namespace}/query
-  - GET    /api/knowledge/namespaces/{namespace}/graph
 
 All endpoints require authentication via `Depends(get_current_user)`.
 Heavy libraries (kuzu, zvec, sentence_transformers, anthropic) are lazy-loaded
@@ -34,19 +33,15 @@ from typing_extensions import Annotated
 from dashboard.auth import get_current_user
 from dashboard.knowledge.metrics import get_metrics_registry
 from dashboard.routes.knowledge_models import (
-    BackupResponse,
     CreateNamespaceRequest,
     DeleteNamespaceResponse,
     ErrorResponse,
-    GraphResponse,
     ImportFolderRequest,
     ImportFolderResponse,
     JobStatusResponse,
     NamespaceMetaResponse,
     QueryRequest,
     QueryResultResponse,
-    RefreshResponse,
-    RestoreRequest,
     RetentionPolicyRequest,
     RetentionPolicyResponse,
 )
@@ -640,39 +635,6 @@ async def query_namespace(
         raise _map_error(exc)
 
 
-@router.get(
-    "/namespaces/{namespace}/graph",
-    response_model=GraphResponse,
-    responses={
-        200: {"description": "Graph visualization data"},
-        400: {"description": "Invalid namespace identifier", "model": ErrorResponse},
-        401: {"description": "Authentication required"},
-        404: {"description": "Namespace not found", "model": ErrorResponse},
-    },
-    summary="Get graph visualization data",
-)
-async def get_graph(
-    namespace: str,
-    user: Annotated[dict, Depends(get_current_user)],
-    limit: int = Query(default=200, ge=1, le=1000, description="Maximum number of nodes to return"),
-) -> GraphResponse:
-    """Get nodes and edges for graph visualization.
-
-    Returns entities and their relationships, limited by the `limit` parameter.
-    Useful for rendering a knowledge graph in the frontend.
-    """
-    try:
-        actor = _get_actor(user)
-        service = _get_service()
-        graph_data = await asyncio.to_thread(service.get_graph, namespace, limit=limit, actor=actor)
-        return GraphResponse(
-            nodes=graph_data.get("nodes", []),
-            edges=graph_data.get("edges", []),
-            stats=graph_data.get("stats", {"node_count": 0, "edge_count": 0}),
-            error=graph_data.get("error"),
-        )
-    except Exception as exc:
-        raise _map_error(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -951,147 +913,6 @@ async def _check_llm() -> HealthCheckResult:
         )
 
 
-# ---------------------------------------------------------------------------
-# Backup/Restore Endpoints (EPIC-004)
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/namespaces/{namespace}/backup",
-    response_model=BackupResponse,
-    responses={
-        200: {"description": "Backup created successfully"},
-        401: {"description": "Authentication required"},
-        404: {"description": "Namespace not found", "model": ErrorResponse},
-    },
-    summary="Create a backup of a namespace",
-)
-async def backup_namespace_endpoint(
-    namespace: str,
-    user: Annotated[dict, Depends(get_current_user)],
-    stream: bool = Query(default=False, description="Stream the archive file directly"),
-) -> Any:
-    """Create a compressed backup archive of a namespace.
-
-    The archive contains all namespace data (manifest, graph, vectors) and can
-    be restored on the same or a different machine.
-
-    Query params:
-        stream: If true, streams the file directly (browser download).
-                If false, returns JSON with the archive path.
-
-    Returns the archive path (JSON) or the file itself (stream).
-    """
-    from fastapi.responses import FileResponse
-    from pathlib import Path
-    
-    try:
-        service = _get_service()
-        
-        # Verify namespace exists
-        meta = await asyncio.to_thread(service.get_namespace, namespace)
-        if meta is None:
-            from dashboard.knowledge.namespace import NamespaceNotFoundError
-            raise NamespaceNotFoundError(namespace)
-        
-        # Create backup
-        from dashboard.knowledge.backup import backup_namespace as do_backup
-        from dashboard.knowledge.config import KNOWLEDGE_DIR
-        
-        archive_path = await asyncio.to_thread(
-            do_backup,
-            namespace,
-            None,  # Use default destination
-            service._nm,  # noqa: SLF001
-        )
-        
-        if stream:
-            # Stream file directly
-            return FileResponse(
-                path=archive_path,
-                filename=f"{namespace}{archive_path.suffix}",
-                media_type="application/octet-stream",
-            )
-        
-        # Return JSON with path info
-        compression = "zstd" if archive_path.suffix == ".zst" else "gzip"
-        return BackupResponse(
-            namespace=namespace,
-            archive_path=str(archive_path),
-            size_bytes=archive_path.stat().st_size,
-            compression=compression,
-        )
-    except Exception as exc:
-        raise _map_error(exc)
-
-
-@router.post(
-    "/namespaces/restore",
-    response_model=NamespaceMetaResponse,
-    status_code=201,
-    responses={
-        201: {"description": "Namespace restored successfully"},
-        400: {"description": "Invalid archive", "model": ErrorResponse},
-        401: {"description": "Authentication required"},
-        409: {"description": "Namespace already exists", "model": ErrorResponse},
-    },
-    summary="Restore a namespace from a backup archive",
-)
-async def restore_namespace_endpoint(
-    user: Annotated[dict, Depends(get_current_user)],
-    archive: UploadFile = File(..., description="The backup archive file (.tar.zst or .tar.gz)"),
-    name: Optional[str] = Form(default=None, description="Target namespace name"),
-    overwrite: bool = Form(default=False, description="Overwrite existing namespace"),
-) -> NamespaceMetaResponse:
-    """Restore a namespace from a backup archive.
-
-    Uploads the archive and creates/restores the namespace. If the target
-    namespace already exists, the request fails unless overwrite=true.
-
-    This is a multipart form upload with:
-        archive: The backup archive file (.tar.zst or .tar.gz)
-        name: (optional) Target namespace name (defaults to archive's namespace)
-        overwrite: (optional) Overwrite existing namespace
-    """
-    import tempfile
-    
-    try:
-        service = _get_service()
-        
-        # Preserve the file extension for compression detection
-        # backup.py's _extract_archive relies on .zst, .tar.zst, .gz, .tgz extensions
-        original_suffix = Path(archive.filename).suffix if archive.filename else ".tar.zst"
-        # Handle double extensions like .tar.zst or .tar.gz
-        if archive.filename and archive.filename.endswith(".tar.zst"):
-            original_suffix = ".tar.zst"
-        elif archive.filename and archive.filename.endswith(".tar.gz"):
-            original_suffix = ".tar.gz"
-        
-        # Save uploaded file to temp location with correct extension
-        with tempfile.NamedTemporaryFile(delete=False, suffix=original_suffix) as tmp:
-            content = await archive.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-        
-        try:
-            # Restore
-            from dashboard.knowledge.backup import restore_namespace as do_restore
-            
-            meta = await asyncio.to_thread(
-                do_restore,
-                tmp_path,
-                name,
-                service._nm,  # noqa: SLF001
-                service,
-                overwrite,
-            )
-            return _namespace_meta_to_response(meta)
-        finally:
-            # Clean up temp file
-            if tmp_path.exists():
-                tmp_path.unlink()
-    except Exception as exc:
-        raise _map_error(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -1159,78 +980,6 @@ async def set_retention_endpoint(
         raise _map_error(exc)
 
 
-# ---------------------------------------------------------------------------
-# Refresh Endpoint (EPIC-004)
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/namespaces/{namespace}/refresh",
-    response_model=RefreshResponse,
-    responses={
-        200: {"description": "Refresh started"},
-        401: {"description": "Authentication required"},
-        404: {"description": "Namespace not found", "model": ErrorResponse},
-    },
-    summary="Refresh a namespace by re-importing all source folders",
-)
-async def refresh_namespace_endpoint(
-    namespace: str,
-    user: Annotated[dict, Depends(get_current_user)],
-) -> RefreshResponse:
-    """Refresh a namespace by re-importing all source folders.
-
-    This triggers a new import job for each folder in the namespace's
-    import history. Useful when source files have been updated and you
-    want to re-index them.
-
-    Returns the list of job IDs for tracking progress.
-    """
-    try:
-        service = _get_service()
-        
-        # Get current manifest
-        meta = await asyncio.to_thread(service.get_namespace, namespace)
-        if meta is None:
-            from dashboard.knowledge.namespace import NamespaceNotFoundError
-            raise NamespaceNotFoundError(namespace)
-        
-        # Get imports to refresh
-        imports = meta.imports
-        if not imports:
-            return RefreshResponse(
-                namespace=namespace,
-                job_ids=[],
-                imports_count=0,
-            )
-        
-        # Trigger re-import for each folder
-        job_ids = []
-        actor = _get_actor(user)
-        
-        for imp in imports:
-            if imp.status != "completed":
-                continue  # Skip failed/running imports
-            
-            try:
-                job_id = await asyncio.to_thread(
-                    service.import_folder,
-                    namespace,
-                    imp.folder_path,
-                    {"force": True},  # Force re-processing
-                    actor=actor,
-                )
-                job_ids.append(job_id)
-            except Exception as exc:
-                logger.warning("Failed to refresh import %s: %s", imp.folder_path, exc)
-        
-        return RefreshResponse(
-            namespace=namespace,
-            job_ids=job_ids,
-            imports_count=len(job_ids),
-        )
-    except Exception as exc:
-        raise _map_error(exc)
 
 
 __all__ = ["router"]

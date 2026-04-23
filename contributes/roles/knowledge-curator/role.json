@@ -19,10 +19,7 @@
   "timeout": 600,
   "skill_refs": [
     "curate-namespace",
-    "set-retention",
-    "schedule-refresh",
-    "audit-quality",
-    "propose-rebuild"
+    "ontology-knowledge"
   ],
   "instance_type": "worker",
   "allowed_mcp_tools": [
@@ -32,10 +29,7 @@
     "knowledge_import_folder",
     "knowledge_get_import_status",
     "knowledge_query",
-    "knowledge_get_graph",
-    "knowledge_backup_namespace",
-    "knowledge_restore_namespace",
-    "knowledge_refresh_namespace"
+    "find_notes_by_knowledge_link"
   ],
   "_comment_restricted_tools": "These are behavioral restrictions enforced via prompt instructions. Opencode does not have a native mechanism to restrict built-in tools per-agent. The MCP tool allowlist above IS technically enforced.",
   "restricted_tools": [

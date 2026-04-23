@@ -147,41 +147,6 @@ class RetentionPolicyResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Backup/Restore Models (EPIC-004)
-# ---------------------------------------------------------------------------
-
-
-class BackupResponse(BaseModel):
-    """Response for POST /api/knowledge/namespaces/{namespace}/backup."""
-
-    namespace: str = Field(..., description="Name of the backed up namespace")
-    archive_path: str = Field(..., description="Path to the created archive file")
-    size_bytes: int = Field(..., description="Size of the archive in bytes")
-    compression: str = Field(..., description="Compression used (zstd or gzip)")
-
-
-class RestoreRequest(BaseModel):
-    """Request body for restore operation (used with multipart upload)."""
-
-    name: Optional[str] = Field(
-        default=None,
-        description="Target namespace name (defaults to archive's namespace)",
-    )
-    overwrite: bool = Field(
-        default=False,
-        description="Overwrite existing namespace",
-    )
-
-
-class RefreshResponse(BaseModel):
-    """Response for POST /api/knowledge/namespaces/{namespace}/refresh."""
-
-    namespace: str
-    job_ids: list[str] = Field(default_factory=list, description="Job IDs for re-ingestion")
-    imports_count: int = Field(..., description="Number of imports being refreshed")
-
-
-# ---------------------------------------------------------------------------
 # Response Models (wrappers around canonical types)
 # ---------------------------------------------------------------------------
 
@@ -369,43 +334,6 @@ class QueryResultResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Graph Response
-# ---------------------------------------------------------------------------
-
-
-class GraphNodeResponse(BaseModel):
-    """A node in the knowledge graph."""
-
-    id: str
-    label: str
-    name: str
-    score: float = 1.0
-    properties: dict[str, Any] = Field(default_factory=dict)
-
-
-class GraphEdgeResponse(BaseModel):
-    """An edge connecting two nodes in the knowledge graph."""
-
-    source: str
-    target: str
-    label: str = "RELATES"
-
-
-class GraphStatsResponse(BaseModel):
-    """Statistics about the knowledge graph."""
-
-    node_count: int
-    edge_count: int
-
-
-class GraphResponse(BaseModel):
-    """Full graph visualization data."""
-
-    nodes: list[GraphNodeResponse] = Field(default_factory=list)
-    edges: list[GraphEdgeResponse] = Field(default_factory=list)
-    stats: GraphStatsResponse
-    error: Optional[str] = None
 
 
 __all__ = [
@@ -414,7 +342,6 @@ __all__ = [
     "ImportFolderRequest",
     "QueryRequest",
     "RetentionPolicyRequest",  # EPIC-004
-    "RestoreRequest",  # EPIC-004
     # Responses
     "DeleteNamespaceResponse",
     "ImportFolderResponse",
@@ -427,11 +354,5 @@ __all__ = [
     "EntityHitResponse",
     "CitationResponse",
     "QueryResultResponse",
-    "GraphNodeResponse",
-    "GraphEdgeResponse",
-    "GraphStatsResponse",
-    "GraphResponse",
     "RetentionPolicyResponse",  # EPIC-004
-    "BackupResponse",  # EPIC-004
-    "RefreshResponse",  # EPIC-004
 ]

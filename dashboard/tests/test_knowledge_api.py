@@ -5,7 +5,6 @@ Covers:
 - TestImportAPI: folder import submission
 - TestJobsAPI: job listing and status polling
 - TestQueryAPI: all three query modes
-- TestGraphAPI: graph visualization
 - TestErrorMapping: error code responses
 - TestAuth: authentication enforcement
 - TestLazyImport: import-time audit
@@ -116,11 +115,6 @@ def mock_service() -> MagicMock:
             self.warnings = []
     
     service.query.return_value = MockQueryResult()
-    service.get_graph.return_value = {
-        "nodes": [],
-        "edges": [],
-        "stats": {"node_count": 0, "edge_count": 0},
-    }
 
     return service
 
@@ -586,56 +580,6 @@ class TestQueryAPI:
         assert response.json()["detail"]["code"] == "NAMESPACE_NOT_FOUND"
 
 
-# ---------------------------------------------------------------------------
-# Test Graph API
-# ---------------------------------------------------------------------------
-
-
-class TestGraphAPI:
-    """Tests for /api/knowledge/namespaces/{namespace}/graph endpoint."""
-
-    def test_get_graph_success(
-        self, client: TestClient, auth_headers: dict[str, str], mock_service: MagicMock
-    ) -> None:
-        """GET /graph returns nodes and edges for visualization."""
-        mock_service.get_graph.return_value = {
-            "nodes": [
-                {"id": "ent-1", "label": "concept", "name": "Entity One", "score": 1.0, "properties": {}}
-            ],
-            "edges": [
-                {"source": "ent-1", "target": "ent-2", "label": "RELATES"}
-            ],
-            "stats": {"node_count": 1, "edge_count": 1},
-        }
-
-        response = client.get("/api/knowledge/namespaces/test-ns/graph", headers=auth_headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["nodes"]) == 1
-        assert len(data["edges"]) == 1
-        assert data["stats"]["node_count"] == 1
-
-    def test_get_graph_with_limit(
-        self, client: TestClient, auth_headers: dict[str, str], mock_service: MagicMock
-    ) -> None:
-        """GET /graph respects the limit parameter."""
-        response = client.get(
-            "/api/knowledge/namespaces/test-ns/graph",
-            params={"limit": 50},
-            headers=auth_headers,
-        )
-        assert response.status_code == 200
-        mock_service.get_graph.assert_called_once_with("test-ns", limit=50, actor="api-key-user")
-
-    def test_get_graph_namespace_not_found(
-        self, client: TestClient, auth_headers: dict[str, str], mock_service: MagicMock
-    ) -> None:
-        """GET /graph returns 404 when namespace doesn't exist."""
-        from dashboard.knowledge.namespace import NamespaceNotFoundError
-
-        mock_service.get_graph.side_effect = NamespaceNotFoundError("test-ns")
-        response = client.get("/api/knowledge/namespaces/nonexistent/graph", headers=auth_headers)
-        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -734,14 +678,14 @@ class TestAuth:
     def test_all_endpoints_require_auth(
         self, client: TestClient, mock_service: MagicMock
     ) -> None:
-        """All 9 endpoints require authentication."""
+        """All 8 endpoints require authentication."""
         endpoints = [
             ("GET", "/api/knowledge/namespaces"),
             ("POST", "/api/knowledge/namespaces"),
             ("GET", "/api/knowledge/namespaces/test-ns"),
             ("DELETE", "/api/knowledge/namespaces/test-ns"),
+            ("POST", "/api/knowledge/namespaces/test-ns/import"),
             ("POST", "/api/knowledge/namespaces/test-ns/query"),
-            ("GET", "/api/knowledge/namespaces/test-ns/graph"),
             ("GET", "/api/knowledge/namespaces/test-ns/jobs"),
             ("GET", "/api/knowledge/namespaces/test-ns/jobs/job-1"),
         ]
@@ -800,7 +744,7 @@ class TestOpenAPI:
     """Tests for OpenAPI schema generation."""
 
     def test_openapi_includes_all_endpoints(self, client: TestClient) -> None:
-        """OpenAPI schema includes all 9 knowledge endpoints."""
+        """OpenAPI schema includes all 8 knowledge endpoints."""
         response = client.get("/openapi.json")
         assert response.status_code == 200
         schema = response.json()
@@ -814,7 +758,6 @@ class TestOpenAPI:
         assert "/api/knowledge/namespaces/{namespace}/jobs" in paths
         assert "/api/knowledge/namespaces/{namespace}/jobs/{job_id}" in paths
         assert "/api/knowledge/namespaces/{namespace}/query" in paths
-        assert "/api/knowledge/namespaces/{namespace}/graph" in paths
 
     def test_openapi_has_examples(self, client: TestClient) -> None:
         """OpenAPI schemas include examples."""

@@ -395,55 +395,6 @@ class KnowledgeService:
             self._sweeper.start()
             logger.info("Started retention sweeper background thread")
 
-    def refresh_namespace(self, name: str, actor: str = "anonymous") -> list[str]:
-        """Refresh a namespace by re-importing all source folders.
-
-        Triggers a new import job for each completed import in the namespace's
-        history. Useful when source files have been updated.
-
-        Args:
-            name: Namespace to refresh.
-            actor: Actor identifier for audit logging.
-
-        Returns:
-            List of job IDs for the triggered imports.
-
-        Raises:
-            NamespaceNotFoundError: If the namespace doesn't exist.
-        """
-        start_time = time.perf_counter()
-        try:
-            meta = self._nm.get(name)
-            if meta is None:
-                raise NamespaceNotFoundError(name)
-            
-            imports = meta.imports
-            if not imports:
-                _log_call(name, "refresh_namespace", "success", 0, {"actor": actor, "imports_count": 0})
-                return []
-            
-            job_ids = []
-            for imp in imports:
-                if imp.status != "completed":
-                    continue
-                try:
-                    job_id = self.import_folder(
-                        name,
-                        imp.folder_path,
-                        {"force": True},
-                        actor=actor,
-                    )
-                    job_ids.append(job_id)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Failed to refresh import %s: %s", imp.folder_path, exc)
-            
-            latency_ms = (time.perf_counter() - start_time) * 1000
-            _log_call(name, "refresh_namespace", "success", latency_ms, {"actor": actor, "imports_count": len(job_ids)})
-            return job_ids
-        except Exception as exc:
-            latency_ms = (time.perf_counter() - start_time) * 1000
-            _log_call(name, "refresh_namespace", "error", latency_ms, {"actor": actor, "error": str(exc)})
-            raise
 
     def _evict_namespace_caches(self, namespace: str) -> None:
         """Drop all cached handles for ``namespace`` (used by delete_namespace)."""
@@ -772,24 +723,6 @@ class KnowledgeService:
             _log_call(namespace, "query", "error", latency_ms, {"actor": actor, "error": str(exc)})
             raise
 
-    def get_graph(self, namespace: str, limit: int = 200, actor: str = "anonymous") -> dict:
-        """Return ``{nodes, edges, stats}`` for visualization.
-
-        Raises :class:`NamespaceNotFoundError` if the namespace doesn't exist.
-        """
-        start_time = time.perf_counter()
-        try:
-            if self._nm.get(namespace) is None:
-                raise NamespaceNotFoundError(namespace)
-            engine = self._get_query_engine(namespace)
-            result = engine.get_graph(limit=limit)
-            latency_ms = (time.perf_counter() - start_time) * 1000
-            _log_call(namespace, "get_graph", "success", latency_ms, {"actor": actor, "limit": limit})
-            return result
-        except Exception as exc:
-            latency_ms = (time.perf_counter() - start_time) * 1000
-            _log_call(namespace, "get_graph", "error", latency_ms, {"actor": actor, "error": str(exc)})
-            raise
 
 
 __all__ = ["KnowledgeService"]

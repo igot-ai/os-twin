@@ -4,7 +4,7 @@ Validates:
 
 1. ``mcp_server`` module imports cheaply (no kuzu / zvec / sentence_transformers
    / markitdown / anthropic loaded eagerly).
-2. All 7 tools are registered on the FastMCP instance.
+2. All 6 tools are registered on the FastMCP instance.
 3. The ``/api/knowledge/mcp`` endpoint is mounted on the FastAPI app.
 4. Each tool's body works when invoked directly (bypassing the JSON-RPC
    transport — separate concerns).
@@ -104,7 +104,6 @@ def test_mcp_tools_registered() -> None:
         "knowledge_import_folder",
         "knowledge_get_import_status",
         "knowledge_query",
-        "knowledge_get_graph",
     }
     assert expected.issubset(tool_names), f"missing tools: {expected - tool_names}"
 
@@ -342,7 +341,6 @@ def test_mcp_full_lifecycle_via_real_client(
             "knowledge_import_folder",
             "knowledge_get_import_status",
             "knowledge_query",
-            "knowledge_get_graph",
         }
         assert expected_tools.issubset(names), f"missing tools: {expected_tools - names}"
     finally:
@@ -460,12 +458,6 @@ def test_get_status_unknown_job_returns_structured_error(fresh_kb) -> None:
     assert result["code"] == "JOB_NOT_FOUND"
 
 
-def test_get_graph_unknown_namespace_returns_structured_error(fresh_kb) -> None:
-    from dashboard.knowledge.mcp_server import knowledge_get_graph
-
-    result = knowledge_get_graph("never-created-graph-12345")
-    assert "error" in result
-    assert result["code"] == "NAMESPACE_NOT_FOUND"
 
 
 def test_delete_nonexistent_namespace_returns_false(fresh_kb) -> None:
