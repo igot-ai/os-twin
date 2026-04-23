@@ -69,20 +69,36 @@ def embed(
 
 def _embed_local(texts: List[str], model_name: str) -> List[List[float]]:
     """Embed using a local SentenceTransformer model."""
+    from .monitor import record_embedding
+    import time as _time
+
+    model_ref = f"local/{model_name}"
+    t0 = _time.time()
     try:
         st_model = _get_local_model(model_name)
         vectors = st_model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+        latency = (_time.time() - t0) * 1000
+        record_embedding(model_ref, len(texts), latency)
         return vectors.tolist()
     except Exception as exc:
+        latency = (_time.time() - t0) * 1000
+        record_embedding(model_ref, len(texts), latency, success=False, error=str(exc))
         raise AIError(f"Local embedding failed ({model_name}): {exc}") from exc
 
 
 def _embed_cloud(texts: List[str], model: str) -> List[List[float]]:
     """Embed using litellm (Vertex AI or AI Studio)."""
+    from .monitor import record_embedding
+    import time as _time
     import litellm
 
+    t0 = _time.time()
     try:
         response = litellm.embedding(model=model, input=texts)
+        latency = (_time.time() - t0) * 1000
+        record_embedding(model, len(texts), latency)
         return [item["embedding"] for item in response.data]
     except Exception as exc:
+        latency = (_time.time() - t0) * 1000
+        record_embedding(model, len(texts), latency, success=False, error=str(exc))
         raise AIError(f"Cloud embedding failed ({model}): {exc}") from exc

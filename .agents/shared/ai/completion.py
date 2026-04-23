@@ -98,13 +98,38 @@ def complete(
         kwargs["tools"] = tools
 
     def _call() -> CompletionResult:
+        from .monitor import record_completion
+        import time as _time
+
+        t0 = _time.time()
         try:
             response = litellm.completion(**kwargs)
         except litellm.AuthenticationError as exc:
+            record_completion(
+                model,
+                purpose,
+                (_time.time() - t0) * 1000,
+                success=False,
+                error=str(exc),
+            )
             raise AIAuthError(str(exc)) from exc
         except litellm.Timeout as exc:
+            record_completion(
+                model,
+                purpose,
+                (_time.time() - t0) * 1000,
+                success=False,
+                error=str(exc),
+            )
             raise AITimeoutError(str(exc)) from exc
         except Exception as exc:
+            record_completion(
+                model,
+                purpose,
+                (_time.time() - t0) * 1000,
+                success=False,
+                error=str(exc),
+            )
             raise AIError(str(exc)) from exc
 
         choice = response.choices[0]
@@ -125,11 +150,14 @@ def complete(
             ]
 
         usage = None
+        in_tok, out_tok = 0, 0
         if hasattr(response, "usage") and response.usage:
-            usage = {
-                "input_tokens": response.usage.prompt_tokens or 0,
-                "output_tokens": response.usage.completion_tokens or 0,
-            }
+            in_tok = response.usage.prompt_tokens or 0
+            out_tok = response.usage.completion_tokens or 0
+            usage = {"input_tokens": in_tok, "output_tokens": out_tok}
+
+        latency = (_time.time() - t0) * 1000
+        record_completion(model, purpose, latency, in_tok, out_tok)
 
         return CompletionResult(text=content, tool_calls=tool_calls, usage=usage)
 

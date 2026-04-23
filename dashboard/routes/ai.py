@@ -114,3 +114,20 @@ async def handle_embed(req: EmbedRequest):
     except Exception as exc:
         logger.exception("AI embedding failed")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/stats")
+async def handle_stats():
+    """Return AI gateway traffic stats — call counts, latency, per-model breakdown."""
+    from shared.ai.monitor import get_stats
+
+    return get_stats()
+
+
+@router.post("/stats/reset")
+async def handle_reset_stats():
+    """Reset AI gateway stats counters."""
+    from shared.ai.monitor import reset_stats
+
+    reset_stats()
+    return {"status": "ok"}
