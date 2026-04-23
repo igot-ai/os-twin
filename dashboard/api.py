@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
 # ── Load ~/.ostwin/.env early ──
 # This makes the dashboard self-contained: it works whether started via
 # `ostwin dashboard` (which already sources .env) or directly via `python api.py`.
@@ -51,13 +52,28 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
+
 # --- Route Imports ---
 # Heavy libraries (torch, langchain) are now lazy-loaded inside these routes
 # so direct imports here translate to < 2s total dashboard boot time.
 from dashboard.routes import (
-    auth, system, mcp, threads, plans, rooms, skills, 
-    roles, memory, amem, channels, command, tunnel, 
-    files, settings, engagement
+    ai,
+    auth,
+    system,
+    mcp,
+    threads,
+    plans,
+    rooms,
+    skills,
+    roles,
+    memory,
+    amem,
+    channels,
+    command,
+    tunnel,
+    files,
+    settings,
+    engagement,
 )
 
 # Configure logging — file + console
@@ -161,6 +177,7 @@ app.include_router(command.router)
 app.include_router(tunnel.router)
 app.include_router(files.router)
 app.include_router(settings.router)
+app.include_router(ai.router)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:

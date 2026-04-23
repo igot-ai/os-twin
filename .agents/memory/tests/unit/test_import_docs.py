@@ -5,9 +5,15 @@ Uses FakeRetriever and mocked LLM to avoid heavy ML imports.
 
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
+
+# Ensure shared.ai is importable
+_agents_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+if _agents_dir not in sys.path:
+    sys.path.insert(0, os.path.abspath(_agents_dir))
 
 from agentic_memory.memory_note import MemoryNote
 from agentic_memory.memory_system import AgenticMemorySystem
@@ -67,14 +73,8 @@ def _make_system(persist_dir):
     sys.conflict_resolution = "last_modified"
     sys.evo_cnt = 0
     sys.evo_threshold = 5
-    # Mock LLM controller so analyze_content returns deterministic results
-    mock_llm = MagicMock()
-    mock_llm.llm.get_completion.return_value = (
-        '{"name": "test-note", "path": "test", '
-        '"keywords": ["k1", "k2"], "context": "Test context", '
-        '"tags": ["tag1", "tag2"]}'
-    )
-    sys.llm_controller = mock_llm
+    # shared.ai.get_completion is mocked at the module level in each test
+    # via @patch decorator. No llm_controller needed.
     sys._evolution_system_prompt = ""
     return sys
 
@@ -95,6 +95,17 @@ def _create_docs_dir(base_dir, files):
     return docs_dir
 
 
+_MOCK_ANALYSIS = (
+    '{"name": "test-note", "path": "test", '
+    '"keywords": ["k1", "k2"], "context": "Test context", '
+    '"tags": ["tag1", "tag2"]}'
+)
+
+
+@patch(
+    "shared.ai.get_completion",
+    return_value=_MOCK_ANALYSIS,
+)
 class TestImportDocs(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -103,7 +114,7 @@ class TestImportDocs(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
-    def test_imports_single_file(self):
+    def test_imports_single_file(self, mock_completion):
         """A single .md file should be imported as a memory note."""
         docs_dir = _create_docs_dir(
             self.tmpdir,
@@ -122,7 +133,7 @@ class TestImportDocs(unittest.TestCase):
         note = list(self.sys.memories.values())[0]
         self.assertEqual(note.content, "# Getting Started\n\nThis is the intro doc.")
 
-    def test_preserves_directory_structure_as_path(self):
+    def test_preserves_directory_structure_as_path(self, mock_completion):
         """Subdirectory structure should become the note's path."""
         docs_dir = _create_docs_dir(
             self.tmpdir,
@@ -145,7 +156,7 @@ class TestImportDocs(unittest.TestCase):
         self.assertEqual(pg_note.name, "postgres-tips")
         self.assertEqual(react_note.name, "hooks")
 
-    def test_renames_docs_dir_with_timestamp(self):
+    def test_renames_docs_dir_with_timestamp(self, mock_completion):
         """docs/ should be renamed to .docs_imported_<timestamp> after import."""
         docs_dir = _create_docs_dir(
             self.tmpdir,
@@ -162,7 +173,7 @@ class TestImportDocs(unittest.TestCase):
         self.assertTrue(os.path.exists(result["renamed_to"]))
         self.assertIn(".docs_imported_", result["renamed_to"])
 
-    def test_skips_non_md_files(self):
+    def test_skips_non_md_files(self, mock_completion):
         """Only .md files should be imported."""
         docs_dir = _create_docs_dir(
             self.tmpdir,
@@ -179,7 +190,7 @@ class TestImportDocs(unittest.TestCase):
         self.assertEqual(result["imported"], 1)
         self.assertEqual(len(self.sys.memories), 1)
 
-    def test_skips_empty_files(self):
+    def test_skips_empty_files(self, mock_completion):
         """Empty .md files should be skipped."""
         docs_dir = _create_docs_dir(
             self.tmpdir,
@@ -195,7 +206,7 @@ class TestImportDocs(unittest.TestCase):
         self.assertEqual(result["imported"], 1)
         self.assertEqual(result["skipped"], 2)
 
-    def test_skips_duplicate_content(self):
+    def test_skips_duplicate_content(self, mock_completion):
         """Files with content that already exists in memory should be skipped."""
         # Pre-populate memory with a note
         existing = MemoryNote(
@@ -218,7 +229,7 @@ class TestImportDocs(unittest.TestCase):
         self.assertEqual(result["imported"], 1)
         self.assertEqual(result["skipped"], 1)
 
-    def test_concurrent_agent_skips_already_renamed(self):
+    def test_concurrent_agent_skips_already_renamed(self, mock_completion):
         """If another agent already renamed docs/, import should return error."""
         docs_dir = os.path.join(self.tmpdir, "docs")
         # docs/ doesn't exist — another agent already renamed it
@@ -227,12 +238,12 @@ class TestImportDocs(unittest.TestCase):
 
         self.assertIn("error", result)
 
-    def test_no_docs_dir_returns_error(self):
+    def test_no_docs_dir_returns_error(self, mock_completion):
         """Non-existent docs_dir should return error."""
         result = self.sys.import_docs("/nonexistent/path")
         self.assertIn("error", result)
 
-    def test_llm_analysis_called_for_each_doc(self):
+    def test_llm_analysis_called_for_each_doc(self, mock_completion):
         """LLM should be called to generate tags/keywords/context."""
         docs_dir = _create_docs_dir(
             self.tmpdir,
@@ -245,11 +256,9 @@ class TestImportDocs(unittest.TestCase):
         self.sys.import_docs(docs_dir)
 
         # LLM should have been called at least twice (once per doc)
-        self.assertGreaterEqual(
-            self.sys.llm_controller.llm.get_completion.call_count, 2
-        )
+        self.assertGreaterEqual(mock_completion.call_count, 2)
 
-    def test_notes_written_to_disk(self):
+    def test_notes_written_to_disk(self, mock_completion):
         """Imported notes should be persisted to notes/ on disk."""
         docs_dir = _create_docs_dir(
             self.tmpdir,
@@ -268,7 +277,7 @@ class TestImportDocs(unittest.TestCase):
                     notes_files.append(os.path.join(dirpath, f))
         self.assertEqual(len(notes_files), 1)
 
-    def test_notes_added_to_vectordb(self):
+    def test_notes_added_to_vectordb(self, mock_completion):
         """Imported notes should have vectors in the retriever."""
         docs_dir = _create_docs_dir(
             self.tmpdir,

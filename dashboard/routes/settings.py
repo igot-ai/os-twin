@@ -137,6 +137,7 @@ _VALID_NAMESPACES = frozenset(
         "channels",
         "autonomy",
         "observability",
+        "ai",
     }
 )
 
@@ -165,6 +166,15 @@ async def patch_global_namespace(
     # Sync Vertex AI env vars to ~/.ostwin/.env when provider config changes.
     if namespace == "providers":
         _sync_vertex_env(value)
+
+    # Invalidate the AI gateway config cache when providers or ai settings change.
+    if namespace in ("providers", "ai"):
+        try:
+            from shared.ai.config import reset_config
+
+            reset_config()
+        except ImportError:
+            pass  # shared.ai not yet installed
 
     await broadcaster.broadcast(
         "settings_updated",

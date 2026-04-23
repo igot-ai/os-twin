@@ -446,7 +446,9 @@ if (-not $NoMcp -and $ProjectDir) {
 }
 
 $extraCliArgs += $ExtraArgs
-$extraCliArgs += "--dangerously-skip-permissions"
+# Note: permissions are controlled via .opencode/opencode.json (permission.external_directory),
+# not via CLI flags. The legacy --dangerously-skip-permissions flag (deepagents-cli) is not
+# supported by opencode and causes it to fail with exit code 1.
 
 $argsLine = ($extraCliArgs | ForEach-Object {
         if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }

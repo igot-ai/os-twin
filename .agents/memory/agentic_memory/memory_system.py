@@ -1,14 +1,19 @@
 import keyword
+import os
+import sys
 from typing import List, Dict, Optional, Any, Tuple
 import uuid
 from datetime import datetime
-from .llm_controller import LLMController
 from .retrievers import ChromaRetriever, ZvecRetriever
+
+# Ensure shared.ai is importable (needed when running as standalone MCP server)
+_agents_dir = os.path.join(os.path.dirname(__file__), "..", "..")
+if _agents_dir not in sys.path:
+    sys.path.insert(0, os.path.abspath(_agents_dir))
 from .memory_note import MemoryNote  # canonical definition lives here now
 import json
 import logging
 import numpy as np
-import os
 from abc import ABC, abstractmethod
 import pickle
 from pathlib import Path
@@ -154,10 +159,7 @@ class AgenticMemorySystem:
         if self.persist_dir:
             self._load_notes()
 
-        # Initialize LLM controller
-        self.llm_controller = LLMController(
-            llm_backend, llm_model, api_key, sglang_host, sglang_port
-        )
+        # LLM calls now go through shared.ai — no controller needed
         self.evo_cnt = 0
         self.evo_threshold = evo_threshold
 
@@ -297,7 +299,9 @@ class AgenticMemorySystem:
             f"{note_b.content}\n"
         )
 
-        response = self.llm_controller.llm.get_completion(prompt)
+        from shared.ai import get_completion
+
+        response = get_completion(prompt, purpose="memory")
         merged_content = response.strip() if response else None
         if not merged_content:
             raise ValueError("LLM returned empty merge result")
@@ -613,8 +617,11 @@ class AgenticMemorySystem:
         schema_properties.update(summary_schema)
 
         try:
-            response = self.llm_controller.llm.get_completion(
+            from shared.ai import get_completion
+
+            response = get_completion(
                 prompt,
+                purpose="memory",
                 response_format={
                     "type": "json_schema",
                     "json_schema": {
@@ -1642,8 +1649,12 @@ class AgenticMemorySystem:
             nearest_neighbors_memories=neighbors_text,
             neighbor_number=len(memory_ids),
         )
-        response = self.llm_controller.llm.get_completion(
-            prompt, response_format=self._EVOLUTION_RESPONSE_FORMAT
+        from shared.ai import get_completion
+
+        response = get_completion(
+            prompt,
+            purpose="memory",
+            response_format=self._EVOLUTION_RESPONSE_FORMAT,
         )
         return json.loads(response)
 

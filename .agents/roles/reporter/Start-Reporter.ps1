@@ -324,8 +324,8 @@ $invokeArgs = @{
 # This ensures the user's plan-level model configuration is respected.
 if ($roleInstanceModel) { $invokeArgs['Model'] = $roleInstanceModel }
 
-# Grant shell access so the agent can run python -m reporter
-$invokeArgs['ExtraArgs'] = @("--dangerously-skip-permissions")
+# Permissions are controlled via .opencode/opencode.json (permission.external_directory),
+# not via CLI flags. No extra args needed for shell access.
 
 $result = & $invokeAgent @invokeArgs
 

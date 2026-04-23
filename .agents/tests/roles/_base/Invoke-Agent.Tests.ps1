@@ -623,14 +623,14 @@ echo "ARGS: `$@"
             }
         }
 
-        It "always passes --dangerously-skip-permissions flag" {
+        It "does not pass legacy --dangerously-skip-permissions flag (opencode uses config-based permissions)" {
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd $script:argsMock -TimeoutSeconds 5
 
             if (Test-Path $script:argsDump) {
                 $args = Get-Content $script:argsDump
-                $args | Should -Contain "--dangerously-skip-permissions"
+                $args | Should -Not -Contain "--dangerously-skip-permissions"
             }
         }
     }
