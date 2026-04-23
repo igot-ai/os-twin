@@ -6,6 +6,8 @@ import { SWRProvider } from "@/components/swr-provider";
 import AppShell from "@/components/layout/AppShell";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import AuthOverlay from "@/components/auth/AuthOverlay";
+import { WebSocketProvider } from "@/components/providers/WebSocketProvider";
+
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -41,13 +43,16 @@ export default function RootLayout({
       <body className="h-screen flex flex-col antialiased overflow-hidden" suppressHydrationWarning>
         <AuthProvider>
           <AuthOverlay />
-          <SWRProvider>
-            <AppShell>
-              {children}
-            </AppShell>
-          </SWRProvider>
+          <WebSocketProvider>
+            <SWRProvider>
+              <AppShell>
+                {children}
+              </AppShell>
+            </SWRProvider>
+          </WebSocketProvider>
         </AuthProvider>
       </body>
+
     </html>
   );
 }

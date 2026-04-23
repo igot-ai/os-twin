@@ -1,17 +1,15 @@
 'use client';
 
-import { useWebSocket } from '@/hooks/use-websocket';
+import { useSharedWebSocket } from '@/components/providers/WebSocketProvider';
+
 
 export interface LiveStatusBadgeProps {
   className?: string;
 }
 
 export function LiveStatusBadge({ className = '' }: LiveStatusBadgeProps) {
-  const wsUrl = typeof window !== 'undefined'
-    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`
-    : null;
+  const { isConnected } = useSharedWebSocket();
 
-  const { isConnected } = useWebSocket(wsUrl);
 
   return (
     <div
