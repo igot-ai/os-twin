@@ -461,7 +461,8 @@ async def google_oauth_start(
     # Build callback URL based on the current request origin
     callback_path = "/api/settings/google/oauth/callback"
     try:
-        base_url = os.environ.get("OSTWIN_BASE_URL", "http://localhost:3366")
+        # Prioritize BASE_URL (set by user) over the internal OSTWIN_BASE_URL
+        base_url = os.environ.get("BASE_URL") or os.environ.get("OSTWIN_BASE_URL", "http://localhost:3366")
         redirect_uri = f"{base_url}{callback_path}"
     except Exception:
         redirect_uri = f"http://localhost:3366{callback_path}"
@@ -476,6 +477,9 @@ async def google_oauth_start(
     session_json = json.dumps(session.to_dict())
     session_b64 = base64.b64encode(session_json.encode()).decode()
     
+    # Force secure=True on Cloud Run (even if internal protocol is http)
+    is_cloud = os.environ.get("K_SERVICE") is not None
+    
     # Set a temporary cookie (expires in 10 mins)
     response.set_cookie(
         key="ostwin_oauth_session",
@@ -483,10 +487,12 @@ async def google_oauth_start(
         httponly=True,
         max_age=600,
         samesite="lax",
-        secure=True if "https" in redirect_uri else False
+        secure=True if is_cloud else ("https" in redirect_uri),
+        path="/"  # EXPLICIT PATH is required for redirects to work
     )
     
     return result
+
 
 
 @router.get("/google/oauth/callback")
