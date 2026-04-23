@@ -62,7 +62,14 @@ param(
 $installDir = $PSScriptRoot | Split-Path   # e.g. /Users/paulaan/.ostwin
 
 if ($env:OSTWIN_HOME -and (Test-Path $env:OSTWIN_HOME)) {
-    $agentsDir = $env:OSTWIN_HOME
+    # OSTWIN_HOME is the install root (e.g. ~/.ostwin).
+    # Scripts live under .agents/ (e.g. ~/.ostwin/.agents/war-rooms/New-WarRoom.ps1)
+    $candidate = Join-Path $env:OSTWIN_HOME ".agents"
+    if (Test-Path $candidate) {
+        $agentsDir = $candidate
+    } else {
+        $agentsDir = $env:OSTWIN_HOME
+    }
 } else {
     $agentsDir = Join-Path $ProjectDir ".agents"
     $sentinel  = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"

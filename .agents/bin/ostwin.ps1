@@ -29,7 +29,12 @@ $ErrorActionPreference = "Stop"
 # ──────────────────────────────────────────────────────────────────────────────
 $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path ($env:USERPROFILE ?? $HOME) ".ostwin" }
 
-$venvActivate = Join-Path $OstwinHome ".venv\Scripts\Activate.ps1"
+# Cross-platform: Windows uses Scripts/, macOS+Linux use bin/
+$venvActivate = if ($IsWindows) {
+    Join-Path $OstwinHome ".venv" "Scripts" "Activate.ps1"
+} else {
+    Join-Path $OstwinHome ".venv" "bin" "Activate.ps1"
+}
 if (Test-Path $venvActivate) {
     . $venvActivate
 }
@@ -426,10 +431,15 @@ switch ($Command) {
         # ── Check for missing roles ──
         if ($planArgResolved -and (Test-Path $resolvedPlanFile)) {
             $planContent = Get-Content $resolvedPlanFile -Raw
-            $neededRoles = [regex]::Matches($planContent, '(?m)^Role:\s*(.+)$') |
-            ForEach-Object { $_.Groups[1].Value.Trim() -split '\s+' | Select-Object -First 1 } |
-            Where-Object { $_ -and $_ -ne '<role-name>' } |
-            Sort-Object -Unique
+            # Extract all roles from Roles: lines — mirrors PlanParser.psm1 logic
+            $neededRoles = [regex]::Matches($planContent, '(?m)^Roles:\s*(.+)$') |
+                ForEach-Object {
+                    $line = $_.Groups[1].Value -replace '\(.*$', ''   # strip inline comments
+                    ($line -split '[,\s]+') |
+                        ForEach-Object { ($_.Trim() -replace '^@', '') } |
+                        Where-Object { $_ -match '[a-zA-Z0-9]' -and $_ -notmatch '^<.*>$' }
+                } |
+                Sort-Object -Unique
 
             $projectRoot = Split-Path $AgentsDir -Parent
             $missingRoles = @()

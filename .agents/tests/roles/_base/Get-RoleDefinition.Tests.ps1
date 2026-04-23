@@ -18,7 +18,7 @@ Describe "Get-RoleDefinition" {
                 prompt_file   = "ROLE.md"
                 quality_gates = @("unit-tests", "lint")
                 skills        = @("python", "javascript", "sql")
-                cli           = "deepagents"
+                cli           = "agent"
                 model         = "google-vertex/gemini-3-flash"
                 timeout       = 300
             } | ConvertTo-Json -Depth 3 | Out-File (Join-Path $script:rolePath "role.json") -Encoding utf8
@@ -58,7 +58,7 @@ Describe "Get-RoleDefinition" {
 
         It "loads CLI config" {
             $role = & $script:GetRoleDef -RolePath $script:rolePath
-            $role.CLI | Should -Be "deepagents"
+            $role.CLI | Should -Be "agent"
             $role.Model | Should -Be "google-vertex/gemini-3-flash"
             $role.Timeout | Should -Be 300
         }
@@ -100,7 +100,7 @@ Describe "Get-RoleDefinition" {
 
         It "uses default CLI" {
             $role = & $script:GetRoleDef -RolePath $script:rolePath
-            $role.CLI | Should -Be "deepagents"
+            $role.CLI | Should -Be "agent"
         }
 
         It "uses default timeout" {

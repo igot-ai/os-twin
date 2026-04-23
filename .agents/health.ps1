@@ -120,8 +120,10 @@ if (Test-Path $WarroomsDir) {
 
 # ─── Check agent CLI availability ────────────────────────────────────────────
 
-$EngineerCmd = if ($env:ENGINEER_CMD) { $env:ENGINEER_CMD } else { "deepagents" }
-$QaCmd = if ($env:QA_CMD) { $env:QA_CMD } else { "deepagents" }
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+$defaultAgentBin = Join-Path $OstwinHome ".agents" "bin" "agent"
+$EngineerCmd = if ($env:ENGINEER_CMD) { $env:ENGINEER_CMD } else { $defaultAgentBin }
+$QaCmd = if ($env:QA_CMD) { $env:QA_CMD } else { $defaultAgentBin }
 $EngineerAvailable = if (Get-Command $EngineerCmd -ErrorAction SilentlyContinue) { "available" } else { "not found" }
 $QaAvailable = if (Get-Command $QaCmd -ErrorAction SilentlyContinue) { "available" } else { "not found" }
 
