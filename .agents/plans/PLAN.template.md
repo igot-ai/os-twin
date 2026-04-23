@@ -1,24 +1,7 @@
-<!-- MANAGER INSTRUCTION:
-When generating a plan, you MUST explicitly define a `Roles: ...` for EACH Epic.
-The `roles` MUST BE DYNAMICALLY DESIGNED based on the specific requirements of the Epic. 
-Not all tasks require an engineer or qa. For example, a research epic might only need a researcher and analyst, while a documentation epic might need a writer and editor.
-Whatever the roles, you must design a closed-loop workflow optimized for those specific autonomous agents, allowing them to operate without stalling.
-IMPORTANT: Lifecycle state names MUST use the ROLE AGENT NAMES (e.g., `@researcher`, `@analyst`, `@engineer`, `qa`), NOT generic action names (e.g., `research`, `review`, `drafting`). This is because the manager loop uses state names to determine which agent to invoke.
-Always map out the transition states, including what happens on failure.
-
-Example of a dynamic closed workflow for a generic task:
-```text
-pending → [primary-role] → [reviewer-role] ─┬─► passed → signoff
-                ▲                           │
-                └───── [primary-role] ◄─────┘ (on fail → fixing)
-```
--->
-
 # Plan: Example Feature
 
 > Created: 2026-03-17T00:00:00+00:00
 > Status: draft
-> Project: /path/to/your/project
 
 ## Config
 
