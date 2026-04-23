@@ -1,11 +1,8 @@
-"""Thin Anthropic wrapper for knowledge extraction, query planning, and answer aggregation.
+"""Knowledge LLM — entity extraction, query planning, and answer aggregation.
 
-Designed for graceful degradation: when no API key is provided, every method
-returns a sensible empty / fallback value so callers don't have to special-case
-the missing-key path.
-
-Heavy `anthropic` SDK is imported lazily inside methods to keep package import
-time fast.
+Routes all LLM calls through shared.ai gateway (Vertex AI / litellm).
+Designed for graceful degradation: when no AI config is available, every
+method returns a sensible empty / fallback value.
 """
 
 from __future__ import annotations
@@ -98,30 +95,26 @@ class KnowledgeLLM:
     """
 
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
-        # Resolve key (constructor wins over env)
-        self.api_key: str | None = api_key if api_key is not None else os.environ.get(
-            "ANTHROPIC_API_KEY"
-        )
         self.model: str = model or LLM_MODEL
-        self._client: Any | None = None  # cached anthropic.Anthropic instance
+        # api_key kept for is_available() — actual auth goes through shared.ai (ADC)
+        self.api_key: str | None = (
+            api_key if api_key is not None else os.environ.get("ANTHROPIC_API_KEY")
+        )
 
     # -- Capability -----------------------------------------------------
 
     def is_available(self) -> bool:
-        """True iff an API key is configured (constructor or env)."""
-        return bool(self.api_key)
+        """True iff an API key or ADC is configured."""
+        if self.api_key:
+            return True
+        # Check if shared.ai can load config (ADC / Vertex)
+        try:
+            from shared.ai.config import get_config
 
-    # -- Internals ------------------------------------------------------
-
-    def _get_client(self) -> Any:
-        """Lazy-import anthropic and cache the client."""
-        if self._client is not None:
-            return self._client
-        # Lazy import — keeps `import dashboard.knowledge` fast.
-        import anthropic  # noqa: WPS433
-
-        self._client = anthropic.Anthropic(api_key=self.api_key)
-        return self._client
+            get_config()
+            return True
+        except Exception:
+            return False
 
     @staticmethod
     def _extract_json(text: str) -> Any:
@@ -146,25 +139,19 @@ class KnowledgeLLM:
         return None
 
     def _complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
-        """Run a single Anthropic Messages call. Returns the text content."""
-        client = self._get_client()
+        """Run a completion via shared.ai gateway. Returns the text content."""
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
+            from shared.ai import get_completion
+
+            return get_completion(
+                user,
                 system=system,
-                messages=[{"role": "user", "content": user}],
+                purpose="knowledge",
+                model=self.model if "/" in self.model else None,
+                max_tokens=max_tokens,
             )
-            # Anthropic response: content is list of blocks; pick text blocks.
-            parts = []
-            for block in response.content:
-                # Block can be TextBlock or other; both have .text on TextBlock.
-                text = getattr(block, "text", None)
-                if text:
-                    parts.append(text)
-            return "".join(parts)
         except Exception as exc:  # noqa: BLE001
-            logger.error("Anthropic call failed: %s", exc)
+            logger.error("Knowledge LLM call failed: %s", exc)
             return ""
 
     # -- Public API -----------------------------------------------------
