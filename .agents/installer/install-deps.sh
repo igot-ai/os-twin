@@ -264,26 +264,6 @@ install_opencode() {
   fi
 }
 
-# ─── deepagents-cli ──────────────────────────────────────────────────────────
-
-install_deepagents() {
-  step "Installing deepagents-cli..."
-  if ! check_uv; then
-    fail "uv is required to install deepagents-cli"
-    return 1
-  fi
-
-  # Install as a global tool
-  if uv tool install --upgrade deepagents-cli --force 2>&1; then
-    export PATH="$HOME/.local/bin:$PATH"
-    ok "deepagents-cli installed"
-  else
-    fail "Failed to install deepagents-cli"
-    return 1
-  fi
-}
-
-
 # ─── Pester (PowerShell test framework) ──────────────────────────────────────
 
 install_pester() {

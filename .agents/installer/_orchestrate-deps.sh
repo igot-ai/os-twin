@@ -111,14 +111,6 @@ else
   install_opencode
 fi
 
-# --- deepagents ---
-if command -v deepagents &>/dev/null; then
-  ok "deepagents available"
-else
-  install_deepagents
-fi
-
-
 # --- Node.js ---
 if check_node; then
   NODE_VERSION=$(node --version 2>&1 | head -1)
