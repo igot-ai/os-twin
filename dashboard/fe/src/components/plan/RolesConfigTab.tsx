@@ -8,9 +8,8 @@ import { useConfiguredModels } from '@/hooks/use-configured-models';
 import { ProvenanceChip } from '@/components/settings/ProvenanceChip';
 import { ModelSelect } from '@/components/settings/ModelSelect';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { useSharedWebSocket } from '@/components/providers/WebSocketProvider';
+import { useWebSocket } from '@/hooks/use-websocket';
 import RoleSkillManager from './RoleSkillManager';
-
 import type { RoleSettings } from '@/types/settings';
 
 interface RoleConfig {
@@ -115,8 +114,10 @@ export default function RolesConfigTab() {
   useEffect(() => { fetchEffective(); }, [fetchEffective]);
 
   // ── WebSocket refresh ──────────────────────────────────────────────
-  const { lastMessage } = useSharedWebSocket();
-
+  const wsUrl = typeof window !== 'undefined'
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`
+    : null;
+  const { lastMessage } = useWebSocket(wsUrl);
 
   useEffect(() => {
     if (lastMessage && (lastMessage.type === 'settings_updated' || lastMessage.event === 'settings_updated')) {
