@@ -37,12 +37,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# ── Google's well-known desktop-app OAuth2 credentials ────────────────
-# These are the same credentials ``gcloud auth application-default login``
-# uses.  They are intentionally public (not secret) for installed/desktop
-# apps per Google's OAuth2 documentation.
-_CLIENT_ID = "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com"
-_CLIENT_SECRET = "d-FL95Q19q7MQmFpd7hHD0Ty"
+# Google's desktop credentials (fallback for localhost)
+_DEFAULT_CLIENT_ID = "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com"
+_DEFAULT_CLIENT_SECRET = "d-FL95Q19q7MQmFpd7hHD0Ty"
+
+# Allow override via environment variables for Cloud/Web deployments
+_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", _DEFAULT_CLIENT_ID)
+_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", _DEFAULT_CLIENT_SECRET)
+
 
 _AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"

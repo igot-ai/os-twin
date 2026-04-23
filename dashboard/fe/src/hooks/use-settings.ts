@@ -3,8 +3,9 @@
 import useSWR, { mutate } from 'swr';
 import { useEffect } from 'react';
 import { apiPut, apiPost, fetcher } from '@/lib/api-client';
-import { useWebSocket } from './use-websocket';
+import { useSharedWebSocket } from '@/components/providers/WebSocketProvider';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
+
 import type { MasterSettings, EffectiveResolution, ProviderTestResult, VaultInfo, OpenCodeSyncResult } from '@/types/settings';
 
 export function useSettings() {
@@ -36,11 +37,8 @@ export function useSettings() {
     await mutateSettings();
   };
 
-  const wsUrl = typeof window !== 'undefined'
-    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`
-    : null;
+  const { lastMessage } = useSharedWebSocket();
 
-  const { lastMessage } = useWebSocket(wsUrl);
 
   useEffect(() => {
     if (lastMessage && (lastMessage.type === 'settings_updated' || lastMessage.event === 'settings_updated')) {
