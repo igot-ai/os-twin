@@ -166,6 +166,8 @@ def record_completion(
         error=error,
     )
 
+    _append_to_file(record)
+
     with _stats.lock:
         _stats.total_completions += 1
         _stats.completions_by_model[model] += 1
@@ -214,6 +216,8 @@ def record_embedding(
         error=error,
     )
 
+    _append_to_file(record)
+
     with _stats.lock:
         _stats.total_embeddings += 1
         _stats.embeddings_by_model[model] += 1
@@ -226,12 +230,163 @@ def record_embedding(
             _stats.recent.pop(0)
 
 
-def get_stats() -> dict:
-    """Return current aggregate stats as a dict."""
-    return _stats.to_dict()
+# ---------------------------------------------------------------------------
+# Shared file persistence — all processes append here
+# ---------------------------------------------------------------------------
+
+_MONITOR_FILE = os.path.join(
+    os.environ.get("OSTWIN_HOME", os.path.join(os.path.expanduser("~"), ".ostwin")),
+    "ai_monitor.jsonl",
+)
+_file_lock = threading.Lock()
+
+
+def _append_to_file(record: CallRecord) -> None:
+    """Append a record to the shared JSONL file with file locking."""
+    try:
+        import fcntl
+
+        entry = {
+            "ts": record.timestamp,
+            "type": record.call_type,
+            "model": record.model,
+            "purpose": record.purpose,
+            "caller": record.caller,
+            "latency_ms": round(record.latency_ms, 1),
+            "input_tokens": record.input_tokens,
+            "output_tokens": record.output_tokens,
+            "text_count": record.text_count,
+            "success": record.success,
+            "error": record.error,
+            "pid": os.getpid(),
+        }
+        line = json.dumps(entry, ensure_ascii=False) + "\n"
+
+        with _file_lock:
+            os.makedirs(os.path.dirname(_MONITOR_FILE), exist_ok=True)
+            with open(_MONITOR_FILE, "a", encoding="utf-8") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                f.write(line)
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except Exception:
+        pass  # Don't crash the caller if file write fails
+
+
+def _read_from_file(max_age_seconds: int = 3600) -> list[dict]:
+    """Read records from the shared JSONL file, filtered by age."""
+    records = []
+    cutoff = time.time() - max_age_seconds
+    try:
+        with open(_MONITOR_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get("ts", 0) >= cutoff:
+                        records.append(rec)
+                except json.JSONDecodeError:
+                    continue
+    except FileNotFoundError:
+        pass
+    return records
+
+
+def get_stats(include_file: bool = True, max_age_seconds: int = 3600) -> dict:
+    """Return aggregate stats from in-memory + shared file.
+
+    Args:
+        include_file: If True, also reads from the shared JSONL file
+            to include stats from other processes (MCP servers, CLI).
+        max_age_seconds: Only include file records from the last N seconds.
+    """
+    if not include_file:
+        return _stats.to_dict()
+
+    # Aggregate from file (cross-process)
+    records = _read_from_file(max_age_seconds)
+
+    total_completions = 0
+    total_embeddings = 0
+    total_errors = 0
+    completions_by_model: dict = defaultdict(int)
+    embeddings_by_model: dict = defaultdict(int)
+    completions_by_purpose: dict = defaultdict(int)
+    calls_by_caller: dict = defaultdict(int)
+    total_completion_latency = 0.0
+    total_embedding_latency = 0.0
+    total_input_tokens = 0
+    total_output_tokens = 0
+    recent: list = []
+
+    for rec in records:
+        call_type = rec.get("type", "")
+        model = rec.get("model", "unknown")
+        caller = rec.get("caller", "unknown")
+        latency = rec.get("latency_ms", 0)
+        success = rec.get("success", True)
+
+        if call_type == "completion":
+            total_completions += 1
+            completions_by_model[model] += 1
+            completions_by_purpose[rec.get("purpose") or "default"] += 1
+            total_completion_latency += latency
+            total_input_tokens += rec.get("input_tokens", 0)
+            total_output_tokens += rec.get("output_tokens", 0)
+        elif call_type == "embedding":
+            total_embeddings += 1
+            embeddings_by_model[model] += 1
+            total_embedding_latency += latency
+
+        calls_by_caller[caller] += 1
+        if not success:
+            total_errors += 1
+
+        recent.append(
+            {
+                "type": call_type,
+                "model": model,
+                "purpose": rec.get("purpose"),
+                "caller": caller,
+                "latency_ms": round(latency, 1),
+                "success": success,
+                "timestamp": rec.get("ts", 0),
+            }
+        )
+
+    # Keep last 50
+    recent = recent[-50:]
+
+    avg_comp = (
+        (total_completion_latency / total_completions) if total_completions > 0 else 0
+    )
+    avg_embed = (
+        (total_embedding_latency / total_embeddings) if total_embeddings > 0 else 0
+    )
+
+    return {
+        "total_completions": total_completions,
+        "total_embeddings": total_embeddings,
+        "total_errors": total_errors,
+        "completions_by_model": dict(completions_by_model),
+        "embeddings_by_model": dict(embeddings_by_model),
+        "completions_by_purpose": dict(completions_by_purpose),
+        "calls_by_caller": dict(calls_by_caller),
+        "avg_completion_latency_ms": round(avg_comp, 1),
+        "avg_embedding_latency_ms": round(avg_embed, 1),
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "recent_calls": recent,
+    }
 
 
 def reset_stats() -> None:
-    """Reset all counters (for testing)."""
+    """Reset in-memory counters and truncate the shared file."""
     global _stats
     _stats = _Stats()
+    try:
+        with open(_MONITOR_FILE, "w") as f:
+            f.truncate(0)
+    except Exception:
+        pass
