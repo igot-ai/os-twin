@@ -24,10 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get update \
     && apt-get install -y nodejs \
-    # Install PowerShell directly from Microsoft to bypass APT repo signature issues (SHA1 rejection in newer Debian)
-    && wget -q https://github.com/PowerShell/PowerShell/releases/download/v7.4.7/powershell_7.4.7-1.debian.12_amd64.deb \
-    && dpkg -i powershell_7.4.7-1.debian.12_amd64.deb || apt-get install -fy \
-    && rm powershell_7.4.7-1.debian.12_amd64.deb \
+    # Install PowerShell directly from Microsoft (Stable)
+    && wget -q -O /tmp/powershell.deb https://github.com/PowerShell/PowerShell/releases/download/v7.4.2/powershell_7.4.2-1.deb_amd64.deb \
+    && apt-get install -y --no-install-recommends /tmp/powershell.deb \
+    && rm -f /tmp/powershell.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Install OpenCode CLI
