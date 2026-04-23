@@ -77,8 +77,10 @@ for room_dir in "$WARROOMS"/room-*/; do
 done
 
 # Check agent CLI availability
-ENGINEER_CMD="${ENGINEER_CMD:-deepagents}"
-QA_CMD="${QA_CMD:-deepagents}"
+OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
+DEFAULT_AGENT_BIN="$OSTWIN_HOME/.agents/bin/agent"
+ENGINEER_CMD="${ENGINEER_CMD:-$DEFAULT_AGENT_BIN}"
+QA_CMD="${QA_CMD:-$DEFAULT_AGENT_BIN}"
 ENGINEER_AVAILABLE=$(command -v "$ENGINEER_CMD" &>/dev/null && echo "available" || echo "not found")
 QA_AVAILABLE=$(command -v "$QA_CMD" &>/dev/null && echo "available" || echo "not found")
 PYTHON_AVAILABLE=$([[ -x "$PYTHON" ]] && echo "available" || echo "not found")

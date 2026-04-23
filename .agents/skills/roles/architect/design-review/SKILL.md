@@ -2,7 +2,7 @@
 name: design-review
 description: Use this skill to review a QA-escalated failure for architectural compliance — produce design guidance with a FIX, REDESIGN, or REPLAN verdict.
 tags: [architect, review, design, escalation]
-trust_level: core
+
 ---
 
 # design-review

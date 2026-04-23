@@ -2,7 +2,7 @@
 name: build-ui
 description: Build Unity UI prefabs from detection JSON (schema 5.0.0) via MCP tools. Consumes output from unity-ui-analyzer and creates a complete GameObject hierarchy with components, properties, and placeholder assets. Triggers on 'build UI from JSON', 'prefab from detection', 'build prefab from screenshot', 'construct UI', 'detection JSON to prefab', 'create UI from detection', 'build from detection JSON', 'JSON to prefab', 'build detected UI'. Use this skill whenever the user has a _detection.json file and wants to create a Unity prefab from it -- even if they just say 'build this' or 'turn this into a prefab' after running detect-ui."
 tags: []
-trust_level: experimental
+
 ---
 
 **Quick Start:** Parse detection JSON -> validate schema 5.0.0 -> plan build (count nodes, missing assets) -> create hierarchy depth-first via MCP -> apply project conventions -> validate via screenshot -> save prefab.

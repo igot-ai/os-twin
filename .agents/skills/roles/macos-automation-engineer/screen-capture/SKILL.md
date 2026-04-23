@@ -2,7 +2,7 @@
 name: screen-capture
 description: Take full-screen, region, window, or clipboard screenshots on macOS using screencapture. Primary verification layer for automation."
 tags: [macos-automation-engineer, automation, macos, screenshot, vision, verification]
-trust_level: core
+
 platform: [macos]
 requires_permissions: [ScreenCapture]
 shell: bash

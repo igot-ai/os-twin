@@ -2,7 +2,7 @@
 name: create-game-brief
 description: Create a game brief document from initial concept
 tags: [game-designer, design, brief]
-trust_level: core
+
 source: project
 ---
 

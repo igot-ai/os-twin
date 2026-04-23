@@ -2,7 +2,7 @@
 name: add-feature
 description: Implement a new Unity feature end-to-end"
 tags: [engineer, implementation, feature]
-trust_level: core
+
 ---
 
 # Workflow: Add Vertical Slice Feature

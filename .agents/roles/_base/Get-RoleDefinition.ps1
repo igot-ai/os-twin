@@ -77,7 +77,7 @@ else {
         quality_gates = @()
         skills       = @()
         skill_refs   = @()
-        cli          = "deepagents"
+        cli          = "agent"
         model        = $null
         timeout      = 600
     }

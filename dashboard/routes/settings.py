@@ -14,9 +14,10 @@ import subprocess
 from pathlib import Path as FSPath
 from typing import Dict, Any, List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Body, Path
+from fastapi import APIRouter, HTTPException, Depends, Query, Body, Path, Request, Response
 from pydantic import BaseModel
 
+import base64
 from dashboard.auth import get_current_user
 from dashboard.global_state import broadcaster
 import dashboard.global_state as global_state
@@ -28,7 +29,9 @@ from dashboard.lib.settings.google_oauth import (
     start_oauth,
     exchange_code,
     get_oauth_status,
+    OAuthSession,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -496,6 +499,7 @@ class OAuthStartRequest(BaseModel):
 
 @router.post("/google/oauth/start")
 async def google_oauth_start(
+    response: Response,
     request: OAuthStartRequest = Body(default_factory=OAuthStartRequest),
     user: dict = Depends(get_current_user),
 ):
@@ -504,15 +508,11 @@ async def google_oauth_start(
     Returns an ``authorization_url`` the frontend should open in a new tab.
     After the user authenticates, Google redirects to our callback endpoint.
     """
-    from starlette.requests import Request as StarletteRequest
-
     # Build callback URL based on the current request origin
-    # Default to localhost:3366 if we can't determine the host
     callback_path = "/api/settings/google/oauth/callback"
     try:
-        # Use the Referer or Origin header to build the redirect URI
-        # This handles both localhost and tunneled URLs
-        base_url = os.environ.get("OSTWIN_BASE_URL", "http://localhost:3366")
+        # Prioritize BASE_URL (set by user) over the internal OSTWIN_BASE_URL
+        base_url = os.environ.get("BASE_URL") or os.environ.get("OSTWIN_BASE_URL", "http://localhost:3366")
         redirect_uri = f"{base_url}{callback_path}"
     except Exception:
         redirect_uri = f"http://localhost:3366{callback_path}"
@@ -521,11 +521,34 @@ async def google_oauth_start(
         redirect_uri=redirect_uri,
         project_id=request.project_id,
     )
+    
+    # Store session data in a cookie for persistence across Cloud Run instances
+    session: OAuthSession = result.pop("session")
+    session_json = json.dumps(session.to_dict())
+    session_b64 = base64.b64encode(session_json.encode()).decode()
+    
+    # Force secure=True on Cloud Run (even if internal protocol is http)
+    is_cloud = os.environ.get("K_SERVICE") is not None
+    
+    # Set a temporary cookie (expires in 10 mins)
+    response.set_cookie(
+        key="ostwin_oauth_session",
+        value=session_b64,
+        httponly=True,
+        max_age=600,
+        samesite="lax",
+        secure=True if is_cloud else ("https" in redirect_uri),
+        path="/"  # EXPLICIT PATH is required for redirects to work
+    )
+    
     return result
+
 
 
 @router.get("/google/oauth/callback")
 async def google_oauth_callback(
+    request: Request,
+    response: Response,
     code: str = Query(..., description="Authorization code from Google"),
     state: str = Query(..., description="State parameter for CSRF protection"),
     error: Optional[str] = Query(None, description="Error from Google"),
@@ -541,19 +564,38 @@ async def google_oauth_callback(
             success=False, message=f"Google returned error: {error}"
         )
 
+    # Recover session data from the cookie
+    session_b64 = request.cookies.get("ostwin_oauth_session")
+    if not session_b64:
+        return _oauth_result_page(
+            success=False, 
+            message="No pending OAuth session found in cookie. Please try again."
+        )
+
     try:
-        result = exchange_code(code=code, state=state)
+        session_json = base64.b64decode(session_b64).decode()
+        session_data = json.loads(session_json)
+        session = OAuthSession.from_dict(session_data)
+        
+        result = exchange_code(code=code, state=state, session=session)
 
         # Sync Vertex env vars now that we have ADC
         _try_vertex_env_sync()
 
-        return _oauth_result_page(
+        # Clear the session cookie
+        response.delete_cookie("ostwin_oauth_session")
+
+        page = _oauth_result_page(
             success=True,
             message=f"Authenticated as {result.get('email', 'unknown')}",
             email=result.get("email"),
         )
+        # We need to set the cookie deletion on the HTML response too
+        page.delete_cookie("ostwin_oauth_session")
+        return page
     except (ValueError, RuntimeError) as exc:
         return _oauth_result_page(success=False, message=str(exc))
+
 
 
 @router.get("/google/oauth/status")
