@@ -43,7 +43,6 @@ def _ensure_ml_imports():
     word_tokenize = _wt
     BM25Okapi = _BM
     cosine_similarity = _cs
-    completion = _comp
 
 
 logger = logging.getLogger(__name__)
