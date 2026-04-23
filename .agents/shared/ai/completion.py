@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -67,6 +68,15 @@ def complete(
 
     cfg = get_config()
     model = model or cfg.full_model(purpose)
+
+    # Set litellm Vertex AI project/location if using vertex_ai provider
+    if model.startswith("vertex_ai/"):
+        litellm.vertex_project = cfg.vertex_project or os.environ.get(
+            "GOOGLE_CLOUD_PROJECT"
+        )
+        litellm.vertex_location = cfg.vertex_location or os.environ.get(
+            "GOOGLE_VERTEX_LOCATION", "global"
+        )
 
     # Build messages
     if messages:

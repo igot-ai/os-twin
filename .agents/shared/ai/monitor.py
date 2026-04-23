@@ -1,15 +1,20 @@
 """AI Gateway traffic monitor — logs every call and tracks stats.
 
-Stats are in-memory (reset on process restart). Exposed via
-``GET /api/ai/stats`` on the dashboard.
+Two storage layers:
+1. **In-memory** — per-process counters (fast, used for the dashboard's
+   own calls like zvec_store).
+2. **Shared file** — ``~/.ostwin/ai_monitor.jsonl`` (append-only, all
+   processes write here). The dashboard reads this file to aggregate
+   stats across all processes (MCP servers, dashboard, CLI).
 
-Every call is also logged to the standard Python logger at INFO level,
-so it appears in the dashboard debug log and MCP server log.
+Every call is also logged to the standard Python logger at INFO level.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 from collections import defaultdict

@@ -89,8 +89,20 @@ def _embed_local(texts: List[str], model_name: str) -> List[List[float]]:
 def _embed_cloud(texts: List[str], model: str) -> List[List[float]]:
     """Embed using litellm (Vertex AI or AI Studio)."""
     from .monitor import record_embedding
+    from .config import get_config
+    import os
     import time as _time
     import litellm
+
+    # Set litellm Vertex AI project/location
+    if model.startswith("vertex_ai/"):
+        cfg = get_config()
+        litellm.vertex_project = cfg.vertex_project or os.environ.get(
+            "GOOGLE_CLOUD_PROJECT"
+        )
+        litellm.vertex_location = cfg.vertex_location or os.environ.get(
+            "GOOGLE_VERTEX_LOCATION", "global"
+        )
 
     t0 = _time.time()
     try:
