@@ -490,6 +490,9 @@ export async function askAgent(
       `\nThese files are staged and will be automatically linked to any plan you create. If the user is asking to build something, call create_plan — the staged files will be used as reference material.`
     : '';
 
+  // Get staged images for vision API
+  const stagedImages = agentCtx.userId ? getStagedImages(agentCtx.userId, agentCtx.platform) : [];
+
   const systemPrompt = `You are OS Twin, an autonomous AI assistant that manages software projects through the Ostwin multi-agent war-room orchestrator.
 
 You have TWO capabilities:
@@ -510,6 +513,7 @@ IMPORTANT RULES:
 - Always present tool results in a user-friendly format with relevant details.
 - After creating a plan, mention that the user can now send further instructions to refine it, upload assets, or run /cancel.
 - If the user has attached files and is asking to build something, ALWAYS call create_plan — the files will be incorporated automatically.
+- **IMAGE VISION**: You can see and analyze images that users send. When they send an image, describe what you see and answer their questions about it.
 
 ## Current Plans
 ${plansText}
@@ -530,8 +534,31 @@ ${roomsText}${referenceContext}${attachmentContext}`;
       systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
     });
 
-    // First turn: send user's question
-    let result = await chat.sendMessage(question);
+    // Build message parts: text + images if available
+    const messageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+    
+    // Add text part
+    messageParts.push({ text: question });
+    
+    // Add image parts if staged images exist
+    if (stagedImages.length > 0) {
+      console.log(`[BRIDGE] Including ${stagedImages.length} staged image(s) in request`);
+      for (const img of stagedImages) {
+        // Extract base64 data from data URI
+        const base64Match = img.url.match(/^data:[^;]+;base64,(.+)$/);
+        if (base64Match) {
+          messageParts.push({
+            inlineData: {
+              mimeType: img.contentType,
+              data: base64Match[1],
+            },
+          });
+        }
+      }
+    }
+
+    // First turn: send user's question (with images if present)
+    let result = await chat.sendMessage(messageParts);
     let response = result.response;
 
     // Function-calling loop: execute tools until the model produces a text response

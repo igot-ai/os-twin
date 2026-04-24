@@ -2694,7 +2694,7 @@ async def refine_plan_endpoint(request: RefineRequest):
             }
         return {"refined_plan": result}
     except ImportError as e:
-        raise HTTPException(status_code=503, detail=f"deepagents not available: {e}. Install with: pip install deepagents")
+        raise HTTPException(status_code=503, detail=f"LLM SDK not available: {e}. Install with: pip install openai google-genai")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Plan refinement failed: {str(e)}")
 
@@ -2734,7 +2734,7 @@ async def refine_plan_stream_endpoint(request: RefineRequest):
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
         return StreamingResponse(event_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"})
     except ImportError as e:
-        raise HTTPException(status_code=503, detail=f"deepagents not available: {e}")
+        raise HTTPException(status_code=503, detail=f"LLM SDK not available: {e}. Install with: pip install openai google-genai")
 
 @router.get("/api/plans/{plan_id}/epics")
 async def get_plan_epics(plan_id: str):
