@@ -129,6 +129,45 @@ async def get_settings_schema(
     return MasterSettings.model_json_schema()
 
 
+# ── Master Agent Model ────────────────────────────────────────────────
+# These routes must be defined BEFORE PUT /{namespace} to avoid being shadowed
+# by the wildcard route.
+
+
+class MasterModelRequest(BaseModel):
+    model: str
+    provider: Optional[str] = None
+
+
+class MasterModelResponse(BaseModel):
+    model: str
+    provider: Optional[str] = None
+
+
+@router.get("/master-model", response_model=MasterModelResponse)
+async def get_master_model(
+    user: dict = Depends(get_current_user),
+):
+    """Get the current master agent model configuration."""
+    from dashboard.master_agent import get_master_config
+
+    config = get_master_config()
+    return MasterModelResponse(model=config.model, provider=config.provider)
+
+
+@router.put("/master-model", response_model=MasterModelResponse)
+async def set_master_model(
+    request: MasterModelRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Set the master agent model configuration."""
+    from dashboard.master_agent import set_master_model as _set_model, get_master_config
+
+    _set_model(request.model, request.provider)
+    config = get_master_config()
+    return MasterModelResponse(model=config.model, provider=config.provider)
+
+
 # ── Mutation Endpoints ─────────────────────────────────────────────────
 
 _VALID_NAMESPACES = frozenset(
@@ -600,8 +639,6 @@ def _oauth_result_page(
 </body></html>"""
     return HTMLResponse(content=html)
 
-
-# ── Helpers ────────────────────────────────────────────────────────────
 
 
 def _notify_bot_restart() -> None:
