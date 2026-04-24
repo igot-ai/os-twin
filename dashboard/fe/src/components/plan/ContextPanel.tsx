@@ -7,14 +7,29 @@ import { Epic, Plan } from '@/types';
 import { stateColors } from './EpicCard';
 import { useWarRoomConfig, useAuditLog, useAgentInstances, useBrief } from '@/hooks/use-war-room';
 import useSWR from 'swr';
+import { EpicEditorPanel } from './EpicEditorPanel';
 
 export default function ContextPanel() {
-  const { plan, epics, selectedEpicRef, setIsContextPanelOpen, planId } = usePlanContext();
+  const { plan, epics, selectedEpicRef, setIsContextPanelOpen, planId, parsedPlan, isEditingEpic, setIsEditingEpic } = usePlanContext();
   
   const selectedEpic = epics?.find(e => e.epic_ref === selectedEpicRef);
 
+  // Bridge: look up the parsed EpicNode for the selected epic
+  const editingEpicNode = selectedEpicRef && parsedPlan
+    ? parsedPlan.epics.find(e => e.ref === selectedEpicRef) || null
+    : null;
+
   const handleClose = () => {
     setIsContextPanelOpen(false);
+    setIsEditingEpic(false);
+  };
+
+  const handleOpenEditor = () => {
+    setIsEditingEpic(true);
+  };
+
+  const handleCloseEditor = () => {
+    setIsEditingEpic(false);
   };
 
   return (
@@ -22,15 +37,26 @@ export default function ContextPanel() {
       {/* Panel Header */}
       <div className="px-5 py-4 border-b border-border flex items-center justify-between bg-surface-alt/30">
         <h3 className="text-[10px] font-extrabold text-text-main uppercase tracking-widest flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px]">info</span>
-          {selectedEpic ? 'EPIC Quick View' : 'Plan Summary'}
+          <span className="material-symbols-outlined text-[16px]">{isEditingEpic ? 'edit' : 'info'}</span>
+          {selectedEpic ? (isEditingEpic ? 'Edit EPIC' : 'EPIC Quick View') : 'Plan Summary'}
         </h3>
-        <button 
-          onClick={handleClose}
-          className="p-1 hover:bg-surface-hover rounded-md text-text-faint hover:text-text-main transition-all"
-        >
-          <span className="material-symbols-outlined text-[18px]">close</span>
-        </button>
+        <div className="flex items-center gap-1">
+          {selectedEpic && editingEpicNode && !isEditingEpic && (
+            <button
+              onClick={handleOpenEditor}
+              className="p-1 hover:bg-primary/10 rounded-md text-text-faint hover:text-primary transition-all"
+              title="Edit this EPIC"
+            >
+              <span className="material-symbols-outlined text-[18px]">edit</span>
+            </button>
+          )}
+          <button 
+            onClick={handleClose}
+            className="p-1 hover:bg-surface-hover rounded-md text-text-faint hover:text-text-main transition-all"
+          >
+            <span className="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        </div>
       </div>
 
       {/* Panel Content */}
@@ -42,6 +68,12 @@ export default function ContextPanel() {
         )}
       </div>
 
+      {/* Edit Epic Drawer (overlay) */}
+      <EpicEditorPanel
+        epic={editingEpicNode}
+        isOpen={isEditingEpic && !!editingEpicNode}
+        onClose={handleCloseEditor}
+      />
     </div>
   );
 }
