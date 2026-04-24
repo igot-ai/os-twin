@@ -19,7 +19,7 @@ Design points:
   folder leaves ``stats.files_indexed`` / ``stats.chunks`` invariant
   (Defect 2 in EPIC-003 QA).
 - **Graceful LLM degradation.** When ``KnowledgeLLM.is_available()`` is False
-  (no ``ANTHROPIC_API_KEY``), entity extraction is skipped silently — chunks
+  (no LLM model/API key configured), entity extraction is skipped silently — chunks
   still get embedded + indexed and the job completes.
 - **Per-namespace base-dir isolation.** The Ingestor uses the
   :class:`NamespaceManager` instance's path methods, so a manager constructed

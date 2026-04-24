@@ -17,9 +17,10 @@ Three modes:
                    you want both the most-relevant chunks AND the entities
                    that connect them.
 - ``summarized`` — graph mode + LLM-aggregated answer. Requires
-                   ``ANTHROPIC_API_KEY``; without it the engine returns
-                   chunks + entities + a ``warning`` field on the result and
-                   ``answer=None``. Never crashes for missing-key reasons.
+                   an LLM model and API key to be configured; without it the
+                   engine returns chunks + entities + a ``warning`` field on
+                   the result and ``answer=None``. Never crashes for
+                   missing-key reasons.
 
 All three modes record ``latency_ms`` on the result. Per-step failures are
 caught and accumulated as ``warnings`` on the result so a single bad
@@ -189,7 +190,7 @@ class KnowledgeQueryEngine:
     llm:
         A :class:`KnowledgeLLM` (or duck-typed equivalent). Only invoked
         when ``mode="summarized"``; always checked via :meth:`is_available`
-        first so a missing ANTHROPIC_API_KEY can't crash a query.
+        first so a missing LLM API key can't crash a query.
     """
 
     def __init__(
@@ -298,7 +299,7 @@ class KnowledgeQueryEngine:
 
             if not llm_available:
                 result.warnings.append(
-                    "llm_unavailable: ANTHROPIC_API_KEY not set; "
+                    "llm_unavailable: No LLM model/API key configured; "
                     "returning chunks without an aggregated answer"
                 )
                 result.latency_ms = int((time.perf_counter() - t0) * 1000)

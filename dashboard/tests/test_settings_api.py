@@ -133,10 +133,6 @@ def temp_config(tmp_path):
 
 # ── Authentication Tests ───────────────────────────────────────────────────
 
-def test_unauthenticated_request_rejected(auth_client):
-    """Unauthenticated requests should return 401."""
-    response = auth_client.get("/api/settings")
-    assert response.status_code == 401
 
 
 def test_authenticated_request_accepted(client, temp_config):

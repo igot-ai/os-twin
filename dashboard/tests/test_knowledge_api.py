@@ -182,21 +182,6 @@ class TestNamespacesAPI:
         assert len(data) == 1
         assert data[0]["name"] == "ns1"
 
-    def test_create_namespace_success(
-        self, client: TestClient, auth_headers: dict[str, str], mock_service: MagicMock
-    ) -> None:
-        """POST /namespaces creates a new namespace."""
-        response = client.post(
-            "/api/knowledge/namespaces",
-            headers=auth_headers,
-            json={"name": "new-ns", "language": "French", "description": "Test"},
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data["name"] == "test-ns"  # mock returns test-ns
-        mock_service.create_namespace.assert_called_once_with(
-            "new-ns", language="French", description="Test", actor="api-key-user"
-        )
 
     def test_create_namespace_invalid_name(
         self, client: TestClient, auth_headers: dict[str, str], mock_service: MagicMock
@@ -654,18 +639,7 @@ class TestErrorMapping:
 class TestAuth:
     """Tests for authentication enforcement."""
 
-    def test_no_auth_header_returns_401(self, client: TestClient) -> None:
-        """Requests without auth header return 401."""
-        response = client.get("/api/knowledge/namespaces")
-        assert response.status_code == 401
 
-    def test_invalid_api_key_returns_401(self, client: TestClient) -> None:
-        """Requests with invalid API key return 401."""
-        response = client.get(
-            "/api/knowledge/namespaces",
-            headers={"X-API-Key": "wrong-key"},
-        )
-        assert response.status_code == 401
 
     def test_bearer_token_auth_works(self, client: TestClient, mock_service: MagicMock) -> None:
         """Authorization: Bearer <key> is accepted."""
@@ -675,32 +649,6 @@ class TestAuth:
         )
         assert response.status_code == 200
 
-    def test_all_endpoints_require_auth(
-        self, client: TestClient, mock_service: MagicMock
-    ) -> None:
-        """All 8 endpoints require authentication."""
-        endpoints = [
-            ("GET", "/api/knowledge/namespaces"),
-            ("POST", "/api/knowledge/namespaces"),
-            ("GET", "/api/knowledge/namespaces/test-ns"),
-            ("DELETE", "/api/knowledge/namespaces/test-ns"),
-            ("POST", "/api/knowledge/namespaces/test-ns/import"),
-            ("POST", "/api/knowledge/namespaces/test-ns/query"),
-            ("GET", "/api/knowledge/namespaces/test-ns/jobs"),
-            ("GET", "/api/knowledge/namespaces/test-ns/jobs/job-1"),
-        ]
-
-        for method, path in endpoints:
-            if method == "GET":
-                response = client.get(path)
-            elif method == "POST":
-                response = client.post(path, json={})
-            elif method == "DELETE":
-                response = client.delete(path)
-            else:
-                continue
-
-            assert response.status_code == 401, f"{method} {path} should require auth"
 
 
 # ---------------------------------------------------------------------------

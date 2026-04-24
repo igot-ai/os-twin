@@ -4,7 +4,7 @@ EPIC-002: namespace lifecycle is fully wired (delegates to
 :class:`NamespaceManager`).
 EPIC-003: ``import_folder``, ``get_job``, ``list_jobs`` are wired through a
 :class:`JobManager` + :class:`Ingestor`.
-EPIC-004: ``query``, ``get_graph`` and a centralized ``_vector_stores`` /
+EPIC-004: ``query`` and a centralized ``_vector_stores`` /
 ``_kuzu_graphs`` / ``_query_engines`` cache (architect's ZVEC-LIVE-1 fix).
 Both the ingestor and the query engine pull their per-namespace handles from
 this single service-level cache, so a single zvec collection / Kuzu DB is
@@ -95,8 +95,6 @@ class RetentionSweeper(threading.Thread):
 
     def _sweep_once(self) -> None:
         """Run a single sweep pass."""
-        from datetime import datetime, timezone, timedelta
-        
         now = datetime.now(timezone.utc)
         namespaces = self._service.list_namespaces()
         
@@ -199,8 +197,8 @@ class KnowledgeService:
     # ---- Shared embedder / LLM (lazy) -----------------------------------
 
     @staticmethod
-    def _resolve_settings_overrides() -> tuple[str, str]:
-        """Return ``(llm_model, embedding_model)`` overrides from MasterSettings.
+    def _resolve_settings_overrides() -> tuple[str, str, str, str]:
+        """Return ``(llm_model, embedding_model, llm_provider, embedding_backend)`` overrides.
 
         Empty strings mean "no override; use env-var / hardcoded default".
         Settings-resolver failures (config missing, vault offline, etc.)
@@ -213,18 +211,22 @@ class KnowledgeService:
             ms = get_settings_resolver().get_master_settings()
             ks = getattr(ms, "knowledge", None)
             if ks is None:
-                return "", ""
-            return (ks.llm_model or ""), (ks.embedding_model or "")
+                return "", "", "", ""
+            return (
+                ks.llm_model or "",
+                ks.embedding_model or "",
+                getattr(ks, "llm_provider", "") or "",
+                getattr(ks, "embedding_backend", "") or "",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.debug("settings resolver unavailable: %s; using env defaults", exc)
-            return "", ""
+            return "", "", "", ""
 
     def _get_embedder(self) -> Any:
         """Lazily construct (or return the injected) embedder, shared service-wide.
 
         The Ingestor and the query engine both go through this so a single
-        SentenceTransformer model load is amortised across ingestion + every
-        subsequent query.
+        model load is amortised across ingestion + every subsequent query.
 
         Effective model resolution (ADR-15): ``MasterSettings.knowledge.embedding_model``
         > ``OSTWIN_KNOWLEDGE_EMBED_MODEL`` env var > hardcoded ``EMBEDDING_MODEL``.
@@ -238,18 +240,24 @@ class KnowledgeService:
                 self._embedder = self._embedder_override
             else:
                 from dashboard.knowledge.config import EMBEDDING_MODEL as _DEFAULT_EMBED  # noqa: WPS433
+                from dashboard.knowledge.config import EMBEDDING_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
                 from dashboard.knowledge.embeddings import KnowledgeEmbedder  # noqa: WPS433
 
-                _, settings_embed = self._resolve_settings_overrides()
-                effective = settings_embed or _DEFAULT_EMBED
-                self._embedder = KnowledgeEmbedder(model_name=effective)
+                _, settings_embed, _, settings_embed_backend = self._resolve_settings_overrides()
+                effective_model = settings_embed or _DEFAULT_EMBED
+                effective_provider = settings_embed_backend or _DEFAULT_PROV
+                self._embedder = KnowledgeEmbedder(
+                    model_name=effective_model,
+                    provider=effective_provider,
+                )
             return self._embedder
 
     def _get_llm(self) -> Any:
         """Lazily construct (or return the injected) LLM, shared service-wide.
 
         Effective model resolution (ADR-15): ``MasterSettings.knowledge.llm_model``
-        > ``OSTWIN_KNOWLEDGE_LLM_MODEL`` env var > hardcoded ``LLM_MODEL``.
+        > ``OSTWIN_KNOWLEDGE_LLM_MODEL`` env var > config ``LLM_MODEL``.
+        User must configure a model; there is no hardcoded default.
         """
         if self._llm is not None:
             return self._llm
@@ -260,11 +268,16 @@ class KnowledgeService:
                 self._llm = self._llm_override
             else:
                 from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM  # noqa: WPS433
+                from dashboard.knowledge.config import LLM_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
                 from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
 
-                settings_llm, _ = self._resolve_settings_overrides()
-                effective = settings_llm or _DEFAULT_LLM
-                self._llm = KnowledgeLLM(model=effective)
+                settings_llm, _, settings_prov, _ = self._resolve_settings_overrides()
+                effective_model = settings_llm or _DEFAULT_LLM
+                effective_provider = settings_prov or _DEFAULT_PROV or None
+                self._llm = KnowledgeLLM(
+                    model=effective_model,
+                    provider=effective_provider,
+                )
             return self._llm
 
     # ---- Centralised per-namespace handle cache (EPIC-004) --------------
@@ -603,11 +616,6 @@ class KnowledgeService:
 
         start_time = time.perf_counter()
 
-        # Check for concurrent import BEFORE any other work
-        existing_job = is_import_in_progress(namespace)
-        if existing_job is not None:
-            raise ImportInProgressError(namespace, existing_job)
-
         try:
             # Auto-create namespace if missing.
             if self._nm.get(namespace) is None:
@@ -624,6 +632,13 @@ class KnowledgeService:
             ingestor = self._get_ingestor()
             jm = self._get_job_manager()
 
+            # Register the import as in-progress BEFORE submitting the job.
+            # This closes the TOCTOU window: register_import() is atomic
+            # (holds _active_imports_lock) and will raise ImportInProgressError
+            # if another import is already running for this namespace.
+            # We use a placeholder job_id and update it after submit.
+            register_import(namespace, "__pending__")
+
             # The JobManager calls runner(emit) in a worker thread.
             def runner(emit):
                 try:
@@ -632,15 +647,22 @@ class KnowledgeService:
                     # Always unregister the import when done (success or failure)
                     unregister_import(namespace)
 
-            job_id = jm.submit(
-                namespace=namespace,
-                operation="import_folder",
-                fn=runner,
-                message=f"Importing {folder_path}",
-            )
+            try:
+                job_id = jm.submit(
+                    namespace=namespace,
+                    operation="import_folder",
+                    fn=runner,
+                    message=f"Importing {folder_path}",
+                )
+            except Exception:
+                # Submit failed — rollback the registration
+                unregister_import(namespace)
+                raise
 
-            # Register the import as in-progress
-            register_import(namespace, job_id)
+            # Update the registration with the real job_id
+            from dashboard.knowledge.audit import _active_imports, _active_imports_lock  # noqa: WPS433
+            with _active_imports_lock:
+                _active_imports[namespace] = job_id
 
             latency_ms = (time.perf_counter() - start_time) * 1000
             _log_call(namespace, "import_folder", "success", latency_ms, {"actor": actor, "job_id": job_id})
@@ -687,7 +709,7 @@ class KnowledgeService:
         - ``graph``      — vector search + graph expansion + PageRank
           rerank. Returns chunks AND entities. No LLM aggregation.
         - ``summarized`` — graph mode + LLM-aggregated answer. Requires
-          ``ANTHROPIC_API_KEY``; without it, returns chunks + a warning
+          an LLM model and API key; without it, returns chunks + a warning
           (no crash, no answer).
 
         Raises :class:`NamespaceNotFoundError` if the namespace doesn't

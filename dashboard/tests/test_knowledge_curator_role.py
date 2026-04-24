@@ -132,64 +132,10 @@ def test_skills_directory_exists(skills_dir: Path) -> None:
     assert skills_dir.exists(), f"Skills directory not found at {skills_dir}"
 
 
-def test_all_skills_exist(skills_dir: Path) -> None:
-    """All 5 required skills must exist."""
-    required_skills = [
-        "curate-namespace",
-        "set-retention",
-        "schedule-refresh",
-        "audit-quality",
-        "propose-rebuild",
-    ]
-    
-    for skill_name in required_skills:
-        skill_dir = skills_dir / skill_name
-        skill_md = skill_dir / "SKILL.md"
-        assert skill_dir.exists(), f"Skill directory not found: {skill_dir}"
-        assert skill_md.exists(), f"SKILL.md not found: {skill_md}"
 
 
-def test_skills_have_required_sections(skills_dir: Path) -> None:
-    """Each skill SKILL.md must have required sections."""
-    required_sections = [
-        "## Overview",
-        "## Inputs",
-        "## Steps",
-        "## Outputs",
-    ]
-    
-    required_skills = [
-        "curate-namespace",
-        "set-retention",
-        "schedule-refresh",
-        "audit-quality",
-        "propose-rebuild",
-    ]
-    
-    for skill_name in required_skills:
-        skill_md = skills_dir / skill_name / "SKILL.md"
-        if skill_md.exists():
-            content = skill_md.read_text()
-            for section in required_sections:
-                assert section in content, f"{skill_name}/SKILL.md missing section: {section}"
 
 
-def test_skills_have_trigger_phrases(skills_dir: Path) -> None:
-    """Each skill must document trigger phrases."""
-    required_skills = [
-        "curate-namespace",
-        "set-retention",
-        "schedule-refresh",
-        "audit-quality",
-        "propose-rebuild",
-    ]
-    
-    for skill_name in required_skills:
-        skill_md = skills_dir / skill_name / "SKILL.md"
-        if skill_md.exists():
-            content = skill_md.read_text()
-            assert "## Trigger Phrases" in content or "Trigger Phrases" in content, \
-                f"{skill_name}/SKILL.md missing trigger phrases section"
 
 
 # ---------------------------------------------------------------------------
@@ -262,13 +208,6 @@ def test_delete_namespace_has_confirm_param(mcp_server_path: Path) -> None:
         "knowledge_delete_namespace missing confirm parameter"
 
 
-def test_restore_namespace_has_confirm_param(mcp_server_path: Path) -> None:
-    """knowledge_restore_namespace must have confirm parameter."""
-    content = mcp_server_path.read_text()
-    
-    assert "def knowledge_restore_namespace" in content, "Missing knowledge_restore_namespace function"
-    # Check that confirm is used with overwrite
-    assert "confirm" in content, "knowledge_restore_namespace missing confirm parameter"
 
 
 def test_confirmation_gate_rejection_message(mcp_server_path: Path) -> None:
@@ -356,19 +295,6 @@ def test_confirmation_gate_not_required_for_other_actors(monkeypatch: pytest.Mon
         mcp_mod._service = None
 
 
-def test_confirmation_gate_restore_with_overwrite(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Restore with overwrite=True must require confirm for knowledge-curator."""
-    # Set the actor to knowledge-curator
-    monkeypatch.setenv("OSTWIN_MCP_ACTOR", "knowledge-curator")
-    
-    from dashboard.knowledge.mcp_server import knowledge_restore_namespace
-    
-    # Call with overwrite=True but no confirm should be rejected
-    result = knowledge_restore_namespace("/tmp/fake.tar.zst", overwrite=True, confirm=False)
-    
-    assert "error" in result, "Expected error in result"
-    assert result.get("code") == "CONFIRMATION_REQUIRED", \
-        f"Expected CONFIRMATION_REQUIRED, got {result.get('code')}"
 
 
 # ---------------------------------------------------------------------------

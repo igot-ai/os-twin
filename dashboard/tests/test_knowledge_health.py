@@ -112,7 +112,7 @@ class TestHealthEndpoint:
             mock_embedder.return_value = HealthCheckResult(status="ok", message="Embedder OK")
             mock_llm.return_value = HealthCheckResult(
                 status="unhealthy", 
-                message="ANTHROPIC_API_KEY not configured"
+                message="No LLM model configured"
             )
             
             response = client.get("/api/knowledge/health")
@@ -236,25 +236,36 @@ class TestLLMCheck:
 
     @pytest.mark.asyncio
     async def test_llm_check_unhealthy_without_api_key(self) -> None:
-        """LLM check returns unhealthy when API key is not set."""
+        """LLM check returns unhealthy when no model or API key is configured."""
         from dashboard.routes.knowledge import _check_llm
         
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=True):
+        with patch("dashboard.knowledge.llm.KnowledgeLLM") as MockLLM:
+            mock_instance = MagicMock()
+            mock_instance.model = ""
+            mock_instance.is_available.return_value = False
+            MockLLM.return_value = mock_instance
+            
             result = await _check_llm()
             
             assert result.status == "unhealthy"
-            assert "API_KEY" in result.message
+            assert "model" in result.message.lower() or "key" in result.message.lower()
 
     @pytest.mark.asyncio
     async def test_llm_check_ok_with_api_key(self) -> None:
-        """LLM check returns ok when API key is set."""
+        """LLM check returns ok when model and API key are configured."""
         from dashboard.routes.knowledge import _check_llm
         
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch("dashboard.knowledge.llm.KnowledgeLLM") as MockLLM:
+            mock_instance = MagicMock()
+            mock_instance.model = "gemini-2.0-flash"
+            mock_instance.is_available.return_value = True
+            mock_instance._effective_provider.return_value = "google"
+            MockLLM.return_value = mock_instance
+            
             result = await _check_llm()
             
             assert result.status == "ok"
-            assert "available" in result.message.lower() or "configured" in result.message.lower()
+            assert "configured" in result.message.lower()
 
 
 class TestMetricsEndpoint:

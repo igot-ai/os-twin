@@ -137,7 +137,7 @@ def test_audit_event_skips_reads_by_default(tmp_audit_dir: Path, monkeypatch: py
     """Read operations are not logged by default."""
     monkeypatch.setattr("dashboard.knowledge.audit.AUDIT_READS", False)
     
-    for op in ["query", "get_graph", "list_namespaces", "get_namespace", "list_jobs", "get_job"]:
+    for op in ["query", "list_namespaces", "get_namespace", "list_jobs", "get_job"]:
         audit_event(
             actor="test@example.com",
             namespace="test-ns",

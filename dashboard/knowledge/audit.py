@@ -219,14 +219,14 @@ def audit_event(
         latency_ms: Duration of the operation in milliseconds
 
     This function is a no-op if ``OSTWIN_KNOWLEDGE_AUDIT=0``.
-    Read-only operations (query, get_graph) are not logged unless
+    Read-only operations (query) are not logged unless
     ``OSTWIN_KNOWLEDGE_AUDIT_READS=1``.
     """
     if not AUDIT_ENABLED:
         return
 
     # Skip read operations unless explicitly enabled
-    read_ops = {"query", "get_graph", "list_namespaces", "get_namespace", "list_jobs", "get_job"}
+    read_ops = {"query", "list_namespaces", "get_namespace", "list_jobs", "get_job"}
     if op in read_ops and not AUDIT_READS:
         return
 

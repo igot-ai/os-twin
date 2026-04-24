@@ -32,6 +32,13 @@ export interface ImportRecordResponse {
   job_id: string | null;
 }
 
+export interface RetentionPolicyResponse {
+  policy: string;
+  ttl_days: number | null;
+  last_swept_at: string | null;
+  auto_delete_when_empty: boolean;
+}
+
 export interface NamespaceMetaResponse {
   schema_version: number;
   name: string;
@@ -43,6 +50,7 @@ export interface NamespaceMetaResponse {
   embedding_dimension: number;
   stats: NamespaceStatsResponse;
   imports: ImportRecordResponse[];
+  retention?: RetentionPolicyResponse;
 }
 
 export interface CreateNamespaceRequest {

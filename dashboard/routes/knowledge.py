@@ -1,6 +1,6 @@
 """Knowledge REST API routes (EPIC-001).
 
-All 8 endpoints:
+All 9 endpoints:
   - GET    /api/knowledge/namespaces
   - POST   /api/knowledge/namespaces
   - GET    /api/knowledge/namespaces/{namespace}
@@ -9,9 +9,10 @@ All 8 endpoints:
   - GET    /api/knowledge/namespaces/{namespace}/jobs
   - GET    /api/knowledge/namespaces/{namespace}/jobs/{job_id}
   - POST   /api/knowledge/namespaces/{namespace}/query
+  - GET    /api/knowledge/namespaces/{namespace}/graph
 
 All endpoints require authentication via `Depends(get_current_user)`.
-Heavy libraries (kuzu, zvec, sentence_transformers, anthropic) are lazy-loaded
+Heavy libraries (kuzu, zvec, sentence_transformers) are lazy-loaded
 inside KnowledgeService methods — importing this module is cheap.
 """
 
@@ -636,6 +637,44 @@ async def query_namespace(
 
 
 
+# ---------------------------------------------------------------------------
+# Graph Visualisation Endpoint (EPIC-004)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/namespaces/{namespace}/graph",
+    responses={
+        200: {"description": "Graph data for visualisation"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Namespace not found", "model": ErrorResponse},
+    },
+    summary="Get entity-relation graph for a namespace",
+)
+async def get_namespace_graph(
+    namespace: str,
+    user: Annotated[dict, Depends(get_current_user)],
+    limit: int = Query(default=200, ge=1, le=5000, description="Max number of nodes to return"),
+) -> dict:
+    """Get the entity-relation graph for visualization.
+
+    Returns ``{nodes, edges, stats}`` capped at ``limit`` nodes.
+    Edges are filtered to those whose endpoints are in the returned node set.
+    Empty namespace or no LLM during ingest → empty nodes/edges (not an error).
+    """
+    try:
+        actor = _get_actor(user)
+        service = _get_service()
+        result = await asyncio.to_thread(
+            service.get_graph,
+            namespace,
+            limit=limit,
+            actor=actor,
+        )
+        return result
+    except Exception as exc:
+        raise _map_error(exc)
+
 
 # ---------------------------------------------------------------------------
 # Metrics and Health Endpoints (EPIC-005)
@@ -740,7 +779,7 @@ async def get_health(
     Checks:
     - **storage**: Whether the knowledge storage directory is writable
     - **embedder**: Whether the embedding model is available
-    - **llm**: Whether the LLM (Anthropic) is configured and available
+    - **llm**: Whether the LLM is configured with a model and API key
 
     Status values:
     - **ok**: All checks passed
@@ -876,33 +915,24 @@ async def _check_embedder() -> HealthCheckResult:
 async def _check_llm() -> HealthCheckResult:
     """Check if LLM is configured and available."""
     import time as time_module
-    import os
     
     t0 = time_module.perf_counter()
     try:
-        # Check if API key is configured
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            return HealthCheckResult(
-                status="unhealthy",
-                message="ANTHROPIC_API_KEY not configured",
-                latency_ms=(time_module.perf_counter() - t0) * 1000,
-            )
-        
-        # Check if KnowledgeLLM reports available
         from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
         
         llm = KnowledgeLLM()
         if llm.is_available():
+            provider = llm._effective_provider()
             return HealthCheckResult(
                 status="ok",
-                message="LLM is configured and available",
+                message=f"LLM configured (model={llm.model}, provider={provider})",
                 latency_ms=(time_module.perf_counter() - t0) * 1000,
             )
         else:
+            msg = "No LLM model configured" if not llm.model else "No API key for LLM provider"
             return HealthCheckResult(
                 status="unhealthy",
-                message="LLM is not available (check API key)",
+                message=msg,
                 latency_ms=(time_module.perf_counter() - t0) * 1000,
             )
     except Exception as exc:
