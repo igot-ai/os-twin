@@ -11,7 +11,8 @@ import re
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
 
-from dashboard.llm_client import ChatMessage, ToolCall, create_client
+from dashboard.llm_client import ChatMessage, ToolCall
+from dashboard.master_agent import get_master_client, create_client_for_model, get_master_config, is_master_model_explicit
 
 logger = logging.getLogger(__name__)
 
@@ -198,52 +199,14 @@ When the user provides images or design mockups:
 ```
 """
 
-
-def _get_api_key(provider: str) -> Optional[str]:
-    key_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "google-genai": "GOOGLE_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-        "mistral": "MISTRAL_API_KEY",
-    }
-    env_var = key_map.get(provider)
-    if env_var:
-        return os.environ.get(env_var)
-    return None
-
-
-def detect_model(has_images: bool = False) -> tuple[str, str]:
-    from dashboard.master_agent import get_master_config, is_master_model_explicit
-
-    if is_master_model_explicit():
-        master = get_master_config()
-        if master.model:
-            if master.provider:
-                return (master.model, master.provider)
-            if "/" in master.model:
-                provider, model = master.model.split("/", 1)
-                return (model, provider)
-            return (master.model, None)
-
-    if os.environ.get("GOOGLE_API_KEY"):
-        return ("gemini-3.1-pro-preview", "google")
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return ("claude-sonnet-4-20250514", "anthropic")
-    if os.environ.get("OPENAI_API_KEY"):
-        return ("gpt-4o", "openai")
-    raise RuntimeError("No AI API key found. Set GOOGLE_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY in ~/.ostwin/.env")
-
-
 def _resolve_model(model_str: str = "", has_images: bool = False) -> tuple[str, str]:
-    if not model_str:
-        return detect_model(has_images=has_images)
+
+    if "/" in model_str:
+        provider, model_name = model_str.split("/", 1)
+        return (model_name, provider)
 
     if ":" in model_str:
         provider, model_name = model_str.split(":", 1)
-        provider_map = {"google-genai": "google", "google-vertex": "google", "google_gemini": "google"}
-        provider = provider_map.get(provider, provider)
         return (model_name, provider)
 
     model_lower = model_str.lower()
@@ -254,7 +217,6 @@ def _resolve_model(model_str: str = "", has_images: bool = False) -> tuple[str, 
     elif "gemini" in model_lower:
         return (model_str, "google")
     return (model_str, "openai")
-
 
 def build_messages(
     user_message: str,
@@ -333,9 +295,11 @@ async def refine_plan(
     plan_logger.info("  chat_history: %d turns", len(chat_history) if chat_history else 0)
     plan_logger.info("  images: %d", len(images) if images else 0)
 
-    model_name, provider = _resolve_model(model, has_images=bool(images))
-    api_key = _get_api_key(provider)
-    client = create_client(model_name, provider=provider, api_key=api_key)
+    if model:
+        model_name, provider = _resolve_model(model, has_images=bool(images))
+        client = create_client_for_model(model_name, provider)
+    else:
+        client = get_master_client()
 
     agents_dir = plans_dir.parent if plans_dir else None
     system_prompt = get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir)
@@ -386,9 +350,11 @@ async def refine_plan_stream(
     working_dir: Optional[str] = None,
     images: Optional[list[dict]] = None,
 ) -> AsyncIterator[str]:
-    model_name, provider = _resolve_model(model, has_images=bool(images))
-    api_key = _get_api_key(provider)
-    client = create_client(model_name, provider=provider, api_key=api_key)
+    if model:
+        model_name, provider = _resolve_model(model, has_images=bool(images))
+        client = create_client_for_model(model_name, provider)
+    else:
+        client = get_master_client()
 
     agents_dir = plans_dir.parent if plans_dir else None
     system_prompt = get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir)
@@ -413,9 +379,11 @@ async def summarize_plan(
     model: str = "",
     plans_dir: Optional[Path] = None,
 ) -> str:
-    model_name, provider = _resolve_model(model)
-    api_key = _get_api_key(provider)
-    client = create_client(model_name, provider=provider, api_key=api_key)
+    if model:
+        model_name, provider = _resolve_model(model)
+        client = create_client_for_model(model_name, provider)
+    else:
+        client = get_master_client()
 
     prompt = (
         "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
@@ -479,13 +447,15 @@ async def brainstorm_stream(
     plan_logger.info("BRAINSTORM_STREAM started")
     plan_logger.info("  user_message: %s", user_message[:300].replace("\n", "\\n"))
     plan_logger.info("  chat_history turns: %d", len(chat_history) if chat_history else 0)
-    plan_logger.info("  model: %s", model or "(auto-detect)")
+    plan_logger.info("  model: %s", model or "(master)")
 
-    model_name, provider = _resolve_model(model)
-    api_key = _get_api_key(provider)
-    client = create_client(model_name, provider=provider, api_key=api_key)
-
-    plan_logger.info("BRAINSTORM_STREAM using model: %s (provider: %s)", model_name, provider)
+    if model:
+        model_name, provider = _resolve_model(model)
+        client = create_client_for_model(model_name, provider)
+        plan_logger.info("BRAINSTORM_STREAM using model: %s (provider: %s)", model_name, provider)
+    else:
+        client = get_master_client()
+        plan_logger.info("BRAINSTORM_STREAM using master client")
 
     messages = build_messages(user_message, plan_content="", chat_history=chat_history, images=images, system_prompt=BRAINSTORM_SYSTEM_PROMPT)
 

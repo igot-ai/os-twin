@@ -662,6 +662,8 @@ def _try_opencode_sync() -> None:
                 result.synced,
                 result.removed,
             )
+            from dashboard.master_agent import reset_master_client
+            reset_master_client()
     except Exception as exc:
         logger.warning("opencode sync failed: %s", exc)
 

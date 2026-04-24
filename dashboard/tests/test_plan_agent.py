@@ -10,12 +10,10 @@ from unittest.mock import patch, MagicMock
 from dashboard.plan_agent import (
     parse_structured_response,
     _load_available_roles,
-    detect_model,
     build_messages,
     get_system_prompt,
     _resolve_model,
     _execute_tool_call,
-    _get_api_key,
 )
 from dashboard.llm_client import ChatMessage, ToolCall
 
@@ -173,73 +171,18 @@ class TestLoadAvailableRoles:
         assert _load_available_roles(tmp_path) == self.DEFAULT
 
 
-class TestDetectModel:
-    """Tests for detect_model()."""
-
-    def test_google_api_key(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "fake-google-key")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        model, provider = detect_model()
-        assert "gemini" in model.lower()
-        assert provider == "google"
-
-    def test_anthropic_api_key(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-anthropic-key")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        model, provider = detect_model()
-        assert "claude" in model.lower()
-        assert provider == "anthropic"
-
-    def test_openai_api_key(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setenv("OPENAI_API_KEY", "fake-openai-key")
-        model, provider = detect_model()
-        assert model == "gpt-4o"
-        assert provider == "openai"
-
-    def test_no_key_raises_runtime_error(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="No AI API key found"):
-            detect_model()
-
-    def test_priority_google_over_anthropic(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "g")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "a")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        model, provider = detect_model()
-        assert provider == "google"
-
-    def test_priority_anthropic_over_openai(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "a")
-        monkeypatch.setenv("OPENAI_API_KEY", "o")
-        model, provider = detect_model()
-        assert provider == "anthropic"
-
-
 class TestResolveModel:
     """Tests for _resolve_model()."""
-
-    def test_empty_string_auto_detects(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "test")
-        model, provider = _resolve_model("")
-        assert "gemini" in model.lower()
-        assert provider == "google"
 
     def test_provider_model_format(self):
         model, provider = _resolve_model("anthropic:claude-3-opus")
         assert model == "claude-3-opus"
         assert provider == "anthropic"
 
-    def test_provider_normalization_google_genai(self):
-        model, provider = _resolve_model("google-genai:gemini-2.0-flash")
-        assert model == "gemini-2.0-flash"
-        assert provider == "google"
+    def test_provider_model_format_with_slash(self):
+        model, provider = _resolve_model("google-vertex/gemini-3-flash")
+        assert model == "gemini-3-flash"
+        assert provider == "google-vertex"
 
     def test_bare_model_name_openai(self):
         model, provider = _resolve_model("gpt-4-turbo")
@@ -380,42 +323,6 @@ class TestGetSystemPrompt:
         assert "{{AVAILABLE_ROLES}}" not in prompt
 
 
-class TestGetApiKey:
-    """Tests for _get_api_key() in plan_agent."""
-
-    def test_returns_google_key(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "gk-abc")
-        assert _get_api_key("google") == "gk-abc"
-
-    def test_returns_google_key_via_google_genai_alias(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "gk-xyz")
-        assert _get_api_key("google-genai") == "gk-xyz"
-
-    def test_returns_anthropic_key(self, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-        assert _get_api_key("anthropic") == "sk-ant-test"
-
-    def test_returns_openai_key(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-oai-test")
-        assert _get_api_key("openai") == "sk-oai-test"
-
-    def test_returns_none_for_unknown_provider(self, monkeypatch):
-        monkeypatch.delenv("UNKNOWN_KEY", raising=False)
-        assert _get_api_key("unknown_provider_xyz") is None
-
-    def test_returns_none_when_env_var_unset(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        assert _get_api_key("google") is None
-
-    def test_returns_deepseek_key(self, monkeypatch):
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-key")
-        assert _get_api_key("deepseek") == "ds-key"
-
-    def test_returns_mistral_key(self, monkeypatch):
-        monkeypatch.setenv("MISTRAL_API_KEY", "mi-key")
-        assert _get_api_key("mistral") == "mi-key"
-
-
 class TestExecuteToolCall:
     """Tests for _execute_tool_call()."""
 
@@ -447,51 +354,3 @@ class TestExecuteToolCall:
         result = _execute_tool_call(tc, tmp_path)
         # plan_id defaults to "" which produces a path that won't exist
         assert "Error:" in result
-
-
-class TestDetectModelWithMasterAgent:
-    """Tests for detect_model() when master_agent has an explicit model set."""
-
-    def test_explicit_master_model_takes_priority(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "gk-test")
-        from unittest.mock import patch
-
-        with patch("dashboard.master_agent.is_master_model_explicit", return_value=True), \
-             patch("dashboard.master_agent.get_master_config") as mock_cfg:
-            mock_cfg.return_value = type("Cfg", (), {"model": "gpt-4o", "provider": "openai"})()
-            model, provider = detect_model()
-            assert model == "gpt-4o"
-            assert provider == "openai"
-
-    def test_explicit_master_model_with_slash_in_model(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        from unittest.mock import patch
-
-        with patch("dashboard.master_agent.is_master_model_explicit", return_value=True), \
-             patch("dashboard.master_agent.get_master_config") as mock_cfg:
-            mock_cfg.return_value = type("Cfg", (), {"model": "anthropic/claude-opus-4", "provider": None})()
-            model, provider = detect_model()
-            assert model == "claude-opus-4"
-            assert provider == "anthropic"
-
-    def test_explicit_master_model_no_provider_bare_name(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        from unittest.mock import patch
-
-        with patch("dashboard.master_agent.is_master_model_explicit", return_value=True), \
-             patch("dashboard.master_agent.get_master_config") as mock_cfg:
-            mock_cfg.return_value = type("Cfg", (), {"model": "my-custom-model", "provider": None})()
-            model, provider = detect_model()
-            assert model == "my-custom-model"
-            assert provider is None
-
-    def test_falls_through_to_env_when_not_explicit(self, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        from unittest.mock import patch
-
-        with patch("dashboard.master_agent.is_master_model_explicit", return_value=False):
-            model, provider = detect_model()
-            assert "claude" in model.lower()
-            assert provider == "anthropic"

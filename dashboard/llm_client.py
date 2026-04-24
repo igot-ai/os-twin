@@ -134,20 +134,6 @@ class LLMClient(ABC):
 
 
 def _get_base_url(provider: str) -> Optional[str]:
-    hardcoded_urls = {
-        "openai": "https://api.openai.com/v1",
-        "anthropic": "https://api.anthropic.com/v1",
-        "deepseek": "https://api.deepseek.com",
-        "mistral": "https://api.mistral.ai/v1",
-        "groq": "https://api.groq.com/openai/v1",
-        "cerebras": "https://api.cerebras.ai/v1",
-        "perplexity": "https://api.perplexity.ai",
-        "together": "https://api.together.xyz/v1",
-        "togetherai": "https://api.together.xyz/v1",
-        "fireworks": "https://api.fireworks.ai/inference/v1",
-    }
-    if provider in hardcoded_urls:
-        return hardcoded_urls[provider]
     if provider in PROVIDER_URLS:
         return PROVIDER_URLS[provider].get("base")
     return None
@@ -506,15 +492,10 @@ def create_client(
     api_key: Optional[str] = None,
     config: Optional[LLMConfig] = None,
 ) -> LLMClient:
-    if "/" in model:
-        provider, model = model.split("/", 1)
-    elif ":" in model:
-        provider, model = model.split(":", 1)
-
     if provider is None:
         provider = _detect_provider_from_model(model)
 
-    if provider in ("google", "google-genai", "google_gemini"):
+    if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
         return GoogleClient(model=model, api_key=api_key, config=config)
 
     base_url = _get_base_url(provider)
