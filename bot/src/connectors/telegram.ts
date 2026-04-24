@@ -150,6 +150,7 @@ export class TelegramConnector implements Connector {
 
       const files: any[] = [];
       
+      const isPhoto = !!msg.photo;
       if (msg.document) {
         files.push(msg.document);
       } else if (msg.photo) {
@@ -168,7 +169,8 @@ export class TelegramConnector implements Connector {
         const fileId = f.file_id;
         const link = await ctx.telegram.getFileLink(fileId);
         const fileName = f.file_name || `file_${fileId.slice(-8)}`;
-        const mimeType = f.mime_type || 'application/octet-stream';
+        // Telegram photos are always JPEG; they don't have mime_type property
+        const mimeType = f.mime_type || (isPhoto ? 'image/jpeg' : 'application/octet-stream');
         
         try {
           const res = await fetch(link.href);

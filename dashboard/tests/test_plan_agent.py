@@ -7,23 +7,15 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Stub out the `deepagents` module before importing plan_agent,
-# since it is not installed in the test environment.
-if "deepagents" not in sys.modules:
-    sys.modules["deepagents"] = MagicMock()
-
 from dashboard.plan_agent import (
     parse_structured_response,
     _load_available_roles,
-    detect_model,
-    _make_human_content,
     build_messages,
     get_system_prompt,
+    _resolve_model,
+    _execute_tool_call,
 )
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-
-
-# ── parse_structured_response ──────────────────────────────────────
+from dashboard.llm_client import ChatMessage, ToolCall
 
 
 class TestParseStructuredResponse:
@@ -46,7 +38,6 @@ class TestParseStructuredResponse:
         assert len(result["actions"]) == 2
         assert result["actions"][0] == {"action": "CREATE", "path": "dashboard/models.py"}
         assert result["actions"][1] == {"action": "UPDATE", "path": "PLAN.md"}
-        # The re.split strips the "# PLAN" header itself; content starts after it
         assert "My Project" in result["plan"]
         assert "EPIC-001" in result["plan"]
         assert result["full_response"] == text
@@ -62,18 +53,13 @@ class TestParseStructuredResponse:
         result = parse_structured_response(text)
         assert result["explanation"] == "Minor tweaks."
         assert result["actions"] == []
-        # re.split captures the PLAN header, so the plan content follows it
         assert "Revised" in result["plan"]
         assert "Content here." in result["plan"]
 
     def test_fallback_when_no_sections_but_looks_like_plan(self):
         text = "# Plan\n\n## Epics\n\n### EPIC-001\nDo something."
         result = parse_structured_response(text)
-        # The regex splits on "# PLAN" (case-insensitive), which matches "# Plan"
-        # So "Plan" is captured as a header and the rest is content.
-        # The plan field gets the content after the PLAN header.
         assert result["actions"] == []
-        # Either it matched the PLAN header or fell through to fallback
         assert result["plan"] != ""
 
     def test_empty_text(self):
@@ -143,9 +129,6 @@ class TestParseStructuredResponse:
         assert "EPIC-002" in result["plan"]
 
 
-# ── _load_available_roles ──────────────────────────────────────────
-
-
 class TestLoadAvailableRoles:
     """Tests for _load_available_roles()."""
 
@@ -188,156 +171,84 @@ class TestLoadAvailableRoles:
         assert _load_available_roles(tmp_path) == self.DEFAULT
 
 
-# ── detect_model ───────────────────────────────────────────────────
+class TestResolveModel:
+    """Tests for _resolve_model()."""
 
-
-class TestDetectModel:
-    """Tests for detect_model()."""
-
-    def test_google_api_key(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "fake-google-key")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        model, provider = detect_model()
-        assert model == "gemini-3-flash-preview"
-        assert provider == "google_genai"
-
-    def test_anthropic_api_key(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-anthropic-key")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        model, provider = detect_model()
-        assert model == "claude-sonnet-4-6"
+    def test_provider_model_format(self):
+        model, provider = _resolve_model("anthropic:claude-3-opus")
+        assert model == "claude-3-opus"
         assert provider == "anthropic"
 
-    def test_openai_api_key(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setenv("OPENAI_API_KEY", "fake-openai-key")
-        model, provider = detect_model()
-        assert model == "gpt-4o"
+    def test_provider_model_format_with_slash(self):
+        model, provider = _resolve_model("google-vertex/gemini-3-flash")
+        assert model == "gemini-3-flash"
+        assert provider == "google-vertex"
+
+    def test_bare_model_name_openai(self):
+        model, provider = _resolve_model("gpt-4-turbo")
+        assert model == "gpt-4-turbo"
         assert provider == "openai"
 
-    def test_no_key_raises_runtime_error(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="No AI API key found"):
-            detect_model()
-
-    def test_priority_google_over_anthropic(self, monkeypatch):
-        monkeypatch.setenv("GOOGLE_API_KEY", "g")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "a")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        model, provider = detect_model()
-        assert provider == "google_genai"
-
-    def test_priority_anthropic_over_openai(self, monkeypatch):
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "a")
-        monkeypatch.setenv("OPENAI_API_KEY", "o")
-        model, provider = detect_model()
+    def test_bare_model_name_anthropic(self):
+        model, provider = _resolve_model("claude-3-sonnet")
+        assert model == "claude-3-sonnet"
         assert provider == "anthropic"
 
-
-# ── _make_human_content ────────────────────────────────────────────
-
-
-class TestMakeHumanContent:
-    """Tests for _make_human_content()."""
-
-    def test_no_images_returns_plain_text(self):
-        result = _make_human_content("Hello world")
-        assert result == "Hello world"
-
-    def test_none_images_returns_plain_text(self):
-        result = _make_human_content("Hello world", images=None)
-        assert result == "Hello world"
-
-    def test_empty_images_returns_plain_text(self):
-        result = _make_human_content("Hello world", images=[])
-        assert result == "Hello world"
-
-    def test_with_images_returns_list_of_blocks(self):
-        images = [{"url": "https://example.com/img.png"}]
-        result = _make_human_content("Describe this", images)
-        assert isinstance(result, list)
-        assert result[0] == {"type": "text", "text": "Describe this"}
-        assert result[1]["type"] == "image_url"
-        assert result[1]["image_url"]["url"] == "https://example.com/img.png"
-
-    def test_text_empty_but_images_present(self):
-        images = [{"url": "https://example.com/a.png"}]
-        result = _make_human_content("", images)
-        assert isinstance(result, list)
-        # No text block when text is empty
-        assert len(result) == 1
-        assert result[0]["type"] == "image_url"
-
-    def test_multiple_images(self):
-        images = [
-            {"url": "https://example.com/a.png"},
-            {"url": "https://example.com/b.png"},
-        ]
-        result = _make_human_content("Two images", images)
-        assert isinstance(result, list)
-        assert len(result) == 3  # 1 text + 2 images
-
-    def test_image_without_url_key_skipped(self):
-        images = [{"data": "base64..."}]  # no "url" key
-        result = _make_human_content("Test", images)
-        # Only the text block — image has no url so it's skipped
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["type"] == "text"
-
-
-# ── build_messages ─────────────────────────────────────────────────
+    def test_bare_model_name_gemini(self):
+        model, provider = _resolve_model("gemini-1.5-pro")
+        assert model == "gemini-1.5-pro"
+        assert provider == "google"
 
 
 class TestBuildMessages:
     """Tests for build_messages()."""
 
     def test_simple_message_only(self):
-        msgs = build_messages("Hello")
-        assert len(msgs) == 1
-        assert isinstance(msgs[0], HumanMessage)
-        assert msgs[0].content == "Hello"
+        msgs = build_messages("Hello", system_prompt="You are helpful.")
+        assert len(msgs) == 2
+        assert msgs[0].role == "system"
+        assert msgs[1].role == "user"
+        assert msgs[1].content == "Hello"
 
     def test_with_plan_content(self):
-        msgs = build_messages("Improve this", plan_content="# Plan: Foo")
-        assert len(msgs) == 2
-        assert isinstance(msgs[0], SystemMessage)
-        assert "# Plan: Foo" in msgs[0].content
-        assert isinstance(msgs[1], HumanMessage)
-        assert msgs[1].content == "Improve this"
+        msgs = build_messages("Improve this", plan_content="# Plan: Foo", system_prompt="System")
+        assert len(msgs) == 3
+        assert msgs[0].role == "system"
+        assert msgs[0].content == "System"
+        assert msgs[1].role == "system"
+        assert "# Plan: Foo" in msgs[1].content
+        assert msgs[2].role == "user"
+        assert msgs[2].content == "Improve this"
 
-    def test_empty_plan_content_no_system_message(self):
-        msgs = build_messages("Hello", plan_content="   ")
-        assert len(msgs) == 1
-        assert isinstance(msgs[0], HumanMessage)
+    def test_empty_plan_content_no_extra_system_message(self):
+        msgs = build_messages("Hello", plan_content="   ", system_prompt="System")
+        assert len(msgs) == 2
+        assert msgs[0].role == "system"
+        assert msgs[1].role == "user"
 
     def test_with_chat_history(self):
         history = [
             {"role": "user", "content": "First question"},
             {"role": "assistant", "content": "First answer"},
         ]
-        msgs = build_messages("Follow-up", chat_history=history)
-        assert len(msgs) == 3
-        assert isinstance(msgs[0], HumanMessage)
-        assert msgs[0].content == "First question"
-        assert isinstance(msgs[1], AIMessage)
-        assert msgs[1].content == "First answer"
-        assert isinstance(msgs[2], HumanMessage)
-        assert msgs[2].content == "Follow-up"
+        msgs = build_messages("Follow-up", chat_history=history, system_prompt="System")
+        assert len(msgs) == 4
+        assert msgs[0].role == "system"
+        assert msgs[1].role == "user"
+        assert msgs[1].content == "First question"
+        assert msgs[2].role == "assistant"
+        assert msgs[2].content == "First answer"
+        assert msgs[3].role == "user"
+        assert msgs[3].content == "Follow-up"
 
-    def test_with_images(self):
+    def test_with_images_stored_in_chatmessage(self):
+        """Images are stored in ChatMessage.images, not embedded in content text."""
         images = [{"url": "https://example.com/img.png"}]
-        msgs = build_messages("What's this?", images=images)
-        assert len(msgs) == 1
-        assert isinstance(msgs[0], HumanMessage)
-        # Content should be multimodal list
-        assert isinstance(msgs[0].content, list)
+        msgs = build_messages("What's this?", images=images, system_prompt="System")
+        assert len(msgs) == 2
+        assert msgs[1].role == "user"
+        assert msgs[1].content == "What's this?"
+        assert "https://example.com/img.png" in msgs[1].images
 
     def test_with_plan_and_history_and_images(self):
         history = [{"role": "user", "content": "Hi"}]
@@ -347,16 +258,13 @@ class TestBuildMessages:
             plan_content="# Plan",
             chat_history=history,
             images=images,
+            system_prompt="System",
         )
-        # SystemMessage (plan) + HumanMessage (history) + HumanMessage (latest with images)
-        assert len(msgs) == 3
-        assert isinstance(msgs[0], SystemMessage)
-        assert isinstance(msgs[1], HumanMessage)
-        assert isinstance(msgs[2], HumanMessage)
-        assert isinstance(msgs[2].content, list)
-
-
-# ── get_system_prompt ──────────────────────────────────────────────
+        assert len(msgs) == 4
+        assert msgs[0].role == "system"
+        assert msgs[1].role == "system"
+        assert msgs[2].role == "user"
+        assert msgs[3].role == "user"
 
 
 class TestGetSystemPrompt:
@@ -372,7 +280,6 @@ class TestGetSystemPrompt:
         prompt = get_system_prompt(plans_dir=plans_dir, agents_dir=agents_dir)
         assert "Plan Architect" in prompt
         assert "My template content" in prompt
-        # {{AVAILABLE_ROLES}} should be replaced
         assert "{{AVAILABLE_ROLES}}" not in prompt
         assert "Available roles" in prompt
 
@@ -380,7 +287,6 @@ class TestGetSystemPrompt:
         plans_dir = tmp_path / "plans"
         plans_dir.mkdir()
         agents_dir = tmp_path
-        # Create the fallback path too (should not exist)
         prompt = get_system_prompt(plans_dir=plans_dir, agents_dir=agents_dir)
         assert "Plan Architect" in prompt
         assert "Template not found" in prompt
@@ -415,3 +321,36 @@ class TestGetSystemPrompt:
         prompt = get_system_prompt(plans_dir=plans_dir, agents_dir=tmp_path)
         assert "devops" in prompt
         assert "{{AVAILABLE_ROLES}}" not in prompt
+
+
+class TestExecuteToolCall:
+    """Tests for _execute_tool_call()."""
+
+    def test_read_existing_plan_success(self, tmp_path):
+        (tmp_path / "my-plan.md").write_text("# Plan: My Plan\n\n## EPIC-001")
+        tc = ToolCall(id="tc1", name="read_existing_plan", arguments={"plan_id": "my-plan"})
+        result = _execute_tool_call(tc, tmp_path)
+        assert "EPIC-001" in result
+
+    def test_read_existing_plan_not_found(self, tmp_path):
+        tc = ToolCall(id="tc2", name="read_existing_plan", arguments={"plan_id": "missing"})
+        result = _execute_tool_call(tc, tmp_path)
+        assert result.startswith("Error: Plan 'missing' not found.")
+
+    def test_read_existing_plan_no_plans_dir(self):
+        tc = ToolCall(id="tc3", name="read_existing_plan", arguments={"plan_id": "x"})
+        result = _execute_tool_call(tc, None)
+        assert result == "Error: Plans directory not configured."
+
+    def test_unknown_tool_returns_error(self, tmp_path):
+        tc = ToolCall(id="tc4", name="nonexistent_tool", arguments={})
+        result = _execute_tool_call(tc, tmp_path)
+        assert "Unknown tool" in result
+        assert "nonexistent_tool" in result
+
+    def test_read_existing_plan_empty_plan_id(self, tmp_path):
+        """Missing plan_id argument should report plan not found."""
+        tc = ToolCall(id="tc5", name="read_existing_plan", arguments={})
+        result = _execute_tool_call(tc, tmp_path)
+        # plan_id defaults to "" which produces a path that won't exist
+        assert "Error:" in result
