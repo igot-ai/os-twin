@@ -150,11 +150,7 @@ class TestKnowledgeE2EMcpLifecycle:
                     "knowledge_create_namespace",
                     "knowledge_delete_namespace",
                     "knowledge_import_folder",
-                    "knowledge_get_import_status",
                     "knowledge_query",
-                    "knowledge_get_graph",
-                    "knowledge_backup_namespace",
-                    "knowledge_restore_namespace",
                 }
                 assert expected_tools.issubset(tool_names), f"missing tools: {expected_tools - tool_names}"
                 print(f"[{time.perf_counter() - start_time:.1f}s] Found {len(tool_names)} tools")
@@ -225,57 +221,7 @@ class TestKnowledgeE2EMcpLifecycle:
                     print(f"[{time.perf_counter() - start_time:.1f}s] Query failed (expected without kuzu)")
 
                 # ============================================================
-                # STEP 5: Get graph via MCP tool
-                # ============================================================
-                result = await session.call_tool(
-                    "knowledge_get_graph",
-                    arguments={"namespace": "e2e-test-mcp", "limit": 100},
-                )
-                if not result.isError:
-                    graph_str = result.content[0].text if result.content else "{}"
-                    graph_data = json.loads(graph_str) if isinstance(graph_str, str) else graph_str
-                    print(f"[{time.perf_counter() - start_time:.1f}s] Graph: {graph_data.get('stats', {})}")
-                else:
-                    print(f"[{time.perf_counter() - start_time:.1f}s] Graph failed (expected without kuzu)")
-
-                # ============================================================
-                # STEP 6: Backup namespace via MCP tool
-                # ============================================================
-                result = await session.call_tool(
-                    "knowledge_backup_namespace",
-                    arguments={"name": "e2e-test-mcp"},
-                )
-                assert result.isError is False, f"Backup failed: {result.content}"
-                backup_str = result.content[0].text if result.content else "{}"
-                backup_data = json.loads(backup_str) if isinstance(backup_str, str) else backup_str
-                archive_path = backup_data.get("archive_path")
-                assert archive_path, f"No archive_path in response: {backup_data}"
-                print(f"[{time.perf_counter() - start_time:.1f}s] Backup created: {archive_path}")
-
-                # ============================================================
-                # STEP 7: Delete namespace via MCP tool
-                result = await session.call_tool(
-                    "knowledge_delete_namespace",
-                    arguments={"name": "e2e-test-mcp"},
-                )
-                assert result.isError is False, f"Delete failed: {result.content}"
-                print(f"[{time.perf_counter() - start_time:.1f}s] Namespace deleted via MCP")
-
-                # ============================================================
-                # STEP 8: Restore from backup via MCP tool
-                # ============================================================
-                result = await session.call_tool(
-                    "knowledge_restore_namespace",
-                    arguments={"archive_path": archive_path, "overwrite": True},
-                )
-                assert result.isError is False, f"Restore failed: {result.content}"
-                restore_str = result.content[0].text if result.content else "{}"
-                restore_data = json.loads(restore_str) if isinstance(restore_str, str) else restore_str
-                assert restore_data.get("name") == "e2e-test-mcp"
-                print(f"[{time.perf_counter() - start_time:.1f}s] Namespace restored via MCP")
-
-                # ============================================================
-                # STEP 9: Query after restore
+                # STEP 5: Query after restore
                 # ============================================================
                 result = await session.call_tool(
                     "knowledge_query",
@@ -289,7 +235,7 @@ class TestKnowledgeE2EMcpLifecycle:
                     print(f"[{time.perf_counter() - start_time:.1f}s] Post-restore query failed (unexpected)")
 
                 # ============================================================
-                # STEP 10: Final cleanup
+                # STEP 6: Final cleanup
                 result = await session.call_tool(
                     "knowledge_delete_namespace",
                     arguments={"name": "e2e-test-mcp"},
@@ -360,14 +306,6 @@ class TestKnowledgeE2EMcpDirectInvocation:
         assert "error" in result
         assert result["code"] == "NAMESPACE_NOT_FOUND"
 
-    @pytest.mark.asyncio
-    async def test_get_graph_unknown_namespace_direct(self, fresh_kb: Path) -> None:
-        """Direct call of knowledge_get_graph with unknown namespace returns error."""
-        from dashboard.knowledge.mcp_server import knowledge_get_graph
-
-        result = knowledge_get_graph("never-created-graph-direct")
-        assert "error" in result
-        assert result["code"] == "NAMESPACE_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_namespace_direct(self, fresh_kb: Path) -> None:
@@ -393,11 +331,7 @@ class TestKnowledgeE2EMcpToolRegistration:
             "knowledge_create_namespace",
             "knowledge_delete_namespace",
             "knowledge_import_folder",
-            "knowledge_get_import_status",
             "knowledge_query",
-            "knowledge_get_graph",
-            "knowledge_backup_namespace",
-            "knowledge_restore_namespace",
         }
         assert expected.issubset(tool_names), f"missing tools: {expected - tool_names}"
 

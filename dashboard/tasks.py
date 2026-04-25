@@ -356,6 +356,14 @@ async def startup_all():
                 except Exception as e:
                     logger.error("Models catalog load failed: %s", e)
 
+                # ── Initialize master agent client ────────────────────────────
+                try:
+                    from dashboard.master_agent import get_master_client
+                    client = get_master_client()
+                    logger.info("Master agent client initialized")
+                except Exception as e:
+                    logger.warning("Master agent init failed (will retry on first use): %s", e)
+                
                 # Initialization (slow — loads 600MB model)
                 global_state.store.ensure_collections()
                 

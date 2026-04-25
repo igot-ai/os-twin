@@ -1,0 +1,190 @@
+{
+  "alibaba": {
+    "base": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "chat": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+  },
+  "amazon-bedrock": {
+    "base": "https://bedrock-runtime.{region}.amazonaws.com",
+    "chat": "https://bedrock-runtime.{region}.amazonaws.com/model/{model}/converse",
+    "chat_stream": "https://bedrock-runtime.{region}.amazonaws.com/model/{model}/converse-stream",
+    "invoke": "https://bedrock-runtime.{region}.amazonaws.com/model/{model}/invoke",
+    "rerank": "https://bedrock-agent-runtime.{region}.amazonaws.com/rerank"
+  },
+  "anthropic": {
+    "base": "https://api.anthropic.com/v1",
+    "messages": "https://api.anthropic.com/v1/messages"
+  },
+  "assemblyai": {
+    "base": "https://api.assemblyai.com/v2",
+    "transcript": "https://api.assemblyai.com/v2/transcript",
+    "upload": "https://api.assemblyai.com/v2/upload"
+  },
+  "azure": {
+    "base": "https://{resourceName}.openai.azure.com/openai",
+    "chat": "https://{resourceName}.openai.azure.com/openai/deployments/{deploymentId}/chat/completions",
+    "embeddings": "https://{resourceName}.openai.azure.com/openai/deployments/{deploymentId}/embeddings"
+  },
+  "baseten": {
+    "base": "https://inference.baseten.co/v1"
+  },
+  "black-forest-labs": {
+    "base": "https://api.bfl.ai/v1",
+    "image": "https://api.bfl.ai/v1/{modelId}",
+    "poll": "https://api.bfl.ai/v1/poll?id={requestId}"
+  },
+  "bytedance": {
+    "base": "https://ark.ap-southeast.bytepluses.com/api/v3",
+    "tasks": "https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks"
+  },
+  "cerebras": {
+    "base": "https://api.cerebras.ai/v1",
+    "chat": "https://api.cerebras.ai/v1/chat/completions"
+  },
+  "cohere": {
+    "base": "https://api.cohere.com/v2",
+    "chat": "https://api.cohere.com/v2/chat",
+    "embed": "https://api.cohere.com/v2/embed",
+    "rerank": "https://api.cohere.com/v2/rerank"
+  },
+  "deepgram": {
+    "base": "https://api.deepgram.com",
+    "listen": "https://api.deepgram.com/v1/listen",
+    "speak": "https://api.deepgram.com/v1/speak"
+  },
+  "deepinfra": {
+    "base": "https://api.deepinfra.com/v1",
+    "chat": "https://api.deepinfra.com/v1/openai/chat/completions",
+    "inference": "https://api.deepinfra.com/v1/inference",
+    "image_edits": "https://api.deepinfra.com/v1/openai/images/edits"
+  },
+  "deepseek": {
+    "base": "https://api.deepseek.com",
+    "chat": "https://api.deepseek.com/chat/completions"
+  },
+  "elevenlabs": {
+    "base": "https://api.elevenlabs.io",
+    "speech_to_text": "https://api.elevenlabs.io/v1/speech-to-text",
+    "text_to_speech": "https://api.elevenlabs.io/v1/text-to-speech/{voiceId}"
+  },
+  "fal": {
+    "base": "https://fal.run",
+    "run": "https://fal.run/{modelId}",
+    "queue": "https://queue.fal.run/fal-ai/{modelId}"
+  },
+  "fireworks": {
+    "base": "https://api.fireworks.ai/inference/v1",
+    "chat": "https://api.fireworks.ai/inference/v1/chat/completions",
+    "embeddings": "https://api.fireworks.ai/inference/v1/embeddings"
+  },
+  "gladia": {
+    "base": "https://api.gladia.io",
+    "upload": "https://api.gladia.io/v2/upload",
+    "pre_recorded": "https://api.gladia.io/v2/pre-recorded"
+  },
+  "google": {
+    "base": "https://generativelanguage.googleapis.com/v1beta",
+    "generate_content": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+    "stream_generate_content": "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent",
+    "embed_content": "https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent",
+    "batch_embed_contents": "https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents",
+    "files": "https://generativelanguage.googleapis.com/v1beta/files",
+    "upload": "https://generativelanguage.googleapis.com/upload/v1beta/files"
+  },
+  "google-vertex": {
+    "base": "https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google",
+    "predict": "https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google/models/{model}:predict",
+    "predict_long_running": "https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google/models/{model}:predictLongRunning",
+    "stream_generate_content": "https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google/models/{model}:streamGenerateContent"
+  },
+  "groq": {
+    "base": "https://api.groq.com/openai/v1",
+    "chat": "https://api.groq.com/openai/v1/chat/completions",
+    "transcriptions": "https://api.groq.com/openai/v1/audio/transcriptions"
+  },
+  "huggingface": {
+    "base": "https://router.huggingface.co/v1",
+    "responses": "https://router.huggingface.co/v1/responses"
+  },
+  "hume": {
+    "base": "https://api.hume.ai",
+    "tts_file": "https://api.hume.ai/v0/tts/file"
+  },
+  "klingai": {
+    "base": "https://api-singapore.klingai.com",
+    "text2video": "https://api-singapore.klingai.com/v1/videos/text2video",
+    "image2video": "https://api-singapore.klingai.com/v1/videos/image2video",
+    "motion_control": "https://api-singapore.klingai.com/v1/videos/motion-control"
+  },
+  "lmnt": {
+    "base": "https://api.lmnt.com",
+    "speech": "https://api.lmnt.com/v1/ai/speech/bytes"
+  },
+  "luma": {
+    "base": "https://api.lumalabs.ai",
+    "image_generations": "https://api.lumalabs.ai/dream-machine/v1/generations/image",
+    "generation_status": "https://api.lumalabs.ai/dream-machine/v1/generations/{id}"
+  },
+  "mistral": {
+    "base": "https://api.mistral.ai/v1",
+    "chat": "https://api.mistral.ai/v1/chat/completions",
+    "embeddings": "https://api.mistral.ai/v1/embeddings"
+  },
+  "moonshotai": {
+    "base": "https://api.moonshot.ai/v1",
+    "chat": "https://api.moonshot.ai/v1/chat/completions"
+  },
+  "openai": {
+    "base": "https://api.openai.com/v1",
+    "chat": "https://api.openai.com/v1/chat/completions",
+    "embeddings": "https://api.openai.com/v1/embeddings",
+    "completions": "https://api.openai.com/v1/completions",
+    "images_generations": "https://api.openai.com/v1/images/generations",
+    "images_edits": "https://api.openai.com/v1/images/edits",
+    "transcriptions": "https://api.openai.com/v1/audio/transcriptions",
+    "speech": "https://api.openai.com/v1/audio/speech",
+    "responses": "https://api.openai.com/v1/responses"
+  },
+  "perplexity": {
+    "base": "https://api.perplexity.ai",
+    "chat": "https://api.perplexity.ai/chat/completions"
+  },
+  "prodia": {
+    "base": "https://inference.prodia.com/v2",
+    "job": "https://inference.prodia.com/v2/job?price=true"
+  },
+  "replicate": {
+    "base": "https://api.replicate.com/v1",
+    "predictions": "https://api.replicate.com/v1/predictions",
+    "model_predictions": "https://api.replicate.com/v1/models/{model}/predictions"
+  },
+  "revai": {
+    "base": "https://api.rev.ai",
+    "jobs": "https://api.rev.ai/speechtotext/v1/jobs"
+  },
+  "togetherai": {
+    "base": "https://api.together.xyz/v1",
+    "chat": "https://api.together.xyz/v1/chat/completions",
+    "embeddings": "https://api.together.xyz/v1/embeddings",
+    "rerank": "https://api.together.xyz/v1/rerank",
+    "images_generations": "https://api.together.xyz/v1/images/generations"
+  },
+  "vercel": {
+    "base": "https://api.v0.dev/v1"
+  },
+  "voyage": {
+    "base": "https://api.voyageai.com/v1",
+    "embeddings": "https://api.voyageai.com/v1/embeddings",
+    "rerank": "https://api.voyageai.com/v1/rerank"
+  },
+  "xai": {
+    "base": "https://api.x.ai/v1",
+    "chat": "https://api.x.ai/v1/chat/completions",
+    "images_generations": "https://api.x.ai/v1/images/generations",
+    "images_edits": "https://api.x.ai/v1/images/edits",
+    "videos_generations": "https://api.x.ai/v1/videos/generations",
+    "videos_edits": "https://api.x.ai/v1/videos/edits",
+    "videos_extensions": "https://api.x.ai/v1/videos/extensions",
+    "responses": "https://api.x.ai/v1/responses",
+    "files": "https://api.x.ai/v1/files"
+  }
+}

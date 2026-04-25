@@ -1,11 +1,12 @@
-"""Thin Anthropic wrapper for knowledge extraction, query planning, and answer aggregation.
+"""Multi-provider LLM wrapper for knowledge extraction, query planning, and answer aggregation.
 
-Designed for graceful degradation: when no API key is provided, every method
+Designed for graceful degradation: when no model or API key is configured, every method
 returns a sensible empty / fallback value so callers don't have to special-case
 the missing-key path.
 
-Heavy `anthropic` SDK is imported lazily inside methods to keep package import
-time fast.
+Uses ``dashboard.llm_client`` (unified multi-provider abstraction) instead of
+the legacy Anthropic SDK.  Providers are auto-detected from the model name or
+can be set explicitly via ``provider`` (or ``OSTWIN_KNOWLEDGE_LLM_PROVIDER``).
 
 EPIC-003 Hardening: LLM calls honour OSTWIN_KNOWLEDGE_LLM_TIMEOUT (default 60s).
 On timeout, log WARNING and return graceful empty result.
@@ -13,14 +14,15 @@ On timeout, log WARNING and return graceful empty result.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Optional
 
-from dashboard.knowledge.config import LLM_MODEL
+from dashboard.knowledge.config import LLM_MODEL, LLM_PROVIDER
 from dashboard.knowledge.audit import LLM_TIMEOUT  # noqa: WPS433
 from dashboard.knowledge.metrics import get_metrics_registry  # noqa: WPS433
 
@@ -93,40 +95,129 @@ _AGG_USER = (
 
 
 # ---------------------------------------------------------------------------
+# Async event-loop runner (safe from both sync and async contexts)
+# ---------------------------------------------------------------------------
+
+def _run_sync(coro):
+    """Execute an async coroutine from sync code.
+
+    If an event loop is already running (e.g. called from asyncio.to_thread),
+    we spin up a new loop in a thread. Otherwise we use asyncio.run().
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Already inside a loop → use a thread-based loop
+    import concurrent.futures
+    def runner():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(runner).result()
+
+
+# ---------------------------------------------------------------------------
 # KnowledgeLLM
 # ---------------------------------------------------------------------------
 
 
 class KnowledgeLLM:
-    """Lightweight Anthropic-backed helper.
+    """Multi-provider LLM helper backed by ``dashboard.llm_client``.
 
-    Methods gracefully degrade to empty results when no API key is configured.
+    Methods gracefully degrade to empty results when no model or API key is
+    configured.  The user must explicitly set a model — there is no hardcoded
+    default.
+
+    Provider is auto-detected from the model name (e.g. ``claude-*`` → Anthropic,
+    ``gpt-*`` → OpenAI, ``gemini-*`` → Google).  An explicit ``provider``
+    parameter overrides the auto-detection.
     """
 
-    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
-        # Resolve key (constructor wins over env)
-        self.api_key: str | None = api_key if api_key is not None else os.environ.get(
-            "ANTHROPIC_API_KEY"
-        )
-        self.model: str = model or LLM_MODEL
-        self._client: Any | None = None  # cached anthropic.Anthropic instance
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+    ) -> None:
+        # Resolve model: explicit > config (env / MasterSettings)
+        self.model: str = model or LLM_MODEL or ""
+        # Resolve provider: explicit > config env > auto-detect
+        self.provider: str | None = provider or LLM_PROVIDER or None
+        # Resolve API key: explicit > resolved from master_agent
+        self._explicit_key: str | None = api_key
+        self._client: Any | None = None  # cached LLMClient instance
 
     # -- Capability -----------------------------------------------------
 
     def is_available(self) -> bool:
-        """True iff an API key is configured (constructor or env)."""
-        return bool(self.api_key)
+        """True iff a model is configured AND an API key can be resolved.
+
+        This is checked before every LLM call site; returning False triggers
+        graceful degradation (empty results, no crash).
+        """
+        if not self.model:
+            return False
+        return bool(self._resolve_api_key())
 
     # -- Internals ------------------------------------------------------
 
+    def _resolve_api_key(self) -> Optional[str]:
+        """Resolve an API key for the configured provider.
+
+        Priority: explicit key > PROVIDER_API_KEYS env var > master_agent vault.
+        """
+        if self._explicit_key:
+            return self._explicit_key
+
+        # Detect provider for key lookup
+        provider = self._effective_provider()
+
+        # Try standard env vars first (fast path, no imports)
+        from dashboard.llm_client import PROVIDER_API_KEYS  # noqa: WPS433
+        env_name = PROVIDER_API_KEYS.get(provider)
+        if env_name:
+            val = os.environ.get(env_name)
+            if val:
+                return val
+
+        # Fall back to master_agent.get_api_key (auth.json + vault)
+        try:
+            from dashboard.master_agent import get_api_key  # noqa: WPS433
+            key = get_api_key(provider)
+            if key:
+                return key
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("master_agent.get_api_key(%s) failed: %s", provider, exc)
+
+        return None
+
+    def _effective_provider(self) -> str:
+        """Return the provider name (explicit or auto-detected from model)."""
+        if self.provider:
+            return self.provider
+        if not self.model:
+            return "openai"
+        from dashboard.llm_client import _detect_provider_from_model  # noqa: WPS433
+        return _detect_provider_from_model(self.model)
+
     def _get_client(self) -> Any:
-        """Lazy-import anthropic and cache the client."""
+        """Lazy-create the LLMClient via the unified factory."""
         if self._client is not None:
             return self._client
-        # Lazy import — keeps `import dashboard.knowledge` fast.
-        import anthropic  # noqa: WPS433
+        from dashboard.llm_client import LLMConfig, create_client  # noqa: WPS433
 
-        self._client = anthropic.Anthropic(api_key=self.api_key)
+        api_key = self._resolve_api_key()
+        config = LLMConfig(max_tokens=4096)
+        self._client = create_client(
+            model=self.model,
+            provider=self._effective_provider(),
+            api_key=api_key,
+            config=config,
+        )
         return self._client
 
     @staticmethod
@@ -152,7 +243,7 @@ class KnowledgeLLM:
         return None
 
     def _complete(self, system: str, user: str, max_tokens: int = 2048) -> str:
-        """Run a single Anthropic Messages call. Returns the text content.
+        """Run a single LLM chat call via ``llm_client``. Returns the text content.
 
         EPIC-003: Honours OSTWIN_KNOWLEDGE_LLM_TIMEOUT (default 60s).
         On timeout, logs WARNING and returns empty string (graceful degradation).
@@ -160,40 +251,51 @@ class KnowledgeLLM:
         metrics = get_metrics_registry()
         metrics.counter("llm_calls_total").inc()
         t0 = time.perf_counter()
-        
+
+        from dashboard.llm_client import ChatMessage as CM, LLMConfig  # noqa: WPS433
+
         client = self._get_client()
-        try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": user}],
+        # Override max_tokens for this call if different from default
+        client.config.max_tokens = max_tokens
+
+        messages = [
+            CM(role="system", content=system),
+            CM(role="user", content=user),
+        ]
+
+        async def _call():
+            return await asyncio.wait_for(
+                client.chat(messages),
                 timeout=LLM_TIMEOUT,
             )
-            # Anthropic response: content is list of blocks; pick text blocks.
-            parts = []
-            for block in response.content:
-                # Block can be TextBlock or other; both have .text on TextBlock.
-                text = getattr(block, "text", None)
-                if text:
-                    parts.append(text)
-            result_text = "".join(parts)
-            # Record successful latency
+
+        try:
+            response = _run_sync(_call())
+            result_text = response.content or ""
             elapsed = time.perf_counter() - t0
             metrics.histogram("llm_latency_seconds").observe(elapsed)
             return result_text
+        except asyncio.TimeoutError:
+            metrics.counter("llm_errors_total").inc()
+            logger.warning(
+                "llm_timeout: LLM call timed out after %ss (model=%s, provider=%s)",
+                LLM_TIMEOUT,
+                self.model,
+                self._effective_provider(),
+            )
+            return ""
         except Exception as exc:  # noqa: BLE001
             metrics.counter("llm_errors_total").inc()
-            # Check for timeout specifically
             exc_name = type(exc).__name__
             if "Timeout" in exc_name or "timeout" in str(exc).lower():
                 logger.warning(
-                    "llm_timeout: Anthropic call timed out after %ss (model=%s)",
+                    "llm_timeout: LLM call timed out after %ss (model=%s, provider=%s)",
                     LLM_TIMEOUT,
                     self.model,
+                    self._effective_provider(),
                 )
                 return ""
-            logger.error("Anthropic call failed: %s", exc)
+            logger.error("LLM call failed (provider=%s): %s", self._effective_provider(), exc)
             return ""
 
     # -- Public API -----------------------------------------------------

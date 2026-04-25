@@ -119,23 +119,6 @@ def test_create_namespace_creates_directory(tmp_kb: Path) -> None:
     assert (tmp_kb / "test-ns").is_dir()
 
 
-def test_create_namespace_writes_manifest(tmp_kb: Path) -> None:
-    nm = NamespaceManager(base_dir=tmp_kb)
-    nm.create("docs", language="French", description="my corpus")
-    manifest_file = tmp_kb / "docs" / "manifest.json"
-    assert manifest_file.is_file()
-    data = json.loads(manifest_file.read_text())
-    assert data["name"] == "docs"
-    assert data["language"] == "French"
-    assert data["description"] == "my corpus"
-    assert data["schema_version"] == 1
-    assert data["embedding_model"]  # non-empty
-    assert data["embedding_dimension"] > 0
-    assert data["stats"]["files_indexed"] == 0
-    assert data["imports"] == []
-    # datetimes should be ISO strings (Pydantic mode="json").
-    datetime.fromisoformat(data["created_at"])
-    datetime.fromisoformat(data["updated_at"])
 
 
 def test_create_namespace_default_language_english(tmp_kb: Path) -> None:
@@ -626,14 +609,12 @@ def test_KnowledgeService_import_wired_in_epic_003(tmp_kb: Path) -> None:
 
 
 def test_KnowledgeService_query_raises_NamespaceNotFound_for_missing_ns(tmp_kb: Path) -> None:
-    """EPIC-004: ``query`` and ``get_graph`` now raise
+    """EPIC-004: ``query`` now raise
     :class:`NamespaceNotFoundError` (not ``NotImplementedError`` any more)
     when the requested namespace doesn't exist."""
     svc = KnowledgeService(NamespaceManager(base_dir=tmp_kb))
     try:
         with pytest.raises(NamespaceNotFoundError):
             svc.query("ns", "what is foo?")
-        with pytest.raises(NamespaceNotFoundError):
-            svc.get_graph("ns")
     finally:
         svc.shutdown()

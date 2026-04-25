@@ -323,8 +323,12 @@ class KnowledgeSettings(BaseModel):
     (the actual dim is determined by the embedding model that gets loaded).
     """
 
-    llm_model: str = ""              # empty = use config.LLM_MODEL
+    # -- LLM --
+    llm_model: str = ""              # empty = use config.LLM_MODEL (no hardcoded default)
+    llm_provider: str = ""           # empty = auto-detect from model name
+    # -- Embedding --
     embedding_model: str = ""        # empty = use config.EMBEDDING_MODEL
+    embedding_backend: str = ""      # empty = use config.EMBEDDING_PROVIDER
     embedding_dimension: int = 384   # read-only / informational
 
 

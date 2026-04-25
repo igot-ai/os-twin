@@ -383,7 +383,7 @@ def knowledge_query(
             * ``"raw"`` — vector hits only (fast, no LLM).
             * ``"graph"`` — vector + graph neighbours, PageRank-reranked.
             * ``"summarized"`` — graph + LLM-aggregated answer with
-              citations (slowest; requires ``ANTHROPIC_API_KEY``).
+              citations (slowest; requires an LLM model and API key configured).
 
         top_k: max number of chunk hits to return (default 10).
 
@@ -392,7 +392,7 @@ def knowledge_query(
     namespace-missing: ``{"error", "code": "NAMESPACE_NOT_FOUND"}``. On
     invalid mode: ``{"error", "code": "BAD_REQUEST"}``.
 
-    When ``ANTHROPIC_API_KEY`` is unset and ``mode="summarized"``, the
+    When no LLM model/API key is configured and ``mode="summarized"``, the
     response includes ``warnings: ["llm_unavailable"]`` and ``answer: null``
     but still returns chunks — never crashes.
 
@@ -417,38 +417,6 @@ def knowledge_query(
         return _err("INTERNAL_ERROR", str(exc))
 
 
-# ---------------------------------------------------------------------------
-# Tool: knowledge_get_graph
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-def knowledge_get_graph(namespace: str, limit: int = 100) -> dict:
-    """Get the entity-relation graph for a namespace (for visualisation).
-
-    Args:
-        namespace: target namespace.
-        limit: max number of nodes to return (default 100). Edges are
-            filtered to those whose endpoints are in the returned node set.
-
-    Returns ``{"nodes": [...], "edges": [...], "stats": {"node_count":
-    N, "edge_count": M}}``. Empty namespace OR no LLM available during
-    ingest → empty ``nodes`` / ``edges`` (not an error).
-
-    On namespace-missing: ``{"error", "code": "NAMESPACE_NOT_FOUND"}``.
-
-    Example: ``knowledge_get_graph("project_docs", limit=200)``
-    """
-    try:
-        ks = _get_service()
-        return ks.get_graph(namespace, limit=limit, actor="anonymous")
-    except Exception as exc:  # noqa: BLE001
-        from dashboard.knowledge.namespace import NamespaceNotFoundError  # noqa: WPS433
-
-        if isinstance(exc, NamespaceNotFoundError):
-            return _err("NAMESPACE_NOT_FOUND", str(exc))
-        logger.exception("knowledge_get_graph failed")
-        return _err("INTERNAL_ERROR", str(exc))
 
 @mcp.tool()
 def find_notes_by_knowledge_link(
@@ -532,13 +500,7 @@ def get_mcp_app() -> Any:
     :func:`reset_mcp_session_manager` first to drop the spent session
     manager so the next ``streamable_http_app()`` creates a fresh one.
     """
-    if hasattr(mcp, "streamable_http_app"):
-        return mcp.streamable_http_app()
-    if hasattr(mcp, "sse_app"):
-        return mcp.sse_app()
-    raise RuntimeError(
-        f"FastMCP instance has no known ASGI mount method; available: {dir(mcp)}"
-    )
+    return mcp.streamable_http_app()
 
 
 def reset_mcp_session_manager() -> None:
@@ -565,11 +527,6 @@ __all__ = [
     "knowledge_import_folder",
     "knowledge_get_import_status",
     "knowledge_query",
-    "knowledge_get_graph",
-    # EPIC-004
-    "knowledge_backup_namespace",
-    "knowledge_restore_namespace",
-    "knowledge_refresh_namespace",
     # EPIC-007
     "find_notes_by_knowledge_link",
 ]
