@@ -269,6 +269,9 @@ compute_build_hash() {
       ! -path "$INSTALL_DIR/.venv/*" \
       ! -path "*/.venv/*" \
       ! -path "$INSTALL_DIR/.zvec/*" \
+      ! -path "$INSTALL_DIR/.memory/*" \
+      ! -path "$INSTALL_DIR/.war-rooms/*" \
+      ! -path "$INSTALL_DIR/projects/*" \
       ! -path "$INSTALL_DIR/logs/*" \
       ! -path "$INSTALL_DIR/node_modules/*" \
       ! -path "*/node_modules/*" \

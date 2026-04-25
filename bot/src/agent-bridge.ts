@@ -955,7 +955,6 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
         remainingMs,
         'Gemini',
       );
-      console.log('result', JSON.stringify(result, null, 2));
       response = result.response;
     }
 
