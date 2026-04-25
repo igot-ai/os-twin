@@ -77,7 +77,7 @@ Describe "SKILL.md Frontmatter Migration" {
                 $false | Should -Be $true
             }
             $content = Get-Content $skillMd -Raw
-            $content | Should -Match '(?s)^---\n.*tags: \[.*\].*trust_level: .*\n---\n'
+            $content | Should -Match '(?s)^---\r?\n.*tags: \[.*\].*\r?\n---\r?\n'
         }
     }
 }

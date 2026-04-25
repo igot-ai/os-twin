@@ -110,7 +110,8 @@ def _find_project_root() -> str:
             return parent_cwd
         # Walk up parent chain (deepagents -> langgraph -> wrapper -> shell)
         for _ in range(5):
-            ppid_stat = open(f"/proc/{ppid}/stat").read()
+            with open(f"/proc/{ppid}/stat") as _f:
+                ppid_stat = _f.read()
             ppid = int(ppid_stat.split(")")[1].split()[1])  # 4th field = ppid
             if ppid <= 1:
                 break
@@ -228,6 +229,7 @@ CONTEXT_AWARE_TREE = _cfg.evolution.context_aware_tree
 MAX_LINKS = _cfg.evolution.max_links
 AUTO_SYNC_ENABLED = _cfg.sync.auto_sync
 AUTO_SYNC_INTERVAL = _cfg.sync.auto_sync_interval
+CONFLICT_RESOLUTION = _cfg.sync.conflict_resolution
 SIMILARITY_WEIGHT = _cfg.search.similarity_weight
 DECAY_HALF_LIFE = _cfg.search.decay_half_life_days
 DISABLED_TOOLS = set(_cfg.disabled_tools)
@@ -306,11 +308,20 @@ def _init_memory():
                 max_links=MAX_LINKS,
                 similarity_weight=SIMILARITY_WEIGHT,
                 decay_half_life_days=DECAY_HALF_LIFE,
+                conflict_resolution=CONFLICT_RESOLUTION,
             )
         logger.info(
             "Background: memory system ready (%d memories loaded)",
             len(_memory.memories),
         )
+
+        # Import docs if .memory/docs/ exists
+        docs_dir = os.path.join(PERSIST_DIR, "docs")
+        if os.path.isdir(docs_dir):
+            logger.info("Background: docs/ folder detected, importing...")
+            import_result = _memory.import_docs(docs_dir)
+            logger.info("Background: import_docs result: %s", import_result)
+
     except Exception as exc:
         _memory_init_error = exc
         logger.exception("Background: failed to initialize memory system")

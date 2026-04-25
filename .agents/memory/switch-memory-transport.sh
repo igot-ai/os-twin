@@ -62,7 +62,7 @@ with open(config_path) as f:
 home = os.path.expanduser("~")
 config["mcpServers"]["memory"] = {
     "command": os.path.join(home, ".ostwin", ".venv", "bin", "python"),
-    "args": [os.path.join(home, ".ostwin", "A-mem-sys", "mcp_server.py")],
+    "args": [os.path.join(home, ".ostwin", ".agents", "memory", "mcp_server.py")],
     "env": {
         "AGENT_OS_ROOT": project_dir,
         "MEMORY_PERSIST_DIR": os.path.join(project_dir, ".memory"),

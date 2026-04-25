@@ -28,7 +28,8 @@
 
   "sync": {
     "auto_sync": true,
-    "auto_sync_interval": 60
+    "auto_sync_interval": 60,
+    "conflict_resolution": "last_modified"
   },
 
   "disabled_tools": [

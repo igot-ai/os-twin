@@ -271,8 +271,9 @@ JSONEOF
   "$PYTHON" "$SCRIPTS_DIR/merge_mcp_to_opencode.py" "$TEST_DIR/mcp.json" "$TEST_DIR/opencode.json" "$MCP_MODULE_DIR"
 
   # Check tools deny - channel is core (not denied), github is denied
-  grep -q '"github*": false' "$TEST_DIR/opencode.json"
-  ! grep -q '"channel*": false' "$TEST_DIR/opencode.json"
+  # Note: the key is literally "github*" (with asterisk) — escape it for grep regex
+  grep -q '"github\*": false' "$TEST_DIR/opencode.json"
+  ! grep -q '"channel\*": false' "$TEST_DIR/opencode.json"
   
   # Check agent config exists
   grep -q '"agent"' "$TEST_DIR/opencode.json"
@@ -281,7 +282,11 @@ JSONEOF
   grep -q '"qa"' "$TEST_DIR/opencode.json"
 }
 
-@test "merge_mcp_to_opencode keeps {env:VAR} placeholders in command arrays" {
+@test "merge_mcp_to_opencode resolves {env:VAR} placeholders in command arrays" {
+  # Since commit 1d867a1 ("fix: resolve bare python to venv path"),
+  # {env:OSTWIN_PYTHON} and {env:AGENT_DIR} are resolved to absolute paths
+  # during merge. OpenCode needs real paths, not placeholders, in commands.
+  # Unknown {env:VAR} refs that can't be resolved are kept as-is.
   cat > "$TEST_DIR/mcp.json" <<'JSONEOF'
 {
   "mcp": {
@@ -298,7 +303,11 @@ JSONEOF
 
   "$PYTHON" "$SCRIPTS_DIR/merge_mcp_to_opencode.py" "$TEST_DIR/mcp.json" "$TEST_DIR/opencode.json" "$MCP_MODULE_DIR"
 
-  # Placeholders should remain in command array
-  grep -q '"{env:OSTWIN_PYTHON}"' "$TEST_DIR/opencode.json"
-  grep -q '"{env:AGENT_DIR}/mcp/channel-server.py"' "$TEST_DIR/opencode.json"
+  # Known {env:} refs should be resolved to absolute paths
+  ! grep -q '"{env:OSTWIN_PYTHON}"' "$TEST_DIR/opencode.json"
+  ! grep -q '"{env:AGENT_DIR}' "$TEST_DIR/opencode.json"
+
+  # Command should contain resolved paths (python binary and script path)
+  grep -q '"command"' "$TEST_DIR/opencode.json"
+  grep -q 'channel-server.py' "$TEST_DIR/opencode.json"
 }

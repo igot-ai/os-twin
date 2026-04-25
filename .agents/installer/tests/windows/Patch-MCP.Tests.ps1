@@ -77,8 +77,9 @@ Describe "Patch-McpConfig" {
 
         $content = Get-Content $envFile -Raw
         # .env files use plain KEY=VALUE format, NOT 'export KEY=VALUE'
-        $content | Should -Match '^AGENT_DIR='
-        $content | Should -Match '^OSTWIN_PYTHON='
+        # Use (?m) multiline flag since -Raw returns the entire file as one string
+        $content | Should -Match '(?m)^AGENT_DIR='
+        $content | Should -Match '(?m)^OSTWIN_PYTHON='
         $content | Should -Not -Match 'export AGENT_DIR='
         $content | Should -Not -Match 'export OSTWIN_PYTHON='
     }

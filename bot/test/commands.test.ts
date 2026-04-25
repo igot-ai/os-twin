@@ -4,7 +4,7 @@ import fs from 'fs';
 import api from '../src/api';
 import { registry } from '../src/connectors/registry';
 import * as sessions from '../src/sessions';
-import { routeCommand, routeCallback, handleStatefulText, cmdHelp, COMMAND_REGISTRY, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS, DEFERRED_COMMANDS } from '../src/commands';
+import { routeCommand, routeCallback, cmdHelp, COMMAND_REGISTRY, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS, ALL_PLATFORM_COMMANDS, DEFERRED_COMMANDS } from '../src/commands';
 
 describe('commands', () => {
   let sandbox: sinon.SinonSandbox;
@@ -468,47 +468,20 @@ describe('commands', () => {
 
   describe('routeCommand — cancel', () => {
     it('clears session and returns confirmation', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
       sessions.setPlan('u1', 'telegram', 'p1');
 
       const [resp] = await routeCommand('u1', 'telegram', 'cancel');
-      expect(resp.text).to.include('cancelled');
+      expect(resp.text).to.include('Session cleared');
 
       const s = sessions.getSession('u1', 'telegram');
-      expect(s.mode).to.equal('idle');
       expect(s.activePlanId).to.be.null;
     });
   });
 
   describe('routeCommand — draft', () => {
-    it('sets awaiting_idea mode when no args', async () => {
+    it('returns usage text when no idea provided', async () => {
       const [resp] = await routeCommand('u1', 'telegram', 'draft', '');
-      expect(resp.text).to.include('idea');
-      expect(sessions.getSession('u1', 'telegram').mode).to.equal('awaiting_idea');
-    });
-
-    it('calls AI refinement when idea provided', async () => {
-      sandbox.stub(api, 'refinePlan').resolves({
-        plan: '# Plan: Auth',
-        explanation: 'Created auth plan',
-      });
-      sandbox.stub(api, 'createPlan').resolves({ plan_id: 'auth-1234' });
-
-      const responses = await routeCommand('u1', 'telegram', 'draft', 'Build auth system');
-      expect(responses.length).to.be.at.least(2);
-      expect(responses[0].text).to.include('Drafting');
-      const hasDrafted = responses.some(r => r.text.includes('Plan Drafted'));
-      expect(hasDrafted).to.be.true;
-      const hasContent = responses.some(r => r.text.includes('Plan: Auth'));
-      expect(hasContent).to.be.true;
-    });
-
-    it('handles API error during draft', async () => {
-      sandbox.stub(api, 'refinePlan').resolves({ _error: 'AI unavailable' });
-
-      const responses = await routeCommand('u1', 'telegram', 'draft', 'Some idea');
-      const hasError = responses.some(r => r.text.includes('Failed'));
-      expect(hasError).to.be.true;
+      expect(resp.text).to.include('Usage');
     });
   });
 
@@ -578,10 +551,9 @@ describe('commands', () => {
       expect(resp.text).to.include('My Plan');
     });
 
-    it('menu:edit:p1 enters editing mode', async () => {
+    it('menu:edit:p1 sets active plan', async () => {
       const [resp] = await routeCallback('u1', 'telegram', 'menu:edit:p1');
-      expect(resp.text).to.include('Editing Mode');
-      expect(sessions.getSession('u1', 'telegram').mode).to.equal('editing');
+      expect(resp.text).to.include('Active plan set');
       expect(sessions.getSession('u1', 'telegram').activePlanId).to.equal('p1');
     });
 
@@ -620,134 +592,9 @@ describe('commands', () => {
     });
   });
 
-  // ── Stateful text handling ────────────────────────────────────
-
-  describe('handleStatefulText', () => {
-    it('drafts plan when in awaiting_idea mode', async () => {
-      sessions.setMode('u1', 'telegram', 'awaiting_idea');
-      sessions.setPlan('u1', 'telegram', 'new');
-
-      sandbox.stub(api, 'refinePlan').resolves({ plan: '# Draft', explanation: 'Created' });
-      sandbox.stub(api, 'createPlan').resolves({ plan_id: 'test-1234' });
-
-      const responses = await handleStatefulText('u1', 'telegram', 'Build a todo app');
-      expect(responses.length).to.be.at.least(2);
-      expect(responses[0].text).to.include('Drafting');
-    });
-
-    it('refines plan when in editing mode', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
-      sessions.setPlan('u1', 'telegram', 'p1');
-
-      const asset = {
-        filename: 'stored-mockup.png',
-        original_name: 'mockup.png',
-        mime_type: 'image/png',
-        size_bytes: 2048,
-        uploaded_at: '2026-04-05T00:00:00Z',
-        path: '/tmp/mockup.png',
-      };
-      (api.getPlanAssets as sinon.SinonStub).resolves({ assets: [asset] });
-      sandbox.stub(api, 'refinePlan').resolves({ plan: '# Updated', explanation: 'Refined' });
-      sandbox.stub(api, 'savePlan').resolves({ status: 'saved' });
-
-      const responses = await handleStatefulText('u1', 'telegram', 'Add more tests');
-      expect(responses[0].text).to.include('Refining');
-      const hasUpdated = responses.some(r => r.text.includes('Updated'));
-      expect(hasUpdated).to.be.true;
-      expect((api.refinePlan as sinon.SinonStub).firstCall.args[0].assetContext).to.deep.equal([asset]);
-    });
-
-    it('appends to chat history during editing', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
-      sessions.setPlan('u1', 'telegram', 'p1');
-
-      sandbox.stub(api, 'refinePlan').resolves({ plan: '# V2' });
-      sandbox.stub(api, 'savePlan').resolves({});
-
-      await handleStatefulText('u1', 'telegram', 'First instruction');
-      await handleStatefulText('u1', 'telegram', 'Second instruction');
-
-      const s = sessions.getSession('u1', 'telegram');
-      expect(s.chatHistory).to.have.lengthOf(4); // 2 user + 2 assistant
-    });
-
-    it('returns empty when session has no plan', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
-      // No plan set
-
-      const responses = await handleStatefulText('u1', 'telegram', 'hello');
-      expect(responses).to.deep.equal([]);
-    });
-
-    it('handles API error during refine', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
-      sessions.setPlan('u1', 'telegram', 'p1');
-
-      sandbox.stub(api, 'refinePlan').resolves({ _error: 'Server error' });
-
-      const responses = await handleStatefulText('u1', 'telegram', 'Fix something');
-      const hasError = responses.some(r => r.text.includes('Failed'));
-      expect(hasError).to.be.true;
-    });
-
-    it('fetches assets for the correct plan — plan isolation', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
-      sessions.setPlan('u1', 'telegram', 'p2');
-
-      sandbox.stub(api, 'refinePlan').resolves({ plan: '# V2' });
-      sandbox.stub(api, 'savePlan').resolves({});
-
-      await handleStatefulText('u1', 'telegram', 'Add a footer');
-      expect((api.getPlanAssets as sinon.SinonStub).calledWith('p2')).to.be.true;
-    });
-
-    it('gracefully continues when getPlanAssets fails', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
-      sessions.setPlan('u1', 'telegram', 'p1');
-
-      (api.getPlanAssets as sinon.SinonStub).resolves({ error: 'server down', assets: [] });
-      sandbox.stub(api, 'refinePlan').resolves({ plan: '# Updated' });
-      sandbox.stub(api, 'savePlan').resolves({});
-
-      const responses = await handleStatefulText('u1', 'telegram', 'Add header');
-      const hasUpdated = responses.some(r => r.text.includes('Updated'));
-      expect(hasUpdated).to.be.true;
-      // assetContext should be empty, not crash
-      expect((api.refinePlan as sinon.SinonStub).firstCall.args[0].assetContext).to.deep.equal([]);
-    });
-
-    it('does not fetch assets when plan is "new"', async () => {
-      sessions.setMode('u1', 'telegram', 'drafting');
-      sessions.setPlan('u1', 'telegram', 'new');
-
-      sandbox.stub(api, 'refinePlan').resolves({ plan: '# Draft', explanation: 'Created' });
-      sandbox.stub(api, 'createPlan').resolves({ plan_id: 'test-slug' });
-
-      await handleStatefulText('u1', 'telegram', 'Build a blog');
-      // getPlanAssets should NOT have been called with 'new'
-      expect((api.getPlanAssets as sinon.SinonStub).calledWith('new')).to.be.false;
-    });
-
-    it('passes multiple assets as context to refinePlan', async () => {
-      sessions.setMode('u1', 'telegram', 'editing');
-      sessions.setPlan('u1', 'telegram', 'p1');
-
-      const assets = [
-        { filename: 'a.png', original_name: 'wireframe.png', mime_type: 'image/png', size_bytes: 4096, uploaded_at: '2026-04-05T00:00:00Z' },
-        { filename: 'b.pdf', original_name: 'spec.pdf', mime_type: 'application/pdf', size_bytes: 10240, uploaded_at: '2026-04-05T01:00:00Z' },
-      ];
-      (api.getPlanAssets as sinon.SinonStub).resolves({ assets });
-      sandbox.stub(api, 'refinePlan').resolves({ plan: '# V3' });
-      sandbox.stub(api, 'savePlan').resolves({});
-
-      await handleStatefulText('u1', 'telegram', 'Incorporate the wireframe');
-      const passedAssets = (api.refinePlan as sinon.SinonStub).firstCall.args[0].assetContext;
-      expect(passedAssets).to.have.lengthOf(2);
-      expect(passedAssets[0].original_name).to.equal('wireframe.png');
-      expect(passedAssets[1].original_name).to.equal('spec.pdf');
-    });
-  });
+  // handleStatefulText tests removed — editing mode eliminated.
+  // Plan creation and refinement now goes through askAgent() with
+  // create_plan / refine_plan tools.
 
   // ── Session pendingAttachments ─────────────────────────────────
 

@@ -78,9 +78,6 @@ function Install-Files {
     # MCP: seed config on first install, never overwrite
     Seed-McpConfig
 
-    # A-mem-sys: copy agentic memory system
-    Sync-Amem
-
     # Symlink ~/.ostwin/mcp -> ~/.ostwin/.agents/mcp
     Setup-McpSymlink
 
@@ -188,33 +185,6 @@ function Seed-McpConfig {
             }
         }
         Write-Ok "mcp/ scripts synced"
-    }
-}
-
-function Sync-Amem {
-    [CmdletBinding()]
-    param()
-
-    $amemSrc = ""
-    $candidate1 = Join-Path $script:SourceDir "A-mem-sys"
-    $candidate2 = Join-Path (Split-Path $script:ScriptDir -Parent) "A-mem-sys"
-
-    if (Test-Path $candidate1) { $amemSrc = $candidate1 }
-    elseif (Test-Path $candidate2) { $amemSrc = $candidate2 }
-
-    if ($amemSrc) {
-        $amemDst = Join-Path $script:InstallDir "A-mem-sys"
-        Write-Step "Syncing A-mem-sys (agentic memory)..."
-        if (-not (Test-Path $amemDst)) {
-            New-Item -ItemType Directory -Path $amemDst -Force | Out-Null
-        }
-        if (Get-Command robocopy -ErrorAction SilentlyContinue) {
-            & robocopy $amemSrc $amemDst /E /XD '__pycache__' '.memory' /XF '*.pyc' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
-        }
-        else {
-            Copy-Item -Path "$amemSrc\*" -Destination $amemDst -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        Write-Ok "A-mem-sys synced to $amemDst"
     }
 }
 
