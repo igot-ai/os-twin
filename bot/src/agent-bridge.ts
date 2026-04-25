@@ -852,6 +852,9 @@ export async function askAgent(
   const activeRooms = roomsData.rooms?.filter((r: Room) => !['passed', 'failed-final'].includes(r.status))?.length || 0;
   const contextSummary = `You have access to ${planCount} plan(s) and ${activeRooms} active war-room(s). Use list_plans or get_war_room_status tools to get details when needed.`;
 
+  // Get staged images for vision API
+  const stagedImages = agentCtx.userId ? getStagedImages(agentCtx.userId, agentCtx.platform) : [];
+
   const systemPrompt = `You are OS Twin, an autonomous AI assistant that manages software projects through the Ostwin multi-agent war-room orchestrator.
 
 You can ANSWER QUESTIONS and TAKE ACTIONS by calling tools. You have 12 tools available.
@@ -900,7 +903,26 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
 
     const agentStart = Date.now();
 
-    let result = await withTimeout(chat.sendMessage(question), AGENT_TIMEOUT_MS, 'Gemini');
+    // Build message parts: text + images if available
+    const messageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+    messageParts.push({ text: question });
+    
+    if (stagedImages.length > 0) {
+      console.log(`[BRIDGE] Including ${stagedImages.length} staged image(s) in request`);
+      for (const img of stagedImages) {
+        const base64Match = img.url.match(/^data:[^;]+;base64,(.+)$/);
+        if (base64Match) {
+          messageParts.push({
+            inlineData: {
+              mimeType: img.contentType,
+              data: base64Match[1],
+            },
+          });
+        }
+      }
+    }
+
+    let result = await withTimeout(chat.sendMessage(messageParts), AGENT_TIMEOUT_MS, 'Gemini');
     let response = result.response;
 
     // Function-calling loop with timeout + retry

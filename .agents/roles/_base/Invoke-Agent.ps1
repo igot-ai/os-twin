@@ -260,25 +260,19 @@ if (Test-Path $configPath) {
     if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
     if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
-    # --- CLI resolution: env override → OSTWIN_HOME bin/agent → project-local → role config → opencode fallback ---
-    # Prefer $OSTWIN_AGENT_CMD env var (for dev/test overrides), then canonical
-    # install path, then project-local dev tree, then role config, then opencode.
+    # --- CLI resolution: env override → OSTWIN_HOME/.agents/bin/agent (mandatory) ---
     if (-not $AgentCmd) {
         if ($env:OSTWIN_AGENT_CMD) {
             $AgentCmd = $env:OSTWIN_AGENT_CMD
         }
         else {
             $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
-            $localAgent = Join-Path $agentsDir "bin" "agent"
             if (Test-Path $ostwinAgent) {
                 $AgentCmd = "'$ostwinAgent'"
             }
-            elseif (Test-Path $localAgent) {
-                $AgentCmd = "'$localAgent'"
-            }
             else {
-                $AgentCmd = $config.$RoleName.cli
-                if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
+                Write-Error "Agent binary not found at: $ostwinAgent`nRun the installer or set `$OSTWIN_AGENT_CMD."
+                exit 1
             }
         }
     }

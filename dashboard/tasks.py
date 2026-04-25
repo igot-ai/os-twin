@@ -269,30 +269,39 @@ async def startup_all():
     asyncio.create_task(poll_war_rooms())
 
     # ── Push Deployment Notification to Lark ──────────────────────────
-    try:
-        from dashboard.notify import send_lark_message
-        api_key = os.environ.get("OSTWIN_API_KEY")
-        
-        # If not in environ, try to read from ~/.ostwin/.env
-        if not api_key:
-            env_path = Path.home() / ".ostwin" / ".env"
-            if env_path.exists():
-                from dotenv import load_dotenv
-                load_dotenv(env_path)
-                api_key = os.environ.get("OSTWIN_API_KEY")
+    # Only trigger at runtime on Cloud Run (excludes Docker build phase)
+    if os.environ.get("K_SERVICE"):
+        async def _notify_lark_delayed():
+            try:
+                # Small delay to ensure networking is fully up and stable
+                await asyncio.sleep(5)
+                
+                from dashboard.notify import send_lark_message
+                env_path = Path.home() / ".ostwin" / ".env"
+                if env_path.exists():
+                    from dotenv import load_dotenv
+                    load_dotenv(env_path)
 
-        if api_key:
-            # Detect Cloud Run URL or fallback
-            app_url = os.environ.get("K_SERVICE", "Cloud Run") 
-            msg = (
-                "🚀 **OS-Twin Deployed Successfully**\n\n"
-                f"🔑 **OSTWIN_API_KEY**: `{api_key}`\n"
-                f"🌐 **Service**: {app_url}\n"
-                "Check your Cloud Run URL to access the dashboard."
-            )
-            asyncio.create_task(send_lark_message(msg))
-    except Exception as e:
-        logger.error(f"Lark notification failed: {e}")
+                api_key = os.environ.get("OSTWIN_API_KEY")
+                if api_key:
+                    app_url = os.environ.get("BASE_URL")
+                    msg_lines = [
+                        f"🔑 **OSTWIN_API_KEY**: {api_key}",
+                        f"📦 **Revision**: {os.environ.get('K_REVISION', 'unknown')}",
+                    ]
+                    if app_url:
+                        msg_lines.append(f"🌐 **Dashboard**: {app_url}")
+                    else:
+                        msg_lines.append("🌐 **Service**: Cloud Run (URL not set)")
+
+                    msg = "\n".join(msg_lines)
+                    await send_lark_message(msg, title="🚀 OS-Twin Deployed Successfully")
+            except Exception as e:
+                logger.error(f"Lark notification background task failed: {e}")
+
+        asyncio.create_task(_notify_lark_delayed())
+
+
 
     # ── Hot-reload ~/.ostwin/.env on file changes ─────────────────────
 
@@ -352,6 +361,14 @@ async def startup_all():
                 except Exception as e:
                     logger.error("Models catalog load failed: %s", e)
 
+                # ── Initialize master agent client ────────────────────────────
+                try:
+                    from dashboard.master_agent import get_master_client
+                    client = get_master_client()
+                    logger.info("Master agent client initialized")
+                except Exception as e:
+                    logger.warning("Master agent init failed (will retry on first use): %s", e)
+                
                 # Initialization (slow — loads 600MB model)
                 global_state.store.ensure_collections()
                 
