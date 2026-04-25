@@ -21,14 +21,8 @@
       }
     },
     "memory": {
-      "type": "local",
-      "command": ["{env:OSTWIN_PYTHON}", "{env:AGENT_DIR}/.agents/memory/mcp_server.py"],
-      "timeout": 120000,
-      "environment": {
-        "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
-        "MEMORY_PERSIST_DIR": "{env:PROJECT_DIR}/.memory",
-        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}"
-      }
+      "type": "remote",
+      "url": "http://localhost:3366/api/knowledge/mcp?persist_dir={env:PROJECT_DIR}/.memory"
     },
     "chrome-devtools": {
       "type": "local",

@@ -74,6 +74,7 @@ from dashboard.routes import (
     files,
     settings,
     engagement,
+    knowledge,
 )
 
 # Configure logging — file + console
@@ -179,6 +180,11 @@ app.include_router(files.router)
 app.include_router(settings.router)
 app.include_router(ai.router)
 
+# --- Memory MCP over Streamable HTTP ---
+# Mount before the static frontend catch-all so /api/knowledge/* is handled
+# by the MCP ASGI app, not the SPA fallback.
+app.mount("/api/knowledge", knowledge.knowledge_mcp_app)
+
 # --- Static Frontend Serving ---
 # Hybrid approach:
 #   1. StaticFiles for /_next (JS/CSS/media assets — fast, cacheable)
@@ -211,6 +217,10 @@ if USE_FE:
 # --- Lifecycle ---
 @app.on_event("startup")
 async def on_startup():
+    # Start the Knowledge MCP session manager BEFORE anything else —
+    # it must be running when the first request arrives.
+    await knowledge.startup_knowledge()
+
     # Use create_task so the lifecycle doesn't block the server from accepting connections
     asyncio.create_task(startup_all())
 
@@ -220,6 +230,9 @@ async def on_shutdown():
     from dashboard.tunnel import stop_tunnel
 
     stop_tunnel()
+
+    # Shut down knowledge MCP (session manager + pool slots)
+    await knowledge.shutdown_knowledge()
 
     # Stop the bot process if it was started
     import dashboard.global_state as gs
