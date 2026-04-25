@@ -500,13 +500,7 @@ def get_mcp_app() -> Any:
     :func:`reset_mcp_session_manager` first to drop the spent session
     manager so the next ``streamable_http_app()`` creates a fresh one.
     """
-    if hasattr(mcp, "streamable_http_app"):
-        return mcp.streamable_http_app()
-    if hasattr(mcp, "sse_app"):
-        return mcp.sse_app()
-    raise RuntimeError(
-        f"FastMCP instance has no known ASGI mount method; available: {dir(mcp)}"
-    )
+    return mcp.streamable_http_app()
 
 
 def reset_mcp_session_manager() -> None:
