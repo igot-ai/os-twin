@@ -56,6 +56,9 @@ interface PlanContextType {
   // EPIC-007: Memory-Knowledge Bridge - highlight note on cross-tab navigation
   highlightNoteId: string | null;
   setHighlightNoteId: (id: string | null) => void;
+  // Edit Epic Drawer — signal edit mode from context menu / card
+  isEditingEpic: boolean;
+  setIsEditingEpic: (editing: boolean) => void;
 }
 
 export const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -101,6 +104,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   // EPIC-007: Memory-Knowledge Bridge - highlight note on cross-tab navigation
   const [highlightNoteId, setHighlightNoteId] = useState<string | null>(null);
+  const [isEditingEpic, setIsEditingEpic] = useState(false);
 
   // Undo/Redo Stack
   const [undoStack, setUndoStack] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
@@ -370,6 +374,9 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     // EPIC-007: Memory-Knowledge Bridge
     highlightNoteId,
     setHighlightNoteId,
+    // Edit Epic Drawer
+    isEditingEpic,
+    setIsEditingEpic,
   };
 
   if (planLoading && !plan) {

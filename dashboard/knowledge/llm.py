@@ -168,7 +168,7 @@ class KnowledgeLLM:
     def _resolve_api_key(self) -> Optional[str]:
         """Resolve an API key for the configured provider.
 
-        Priority: explicit key > PROVIDER_API_KEYS env var > master_agent vault.
+        Priority: explicit key > env var > Settings vault (providers) > master_agent vault.
         """
         if self._explicit_key:
             return self._explicit_key
@@ -176,7 +176,7 @@ class KnowledgeLLM:
         # Detect provider for key lookup
         provider = self._effective_provider()
 
-        # Try standard env vars first (fast path, no imports)
+        # 1. Try standard env vars first (fast path, no imports)
         from dashboard.llm_client import PROVIDER_API_KEYS  # noqa: WPS433
         env_name = PROVIDER_API_KEYS.get(provider)
         if env_name:
@@ -184,7 +184,18 @@ class KnowledgeLLM:
             if val:
                 return val
 
-        # Fall back to master_agent.get_api_key (auth.json + vault)
+        # 2. Settings vault — the Settings UI stores provider API keys here
+        #    (scope="providers", key=provider_name). This is the binding to
+        #    the master agent's provider configuration.
+        try:
+            from dashboard.lib.settings.vault import get_vault  # noqa: WPS433
+            key = get_vault().get("providers", provider)
+            if key:
+                return key
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("vault.get('providers', %s) failed: %s", provider, exc)
+
+        # 3. Fall back to master_agent.get_api_key (auth.json + vault)
         try:
             from dashboard.master_agent import get_api_key  # noqa: WPS433
             key = get_api_key(provider)
@@ -197,10 +208,6 @@ class KnowledgeLLM:
 
     def _effective_provider(self) -> str:
         """Return the provider name (explicit or auto-detected from model)."""
-        if self.provider:
-            return self.provider
-        if not self.model:
-            return "openai"
         from dashboard.llm_client import _detect_provider_from_model  # noqa: WPS433
         return _detect_provider_from_model(self.model)
 
@@ -307,11 +314,9 @@ class KnowledgeLLM:
 
         Returns ([entity_dict], [relationship_dict]). When unavailable: ([], []).
         """
-        if not self.is_available():
-            return [], []
         system = _EXTRACT_SYSTEM.format(language=language, domain=domain or "general")
         user = _EXTRACT_USER.format(text=text)
-        raw = self._complete(system, user, max_tokens=4096)
+        raw = self._complete(system, user, max_tokens=8192)
         if not raw:
             return [], []
         parsed = self._extract_json(raw)

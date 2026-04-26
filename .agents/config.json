@@ -162,8 +162,31 @@
     ]
   },
   "knowledge": {
-    "llm_model": "google-vertex-anthropic/claude-haiku-4-5@20251001",
-    "embedding_model": "",
-    "embedding_dimension": 384
+    "llm_model": "google-vertex/gemini-3-flash-preview",
+    "embedding_model": "intfloat/multilingual-e5-base",
+    "embedding_dimension": 768,
+    "llm_provider": "",
+    "embedding_backend": "",
+    "knowledge_llm_model": "google-vertex/gemini-3-flash-preview",
+    "knowledge_embedding_model": "intfloat/multilingual-e5-base",
+    "knowledge_embedding_dimension": 768
+  },
+  "providers": {
+    "openai": null,
+    "anthropic": null,
+    "google": {
+      "api_key_ref": null,
+      "base_url": null,
+      "org_id": null,
+      "enabled": true,
+      "default_model": null,
+      "deployment_mode": "vertex",
+      "project_id": "igot-studio",
+      "vertex_location": null,
+      "vertex_auth_mode": "oauth",
+      "enabled_models": []
+    },
+    "byteplus": null,
+    "custom": {}
   }
 }

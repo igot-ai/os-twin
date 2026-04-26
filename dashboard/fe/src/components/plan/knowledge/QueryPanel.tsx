@@ -5,6 +5,7 @@ import { QueryResultResponse } from '@/hooks/use-knowledge-query';
 import { GraphNodeResponse, GraphEdgeResponse, GraphStatsResponse } from '@/hooks/use-knowledge-graph';
 import GraphView from './GraphView';
 import BacklinkBadge from './BacklinkBadge';
+import { getNodeColor } from './constants';
 
 interface QueryPanelProps {
   selectedNamespace: string | null;
@@ -20,22 +21,6 @@ interface QueryPanelProps {
   onRefreshGraph: () => void;
   /** Callback when a memory note is clicked in the BacklinkBadge */
   onNoteClick?: (noteId: string) => void;
-}
-
-// Color palette for entity labels
-const LABEL_COLORS: Record<string, string> = {
-  entity: '#3b82f6',
-  person: '#8b5cf6',
-  organization: '#ec4899',
-  location: '#f97316',
-  event: '#10b981',
-  concept: '#06b6d4',
-  document: '#6366f1',
-  default: '#6b7280',
-};
-
-function getNodeColor(label: string): string {
-  return LABEL_COLORS[label.toLowerCase()] || LABEL_COLORS.default;
 }
 
 // Node detail drawer

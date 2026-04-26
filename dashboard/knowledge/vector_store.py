@@ -28,7 +28,6 @@ Design points:
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +42,28 @@ logger = logging.getLogger(__name__)
 # means the result is approximate above this threshold; manifest stats are
 # the authoritative source for total counts.
 _ZVEC_MAX_TOPK = 1024
+
+
+class DimensionMismatchError(RuntimeError):
+    """Raised when the on-disk zvec collection dimension doesn't match the embedder.
+
+    This happens when the embedding model changes after a namespace was created
+    (e.g. switching from ``bge-base-en-v1.5`` [768-dim] to ``bge-small-en-v1.5``
+    [384-dim]). The existing collection cannot accept vectors of a different
+    dimension — it must be deleted and re-ingested with the new model.
+    """
+
+    def __init__(self, namespace_path: str, collection_dim: int, embedder_dim: int) -> None:
+        self.namespace_path = namespace_path
+        self.collection_dim = collection_dim
+        self.embedder_dim = embedder_dim
+        super().__init__(
+            f"Embedding dimension mismatch for collection at {namespace_path}: "
+            f"on-disk collection has dim={collection_dim} but the current "
+            f"embedder produces dim={embedder_dim}. "
+            f"Delete the namespace and re-ingest, or switch back to the "
+            f"original embedding model."
+        )
 
 
 @dataclass
@@ -70,7 +91,7 @@ class NamespaceVectorStore:
         be writable; the parent is created on construction so the underlying
         zvec ``create_and_open`` call doesn't fail on a missing tree.
     dimension:
-        Embedding dimension (e.g. 384 for ``BAAI/bge-small-en-v1.5``). Frozen
+        Embedding dimension (e.g. 768 for ``BAAI/bge-base-en-v1.5``). Frozen
         at construction time — do NOT change between calls on the same path
         or zvec will reject the open.
     schema_name:
@@ -82,7 +103,6 @@ class NamespaceVectorStore:
     # Track whether we've called zvec.init() in this process. zvec is fine to
     # call init multiple times but it's cheap to skip the second time.
     _zvec_initialised = False
-    _init_lock = threading.Lock()
 
     def __init__(
         self,
@@ -96,7 +116,6 @@ class NamespaceVectorStore:
         self._dim = int(dimension)
         self._schema_name = schema_name
         self._collection: Any = None
-        self._coll_lock = threading.Lock()
 
     # ----- internals --------------------------------------------------
 
@@ -105,37 +124,31 @@ class NamespaceVectorStore:
         """Idempotent zvec runtime init. Safe to call on every method."""
         if cls._zvec_initialised:
             return
-        with cls._init_lock:
-            if cls._zvec_initialised:
-                return
-            import zvec  # noqa: WPS433 — lazy
+        import zvec  # noqa: WPS433 — lazy
 
-            try:
-                zvec.init(log_level=zvec.LogLevel.WARN)
-            except Exception as exc:  # noqa: BLE001 — init may already be done
-                logger.debug("zvec.init() raised (likely already initialised): %s", exc)
-            cls._zvec_initialised = True
+        try:
+            zvec.init(log_level=zvec.LogLevel.WARN)
+        except Exception as exc:  # noqa: BLE001 — init may already be done
+            logger.debug("zvec.init() raised (likely already initialised): %s", exc)
+        cls._zvec_initialised = True
 
     def _coll(self) -> Any:
         """Return the (lazily opened) zvec Collection for this namespace."""
         if self._collection is not None:
             return self._collection
-        with self._coll_lock:
-            if self._collection is not None:
-                return self._collection
-            self._ensure_zvec_init()
-            self._collection = self._open_or_create()
-            return self._collection
+        self._ensure_zvec_init()
+        self._collection = self._open_or_create()
+        return self._collection
 
     def _open_or_create(self) -> Any:
         """Open the existing zvec collection at ``self._path``, or create it.
 
         EPIC-004 (architect-mandated, ZVEC-LIVE-1 part 2): distinguish
         "directory genuinely missing or empty" from "open failed for some
-        other reason" (handle conflict, lock mismatch, schema corruption,
-        permissions). Only fall through to ``create_and_open`` in the
-        former case; in the latter case re-raise so the caller sees the
-        real error instead of a confusing
+        other reason" (handle conflict, schema corruption, permissions).
+        Only fall through to ``create_and_open`` in the former case; in
+        the latter case re-raise so the caller sees the real error instead
+        of a confusing
         ``ValueError: path validate failed: path[...] is existed``.
         """
         import zvec  # noqa: WPS433 — lazy
@@ -161,7 +174,27 @@ class NamespaceVectorStore:
             # path raises the misleading "is existed" ValueError that bit
             # the architect's probe in EPIC-003.
             try:
-                return zvec.open(path_str)
+                coll = zvec.open(path_str)
+                # Validate that the on-disk collection dimension matches
+                # the embedder dimension. A mismatch means the embedding
+                # model changed since this collection was created — every
+                # upsert would fail with "dimension mismatch".
+                try:
+                    # NOTE: coll.schema is a PROPERTY, not a method.
+                    actual_dim = coll.schema.vector("embedding").dimension
+                    if actual_dim != self._dim:
+                        raise DimensionMismatchError(
+                            namespace_path=path_str,
+                            collection_dim=actual_dim,
+                            embedder_dim=self._dim,
+                        )
+                except DimensionMismatchError:
+                    raise  # re-raise — don't swallow our own error
+                except Exception as schema_exc:
+                    logger.debug("Could not read dimension from zvec schema: %s", schema_exc)
+                return coll
+            except DimensionMismatchError:
+                raise  # propagate to caller
             except Exception as exc:
                 logger.error(
                     "zvec collection at %s exists but cannot be opened: %s",
@@ -221,28 +254,22 @@ class NamespaceVectorStore:
     def close(self) -> None:
         """Release the underlying zvec collection handle.
 
-        zvec doesn't expose an explicit close API — destroying the Python
-        reference is what releases the file lock + flushes RocksDB. We do
-        this under :attr:`_coll_lock` so a concurrent ``_coll()`` call
-        can't observe a half-cleared collection.
+        zvec doesn't expose an explicit close API — dropping the Python
+        reference is sufficient; zvec handles its own internal cleanup.
 
         Safe to call multiple times; subsequent calls are no-ops. Any
         future call on this instance after ``close()`` will lazily reopen
-        the collection (matching the original "construct cheap, open lazy"
-        contract).
+        the collection (matching the "construct cheap, open lazy" contract).
         """
-        with self._coll_lock:
-            if self._collection is None:
-                return
-            try:
-                # Force the GC path that releases the zvec C++ handle.
-                # del is the only way to drop the strong ref held by self.
-                del self._collection
-            except Exception as exc:  # noqa: BLE001 — best-effort cleanup
-                logger.warning(
-                    "Error releasing zvec handle for %s: %s", self._path, exc
-                )
-            self._collection = None
+        if self._collection is None:
+            return
+        try:
+            del self._collection
+        except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+            logger.warning(
+                "Error releasing zvec handle for %s: %s", self._path, exc
+            )
+        self._collection = None
 
     @staticmethod
     def _esc(s: Optional[str]) -> str:
@@ -469,4 +496,4 @@ class NamespaceVectorStore:
             return 0
 
 
-__all__ = ["NamespaceVectorStore", "VectorHit"]
+__all__ = ["DimensionMismatchError", "NamespaceVectorStore", "VectorHit"]

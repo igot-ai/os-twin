@@ -89,6 +89,7 @@ export function StructuredPlanView() {
           {
             heading: 'Description',
             headingLevel: 3,
+            sectionKey: 'description',
             type: 'text',
             content: 'Description of the new feature.',
             rawLines: ['### Description', 'Description of the new feature.'],
@@ -98,6 +99,7 @@ export function StructuredPlanView() {
           {
             heading: 'Definition of Done',
             headingLevel: 3,
+            sectionKey: 'definition_of_done',
             type: 'checklist',
             content: '',
             items: [
@@ -110,6 +112,7 @@ export function StructuredPlanView() {
           {
             heading: 'Tasks',
             headingLevel: 3,
+            sectionKey: 'tasks',
             type: 'tasklist',
             content: '',
             tasks: [
@@ -166,6 +169,7 @@ export function StructuredPlanView() {
               <h1 
                 className="text-2xl font-black text-text-main hover:text-primary transition-colors cursor-text"
                 onDoubleClick={() => setEditingPlanTitle(true)}
+                data-testid="plan-title"
               >
                 {parsedPlan.title.replace(/^#\s*/, '') || 'Untitled Plan'}
               </h1>
@@ -187,6 +191,7 @@ export function StructuredPlanView() {
               <div 
                 className="cursor-text hover:bg-surface-hover/30 p-2 -m-2 rounded transition-colors"
                 onDoubleClick={() => setEditingGoal(true)}
+                data-testid="plan-goal"
               >
                 <MarkdownRenderer content={parsedPlan.preamble} className="text-sm text-text-main" />
               </div>

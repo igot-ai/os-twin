@@ -30,25 +30,25 @@ const SUGGESTED_EMBEDDINGS: EmbeddingSuggestion[] = [
 // ── Defaults (match backend KnowledgeSettings defaults) ─────────────────────
 
 const DEFAULTS: KnowledgeSettings = {
-  llm_model: '',
-  embedding_model: '',
-  embedding_dimension: 384,
-};
+  knowledge_llm_model: '',
+  knowledge_embedding_model: '',
+  knowledge_embedding_dimension: 384,
+} as any; // Cast for now since type might still have the old fields
 
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePanelProps) {
   const effective = { ...DEFAULTS, ...knowledge };
 
-  const [embedInput, setEmbedInput] = useState(effective.embedding_model);
+  const [embedInput, setEmbedInput] = useState(effective.knowledge_embedding_model);
   const [savingMsg, setSavingMsg] = useState<string | null>(null);
   const [savingError, setSavingError] = useState(false);
 
   // Keep local input in sync if external settings change (e.g. WS broadcast)
   useEffect(() => {
-    setEmbedInput(effective.embedding_model);
+    setEmbedInput(effective.knowledge_embedding_model);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effective.embedding_model]);
+  }, [effective.knowledge_embedding_model]);
 
   // Filter out obvious embedding-only models from chat picker
   const chatModels = useMemo(
@@ -68,8 +68,8 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setSavingMsg('Saving…');
     setSavingError(false);
     try {
-      await onUpdate({ llm_model: model });
-      flashSavedMessage('Saved');
+      await onUpdate({ knowledge_llm_model: model });
+      flashSavedMessage('Saved — takes effect on next query', false, 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
       flashSavedMessage(`Save failed: ${msg}`, true);
@@ -77,13 +77,13 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
   };
 
   const commitEmbedding = async (modelId: string) => {
-    if (modelId === effective.embedding_model) return;
+    if (modelId === effective.knowledge_embedding_model) return;
     setSavingMsg('Saving…');
     setSavingError(false);
     try {
       const match = SUGGESTED_EMBEDDINGS.find((s) => s.id === modelId);
-      const dim = match?.dim ?? effective.embedding_dimension;
-      await onUpdate({ embedding_model: modelId, embedding_dimension: dim });
+      const dim = match?.dim ?? effective.knowledge_embedding_dimension;
+      await onUpdate({ knowledge_embedding_model: modelId, knowledge_embedding_dimension: dim });
       flashSavedMessage('Saved — restart dashboard to apply', false, 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
@@ -128,11 +128,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         </h2>
         <p className="text-sm text-on-surface-variant">
           Configure the LLM and embedding models used by the knowledge service for entity
-          extraction, query answering, and document indexing. Settings map to{' '}
+          extraction, query answering, and document indexing. Overrides{' '}
           <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">
             KNOWLEDGE_*
           </code>{' '}
-          environment variables.
+          environment variable defaults when set.
         </p>
       </div>
 
@@ -141,7 +141,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-blue-600 text-lg">psychology</span>
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">LLM Model</h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">KNOWLEDGE_LLM_MODEL</span>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">knowledge_llm_model</span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -152,7 +152,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
             server default.
           </p>
           <ModelSelect
-            value={effective.llm_model}
+            value={effective.knowledge_llm_model}
             onChange={handleLlmChange}
             models={chatModels}
             showTier={true}
@@ -167,7 +167,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           <p className="text-[10px] text-slate-400 mt-2">
             Currently effective:{' '}
             <code className="font-mono text-[10px] text-slate-600">
-              {effective.llm_model || '(server default)'}
+              {effective.knowledge_llm_model || '(server default)'}
             </code>
           </p>
         </div>
@@ -181,7 +181,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
             Embedding Model
           </h3>
           <span className="text-[9px] text-slate-400 ml-auto font-mono">
-            KNOWLEDGE_EMBEDDING_MODEL
+            knowledge_embedding_model
           </span>
         </div>
 
@@ -245,7 +245,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           <p className="text-[10px] text-slate-400">
             Currently effective:{' '}
             <code className="font-mono text-[10px] text-slate-600">
-              {effective.embedding_model || '(server default)'}
+              {effective.knowledge_embedding_model || '(server default)'}
             </code>
           </p>
         </div>
@@ -268,7 +268,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           </p>
           <div className="flex items-baseline gap-2">
             <code className="text-2xl font-extrabold font-mono text-slate-900">
-              {effective.embedding_dimension}
+              {effective.knowledge_embedding_dimension}
             </code>
             <span className="text-[10px] text-slate-400">dimensions</span>
           </div>

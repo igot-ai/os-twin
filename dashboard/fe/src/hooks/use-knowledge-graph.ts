@@ -34,7 +34,7 @@ export interface GraphResponse {
   error: string | null;
 }
 
-const KNOWLEDGE_BASE = '/api/knowledge';
+const KNOWLEDGE_BASE = '/knowledge';
 const DEFAULT_LIMIT = 200;
 
 /**

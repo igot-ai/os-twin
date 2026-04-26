@@ -352,6 +352,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
               <div 
                 className="cursor-text hover:bg-surface-hover/50 p-2 -m-2 rounded transition-colors"
                 onDoubleClick={() => setEditingDescription(true)}
+                data-testid="epic-description"
               >
                 <MarkdownRenderer content={cleanContent} className="text-sm text-text-main" />
               </div>
@@ -405,6 +406,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                         }`}
                         onClick={(e) => { e.stopPropagation(); handleStartEditCheckItem(section.heading, idx, item.text); }}
                         title="Click to edit"
+                        data-testid="check-item"
                       >
                         {renderInlineCode(item.text)}
                       </span>
@@ -477,7 +479,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                     isEditingThisTask 
                       ? 'border-primary bg-background shadow-md' 
                       : 'border-border bg-background/50 hover:border-text-faint'
-                  }`}>
+                  }`} data-testid="task-item">
                     <div className="flex items-start gap-3">
                       <input
                         type="checkbox"
@@ -602,6 +604,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
       className={`mb-6 rounded-xl border bg-surface shadow-sm overflow-hidden transition-all duration-200 ${
         isCollapsed ? 'hover:border-text-faint' : 'border-border'
       }`}
+      data-testid="epic-card"
     >
       {/* Header */}
       <div 
@@ -638,6 +641,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                 e.stopPropagation();
                 setEditingTitle(true);
               }}
+              data-testid="epic-title"
             >
               {epic.title}
             </h3>

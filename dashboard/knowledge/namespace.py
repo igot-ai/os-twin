@@ -20,8 +20,8 @@ Manifest schema (NamespaceMeta serialized as JSON, ``schema_version=1``)::
         "updated_at": "2026-04-19T12:34:56+00:00",
         "language": "English",
         "description": "...",
-        "embedding_model": "BAAI/bge-small-en-v1.5",
-        "embedding_dimension": 384,
+        "embedding_model": "BAAI/bge-base-en-v1.5",
+        "embedding_dimension": 768,
         "stats": {
             "files_indexed": 0,
             "chunks": 0,
@@ -258,6 +258,8 @@ class NamespaceManager:
         namespace: str,
         language: str = "English",
         description: Optional[str] = None,
+        embedding_model: Optional[str] = None,
+        embedding_dimension: Optional[int] = None,
     ) -> NamespaceMeta:
         """Create a fresh namespace. Raises if it already exists.
 
@@ -266,6 +268,19 @@ class NamespaceManager:
         - Writes ``manifest.json`` atomically.
         - Does NOT eagerly create ``graph.db`` or ``chroma/`` — those come up
           lazily on first ingestion.
+
+        Parameters
+        ----------
+        embedding_model:
+            When provided, records this model name in the manifest instead of
+            the module-level ``EMBEDDING_MODEL`` default. Callers (e.g.
+            :class:`KnowledgeService`) should pass the *effective* model
+            resolved from ``MasterSettings.knowledge.embedding_model`` so
+            the manifest reflects the actual model that will be used for
+            ingestion.
+        embedding_dimension:
+            When provided, records this dimension in the manifest. Should
+            match the dimension of ``embedding_model``.
         """
         self._require_valid_id(namespace)
         with self._lock:
@@ -274,13 +289,18 @@ class NamespaceManager:
                 raise NamespaceExistsError(f"Namespace {namespace!r} already exists")
             ns_path.mkdir(parents=True, exist_ok=False)
             now = _utcnow()
-            meta = NamespaceMeta(
+            meta_kwargs: dict[str, Any] = dict(
                 name=namespace,
                 created_at=now,
                 updated_at=now,
                 language=language,
                 description=description,
             )
+            if embedding_model is not None:
+                meta_kwargs["embedding_model"] = embedding_model
+            if embedding_dimension is not None:
+                meta_kwargs["embedding_dimension"] = int(embedding_dimension)
+            meta = NamespaceMeta(**meta_kwargs)
             self.write_manifest(namespace, meta)
             logger.info("Created namespace %r at %s", namespace, ns_path)
             return meta

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 /**
  * Props for the BacklinkBadge component.
@@ -35,6 +35,16 @@ export default function BacklinkBadge({
 }: BacklinkBadgeProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Close on Escape key
+  useEffect(() => {
+    if (!isExpanded) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsExpanded(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isExpanded]);
+
   // Don't render if no links
   if (!memoryLinks || memoryLinks.length === 0) {
     return null;
@@ -61,13 +71,19 @@ export default function BacklinkBadge({
 
       {/* Expanded panel */}
       {isExpanded && (
-        <div
-          className="absolute top-full left-0 mt-1 z-50 min-w-[200px] max-w-[300px] rounded-lg border shadow-lg"
-          style={{
-            background: 'var(--color-surface)',
-            borderColor: 'var(--color-border)',
-          }}
-        >
+        <>
+          {/* Click-outside overlay */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setIsExpanded(false)}
+          />
+          <div
+            className="absolute top-full left-0 mt-1 z-50 min-w-[200px] max-w-[300px] rounded-lg border shadow-lg"
+            style={{
+              background: 'var(--color-surface)',
+              borderColor: 'var(--color-border)',
+            }}
+          >
           {/* Header */}
           <div
             className="flex items-center justify-between px-3 py-2 border-b"
@@ -130,7 +146,8 @@ export default function BacklinkBadge({
               Namespace: {namespace}
             </div>
           )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -111,6 +111,8 @@ export interface RuntimeSettings {
   max_concurrent_rooms: number;
   auto_approve_tools: boolean;
   dynamic_pipelines: boolean;
+  /** Master agent default model — format: "provider/model_id". Empty = use server default. */
+  master_agent_model?: string;
 }
 
 export interface AutonomySettings {
@@ -161,11 +163,11 @@ export interface ObservabilitySettings {
 
 export interface KnowledgeSettings {
   /** Empty string means "use server default (config.LLM_MODEL / env var)". */
-  llm_model: string;
+  knowledge_llm_model: string;
   /** Empty string means "use server default (config.EMBEDDING_MODEL / env var)". */
-  embedding_model: string;
+  knowledge_embedding_model: string;
   /** Read-only / informational. The actual dim is determined by the loaded embedding model. */
-  embedding_dimension: number;
+  knowledge_embedding_dimension: number;
 }
 
 export interface MasterSettings {

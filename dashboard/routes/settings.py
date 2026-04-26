@@ -216,12 +216,23 @@ async def put_knowledge_settings(
 
     Persisted to ``.agents/config.json`` under the ``knowledge`` key.
     Broadcasts a ``settings_updated`` event so the FE settings panel can
-    react live. The next ``KnowledgeService`` instance picks up the new
-    values on construction (existing instances keep their cached LLM /
-    embedder — call ``service.shutdown()`` then re-instantiate to refresh).
+    react live.  Invalidates the running KnowledgeService's model cache so
+    the new settings take effect on the next LLM/embedding call without a
+    dashboard restart.
     """
     resolver = get_settings_resolver()
     resolver.patch_namespace("knowledge", payload.model_dump(mode="json"))
+
+    # Invalidate cached LLM / embedder so next call picks up new settings.
+    # Best-effort: never let invalidation failure break the settings save.
+    try:
+        from dashboard.routes.knowledge import _get_service  # noqa: WPS433
+
+        svc = _get_service()
+        if hasattr(svc, "invalidate_model_cache"):
+            svc.invalidate_model_cache()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Knowledge model cache invalidation skipped: %s", exc)
 
     await broadcaster.broadcast(
         "settings_updated",

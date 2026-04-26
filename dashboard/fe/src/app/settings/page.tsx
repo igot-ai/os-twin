@@ -14,7 +14,7 @@ import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
 import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
-import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
+import { apiGet, apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
 // Providers that have dedicated cards at the top of the settings page.
 // These are hidden from the Additional Providers section to avoid duplicates.
@@ -355,10 +355,34 @@ export default function SettingsPage() {
       case 'runtime':
         return (
           <div>
-            <h2 className="text-lg font-bold text-on-surface mb-4">Runtime</h2>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-mono text-primary bg-primary-container px-2 py-0.5 rounded">
+                SYSTEM_ADMIN
+              </span>
+              <span className="text-xs text-on-surface-variant">/ configuration / runtime</span>
+            </div>
+            <h2 className="text-2xl font-extrabold tracking-tight text-on-surface mb-1">
+              Runtime Configuration
+            </h2>
+            <p className="text-sm text-on-surface-variant mb-6">
+              Configure the master agent model and operational parameters.
+            </p>
             <RuntimePanel
               runtime={settings.runtime}
-              onUpdate={(value) => updateNamespace('runtime', { ...settings.runtime, ...value })}
+              allModels={allModels}
+              onUpdate={async (value) => {
+                // If master_agent_model changed, also update the master agent singleton
+                if (value.master_agent_model !== undefined) {
+                  try {
+                    await apiPut('/settings/master-model', {
+                      model: value.master_agent_model,
+                    });
+                  } catch (e) {
+                    console.error('Failed to update master model:', e);
+                  }
+                }
+                updateNamespace('runtime', { ...settings.runtime, ...value });
+              }}
             />
           </div>
         );
@@ -372,7 +396,7 @@ export default function SettingsPage() {
         );
 
       case 'knowledge': {
-        const knowledgeDefaults = { llm_model: '', embedding_model: '', embedding_dimension: 384 };
+        const knowledgeDefaults = { knowledge_llm_model: '', knowledge_embedding_model: '', knowledge_embedding_dimension: 384 };
         const knowledgeCurrent = settings.knowledge ?? knowledgeDefaults;
         return (
           <KnowledgePanel

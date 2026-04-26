@@ -398,8 +398,7 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
 
                             nodes.append(self._from_record_to_node(node_data, load_entity=label_type))
 
-                            # Return only first 5 matching nodes
-                            if len(nodes) >= 5:
+                            if len(nodes) >= limit:
                                 break
 
                         return nodes
@@ -734,10 +733,27 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
 
         # Create or merge the node
         try:
-            # Handle embedding - ensure it's the right size or None
-            embedding_value = None
-            if node.embedding:
-                embedding_value = node.embedding
+            # Handle embedding — every node MUST have an embedding so it is
+            # discoverable via KuzuDB's QUERY_VECTOR_INDEX.  If the node
+            # arrives without one (embedder failure, legacy path) we generate
+            # it here from the node's textual content.
+            embedding_value = node.embedding if node.embedding else None
+            if not embedding_value:
+                try:
+                    embedder = _get_embedder()
+                    if isinstance(node, EntityNode):
+                        embed_text = ".".join([
+                            str(getattr(node, "name", "")),
+                            str(getattr(node, "label", "")),
+                            str((node.properties or {}).get("entity_description", "")),
+                        ])
+                    else:
+                        embed_text = _text or ""
+                    if embed_text and embed_text.strip():
+                        embedding_value = embedder.embed_one(embed_text)
+                        logger.debug("Auto-generated embedding for node %s", node.id)
+                except Exception as emb_exc:  # noqa: BLE001
+                    logger.warning("Could not auto-generate embedding for node %s: %s", node.id, emb_exc)
 
             # Use CREATE instead of MERGE for simpler syntax in Kuzu
             # First check if node exists - use string formatting with escaping
@@ -864,6 +880,18 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
                         parameters=parameters,
                     )
             else:
+                # Guard: reject nodes that still have no embedding after all
+                # upstream + auto-generation attempts. A node without an
+                # embedding is invisible to QUERY_VECTOR_INDEX and would
+                # silently pollute the graph.
+                if not embedding_value:
+                    logger.error(
+                        "Node %s has no embedding after all generation attempts; "
+                        "skipping persistence to avoid invisible nodes",
+                        node.id,
+                    )
+                    return
+
                 # Create new node
                 self._escape_string(_text)
                 self._escape_string(_name)
@@ -872,7 +900,9 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
                 self._escape_string(self.ws_id)
                 self._escape_string(str(category_id))
 
-                # Build dynamic CREATE properties based on whether embedding exists
+                # Build CREATE properties — embedding is always included
+                # because the auto-generation logic above guarantees every
+                # node has one.
                 create_properties = {
                     "id": "$node_id",
                     "text": "$text",
@@ -883,6 +913,7 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
                     "index_": "$index",
                     "category_id": "$category_id",
                     "weight": "$weight",
+                    "embedding": "$embedding",
                 }
 
                 parameters = {
@@ -895,12 +926,8 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
                     "index": self.index,
                     "category_id": str(category_id),
                     "weight": weight,
+                    "embedding": embedding_value,
                 }
-
-                # Add embedding to properties and parameters if it exists
-                if embedding_value:
-                    create_properties["embedding"] = "$embedding"
-                    parameters["embedding"] = embedding_value
 
                 # Build the properties string for CREATE
                 properties_str = ", ".join([f"{k}: {v}" for k, v in create_properties.items()])

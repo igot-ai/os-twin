@@ -44,7 +44,7 @@ function Setup-Env {
 # BASETEN_API_KEY=your-baseten-api-key-here
 # AWS_ACCESS_KEY_ID=your-aws-access-key-id-here
 # AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
-
+GOOGLE_GENAI_USE_VERTEXAI=True
 # ── Dashboard settings ──────────────────────────────────────────────────────
 # DASHBOARD_PORT=3366
 # DASHBOARD_HOST=0.0.0.0

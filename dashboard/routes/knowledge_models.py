@@ -181,6 +181,29 @@ class ImportFolderResponse(BaseModel):
     )
 
 
+class RefreshNamespaceResponse(BaseModel):
+    """Response for POST /api/knowledge/namespaces/{namespace}/refresh."""
+
+    job_ids: list[str] = Field(
+        default_factory=list,
+        description="List of job identifiers for the triggered refresh tasks",
+    )
+
+
+class BackupNamespaceResponse(BaseModel):
+    """Response for POST /api/knowledge/namespaces/{namespace}/backup."""
+
+    archive_path: str = Field(..., description="Absolute path to the created backup archive")
+    namespace: str = Field(..., description="Name of the backed up namespace")
+
+
+class RestoreNamespaceRequest(BaseModel):
+    """Request body for POST /api/knowledge/namespaces/{namespace}/restore."""
+
+    archive_path: str = Field(..., description="Absolute path to the backup archive to restore")
+    overwrite: bool = Field(default=False, description="Overwrite existing namespace if True")
+
+
 class ErrorResponse(BaseModel):
     """Standard error response shape for all knowledge endpoints."""
 
@@ -287,7 +310,13 @@ class JobStatusResponse(BaseModel):
 
 
 class ChunkHitResponse(BaseModel):
-    """A single chunk returned from vector retrieval."""
+    """A single chunk returned from vector retrieval.
+
+    ``memory_links`` is populated by the Memory-Knowledge bridge
+    (OSTWIN_KNOWLEDGE_MEMORY_BRIDGE=1) and contains note IDs from the
+    agentic memory store that cite this specific chunk. Empty list when
+    the bridge is disabled or unavailable.
+    """
 
     text: str
     score: float
@@ -298,6 +327,7 @@ class ChunkHitResponse(BaseModel):
     file_hash: str = ""
     mime_type: Optional[str] = None
     category_id: Optional[str] = None
+    memory_links: list[str] = Field(default_factory=list)
 
 
 class EntityHitResponse(BaseModel):
@@ -341,10 +371,12 @@ __all__ = [
     "CreateNamespaceRequest",
     "ImportFolderRequest",
     "QueryRequest",
+    "RestoreNamespaceRequest",
     "RetentionPolicyRequest",  # EPIC-004
     # Responses
     "DeleteNamespaceResponse",
     "ImportFolderResponse",
+    "BackupNamespaceResponse",
     "ErrorResponse",
     "NamespaceStatsResponse",
     "ImportRecordResponse",
@@ -354,5 +386,6 @@ __all__ = [
     "EntityHitResponse",
     "CitationResponse",
     "QueryResultResponse",
+    "RefreshNamespaceResponse",
     "RetentionPolicyResponse",  # EPIC-004
 ]

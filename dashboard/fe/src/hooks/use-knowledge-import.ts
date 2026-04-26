@@ -39,7 +39,7 @@ export interface JobStatusResponse {
   result: Record<string, unknown> | null;
 }
 
-const KNOWLEDGE_BASE = '/api/knowledge';
+const KNOWLEDGE_BASE = '/knowledge';
 
 /**
  * Hook to fetch all jobs for a namespace.
