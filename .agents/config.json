@@ -166,7 +166,10 @@
     "embedding_model": "intfloat/multilingual-e5-base",
     "embedding_dimension": 768,
     "llm_provider": "",
-    "embedding_backend": ""
+    "embedding_backend": "",
+    "knowledge_llm_model": "google-vertex/gemini-3-flash-preview",
+    "knowledge_embedding_model": "intfloat/multilingual-e5-base",
+    "knowledge_embedding_dimension": 768
   },
   "providers": {
     "openai": null,

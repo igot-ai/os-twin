@@ -46,10 +46,10 @@ from dashboard.knowledge.audit import (  # noqa: WPS433 — EPIC-003 policies
 from dashboard.knowledge.stats import get_stats_computer  # noqa: WPS433 — EPIC-005
 from dashboard.knowledge.metrics import get_metrics_registry  # noqa: WPS433 — EPIC-005
 from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM  # noqa: WPS433
-from dashboard.knowledge.config import LLM_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
+from dashboard.knowledge.config import LLM_PROVIDER as _DEFAULT_LLM_PROV  # noqa: WPS433
 from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
 from dashboard.knowledge.config import EMBEDDING_MODEL as _DEFAULT_EMBED  # noqa: WPS433
-from dashboard.knowledge.config import EMBEDDING_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
+from dashboard.knowledge.config import EMBEDDING_PROVIDER as _DEFAULT_EMBED_PROV  # noqa: WPS433
 from dashboard.knowledge.embeddings import KnowledgeEmbedder  # noqa: WPS433
 from dashboard.knowledge.query import KnowledgeQueryEngine  # noqa: WPS433
 if TYPE_CHECKING:  # pragma: no cover
@@ -205,13 +205,11 @@ class KnowledgeService:
     # ---- Shared embedder / LLM (lazy) -----------------------------------
 
     @staticmethod
-    def _resolve_settings_overrides() -> tuple[str, str, str, str]:
-        """Return ``(llm_model, embedding_model, llm_provider, embedding_backend)`` overrides.
+    def _resolve_settings_overrides() -> tuple[str, str]:
+        """Resolve model overrides from MasterSettings.
 
-        Empty strings mean "no override; use env-var / hardcoded default".
-        Settings-resolver failures (config missing, vault offline, etc.)
-        are logged at DEBUG and treated as "no override" — knowledge work
-        must never crash because settings IO failed (ADR-15 graceful path).
+        Returns:
+            tuple[str, str]: (knowledge_llm_model, knowledge_embedding_model)
         """
         try:
             from dashboard.lib.settings import get_settings_resolver  # noqa: WPS433
@@ -219,16 +217,14 @@ class KnowledgeService:
             ms = get_settings_resolver().get_master_settings()
             ks = getattr(ms, "knowledge", None)
             if ks is None:
-                return "", "", "", ""
+                return "", ""
             return (
-                ks.llm_model or "",
-                ks.embedding_model or "",
-                getattr(ks, "llm_provider", "") or "",
-                getattr(ks, "embedding_backend", "") or "",
+                ks.knowledge_llm_model or "",
+                ks.knowledge_embedding_model or "",
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("settings resolver unavailable: %s; using env defaults", exc)
-            return "", "", "", ""
+            return "", ""
 
     def _get_embedder(self) -> Any:
         """Lazily construct (or return the injected) embedder, shared service-wide.
@@ -245,9 +241,9 @@ class KnowledgeService:
             return self._embedder_override
         if self._embedder is not None:
             return self._embedder
-        _, settings_embed, _, settings_embed_backend = self._resolve_settings_overrides()
+        settings_llm, settings_embed = self._resolve_settings_overrides()
         effective_model = settings_embed or _DEFAULT_EMBED
-        effective_provider = settings_embed_backend or _DEFAULT_PROV
+        effective_provider = _DEFAULT_EMBED_PROV
         self._embedder = KnowledgeEmbedder(
             model_name=effective_model,
             provider=effective_provider,
@@ -265,9 +261,9 @@ class KnowledgeService:
             return self._llm_override
         if self._llm is not None:
             return self._llm
-        settings_llm, _, settings_prov, _ = self._resolve_settings_overrides()
+        settings_llm, _ = self._resolve_settings_overrides()
         effective_model = settings_llm or _DEFAULT_LLM
-        effective_provider = settings_prov or _DEFAULT_PROV or None
+        effective_provider = _DEFAULT_LLM_PROV or None
         self._llm = KnowledgeLLM(
             model=effective_model,
             provider=effective_provider,
@@ -416,6 +412,7 @@ class KnowledgeService:
                 llm=llm,
                 plan_llm=llm,
                 node_id=namespace,
+                embed_model=embed_adapter,
                 include_graph=True,
                 max_queries=3,
             )

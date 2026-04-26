@@ -9,8 +9,6 @@
  * - Picks up the embedding dimension when a suggested model is selected.
  *
  * NOTE: The LLM section now uses <ModelSelect> (not a plain <select>).
- *       ModelSelect renders a <button> trigger + a searchable <input> inside
- *       a floating dropdown — so tests interact with those instead of a combobox.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -27,17 +25,13 @@ const mockModels: ModelInfo[] = [
 ];
 
 const defaults: KnowledgeSettings = {
-  llm_model: '',
-  llm_provider: '',
-  embedding_model: '',
-  embedding_backend: '',
-  embedding_dimension: 384,
+  knowledge_llm_model: '',
+  knowledge_embedding_model: '',
+  knowledge_embedding_dimension: 384,
 };
 
 // Helper: open the ModelSelect dropdown (click the trigger button)
 function openLlmDropdown() {
-  // The trigger is the first <button> in the LLM section.
-  // It is identified by either the placeholder text or the selected model label.
   const trigger = screen.getAllByRole('button').find(
     (b) =>
       b.textContent?.includes('Use server default') ||
@@ -64,12 +58,11 @@ describe('KnowledgePanel', () => {
     const onUpdate = vi.fn();
     render(
       <KnowledgePanel
-        knowledge={{ ...defaults, llm_model: 'anthropic/claude-haiku-4-5' }}
+        knowledge={{ ...defaults, knowledge_llm_model: 'anthropic/claude-haiku-4-5' }}
         onUpdate={onUpdate}
         allModels={mockModels}
       />,
     );
-    // The trigger button should contain the model label (or id)
     expect(screen.getByText(/Claude Haiku 4\.5/i)).toBeInTheDocument();
   });
 
@@ -79,17 +72,14 @@ describe('KnowledgePanel', () => {
 
     openLlmDropdown();
 
-    // Chat models should appear in the list
     expect(screen.getByText(/Claude Haiku 4\.5/)).toBeInTheDocument();
     expect(screen.getByText(/GPT-5/)).toBeInTheDocument();
-    // Embedding model should NOT appear
     expect(screen.queryByText(/OpenAI Embedding/)).not.toBeInTheDocument();
   });
 
   it('shows the placeholder when no LLM is set', () => {
     const onUpdate = vi.fn();
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={mockModels} />);
-    // The trigger shows the placeholder text; multiple elements contain "server default" (prose + trigger + code)
     expect(screen.getAllByText(/server default/i).length).toBeGreaterThanOrEqual(2);
   });
 
@@ -99,24 +89,22 @@ describe('KnowledgePanel', () => {
 
     openLlmDropdown();
 
-    // Click the GPT-5 option in the open dropdown
     const option = screen.getByRole('button', { name: /GPT-5/ });
     fireEvent.click(option);
 
-    expect(onUpdate).toHaveBeenCalledWith({ llm_model: 'openai/gpt-5' });
+    expect(onUpdate).toHaveBeenCalledWith({ knowledge_llm_model: 'openai/gpt-5' });
   });
 
   it('calls onUpdate with model + dimension when a suggested embedding is clicked', async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined);
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={mockModels} />);
 
-    // Click the suggestion button for bge-base-en-v1.5 (dim 768)
     const button = screen.getByRole('button', { name: /BAAI\/bge-base-en-v1\.5/ });
     fireEvent.click(button);
 
     expect(onUpdate).toHaveBeenCalledWith({
-      embedding_model: 'BAAI/bge-base-en-v1.5',
-      embedding_dimension: 768,
+      knowledge_embedding_model: 'BAAI/bge-base-en-v1.5',
+      knowledge_embedding_dimension: 768,
     });
   });
 
@@ -127,9 +115,8 @@ describe('KnowledgePanel', () => {
     fireEvent.change(input, { target: { value: 'custom/model-id' } });
     fireEvent.blur(input);
     expect(onUpdate).toHaveBeenCalledWith({
-      embedding_model: 'custom/model-id',
-      // unknown to suggestion list → preserves the prior dimension
-      embedding_dimension: 384,
+      knowledge_embedding_model: 'custom/model-id',
+      knowledge_embedding_dimension: 384,
     });
   });
 
@@ -137,7 +124,7 @@ describe('KnowledgePanel', () => {
     const onUpdate = vi.fn();
     render(
       <KnowledgePanel
-        knowledge={{ ...defaults, embedding_model: 'BAAI/bge-small-en-v1.5' }}
+        knowledge={{ ...defaults, knowledge_embedding_model: 'BAAI/bge-small-en-v1.5' }}
         onUpdate={onUpdate}
         allModels={mockModels}
       />,
@@ -151,7 +138,7 @@ describe('KnowledgePanel', () => {
     const onUpdate = vi.fn();
     render(
       <KnowledgePanel
-        knowledge={{ ...defaults, embedding_dimension: 768 }}
+        knowledge={{ ...defaults, knowledge_embedding_dimension: 768 }}
         onUpdate={onUpdate}
         allModels={mockModels}
       />,
@@ -163,9 +150,7 @@ describe('KnowledgePanel', () => {
   it('shows the "no providers" warning and placeholder when no models are configured', () => {
     const onUpdate = vi.fn();
     render(<KnowledgePanel knowledge={defaults} onUpdate={onUpdate} allModels={[]} />);
-    // The placeholder still appears on the dropdown trigger
     expect(screen.getByText(/Use server default/)).toBeInTheDocument();
-    // The amber warning text is shown below the picker
     expect(screen.getByText(/No providers configured/i)).toBeInTheDocument();
   });
 });

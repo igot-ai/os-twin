@@ -10,10 +10,12 @@ the EPIC-003 review).
 
 Three modes:
 
-- ``raw``        — KuzuDB vector search via ``QUERY_VECTOR_INDEX``. Returns
-                   both ChunkNode and EntityNode hits. Sub-500ms p95.
-- ``graph``      — KuzuDB vector search + graph expansion (entities related
-                   to the vector hits, ranked by personalised PageRank).
+- ``raw``        — KG graph engine retrieval via ``get_all_nodes``. Returns
+                   both ChunkNode and EntityNode hits. The KG layer owns
+                   vector search logic entirely.
+- ``graph``      — Graph expansion (entities related to the query, ranked
+                   by personalised PageRank via :class:`GraphRAGQueryEngine`
+                   when available, otherwise uniform PageRank).
 - ``summarized`` — graph mode + LLM-aggregated answer. Requires an LLM model
                    and API key to be configured; without it the engine returns
                    chunks + entities + a ``warning`` field on the result and
@@ -28,6 +30,9 @@ Citations are populated from the vector hits' metadata. ``page`` is left
 None because not every parser provides page numbers; future EPIC-007 work
 can fill that in for PDF / DOCX once MarkItDown propagates page metadata
 through the chunker.
+
+TODO(EPIC-007): Wire ``enrich_memory_links`` + citation enrichment once
+the memory-knowledge bridge is stable.
 """
 
 from __future__ import annotations
@@ -207,7 +212,7 @@ class KnowledgeQueryEngine:
         self,
         query: str,
         *,
-        mode: str = "raw",
+        mode: str = "graph",
         top_k: int = 10,
         threshold: float = 0.5,
         category: Optional[str] = None,
@@ -231,33 +236,37 @@ class KnowledgeQueryEngine:
         metrics = get_metrics_registry()
         metrics.counter("query_total").inc()
 
-        # --- 1) KuzuDB vector search (all modes) ----------------------
+        # --- 1) Raw mode — delegate to KG graph engine ------------------
         #
-        # Uses KuzuDB's built-in QUERY_VECTOR_INDEX on entity + chunk node
-        # embeddings. Returns both EntityNode and ChunkNode results.
-        try:
-            kg_nodes = self.kg.get_all_nodes(
-                context=query,
-                category_id=category,
-                limit=top_k,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("KuzuDB vector search failed for %r: %s", query, exc)
-            result.warnings.append(f"vector_search_failed: {exc}")
-            result.latency_ms = int((time.perf_counter() - t0) * 1000)
-            metrics.counter("query_errors_total").inc()
-            return result
-
-        # Separate results into chunks and entities
-        chunks, entities = self._split_kg_nodes(kg_nodes)
-        result.chunks = chunks
-        result.entities = entities
-        result.citations = [self._chunk_to_citation(c) for c in chunks]
-
-        # Enrich chunks with memory_links via bridge (if enabled)
-        self._enrich_memory_links(result.chunks)
-
+        # The KG graph engine owns all vector retrieval now. For "raw"
+        # mode we fetch chunks + entities directly via the graph layer
+        # and return immediately. "graph" and "summarized" modes fall
+        # through to steps 2–3 below.
+        #
+        # TODO(EPIC-007): enrich_memory_links + citation enrichment
+        # should be wired here once the bridge is stable.
         if mode == "raw":
+            try:
+                kg_nodes = self.kg.get_all_nodes(
+                    context=query,
+                    category_id=category,
+                    limit=top_k,
+                )
+                chunks, entities = self._split_kg_nodes(kg_nodes)
+                # Apply threshold filter — chunks from KuzuDB have
+                # score=1.0 (placeholder) by default; a threshold > 1.0
+                # filters everything.  Future: propagate real cosine
+                # similarity from the vector index.
+                if threshold > 0:
+                    chunks = [c for c in chunks if c.score >= threshold]
+                result.chunks = chunks
+                result.entities = entities
+                result.citations = [self._chunk_to_citation(c) for c in chunks]
+            except Exception as exc:  # noqa: BLE001
+                logger.error("KG raw search failed for %r: %s", query, exc)
+                result.warnings.append(f"vector_search_failed: {exc}")
+                metrics.counter("query_errors_total").inc()
+
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
             return result
 
@@ -308,14 +317,27 @@ class KnowledgeQueryEngine:
                     answer = self.graph_rag_engine.custom_query(
                         query, parameter=parameter, category_id=category,
                     )
-                    result.answer = answer if answer else ""
+                    if answer:  # non-empty string — real answer
+                        result.answer = answer
+                    else:
+                        # custom_query returned None/empty — fall back
+                        fallback = self._fallback_summarize(result.chunks, query)
+                        result.answer = fallback if fallback else None
+                        if not result.answer:
+                            result.warnings.append("llm_unavailable")
                 except Exception as exc:  # noqa: BLE001
                     logger.error("GraphRAGQueryEngine summarization failed: %s", exc)
                     result.warnings.append(f"graph_rag_summarization_failed: {exc}")
                     # Fall back to simple LLM aggregation.
-                    result.answer = self._fallback_summarize(result.chunks, query)
+                    fallback = self._fallback_summarize(result.chunks, query)
+                    result.answer = fallback if fallback else None
+                    if not result.answer:
+                        result.warnings.append("llm_unavailable")
             else:
-                result.answer = self._fallback_summarize(result.chunks, query)
+                fallback = self._fallback_summarize(result.chunks, query)
+                result.answer = fallback if fallback else None
+                if not result.answer:
+                    result.warnings.append("llm_unavailable")
 
         result.latency_ms = int((time.perf_counter() - t0) * 1000)
         # Record query latency histogram (convert ms to seconds)
@@ -507,6 +529,9 @@ class KnowledgeQueryEngine:
 
         Used when :attr:`graph_rag_engine` is ``None`` or when the full
         graph-RAG summarization fails.
+
+        The LLM instance is constructed by :class:`KnowledgeService._get_llm`
+        which reads the ``knowledge_llm_model`` setting from MasterSettings.
         """
         llm_available = False
         try:
@@ -515,6 +540,10 @@ class KnowledgeQueryEngine:
             llm_available = False
 
         if not llm_available:
+            logger.debug(
+                "LLM unavailable for summarize (model=%s) — returning None",
+                getattr(self.llm, "model", "?"),
+            )
             return None
 
         summaries = [c.text for c in chunks if c.text]
@@ -522,6 +551,11 @@ class KnowledgeQueryEngine:
             return ""
 
         try:
+            logger.debug(
+                "Summarizing %d chunks with knowledge_llm_model=%s",
+                len(summaries),
+                getattr(self.llm, "model", "?"),
+            )
             return self.llm.aggregate_answers(summaries, query)
         except Exception as exc:  # noqa: BLE001
             logger.error("LLM aggregation fallback failed: %s", exc)

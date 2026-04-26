@@ -1056,7 +1056,8 @@ class TestGraphRAGQueryEngineDeep:
         fake_index.property_graph_store = effective_graph_store
         fake_index.vector_store = fake_vs
         # Pre-configure _embed_model so the tracking property can construct TrackVectorRetriever
-        fake_index._embed_model = mock.MagicMock()
+        fake_embed_model = mock.MagicMock()
+        fake_index._embed_model = fake_embed_model
         fake_storage = mock.MagicMock(spec=StorageContext)
 
         engine = GraphRAGQueryEngine(
@@ -1068,6 +1069,7 @@ class TestGraphRAGQueryEngineDeep:
             llm=fake_llm,
             plan_llm=fake_llm,
             node_id="test-node",
+            embed_model=fake_embed_model,
         )
         if extra_attrs:
             for k, v in extra_attrs.items():

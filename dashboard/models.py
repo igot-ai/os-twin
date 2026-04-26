@@ -268,6 +268,9 @@ class RuntimeSettings(BaseModel):
     max_concurrent_rooms: int = Field(default=10, ge=1, le=10000)
     auto_approve_tools: bool = False
     dynamic_pipelines: bool = True
+    # Master agent default model — format: "provider/model_id" or plain "model_id".
+    # Empty string means "use the hardcoded default from master_agent.py".
+    master_agent_model: str = ""
 
 
 class MemorySettings(BaseModel):
@@ -318,18 +321,20 @@ class KnowledgeSettings(BaseModel):
     Resolution precedence is ``MasterSettings.knowledge`` > env var >
     hardcoded default — see :class:`KnowledgeService.__init__`.
 
+    All fields are prefixed with ``knowledge_`` to explicitly declare the
+    settings namespace and avoid field-name collisions across namespaces.
+
     Empty strings mean "no override; use the env-var / hardcoded default".
-    ``embedding_dimension`` is informational and read-only on the frontend
-    (the actual dim is determined by the embedding model that gets loaded).
+    ``knowledge_embedding_dimension`` is informational and read-only on the
+    frontend (the actual dim is determined by the embedding model that gets
+    loaded).
     """
 
     # -- LLM --
-    llm_model: str = ""              # empty = use config.LLM_MODEL (no hardcoded default)
-    llm_provider: str = ""           # empty = auto-detect from model name
+    knowledge_llm_model: str = ""              # empty = use config.LLM_MODEL
     # -- Embedding --
-    embedding_model: str = ""        # empty = use config.EMBEDDING_MODEL
-    embedding_backend: str = ""      # empty = use config.EMBEDDING_PROVIDER
-    embedding_dimension: int = 384   # read-only / informational
+    knowledge_embedding_model: str = ""        # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_dimension: int = 384   # read-only / informational
 
 
 class MasterSettings(BaseModel):

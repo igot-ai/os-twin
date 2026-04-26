@@ -529,32 +529,32 @@ def test_get_knowledge_settings_returns_defaults(client, temp_config):
     assert response.status_code == 200
     data = response.json()
     # Shape check (defaults from KnowledgeSettings model)
-    assert "llm_model" in data
-    assert "embedding_model" in data
-    assert "embedding_dimension" in data
+    assert "knowledge_llm_model" in data
+    assert "knowledge_embedding_model" in data
+    assert "knowledge_embedding_dimension" in data
     # Defaults: empty strings + 384.
-    assert data["llm_model"] == ""
-    assert data["embedding_model"] == ""
-    assert data["embedding_dimension"] == 384
+    assert data["knowledge_llm_model"] == ""
+    assert data["knowledge_embedding_model"] == ""
+    assert data["knowledge_embedding_dimension"] == 384
 
 
 def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
     """PUT /api/settings/knowledge persists and broadcasts."""
     payload = {
-        "llm_model": "claude-haiku-4-5",
-        "embedding_model": "BAAI/bge-base-en-v1.5",
-        "embedding_dimension": 768,
+        "knowledge_llm_model": "claude-haiku-4-5",
+        "knowledge_embedding_model": "BAAI/bge-base-en-v1.5",
+        "knowledge_embedding_dimension": 768,
     }
     r = client.put("/api/settings/knowledge", json=payload)
     assert r.status_code == 200
     body = r.json()
-    assert body["llm_model"] == "claude-haiku-4-5"
-    assert body["embedding_model"] == "BAAI/bge-base-en-v1.5"
+    assert body["knowledge_llm_model"] == "claude-haiku-4-5"
+    assert body["knowledge_embedding_model"] == "BAAI/bge-base-en-v1.5"
 
     # Roundtrip: GET should return the new values.
     r2 = client.get("/api/settings/knowledge")
     assert r2.status_code == 200
-    assert r2.json()["llm_model"] == "claude-haiku-4-5"
+    assert r2.json()["knowledge_llm_model"] == "claude-haiku-4-5"
 
     # Broadcaster fired with namespace=knowledge.
     mock_broadcaster.assert_called()
@@ -565,7 +565,7 @@ def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
 
 def test_put_knowledge_settings_requires_auth(auth_client):
     """PUT /api/settings/knowledge without auth returns 401."""
-    r = auth_client.put("/api/settings/knowledge", json={"llm_model": "x"})
+    r = auth_client.put("/api/settings/knowledge", json={"knowledge_llm_model": "x"})
     assert r.status_code == 401
 
 
@@ -576,11 +576,12 @@ def test_get_knowledge_settings_requires_auth(auth_client):
 
 
 def test_knowledge_settings_partial_payload_uses_defaults(client, temp_config):
-    """PUT with only llm_model populated → embedding_model defaults to ''."""
-    payload = {"llm_model": "claude-sonnet-4-5-20251022"}
+    """PUT with only knowledge_llm_model populated → knowledge_embedding_model defaults to ''."""
+    payload = {"knowledge_llm_model": "claude-sonnet-4-5-20251022"}
     r = client.put("/api/settings/knowledge", json=payload)
     assert r.status_code == 200
     body = r.json()
-    assert body["llm_model"] == "claude-sonnet-4-5-20251022"
-    assert body["embedding_model"] == ""
-    assert body["embedding_dimension"] == 384
+    assert body["knowledge_llm_model"] == "claude-sonnet-4-5-20251022"
+    assert body["knowledge_embedding_model"] == ""
+    assert body["knowledge_embedding_dimension"] == 384
+

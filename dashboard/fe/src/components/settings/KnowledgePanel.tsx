@@ -30,27 +30,25 @@ const SUGGESTED_EMBEDDINGS: EmbeddingSuggestion[] = [
 // ── Defaults (match backend KnowledgeSettings defaults) ─────────────────────
 
 const DEFAULTS: KnowledgeSettings = {
-  llm_model: '',
-  llm_provider: '',
-  embedding_model: '',
-  embedding_backend: '',
-  embedding_dimension: 384,
-};
+  knowledge_llm_model: '',
+  knowledge_embedding_model: '',
+  knowledge_embedding_dimension: 384,
+} as any; // Cast for now since type might still have the old fields
 
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePanelProps) {
   const effective = { ...DEFAULTS, ...knowledge };
 
-  const [embedInput, setEmbedInput] = useState(effective.embedding_model);
+  const [embedInput, setEmbedInput] = useState(effective.knowledge_embedding_model);
   const [savingMsg, setSavingMsg] = useState<string | null>(null);
   const [savingError, setSavingError] = useState(false);
 
   // Keep local input in sync if external settings change (e.g. WS broadcast)
   useEffect(() => {
-    setEmbedInput(effective.embedding_model);
+    setEmbedInput(effective.knowledge_embedding_model);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effective.embedding_model]);
+  }, [effective.knowledge_embedding_model]);
 
   // Filter out obvious embedding-only models from chat picker
   const chatModels = useMemo(
@@ -70,7 +68,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setSavingMsg('Saving…');
     setSavingError(false);
     try {
-      await onUpdate({ llm_model: model });
+      await onUpdate({ knowledge_llm_model: model });
       flashSavedMessage('Saved — takes effect on next query', false, 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
@@ -79,13 +77,13 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
   };
 
   const commitEmbedding = async (modelId: string) => {
-    if (modelId === effective.embedding_model) return;
+    if (modelId === effective.knowledge_embedding_model) return;
     setSavingMsg('Saving…');
     setSavingError(false);
     try {
       const match = SUGGESTED_EMBEDDINGS.find((s) => s.id === modelId);
-      const dim = match?.dim ?? effective.embedding_dimension;
-      await onUpdate({ embedding_model: modelId, embedding_dimension: dim });
+      const dim = match?.dim ?? effective.knowledge_embedding_dimension;
+      await onUpdate({ knowledge_embedding_model: modelId, knowledge_embedding_dimension: dim });
       flashSavedMessage('Saved — restart dashboard to apply', false, 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
@@ -143,7 +141,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-blue-600 text-lg">psychology</span>
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">LLM Model</h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">KNOWLEDGE_LLM_MODEL</span>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">knowledge_llm_model</span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -154,7 +152,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
             server default.
           </p>
           <ModelSelect
-            value={effective.llm_model}
+            value={effective.knowledge_llm_model}
             onChange={handleLlmChange}
             models={chatModels}
             showTier={true}
@@ -169,7 +167,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           <p className="text-[10px] text-slate-400 mt-2">
             Currently effective:{' '}
             <code className="font-mono text-[10px] text-slate-600">
-              {effective.llm_model || '(server default)'}
+              {effective.knowledge_llm_model || '(server default)'}
             </code>
           </p>
         </div>
@@ -183,7 +181,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
             Embedding Model
           </h3>
           <span className="text-[9px] text-slate-400 ml-auto font-mono">
-            KNOWLEDGE_EMBEDDING_MODEL
+            knowledge_embedding_model
           </span>
         </div>
 
@@ -247,7 +245,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           <p className="text-[10px] text-slate-400">
             Currently effective:{' '}
             <code className="font-mono text-[10px] text-slate-600">
-              {effective.embedding_model || '(server default)'}
+              {effective.knowledge_embedding_model || '(server default)'}
             </code>
           </p>
         </div>
@@ -270,71 +268,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           </p>
           <div className="flex items-baseline gap-2">
             <code className="text-2xl font-extrabold font-mono text-slate-900">
-              {effective.embedding_dimension}
+              {effective.knowledge_embedding_dimension}
             </code>
             <span className="text-[10px] text-slate-400">dimensions</span>
           </div>
         </div>
-      </section>
-
-      {/* ── Section 4: Advanced (provider overrides) ──────── */}
-      <section>
-        <details className="group">
-          <summary className="flex items-center gap-2 cursor-pointer select-none mb-3">
-            <span className="material-symbols-outlined text-slate-500 text-lg group-open:rotate-180 transition-transform">
-              expand_more
-            </span>
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">
-              Advanced
-            </h3>
-            <span className="text-[9px] text-slate-400 ml-auto font-mono">
-              provider overrides
-            </span>
-          </summary>
-
-          <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
-            <p className="text-[10px] text-slate-500">
-              These are auto-detected from model names and rarely need manual override.
-              Leave empty for automatic detection.
-            </p>
-
-            {/* LLM Provider */}
-            <div>
-              <label className="text-[9px] text-slate-400 mb-1 block">
-                LLM Provider
-                <span className="ml-2 font-mono text-[8px]">OSTWIN_KNOWLEDGE_LLM_PROVIDER</span>
-              </label>
-              <select
-                value={effective.llm_provider}
-                onChange={(e) => void onUpdate({ llm_provider: e.target.value })}
-                className="w-full px-3 py-2 rounded-md text-xs font-mono bg-[#f1f5f9] border border-[#e2e8f0] text-[#0f172a]"
-              >
-                <option value="">— Auto-detect from model name —</option>
-                <option value="openai">openai</option>
-                <option value="anthropic">anthropic</option>
-                <option value="google">google (Gemini)</option>
-                <option value="google-vertex">google-vertex (Vertex AI)</option>
-              </select>
-            </div>
-
-            {/* Embedding Backend */}
-            <div>
-              <label className="text-[9px] text-slate-400 mb-1 block">
-                Embedding Backend
-                <span className="ml-2 font-mono text-[8px]">OSTWIN_KNOWLEDGE_EMBED_PROVIDER</span>
-              </label>
-              <select
-                value={effective.embedding_backend}
-                onChange={(e) => void onUpdate({ embedding_backend: e.target.value })}
-                className="w-full px-3 py-2 rounded-md text-xs font-mono bg-[#f1f5f9] border border-[#e2e8f0] text-[#0f172a]"
-              >
-                <option value="">— Default (sentence-transformer) —</option>
-                <option value="sentence-transformer">sentence-transformer</option>
-                <option value="gemini">gemini</option>
-              </select>
-            </div>
-          </div>
-        </details>
       </section>
 
       {/* ── Save status toast ───────────────────────────────── */}

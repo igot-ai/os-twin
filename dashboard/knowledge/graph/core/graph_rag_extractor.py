@@ -289,6 +289,27 @@ class GraphRAGExtractor(TransformComponent):
         node.metadata[KG_RELATIONS_KEY] = []
         node.metadata["extraction_error"] = error_msg
         node.metadata["extraction_status"] = ExtractionStatus.FAILED.value
+
+        # Ensure the ChunkNode still gets an embedding even when extraction
+        # fails. Without this the node is invisible to KuzuDB's
+        # QUERY_VECTOR_INDEX and unreachable via vector search.
+        if not getattr(node, "embedding", None):
+            try:
+                text_for_embed = node.get_content(metadata_mode="none")
+                if text_for_embed and text_for_embed.strip():
+                    node.embedding = self.embedder.embed_one(text_for_embed)
+                    logger.debug(
+                        "Embedded failed-extraction ChunkNode %s (%d chars)",
+                        node.id_,
+                        len(text_for_embed),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to embed ChunkNode %s after extraction error: %s",
+                    node.id_,
+                    exc,
+                )
+
         return node
 
     def get_metrics(self) -> ExtractionMetrics:

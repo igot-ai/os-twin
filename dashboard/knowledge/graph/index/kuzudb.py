@@ -880,6 +880,18 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
                         parameters=parameters,
                     )
             else:
+                # Guard: reject nodes that still have no embedding after all
+                # upstream + auto-generation attempts. A node without an
+                # embedding is invisible to QUERY_VECTOR_INDEX and would
+                # silently pollute the graph.
+                if not embedding_value:
+                    logger.error(
+                        "Node %s has no embedding after all generation attempts; "
+                        "skipping persistence to avoid invisible nodes",
+                        node.id,
+                    )
+                    return
+
                 # Create new node
                 self._escape_string(_text)
                 self._escape_string(_name)
