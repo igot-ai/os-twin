@@ -197,10 +197,6 @@ class KnowledgeLLM:
 
     def _effective_provider(self) -> str:
         """Return the provider name (explicit or auto-detected from model)."""
-        if self.provider:
-            return self.provider
-        if not self.model:
-            return "openai"
         from dashboard.llm_client import _detect_provider_from_model  # noqa: WPS433
         return _detect_provider_from_model(self.model)
 
@@ -307,11 +303,9 @@ class KnowledgeLLM:
 
         Returns ([entity_dict], [relationship_dict]). When unavailable: ([], []).
         """
-        if not self.is_available():
-            return [], []
         system = _EXTRACT_SYSTEM.format(language=language, domain=domain or "general")
         user = _EXTRACT_USER.format(text=text)
-        raw = self._complete(system, user, max_tokens=4096)
+        raw = self._complete(system, user, max_tokens=8192)
         if not raw:
             return [], []
         parsed = self._extract_json(raw)

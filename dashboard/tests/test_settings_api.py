@@ -342,9 +342,9 @@ def test_effective_settings_masks_secrets(client, temp_config):
 
 def test_validation_error_on_invalid_input(client, temp_config):
     """Invalid input should return 422 with field-level detail."""
-    payload = {"max_concurrent_rooms": 9999}
+    payload = {"max_concurrent_rooms": 99999}
     response = client.put("/api/settings/runtime", json=payload)
-    # RuntimeSettings has le=500, so 9999 is invalid — but the route
+    # RuntimeSettings has le=10000, so 99999 is invalid — but the route
     # patches the raw dict, not a validated model.  Endpoint may return 200.
     assert response.status_code in [200, 422]
 
@@ -382,7 +382,7 @@ def test_full_settings_workflow(client, temp_config, mock_broadcaster):
     initial_runtime = response.json()["runtime"]
 
     # 2. Update runtime settings
-    new_max = min(initial_runtime["max_concurrent_rooms"] + 10, 500)
+    new_max = min(initial_runtime["max_concurrent_rooms"] + 10, 10000)
     payload = {"max_concurrent_rooms": new_max}
     response = client.put("/api/settings/runtime", json=payload)
     assert response.status_code == 200

@@ -8,7 +8,7 @@ EPIC-004: ``query`` and a centralized ``_vector_stores`` /
 ``_kuzu_graphs`` / ``_query_engines`` cache (architect's ZVEC-LIVE-1 fix).
 Both the ingestor and the query engine pull their per-namespace handles from
 this single service-level cache, so a single zvec collection / Kuzu DB is
-shared across ingestion + retrieval (no duplicate handles, no lock contention).
+shared across ingestion + retrieval (no duplicate handles).
 EPIC-003 Hardening: concurrent import protection, namespace quotas, and
 audit logging integration.
 EPIC-004 Lifecycle: backup/restore, retention sweeper, refresh.
@@ -45,7 +45,13 @@ from dashboard.knowledge.audit import (  # noqa: WPS433 — EPIC-003 policies
 )
 from dashboard.knowledge.stats import get_stats_computer  # noqa: WPS433 — EPIC-005
 from dashboard.knowledge.metrics import get_metrics_registry  # noqa: WPS433 — EPIC-005
-
+from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM  # noqa: WPS433
+from dashboard.knowledge.config import LLM_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
+from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
+from dashboard.knowledge.config import EMBEDDING_MODEL as _DEFAULT_EMBED  # noqa: WPS433
+from dashboard.knowledge.config import EMBEDDING_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
+from dashboard.knowledge.embeddings import KnowledgeEmbedder  # noqa: WPS433
+from dashboard.knowledge.query import KnowledgeQueryEngine  # noqa: WPS433
 if TYPE_CHECKING:  # pragma: no cover
     from dashboard.knowledge.query import KnowledgeQueryEngine, QueryResult
     from dashboard.knowledge.vector_store import NamespaceVectorStore
@@ -188,9 +194,11 @@ class KnowledgeService:
         # ONLY source of truth for per-namespace handles. Architect's
         # ZVEC-LIVE-1 fix from the EPIC-003 review.
         self._vector_stores: dict[str, "NamespaceVectorStore"] = {}
+        self._vs_lock = threading.Lock()  # guards _vector_stores creation
+
         self._kuzu_graphs: dict[str, Any] = {}
         self._query_engines: dict[str, "KnowledgeQueryEngine"] = {}
-        self._cache_lock = threading.RLock()
+        self._graph_rag_engines: dict[str, Any] = {}  # per-namespace GraphRAGQueryEngine cache
         # Background retention sweeper (EPIC-004)
         self._sweeper: Optional[RetentionSweeper] = None
 
@@ -231,26 +239,20 @@ class KnowledgeService:
         Effective model resolution (ADR-15): ``MasterSettings.knowledge.embedding_model``
         > ``OSTWIN_KNOWLEDGE_EMBED_MODEL`` env var > hardcoded ``EMBEDDING_MODEL``.
         """
+        # Test/programmatic injection takes priority — mirrors the pattern used
+        # for _jm_override and _ingestor_override.
+        if self._embedder_override is not None:
+            return self._embedder_override
         if self._embedder is not None:
             return self._embedder
-        with self._cache_lock:
-            if self._embedder is not None:
-                return self._embedder
-            if self._embedder_override is not None:
-                self._embedder = self._embedder_override
-            else:
-                from dashboard.knowledge.config import EMBEDDING_MODEL as _DEFAULT_EMBED  # noqa: WPS433
-                from dashboard.knowledge.config import EMBEDDING_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
-                from dashboard.knowledge.embeddings import KnowledgeEmbedder  # noqa: WPS433
-
-                _, settings_embed, _, settings_embed_backend = self._resolve_settings_overrides()
-                effective_model = settings_embed or _DEFAULT_EMBED
-                effective_provider = settings_embed_backend or _DEFAULT_PROV
-                self._embedder = KnowledgeEmbedder(
-                    model_name=effective_model,
-                    provider=effective_provider,
-                )
-            return self._embedder
+        _, settings_embed, _, settings_embed_backend = self._resolve_settings_overrides()
+        effective_model = settings_embed or _DEFAULT_EMBED
+        effective_provider = settings_embed_backend or _DEFAULT_PROV
+        self._embedder = KnowledgeEmbedder(
+            model_name=effective_model,
+            provider=effective_provider,
+        )
+        return self._embedder
 
     def _get_llm(self) -> Any:
         """Lazily construct (or return the injected) LLM, shared service-wide.
@@ -259,26 +261,18 @@ class KnowledgeService:
         > ``OSTWIN_KNOWLEDGE_LLM_MODEL`` env var > config ``LLM_MODEL``.
         User must configure a model; there is no hardcoded default.
         """
+        if self._llm_override is not None:
+            return self._llm_override
         if self._llm is not None:
             return self._llm
-        with self._cache_lock:
-            if self._llm is not None:
-                return self._llm
-            if self._llm_override is not None:
-                self._llm = self._llm_override
-            else:
-                from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM  # noqa: WPS433
-                from dashboard.knowledge.config import LLM_PROVIDER as _DEFAULT_PROV  # noqa: WPS433
-                from dashboard.knowledge.llm import KnowledgeLLM  # noqa: WPS433
-
-                settings_llm, _, settings_prov, _ = self._resolve_settings_overrides()
-                effective_model = settings_llm or _DEFAULT_LLM
-                effective_provider = settings_prov or _DEFAULT_PROV or None
-                self._llm = KnowledgeLLM(
-                    model=effective_model,
-                    provider=effective_provider,
-                )
-            return self._llm
+        settings_llm, _, settings_prov, _ = self._resolve_settings_overrides()
+        effective_model = settings_llm or _DEFAULT_LLM
+        effective_provider = settings_prov or _DEFAULT_PROV or None
+        self._llm = KnowledgeLLM(
+            model=effective_model,
+            provider=effective_provider,
+        )
+        return self._llm
 
     # ---- Centralised per-namespace handle cache (EPIC-004) --------------
 
@@ -290,8 +284,22 @@ class KnowledgeService:
         rejects opening the same collection from two live handles in the
         same process; centralising the cache here is the only correct
         solution.
+
+        Thread-safe: a lock guards the check-and-create so concurrent
+        callers (ingestion thread + query thread) never construct two
+        ``NamespaceVectorStore`` instances for the same namespace — which
+        would cause ``"Can't lock read-write collection"`` from zvec.
+
+        Raises :class:`DimensionMismatchError` if the on-disk collection
+        was created with a different embedding dimension than the current
+        embedder produces.
         """
-        with self._cache_lock:
+        existing = self._vector_stores.get(namespace)
+        if existing is not None:
+            return existing
+        with self._vs_lock:
+            # Double-check after acquiring lock — another thread may have
+            # populated the cache while we waited.
             existing = self._vector_stores.get(namespace)
             if existing is not None:
                 return existing
@@ -305,6 +313,8 @@ class KnowledgeService:
             self._vector_stores[namespace] = vs
             return vs
 
+
+
     def get_kuzu_graph(self, namespace: str) -> Any:
         """Get-or-create the cached Kuzu graph for ``namespace``.
 
@@ -312,46 +322,160 @@ class KnowledgeService:
         is honoured — never falls back to the module-level
         ``config.kuzu_db_path`` helper.
         """
-        with self._cache_lock:
-            existing = self._kuzu_graphs.get(namespace)
-            if existing is not None:
-                return existing
-            from dashboard.knowledge.graph.index.kuzudb import (  # noqa: WPS433
-                KuzuLabelledPropertyGraph,
+        existing = self._kuzu_graphs.get(namespace)
+        if existing is not None:
+            return existing
+        from dashboard.knowledge.graph.index.kuzudb import (  # noqa: WPS433
+            KuzuLabelledPropertyGraph,
+        )
+
+        db_path = str(self._nm.kuzu_db_path(namespace))
+        kg = KuzuLabelledPropertyGraph(
+            index=namespace,
+            ws_id=namespace,
+            database_path=db_path,
+        )
+        self._kuzu_graphs[namespace] = kg
+        return kg
+
+    def get_graph(self, namespace: str, limit: int = 200, actor: str = "anonymous") -> dict:
+        """Alias for the graph visualisation route (EPIC-004).
+        
+        Delegates to the cached per-namespace query engine's visualization method.
+        """
+        engine = self._get_query_engine(namespace)
+        return engine.get_graph(limit=limit)
+
+    def _get_graph_rag_engine(self, namespace: str) -> Any:
+        """Cached per-namespace :class:`GraphRAGQueryEngine`.
+
+        Constructs the full llama-index graph-RAG query pipeline using the
+        same shared Kuzu graph and vector store handles that the lightweight
+        ``KnowledgeQueryEngine`` uses.
+
+        The ``PropertyGraphIndex.from_existing`` call is cheap — it doesn't
+        reload data; it just wraps the existing stores with the llama-index
+        index interface.
+
+        Returns ``None`` when construction fails (missing deps, bad graph
+        state, etc.) so the caller can fall back to the simple path.
+        """
+        existing = self._graph_rag_engines.get(namespace)
+        if existing is not None:
+            return existing
+
+        try:
+            from llama_index.core import PropertyGraphIndex, StorageContext  # noqa: WPS433
+            from dashboard.knowledge.graph.core.graph_rag_store import GraphRAGStore  # noqa: WPS433
+            from dashboard.knowledge.graph.core.graph_rag_extractor import GraphRAGExtractor  # noqa: WPS433
+            from dashboard.knowledge.graph.core.graph_rag_query_engine import (
+                GraphRAGQueryEngine,
+            )  # noqa: WPS433
+            from dashboard.knowledge.graph.core.llama_adapters import (
+                ZvecVectorStoreAdapter,
+                EmbedderAdapter,
+            )  # noqa: WPS433
+
+            kuzu_graph = self.get_kuzu_graph(namespace)
+            graph_store = GraphRAGStore(graph=kuzu_graph)
+
+            vs_adapter = ZvecVectorStoreAdapter(
+                zvec_store=self.get_vector_store(namespace),
+            )
+            embed_adapter = EmbedderAdapter(
+                knowledge_embedder=self._get_embedder(),
             )
 
-            db_path = str(self._nm.kuzu_db_path(namespace))
-            kg = KuzuLabelledPropertyGraph(
-                index=namespace,
-                ws_id=namespace,
-                database_path=db_path,
+            llm = self._get_llm()
+            extractor = GraphRAGExtractor(
+                llm=llm,
+                embedder=self._get_embedder(),
             )
-            self._kuzu_graphs[namespace] = kg
-            return kg
+
+            # kg_extractors=[extractor] prevents llama-index from
+            # constructing a default SimpleLLMPathExtractor that requires
+            # the llama-index-llms-openai package / OPENAI_API_KEY.
+            index = PropertyGraphIndex.from_existing(
+                property_graph_store=graph_store,
+                vector_store=vs_adapter,
+                embed_model=embed_adapter,
+                embed_kg_nodes=False,
+                kg_extractors=[extractor],
+            )
+
+            storage_ctx = StorageContext.from_defaults(
+                property_graph_store=graph_store,
+            )
+
+            engine = GraphRAGQueryEngine(
+                graph_store=graph_store,
+                index=index,
+                vector_store=vs_adapter,
+                storage_context=storage_ctx,
+                kg_extractor=extractor,
+                llm=llm,
+                plan_llm=llm,
+                node_id=namespace,
+                include_graph=True,
+                max_queries=3,
+            )
+            self._graph_rag_engines[namespace] = engine
+            return engine
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to construct GraphRAGQueryEngine for %r; "
+                "graph/summarized queries will use the simple path: %s",
+                namespace,
+                exc,
+            )
+            return None
 
     def _get_query_engine(self, namespace: str) -> "KnowledgeQueryEngine":
         """Cached per-namespace query engine.
 
-        The engine holds references to the cached vector store, Kuzu graph,
-        embedder and LLM — building one is cheap (sub-ms) so this cache
-        primarily exists so repeated queries against the same namespace
-        don't reconstruct the wrapper.
-        """
-        with self._cache_lock:
-            existing = self._query_engines.get(namespace)
-            if existing is not None:
-                return existing
-            from dashboard.knowledge.query import KnowledgeQueryEngine  # noqa: WPS433
+        The engine holds references to the cached Kuzu graph, embedder and
+        LLM — building one is cheap (sub-ms) so this cache primarily exists
+        so repeated queries against the same namespace don't reconstruct
+        the wrapper.
 
-            engine = KnowledgeQueryEngine(
-                namespace=namespace,
-                vector_store=self.get_vector_store(namespace),
-                kuzu_graph=self.get_kuzu_graph(namespace),
-                embedder=self._get_embedder(),
-                llm=self._get_llm(),
-            )
-            self._query_engines[namespace] = engine
-            return engine
+        All query modes use KuzuDB's ``QUERY_VECTOR_INDEX`` for vector
+        search and graph expansion. The zvec vector store is NOT used for
+        queries (only for ingestion-time idempotency tracking).
+
+        When a ``GraphRAGQueryEngine`` is available (llama-index graph-RAG
+        pipeline with hit-aware PageRank scoring), it is injected so that
+        ``graph`` and ``summarized`` modes benefit from the richer scoring.
+        """
+        existing = self._query_engines.get(namespace)
+        if existing is not None:
+            return existing
+
+        graph_rag_engine = self._get_graph_rag_engine(namespace)
+
+        engine = KnowledgeQueryEngine(
+            namespace=namespace,
+            kuzu_graph=self.get_kuzu_graph(namespace),
+            embedder=self._get_embedder(),
+            llm=self._get_llm(),
+            graph_rag_engine=graph_rag_engine,
+        )
+        self._query_engines[namespace] = engine
+        return engine
+
+    def invalidate_model_cache(self) -> None:
+        """Drop cached LLM + embedder so next access picks up new settings.
+
+        Called by the settings route when ``knowledge`` config changes.
+        Query engines hold refs to the old LLM/embedder — they must be
+        rebuilt too.  Vector stores and Kuzu graphs are model-independent
+        and survive the invalidation.
+        """
+        self._llm = None
+        self._embedder = None
+        self._query_engines.clear()
+        self._graph_rag_engines.clear()
+        logger.info("Knowledge model cache invalidated — next call will re-resolve settings")
 
     def shutdown(self) -> None:
         """Release every cached handle. Call before process exit / test teardown.
@@ -361,25 +485,26 @@ class KnowledgeService:
         manager. Each ``close`` is best-effort; a single failure is logged
         but does not abort the rest of the shutdown.
         """
-        with self._cache_lock:
-            # Drop query engine refs first (they only hold weak-ish refs to
-            # the underlying handles, but clearing them ensures a future
-            # call doesn't accidentally hold an old handle alive).
-            self._query_engines.clear()
+        # Drop query engine refs first (they only hold weak-ish refs to
+        # the underlying handles, but clearing them ensures a future
+        # call doesn't accidentally hold an old handle alive).
+        self._query_engines.clear()
+        self._graph_rag_engines.clear()
 
-            for ns, vs in list(self._vector_stores.items()):
-                try:
-                    vs.close()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Error closing vector store for %r: %s", ns, exc)
-            self._vector_stores.clear()
+        for ns, vs in list(self._vector_stores.items()):
+            try:
+                vs.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Error closing vector store for %r: %s", ns, exc)
+        self._vector_stores.clear()
 
-            for ns, kg in list(self._kuzu_graphs.items()):
-                try:
-                    kg.close_connection()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Error closing kuzu graph for %r: %s", ns, exc)
-            self._kuzu_graphs.clear()
+
+        for ns, kg in list(self._kuzu_graphs.items()):
+            try:
+                kg.close_connection()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Error closing kuzu graph for %r: %s", ns, exc)
+        self._kuzu_graphs.clear()
 
         # Tell the JobManager to stop accepting new work and tear down its
         # ThreadPoolExecutor. ``wait=False`` so callers (especially test
@@ -411,28 +536,29 @@ class KnowledgeService:
 
     def _evict_namespace_caches(self, namespace: str) -> None:
         """Drop all cached handles for ``namespace`` (used by delete_namespace)."""
-        with self._cache_lock:
-            self._query_engines.pop(namespace, None)
-            vs = self._vector_stores.pop(namespace, None)
-            if vs is not None:
-                try:
-                    vs.close()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Error closing vector store for %r during eviction: %s",
-                        namespace,
-                        exc,
-                    )
-            kg = self._kuzu_graphs.pop(namespace, None)
-            if kg is not None:
-                try:
-                    kg.close_connection()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Error closing kuzu graph for %r during eviction: %s",
-                        namespace,
-                        exc,
-                    )
+        self._query_engines.pop(namespace, None)
+        self._graph_rag_engines.pop(namespace, None)
+        vs = self._vector_stores.pop(namespace, None)
+        if vs is not None:
+            try:
+                vs.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Error closing vector store for %r during eviction: %s",
+                    namespace,
+                    exc,
+                )
+
+        kg = self._kuzu_graphs.pop(namespace, None)
+        if kg is not None:
+            try:
+                kg.close_connection()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Error closing kuzu graph for %r during eviction: %s",
+                    namespace,
+                    exc,
+                )
 
     # ---- Lazy job manager / ingestor ------------------------------------
 
@@ -458,14 +584,72 @@ class KnowledgeService:
         # Pass the cache-aware factories so the ingestor pulls from the
         # service's centralised caches instead of constructing its own
         # per-namespace handles. This is the architect's ZVEC-LIVE-1 fix.
+        #
+        # graph_index_factory: builds a PropertyGraphIndex per namespace
+        # so ingestion writes entities/relations through the same llama-index
+        # pipeline that the query engine reads — guaranteeing schema compat.
         self._ingestor = Ingestor(
             namespace_manager=self._nm,
             embedder=self._get_embedder(),
             llm=self._get_llm(),
             vector_store_factory=self.get_vector_store,
             kuzu_factory=self.get_kuzu_graph,
+            graph_index_factory=self._build_graph_index,
         )
         return self._ingestor
+
+    def _build_graph_index(self, namespace: str) -> Any:
+        """Construct a ``PropertyGraphIndex`` for ingestion into ``namespace``.
+
+        Uses the same shared stores/adapters as ``_get_graph_rag_engine`` so
+        ingested data is immediately visible to the query engine.  Unlike the
+        query-engine constructor, ``embed_kg_nodes=True`` here so entity
+        embeddings are computed and persisted during ingestion.
+
+        The ``kg_extractors`` list is populated with a ``GraphRAGExtractor`` so
+        ``insert_nodes()`` automatically runs entity extraction.
+        """
+        try:
+            from llama_index.core import PropertyGraphIndex, StorageContext  # noqa: WPS433
+            from dashboard.knowledge.graph.core.graph_rag_store import GraphRAGStore  # noqa: WPS433
+            from dashboard.knowledge.graph.core.graph_rag_extractor import GraphRAGExtractor  # noqa: WPS433
+            from dashboard.knowledge.graph.core.llama_adapters import (  # noqa: WPS433
+                ZvecVectorStoreAdapter,
+                EmbedderAdapter,
+            )
+
+            kuzu_graph = self.get_kuzu_graph(namespace)
+            graph_store = GraphRAGStore(graph=kuzu_graph)
+
+            vs_adapter = ZvecVectorStoreAdapter(
+                zvec_store=self.get_vector_store(namespace),
+            )
+            embed_adapter = EmbedderAdapter(
+                knowledge_embedder=self._get_embedder(),
+            )
+
+            llm = self._get_llm()
+            extractor = GraphRAGExtractor(
+                llm=llm,
+                embedder=self._get_embedder(),
+            )
+
+            index = PropertyGraphIndex.from_existing(
+                property_graph_store=graph_store,
+                vector_store=vs_adapter,
+                embed_model=embed_adapter,
+                kg_extractors=[extractor],
+                embed_kg_nodes=True,
+            )
+            return index
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to build PropertyGraphIndex for ingestion into %r: %s",
+                namespace,
+                exc,
+            )
+            raise
 
     # ---- Namespace lifecycle (EPIC-002 — wired) --------------------------
 
@@ -549,7 +733,17 @@ class KnowledgeService:
             if current_count >= MAX_NAMESPACES:
                 raise MaxNamespacesReachedError(MAX_NAMESPACES)
 
-            meta = self._nm.create(namespace, language=language, description=description)
+            # Resolve the effective embedding model so the manifest records
+            # the ACTUAL model/dimension that will be used for ingestion,
+            # not the hardcoded config.py default.
+            embedder = self._get_embedder()
+            meta = self._nm.create(
+                namespace,
+                language=language,
+                description=description,
+                embedding_model=embedder.model_name,
+                embedding_dimension=embedder.dimension(),
+            )
             latency_ms = (time.perf_counter() - start_time) * 1000
             _log_call(namespace, "create_namespace", "success", latency_ms, {"actor": actor})
             # EPIC-005: Update namespace gauges
@@ -617,9 +811,34 @@ class KnowledgeService:
         start_time = time.perf_counter()
 
         try:
-            # Auto-create namespace if missing.
+            # Auto-create namespace if missing.  Resolve the effective
+            # embedder so the manifest records the correct model/dimension.
             if self._nm.get(namespace) is None:
-                self._nm.create(namespace)
+                embedder = self._get_embedder()
+                self._nm.create(
+                    namespace,
+                    embedding_model=embedder.model_name,
+                    embedding_dimension=embedder.dimension(),
+                )
+
+            # Early validation: check that the namespace's recorded dimension
+            # matches the current embedder. A mismatch means the embedding
+            # model was changed after the namespace was created — every
+            # chunk upsert would fail with "dimension mismatch".
+            ns_meta = self._nm.get(namespace)
+            if ns_meta is not None:
+                embedder = self._get_embedder()
+                actual_dim = embedder.dimension()
+                if ns_meta.embedding_dimension != actual_dim:
+                    raise RuntimeError(
+                        f"Namespace {namespace!r} was created with "
+                        f"embedding model {ns_meta.embedding_model!r} "
+                        f"(dim={ns_meta.embedding_dimension}), but the "
+                        f"current embedder is {embedder.model_name!r} "
+                        f"(dim={actual_dim}). Delete the namespace and "
+                        f"re-create it, or switch back to the original "
+                        f"embedding model."
+                    )
 
             # Validate folder path BEFORE submitting — surface the error to the caller.
             p = Path(folder_path)
@@ -744,6 +963,65 @@ class KnowledgeService:
             latency_ms = (time.perf_counter() - start_time) * 1000
             _log_call(namespace, "query", "error", latency_ms, {"actor": actor, "error": str(exc)})
             raise
+
+    def refresh_namespace(self, namespace: str, actor: str = "anonymous") -> list[str]:
+        """Re-ingest all folders previously imported into this namespace (EPIC-004).
+
+        Triggers a new background job for each unique folder path found in the
+        namespace's import history.  Uses ``force=True`` to ensure that files
+        are re-processed even if they haven't changed (e.g. to pickup new
+        extraction logic or model improvements).
+
+        Returns:
+            A list of ``job_id`` strings for the triggered refresh jobs.
+        """
+        meta = self.get_namespace(namespace)
+        if meta is None:
+            raise NamespaceNotFoundError(namespace)
+
+        # Extract unique folder paths that were successfully imported
+        folders = {
+            imp.folder_path for imp in meta.imports
+            if imp.status == "completed"
+        }
+        
+        job_ids = []
+        for folder in sorted(folders):
+            try:
+                jid = self.import_folder(
+                    namespace,
+                    folder,
+                    options={"force": True},
+                    actor=actor
+                )
+                job_ids.append(jid)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Failed to trigger refresh for %r in %r: %s", folder, namespace, exc)
+
+        return job_ids
+
+    def backup_namespace(self, namespace: str, dest_path: Optional[Path] = None) -> Path:
+        """Create a backup archive for the namespace (EPIC-004)."""
+        # Ensure all handles are closed and flushed before backup
+        self._evict_namespace_caches(namespace)
+        from dashboard.knowledge.backup import backup_namespace  # noqa: WPS433
+        return backup_namespace(namespace, dest_path=dest_path, namespace_manager=self._nm)
+
+    def restore_namespace(
+        self,
+        archive_path: str,
+        name: Optional[str] = None,
+        overwrite: bool = False
+    ) -> NamespaceMeta:
+        """Restore a namespace from a backup archive (EPIC-004)."""
+        from dashboard.knowledge.backup import restore_namespace  # noqa: WPS433
+        return restore_namespace(
+            Path(archive_path),
+            name=name,
+            namespace_manager=self._nm,
+            knowledge_service=self,
+            overwrite=overwrite
+        )
 
 
 

@@ -14,18 +14,6 @@ import MetricsStrip from './knowledge/MetricsStrip';
 
 type SubView = 'namespaces' | 'import' | 'query';
 
-// Color palette for label types (matching MemoryTab pattern)
-const LABEL_COLORS: Record<string, string> = {
-  entity: '#3b82f6',
-  person: '#8b5cf6',
-  organization: '#ec4899',
-  location: '#f97316',
-  event: '#10b981',
-  concept: '#06b6d4',
-  document: '#6366f1',
-  default: '#6b7280',
-};
-
 export default function KnowledgeTab() {
   const { planId, setActiveTab, setHighlightNoteId } = usePlanContext();
   const [activeSubView, setActiveSubView] = useState<SubView>('namespaces');
@@ -95,7 +83,7 @@ export default function KnowledgeTab() {
     try {
       // Use the hook's deleteNamespace method via a direct API call
       const { apiDelete } = await import('@/lib/api-client');
-      await apiDelete(`/api/knowledge/namespaces/${name}`);
+      await apiDelete(`/knowledge/namespaces/${name}`);
       refreshNamespaces();
       addToast({
         type: 'success',
@@ -165,7 +153,6 @@ export default function KnowledgeTab() {
     setHighlightNoteId(noteId);
     // Switch to the Memory tab
     setActiveTab('memory');
-    console.log('Navigate to memory note:', noteId);
   }, [setActiveTab, setHighlightNoteId]);
 
   // Sub-view tabs
@@ -270,7 +257,7 @@ export default function KnowledgeTab() {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex flex-col">
         {/* EPIC-005: Metrics panel */}
         <div className="border-b shrink-0" style={{ borderColor: 'var(--color-border)' }}>
           <MetricsStrip className="m-2" />

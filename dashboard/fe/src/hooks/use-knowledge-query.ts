@@ -57,7 +57,7 @@ export interface QueryResultResponse {
   warnings: string[];
 }
 
-const KNOWLEDGE_BASE = '/api/knowledge';
+const KNOWLEDGE_BASE = '/knowledge';
 
 /**
  * Hook to execute knowledge queries.

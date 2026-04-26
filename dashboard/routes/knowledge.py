@@ -43,6 +43,9 @@ from dashboard.routes.knowledge_models import (
     NamespaceMetaResponse,
     QueryRequest,
     QueryResultResponse,
+    RefreshNamespaceResponse,
+    BackupNamespaceResponse,
+    RestoreNamespaceRequest,
     RetentionPolicyRequest,
     RetentionPolicyResponse,
 )
@@ -110,6 +113,12 @@ def _map_error(exc: Exception) -> HTTPException:
         ImportInProgressError,
         MaxNamespacesReachedError,
     )
+    from dashboard.knowledge.backup import (  # noqa: WPS433
+        BackupChecksumMismatchError,
+        BackupError,
+        InvalidBackupArchiveError,
+        NamespaceBackupNotFoundError,
+    )
 
     if isinstance(exc, InvalidNamespaceIdError):
         return HTTPException(
@@ -160,6 +169,37 @@ def _map_error(exc: Exception) -> HTTPException:
                 error=str(exc),
                 code="MAX_NAMESPACES_REACHED",
                 detail={"max_count": exc.max_count},
+            ).model_dump(),
+        )
+
+    # EPIC-004: Backup errors
+    if isinstance(exc, NamespaceBackupNotFoundError):
+        return HTTPException(
+            status_code=404,
+            detail=ErrorResponse(
+                error=str(exc),
+                code="NAMESPACE_NOT_FOUND",
+                detail={},
+            ).model_dump(),
+        )
+
+    if isinstance(exc, (InvalidBackupArchiveError, BackupChecksumMismatchError)):
+        return HTTPException(
+            status_code=400,
+            detail=ErrorResponse(
+                error=str(exc),
+                code="INVALID_BACKUP_ARCHIVE",
+                detail={},
+            ).model_dump(),
+        )
+
+    if isinstance(exc, BackupError):
+        return HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error=str(exc),
+                code="BACKUP_ERROR",
+                detail={},
             ).model_dump(),
         )
 
@@ -640,6 +680,94 @@ async def query_namespace(
 # ---------------------------------------------------------------------------
 # Graph Visualisation Endpoint (EPIC-004)
 # ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/namespaces/{namespace}/refresh",
+    response_model=RefreshNamespaceResponse,
+    responses={
+        200: {"description": "Refresh jobs triggered"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Namespace not found", "model": ErrorResponse},
+    },
+    summary="Refresh all imports in a namespace",
+)
+async def refresh_namespace(
+    namespace: str,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> RefreshNamespaceResponse:
+    """Re-trigger all successful imports for the namespace with force=True.
+
+    Useful for re-indexing data after a model change or bug fix.
+    Returns a list of job IDs for the triggered background tasks.
+    """
+    try:
+        actor = _get_actor(user)
+        service = _get_service()
+        job_ids = await asyncio.to_thread(service.refresh_namespace, namespace, actor=actor)
+        return RefreshNamespaceResponse(job_ids=job_ids)
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.post(
+    "/namespaces/{namespace}/backup",
+    response_model=BackupNamespaceResponse,
+    responses={
+        200: {"description": "Backup created successfully"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Namespace not found", "model": ErrorResponse},
+    },
+    summary="Backup a namespace",
+)
+async def backup_namespace(
+    namespace: str,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> BackupNamespaceResponse:
+    """Create a compressed archive of the namespace's data.
+
+    Returns the absolute path to the created archive file.
+    """
+    try:
+        service = _get_service()
+        archive_path = await asyncio.to_thread(service.backup_namespace, namespace)
+        return BackupNamespaceResponse(archive_path=str(archive_path), namespace=namespace)
+    except Exception as exc:
+        raise _map_error(exc)
+
+
+@router.post(
+    "/namespaces/{namespace}/restore",
+    response_model=NamespaceMetaResponse,
+    responses={
+        200: {"description": "Namespace restored successfully"},
+        400: {"description": "Invalid backup archive", "model": ErrorResponse},
+        401: {"description": "Authentication required"},
+        409: {"description": "Namespace already exists", "model": ErrorResponse},
+    },
+    summary="Restore a namespace from backup",
+)
+async def restore_namespace(
+    namespace: str,
+    request: RestoreNamespaceRequest,
+    user: Annotated[dict, Depends(get_current_user)],
+) -> NamespaceMetaResponse:
+    """Restore a namespace from a compressed archive.
+
+    If the namespace already exists, `overwrite: true` must be passed in the
+    request body to replace it.
+    """
+    try:
+        service = _get_service()
+        meta = await asyncio.to_thread(
+            service.restore_namespace,
+            request.archive_path,
+            name=namespace,
+            overwrite=request.overwrite
+        )
+        return _namespace_meta_to_response(meta)
+    except Exception as exc:
+        raise _map_error(exc)
 
 
 @router.get(

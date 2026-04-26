@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { GraphNodeResponse, GraphEdgeResponse, GraphStatsResponse } from '@/hooks/use-knowledge-graph';
+import { getNodeColor } from './constants';
 
 // Dynamic import to avoid SSR issues with react-force-graph-2d
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
@@ -14,22 +15,6 @@ interface GraphViewProps {
   isLoading: boolean;
   selectedNode: GraphNodeResponse | null;
   onSelectNode: (node: GraphNodeResponse | null) => void;
-}
-
-// Color palette for entity labels (matching QueryPanel pattern)
-const LABEL_COLORS: Record<string, string> = {
-  entity: '#3b82f6',
-  person: '#8b5cf6',
-  organization: '#ec4899',
-  location: '#f97316',
-  event: '#10b981',
-  concept: '#06b6d4',
-  document: '#6366f1',
-  default: '#6b7280',
-};
-
-function getNodeColor(label: string): string {
-  return LABEL_COLORS[label.toLowerCase()] || LABEL_COLORS.default;
 }
 
 // Internal graph data type for react-force-graph-2d

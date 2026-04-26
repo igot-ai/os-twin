@@ -14,6 +14,8 @@ import asyncio
 import logging
 from typing import Any, Callable, Optional
 
+from pydantic import PrivateAttr
+
 import yaml
 from llama_index.core import PropertyGraphIndex, StorageContext
 from llama_index.core.graph_stores.types import KG_SOURCE_REL
@@ -83,7 +85,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
     include_graph: bool = False
     stream_handler: Optional[Callable] = None
     max_queries: int = 3
-    _tracking: Any = None
+    _tracking: Any = PrivateAttr(default=None)
 
     @property
     def tracking(self):

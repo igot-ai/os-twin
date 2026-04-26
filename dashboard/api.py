@@ -73,7 +73,7 @@ from logging.handlers import RotatingFileHandler
 _file_handler = RotatingFileHandler(
     str(_log_file), maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
 )
-_file_handler.setLevel(logging.DEBUG)
+_file_handler.setLevel(logging.INFO)
 _file_handler.setFormatter(
     logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s  %(message)s")
 )
@@ -87,7 +87,7 @@ _console_handler.setFormatter(
 # Attach handlers directly — basicConfig is a no-op if any import already
 # triggered default logging configuration before this line.
 _root = logging.getLogger()
-_root.setLevel(logging.DEBUG)
+_root.setLevel(logging.INFO)
 if _file_handler not in _root.handlers:
     _root.addHandler(_file_handler)
 if _console_handler not in _root.handlers:
@@ -97,6 +97,11 @@ logger = logging.getLogger(__name__)
 logger.info("Dashboard log file: %s", _log_file)
 
 # --- App + lifespan ----------------------------------------------------
+is_dev = (
+    os.environ.get("NODE_ENV") == "development"
+    or os.environ.get("OSTWIN_DEV_MODE") == "1"
+)
+
 # We need to drive the FastMCP streamable-HTTP app's lifespan from the
 # parent FastAPI app, otherwise the FastMCP session manager's task group
 # never starts and the first POST to /api/knowledge/mcp/* dies with
@@ -226,7 +231,12 @@ async def _shutdown_app() -> None:
         logger.warning("Failed to shutdown knowledge service: %s", exc)
 
 
-app = FastAPI(title="OS Twin Command Center", version="0.1.0", lifespan=app_lifespan)
+app = FastAPI(
+    title="OS Twin Command Center", 
+    version="0.1.0", 
+    lifespan=app_lifespan,
+    debug=is_dev
+)
 
 # --- WebSocket ---
 from fastapi import WebSocket, WebSocketDisconnect
@@ -260,11 +270,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # --- Middleware ---
-is_dev = (
-    os.environ.get("NODE_ENV") == "development"
-    or os.environ.get("OSTWIN_DEV_MODE") == "1"
-)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[] if is_dev else ["*"],
@@ -427,4 +432,20 @@ if __name__ == "__main__":
     print("⬡ OS Twin Command Center (Modular)")
     print(f"  Project:   {args.project_dir or PROJECT_ROOT}")
     print(f"  War-rooms: {WARROOMS_DIR}")
-    uvicorn.run(app, host=args.host, port=args.port)
+    
+    # --- Debug / Reload logic for PyCharm ---
+    # log_level = "debug" if we are in dev mode OR a debugger is attached
+    log_level = "info"
+    if is_dev or sys.gettrace() is not None:
+        log_level = "debug"
+        
+    # Hot reload is great for dev, but bad for PyCharm Debugger (spawns workers)
+    # We only enable it if in dev mode AND no debugger is attached.
+    use_reload = is_dev and sys.gettrace() is None
+    
+    if use_reload:
+        # Use import string for reload support
+        uvicorn.run("api:app", host=args.host, port=args.port, reload=True, log_level=log_level)
+    else:
+        # Use app object for direct process debugging (best for PyCharm)
+        uvicorn.run(app, host=args.host, port=args.port, log_level=log_level)

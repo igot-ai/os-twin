@@ -70,7 +70,7 @@ export interface ErrorResponse {
   detail: Record<string, unknown> | null;
 }
 
-const KNOWLEDGE_BASE = '/api/knowledge';
+const KNOWLEDGE_BASE = '/knowledge';
 
 /**
  * Hook to fetch all knowledge namespaces.
@@ -87,7 +87,7 @@ export function useKnowledgeNamespaces() {
   const createNamespace = async (request: CreateNamespaceRequest): Promise<NamespaceMetaResponse> => {
     // Optimistic update
     const tempNamespace: NamespaceMetaResponse = {
-      schema_version: 1,
+      schema_version: 2,
       name: request.name,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

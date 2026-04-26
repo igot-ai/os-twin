@@ -3,24 +3,21 @@
 The :class:`KnowledgeQueryEngine` is the heart of EPIC-004. One engine
 instance per namespace, constructed by :meth:`KnowledgeService._get_query_engine`
 and cached for the lifetime of the service. The engine holds **references**
-(not copies) to the centralised vector store, Kuzu graph, embedder and LLM
-that live on the :class:`KnowledgeService` — which is why the service-level
-cache is the single source of truth for those handles (architect's
-ZVEC-LIVE-1 fix from the EPIC-003 review).
+(not copies) to the centralised Kuzu graph, embedder and LLM that live on
+the :class:`KnowledgeService` — which is why the service-level cache is the
+single source of truth for those handles (architect's ZVEC-LIVE-1 fix from
+the EPIC-003 review).
 
 Three modes:
 
-- ``raw``        — vector search via :class:`NamespaceVectorStore.search`
-                   only. Sub-500ms p95 on small corpora; no graph, no LLM.
-- ``graph``      — vector search + graph expansion (entities related to the
-                   vector hits, ranked by personalised PageRank). Useful when
-                   you want both the most-relevant chunks AND the entities
-                   that connect them.
-- ``summarized`` — graph mode + LLM-aggregated answer. Requires
-                   an LLM model and API key to be configured; without it the
-                   engine returns chunks + entities + a ``warning`` field on
-                   the result and ``answer=None``. Never crashes for
-                   missing-key reasons.
+- ``raw``        — KuzuDB vector search via ``QUERY_VECTOR_INDEX``. Returns
+                   both ChunkNode and EntityNode hits. Sub-500ms p95.
+- ``graph``      — KuzuDB vector search + graph expansion (entities related
+                   to the vector hits, ranked by personalised PageRank).
+- ``summarized`` — graph mode + LLM-aggregated answer. Requires an LLM model
+                   and API key to be configured; without it the engine returns
+                   chunks + entities + a ``warning`` field on the result and
+                   ``answer=None``. Never crashes for missing-key reasons.
 
 All three modes record ``latency_ms`` on the result. Per-step failures are
 caught and accumulated as ``warnings`` on the result so a single bad
@@ -171,16 +168,13 @@ class KnowledgeQueryEngine:
     cached for the namespace's lifetime in the service. The engine itself
     is stateless beyond the references it holds; safe to call concurrently
     from multiple threads provided the underlying handles are thread-safe
-    (zvec is, Kuzu reads are).
+    (Kuzu reads are).
 
     Parameters
     ----------
     namespace:
         The namespace this engine queries against — informational only,
         used to populate :class:`QueryResult.namespace`.
-    vector_store:
-        A :class:`NamespaceVectorStore` instance (or duck-typed equivalent
-        for tests). Reused across queries; never closed by the engine.
     kuzu_graph:
         A :class:`KuzuLabelledPropertyGraph` instance. Reused across
         queries; never closed by the engine.
@@ -196,16 +190,16 @@ class KnowledgeQueryEngine:
     def __init__(
         self,
         namespace: str,
-        vector_store: Any,
         kuzu_graph: Any,
         embedder: Any,
         llm: Any,
+        graph_rag_engine: Any = None,
     ) -> None:
         self.namespace = namespace
-        self.vs = vector_store
         self.kg = kuzu_graph
         self.embedder = embedder
         self.llm = llm
+        self.graph_rag_engine = graph_rag_engine
 
     # ---- Public entrypoint -----------------------------------------------
 
@@ -222,9 +216,9 @@ class KnowledgeQueryEngine:
         """Run a single query against this engine's namespace.
 
         See module docstring for ``mode`` semantics. ``threshold`` filters
-        out vector hits with score < threshold (zvec returns COSINE
-        similarity — higher is better). ``category`` scopes both the vector
-        search and the graph expansion when set.
+        out vector hits with score < threshold (KuzuDB returns COSINE
+        distance — lower is better, converted to similarity). ``category``
+        scopes both the vector search and the graph expansion when set.
 
         ``parameter`` is reserved for future use (e.g. a domain hint for
         the LLM); it's accepted on the API surface so EPIC-005 doesn't
@@ -237,37 +231,28 @@ class KnowledgeQueryEngine:
         metrics = get_metrics_registry()
         metrics.counter("query_total").inc()
 
-        # --- 1) Embed the query --------------------------------------
+        # --- 1) KuzuDB vector search (all modes) ----------------------
+        #
+        # Uses KuzuDB's built-in QUERY_VECTOR_INDEX on entity + chunk node
+        # embeddings. Returns both EntityNode and ChunkNode results.
         try:
-            q_embed = self.embedder.embed_one(query)
+            kg_nodes = self.kg.get_all_nodes(
+                context=query,
+                category_id=category,
+                limit=top_k,
+            )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to embed query %r: %s", query, exc)
-            result.warnings.append(f"embed_failed: {exc}")
-            result.latency_ms = int((time.perf_counter() - t0) * 1000)
-            metrics.counter("query_errors_total").inc()
-            return result
-
-        if not q_embed:
-            # Embedder returned nothing — surface as a warning and bail.
-            result.warnings.append("embed_returned_empty")
-            result.latency_ms = int((time.perf_counter() - t0) * 1000)
-            metrics.counter("query_errors_total").inc()
-            return result
-
-        # --- 2) Vector search ----------------------------------------
-        try:
-            hits = self.vs.search(q_embed, top_k=top_k, category_id=category)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Vector search failed for %r: %s", query, exc)
+            logger.error("KuzuDB vector search failed for %r: %s", query, exc)
             result.warnings.append(f"vector_search_failed: {exc}")
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
             metrics.counter("query_errors_total").inc()
             return result
 
-        # Threshold filter (COSINE — higher is better).
-        hits = [h for h in hits if float(h.score) >= float(threshold)]
-        result.chunks = [self._to_chunk_hit(h) for h in hits]
-        result.citations = [self._to_citation(h) for h in hits]
+        # Separate results into chunks and entities
+        chunks, entities = self._split_kg_nodes(kg_nodes)
+        result.chunks = chunks
+        result.entities = entities
+        result.citations = [self._chunk_to_citation(c) for c in chunks]
 
         # Enrich chunks with memory_links via bridge (if enabled)
         self._enrich_memory_links(result.chunks)
@@ -276,47 +261,61 @@ class KnowledgeQueryEngine:
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
             return result
 
-        # --- 3) Graph expansion (graph + summarized modes) -----------
-        try:
-            entity_hits = self._graph_expand(hits, query, category=category)
-            result.entities = entity_hits
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Graph expansion failed: %s", exc)
-            result.warnings.append(f"graph_expansion_failed: {exc}")
+        # --- 2) Graph expansion (graph + summarized modes) -----------
+        if self.graph_rag_engine is not None:
+            # Delegate to GraphRAGQueryEngine for hit-aware PageRank scoring.
+            try:
+                entity_hits = self._graph_expand_via_rag_engine(query, category=category)
+                # Merge with vector-search entities (deduplicate by id)
+                existing_ids = {e.id for e in result.entities}
+                for eh in entity_hits:
+                    if eh.id not in existing_ids:
+                        result.entities.append(eh)
+                        existing_ids.add(eh.id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("GraphRAGQueryEngine expansion failed, falling back: %s", exc)
+                try:
+                    entity_hits = self._graph_expand(query, category=category)
+                    existing_ids = {e.id for e in result.entities}
+                    for eh in entity_hits:
+                        if eh.id not in existing_ids:
+                            result.entities.append(eh)
+                            existing_ids.add(eh.id)
+                except Exception as fallback_exc:  # noqa: BLE001
+                    logger.warning("Fallback graph expansion also failed: %s", fallback_exc)
+                    result.warnings.append(f"graph_expansion_failed: {exc}")
+        else:
+            try:
+                entity_hits = self._graph_expand(query, category=category)
+                existing_ids = {e.id for e in result.entities}
+                for eh in entity_hits:
+                    if eh.id not in existing_ids:
+                        result.entities.append(eh)
+                        existing_ids.add(eh.id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Graph expansion failed: %s", exc)
+                result.warnings.append(f"graph_expansion_failed: {exc}")
 
         if mode == "graph":
             result.latency_ms = int((time.perf_counter() - t0) * 1000)
             return result
 
-        # --- 4) LLM aggregation (summarized only) --------------------
+        # --- 3) LLM aggregation (summarized only) --------------------
         if mode == "summarized":
-            llm_available = False
-            try:
-                llm_available = bool(self.llm.is_available())
-            except Exception as exc:  # noqa: BLE001 — defensive
-                logger.warning("llm.is_available() raised: %s", exc)
-                llm_available = False
-
-            if not llm_available:
-                result.warnings.append(
-                    "llm_unavailable: No LLM model/API key configured; "
-                    "returning chunks without an aggregated answer"
-                )
-                result.latency_ms = int((time.perf_counter() - t0) * 1000)
-                return result
-
-            summaries = [h.text for h in hits if h.text]
-            if not summaries:
-                # Nothing to summarise — return empty string so callers can
-                # still render "no answer" without a None check.
-                result.answer = ""
-            else:
+            if self.graph_rag_engine is not None:
+                # Use GraphRAGQueryEngine multi-step plan + execute pipeline.
                 try:
-                    result.answer = self.llm.aggregate_answers(summaries, query)
+                    answer = self.graph_rag_engine.custom_query(
+                        query, parameter=parameter, category_id=category,
+                    )
+                    result.answer = answer if answer else ""
                 except Exception as exc:  # noqa: BLE001
-                    logger.error("LLM aggregation failed: %s", exc)
-                    result.warnings.append(f"llm_aggregation_failed: {exc}")
-                    result.answer = None
+                    logger.error("GraphRAGQueryEngine summarization failed: %s", exc)
+                    result.warnings.append(f"graph_rag_summarization_failed: {exc}")
+                    # Fall back to simple LLM aggregation.
+                    result.answer = self._fallback_summarize(result.chunks, query)
+            else:
+                result.answer = self._fallback_summarize(result.chunks, query)
 
         result.latency_ms = int((time.perf_counter() - t0) * 1000)
         # Record query latency histogram (convert ms to seconds)
@@ -386,19 +385,52 @@ class KnowledgeQueryEngine:
 
     # ---- Internals --------------------------------------------------------
 
-    def _to_chunk_hit(self, vh: Any) -> ChunkHit:
-        """Convert a :class:`VectorHit` (or duck-typed equivalent) to ChunkHit."""
-        md = getattr(vh, "metadata", None) or {}
-        return ChunkHit(
-            text=getattr(vh, "text", "") or "",
-            score=float(getattr(vh, "score", 0.0)),
-            file_path=str(md.get("file_path") or ""),
-            filename=str(md.get("filename") or ""),
-            chunk_index=int(md.get("chunk_index") or 0),
-            total_chunks=int(md.get("total_chunks") or 1),
-            file_hash=str(md.get("file_hash") or ""),
-            mime_type=md.get("mime_type"),
-            category_id=md.get("category_id"),
+    def _split_kg_nodes(self, kg_nodes: list) -> tuple[list[ChunkHit], list[EntityHit]]:
+        """Split KuzuDB results into ChunkHit and EntityHit lists.
+
+        KuzuDB's ``get_all_nodes(context=...)`` returns a mix of
+        :class:`ChunkNode` and :class:`EntityNode`. We separate them
+        and convert to the API-facing Pydantic models.
+        """
+        from llama_index.core.graph_stores.types import EntityNode, ChunkNode  # noqa: WPS433
+
+        chunks: list[ChunkHit] = []
+        entities: list[EntityHit] = []
+
+        for node in (kg_nodes or []):
+            props = getattr(node, "properties", {}) or {}
+            if isinstance(node, ChunkNode) or getattr(node, "label", "") == "text_chunk":
+                chunks.append(ChunkHit(
+                    text=getattr(node, "text", "") or "",
+                    score=1.0,  # KuzuDB vector search returns by distance order
+                    file_path=str(props.get("file_path", "")),
+                    filename=str(props.get("filename", "")),
+                    chunk_index=int(props.get("chunk_index", 0)),
+                    total_chunks=int(props.get("total_chunks", 1)),
+                    file_hash=str(props.get("file_hash", "")),
+                    mime_type=props.get("mime_type"),
+                    category_id=props.get("category_id"),
+                ))
+            else:
+                # EntityNode
+                entities.append(EntityHit(
+                    id=str(getattr(node, "id", "")),
+                    name=str(getattr(node, "name", "")) or str(getattr(node, "id", "")),
+                    label=str(getattr(node, "label", "entity")),
+                    score=1.0,
+                    description=str(props.get("entity_description", "")) or None,
+                    category_id=str(props.get("category_id", "")) or None,
+                ))
+
+        return chunks, entities
+
+    def _chunk_to_citation(self, chunk: ChunkHit) -> Citation:
+        """Convert a ChunkHit to a Citation."""
+        return Citation(
+            file=chunk.file_path or chunk.filename,
+            page=None,
+            chunk_index=chunk.chunk_index,
+            snippet_id="",
         )
 
     def _enrich_memory_links(self, chunks: list[ChunkHit]) -> None:
@@ -430,29 +462,83 @@ class KnowledgeQueryEngine:
                     exc,
                 )
 
-    def _to_citation(self, vh: Any) -> Citation:
-        md = getattr(vh, "metadata", None) or {}
-        return Citation(
-            file=str(md.get("file_path") or md.get("filename") or ""),
-            page=None,
-            chunk_index=int(md.get("chunk_index") or 0),
-            snippet_id=str(getattr(vh, "id", "") or ""),
-        )
+    def _graph_expand_via_rag_engine(
+        self,
+        query: str,
+        *,
+        category: Optional[str] = None,
+    ) -> list[EntityHit]:
+        """Expand entities using :class:`GraphRAGQueryEngine`'s pipeline.
+
+        Uses the full vector-retrieval → triplet scoring → PageRank pipeline
+        for hit-aware personalisation.  Converts the engine's ``graph_result``
+        output (networkx nodes with scores) into :class:`EntityHit` objects.
+        """
+        engine = self.graph_rag_engine
+        # Run vector retrieval + PageRank through the engine.
+        engine.get_nodes(query, category_id=category)
+        # graph_result() returns a YAML string of ranked nodes/edges from
+        # the TrackVectorRetriever's networkx DiGraph.
+        import yaml  # noqa: WPS433
+
+        raw_yaml = engine.graph_result()
+        parsed = yaml.safe_load(raw_yaml) or {}
+        knowledge_str = parsed.get("knowledge", "")
+        knowledge_nodes = yaml.safe_load(knowledge_str) if knowledge_str else []
+
+        out: list[EntityHit] = []
+        for node_data in (knowledge_nodes or [])[:_MAX_ENTITIES_PER_QUERY]:
+            if not isinstance(node_data, dict):
+                continue
+            node_id = node_data.get("id", "")
+            out.append(
+                EntityHit(
+                    id=str(node_id),
+                    name=str(node_data.get("label", node_id)),
+                    label="entity",
+                    score=float(node_data.get("score", 0.0)),
+                    description=str(node_data.get("citation", "")),
+                )
+            )
+        return out
+
+    def _fallback_summarize(self, chunks: list[ChunkHit], query: str) -> Optional[str]:
+        """Simple LLM aggregation fallback (no GraphRAGQueryEngine).
+
+        Used when :attr:`graph_rag_engine` is ``None`` or when the full
+        graph-RAG summarization fails.
+        """
+        llm_available = False
+        try:
+            llm_available = bool(self.llm.is_available())
+        except Exception:  # noqa: BLE001
+            llm_available = False
+
+        if not llm_available:
+            return None
+
+        summaries = [c.text for c in chunks if c.text]
+        if not summaries:
+            return ""
+
+        try:
+            return self.llm.aggregate_answers(summaries, query)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("LLM aggregation fallback failed: %s", exc)
+            return None
 
     def _graph_expand(
         self,
-        vector_hits: list[Any],
         query: str,
         *,
         category: Optional[str] = None,
     ) -> list[EntityHit]:
         """Use Kuzu PageRank to find entities related to the vector hits.
 
-        For MVP: pull all entities for the namespace, run PageRank with a
-        uniform personalisation vector. EPIC-007 can replace the
-        personalisation with smarter heuristics (e.g. name-overlap with
-        chunk text). Returns at most :data:`_MAX_ENTITIES_PER_QUERY`
-        entities, sorted by PageRank score descending.
+        Pulls all entities for the namespace, runs PageRank with a
+        uniform personalisation vector. Returns at most
+        :data:`_MAX_ENTITIES_PER_QUERY` entities, sorted by PageRank
+        score descending.
 
         Returns ``[]`` (not raise) when:
 

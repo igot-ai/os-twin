@@ -153,6 +153,7 @@ class GraphRAGExtractor(TransformComponent):
                 show_progress=show_progress,
                 desc="Extracting knowledge graphs",
             )
+            logger.info("Graph extraction completed for %s nodes", str(results))
             return results
         except Exception as exc:  # noqa: BLE001
             logger.error("Batch extraction failed: %s", exc)
@@ -170,7 +171,7 @@ class GraphRAGExtractor(TransformComponent):
                 return await self._aextract_single(node)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
-                logger.warning("Extraction attempt %d failed for %s: %s", attempt + 1, node.id_, exc)
+                logger.error("Extraction attempt %d failed for %s: %s", attempt + 1, node.id_, exc)
         return self._create_empty_extraction_result(node, str(last_error))
 
     async def _aextract_single(self, node: BaseNode) -> BaseNode:
@@ -215,8 +216,9 @@ class GraphRAGExtractor(TransformComponent):
                 entity_texts.append(".".join([str(name), str(etype), str(desc)]))
             try:
                 embeddings = self.embedder.embed(entity_texts)
+                logger.info("Batch embedding completed for %s entities", len(entities))
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Batch embedding failed (%s); falling back to per-text", exc)
+                logger.error("Batch embedding failed (%s); falling back to per-text", exc)
                 embeddings = [self.embedder.embed_one(t) for t in entity_texts]
         else:
             embeddings = []
@@ -261,7 +263,21 @@ class GraphRAGExtractor(TransformComponent):
 
         node.metadata[KG_NODES_KEY] = existing_nodes
         node.metadata[KG_RELATIONS_KEY] = existing_relations
-        logger.debug(
+
+        # Ensure the source node (ChunkNode) also carries an embedding so it
+        # can be found via KuzuDB's QUERY_VECTOR_INDEX. If the node already
+        # has an embedding (e.g. from the PropertyGraphIndex embed_model) we
+        # leave it alone; otherwise we generate one from its text content.
+        if not getattr(node, "embedding", None):
+            try:
+                text_for_embed = node.get_content(metadata_mode="none")
+                if text_for_embed and text_for_embed.strip():
+                    node.embedding = self.embedder.embed_one(text_for_embed)
+                    logger.debug("Embedded source ChunkNode %s (%d chars)", node.id_, len(text_for_embed))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to embed source ChunkNode %s: %s", node.id_, exc)
+
+        logger.info(
             "Extraction: %d entities, %d relations",
             len(existing_nodes),
             len(existing_relations),

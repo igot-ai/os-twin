@@ -162,8 +162,12 @@ export interface ObservabilitySettings {
 export interface KnowledgeSettings {
   /** Empty string means "use server default (config.LLM_MODEL / env var)". */
   llm_model: string;
+  /** Empty string means "auto-detect from model name". */
+  llm_provider: string;
   /** Empty string means "use server default (config.EMBEDDING_MODEL / env var)". */
   embedding_model: string;
+  /** Empty string means "use server default (sentence-transformer)". */
+  embedding_backend: string;
   /** Read-only / informational. The actual dim is determined by the loaded embedding model. */
   embedding_dimension: number;
 }

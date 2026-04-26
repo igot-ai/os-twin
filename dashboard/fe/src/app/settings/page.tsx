@@ -372,7 +372,7 @@ export default function SettingsPage() {
         );
 
       case 'knowledge': {
-        const knowledgeDefaults = { llm_model: '', embedding_model: '', embedding_dimension: 384 };
+        const knowledgeDefaults = { llm_model: '', llm_provider: '', embedding_model: '', embedding_backend: '', embedding_dimension: 384 };
         const knowledgeCurrent = settings.knowledge ?? knowledgeDefaults;
         return (
           <KnowledgePanel

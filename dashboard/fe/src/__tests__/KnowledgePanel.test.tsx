@@ -28,7 +28,9 @@ const mockModels: ModelInfo[] = [
 
 const defaults: KnowledgeSettings = {
   llm_model: '',
+  llm_provider: '',
   embedding_model: '',
+  embedding_backend: '',
   embedding_dimension: 384,
 };
 

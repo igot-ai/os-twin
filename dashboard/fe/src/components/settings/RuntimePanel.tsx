@@ -42,7 +42,7 @@ export function RuntimePanel({ runtime, provenance = {}, onUpdate }: RuntimePane
         <input
           type="range"
           min={1}
-          max={500}
+          max={10000}
           value={runtime.max_concurrent_rooms}
           onChange={(e) => onUpdate({ max_concurrent_rooms: parseInt(e.target.value, 10) })}
           className="w-full h-2 rounded-lg appearance-none cursor-pointer"
@@ -53,7 +53,7 @@ export function RuntimePanel({ runtime, provenance = {}, onUpdate }: RuntimePane
           <span className="font-mono font-bold" style={{ color: '#0f172a' }}>
             {runtime.max_concurrent_rooms}
           </span>
-          <span>500</span>
+          <span>10000</span>
         </div>
         {provenance.max_concurrent_rooms && <ProvenanceChip source={provenance.max_concurrent_rooms} />}
       </div>

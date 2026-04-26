@@ -673,6 +673,7 @@ describe('QueryPanel', () => {
           file_hash: 'abc123',
           mime_type: 'text/plain',
           category_id: null,
+          memory_links: [],
         },
       ],
       entities: [],

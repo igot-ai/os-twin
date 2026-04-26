@@ -22,19 +22,19 @@ KNOWLEDGE_DIR: Path = Path(
 # --- Model defaults ---------------------------------------------------------
 
 EMBEDDING_MODEL: str = os.environ.get(
-    "OSTWIN_KNOWLEDGE_EMBED_MODEL", "BAAI/bge-small-en-v1.5"
+    "OSTWIN_KNOWLEDGE_EMBED_MODEL", "BAAI/bge-base-en-v1.5"
 )
-EMBEDDING_DIMENSION: int = int(os.environ.get("OSTWIN_KNOWLEDGE_EMBED_DIM", "384"))
+EMBEDDING_DIMENSION: int = int(os.environ.get("OSTWIN_KNOWLEDGE_EMBED_DIM", "768"))
 
 # LLM_MODEL has no hardcoded default — user must configure via
 # MasterSettings.knowledge.llm_model or OSTWIN_KNOWLEDGE_LLM_MODEL env var.
 # When empty, KnowledgeLLM.is_available() returns False (graceful degradation).
-LLM_MODEL: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_MODEL", "")
+LLM_MODEL: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_MODEL", "gemini-3-flash-preview")
 
 # Provider hints — auto-detected from model name when empty.
 # Valid values mirror MemorySettings: "gemini", "openai", "anthropic",
 # "huggingface", "sentence-transformer", etc.
-LLM_PROVIDER: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_PROVIDER", "")
+LLM_PROVIDER: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_PROVIDER", "google-vertex")
 EMBEDDING_PROVIDER: str = os.environ.get(
     "OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "sentence-transformer"
 )

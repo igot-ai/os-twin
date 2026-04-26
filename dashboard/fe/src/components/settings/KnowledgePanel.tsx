@@ -31,7 +31,9 @@ const SUGGESTED_EMBEDDINGS: EmbeddingSuggestion[] = [
 
 const DEFAULTS: KnowledgeSettings = {
   llm_model: '',
+  llm_provider: '',
   embedding_model: '',
+  embedding_backend: '',
   embedding_dimension: 384,
 };
 
@@ -69,7 +71,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setSavingError(false);
     try {
       await onUpdate({ llm_model: model });
-      flashSavedMessage('Saved');
+      flashSavedMessage('Saved — takes effect on next query', false, 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
       flashSavedMessage(`Save failed: ${msg}`, true);
@@ -128,11 +130,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         </h2>
         <p className="text-sm text-on-surface-variant">
           Configure the LLM and embedding models used by the knowledge service for entity
-          extraction, query answering, and document indexing. Settings map to{' '}
+          extraction, query answering, and document indexing. Overrides{' '}
           <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">
             KNOWLEDGE_*
           </code>{' '}
-          environment variables.
+          environment variable defaults when set.
         </p>
       </div>
 
@@ -273,6 +275,66 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
             <span className="text-[10px] text-slate-400">dimensions</span>
           </div>
         </div>
+      </section>
+
+      {/* ── Section 4: Advanced (provider overrides) ──────── */}
+      <section>
+        <details className="group">
+          <summary className="flex items-center gap-2 cursor-pointer select-none mb-3">
+            <span className="material-symbols-outlined text-slate-500 text-lg group-open:rotate-180 transition-transform">
+              expand_more
+            </span>
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">
+              Advanced
+            </h3>
+            <span className="text-[9px] text-slate-400 ml-auto font-mono">
+              provider overrides
+            </span>
+          </summary>
+
+          <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+            <p className="text-[10px] text-slate-500">
+              These are auto-detected from model names and rarely need manual override.
+              Leave empty for automatic detection.
+            </p>
+
+            {/* LLM Provider */}
+            <div>
+              <label className="text-[9px] text-slate-400 mb-1 block">
+                LLM Provider
+                <span className="ml-2 font-mono text-[8px]">OSTWIN_KNOWLEDGE_LLM_PROVIDER</span>
+              </label>
+              <select
+                value={effective.llm_provider}
+                onChange={(e) => void onUpdate({ llm_provider: e.target.value })}
+                className="w-full px-3 py-2 rounded-md text-xs font-mono bg-[#f1f5f9] border border-[#e2e8f0] text-[#0f172a]"
+              >
+                <option value="">— Auto-detect from model name —</option>
+                <option value="openai">openai</option>
+                <option value="anthropic">anthropic</option>
+                <option value="google">google (Gemini)</option>
+                <option value="google-vertex">google-vertex (Vertex AI)</option>
+              </select>
+            </div>
+
+            {/* Embedding Backend */}
+            <div>
+              <label className="text-[9px] text-slate-400 mb-1 block">
+                Embedding Backend
+                <span className="ml-2 font-mono text-[8px]">OSTWIN_KNOWLEDGE_EMBED_PROVIDER</span>
+              </label>
+              <select
+                value={effective.embedding_backend}
+                onChange={(e) => void onUpdate({ embedding_backend: e.target.value })}
+                className="w-full px-3 py-2 rounded-md text-xs font-mono bg-[#f1f5f9] border border-[#e2e8f0] text-[#0f172a]"
+              >
+                <option value="">— Default (sentence-transformer) —</option>
+                <option value="sentence-transformer">sentence-transformer</option>
+                <option value="gemini">gemini</option>
+              </select>
+            </div>
+          </div>
+        </details>
       </section>
 
       {/* ── Save status toast ───────────────────────────────── */}

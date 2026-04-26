@@ -332,9 +332,77 @@ def test_shutdown_stops_sweeper(knowledge_service: KnowledgeService):
 # ---------------------------------------------------------------------------
 
 
+def test_refresh_namespace_empty_namespace(knowledge_service: KnowledgeService):
+    """Refreshing an empty namespace returns empty job list."""
+    knowledge_service._nm.create("empty-refresh")
+    job_ids = knowledge_service.refresh_namespace("empty-refresh")
+    assert job_ids == []
 
 
-# ---------------------------------------------------------------------------
+def test_refresh_namespace_nonexistent_raises(knowledge_service: KnowledgeService):
+    """Refreshing a missing namespace raises NamespaceNotFoundError."""
+    from dashboard.knowledge.namespace import NamespaceNotFoundError
+    with pytest.raises(NamespaceNotFoundError):
+        knowledge_service.refresh_namespace("no-such-ns")
+
+
+def test_refresh_namespace_returns_job_ids(
+    knowledge_service: KnowledgeService,
+    namespace_manager: NamespaceManager,
+):
+    """Refreshing namespace with imports triggers background jobs."""
+    ns = "real-refresh"
+    namespace_manager.create(ns)
+    
+    # Mock imports in manifest
+    meta = namespace_manager.get(ns)
+    now = datetime.now(timezone.utc)
+    meta.imports = [
+        ImportRecord(folder_path="/data/v1", started_at=now, status="completed"),
+        ImportRecord(folder_path="/data/v2", started_at=now, status="completed"),
+    ]
+    namespace_manager.write_manifest(ns, meta)
+    
+    # Mock import_folder to return dummy job IDs
+    with patch.object(knowledge_service, "import_folder") as mock_import:
+        mock_import.side_effect = ["job-1", "job-2"]
+        
+        job_ids = knowledge_service.refresh_namespace(ns)
+        
+        assert len(job_ids) == 2
+        assert "job-1" in job_ids
+        assert "job-2" in job_ids
+        assert mock_import.call_count == 2
+        
+        # Verify force=True was passed
+        kwargs = mock_import.call_args[1]
+        assert kwargs["options"] == {"force": True}
+
+
+def test_refresh_namespace_skips_failed_imports(
+    knowledge_service: KnowledgeService,
+    namespace_manager: NamespaceManager,
+):
+    """Refreshing only triggers jobs for successful previous imports."""
+    ns = "partial-refresh"
+    namespace_manager.create(ns)
+    
+    meta = namespace_manager.get(ns)
+    now = datetime.now(timezone.utc)
+    meta.imports = [
+        ImportRecord(folder_path="/data/ok", started_at=now, status="completed"),
+        ImportRecord(folder_path="/data/bad", started_at=now, status="failed"),
+    ]
+    namespace_manager.write_manifest(ns, meta)
+    
+    with patch.object(knowledge_service, "import_folder") as mock_import:
+        mock_import.return_value = "job-ok"
+        
+        job_ids = knowledge_service.refresh_namespace(ns)
+        
+        assert job_ids == ["job-ok"]
+        mock_import.assert_called_once()
+        assert mock_import.call_args[0][1] == "/data/ok"
 # Schema migration tests
 # ---------------------------------------------------------------------------
 
@@ -353,7 +421,7 @@ def test_schema_v1_migrates_to_v2(namespace_manager: NamespaceManager, tmp_path:
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "language": "English",
         "embedding_model": "test-model",
-        "embedding_dimension": 384,
+        "embedding_dimension": 768,
         "stats": {
             "files_indexed": 0,
             "chunks": 0,
@@ -390,7 +458,7 @@ def test_schema_missing_version_migrates(namespace_manager: NamespaceManager, tm
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "language": "English",
         "embedding_model": "test-model",
-        "embedding_dimension": 384,
+        "embedding_dimension": 768,
         "stats": {
             "files_indexed": 0,
             "chunks": 0,

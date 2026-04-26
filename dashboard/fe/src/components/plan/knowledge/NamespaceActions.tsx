@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { apiPost, apiPut } from '@/lib/api-client';
+import { apiPut } from '@/lib/api-client';
 
 interface NamespaceActionsProps {
   namespace: string;
@@ -14,92 +14,26 @@ export default function NamespaceActions({ namespace, onRefresh }: NamespaceActi
   const [showRetentionModal, setShowRetentionModal] = useState(false);
   const [retentionPolicy, setRetentionPolicy] = useState<'manual' | 'ttl_days'>('manual');
   const [ttlDays, setTtlDays] = useState(30);
-  const [isBackingUp, setIsBackingUp] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSavingRetention, setIsSavingRetention] = useState(false);
   const addToast = useNotificationStore((state) => state.addToast);
 
-  const handleBackup = useCallback(async () => {
-    setIsBackingUp(true);
-    setShowMenu(false);
-    try {
-      // The backup endpoint returns a binary stream, so we need the raw Response
-      // rather than going through apiPost (which parses JSON and returns T).
-      const { getApiBaseUrl } = await import('@/lib/runtime-config');
-      const BASE_URL = getApiBaseUrl();
-      const response = await fetch(
-        `${BASE_URL}/api/knowledge/namespaces/${namespace}/backup?stream=true`,
-        { method: 'POST', credentials: 'include' },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Backup failed: ${response.statusText}`);
+  // Close dropdown/modal on Escape key
+  useEffect(() => {
+    if (!showMenu && !showRetentionModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showRetentionModal) setShowRetentionModal(false);
+        else if (showMenu) setShowMenu(false);
       }
-
-      // Create download link
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${namespace}.backup.tar.zst`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      addToast({
-        type: 'success',
-        title: 'Backup Downloaded',
-        message: `Backup of "${namespace}" has been downloaded.`,
-        autoDismiss: true,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Backup failed';
-      addToast({
-        type: 'error',
-        title: 'Backup Failed',
-        message,
-        autoDismiss: false,
-      });
-    } finally {
-      setIsBackingUp(false);
-    }
-  }, [namespace, addToast]);
-
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    setShowMenu(false);
-    try {
-      // apiPost<T> parses JSON and returns T directly — no .json() needed
-      const data = await apiPost<{ imports_count: number }>(
-        `/api/knowledge/namespaces/${namespace}/refresh`,
-      );
-
-      addToast({
-        type: 'success',
-        title: 'Refresh Started',
-        message: `Re-importing ${data.imports_count} folder(s) into "${namespace}".`,
-        autoDismiss: true,
-      });
-
-      onRefresh?.();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Refresh failed';
-      addToast({
-        type: 'error',
-        title: 'Refresh Failed',
-        message,
-        autoDismiss: false,
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [namespace, addToast, onRefresh]);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showMenu, showRetentionModal]);
 
   const handleSaveRetention = useCallback(async () => {
     setIsSavingRetention(true);
     try {
-      await apiPut(`/api/knowledge/namespaces/${namespace}/retention`, {
+      await apiPut(`/knowledge/namespaces/${namespace}/retention`, {
         policy: retentionPolicy,
         ttl_days: retentionPolicy === 'ttl_days' ? ttlDays : null,
       });
@@ -161,36 +95,6 @@ export default function NamespaceActions({ namespace, onRefresh }: NamespaceActi
               }}
             >
               <div className="py-1">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleBackup();
-                  }}
-                  disabled={isBackingUp}
-                  className="w-full px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-surface-hover transition-colors disabled:opacity-50"
-                  style={{ color: 'var(--color-text-main)' }}
-                >
-                  <span className="material-symbols-outlined text-[16px]">
-                    {isBackingUp ? 'sync' : 'download'}
-                  </span>
-                  {isBackingUp ? 'Backing up...' : 'Backup'}
-                </button>
-                
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRefresh();
-                  }}
-                  disabled={isRefreshing}
-                  className="w-full px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-surface-hover transition-colors disabled:opacity-50"
-                  style={{ color: 'var(--color-text-main)' }}
-                >
-                  <span className="material-symbols-outlined text-[16px]">
-                    {isRefreshing ? 'sync' : 'refresh'}
-                  </span>
-                  {isRefreshing ? 'Refreshing...' : 'Refresh'}
-                </button>
-                
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

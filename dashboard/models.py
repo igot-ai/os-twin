@@ -265,7 +265,7 @@ class RoleSettings(BaseModel):
 
 class RuntimeSettings(BaseModel):
     poll_interval: int = Field(default=5, ge=1, le=300)
-    max_concurrent_rooms: int = Field(default=10, ge=1, le=500)
+    max_concurrent_rooms: int = Field(default=10, ge=1, le=10000)
     auto_approve_tools: bool = False
     dynamic_pipelines: bool = True
 

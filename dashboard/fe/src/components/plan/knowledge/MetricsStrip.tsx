@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet } from '@/lib/api-client';
 
 interface MetricsData {
@@ -100,13 +100,14 @@ export default function MetricsStrip({ refreshInterval = 5000, className = '' }:
   const [queryRateHistory, setQueryRateHistory] = useState<number[]>([]);
   const [ingestRateHistory, setIngestRateHistory] = useState<number[]>([]);
   const [errorRateHistory, setErrorRateHistory] = useState<number[]>([]);
-  const [lastQueryTotal, setLastQueryTotal] = useState(0);
-  const [lastIngestTotal, setLastIngestTotal] = useState(0);
-  const [lastErrorTotal, setLastErrorTotal] = useState(0);
+  // Use refs for accumulators so fetchMetrics stays stable across renders
+  const lastQueryTotalRef = useRef(0);
+  const lastIngestTotalRef = useRef(0);
+  const lastErrorTotalRef = useRef(0);
 
   const fetchMetrics = useCallback(async () => {
     try {
-      const data = await apiGet<MetricsData>('/api/knowledge/metrics');
+      const data = await apiGet<MetricsData>('/knowledge/metrics');
       setMetrics(data);
       setError(null);
       
@@ -116,13 +117,13 @@ export default function MetricsStrip({ refreshInterval = 5000, className = '' }:
       const errorTotal = (data.counters?.query_errors_total?.value || 0) + (data.counters?.llm_errors_total?.value || 0);
       
       // Calculate delta (rate per interval)
-      const queryDelta = queryTotal - lastQueryTotal;
-      const ingestDelta = ingestTotal - lastIngestTotal;
-      const errorDelta = errorTotal - lastErrorTotal;
+      const queryDelta = queryTotal - lastQueryTotalRef.current;
+      const ingestDelta = ingestTotal - lastIngestTotalRef.current;
+      const errorDelta = errorTotal - lastErrorTotalRef.current;
       
-      setLastQueryTotal(queryTotal);
-      setLastIngestTotal(ingestTotal);
-      setLastErrorTotal(errorTotal);
+      lastQueryTotalRef.current = queryTotal;
+      lastIngestTotalRef.current = ingestTotal;
+      lastErrorTotalRef.current = errorTotal;
       
       // Update history (keep last 10)
       setQueryRateHistory(prev => [...prev.slice(-9), Math.max(0, queryDelta)]);
@@ -133,7 +134,7 @@ export default function MetricsStrip({ refreshInterval = 5000, className = '' }:
     } finally {
       setIsLoading(false);
     }
-  }, [lastQueryTotal, lastIngestTotal, lastErrorTotal]);
+  }, []);
 
   useEffect(() => {
     fetchMetrics();
