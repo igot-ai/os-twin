@@ -30,7 +30,7 @@ interface GraphNode {
   /** Optional context blurb from frontmatter. */
   context?: string | null;
   category?: string | null;
-  /** A-mem-sys timestamp string YYYYMMDDHHMM. */
+  /** Timestamp string YYYYMMDDHHMM. */
   timestamp?: string | null;
   last_accessed?: string | null;
   retrieval_count?: number;
@@ -464,7 +464,7 @@ function MemoryGraph({
   );
 }
 
-/** Format A-mem-sys timestamp ("202604081932") to "Apr 8, 2026 - 19:32" */
+/** Format timestamp ("202604081932") to "Apr 8, 2026 - 19:32" */
 function formatTimestamp(ts?: string | null): string | null {
   if (!ts || !/^\d{12}$/.test(ts)) return null;
   const y = ts.slice(0, 4);
@@ -595,7 +595,7 @@ function NoteDetail({ note }: Readonly<{ note: GraphNode | null }>) {
   }
 
   // All structured fields come straight from the backend (which uses the
-  // shared MemoryNote.from_markdown parser from A-mem-sys). No more
+  // shared MemoryNote.from_markdown parser from the memory system). No more
   // client-side frontmatter re-parsing.
   const tags = note.tags;
   const keywords = note.keywords;

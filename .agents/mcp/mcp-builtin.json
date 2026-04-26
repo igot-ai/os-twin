@@ -22,10 +22,8 @@
     },
     "memory": {
       "type": "local",
-      "command": [
-        "{env:OSTWIN_PYTHON}",
-        "{env:AGENT_DIR}/.agents/memory/mcp_server.py"
-      ],
+      "command": ["{env:OSTWIN_PYTHON}", "{env:AGENT_DIR}/.agents/memory/mcp_server.py"],
+      "timeout": 120000,
       "environment": {
         "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
         "MEMORY_PERSIST_DIR": "./.memory",

@@ -12,6 +12,7 @@ These tests deliberately avoid loading the full AgenticMemorySystem (heavy
 deps, embedding models, network). The module's background-init thread runs
 on import but is a daemon and is allowed to fail silently in tests.
 """
+
 import asyncio
 import json
 import logging
@@ -69,7 +70,9 @@ class TestDropStreamParseErrorsFilter(unittest.TestCase):
     def test_filter_installed_on_lowlevel_logger(self):
         target = logging.getLogger("mcp.server.lowlevel.server")
         self.assertTrue(
-            any(isinstance(f, mcp_server._DropStreamParseErrors) for f in target.filters),
+            any(
+                isinstance(f, mcp_server._DropStreamParseErrors) for f in target.filters
+            ),
             "noise filter should be attached to mcp.server.lowlevel.server",
         )
 
@@ -79,6 +82,7 @@ class TestExceptionSilencePatch(unittest.TestCase):
 
     def test_patch_installed(self):
         from mcp.server.lowlevel import server as lowlevel
+
         # The patched coroutine has our marker name.
         self.assertEqual(
             lowlevel.Server._handle_message.__name__,
@@ -222,7 +226,9 @@ class TestGetMemoryErrorReporting(unittest.TestCase):
         import threading as _t
 
         mcp_server._memory = None
-        mcp_server._memory_init_error = ModuleNotFoundError("No module named 'requests'")
+        mcp_server._memory_init_error = ModuleNotFoundError(
+            "No module named 'requests'"
+        )
         ev = _t.Event()
         ev.set()  # don't actually wait
         mcp_server._memory_ready = ev
@@ -277,6 +283,11 @@ class TestStdioEndToEnd(unittest.TestCase):
         return proc.stdout
 
     def test_initialize_and_tools_list_with_garbage(self):
+        # Garbage lines are placed AFTER all valid requests so the server
+        # processes initialize + tools/list before encountering bad input.
+        # Previously garbage was interleaved, which caused a race on slower
+        # CI runners where the server would close stdin before reading
+        # the tools/list request.
         payload = "\n".join(
             [
                 json.dumps(
@@ -291,13 +302,12 @@ class TestStdioEndToEnd(unittest.TestCase):
                         },
                     }
                 ),
-                json.dumps(
-                    {"jsonrpc": "2.0", "method": "notifications/initialized"}
-                ),
+                json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
                 json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+                "",
+                "",
                 "",  # blank line — would normally trigger parse error
                 "this is not json at all",  # garbage
-                "",
                 "",
             ]
         )

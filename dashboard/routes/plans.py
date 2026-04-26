@@ -32,11 +32,9 @@ logger = logging.getLogger(__name__)
 def _resolve_plans_dir_for_write() -> Path:
     """Resolve where new plans should be written.
     
-    Returns PLANS_DIR if it exists (project-local), otherwise GLOBAL_PLANS_DIR.
-    This ensures new plans are written to the same store that list/save endpoints read.
+    Always writes to global store (~/.ostwin/.agents/plans) so plans are
+    accessible across all projects and from the bot.
     """
-    if PLANS_DIR.exists():
-        return PLANS_DIR
     return GLOBAL_PLANS_DIR
 
 

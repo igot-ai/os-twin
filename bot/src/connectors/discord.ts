@@ -19,7 +19,7 @@ import path from 'path';
 import { EOL } from 'os';
 
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse, Button, COMMAND_REGISTRY, DEFERRED_COMMANDS } from '../commands';
+import { routeCommand, routeCallback, BotResponse, Button, COMMAND_REGISTRY, DEFERRED_COMMANDS } from '../commands';
 import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { transcribeAndLaunch } from '../audio-transcript';
@@ -195,12 +195,11 @@ export class DiscordConnector implements Connector {
       const botUserId = this.client?.user?.id;
       const isMention = !!(botUserId && message.mentions.has(botUserId));
       const attachments = message.attachments ? Array.from(message.attachments.values()) : [];
-      const isStateful = ['drafting', 'editing', 'awaiting_idea'].includes(session.mode);
+      
 
       // ── Handle attachments: save immediately or stage for later ──
       const hasAttachments = attachments.length > 0;
-      const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
-        && ['drafting', 'editing'].includes(session.mode);
+      const canSaveNow = session.activePlanId && session.activePlanId !== 'new';
 
       if (hasAttachments) {
         if (canSaveNow) {
@@ -252,14 +251,8 @@ export class DiscordConnector implements Connector {
 
         if (!question && attachments.length === 0) return;
 
-        // If user is editing a plan, treat @mention text as a plan instruction
-        if (isStateful && question) {
-          const textResponses = await handleStatefulText(userId, 'discord', question);
-          if (textResponses.length > 0) {
-            await this.sendToChannel(message.channel as TextChannel, textResponses);
-          }
-          return;
-        }
+        // All @mentions go through askAgent() — the AI decides whether to
+        // refine a plan, check status, or take other actions via tool-calling.
 
         // Otherwise: AI agent with tool-calling (can create plans, check status, etc.)
         // Trigger if there's text OR attachments (attachment-only = user wants assets processed)
@@ -290,13 +283,25 @@ export class DiscordConnector implements Connector {
             : undefined;
 
           try {
-            const answer = await askAgent(agentQuestion, { 
+            const result = await askAgent(agentQuestion, { 
               userId, 
               platform: 'discord',
               referencedMessageContent,
               attachments: attachmentMeta,
             });
-            await message.reply(answer);
+
+            // Build reply with optional file attachments (e.g. memory graph)
+            const discordText = result.text.length > 1900
+              ? result.text.slice(0, 1900) + '\n\n*…(truncated)*'
+              : result.text;
+            const replyOptions: any = { content: discordText };
+            if (result.attachments?.length) {
+              const { AttachmentBuilder } = await import('discord.js');
+              replyOptions.files = result.attachments.map(
+                (a) => new AttachmentBuilder(a.buffer, { name: a.name })
+              );
+            }
+            await message.reply(replyOptions);
           } catch (err: any) {
             console.error('❌ [AGENT] Bridge error:', err);
             await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});
@@ -308,24 +313,8 @@ export class DiscordConnector implements Connector {
         return;
       }
 
-      // ── Stateful text: refine/draft plan ──
-      if (isStateful) {
-        const msgText = message.content.trim();
-        const responses: BotResponse[] = [];
-
-        if (msgText && !msgText.startsWith('/')) {
-          const textResponses = await handleStatefulText(userId, 'discord', msgText);
-          responses.push(...textResponses);
-        }
-
-        // After draft/refine, the plan may now exist — flush staged attachments
-        const flushResponses = await this.flushStagedIfReady(userId);
-        responses.push(...flushResponses);
-
-        if (responses.length > 0) {
-          await this.sendToChannel(message.channel as TextChannel, responses);
-        }
-      }
+      // Non-mention messages in Discord are not routed to the AI.
+      // Users must @mention the bot to interact.
     });
 
     // Register commands

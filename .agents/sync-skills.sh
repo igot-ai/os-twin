@@ -276,19 +276,61 @@ sync_home_skills() {
 
   info "$total SKILL.md file(s) found on disk"
 
-  # The /api/skills/sync endpoint scans all SKILL.md files from the
-  # configured skills directories and bulk-indexes them into the vector
-  # store in a single pass — much faster than hitting /api/skills/install
-  # once per skill (which was 258 sequential curl calls).
-  #
-  # The vector store initializes in a background thread after dashboard
-  # startup, so we retry for up to 30s until it's ready.
-  step "Triggering vector store sync (runs in background)..."
-  # The sync endpoint embeds all skills (~12s/batch on CPU) and can take
-  # several minutes with 250+ skills. Fire-and-forget so install doesn't block.
-  curl -sf --max-time 5 -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
-    "${DASHBOARD_URL}/api/skills/sync" >/dev/null 2>&1 &
-  ok_time "Skill sync triggered — embeddings will complete in the background" "$(print_duration "$start_time")"
+  # Check if background sync is already running (started by tasks.py on startup)
+  step "Checking sync status..."
+  local status_json=""
+  status_json=$(curl -sf ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+    "${DASHBOARD_URL}/api/skills/sync/status" 2>&1) || true
+
+  local sync_in_progress="false"
+  if [[ -n "$status_json" ]]; then
+    sync_in_progress=$(echo "$status_json" | grep -o '"sync_in_progress":[^,}]*' | grep -o 'true\|false' || echo "false")
+  fi
+
+  if [[ "$sync_in_progress" == "true" ]]; then
+    step "Background sync in progress, waiting for completion..."
+    local _wait_attempt
+    for _wait_attempt in $(seq 1 30); do
+      sleep 2
+      status_json=$(curl -sf ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+        "${DASHBOARD_URL}/api/skills/sync/status" 2>&1) || true
+      if [[ -n "$status_json" ]]; then
+        sync_in_progress=$(echo "$status_json" | grep -o '"sync_in_progress":[^,}]*' | grep -o 'true\|false' || echo "false")
+        if [[ "$sync_in_progress" == "false" ]]; then
+          ok "Background sync completed"
+          return
+        fi
+      fi
+    done
+    warn "Background sync still in progress after 60s — proceeding anyway"
+    return
+  fi
+
+  # No background sync running — trigger sync ourselves
+  step "Triggering vector store sync..."
+  local sync_result=""
+  local _attempt
+  for _attempt in $(seq 1 10); do
+    sync_result=$(curl -sf -X POST ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} \
+      "${DASHBOARD_URL}/api/skills/sync" 2>&1) || true
+
+    if [[ -n "$sync_result" ]] && echo "$sync_result" | grep -q '"synced_count"' 2>/dev/null; then
+      break
+    fi
+    sync_result=""
+    sleep 3
+  done
+
+  if [[ -n "$sync_result" ]]; then
+    local synced_count added_count updated_count removed_count
+    synced_count=$(echo "$sync_result" | grep -o '"synced_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
+    added_count=$(echo "$sync_result" | grep -o '"added":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
+    updated_count=$(echo "$sync_result" | grep -o '"updated":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
+    removed_count=$(echo "$sync_result" | grep -o '"removed":\[[^]]*\]' | tr ',' '\n' | grep -c '"' || echo "0")
+    ok "Vector store synced: $synced_count changed ($added_count added, $updated_count updated, $removed_count removed)"
+  else
+    warn "Vector store sync failed after ${_attempt} attempts — dashboard may not be reachable"
+  fi
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

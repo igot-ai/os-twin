@@ -248,6 +248,18 @@ class ConfigResolver:
         for name, server_cfg in compiled_config["mcp"].items():
             compiled_config["mcp"][name] = _compile_recursive(server_cfg, name)
 
+        # Resolve bare "python"/"python3" in command[0] to the ostwin venv path
+        ostwin_python = known_vars.get("OSTWIN_PYTHON", "")
+        if ostwin_python and os.path.isfile(ostwin_python):
+            for name, server_cfg in compiled_config["mcp"].items():
+                cmd = server_cfg.get("command")
+                if (
+                    isinstance(cmd, list)
+                    and len(cmd) > 0
+                    and cmd[0] in ("python", "python3")
+                ):
+                    cmd[0] = ostwin_python
+
         # Clean up + resolve relative paths in environment/env values
         _unresolved_re = re.compile(r"\$\{[^}]+\}|\{env:[^}]+\}")
         for name, server_cfg in compiled_config["mcp"].items():

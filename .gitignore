@@ -53,6 +53,11 @@ dashboard/.agents/
 **/TODO.md
 **/release_note.md
 
+# ── Test fixtures (war-room data should not be committed) ──────────────────────
+.agents/tests/war-rooms/room-*/
+.agents/tests/temp-war-rooms/
+dashboard/fe/war-room-sample/
+
 # ── Dummy project ──────────────────────────────────────────────────────────────
 cypress/screenshots
 dashboard/nextjs/
@@ -105,3 +110,4 @@ A-mem-sys*/**
 
 AGENTS.md
 image.png
+CLAUDE.md

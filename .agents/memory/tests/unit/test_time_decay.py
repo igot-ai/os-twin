@@ -24,30 +24,45 @@ from agentic_memory.memory_note import MemoryNote
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _mock_analysis():
-    return json.dumps({
-        "name": "test-note",
-        "path": "test",
-        "keywords": ["test"],
-        "context": "Test context",
-        "tags": ["test"],
-    })
+    return json.dumps(
+        {
+            "name": "test-note",
+            "path": "test",
+            "keywords": ["test"],
+            "context": "Test context",
+            "tags": ["test"],
+        }
+    )
 
 
 def _mock_evolution():
-    return json.dumps({
-        "should_evolve": False,
-        "actions": [],
-        "suggested_connections": [],
-        "tags_to_update": [],
-        "new_context_neighborhood": [],
-        "new_tags_neighborhood": [],
-    })
+    return json.dumps(
+        {
+            "should_evolve": False,
+            "actions": [],
+            "suggested_connections": [],
+            "tags_to_update": [],
+            "new_context_neighborhood": [],
+            "new_tags_neighborhood": [],
+        }
+    )
+
+
+def _fake_embedding_function(texts):
+    """Return deterministic fake embeddings (3-dim) without any API call."""
+    return [[hash(t) % 100 / 100.0, 0.5, 0.5] for t in texts]
 
 
 def _make_system(**overrides):
-    """Create an AgenticMemorySystem with mocked LLM. Returns (system, tmpdir)."""
+    """Create an AgenticMemorySystem with fully mocked I/O.
+
+    Patches the embedding function so __init__ never hits the real API.
+    Uses the InMemoryRetriever from test helpers to avoid zvec.
+    """
     from agentic_memory.memory_system import AgenticMemorySystem
+    from tests.helpers import InMemoryRetriever
 
     tmpdir = tempfile.mkdtemp(prefix="decay-test-")
     defaults = dict(
@@ -62,12 +77,37 @@ def _make_system(**overrides):
         decay_half_life_days=30.0,
     )
     defaults.update(overrides)
-    mem = AgenticMemorySystem(**defaults)
 
-    # Mock LLM to avoid API calls
-    mem.llm_controller.llm.get_completion = MagicMock(
+    # Build system without hitting any real API
+    mem = object.__new__(AgenticMemorySystem)
+    mem.memories = {}
+    mem.persist_dir = tmpdir
+    mem._notes_dir = os.path.join(tmpdir, "notes")
+    mem._vector_dir = os.path.join(tmpdir, "vectordb")
+    os.makedirs(mem._notes_dir, exist_ok=True)
+    os.makedirs(mem._vector_dir, exist_ok=True)
+    mem.retriever = InMemoryRetriever()
+    mem.model_name = defaults["model_name"]
+    mem.embedding_backend = defaults["embedding_backend"]
+    mem.vector_backend = defaults["vector_backend"]
+    mem.context_aware_analysis = defaults["context_aware_analysis"]
+    mem.context_aware_tree = False
+    mem.max_links = 3
+    # Apply same clamping as real __init__
+    mem.similarity_weight = max(0.0, min(1.0, defaults["similarity_weight"]))
+    mem.decay_half_life_days = max(0.01, defaults["decay_half_life_days"])
+    mem.conflict_resolution = "last_modified"
+    mem.evo_cnt = 0
+    mem.evo_threshold = 5
+    mem._evolution_system_prompt = ""
+
+    # Mock LLM controller
+    mock_llm = MagicMock()
+    mock_llm.llm.get_completion = MagicMock(
         side_effect=[_mock_analysis(), _mock_evolution()] * 50
     )
+    mem.llm_controller = mock_llm
+
     return mem, tmpdir
 
 
@@ -80,6 +120,7 @@ def _age_note(mem, note_id, days_ago):
 # ---------------------------------------------------------------------------
 # Tests: _compute_time_decay_score (pure math)
 # ---------------------------------------------------------------------------
+
 
 class TestTimeDecayScoreFormula(unittest.TestCase):
     """Test the scoring formula in isolation without retriever."""
@@ -168,6 +209,7 @@ class TestTimeDecayScoreFormula(unittest.TestCase):
 # Tests: weight configuration
 # ---------------------------------------------------------------------------
 
+
 class TestTimeDecayWeightConfig(unittest.TestCase):
     """Test different similarity_weight and half-life configurations."""
 
@@ -224,6 +266,7 @@ class TestTimeDecayWeightConfig(unittest.TestCase):
 # Tests: monotonicity properties (mathematical invariants)
 # ---------------------------------------------------------------------------
 
+
 class TestTimeDecayMonotonicity(unittest.TestCase):
     """Verify mathematical invariants of the scoring formula."""
 
@@ -256,8 +299,9 @@ class TestTimeDecayMonotonicity(unittest.TestCase):
             for days in [0, 1, 7, 30, 365]:
                 ts = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d%H%M")
                 score = self.mem._compute_time_decay_score(sim, ts)
-                self.assertGreaterEqual(score, 0.0,
-                    f"Negative score for sim={sim}, age={days}d")
+                self.assertGreaterEqual(
+                    score, 0.0, f"Negative score for sim={sim}, age={days}d"
+                )
 
     def test_score_at_most_one(self):
         """Score should never exceed 1.0."""
@@ -272,14 +316,16 @@ class TestTimeDecayMonotonicity(unittest.TestCase):
         for days in [0, 1, 7, 14, 30, 60, 90, 180, 365]:
             ts = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d%H%M")
             score = self.mem._compute_time_decay_score(sim, ts)
-            self.assertLess(score, prev_score + 1e-9,
-                f"Score did not decrease at age={days}d")
+            self.assertLess(
+                score, prev_score + 1e-9, f"Score did not decrease at age={days}d"
+            )
             prev_score = score
 
 
 # ---------------------------------------------------------------------------
 # Tests: search re-ranking integration (with mocked retriever)
 # ---------------------------------------------------------------------------
+
 
 class TestSearchReranking(unittest.TestCase):
     """Test that search() correctly re-ranks by combined score."""
@@ -325,8 +371,9 @@ class TestSearchReranking(unittest.TestCase):
 
         # Verify sorted descending
         for i in range(len(scores) - 1):
-            self.assertGreaterEqual(scores[i], scores[i + 1],
-                f"Results not sorted: {scores}")
+            self.assertGreaterEqual(
+                scores[i], scores[i + 1], f"Results not sorted: {scores}"
+            )
 
     def test_search_updates_last_accessed(self):
         """Search should update last_accessed on returned results."""
@@ -371,6 +418,7 @@ class TestSearchReranking(unittest.TestCase):
 # Tests: search_agentic re-ranking
 # ---------------------------------------------------------------------------
 
+
 class TestSearchAgenticReranking(unittest.TestCase):
     """Test that search_agentic() applies time-decay re-ranking."""
 
@@ -413,6 +461,7 @@ class TestSearchAgenticReranking(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: default configuration via environment variables
 # ---------------------------------------------------------------------------
+
 
 class TestEnvVarDefaults(unittest.TestCase):
     """Test that env vars configure the decay parameters."""

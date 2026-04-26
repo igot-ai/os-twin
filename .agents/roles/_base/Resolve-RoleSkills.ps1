@@ -106,7 +106,8 @@ function Test-SkillEnabled {
 }
 
 # --- Resolve OSTWIN_HOME ---
-$ostwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+$_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+$ostwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
 
 # --- Derive PlanId from room config if not provided ---
 $roomCfg = $null

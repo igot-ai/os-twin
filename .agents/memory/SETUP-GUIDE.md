@@ -20,8 +20,8 @@ cd ~/os-twin
 ```
 
 This does:
-- Copies `A-mem-sys/` to `~/.ostwin/A-mem-sys/`
-- Sets up MCP builtin config to point to `~/.ostwin/A-mem-sys/mcp_server.py`
+- Copies `.agents/memory/` to `~/.ostwin/.agents/memory/`
+- Sets up MCP builtin config to point to `~/.ostwin/.agents/memory/mcp_server.py`
 - Installs Python dependencies
 
 ## Step 2: Patch deepagents-cli
@@ -31,7 +31,7 @@ This does:
 deepagents-cli v0.0.34 has a bug where MCP tool calls crash with `ClosedResourceError`. Apply the fix:
 
 ```bash
-bash ~/.ostwin/A-mem-sys/patches/patch-deepagents-mcp.sh
+bash ~/.ostwin/.agents/memory/patches/patch-deepagents-mcp.sh
 ```
 
 What it does:
@@ -114,7 +114,7 @@ This is the default. After `ostwin init`, your project is already configured for
 ```bash
 # Verify
 cd ~/ostwin-workingdir/my-project
-~/os-twin/A-mem-sys/switch-memory-transport.sh status .
+~/.ostwin/.agents/memory/switch-memory-transport.sh status .
 # Output: Transport: stdio
 
 # Run agents
@@ -124,7 +124,7 @@ ostwin run my-plan.md
 To switch back to stdio from SSE:
 
 ```bash
-~/os-twin/A-mem-sys/switch-memory-transport.sh stdio ~/ostwin-workingdir/my-project
+~/.ostwin/.agents/memory/switch-memory-transport.sh stdio ~/ostwin-workingdir/my-project
 ```
 
 ---
@@ -134,7 +134,7 @@ To switch back to stdio from SSE:
 ### Start the daemon
 
 ```bash
-~/os-twin/A-mem-sys/start-memory-daemon.sh ~/ostwin-workingdir/my-project
+~/.ostwin/.agents/memory/start-memory-daemon.sh ~/ostwin-workingdir/my-project
 ```
 
 Output:
@@ -154,7 +154,7 @@ The port is automatically derived from the project path. Same project always get
 The `start-memory-daemon.sh` automatically updates the project's MCP config. But you can also switch manually:
 
 ```bash
-~/os-twin/A-mem-sys/switch-memory-transport.sh sse ~/ostwin-workingdir/my-project
+~/.ostwin/.agents/memory/switch-memory-transport.sh sse ~/ostwin-workingdir/my-project
 ```
 
 ### Run agents
@@ -167,7 +167,7 @@ ostwin run my-plan.md
 ### Check status
 
 ```bash
-~/os-twin/A-mem-sys/start-memory-daemon.sh --status ~/ostwin-workingdir/my-project
+~/.ostwin/.agents/memory/start-memory-daemon.sh --status ~/ostwin-workingdir/my-project
 # Output: Running (PID 12345, port 6487)
 ```
 
@@ -175,10 +175,10 @@ ostwin run my-plan.md
 
 ```bash
 # Stop one project's daemon
-~/os-twin/A-mem-sys/start-memory-daemon.sh --stop ~/ostwin-workingdir/my-project
+~/.ostwin/.agents/memory/start-memory-daemon.sh --stop ~/ostwin-workingdir/my-project
 
 # Stop ALL daemons
-~/os-twin/A-mem-sys/start-memory-daemon.sh --stop-all
+~/.ostwin/.agents/memory/start-memory-daemon.sh --stop-all
 ```
 
 ### Multiple projects simultaneously
@@ -186,10 +186,10 @@ ostwin run my-plan.md
 Each project gets its own daemon on a unique port:
 
 ```bash
-~/os-twin/A-mem-sys/start-memory-daemon.sh ~/ostwin-workingdir/project-a
+~/.ostwin/.agents/memory/start-memory-daemon.sh ~/ostwin-workingdir/project-a
 # → port 6487
 
-~/os-twin/A-mem-sys/start-memory-daemon.sh ~/ostwin-workingdir/project-b
+~/.ostwin/.agents/memory/start-memory-daemon.sh ~/ostwin-workingdir/project-b
 # → port 6521
 
 # Both running independently, each with their own .memory/
@@ -245,7 +245,7 @@ Good: `"PostgreSQL's JSONB type stores semi-structured data with full indexing s
 
 The deepagents-cli patch is not applied:
 ```bash
-bash ~/.ostwin/A-mem-sys/patches/patch-deepagents-mcp.sh
+bash ~/.ostwin/.agents/memory/patches/patch-deepagents-mcp.sh
 ```
 
 ### `ostwin mcp test` shows 0 tools for memory
@@ -272,14 +272,14 @@ grep "Calling tool" .war-rooms/room-*/artifacts/*.wrapper.log
 
 Expected with stdio mode. Each call loads the full ML stack. Switch to SSE daemon:
 ```bash
-~/os-twin/A-mem-sys/start-memory-daemon.sh .
-~/os-twin/A-mem-sys/switch-memory-transport.sh sse .
+~/.ostwin/.agents/memory/start-memory-daemon.sh .
+~/.ostwin/.agents/memory/switch-memory-transport.sh sse .
 ```
 
 ### Port already in use
 
 ```bash
-~/os-twin/A-mem-sys/start-memory-daemon.sh --stop-all
+~/.ostwin/.agents/memory/start-memory-daemon.sh --stop-all
 ```
 
 ---

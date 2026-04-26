@@ -1,6 +1,7 @@
 import { App, SayFn, RespondFn } from '@slack/bolt';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS } from '../commands';
+import { routeCommand, routeCallback, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS } from '../commands';
+import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { chunk } from './utils';
 
@@ -166,14 +167,11 @@ export class SlackConnector implements Connector {
 
       const session = getSession(userId, 'slack');
       
-      // Only handle if in a stateful mode
-      if (session.mode === 'idle') return;
-
-      // If in a thread, use that thread. If not, use the message ts to start/continue a thread.
+      // Route all app mentions through askAgent
       const threadTs = (message as any).thread_ts || (message as any).ts;
       
-      const responses = await handleStatefulText(userId, 'slack', text);
-      await this.sendResponses(say, userId, responses, threadTs);
+      const result = await askAgent(text, { userId, platform: 'slack' });
+      await this.sendResponses(say, userId, [{ text: result.text }], threadTs);
     });
 
     await this.app.start();

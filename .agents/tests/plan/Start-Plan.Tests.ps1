@@ -129,7 +129,7 @@ Describe "Start-Plan" {
             
             # Use -DryRun to just parse
             $output = & $script:StartPlan -PlanFile $workingDirPlan -ProjectDir $script:projectDir -DryRun *>&1
-            ($output -join "`n") | Should -Match "Project: $targetDir"
+            ($output -join "`n") | Should -Match "Project: $([regex]::Escape($targetDir))"
         }
 
         It "warns when working_dir is invalid" {
