@@ -199,12 +199,14 @@ class KnowledgeQueryEngine:
         embedder: Any,
         llm: Any,
         graph_rag_engine: Any = None,
+        language: str = "English",
     ) -> None:
         self.namespace = namespace
         self.kg = kuzu_graph
         self.embedder = embedder
         self.llm = llm
         self.graph_rag_engine = graph_rag_engine
+        self.language = language
 
     # ---- Public entrypoint -----------------------------------------------
 
@@ -556,7 +558,7 @@ class KnowledgeQueryEngine:
                 len(summaries),
                 getattr(self.llm, "model", "?"),
             )
-            return self.llm.aggregate_answers(summaries, query)
+            return self.llm.aggregate_answers(summaries, query, language=self.language)
         except Exception as exc:  # noqa: BLE001
             logger.error("LLM aggregation fallback failed: %s", exc)
             return None

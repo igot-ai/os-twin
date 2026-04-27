@@ -382,10 +382,15 @@ class KnowledgeService:
                 knowledge_embedder=self._get_embedder(),
             )
 
+            # Resolve namespace language for prompt selection.
+            meta = self._nm.get(namespace)
+            ns_language = meta.language if meta else "English"
+
             llm = self._get_llm()
             extractor = GraphRAGExtractor(
                 llm=llm,
                 embedder=self._get_embedder(),
+                language=ns_language,
             )
 
             # kg_extractors=[extractor] prevents llama-index from
@@ -415,6 +420,7 @@ class KnowledgeService:
                 embed_model=embed_adapter,
                 include_graph=True,
                 max_queries=3,
+                language=ns_language,
             )
             self._graph_rag_engines[namespace] = engine
             return engine
@@ -448,6 +454,10 @@ class KnowledgeService:
         if existing is not None:
             return existing
 
+        # Resolve namespace language for prompt selection.
+        meta = self._nm.get(namespace)
+        ns_language = meta.language if meta else "English"
+
         graph_rag_engine = self._get_graph_rag_engine(namespace)
 
         engine = KnowledgeQueryEngine(
@@ -456,6 +466,7 @@ class KnowledgeService:
             embedder=self._get_embedder(),
             llm=self._get_llm(),
             graph_rag_engine=graph_rag_engine,
+            language=ns_language,
         )
         self._query_engines[namespace] = engine
         return engine
@@ -626,9 +637,15 @@ class KnowledgeService:
             )
 
             llm = self._get_llm()
+
+            # Resolve namespace language for prompt selection.
+            meta = self._nm.get(namespace)
+            ns_language = meta.language if meta else "English"
+
             extractor = GraphRAGExtractor(
                 llm=llm,
                 embedder=self._get_embedder(),
+                language=ns_language,
             )
 
             index = PropertyGraphIndex.from_existing(

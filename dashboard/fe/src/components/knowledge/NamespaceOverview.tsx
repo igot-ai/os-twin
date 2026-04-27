@@ -34,6 +34,19 @@ function formatRelativeTime(iso: string): string {
   } catch { return iso; }
 }
 
+const LANGUAGE_META: Record<string, { flag: string; native: string }> = {
+  English:    { flag: '🇬🇧', native: 'English' },
+  Vietnamese: { flag: '🇻🇳', native: 'Tiếng Việt' },
+  Chinese:    { flag: '🇨🇳', native: '中文' },
+  Spanish:    { flag: '🇪🇸', native: 'Español' },
+};
+
+function getLanguageDisplay(lang: string): { flag: string; label: string } {
+  const meta = LANGUAGE_META[lang];
+  if (meta) return { flag: meta.flag, label: meta.native };
+  return { flag: '🌐', label: lang };
+}
+
 /* ── Props ─────────────────────────────────────────────────────────── */
 
 interface NamespaceOverviewProps {
@@ -294,10 +307,11 @@ export default function NamespaceOverview({
                 {ns.name}
               </h2>
               <span
-                className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide shrink-0"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold tracking-wide shrink-0"
                 style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
               >
-                {ns.language}
+                <span className="text-sm leading-none">{getLanguageDisplay(ns.language).flag}</span>
+                {getLanguageDisplay(ns.language).label}
               </span>
             </div>
             {ns.description && (

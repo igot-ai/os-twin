@@ -29,9 +29,9 @@ export default function KnowledgePage() {
     router.push(`/knowledge/${encodeURIComponent(name)}`);
   }, [router]);
 
-  const handleCreateNamespace = useCallback(async (name: string, description?: string) => {
+  const handleCreateNamespace = useCallback(async (name: string, description?: string, language?: string) => {
     try {
-      await createNamespace({ name, description });
+      await createNamespace({ name, description, language });
       addToast({
         type: 'success',
         title: 'Namespace Created',

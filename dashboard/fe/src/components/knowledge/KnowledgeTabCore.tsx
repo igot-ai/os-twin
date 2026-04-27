@@ -119,9 +119,9 @@ export default function KnowledgeTabCore({
     }
   }, [isPlanContext, router, clearResult]);
 
-  const handleCreateNamespace = useCallback(async (name: string, description?: string) => {
+  const handleCreateNamespace = useCallback(async (name: string, description?: string, language?: string) => {
     try {
-      await createNamespace({ name, description });
+      await createNamespace({ name, description, language });
       addToast({
         type: 'success',
         title: 'Namespace Created',
@@ -512,17 +512,25 @@ export default function KnowledgeTabCore({
 
 /* ── Create Namespace Modal ────────────────────────────────────────── */
 
+const SUPPORTED_LANGUAGES = [
+  { value: 'English', label: 'English', flag: '🇬🇧' },
+  { value: 'Vietnamese', label: 'Tiếng Việt', flag: '🇻🇳' },
+  { value: 'Chinese', label: '中文', flag: '🇨🇳' },
+  { value: 'Spanish', label: 'Español', flag: '🇪🇸' },
+] as const;
+
 function CreateNamespaceModal({
   namespaces,
   onSubmit,
   onClose,
 }: {
   namespaces: { name: string }[];
-  onSubmit: (name: string, description?: string) => Promise<void>;
+  onSubmit: (name: string, description?: string, language?: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [newName, setNewName] = React.useState('');
   const [newDescription, setNewDescription] = React.useState('');
+  const [newLanguage, setNewLanguage] = React.useState('English');
   const [isCreating, setIsCreating] = React.useState(false);
   const [validationError, setValidationError] = React.useState<string | null>(null);
 
@@ -546,11 +554,11 @@ function CreateNamespaceModal({
     }
     setIsCreating(true);
     try {
-      await onSubmit(newName, newDescription || undefined);
+      await onSubmit(newName, newDescription || undefined, newLanguage);
     } finally {
       setIsCreating(false);
     }
-  }, [newName, newDescription, validateName, onSubmit]);
+  }, [newName, newDescription, newLanguage, validateName, onSubmit]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-in fade-in duration-200">
@@ -599,6 +607,31 @@ function CreateNamespaceModal({
             <p className="text-[10px] mt-1" style={{ color: 'var(--color-text-faint)' }}>
               Lowercase letters, numbers, underscores, and hyphens only.
             </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--color-text-muted)' }}>
+              Language
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {SUPPORTED_LANGUAGES.map((lang) => (
+                <button
+                  key={lang.value}
+                  type="button"
+                  onClick={() => setNewLanguage(lang.value)}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all duration-150"
+                  style={{
+                    background: newLanguage === lang.value ? 'var(--color-primary-muted)' : 'var(--color-background)',
+                    borderColor: newLanguage === lang.value ? 'var(--color-primary)' : 'var(--color-border)',
+                    color: newLanguage === lang.value ? 'var(--color-primary)' : 'var(--color-text-main)',
+                    boxShadow: newLanguage === lang.value ? '0 0 0 1px var(--color-primary)' : 'none',
+                  }}
+                >
+                  <span className="text-base">{lang.flag}</span>
+                  <span>{lang.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>

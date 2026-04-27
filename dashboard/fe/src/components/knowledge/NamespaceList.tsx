@@ -4,11 +4,18 @@ import React, { useState, useCallback } from 'react';
 import { NamespaceMetaResponse } from '@/hooks/use-knowledge-namespaces';
 import NamespaceActions from './NamespaceActions';
 
+const SUPPORTED_LANGUAGES = [
+  { value: 'English', label: 'English', flag: '🇬🇧' },
+  { value: 'Vietnamese', label: 'Tiếng Việt', flag: '🇻🇳' },
+  { value: 'Chinese', label: '中文', flag: '🇨🇳' },
+  { value: 'Spanish', label: 'Español', flag: '🇪🇸' },
+] as const;
+
 interface NamespaceListProps {
   namespaces: NamespaceMetaResponse[];
   selectedNamespace: string | null;
   onSelect: (namespace: string) => void;
-  onCreate: (name: string, description?: string) => Promise<void>;
+  onCreate: (name: string, description?: string, language?: string) => Promise<void>;
   onDelete: (namespace: string) => Promise<void>;
   isLoading: boolean;
   onNamespaceUpdated?: () => void;
@@ -58,6 +65,13 @@ function formatRelativeTime(iso: string): string {
     return iso;
   }
 }
+
+const LANGUAGE_FLAGS: Record<string, string> = {
+  English: '🇬🇧',
+  Vietnamese: '🇻🇳',
+  Chinese: '🇨🇳',
+  Spanish: '🇪🇸',
+};
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -144,7 +158,7 @@ function NamespaceCard({
               {ns.name}
             </h4>
             <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
-              {ns.language} · {formatRelativeTime(ns.updated_at)}
+              {LANGUAGE_FLAGS[ns.language] || '🌐'} {ns.language} · {formatRelativeTime(ns.updated_at)}
             </p>
           </div>
         </div>
@@ -238,6 +252,7 @@ export default function NamespaceList({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newLanguage, setNewLanguage] = useState('English');
   const [isCreating, setIsCreating] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -266,15 +281,16 @@ export default function NamespaceList({
 
     setIsCreating(true);
     try {
-      await onCreate(newName, newDescription || undefined);
+      await onCreate(newName, newDescription || undefined, newLanguage);
       setShowCreateModal(false);
       setNewName('');
       setNewDescription('');
+      setNewLanguage('English');
       setValidationError(null);
     } finally {
       setIsCreating(false);
     }
-  }, [newName, newDescription, validateName, onCreate]);
+  }, [newName, newDescription, newLanguage, validateName, onCreate]);
 
   const handleDelete = useCallback(async (namespace: string) => {
     setIsDeleting(true);
@@ -431,6 +447,7 @@ export default function NamespaceList({
                   setShowCreateModal(false);
                   setNewName('');
                   setNewDescription('');
+                  setNewLanguage('English');
                   setValidationError(null);
                 }}
                 className="p-1 rounded hover:bg-surface-hover transition-colors"
@@ -481,6 +498,34 @@ export default function NamespaceList({
                   className="block text-xs font-medium mb-1.5"
                   style={{ color: 'var(--color-text-muted)' }}
                 >
+                  Language
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SUPPORTED_LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.value}
+                      type="button"
+                      onClick={() => setNewLanguage(lang.value)}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all duration-150"
+                      style={{
+                        background: newLanguage === lang.value ? 'var(--color-primary-muted)' : 'var(--color-background)',
+                        borderColor: newLanguage === lang.value ? 'var(--color-primary)' : 'var(--color-border)',
+                        color: newLanguage === lang.value ? 'var(--color-primary)' : 'var(--color-text-main)',
+                        boxShadow: newLanguage === lang.value ? '0 0 0 1px var(--color-primary)' : 'none',
+                      }}
+                    >
+                      <span className="text-base">{lang.flag}</span>
+                      <span>{lang.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label 
+                  className="block text-xs font-medium mb-1.5"
+                  style={{ color: 'var(--color-text-muted)' }}
+                >
                   Description (optional)
                 </label>
                 <textarea
@@ -504,6 +549,7 @@ export default function NamespaceList({
                   setShowCreateModal(false);
                   setNewName('');
                   setNewDescription('');
+                  setNewLanguage('English');
                   setValidationError(null);
                 }}
                 className="px-4 py-2 rounded-lg text-xs font-medium transition-colors"

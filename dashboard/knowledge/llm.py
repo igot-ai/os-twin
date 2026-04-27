@@ -30,6 +30,37 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Prompt-service integration
+# ---------------------------------------------------------------------------
+
+# Keys in prompts/locales/*.yaml — used by _get_prompt() below.
+_KEY_EXTRACT_SYSTEM = "knowledge.extract_system"
+_KEY_EXTRACT_USER = "knowledge.extract_user"
+_KEY_PLAN_SYSTEM = "knowledge.plan_system"
+_KEY_PLAN_USER = "knowledge.plan_user"
+_KEY_AGG_SYSTEM = "knowledge.aggregate_system"
+_KEY_AGG_USER = "knowledge.aggregate_user"
+
+
+def _get_prompt(key: str, lang_code: str, **kwargs) -> str | None:
+    """Try to fetch a formatted prompt from the centralised prompt service.
+
+    Returns ``None`` on any failure (missing key, missing language, import
+    error) so the caller can fall back to the hardcoded template string.
+
+    ``lang_code`` selects the locale (e.g. ``"English"``, ``"vi"``).
+    ``**kwargs`` are forwarded as template variables (e.g. ``language=``,
+    ``domain=``, ``query=``).
+    """
+    try:
+        from dashboard.prompts import prompt_service  # noqa: WPS433
+
+        return prompt_service.get(key, lang=lang_code, **kwargs)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Prompt templates (English; language-parameterized at call site)
 # ---------------------------------------------------------------------------
 
@@ -314,8 +345,12 @@ class KnowledgeLLM:
 
         Returns ([entity_dict], [relationship_dict]). When unavailable: ([], []).
         """
-        system = _EXTRACT_SYSTEM.format(language=language, domain=domain or "general")
-        user = _EXTRACT_USER.format(text=text)
+        system = _get_prompt(
+            _KEY_EXTRACT_SYSTEM, language, language=language, domain=domain or "general",
+        ) or _EXTRACT_SYSTEM.format(language=language, domain=domain or "general")
+        user = _get_prompt(
+            _KEY_EXTRACT_USER, language, text=text,
+        ) or _EXTRACT_USER.format(text=text)
         raw = self._complete(system, user, max_tokens=8192)
         if not raw:
             return [], []
@@ -343,12 +378,19 @@ class KnowledgeLLM:
         """
         if not self.is_available():
             return [{"term": query, "is_query": True}]
-        system = _PLAN_SYSTEM.format(
+        system = _get_prompt(
+            _KEY_PLAN_SYSTEM, language,
+            knowledge_summary=knowledge_summary or "(no summary provided)",
+            language=language,
+            max_steps=max_steps,
+        ) or _PLAN_SYSTEM.format(
             knowledge_summary=knowledge_summary or "(no summary provided)",
             language=language,
             max_steps=max_steps,
         )
-        user = _PLAN_USER.format(query=query)
+        user = _get_prompt(
+            _KEY_PLAN_USER, language, query=query,
+        ) or _PLAN_USER.format(query=query)
         raw = self._complete(system, user, max_tokens=2048)
         if not raw:
             return [{"term": query, "is_query": True}]
@@ -386,8 +428,12 @@ class KnowledgeLLM:
             return "\n\n".join(snippets)
         if not snippets:
             return ""
-        system = _AGG_SYSTEM.format(language=language)
-        user = _AGG_USER.format(query=query, summaries="\n---\n".join(snippets))
+        system = _get_prompt(
+            _KEY_AGG_SYSTEM, language, language=language,
+        ) or _AGG_SYSTEM.format(language=language)
+        user = _get_prompt(
+            _KEY_AGG_USER, language, query=query, summaries="\n---\n".join(snippets),
+        ) or _AGG_USER.format(query=query, summaries="\n---\n".join(snippets))
         raw = self._complete(system, user, max_tokens=2048)
         if not raw:
             return "\n\n".join(snippets)
