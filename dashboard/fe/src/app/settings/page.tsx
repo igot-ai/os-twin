@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSettings } from '@/hooks/use-settings';
 import { useConfiguredModels } from '@/hooks/use-configured-models';
 import { LiveStatusBadge } from '@/components/settings/LiveStatusBadge';
@@ -13,6 +14,7 @@ import { VaultSecretModal } from '@/components/settings/VaultSecretModal';
 import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
 import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
+import { ChannelsPanel } from '@/components/settings/ChannelsPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
 import { apiGet, apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
@@ -32,6 +34,22 @@ const PROVIDER_REGISTRY_KEY: Record<string, string> = {
 };
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center text-on-surface-variant">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4 mx-auto" />
+          <p className="text-sm font-body">Loading settings...</p>
+        </div>
+      </div>
+    }>
+      <SettingsPageContent />
+    </Suspense>
+  );
+}
+
+function SettingsPageContent() {
+  const searchParams = useSearchParams();
   const [activeNamespace, setActiveNamespace] = useState<SettingsNamespace>('providers');
   const [vaultModalOpen, setVaultModalOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
@@ -43,6 +61,15 @@ export default function SettingsPage() {
 
   const { settings, isLoading, isError, updateNamespace, updateVault } = useSettings();
   const { configured, providers: configuredProviders, allModels, reload: reloadModels } = useConfiguredModels();
+
+  // Sync ?tab= query param to activeNamespace
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const validTabs: SettingsNamespace[] = ['providers', 'runtime', 'memory', 'knowledge', 'channels'];
+    if (tab && validTabs.includes(tab as SettingsNamespace)) {
+      setActiveNamespace(tab as SettingsNamespace);
+    }
+  }, [searchParams]);
 
   // Fetch model registry (backward compat + dynamic)
   useEffect(() => {
@@ -419,6 +446,9 @@ export default function SettingsPage() {
           />
         );
       }
+
+      case 'channels':
+        return <ChannelsPanel />;
 
       default:
         return null;

@@ -11,7 +11,7 @@ const PlanEditorTab = lazy(() => import('./PlanEditorTab'));
 const PlanHistoryTab = lazy(() => import('./PlanHistoryTab'));
 const ArchitectTab = lazy(() => import('./ArchitectTab'));
 const MemoryTab = lazy(() => import('./MemoryTab'));
-const KnowledgeTab = lazy(() => import('./KnowledgeTab'));
+const PlanKnowledgeTab = lazy(() => import('./PlanKnowledgeTab'));
 const FileBrowser = lazy(() => import('./FileBrowser'));
 const AssetPanel = lazy(() => import('./AssetPanel'));
 
@@ -35,7 +35,7 @@ export default function WorkspaceTabs() {
       case 'memory':
         return <MemoryTab />;
       case 'knowledge':
-        return <KnowledgeTab />;
+        return <PlanKnowledgeTab />;
       case 'files':
         return <FileBrowser planId={planId} />;
       case 'assets':

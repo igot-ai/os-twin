@@ -20,6 +20,25 @@ vi.mock('@/hooks/use-knowledge-namespaces', () => ({
     namespaces: [
       {
         schema_version: 1,
+        name: 'test-plan-id', // Plan namespace - pre-existing
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        language: 'English',
+        description: 'Knowledge for plan test-plan-id',
+        embedding_model: 'text-embedding-3-small',
+        embedding_dimension: 1536,
+        stats: {
+          files_indexed: 0,
+          chunks: 0,
+          entities: 0,
+          relations: 0,
+          vectors: 0,
+          bytes_on_disk: 0,
+        },
+        imports: [],
+      },
+      {
+        schema_version: 1,
         name: 'test-namespace',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
@@ -59,7 +78,25 @@ vi.mock('@/hooks/use-knowledge-namespaces', () => ({
     ],
     isLoading: false,
     isError: null,
-    createNamespace: vi.fn(),
+    createNamespace: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      name: 'test-plan-id',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      language: 'English',
+      description: 'Knowledge for plan test-plan-id',
+      embedding_model: 'text-embedding-3-small',
+      embedding_dimension: 1536,
+      stats: {
+        files_indexed: 0,
+        chunks: 0,
+        entities: 0,
+        relations: 0,
+        vectors: 0,
+        bytes_on_disk: 0,
+      },
+      imports: [],
+    }),
     refresh: vi.fn(),
   })),
   useKnowledgeNamespace: vi.fn(() => ({
@@ -132,6 +169,19 @@ vi.mock('@/lib/stores/notificationStore', () => ({
   })),
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: vi.fn(() => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+  })),
+  useSearchParams: vi.fn(() => new URLSearchParams()),
+  usePathname: vi.fn(() => '/plans/test-plan-id'),
+}));
+
 vi.mock('@/components/plan/PlanWorkspace', () => ({
   usePlanContext: vi.fn(() => ({
     planId: 'test-plan-id',
@@ -173,9 +223,9 @@ vi.mock('@/components/plan/PlanWorkspace', () => ({
 
 // Import after mocks
 import KnowledgeTab from '@/components/plan/KnowledgeTab';
-import NamespaceList from '@/components/plan/knowledge/NamespaceList';
-import ImportPanel from '@/components/plan/knowledge/ImportPanel';
-import QueryPanel from '@/components/plan/knowledge/QueryPanel';
+import NamespaceList from '@/components/knowledge/NamespaceList';
+import ImportPanel from '@/components/knowledge/ImportPanel';
+import QueryPanel from '@/components/knowledge/QueryPanel';
 
 describe('KnowledgeTab', () => {
   beforeEach(() => {
@@ -185,8 +235,11 @@ describe('KnowledgeTab', () => {
   it('renders the knowledge tab with sub-view tabs', async () => {
     render(<KnowledgeTab />);
     
-    // Check header
-    expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    // Wait for the component to finish loading (auto-create namespace logic)
+    await waitFor(() => {
+      // Check header - shows "Plan Knowledge" in plan context
+      expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
+    });
     
     // Check sub-view tabs
     expect(screen.getByText('Namespaces')).toBeInTheDocument();
@@ -197,26 +250,69 @@ describe('KnowledgeTab', () => {
   it('displays namespace list by default', async () => {
     render(<KnowledgeTab />);
     
-    // Should show namespace count
-    expect(screen.getByText('2 namespaces available')).toBeInTheDocument();
+    // Wait for the component to load
+    await waitFor(() => {
+      expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
+    });
+    
+    // Should show namespace count (3 namespaces: plan + test + another)
+    expect(screen.getByText('3 namespaces available')).toBeInTheDocument();
   });
 
   it('switches to Import tab when clicked', async () => {
     render(<KnowledgeTab />);
     
+    // Wait for the component to load
+    await waitFor(() => {
+      expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
+    });
+    
     fireEvent.click(screen.getByText('Import'));
     
-    // Import panel shows "Select a Namespace" when none selected
-    expect(screen.getByText('Select a Namespace')).toBeInTheDocument();
+    // Since plan namespace is auto-selected, the import form is shown
+    // (not "Select a Namespace" anymore)
+    expect(screen.getByPlaceholderText('/absolute/path/to/folder')).toBeInTheDocument();
   });
 
   it('switches to Query tab when clicked', async () => {
     render(<KnowledgeTab />);
     
+    // Wait for the component to load
+    await waitFor(() => {
+      expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
+    });
+    
     fireEvent.click(screen.getByText('Query'));
     
-    // Query panel shows "Select a Namespace" when none selected
-    expect(screen.getByText('Select a Namespace')).toBeInTheDocument();
+    // Since plan namespace is auto-selected, the query form is shown
+    // (not "Select a Namespace" anymore)
+    expect(screen.getByPlaceholderText('Enter your query...')).toBeInTheDocument();
+  });
+  
+  it('auto-selects plan namespace and shows it in header', async () => {
+    render(<KnowledgeTab />);
+    
+    // Wait for the component to load
+    await waitFor(() => {
+      expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
+    });
+    
+    // Check that the plan namespace badge is shown in the header
+    // (there are multiple elements with the namespace name, so use getAllByText)
+    const namespaceElements = screen.getAllByText('test-plan-id');
+    expect(namespaceElements.length).toBeGreaterThan(0);
+  });
+  
+  it('shows View All Knowledge button in plan context', async () => {
+    render(<KnowledgeTab />);
+    
+    // Wait for the component to load
+    await waitFor(() => {
+      expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
+    });
+    
+    // Check that the View All Knowledge button is shown
+    expect(screen.getByText('View All Knowledge')).toBeInTheDocument();
   });
 });
 
