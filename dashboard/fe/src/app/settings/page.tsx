@@ -39,6 +39,7 @@ export default function SettingsPage() {
   const [vaultKey, setVaultKey] = useState('');
   const [vaultStatus, setVaultStatus] = useState<Record<string, boolean>>({});
   const [modelRegistry, setModelRegistry] = useState<Record<string, ModelInfo[]>>({});
+  const [isReloading, setIsReloading] = useState(false);
 
   const { settings, isLoading, isError, updateNamespace, updateVault } = useSettings();
   const { configured, providers: configuredProviders, allModels, reload: reloadModels } = useConfiguredModels();
@@ -215,12 +216,22 @@ export default function SettingsPage() {
                 Global Model Provisioning
               </h2>
               <button
-                onClick={reloadModels}
-                className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-bold uppercase bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition-colors"
+                onClick={async () => {
+                  setIsReloading(true);
+                  try {
+                    await reloadModels();
+                  } finally {
+                    setIsReloading(false);
+                  }
+                }}
+                disabled={isReloading}
+                className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-bold uppercase bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition-colors disabled:opacity-50"
                 title="Re-fetch models from models.dev"
               >
-                <span className="material-symbols-outlined text-sm">refresh</span>
-                Reload Models
+                <span className={`material-symbols-outlined text-sm ${isReloading ? 'animate-spin' : ''}`}>
+                  {isReloading ? 'progress_activity' : 'refresh'}
+                </span>
+                {isReloading ? 'Reloading...' : 'Reload Models'}
               </button>
             </div>
             <p className="text-sm text-on-surface-variant mb-2">
