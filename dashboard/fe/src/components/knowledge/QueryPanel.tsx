@@ -5,6 +5,7 @@ import { QueryResultResponse } from '@/hooks/use-knowledge-query';
 import { GraphNodeResponse, GraphEdgeResponse, GraphStatsResponse } from '@/hooks/use-knowledge-graph';
 import GraphView from './GraphView';
 import BacklinkBadge from './BacklinkBadge';
+import AnswerMarkdown from './AnswerMarkdown';
 import { getNodeColor } from './constants';
 
 interface QueryPanelProps {
@@ -129,9 +130,7 @@ function ResultsPanel({
           <h4 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-muted)' }}>
             Answer
           </h4>
-          <p className="text-sm" style={{ color: 'var(--color-text-main)' }}>
-            {result.answer}
-          </p>
+          <AnswerMarkdown content={result.answer} />
         </div>
       )}
 

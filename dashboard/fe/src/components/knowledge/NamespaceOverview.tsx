@@ -7,6 +7,7 @@ import { GraphNodeResponse, GraphEdgeResponse, GraphStatsResponse } from '@/hook
 import { GraphCountsResponse } from '@/hooks/use-knowledge-import';
 import GraphView from './GraphView';
 import BacklinkBadge from './BacklinkBadge';
+import AnswerMarkdown from './AnswerMarkdown';
 import { getNodeColor } from './constants';
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
@@ -556,7 +557,7 @@ export default function NamespaceOverview({
                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)' }}>auto_awesome</span>
                       <h4 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-primary)' }}>Answer</h4>
                     </div>
-                    <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-main)' }}>{queryResult.answer}</p>
+                    <AnswerMarkdown content={queryResult.answer} />
                   </div>
                 )}
 
