@@ -37,9 +37,11 @@ from dashboard.routes.knowledge_models import (
     CreateNamespaceRequest,
     DeleteNamespaceResponse,
     ErrorResponse,
+    GraphCountsResponse,
     ImportFolderRequest,
     ImportFolderResponse,
     JobStatusResponse,
+    NamespaceJobsResponse,
     NamespaceMetaResponse,
     QueryRequest,
     QueryResultResponse,
@@ -575,23 +577,31 @@ async def import_folder(
 
 @router.get(
     "/namespaces/{namespace}/jobs",
-    response_model=list[JobStatusResponse],
+    response_model=NamespaceJobsResponse,
     responses={
-        200: {"description": "List of jobs for the namespace"},
+        200: {"description": "Jobs list with live graph counters for the namespace"},
         400: {"description": "Invalid namespace identifier", "model": ErrorResponse},
         401: {"description": "Authentication required"},
     },
-    summary="List jobs for a namespace",
+    summary="List jobs for a namespace (with graph stats)",
 )
 async def list_jobs(
     namespace: str,
     user: Annotated[dict, Depends(get_current_user)],
-) -> list[JobStatusResponse]:
-    """List all background jobs for a namespace, sorted by submission time (newest first)."""
+) -> NamespaceJobsResponse:
+    """List all background jobs for a namespace, sorted by submission time (newest first).
+
+    Also returns live entity/chunk/relation counts from the KuzuDB graph
+    so the frontend can render namespace health without an extra API call.
+    """
     try:
         service = _get_service()
         jobs = await asyncio.to_thread(service.list_jobs, namespace)
-        return [_job_status_to_response(j) for j in jobs]
+        graph_counts = await asyncio.to_thread(service.count_graph_stats, namespace)
+        return NamespaceJobsResponse(
+            jobs=[_job_status_to_response(j) for j in jobs],
+            graph_counts=GraphCountsResponse(**graph_counts),
+        )
     except Exception as exc:
         raise _map_error(exc)
 

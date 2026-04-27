@@ -473,6 +473,69 @@ class KuzuLabelledPropertyGraph(LabelledPropertyGraph):
             logger.error(f"Query failed: {e}")
             return []
 
+    def count_entities(self) -> int:
+        """Count entity nodes (excluding text_chunk) via lightweight Cypher.
+
+        Runs ``MATCH (a:Node) WHERE a.label <> 'text_chunk' AND a.index_ = $index
+        RETURN count(a)`` — much cheaper than ``get_all_nodes(label_type='entity')``
+        because it never materialises full node objects.
+
+        Returns 0 on any failure (schema not set up yet, empty graph, etc.).
+        """
+        try:
+            conn = self.connection
+            result = conn.execute(
+                """
+                MATCH (a:Node)
+                WHERE a.label <> 'text_chunk'
+                RETURN count(a) AS no_entities
+                """,
+            )
+            row = result.get_next()
+            return int(row[0]) if row else 0
+        except Exception as exc:
+            logger.debug("count_entities failed for index=%s: %s", self.index, exc)
+            return 0
+
+    def count_chunks(self) -> int:
+        """Count text_chunk nodes via lightweight Cypher.
+
+        Returns 0 on any failure.
+        """
+        try:
+            conn = self.connection
+            result = conn.execute(
+                """
+                MATCH (a:Node)
+                WHERE a.label = 'text_chunk'
+                RETURN count(a) AS no_chunks
+                """,
+            )
+            row = result.get_next()
+            return int(row[0]) if row else 0
+        except Exception as exc:
+            logger.debug("count_chunks failed for index=%s: %s", self.index, exc)
+            return 0
+
+    def count_relations(self) -> int:
+        """Count relation edges via lightweight Cypher.
+
+        Returns 0 on any failure.
+        """
+        try:
+            conn = self.connection
+            result = conn.execute(
+                """
+                MATCH (:Node)-[r:RELATES]->(:Node)
+                RETURN count(r) AS no_relations
+                """,
+            )
+            row = result.get_next()
+            return int(row[0]) if row else 0
+        except Exception as exc:
+            logger.debug("count_relations failed for index=%s: %s", self.index, exc)
+            return 0
+
     @kuzu_retry_decorator
     def get_all_relations(self) -> List[Relation]:
         """Get all relations in the graph."""

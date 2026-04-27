@@ -111,6 +111,7 @@ vi.mock('@/hooks/use-knowledge-namespaces', () => ({
 vi.mock('@/hooks/use-knowledge-import', () => ({
   useKnowledgeJobs: vi.fn(() => ({
     jobs: [],
+    graphCounts: { entities: 0, chunks: 0, relations: 0 },
     isLoading: false,
     isError: null,
     refresh: vi.fn(),
@@ -127,6 +128,7 @@ vi.mock('@/hooks/use-knowledge-import', () => ({
   })),
   useKnowledgeImportMonitor: vi.fn(() => ({
     jobs: [],
+    graphCounts: { entities: 0, chunks: 0, relations: 0 },
     activeJob: undefined,
     latestJob: undefined,
     isLoading: false,

@@ -3,7 +3,7 @@
  * 
  * Endpoints:
  * - POST /api/knowledge/namespaces/{namespace}/import -> ImportFolderResponse
- * - GET /api/knowledge/namespaces/{namespace}/jobs -> JobStatusResponse[]
+ * - GET /api/knowledge/namespaces/{namespace}/jobs -> NamespaceJobsResponse
  * - GET /api/knowledge/namespaces/{namespace}/jobs/{job_id} -> JobStatusResponse
  */
 
@@ -39,13 +39,24 @@ export interface JobStatusResponse {
   result: Record<string, unknown> | null;
 }
 
+export interface GraphCountsResponse {
+  entities: number;
+  chunks: number;
+  relations: number;
+}
+
+export interface NamespaceJobsResponse {
+  jobs: JobStatusResponse[];
+  graph_counts: GraphCountsResponse;
+}
+
 const KNOWLEDGE_BASE = '/knowledge';
 
 /**
- * Hook to fetch all jobs for a namespace.
+ * Hook to fetch all jobs for a namespace (with live graph counts).
  */
 export function useKnowledgeJobs(namespace: string | null) {
-  const { data, error, mutate, isLoading } = useSWR<JobStatusResponse[]>(
+  const { data, error, mutate, isLoading } = useSWR<NamespaceJobsResponse>(
     namespace ? `${KNOWLEDGE_BASE}/namespaces/${namespace}/jobs` : null,
     {
       revalidateOnFocus: false,
@@ -54,7 +65,8 @@ export function useKnowledgeJobs(namespace: string | null) {
   );
 
   return {
-    jobs: data,
+    jobs: data?.jobs,
+    graphCounts: data?.graph_counts ?? { entities: 0, chunks: 0, relations: 0 },
     isLoading,
     isError: error,
     refresh: mutate,
@@ -116,7 +128,7 @@ export function useKnowledgeImport() {
  * Combined hook for import panel - handles import trigger and job monitoring.
  */
 export function useKnowledgeImportMonitor(namespace: string | null) {
-  const { jobs, isLoading: jobsLoading, refresh: refreshJobs } = useKnowledgeJobs(namespace);
+  const { jobs, graphCounts, isLoading: jobsLoading, refresh: refreshJobs } = useKnowledgeJobs(namespace);
   const { startImport } = useKnowledgeImport();
 
   // Get the most recent running/pending job
@@ -129,6 +141,7 @@ export function useKnowledgeImportMonitor(namespace: string | null) {
 
   return {
     jobs,
+    graphCounts,
     activeJob,
     latestJob,
     isLoading: jobsLoading,
@@ -136,3 +149,4 @@ export function useKnowledgeImportMonitor(namespace: string | null) {
     refreshJobs,
   };
 }
+

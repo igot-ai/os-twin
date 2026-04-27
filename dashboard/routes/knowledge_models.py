@@ -304,6 +304,26 @@ class JobStatusResponse(BaseModel):
     result: Optional[dict[str, Any]] = None
 
 
+class GraphCountsResponse(BaseModel):
+    """Live counts from the KuzuDB graph for a namespace."""
+
+    entities: int = Field(default=0, description="Number of entity nodes (excluding text_chunk)")
+    chunks: int = Field(default=0, description="Number of text_chunk nodes")
+    relations: int = Field(default=0, description="Number of relation edges")
+
+
+class NamespaceJobsResponse(BaseModel):
+    """Enriched jobs response — jobs list plus live graph counters.
+
+    The ``graph_counts`` field is populated from a lightweight Cypher
+    COUNT query against KuzuDB and reflects the *current* state of the
+    graph, not the manifest snapshot.
+    """
+
+    jobs: list[JobStatusResponse] = Field(default_factory=list)
+    graph_counts: GraphCountsResponse = Field(default_factory=GraphCountsResponse)
+
+
 # ---------------------------------------------------------------------------
 # Query Result (mirrors QueryResult from dashboard.knowledge.query)
 # ---------------------------------------------------------------------------
@@ -382,6 +402,8 @@ __all__ = [
     "ImportRecordResponse",
     "NamespaceMetaResponse",
     "JobStatusResponse",
+    "GraphCountsResponse",
+    "NamespaceJobsResponse",
     "ChunkHitResponse",
     "EntityHitResponse",
     "CitationResponse",

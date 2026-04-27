@@ -1,30 +1,23 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { NamespaceMetaResponse } from '@/hooks/use-knowledge-namespaces';
+import { QueryResultResponse } from '@/hooks/use-knowledge-query';
+import { GraphNodeResponse, GraphEdgeResponse, GraphStatsResponse } from '@/hooks/use-knowledge-graph';
+import { GraphCountsResponse } from '@/hooks/use-knowledge-import';
+import GraphView from './GraphView';
+import BacklinkBadge from './BacklinkBadge';
+import { getNodeColor } from './constants';
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
 
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     });
-  } catch {
-    return iso;
-  }
+  } catch { return iso; }
 }
 
 function formatRelativeTime(iso: string): string {
@@ -38,341 +31,550 @@ function formatRelativeTime(iso: string): string {
     const days = Math.floor(hrs / 24);
     if (days < 30) return `${days}d ago`;
     return new Date(iso).toLocaleDateString();
-  } catch {
-    return iso;
-  }
+  } catch { return iso; }
 }
 
 /* ── Props ─────────────────────────────────────────────────────────── */
 
 interface NamespaceOverviewProps {
   namespace: NamespaceMetaResponse;
+  graphCounts?: GraphCountsResponse;
   onNavigateImport: () => void;
   onNavigateQuery: () => void;
   onDelete: () => void;
   onRefresh: () => void;
+  queryResult?: QueryResultResponse | null;
+  queryLoading?: boolean;
+  queryError?: Error | null;
+  onExecuteQuery?: (query: string, mode: 'raw' | 'graph' | 'summarized', topK: number) => Promise<void>;
+  onClearResult?: () => void;
+  graphNodes?: GraphNodeResponse[];
+  graphEdges?: GraphEdgeResponse[];
+  graphStats?: GraphStatsResponse;
+  graphLoading?: boolean;
+  onRefreshGraph?: () => void;
+  onNoteClick?: (noteId: string) => void;
 }
 
-/* ── Stat Card ─────────────────────────────────────────────────────── */
+/* ── Session history entry ─────────────────────────────────────────── */
 
-function StatCard({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  icon: string;
-  label: string;
-  value: string | number;
-  color: string;
+interface HistoryEntry {
+  query: string;
+  timestamp: number;
+}
+
+/* ── Stat Pill ─────────────────────────────────────────────────────── */
+
+function StatPill({ icon, label, value, color }: {
+  icon: string; label: string; value: string | number; color: string;
 }) {
   return (
     <div
-      className="rounded-xl border p-3 flex items-start gap-3"
-      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium"
+      style={{ background: `${color}10`, color }}
     >
-      <div
-        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-        style={{ background: `${color}15` }}
-      >
-        <span className="material-symbols-outlined" style={{ fontSize: 18, color }}>
-          {icon}
-        </span>
-      </div>
-      <div>
-        <p className="text-[11px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
-          {label}
-        </p>
-        <p className="text-lg font-bold leading-tight" style={{ color: 'var(--color-text-main)' }}>
-          {typeof value === 'number' ? value.toLocaleString() : value}
-        </p>
-      </div>
+      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{icon}</span>
+      <span>{typeof value === 'number' ? value.toLocaleString() : value}</span>
+      <span style={{ opacity: 0.7 }}>{label}</span>
     </div>
   );
 }
 
-/* ── Quick Action ──────────────────────────────────────────────────── */
+/* ── Suggestion Chip ──────────────────────────────────────────────── */
 
-function QuickAction({
-  icon,
-  label,
-  description,
-  onClick,
-  variant = 'default',
-}: {
-  icon: string;
-  label: string;
-  description: string;
-  onClick: () => void;
-  variant?: 'default' | 'danger';
-}) {
+function SuggestionChip({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className={`
-        w-full flex items-center gap-3 p-3 rounded-xl border text-left
-        transition-all duration-150
-        ${variant === 'danger'
-          ? 'hover:bg-danger/5 hover:border-danger/30'
-          : 'hover:bg-primary/5 hover:border-primary/30'
-        }
-      `}
-      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+      className="px-3 py-1.5 rounded-full text-[11px] font-medium border transition-all duration-200 hover:shadow-sm"
+      style={{
+        borderColor: 'var(--color-border)',
+        color: 'var(--color-text-muted)',
+        background: 'var(--color-surface)',
+      }}
     >
-      <div
-        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-        style={{
-          background: variant === 'danger' ? 'var(--color-danger-muted)' : 'var(--color-primary-muted)',
-        }}
-      >
-        <span
-          className="material-symbols-outlined"
-          style={{
-            fontSize: 18,
-            color: variant === 'danger' ? 'var(--color-danger)' : 'var(--color-primary)',
-          }}
-        >
-          {icon}
-        </span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <p
-          className="text-xs font-semibold"
-          style={{
-            color: variant === 'danger' ? 'var(--color-danger)' : 'var(--color-text-main)',
-          }}
-        >
-          {label}
-        </p>
-        <p className="text-[11px] mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-          {description}
-        </p>
-      </div>
-      <span
-        className="material-symbols-outlined shrink-0"
-        style={{ fontSize: 16, color: 'var(--color-text-faint)' }}
-      >
-        chevron_right
-      </span>
+      {label}
     </button>
   );
 }
 
-/* ── Import Record Row ─────────────────────────────────────────────── */
+/* ── Result Chunk Card ─────────────────────────────────────────────── */
 
-function ImportRow({ imp }: { imp: NamespaceMetaResponse['imports'][number] }) {
-  const statusColors: Record<string, string> = {
-    running: 'var(--color-primary)',
-    completed: 'var(--color-success)',
-    failed: 'var(--color-danger)',
-    interrupted: 'var(--color-warning)',
-  };
-
+function ChunkCard({ chunk, namespace, onNoteClick }: {
+  chunk: QueryResultResponse['chunks'][number];
+  namespace: string;
+  onNoteClick?: (noteId: string) => void;
+}) {
   return (
     <div
-      className="flex items-center gap-3 px-3 py-2 rounded-lg"
-      style={{ background: 'var(--color-surface-hover)' }}
+      className="rounded-xl border p-3.5 transition-all duration-150 hover:shadow-sm"
+      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
     >
-      <span
-        className="w-2 h-2 rounded-full shrink-0"
-        style={{ background: statusColors[imp.status] || 'var(--color-text-muted)' }}
-      />
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium truncate" style={{ color: 'var(--color-text-main)' }}>
-          {imp.folder_path.split('/').pop() || imp.folder_path}
-        </p>
-        <p className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
-          {imp.file_count} files · {formatRelativeTime(imp.started_at)}
-        </p>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--color-text-faint)' }}>
+            description
+          </span>
+          <span className="text-[11px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
+            {chunk.filename}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {chunk.memory_links && chunk.memory_links.length > 0 && (
+            <BacklinkBadge memoryLinks={chunk.memory_links} namespace={namespace} onNoteClick={onNoteClick} />
+          )}
+          <span
+            className="px-1.5 py-0.5 rounded-md text-[10px] font-bold"
+            style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
+          >
+            {chunk.score.toFixed(2)}
+          </span>
+        </div>
       </div>
-      <span
-        className="text-[10px] font-medium uppercase tracking-wide"
-        style={{ color: statusColors[imp.status] || 'var(--color-text-muted)' }}
-      >
-        {imp.status}
-      </span>
+      <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-main)' }}>
+        {chunk.text.slice(0, 300)}{chunk.text.length > 300 ? '…' : ''}
+      </p>
     </div>
   );
 }
 
-/* ── Main Component ────────────────────────────────────────────────── */
+/* ── Session History Item ──────────────────────────────────────────── */
+
+function HistoryItem({ entry, isActive, onClick }: {
+  entry: HistoryEntry; isActive: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left px-3 py-2.5 rounded-lg transition-all duration-150 group"
+      style={{
+        background: isActive ? 'var(--color-primary-muted)' : 'transparent',
+        borderLeft: isActive ? '2px solid var(--color-primary)' : '2px solid transparent',
+      }}
+    >
+      <p className="text-[12px] font-medium truncate" style={{
+        color: isActive ? 'var(--color-primary)' : 'var(--color-text-main)',
+      }}>
+        {entry.query}
+      </p>
+      <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
+        {formatRelativeTime(new Date(entry.timestamp).toISOString())}
+      </p>
+    </button>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Main Component — Query-First Two-Column Layout
+   ══════════════════════════════════════════════════════════════════════ */
 
 export default function NamespaceOverview({
   namespace: ns,
+  graphCounts,
   onNavigateImport,
-  onNavigateQuery,
   onDelete,
   onRefresh,
+  queryResult,
+  queryLoading = false,
+  queryError,
+  onExecuteQuery,
+  onClearResult,
+  graphNodes = [],
+  graphEdges = [],
+  graphStats,
+  graphLoading = false,
+  onRefreshGraph,
+  onNoteClick,
 }: NamespaceOverviewProps) {
   const { stats } = ns;
   const hasContent = stats.files_indexed > 0 || stats.chunks > 0;
-  const recentImports = ns.imports.slice(0, 3);
+
+  const [query, setQuery] = useState('');
+  const [mode, setMode] = useState<'raw' | 'graph' | 'summarized'>('summarized');
+  const [topK, setTopK] = useState(10);
+  const [selectedNode, setSelectedNode] = useState<GraphNodeResponse | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [activeHistoryIdx, setActiveHistoryIdx] = useState<number>(-1);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Live counts from KuzuDB (fallback to manifest stats)
+  const entityCount = graphCounts?.entities ?? stats.entities;
+  const chunkCount = graphCounts?.chunks ?? stats.chunks;
+  const relationCount = graphCounts?.relations ?? stats.relations;
+
+  useEffect(() => {
+    if (hasContent) {
+      const t = setTimeout(() => inputRef.current?.focus(), 300);
+      return () => clearTimeout(t);
+    }
+  }, [hasContent]);
+
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim() || !onExecuteQuery) return;
+    const q = query.trim();
+    setHistory(prev => [{ query: q, timestamp: Date.now() }, ...prev]);
+    setActiveHistoryIdx(0);
+    await onExecuteQuery(q, mode, topK);
+  }, [query, mode, topK, onExecuteQuery]);
+
+  const handleSuggestion = useCallback((text: string) => {
+    setQuery(text);
+    if (onExecuteQuery) {
+      setHistory(prev => [{ query: text, timestamp: Date.now() }, ...prev]);
+      setActiveHistoryIdx(0);
+      onExecuteQuery(text, mode, topK);
+    }
+  }, [mode, topK, onExecuteQuery]);
+
+  const handleHistoryClick = useCallback((idx: number) => {
+    const entry = history[idx];
+    if (!entry || !onExecuteQuery) return;
+    setQuery(entry.query);
+    setActiveHistoryIdx(idx);
+    onExecuteQuery(entry.query, mode, topK);
+  }, [history, mode, topK, onExecuteQuery]);
+
+  const suggestions = [
+    `Summarize key themes in ${ns.name}`,
+    'What are the main topics covered?',
+    'Find the most important entities',
+  ];
+
+  const hasWarning = queryResult?.warnings?.includes('llm_unavailable');
+  const showHistory = history.length > 0;
 
   return (
-    <div className="h-full overflow-y-auto p-5" style={{ scrollbarWidth: 'thin' }}>
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <h2
-              className="text-xl font-bold truncate"
-              style={{ color: 'var(--color-text-main)' }}
-            >
-              {ns.name}
-            </h2>
-            <span
-              className="px-2 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wide"
-              style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
-            >
-              {ns.language}
-            </span>
-          </div>
-          {ns.description && (
-            <p className="text-sm mb-2" style={{ color: 'var(--color-text-muted)' }}>
-              {ns.description}
-            </p>
-          )}
-          <div className="flex items-center gap-4 text-[11px]" style={{ color: 'var(--color-text-faint)' }}>
-            <span>Created {formatDate(ns.created_at)}</span>
-            <span>·</span>
-            <span>Updated {formatRelativeTime(ns.updated_at)}</span>
-          </div>
-        </div>
-        <button
-          onClick={onRefresh}
-          className="p-2 rounded-lg hover:bg-surface-hover transition-colors shrink-0"
-          aria-label="Refresh namespace"
-          title="Refresh"
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-text-muted)' }}>
-            refresh
-          </span>
-        </button>
-      </div>
-
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <StatCard icon="description" label="Files" value={stats.files_indexed} color="#3B82F6" />
-        <StatCard icon="dataset" label="Chunks" value={stats.chunks} color="#8B5CF6" />
-        <StatCard icon="hub" label="Entities" value={stats.entities} color="#EC4899" />
-        <StatCard icon="hard_drive" label="Storage" value={formatBytes(stats.bytes_on_disk)} color="#14B8A6" />
-      </div>
-
-      {/* Quick actions */}
-      <div className="mb-6">
-        <h3 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-muted)' }}>
-          Actions
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <QuickAction
-            icon="upload"
-            label="Import Documents"
-            description={hasContent ? 'Add more files to this namespace' : 'Get started by importing files'}
-            onClick={onNavigateImport}
-          />
-          <QuickAction
-            icon="search"
-            label="Query Knowledge"
-            description={hasContent ? `Search across ${stats.chunks} chunks` : 'Import documents first'}
-            onClick={onNavigateQuery}
-          />
-          <QuickAction
-            icon="delete"
-            label="Delete Namespace"
-            description="Permanently remove all data"
-            onClick={onDelete}
-            variant="danger"
-          />
-        </div>
-      </div>
-
-      {/* Recent imports */}
-      {recentImports.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-muted)' }}>
-            Recent Imports
-          </h3>
-          <div className="space-y-1.5">
-            {recentImports.map((imp, i) => (
-              <ImportRow key={imp.job_id || i} imp={imp} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Configuration */}
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--color-text-muted)' }}>
-          Configuration
-        </h3>
-        <div
-          className="rounded-xl border p-4 space-y-2"
-          style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
-        >
-          <div className="flex items-center justify-between text-xs">
-            <span style={{ color: 'var(--color-text-muted)' }}>Embedding Model</span>
-            <span className="font-medium font-mono text-[11px]" style={{ color: 'var(--color-text-main)' }}>
-              {ns.embedding_model}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span style={{ color: 'var(--color-text-muted)' }}>Embedding Dimension</span>
-            <span className="font-medium font-mono text-[11px]" style={{ color: 'var(--color-text-main)' }}>
-              {ns.embedding_dimension}
-            </span>
-          </div>
-          {ns.retention && (
-            <div className="flex items-center justify-between text-xs">
-              <span style={{ color: 'var(--color-text-muted)' }}>Retention</span>
-              <span className="font-medium text-[11px]" style={{ color: 'var(--color-text-main)' }}>
-                {ns.retention.policy === 'ttl_days'
-                  ? `${ns.retention.ttl_days} days`
-                  : 'Manual'}
+    <div className="h-full overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+      {/* ── Hero Section ─────────────────────────────────────────── */}
+      <div
+        className="px-6 pt-6 pb-5"
+        style={{
+          background: 'linear-gradient(180deg, var(--color-primary-muted) 0%, var(--color-background) 100%)',
+        }}
+      >
+        {/* Header row */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2.5 mb-1.5">
+              <h2 className="text-xl font-bold truncate" style={{ color: 'var(--color-text-main)' }}>
+                {ns.name}
+              </h2>
+              <span
+                className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide shrink-0"
+                style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
+              >
+                {ns.language}
               </span>
             </div>
-          )}
-          <div className="flex items-center justify-between text-xs">
-            <span style={{ color: 'var(--color-text-muted)' }}>Vectors</span>
-            <span className="font-medium font-mono text-[11px]" style={{ color: 'var(--color-text-main)' }}>
-              {stats.vectors.toLocaleString()}
-            </span>
+            {ns.description && (
+              <p className="text-sm mb-2" style={{ color: 'var(--color-text-muted)' }}>{ns.description}</p>
+            )}
+            <div className="flex items-center gap-3 text-[11px]" style={{ color: 'var(--color-text-faint)' }}>
+              <span>Created {formatDate(ns.created_at)}</span>
+              <span>·</span>
+              <span>Updated {formatRelativeTime(ns.updated_at)}</span>
+            </div>
           </div>
-          <div className="flex items-center justify-between text-xs">
-            <span style={{ color: 'var(--color-text-muted)' }}>Relations</span>
-            <span className="font-medium font-mono text-[11px]" style={{ color: 'var(--color-text-main)' }}>
-              {stats.relations.toLocaleString()}
+          <button
+            onClick={onRefresh}
+            className="p-2 rounded-lg hover:bg-white/50 transition-colors shrink-0"
+            aria-label="Refresh namespace" title="Refresh"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-text-muted)' }}>refresh</span>
+          </button>
+        </div>
+
+        {/* Stat pills — live from KuzuDB */}
+        <div className="flex flex-wrap gap-2 mb-5">
+          <StatPill icon="description" label="Files" value={stats.files_indexed} color="#3B82F6" />
+          <StatPill icon="dataset" label="Chunks" value={chunkCount} color="#8B5CF6" />
+          <StatPill icon="hub" label="Entities" value={entityCount} color="#EC4899" />
+          <StatPill icon="link" label="Relations" value={relationCount} color="#F59E0B" />
+        </div>
+
+        {/* ── Hero Search ──────────────────────────────────────── */}
+        {hasContent && onExecuteQuery ? (
+          <form onSubmit={handleSubmit}>
+            <div
+              className="flex items-center gap-3 px-4 py-3 rounded-2xl border shadow-sm transition-shadow focus-within:shadow-md focus-within:border-primary/40"
+              style={{
+                background: 'var(--color-surface)',
+                borderColor: 'var(--color-border)',
+              }}
+            >
+              <span className="material-symbols-outlined shrink-0" style={{ fontSize: 22, color: 'var(--color-primary)' }}>
+                search
+              </span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Ask anything about this knowledge base…"
+                className="flex-1 text-sm bg-transparent outline-none"
+                style={{ color: 'var(--color-text-main)' }}
+              />
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as 'raw' | 'graph' | 'summarized')}
+                className="px-2 py-1 rounded-lg border text-[11px] font-medium shrink-0"
+                style={{
+                  background: 'var(--color-background)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                <option value="summarized">Summarized</option>
+                <option value="graph">Graph</option>
+                <option value="raw">Raw</option>
+              </select>
+              <button
+                type="submit"
+                disabled={queryLoading || !query.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all duration-200 disabled:opacity-40 shrink-0"
+                style={{ background: 'var(--color-primary)' }}
+              >
+                {queryLoading ? (
+                  <span className="material-symbols-outlined animate-spin text-[16px]">progress_activity</span>
+                ) : (
+                  <span className="material-symbols-outlined text-[16px]">send</span>
+                )}
+                {queryLoading ? 'Searching…' : 'Ask'}
+              </button>
+            </div>
+
+            {/* Suggestion chips — only when no result and no history */}
+            {!queryResult && !showHistory && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {suggestions.map((s, i) => (
+                  <SuggestionChip key={i} label={s} onClick={() => handleSuggestion(s)} />
+                ))}
+              </div>
+            )}
+          </form>
+        ) : !hasContent ? (
+          <div
+            className="rounded-2xl border-2 border-dashed p-6 text-center"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
+            <span className="material-symbols-outlined text-[32px] mb-2" style={{ color: 'var(--color-text-muted)' }}>
+              upload_file
             </span>
+            <p className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-main)' }}>
+              This namespace is empty
+            </p>
+            <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
+              Import documents to start querying your knowledge base.
+            </p>
+            <button
+              onClick={onNavigateImport}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-colors"
+              style={{ background: 'var(--color-primary)' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>upload</span>
+              Import Documents
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {/* ── Two-Column Content Area ─────────────────────────────── */}
+      <div className="px-6 pb-6">
+        {/* Error */}
+        {queryError && (
+          <div className="p-4 rounded-xl text-sm mb-4" style={{ background: 'var(--color-danger-muted)', color: 'var(--color-danger)' }}>
+            <p className="font-semibold mb-1">Query Error</p>
+            <p>{queryError.message}</p>
+          </div>
+        )}
+
+        <div className="flex gap-4" style={{ minHeight: showHistory || queryResult ? 400 : 'auto' }}>
+          {/* ── Left: Session History ──────────────────────────── */}
+          {showHistory && (
+            <div
+              className="w-[240px] shrink-0 rounded-xl border overflow-hidden self-start"
+              style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+            >
+              <div className="px-3 py-2.5 border-b flex items-center justify-between" style={{ borderColor: 'var(--color-border)' }}>
+                <div className="flex items-center gap-1.5">
+                  <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>history</span>
+                  <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Session History</h4>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--color-background)', color: 'var(--color-text-faint)' }}>
+                  {history.length}
+                </span>
+              </div>
+              <div className="p-1.5 space-y-0.5 max-h-[500px] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                {history.map((entry, i) => (
+                  <HistoryItem
+                    key={entry.timestamp}
+                    entry={entry}
+                    isActive={i === activeHistoryIdx}
+                    onClick={() => handleHistoryClick(i)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Right: Results Panel ──────────────────────────── */}
+          <div className="flex-1 min-w-0 space-y-4">
+            {/* Pre-query: show graph + suggestions */}
+            {!queryResult && hasContent && !showHistory && (graphNodes.length > 0 || graphLoading) && (
+              <div
+                className="rounded-xl border overflow-hidden"
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+              >
+                <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--color-border)' }}>
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)' }}>hub</span>
+                    <h3 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Knowledge Graph</h3>
+                    {graphStats && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--color-background)', color: 'var(--color-text-muted)' }}>
+                        {graphStats.node_count} nodes · {graphStats.edge_count} edges
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={onRefreshGraph} className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors" title="Refresh graph">
+                    <span className="material-symbols-outlined text-[14px]" style={{ color: 'var(--color-text-muted)' }}>refresh</span>
+                  </button>
+                </div>
+                <div style={{ height: 340 }}>
+                  <GraphView
+                    nodes={graphNodes} edges={graphEdges}
+                    stats={graphStats || { node_count: 0, edge_count: 0 }}
+                    isLoading={graphLoading}
+                    selectedNode={selectedNode} onSelectNode={setSelectedNode}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Post-query results: Answer → Graph → Chunks → Entities */}
+            {queryResult && (
+              <>
+                {/* Results header */}
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-main)' }}>Results</h3>
+                    <span className="text-[10px]" style={{ color: 'var(--color-text-faint)' }}>
+                      {queryResult.chunks.length} chunks · {queryResult.latency_ms}ms
+                    </span>
+                  </div>
+                  <button
+                    onClick={onClearResult}
+                    className="text-[11px] font-medium px-2.5 py-1 rounded-lg hover:bg-surface-hover transition-colors"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {/* LLM warning */}
+                {hasWarning && mode === 'summarized' && (
+                  <div className="p-3 rounded-xl text-sm flex items-start gap-2"
+                    style={{ background: 'var(--color-warning-muted)', color: 'var(--color-warning)' }}>
+                    <span className="material-symbols-outlined text-[18px]">warning</span>
+                    <div>
+                      <p className="font-medium text-xs">LLM Not Configured</p>
+                      <p className="text-[11px] mt-0.5">Summarized mode requires an LLM. Showing graph results instead.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 1. Answer */}
+                {queryResult.answer && (
+                  <div className="rounded-xl border p-4" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)' }}>auto_awesome</span>
+                      <h4 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-primary)' }}>Answer</h4>
+                    </div>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-main)' }}>{queryResult.answer}</p>
+                  </div>
+                )}
+
+                {/* 2. Knowledge Graph (inline in results) */}
+                {(graphNodes.length > 0 || graphLoading) && (
+                  <div
+                    className="rounded-xl border overflow-hidden"
+                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+                  >
+                    <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
+                      <div className="flex items-center gap-1.5">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--color-primary)' }}>hub</span>
+                        <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Knowledge Graph</h4>
+                      </div>
+                      <button onClick={onRefreshGraph} className="p-1 rounded hover:bg-surface-hover transition-colors">
+                        <span className="material-symbols-outlined text-[14px]" style={{ color: 'var(--color-text-muted)' }}>refresh</span>
+                      </button>
+                    </div>
+                    <div style={{ height: 280 }}>
+                      <GraphView
+                        nodes={graphNodes} edges={graphEdges}
+                        stats={graphStats || { node_count: 0, edge_count: 0 }}
+                        isLoading={graphLoading}
+                        selectedNode={selectedNode} onSelectNode={setSelectedNode}
+                      />
+                    </div>
+                    {selectedNode && (
+                      <div className="px-3 py-2 border-t" style={{ borderColor: 'var(--color-border)' }}>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full" style={{ background: getNodeColor(selectedNode.label) }} />
+                          <span className="text-[11px] font-semibold truncate" style={{ color: 'var(--color-text-main)' }}>{selectedNode.name}</span>
+                          <span className="text-[10px] px-1 py-0.5 rounded shrink-0" style={{ background: 'var(--color-background)', color: 'var(--color-text-muted)' }}>
+                            {selectedNode.label}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 3. Relevant Chunks */}
+                {queryResult.chunks.length > 0 && (
+                  <div>
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                      Relevant Sources ({queryResult.chunks.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {queryResult.chunks.slice(0, 5).map((chunk, i) => (
+                        <ChunkCard key={i} chunk={chunk} namespace={queryResult.namespace} onNoteClick={onNoteClick} />
+                      ))}
+                      {queryResult.chunks.length > 5 && (
+                        <p className="text-xs text-center py-2" style={{ color: 'var(--color-text-muted)' }}>
+                          +{queryResult.chunks.length - 5} more sources
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Entity Tags */}
+                {queryResult.entities.length > 0 && (
+                  <div>
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                      Relevant Entity Tags ({queryResult.entities.length})
+                    </h4>
+                    <div className="flex flex-wrap gap-1.5">
+                      {queryResult.entities.map((entity, i) => (
+                        <span key={i} className="px-2 py-1 rounded-lg text-[11px] font-medium"
+                          style={{
+                            background: `${getNodeColor(entity.label)}15`,
+                            color: getNodeColor(entity.label),
+                            border: `1px solid ${getNodeColor(entity.label)}30`,
+                          }}>
+                          {entity.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Empty state nudge */}
-      {!hasContent && (
-        <div
-          className="mt-6 rounded-xl border-2 border-dashed p-6 text-center"
-          style={{ borderColor: 'var(--color-border)' }}
-        >
-          <span
-            className="material-symbols-outlined text-[32px] mb-2"
-            style={{ color: 'var(--color-text-muted)' }}
-          >
-            upload_file
-          </span>
-          <p className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-main)' }}>
-            This namespace is empty
-          </p>
-          <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
-            Import a folder of documents to populate the knowledge graph.
-          </p>
-          <button
-            onClick={onNavigateImport}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary/90 transition-colors"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>upload</span>
-            Import Documents
-          </button>
-        </div>
-      )}
     </div>
   );
 }

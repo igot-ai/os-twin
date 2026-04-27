@@ -902,6 +902,24 @@ class KnowledgeService:
         """List jobs for ``namespace`` (newest first)."""
         return self._get_job_manager().list_for_namespace(namespace)
 
+    def count_graph_stats(self, namespace: str) -> dict[str, int]:
+        """Return live entity/chunk/relation counts from KuzuDB.
+
+        Uses lightweight Cypher COUNT queries — no full node materialisation.
+        Returns ``{"entities": 0, "chunks": 0, "relations": 0}`` if the
+        graph DB doesn't exist or the schema hasn't been set up yet.
+        """
+        try:
+            kg = self.get_kuzu_graph(namespace)
+            return {
+                "entities": kg.count_entities(),
+                "chunks": kg.count_chunks(),
+                "relations": kg.count_relations(),
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("count_graph_stats failed for %r: %s", namespace, exc)
+            return {"entities": 0, "chunks": 0, "relations": 0}
+
     # ---- Retrieval (EPIC-004) -------------------------------------------
 
     def query(
