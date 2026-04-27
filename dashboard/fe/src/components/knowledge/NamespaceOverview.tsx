@@ -195,7 +195,32 @@ export default function NamespaceOverview({
   const [selectedNode, setSelectedNode] = useState<GraphNodeResponse | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState<number>(-1);
+  const [graphHeight, setGraphHeight] = useState(380);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resizingRef = useRef(false);
+  const startYRef = useRef(0);
+  const startHRef = useRef(0);
+
+  // Drag-resize handler for graph panel
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    startYRef.current = e.clientY;
+    startHRef.current = graphHeight;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const delta = ev.clientY - startYRef.current;
+      setGraphHeight(Math.max(200, Math.min(800, startHRef.current + delta)));
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [graphHeight]);
 
   // Live counts from KuzuDB (fallback to manifest stats)
   const entityCount = graphCounts?.entities ?? stats.entities;
@@ -276,13 +301,29 @@ export default function NamespaceOverview({
               <span>Updated {formatRelativeTime(ns.updated_at)}</span>
             </div>
           </div>
-          <button
-            onClick={onRefresh}
-            className="p-2 rounded-lg hover:bg-white/50 transition-colors shrink-0"
-            aria-label="Refresh namespace" title="Refresh"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-text-muted)' }}>refresh</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onNavigateImport}
+              className="p-2 rounded-lg hover:bg-white/50 transition-colors shrink-0"
+              aria-label="Import documents" title="Import Documents"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-text-muted)' }}>upload</span>
+            </button>
+            <button
+              onClick={onRefresh}
+              className="p-2 rounded-lg hover:bg-white/50 transition-colors shrink-0"
+              aria-label="Refresh namespace" title="Refresh"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-text-muted)' }}>refresh</span>
+            </button>
+            <button
+              onClick={onDelete}
+              className="p-2 rounded-lg hover:bg-white/50 transition-colors shrink-0"
+              aria-label="Delete namespace" title="Delete Namespace"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-danger, #ef4444)' }}>delete</span>
+            </button>
+          </div>
         </div>
 
         {/* Stat pills — live from KuzuDB */}
@@ -424,29 +465,32 @@ export default function NamespaceOverview({
             {!queryResult && hasContent && !showHistory && (graphNodes.length > 0 || graphLoading) && (
               <div
                 className="rounded-xl border overflow-hidden"
-                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+                style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', position: 'relative' }}
               >
                 <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--color-border)' }}>
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)' }}>hub</span>
                     <h3 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>Knowledge Graph</h3>
-                    {graphStats && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--color-background)', color: 'var(--color-text-muted)' }}>
-                        {graphStats.node_count} nodes · {graphStats.edge_count} edges
-                      </span>
-                    )}
                   </div>
                   <button onClick={onRefreshGraph} className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors" title="Refresh graph">
                     <span className="material-symbols-outlined text-[14px]" style={{ color: 'var(--color-text-muted)' }}>refresh</span>
                   </button>
                 </div>
-                <div style={{ height: 340 }}>
+                <div style={{ height: graphHeight, position: 'relative', overflow: 'hidden' }}>
                   <GraphView
                     nodes={graphNodes} edges={graphEdges}
                     stats={graphStats || { node_count: 0, edge_count: 0 }}
                     isLoading={graphLoading}
                     selectedNode={selectedNode} onSelectNode={setSelectedNode}
                   />
+                </div>
+                {/* Resize handle */}
+                <div
+                  onMouseDown={handleResizeStart}
+                  className="h-2 cursor-row-resize flex items-center justify-center hover:bg-surface-hover transition-colors"
+                  style={{ borderTop: '1px solid var(--color-border)' }}
+                >
+                  <div className="w-8 h-0.5 rounded-full" style={{ background: 'var(--color-text-faint)' }} />
                 </div>
               </div>
             )}
@@ -498,7 +542,7 @@ export default function NamespaceOverview({
                 {(graphNodes.length > 0 || graphLoading) && (
                   <div
                     className="rounded-xl border overflow-hidden"
-                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+                    style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', position: 'relative' }}
                   >
                     <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
                       <div className="flex items-center gap-1.5">
@@ -509,7 +553,7 @@ export default function NamespaceOverview({
                         <span className="material-symbols-outlined text-[14px]" style={{ color: 'var(--color-text-muted)' }}>refresh</span>
                       </button>
                     </div>
-                    <div style={{ height: 280 }}>
+                    <div style={{ height: graphHeight, position: 'relative', overflow: 'hidden' }}>
                       <GraphView
                         nodes={graphNodes} edges={graphEdges}
                         stats={graphStats || { node_count: 0, edge_count: 0 }}

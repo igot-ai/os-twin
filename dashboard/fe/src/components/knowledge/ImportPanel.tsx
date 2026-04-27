@@ -12,15 +12,55 @@ interface DirEntry {
   has_children: boolean;
 }
 
+interface FileEntry {
+  name: string;
+  path: string;
+  size_bytes: number;
+}
+
 interface BrowseResult {
   current: string;
   parent: string | null;
   dirs: DirEntry[];
+  files: FileEntry[];
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function getFileIcon(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  const map: Record<string, string> = {
+    pdf: 'picture_as_pdf',
+    pptx: 'slideshow', ppt: 'slideshow',
+    xlsx: 'table_chart', xls: 'table_chart', csv: 'table_chart',
+    md: 'article', txt: 'article', doc: 'article', docx: 'article',
+    json: 'data_object', html: 'code', xml: 'code',
+    mp4: 'movie', mov: 'movie',
+  };
+  return map[ext] || 'draft';
+}
+
+function getFileColor(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  const map: Record<string, string> = {
+    pdf: '#ef4444', pptx: '#f97316', ppt: '#f97316',
+    xlsx: '#22c55e', xls: '#22c55e', csv: '#22c55e',
+    md: '#8b5cf6', txt: '#6b7280', doc: '#3b82f6', docx: '#3b82f6',
+    json: '#eab308', html: '#06b6d4', xml: '#06b6d4',
+    mp4: '#ec4899', mov: '#ec4899',
+  };
+  return map[ext] || 'var(--color-text-muted)';
 }
 
 /**
  * Inline folder browser for navigating server directories.
- * Uses the /fs/browse API to list directories.
+ * Uses the /fs/browse API to list directories and files.
  */
 function FolderBrowserInline({
   selectedPath,
@@ -57,6 +97,8 @@ function FolderBrowserInline({
   }, []);
 
   const pathSegments = browseResult?.current.split('/').filter(Boolean) ?? [];
+  const fileCount = browseResult?.files?.length ?? 0;
+  const dirCount = browseResult?.dirs?.length ?? 0;
 
   return (
     <div 
@@ -103,8 +145,8 @@ function FolderBrowserInline({
         )}
       </div>
 
-      {/* Directory listing */}
-      <div className="max-h-[200px] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+      {/* Directory + File listing */}
+      <div className="max-h-[280px] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
         {error && (
           <div className="p-3 text-center text-xs" style={{ color: 'var(--color-danger)' }}>
             {error}
@@ -122,12 +164,7 @@ function FolderBrowserInline({
           </div>
         )}
 
-        {!error && browseResult?.dirs.length === 0 && (
-          <div className="p-3 text-center text-xs" style={{ color: 'var(--color-text-faint)' }}>
-            No subdirectories
-          </div>
-        )}
-
+        {/* Directories */}
         {!error && browseResult?.dirs.map((d) => (
           <div
             key={d.path}
@@ -142,7 +179,42 @@ function FolderBrowserInline({
             )}
           </div>
         ))}
+
+        {/* Files */}
+        {!error && browseResult?.files?.map((f) => (
+          <div
+            key={f.path}
+            className="flex items-center gap-2 px-3 py-1.5 font-mono text-xs"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14, color: getFileColor(f.name) }}>
+              {getFileIcon(f.name)}
+            </span>
+            <span className="flex-1 truncate">{f.name}</span>
+            <span className="text-[10px] shrink-0" style={{ color: 'var(--color-text-faint)' }}>
+              {formatFileSize(f.size_bytes)}
+            </span>
+          </div>
+        ))}
+
+        {/* Empty state */}
+        {!error && dirCount === 0 && fileCount === 0 && (
+          <div className="p-3 text-center text-xs" style={{ color: 'var(--color-text-faint)' }}>
+            No supported files or subdirectories
+          </div>
+        )}
       </div>
+
+      {/* Footer with counts */}
+      {!error && (dirCount > 0 || fileCount > 0) && (
+        <div
+          className="px-3 py-1.5 border-t text-[10px] flex items-center gap-3"
+          style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-faint)' }}
+        >
+          {dirCount > 0 && <span>{dirCount} folder{dirCount !== 1 ? 's' : ''}</span>}
+          {fileCount > 0 && <span>{fileCount} file{fileCount !== 1 ? 's' : ''}</span>}
+        </div>
+      )}
     </div>
   );
 }

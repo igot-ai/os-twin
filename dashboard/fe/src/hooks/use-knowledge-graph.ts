@@ -46,7 +46,9 @@ export function useKnowledgeGraph(namespace: string | null, limit: number = DEFA
     namespace ? `${KNOWLEDGE_BASE}/namespaces/${namespace}/graph?limit=${limit}` : null,
     {
       revalidateOnFocus: false,
-      dedupingInterval: 10000, // Cache for 10 seconds
+      revalidateIfStale: true,
+      dedupingInterval: 2000,    // Shorter dedup so namespace switches aren't stale
+      revalidateOnMount: true,   // Always fetch on mount / key change
     }
   );
 
