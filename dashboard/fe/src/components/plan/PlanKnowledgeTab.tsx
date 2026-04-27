@@ -125,7 +125,6 @@ export default function PlanKnowledgeTab() {
     defaultNamespace: namespaceName,
     headerVariant: 'full',
     isPlanContext: true,
-    planNamespaceName: namespaceName,
     onViewAllKnowledge: handleViewAllKnowledge,
     showMetrics: false,
     filterNamespace: namespaceName,

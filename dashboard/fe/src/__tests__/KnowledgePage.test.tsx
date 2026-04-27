@@ -1,10 +1,13 @@
 /**
- * Tests for KnowledgePage (Global Knowledge Base).
+ * Tests for KnowledgePage (Global Knowledge Base — Grid Homepage).
  * Using Vitest + React Testing Library.
+ *
+ * The global knowledge homepage shows a card grid of all namespaces.
+ * Clicking a card navigates to /knowledge/{name} (master-detail view).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import KnowledgePage from '@/app/knowledge/page';
 
 // Mock ResizeObserver for jsdom
@@ -14,6 +17,16 @@ class MockResizeObserver {
   disconnect() {}
 }
 global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+
+// Router mock
+const mockPush = vi.fn();
+
+vi.mock('next/navigation', () => ({
+  useRouter: vi.fn(() => ({
+    push: mockPush,
+    replace: vi.fn(),
+  })),
+}));
 
 // Mock the hooks
 vi.mock('@/hooks/use-knowledge-namespaces', () => ({
@@ -65,36 +78,6 @@ vi.mock('@/hooks/use-knowledge-namespaces', () => ({
   })),
 }));
 
-vi.mock('@/hooks/use-knowledge-import', () => ({
-  useKnowledgeImportMonitor: vi.fn(() => ({
-    jobs: [],
-    activeJob: undefined,
-    isLoading: false,
-    startImport: vi.fn(),
-    refreshJobs: vi.fn(),
-  })),
-}));
-
-vi.mock('@/hooks/use-knowledge-query', () => ({
-  useKnowledgeQuery: vi.fn(() => ({
-    result: null,
-    isLoading: false,
-    error: null,
-    executeQuery: vi.fn(),
-    clearResult: vi.fn(),
-  })),
-}));
-
-vi.mock('@/hooks/use-knowledge-graph', () => ({
-  useKnowledgeGraph: vi.fn(() => ({
-    nodes: [],
-    edges: [],
-    stats: { node_count: 0, edge_count: 0 },
-    isLoading: false,
-    refresh: vi.fn(),
-  })),
-}));
-
 vi.mock('@/lib/stores/notificationStore', () => ({
   useNotificationStore: vi.fn((selector) => {
     const state = { addToast: vi.fn() };
@@ -102,68 +85,49 @@ vi.mock('@/lib/stores/notificationStore', () => ({
   }),
 }));
 
-// Mock next/navigation
-const mockSearchParams = new URLSearchParams();
-vi.mock('next/navigation', () => ({
-  useSearchParams: vi.fn(() => mockSearchParams),
-  useRouter: vi.fn(() => ({
-    push: vi.fn(),
-  })),
-}));
-
 describe('KnowledgePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset search params
-    mockSearchParams.delete('ns');
   });
 
-  it('renders the knowledge base page with global header', async () => {
+  it('renders the knowledge base page header', async () => {
     render(<KnowledgePage />);
-    
+
     expect(screen.getByText('Knowledge Base')).toBeInTheDocument();
     expect(screen.getByText(/Manage namespaces, import documents/i)).toBeInTheDocument();
   });
 
-  it('shows the namespaces tab by default in global view', async () => {
+  it('shows namespace cards in a grid', async () => {
     render(<KnowledgePage />);
-    
-    // In minimal header, subViewTabs are rendered
-    expect(screen.getByText('Namespaces')).toBeInTheDocument();
-    expect(screen.getByText('Import')).toBeInTheDocument();
-    expect(screen.getByText('Query')).toBeInTheDocument();
-    
-    // Should show namespace list
+
+    // Should show both namespaces as cards
     expect(screen.getByText('test-namespace')).toBeInTheDocument();
     expect(screen.getByText('another-namespace')).toBeInTheDocument();
   });
 
-  it('handles ?ns=xxx deep-linking', async () => {
-    mockSearchParams.set('ns', 'test-namespace');
+  it('navigates to /knowledge/{name} when card is clicked', async () => {
     render(<KnowledgePage />);
-    
-    // Should show "Pre-selected: test-namespace" in header
-    expect(screen.getByText(/Pre-selected: test-namespace/i)).toBeInTheDocument();
-    
-    // Should show the selected namespace badge in the minimal header
-    expect(screen.getAllByText('test-namespace').length).toBeGreaterThan(0);
+
+    // Click on a namespace card
+    fireEvent.click(screen.getByText('test-namespace'));
+
+    // Should navigate to the detail page
+    expect(mockPush).toHaveBeenCalledWith('/knowledge/test-namespace');
   });
 
-  it('switches between tabs', async () => {
+  it('shows the + New button for creating namespaces', async () => {
     render(<KnowledgePage />);
-    
-    // Click Import
-    fireEvent.click(screen.getByText('Import'));
-    
-    // Should show "Select a Namespace" initially in import tab if none selected
-    expect(screen.getByText('Select a Namespace')).toBeInTheDocument();
-    
-    // Click Query
-    fireEvent.click(screen.getByText('Query'));
-    expect(screen.getByText('Select a Namespace')).toBeInTheDocument();
-    
-    // Click Namespaces back
-    fireEvent.click(screen.getByText('Namespaces'));
-    expect(screen.getByText('test-namespace')).toBeInTheDocument();
+
+    expect(screen.getByText('New')).toBeInTheDocument();
+  });
+
+  it('opens create modal when + New is clicked', async () => {
+    render(<KnowledgePage />);
+
+    fireEvent.click(screen.getByText('New'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Create Namespace')).toBeInTheDocument();
+    });
   });
 });

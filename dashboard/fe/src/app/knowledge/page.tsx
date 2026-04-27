@@ -1,91 +1,128 @@
 'use client';
 
-import { useState, useEffect, Suspense, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
-import KnowledgeTabCore from '@/components/knowledge/KnowledgeTabCore';
+import { useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useKnowledgeNamespaces } from '@/hooks/use-knowledge-namespaces';
+import { useNotificationStore } from '@/lib/stores/notificationStore';
+import NamespaceList from '@/components/knowledge/NamespaceList';
+import MetricsStrip from '@/components/knowledge/MetricsStrip';
 
 /**
- * Inner component that uses useSearchParams - must be wrapped in Suspense
- */
-function KnowledgePageContent() {
-  const searchParams = useSearchParams();
-  const defaultNamespace = useMemo(() => {
-    const nsParam = searchParams.get('ns');
-    return nsParam ? decodeURIComponent(nsParam) : undefined;
-  }, [searchParams]);
-  
-  return (
-    <>
-      {/* Page Header */}
-      <div className="px-6 py-4 border-b border-border bg-surface shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span 
-              className="material-symbols-outlined text-[24px]" 
-              style={{ color: 'var(--color-primary)' }}
-            >
-              auto_stories
-            </span>
-            <div>
-              <h1 className="text-lg font-bold text-text-main">Knowledge Base</h1>
-              <p className="text-xs text-text-muted">
-                Manage namespaces, import documents, and query your knowledge
-              </p>
-            </div>
-          </div>
-          
-          {/* Show pre-selected namespace indicator if deep-linked */}
-          {defaultNamespace && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary/10">
-              <span className="material-symbols-outlined text-[16px] text-primary">folder_open</span>
-              <span className="text-xs font-medium text-primary">
-                Pre-selected: {defaultNamespace}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Knowledge Content */}
-      <div className="flex-1 overflow-hidden">
-        <KnowledgeTabCore
-          headerVariant="minimal"
-          className="h-full"
-          defaultNamespace={defaultNamespace}
-        />
-      </div>
-    </>
-  );
-}
-
-/**
- * Global Knowledge page - standalone knowledge management interface.
- * This page provides access to knowledge namespaces, import, and query
- * functionality outside of a plan context.
- * 
- * Unlike PlanKnowledgeTab, this page does not integrate with plan-specific
- * features like Memory tab navigation or note highlighting.
- * 
- * Supports deep-linking via ?ns=xxx query parameter to pre-select a namespace.
+ * Global Knowledge homepage — card grid discovery view.
+ *
+ * Displays all namespaces in a searchable card grid.
+ * Clicking any card navigates to `/knowledge/{name}` which opens
+ * the master-detail layout with sidebar + Overview/Import/Query tabs.
  */
 export default function KnowledgePage() {
+  const router = useRouter();
+  const addToast = useNotificationStore((state) => state.addToast);
+
+  const {
+    namespaces,
+    isLoading,
+    createNamespace,
+    refresh,
+  } = useKnowledgeNamespaces();
+
+  const handleSelectNamespace = useCallback((name: string) => {
+    router.push(`/knowledge/${encodeURIComponent(name)}`);
+  }, [router]);
+
+  const handleCreateNamespace = useCallback(async (name: string, description?: string) => {
+    try {
+      await createNamespace({ name, description });
+      addToast({
+        type: 'success',
+        title: 'Namespace Created',
+        message: `Namespace "${name}" has been created successfully.`,
+        autoDismiss: true,
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create namespace';
+      addToast({
+        type: 'error',
+        title: 'Creation Failed',
+        message: errorMessage,
+        autoDismiss: false,
+      });
+    }
+  }, [createNamespace, addToast]);
+
+  const handleDeleteNamespace = useCallback(async (name: string) => {
+    try {
+      const { apiDelete } = await import('@/lib/api-client');
+      await apiDelete(`/knowledge/namespaces/${name}`);
+      refresh();
+      addToast({
+        type: 'success',
+        title: 'Namespace Deleted',
+        message: `Namespace "${name}" has been deleted successfully.`,
+        autoDismiss: true,
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete namespace';
+      addToast({
+        type: 'error',
+        title: 'Deletion Failed',
+        message: errorMessage,
+        autoDismiss: false,
+      });
+    }
+  }, [refresh, addToast]);
+
+  // Loading state
+  if (isLoading && !namespaces) {
+    return (
+      <div className="h-[calc(100vh-56px)] flex items-center justify-center bg-background">
+        <div className="text-center space-y-3">
+          <div
+            className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto"
+            style={{ borderColor: 'var(--color-border)', borderTopColor: 'transparent' }}
+          />
+          <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+            Loading knowledge namespaces...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-[calc(100vh-56px)] flex flex-col bg-background">
-      <Suspense fallback={
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-3">
-            <div 
-              className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto"
-              style={{ borderColor: 'var(--color-border)', borderTopColor: 'transparent' }} 
-            />
+    <div className="h-[calc(100vh-56px)] overflow-auto bg-background">
+      <div className="max-w-[1400px] mx-auto px-6 py-6">
+        {/* Page header */}
+        <div className="flex items-center gap-3 mb-6">
+          <span
+            className="material-symbols-outlined text-[28px]"
+            style={{ color: 'var(--color-primary)' }}
+          >
+            auto_stories
+          </span>
+          <div>
+            <h1 className="text-xl font-bold" style={{ color: 'var(--color-text-main)' }}>
+              Knowledge Base
+            </h1>
             <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-              Loading knowledge...
+              Manage namespaces, import documents, and query your knowledge
             </p>
           </div>
         </div>
-      }>
-        <KnowledgePageContent />
-      </Suspense>
+
+        {/* Metrics strip */}
+        <MetricsStrip className="mb-6" />
+
+        {/* Namespace grid */}
+        <NamespaceList
+          namespaces={namespaces ?? []}
+          selectedNamespace={null}
+          onSelect={handleSelectNamespace}
+          onCreate={handleCreateNamespace}
+          onDelete={handleDeleteNamespace}
+          isLoading={isLoading}
+          onNamespaceUpdated={refresh}
+        />
+      </div>
     </div>
   );
 }
