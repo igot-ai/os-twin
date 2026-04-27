@@ -111,11 +111,13 @@ export default function KnowledgeTabCore({
   const handleSelectNamespace = useCallback((ns: string) => {
     setSelectedNamespace(ns);
     setActiveDetailView('overview');
+    // Clear previous namespace's query results
+    clearResult();
     // Sync URL if in global context (not plan context)
     if (!isPlanContext) {
       router.replace(`/knowledge/${encodeURIComponent(ns)}`, { scroll: false });
     }
-  }, [isPlanContext, router]);
+  }, [isPlanContext, router, clearResult]);
 
   const handleCreateNamespace = useCallback(async (name: string, description?: string) => {
     try {

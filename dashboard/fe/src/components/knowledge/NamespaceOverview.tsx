@@ -227,6 +227,14 @@ export default function NamespaceOverview({
   const chunkCount = graphCounts?.chunks ?? stats.chunks;
   const relationCount = graphCounts?.relations ?? stats.relations;
 
+  // Reset local state when namespace changes
+  useEffect(() => {
+    setQuery('');
+    setSelectedNode(null);
+    setHistory([]);
+    setActiveHistoryIdx(-1);
+  }, [ns.name]);
+
   useEffect(() => {
     if (hasContent) {
       const t = setTimeout(() => inputRef.current?.focus(), 300);
