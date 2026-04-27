@@ -29,8 +29,6 @@ export interface KnowledgeTabCoreProps {
   className?: string;
   /** Whether this is being used in a plan context (changes header text) */
   isPlanContext?: boolean;
-  /** The plan namespace name (for "View All Knowledge" link) */
-  planNamespaceName?: string;
   /** Callback for "View All Knowledge" navigation (plan context only) */
   onViewAllKnowledge?: () => void;
   /** Whether to show the MetricsStrip panel (default: true) */
@@ -53,7 +51,6 @@ export default function KnowledgeTabCore({
   headerVariant = 'full',
   className = '',
   isPlanContext = false,
-  planNamespaceName,
   onViewAllKnowledge,
   showMetrics = true,
   filterNamespace,
@@ -205,7 +202,7 @@ export default function KnowledgeTabCore({
 
   // Sub-view tabs — hide Namespaces tab when filtering to a single namespace
   const subViewTabs: { id: SubView; label: string; icon: string }[] = [
-    ...(filterNamespace ? [] : [{ id: 'namespaces' as SubView, label: 'Namespaces', icon: 'folder_open' }]),
+    ...(filterNamespace ? [] : [{ id: 'namespaces' as SubView, label: 'Namespaces', icon: 'grid_view' }]),
     { id: 'import', label: 'Import', icon: 'upload' },
     { id: 'query', label: 'Query', icon: 'search' },
   ];
@@ -327,10 +324,60 @@ export default function KnowledgeTabCore({
         </div>
       )}
 
+      {/* Minimal header — just tabs for the global page */}
+      {headerVariant === 'minimal' && (
+        <div 
+          className="flex items-center gap-1 px-5 pt-3 pb-0 shrink-0"
+        >
+          <nav className="flex items-center gap-1">
+            {subViewTabs.map((tab) => {
+              const isActive = activeSubView === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveSubView(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    isActive 
+                      ? 'bg-primary/10 text-primary' 
+                      : 'text-text-muted hover:bg-surface-hover hover:text-text-main'
+                  }`}
+                  aria-label={tab.label}
+                >
+                  <span className="material-symbols-outlined text-[16px]">
+                    {tab.icon}
+                  </span>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Selected namespace badge */}
+          {selectedNamespace && activeSubView !== 'namespaces' && (
+            <div className="flex items-center gap-2 ml-auto">
+              <span 
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1.5"
+                style={{ background: 'var(--color-primary-muted)', color: 'var(--color-primary)' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>folder_open</span>
+                {selectedNamespace}
+              </span>
+              <button
+                onClick={() => { setSelectedNamespace(null); setActiveSubView('namespaces'); }}
+                className="text-[10px] font-medium px-2 py-1 rounded-md hover:bg-surface-hover transition-colors"
+                style={{ color: 'var(--color-text-faint)' }}
+              >
+                Change
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Content area */}
       <div className="flex-1 overflow-hidden flex flex-col">
         {/* Metrics panel — hidden in plan context */}
-        {showMetrics && (
+        {showMetrics && activeSubView === 'namespaces' && (
           <div className="border-b shrink-0" style={{ borderColor: 'var(--color-border)' }}>
             <MetricsStrip className="m-2" />
           </div>

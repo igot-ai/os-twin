@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import KnowledgeTabCore from '@/components/knowledge/KnowledgeTabCore';
 
@@ -9,15 +9,9 @@ import KnowledgeTabCore from '@/components/knowledge/KnowledgeTabCore';
  */
 function KnowledgePageContent() {
   const searchParams = useSearchParams();
-  const [defaultNamespace, setDefaultNamespace] = useState<string | undefined>(undefined);
-  
-  // Read ?ns=xxx query param for deep-linking from plan context
-  useEffect(() => {
+  const defaultNamespace = useMemo(() => {
     const nsParam = searchParams.get('ns');
-    if (nsParam) {
-      // Decode the namespace name
-      setDefaultNamespace(decodeURIComponent(nsParam));
-    }
+    return nsParam ? decodeURIComponent(nsParam) : undefined;
   }, [searchParams]);
   
   return (

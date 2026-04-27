@@ -34,6 +34,16 @@ vi.mock('@/lib/api-client', () => ({
   apiGet: vi.fn().mockResolvedValue({}),
   apiPost: vi.fn().mockResolvedValue({}),
   apiDelete: vi.fn().mockResolvedValue({}),
+  apiPut: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: vi.fn(() => new URLSearchParams()),
+  useRouter: vi.fn(() => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  })),
 }));
 
 const SettingsPage = React.lazy(() => import('../app/settings/page'));

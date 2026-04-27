@@ -1,7 +1,153 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { apiGet } from '@/lib/api-client';
 import { JobStatusResponse } from '@/hooks/use-knowledge-import';
+
+/* ── Inline Folder Browser ─────────────────────────────────────────── */
+
+interface DirEntry {
+  name: string;
+  path: string;
+  has_children: boolean;
+}
+
+interface BrowseResult {
+  current: string;
+  parent: string | null;
+  dirs: DirEntry[];
+}
+
+/**
+ * Inline folder browser for navigating server directories.
+ * Uses the /fs/browse API to list directories.
+ */
+function FolderBrowserInline({
+  selectedPath,
+  onSelectPath,
+}: {
+  selectedPath: string;
+  onSelectPath: (path: string) => void;
+}) {
+  const [browseResult, setBrowseResult] = useState<BrowseResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const browse = useCallback(async (path?: string) => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      const url = path
+        ? '/fs/browse?path=' + encodeURIComponent(path)
+        : '/fs/browse';
+      const data = await apiGet<BrowseResult>(url);
+      setBrowseResult(data);
+      onSelectPath(data.current);
+    } catch {
+      setError('Failed to browse directory');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [onSelectPath]);
+
+  useEffect(() => {
+    // Start browsing from the selected path if it exists, otherwise root
+    browse(selectedPath || undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pathSegments = browseResult?.current.split('/').filter(Boolean) ?? [];
+
+  return (
+    <div 
+      className="rounded-lg border overflow-hidden"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-background)' }}
+    >
+      {/* Breadcrumb */}
+      <div 
+        className="flex items-center gap-1 px-3 py-2 border-b text-xs font-mono overflow-x-auto whitespace-nowrap"
+        style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-faint)' }}
+      >
+        <span
+          className="cursor-pointer shrink-0 hover:opacity-80"
+          style={{ color: 'var(--color-primary)' }}
+          onClick={() => browse('/')}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>home</span>
+        </span>
+        {pathSegments.map((part, i) => {
+          const accPath = '/' + pathSegments.slice(0, i + 1).join('/');
+          const isLast = i === pathSegments.length - 1;
+          return (
+            <span key={accPath} className="flex items-center gap-0.5">
+              <span style={{ color: 'var(--color-text-faint)' }}>/</span>
+              {isLast ? (
+                <span className="font-medium" style={{ color: 'var(--color-text-main)' }}>{part}</span>
+              ) : (
+                <span
+                  className="cursor-pointer hover:underline"
+                  style={{ color: 'var(--color-primary)' }}
+                  onClick={() => browse(accPath)}
+                >
+                  {part}
+                </span>
+              )}
+            </span>
+          );
+        })}
+        {isLoading && (
+          <span 
+            className="ml-auto w-3 h-3 border border-t-transparent rounded-full animate-spin shrink-0"
+            style={{ borderColor: 'var(--color-border)', borderTopColor: 'transparent' }}
+          />
+        )}
+      </div>
+
+      {/* Directory listing */}
+      <div className="max-h-[200px] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+        {error && (
+          <div className="p-3 text-center text-xs" style={{ color: 'var(--color-danger)' }}>
+            {error}
+          </div>
+        )}
+
+        {!error && browseResult?.parent && (
+          <div
+            onClick={() => browse(browseResult.parent!)}
+            className="flex items-center gap-2 px-3 py-1.5 cursor-pointer font-mono text-xs transition-colors hover:bg-surface-hover"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>folder</span>
+            <span>..</span>
+          </div>
+        )}
+
+        {!error && browseResult?.dirs.length === 0 && (
+          <div className="p-3 text-center text-xs" style={{ color: 'var(--color-text-faint)' }}>
+            No subdirectories
+          </div>
+        )}
+
+        {!error && browseResult?.dirs.map((d) => (
+          <div
+            key={d.path}
+            onClick={() => browse(d.path)}
+            className="flex items-center gap-2 px-3 py-1.5 cursor-pointer font-mono text-xs transition-colors hover:bg-surface-hover"
+            style={{ color: 'var(--color-text-main)' }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--color-primary)' }}>folder</span>
+            <span className="flex-1 truncate">{d.name}</span>
+            {d.has_children && (
+              <span className="text-text-faint text-[10px] ml-auto">›</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Import Panel Types & Helpers ──────────────────────────────────── */
 
 interface ImportPanelProps {
   selectedNamespace: string | null;
@@ -147,6 +293,7 @@ export default function ImportPanel({
   const [overlap, setOverlap] = useState(50);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [showBrowser, setShowBrowser] = useState(false);
 
   const handleImport = useCallback(async () => {
     if (!folderPath.trim()) return;
@@ -162,6 +309,14 @@ export default function ImportPanel({
       setIsSubmitting(false);
     }
   }, [folderPath, chunkSize, overlap, onStartImport]);
+
+  const handleBrowseSelect = useCallback((path: string) => {
+    setFolderPath(path);
+  }, []);
+
+  const handleBrowseConfirm = useCallback(() => {
+    setShowBrowser(false);
+  }, []);
 
   if (!selectedNamespace) {
     return (
@@ -221,6 +376,19 @@ export default function ImportPanel({
                 }}
               />
               <button
+                onClick={() => setShowBrowser(!showBrowser)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                  showBrowser 
+                    ? 'bg-primary/10 border-primary/30 text-primary' 
+                    : 'border-border text-text-muted hover:bg-surface-hover hover:text-text-main'
+                }`}
+                aria-label="Browse folders"
+                title="Browse server folders"
+              >
+                <span className="material-symbols-outlined text-[16px]">folder_open</span>
+                Browse
+              </button>
+              <button
                 onClick={handleImport}
                 disabled={isSubmitting || !folderPath.trim() || !!activeJob}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
@@ -232,9 +400,29 @@ export default function ImportPanel({
               </button>
             </div>
             <p className="text-[10px] mt-1" style={{ color: 'var(--color-text-faint)' }}>
-              Enter an absolute path to a folder on the server
+              Enter a path or click Browse to pick a folder on the server
             </p>
           </div>
+
+          {/* Folder Browser */}
+          {showBrowser && (
+            <div className="space-y-2">
+              <FolderBrowserInline
+                selectedPath={folderPath}
+                onSelectPath={handleBrowseSelect}
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={handleBrowseConfirm}
+                  disabled={!folderPath.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[14px]">check</span>
+                  Use this folder
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Options toggle */}
           <button

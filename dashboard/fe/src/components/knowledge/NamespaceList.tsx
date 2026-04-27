@@ -14,6 +14,218 @@ interface NamespaceListProps {
   onNamespaceUpdated?: () => void;
 }
 
+/* ── Helpers ───────────────────────────────────────────────────────── */
+
+const CARD_COLORS = [
+  '#3B82F6',
+  '#8B5CF6',
+  '#EC4899',
+  '#F97316',
+  '#14B8A6',
+  '#EAB308',
+  '#22C55E',
+  '#0EA5E9',
+];
+
+function getCardColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return CARD_COLORS[Math.abs(hash) % CARD_COLORS.length];
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function formatRelativeTime(iso: string): string {
+  try {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return iso;
+  }
+}
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+/* ── Stat Pill ─────────────────────────────────────────────────────── */
+
+function StatPill({ icon, value, label }: { icon: string; value: string; label: string }) {
+  return (
+    <div 
+      className="flex items-center gap-1 px-2 py-1 rounded-md"
+      style={{ background: 'var(--color-surface-hover)' }}
+      title={label}
+    >
+      <span 
+        className="material-symbols-outlined" 
+        style={{ fontSize: 12, color: 'var(--color-text-faint)' }}
+      >
+        {icon}
+      </span>
+      <span className="text-[10px] font-semibold" style={{ color: 'var(--color-text-muted)' }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/* ── Namespace Card ────────────────────────────────────────────────── */
+
+function NamespaceCard({
+  ns,
+  isSelected,
+  onSelect,
+  onDelete,
+  onNamespaceUpdated,
+}: {
+  ns: NamespaceMetaResponse;
+  isSelected: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  onNamespaceUpdated?: () => void;
+}) {
+  const avatarColor = getCardColor(ns.name);
+  const initial = ns.name.charAt(0).toUpperCase();
+  const { stats } = ns;
+  const hasContent = stats.files_indexed > 0 || stats.chunks > 0;
+
+  return (
+    <div
+      className={`
+        group relative rounded-2xl border p-4 cursor-pointer
+        transition-all duration-200 ease-out
+        hover:translate-y-[-2px] hover:shadow-lg
+        ${isSelected 
+          ? 'ring-2 ring-primary shadow-md' 
+          : 'hover:border-primary/30'
+        }
+      `}
+      style={{ 
+        background: 'var(--color-surface)', 
+        borderColor: isSelected ? 'var(--color-primary)' : 'var(--color-border)',
+      }}
+      onClick={onSelect}
+      onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+      tabIndex={0}
+      role="button"
+      aria-label={`Select namespace ${ns.name}`}
+      aria-pressed={isSelected}
+    >
+      {/* Top row: avatar + actions */}
+      <div className="flex items-start justify-between mb-3">
+        {/* Avatar + name */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div 
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-sm"
+            style={{ backgroundColor: avatarColor }}
+          >
+            {initial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h4 className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-main)' }}>
+              {ns.name}
+            </h4>
+            <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-faint)' }}>
+              {ns.language} · {formatRelativeTime(ns.updated_at)}
+            </p>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div 
+          className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <NamespaceActions 
+            namespace={ns.name} 
+            onRefresh={onNamespaceUpdated}
+          />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="p-1 rounded-md hover:bg-danger/10 transition-colors"
+            style={{ color: 'var(--color-danger)' }}
+            aria-label={`Delete namespace ${ns.name}`}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Description */}
+      {ns.description && (
+        <p 
+          className="text-xs mb-3 line-clamp-2 leading-relaxed"
+          style={{ color: 'var(--color-text-muted)' }}
+        >
+          {ns.description}
+        </p>
+      )}
+
+      {/* Stats grid */}
+      {hasContent ? (
+        <div className="flex flex-wrap gap-1.5">
+          {stats.files_indexed > 0 && (
+            <StatPill icon="description" value={formatCount(stats.files_indexed)} label={`${stats.files_indexed} files indexed`} />
+          )}
+          {stats.chunks > 0 && (
+            <StatPill icon="dataset" value={formatCount(stats.chunks)} label={`${stats.chunks} chunks`} />
+          )}
+          {stats.entities > 0 && (
+            <StatPill icon="hub" value={formatCount(stats.entities)} label={`${stats.entities} entities`} />
+          )}
+          {stats.vectors > 0 && (
+            <StatPill icon="conversion_path" value={formatCount(stats.vectors)} label={`${stats.vectors} vectors`} />
+          )}
+          {stats.bytes_on_disk > 0 && (
+            <StatPill icon="hard_drive" value={formatBytes(stats.bytes_on_disk)} label={`${formatBytes(stats.bytes_on_disk)} storage`} />
+          )}
+        </div>
+      ) : (
+        <div 
+          className="flex items-center gap-1.5 text-[10px] py-1"
+          style={{ color: 'var(--color-text-faint)' }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>info</span>
+          Empty — import documents to get started
+        </div>
+      )}
+
+      {/* Selection indicator */}
+      {isSelected && (
+        <div 
+          className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center group-hover:opacity-0 transition-opacity"
+          style={{ background: 'var(--color-primary)' }}
+        >
+          <span className="material-symbols-outlined text-white" style={{ fontSize: 14 }}>check</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Main Component ────────────────────────────────────────────────── */
+
 export default function NamespaceList({
   namespaces,
   selectedNamespace,
@@ -30,6 +242,7 @@ export default function NamespaceList({
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Namespace name validation (matches backend regex)
   const validateName = useCallback((name: string): string | null => {
@@ -73,8 +286,23 @@ export default function NamespaceList({
     }
   }, [onDelete]);
 
+  // Filter namespaces by search
+  const filteredNamespaces = searchTerm
+    ? namespaces.filter(ns => 
+        ns.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        ns.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : namespaces;
+
+  // Sort: selected first, then by updated_at desc
+  const sortedNamespaces = [...filteredNamespaces].sort((a, b) => {
+    if (a.name === selectedNamespace) return -1;
+    if (b.name === selectedNamespace) return 1;
+    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  });
+
   return (
-    <div className="h-full overflow-y-auto p-4" style={{ scrollbarWidth: 'thin' }}>
+    <div className="h-full overflow-y-auto p-5" style={{ scrollbarWidth: 'thin' }}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -87,7 +315,7 @@ export default function NamespaceList({
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-primary text-white hover:bg-primary/90 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-white hover:bg-primary/90 transition-colors"
           aria-label="Create new namespace"
         >
           <span className="material-symbols-outlined text-[16px]">add</span>
@@ -95,109 +323,91 @@ export default function NamespaceList({
         </button>
       </div>
 
-      {/* Namespace list */}
-      <div className="space-y-2">
-        {namespaces.map((ns) => (
-          <div
-            key={ns.name}
-            className={`group rounded-xl border p-3 cursor-pointer transition-all ${
-              selectedNamespace === ns.name 
-                ? 'border-primary bg-primary/5' 
-                : 'border-border hover:border-border/80 hover:bg-surface-hover'
-            }`}
-            onClick={() => onSelect(ns.name)}
-            onKeyDown={(e) => e.key === 'Enter' && onSelect(ns.name)}
-            tabIndex={0}
-            role="button"
-            aria-label={`Select namespace ${ns.name}`}
+      {/* Search */}
+      {namespaces.length > 6 && (
+        <div className="mb-4">
+          <div 
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border"
+            style={{ background: 'var(--color-background)', borderColor: 'var(--color-border)' }}
           >
-            <div className="flex items-start justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span 
-                    className="material-symbols-outlined text-[18px]"
-                    style={{ color: 'var(--color-primary)' }}
-                  >
-                    folder_open
-                  </span>
-                  <h4 className="text-sm font-medium truncate" style={{ color: 'var(--color-text-main)' }}>
-                    {ns.name}
-                  </h4>
-                </div>
-                {ns.description && (
-                  <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--color-text-muted)' }}>
-                    {ns.description}
-                  </p>
-                )}
-              </div>
-              
-              {/* Stats badges */}
-              <div className="flex items-center gap-1.5 ml-2">
-                {ns.stats.files_indexed > 0 && (
-                  <span 
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                    style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' }}
-                  >
-                    {ns.stats.files_indexed} files
-                  </span>
-                )}
-                {ns.stats.chunks > 0 && (
-                  <span 
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                    style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' }}
-                  >
-                    {ns.stats.chunks} chunks
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Stats row */}
-            <div className="flex items-center gap-3 mt-2 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-              {ns.stats.entities > 0 && (
-                <span>{ns.stats.entities} entities</span>
-              )}
-              {ns.stats.vectors > 0 && (
-                <span>{ns.stats.vectors} vectors</span>
-              )}
-              <span className="ml-auto">
-                {ns.language}
-              </span>
-            </div>
-
-            {/* Action buttons */}
-            <div className="absolute top-2 right-2 flex items-center gap-1">
-              <NamespaceActions 
-                namespace={ns.name} 
-                onRefresh={onNamespaceUpdated}
-              />
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteConfirm(ns.name);
-                }}
-                className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger/10"
-                style={{ color: 'var(--color-danger)' }}
-                aria-label={`Delete namespace ${ns.name}`}
+            <span 
+              className="material-symbols-outlined shrink-0" 
+              style={{ fontSize: 16, color: 'var(--color-text-faint)' }}
+            >
+              search
+            </span>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search namespaces..."
+              className="flex-1 text-xs bg-transparent outline-none"
+              style={{ color: 'var(--color-text-main)' }}
+            />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="shrink-0"
+                aria-label="Clear search"
               >
-                <span className="material-symbols-outlined text-[16px]">delete</span>
+                <span 
+                  className="material-symbols-outlined" 
+                  style={{ fontSize: 14, color: 'var(--color-text-faint)' }}
+                >
+                  close
+                </span>
               </button>
-            </div>
+            )}
           </div>
+        </div>
+      )}
+
+      {/* Card Grid */}
+      <div 
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
+      >
+        {sortedNamespaces.map((ns) => (
+          <NamespaceCard
+            key={ns.name}
+            ns={ns}
+            isSelected={selectedNamespace === ns.name}
+            onSelect={() => onSelect(ns.name)}
+            onDelete={() => setDeleteConfirm(ns.name)}
+            onNamespaceUpdated={onNamespaceUpdated}
+          />
         ))}
       </div>
 
-      {/* Empty state */}
-      {namespaces.length === 0 && (
+      {/* Empty search state */}
+      {searchTerm && filteredNamespaces.length === 0 && (
         <div className="text-center py-8">
           <span 
             className="material-symbols-outlined text-[32px] mb-2"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            folder_off
+            search_off
           </span>
           <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            No namespaces yet. Create one to get started.
+            No namespaces matching &quot;{searchTerm}&quot;
+          </p>
+        </div>
+      )}
+
+      {/* Empty state (no namespaces at all) */}
+      {namespaces.length === 0 && (
+        <div className="text-center py-12">
+          <span 
+            className="material-symbols-outlined text-[48px] mb-3"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            folder_off
+          </span>
+          <p className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-main)' }}>
+            No namespaces yet
+          </p>
+          <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            Create a namespace to start importing and querying your knowledge base.
           </p>
         </div>
       )}
@@ -335,7 +545,7 @@ export default function NamespaceList({
               </h3>
             </div>
             <p className="text-sm mb-6" style={{ color: 'var(--color-text-muted)' }}>
-              Are you sure you want to delete <strong>"{deleteConfirm}"</strong>? This will remove all indexed files, chunks, and entities. This action cannot be undone.
+              Are you sure you want to delete <strong>&quot;{deleteConfirm}&quot;</strong>? This will remove all indexed files, chunks, and entities. This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <button

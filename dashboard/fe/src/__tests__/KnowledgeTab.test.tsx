@@ -3,7 +3,7 @@
  * Using Vitest + React Testing Library.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Mock ResizeObserver for jsdom
@@ -164,9 +164,10 @@ vi.mock('@/hooks/use-knowledge-graph', () => ({
 }));
 
 vi.mock('@/lib/stores/notificationStore', () => ({
-  useNotificationStore: vi.fn(() => ({
-    addToast: vi.fn(),
-  })),
+  useNotificationStore: vi.fn((selector) => {
+    const state = { addToast: vi.fn() };
+    return selector ? selector(state) : state;
+  }),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -241,13 +242,13 @@ describe('KnowledgeTab', () => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
     
-    // Check sub-view tabs
-    expect(screen.getByText('Namespaces')).toBeInTheDocument();
+    // Check sub-view tabs - in plan context, Namespaces is HIDDEN
+    expect(screen.queryByText('Namespaces')).not.toBeInTheDocument();
     expect(screen.getByText('Import')).toBeInTheDocument();
     expect(screen.getByText('Query')).toBeInTheDocument();
   });
 
-  it('displays namespace list by default', async () => {
+  it('displays query view by default in plan context', async () => {
     render(<KnowledgeTab />);
     
     // Wait for the component to load
@@ -255,8 +256,8 @@ describe('KnowledgeTab', () => {
       expect(screen.getByText('Plan Knowledge')).toBeInTheDocument();
     });
     
-    // Should show namespace count (3 namespaces: plan + test + another)
-    expect(screen.getByText('3 namespaces available')).toBeInTheDocument();
+    // Should show query form (default in plan context)
+    expect(screen.getByPlaceholderText('Enter your query...')).toBeInTheDocument();
   });
 
   it('switches to Import tab when clicked', async () => {
@@ -313,6 +314,29 @@ describe('KnowledgeTab', () => {
     
     // Check that the View All Knowledge button is shown
     expect(screen.getByText('View All Knowledge')).toBeInTheDocument();
+  });
+  
+  it('auto-creates namespace if it does not exist', async () => {
+    const { useKnowledgeNamespaces } = await import('@/hooks/use-knowledge-namespaces');
+    const mockCreateNamespace = vi.fn().mockResolvedValue({});
+    
+    // Mock namespaces without the plan namespace
+    (useKnowledgeNamespaces as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      namespaces: [], // Empty namespaces
+      isLoading: false,
+      isError: null,
+      createNamespace: mockCreateNamespace,
+      refresh: vi.fn(),
+    });
+    
+    render(<KnowledgeTab />);
+    
+    await waitFor(() => {
+      expect(mockCreateNamespace).toHaveBeenCalledWith({
+        name: 'test-plan-id',
+        description: expect.stringContaining('test-plan-id')
+      });
+    });
   });
 });
 
