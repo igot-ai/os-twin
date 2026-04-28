@@ -94,6 +94,10 @@ These resolve the open questions surfaced during exploration. Engineer MUST foll
 | ADR-10 | **Drop** Vietnamese-locked prompts → parameterize language | Current prompts hardcoded for Vietnamese audit reports. | Default `language="English"`; namespace can declare its language. |
 | ADR-11 | **Drop** DSPy → write thin Anthropic wrapper | Removes a large transitive-dep tree. | New module `dashboard/knowledge/llm.py` (~150 LOC). |
 | ADR-12 | Namespace ID format = `^[a-z0-9][a-z0-9_-]{0,63}$` | Filesystem-safe, URL-safe, Kuzu-table-safe. | Validation enforced at API layer; rejected with 400. |
+| ADR-14 | Image parsing via **MarkItDown's LLM-vision** path (added 2026-04-19) | MarkItDown 0.1.4 supports `MarkItDown(llm_client=anthropic_client, llm_model=...)` to OCR/describe images. Uses the configured Anthropic key. Free fallback (tesseract) deferred. | When `ANTHROPIC_API_KEY` unset, image files are walked but produce empty markdown — chunk count 0, logged as warning. `IMAGE_EXTENSIONS` now included in folder walk. |
+| ADR-15 | **Knowledge runtime settings stored in `MasterSettings.knowledge` namespace** (added 2026-04-19) | Reuses existing `/api/settings` machinery (vault, broadcaster, persistence). Consistent with `runtime`, `memory`, `providers` namespaces. Settings override env-var defaults at `KnowledgeService` construction time. | New `KnowledgeSettings` Pydantic model: `llm_model: str`, `embedding_model: str`, `embedding_dimension: int` (read-only/derived from embedder). Surfaces at `GET/PUT /api/settings/knowledge`. |
+| ADR-16 | **EPIC-005 partial scope shipped with EPIC-006** (added 2026-04-19) | User asked to skip ahead to MCP. We ship: (a) the `/api/settings/knowledge` endpoint (needed by the FE settings panel), (b) the FastMCP server with all 7 tools (the user-facing surface). The remaining 7 REST endpoints (CRUD on namespaces + import/jobs/query/graph) are deferred to a follow-up EPIC because MCP tools cover the same surface. | EPIC-005 marked PARTIAL; remaining endpoints become EPIC-005b (follow-up). EPIC-007 hardening updated to test what shipped only. |
+| ADR-17 | **`SUPPORTED_DOCUMENT_EXTENSIONS` extended to include `IMAGE_EXTENSIONS`** (added 2026-04-19) | Single source-of-truth for "what gets walked"; ADR-14 already gates LLM-vision parsing per-file. | `dashboard/knowledge/config.py` updated; `Ingestor._walk_folder` filter unchanged in code (still uses `SUPPORTED_DOCUMENT_EXTENSIONS`) but the set now includes images. |
 
 ---
 
@@ -617,24 +621,31 @@ pending → @engineer → @qa → @architect ─┬─► passed → EPIC-007
                 └────── @engineer ◄─────┘ (on fail → fixing)
 ```
 
-### @engineer tasks (implementation)
+### Carry-forward from earlier EPICs (must be first work in this EPIC, per ADR-14/15/16/17)
+
+- [ ] **CARRY-001** *(@engineer)* — **Image support in ingestion (ADR-14, ADR-17)**. Update `dashboard/knowledge/config.py` so `SUPPORTED_DOCUMENT_EXTENSIONS` is computed as the union of the existing document set + `IMAGE_EXTENSIONS` (`.png .jpg .jpeg .gif .bmp .tiff .webp`). Update `dashboard/knowledge/graph/parsers/markitdown_reader.py`'s `_get_markitdown()` to construct `MarkItDown(llm_client=anthropic_client, llm_model=cfg.LLM_MODEL)` when an Anthropic key is available. When unavailable, instantiate with no LLM client and accept that images yield empty markdown (logged once per file via `logger.warning`).
+- [ ] **CARRY-002** *(@engineer)* — **Knowledge settings backend (ADR-15)**. Add `KnowledgeSettings` Pydantic model to `dashboard/models.py` (or `dashboard/lib/settings/models.py`, wherever `MasterSettings` lives) with fields `llm_model: str`, `embedding_model: str`, `embedding_dimension: int = 384` (read-only). Add `knowledge: KnowledgeSettings` field to `MasterSettings`. Add `GET /api/settings/knowledge` and `PUT /api/settings/knowledge` to `dashboard/routes/settings.py` mirroring the existing `runtime`/`memory` patterns (broadcasts `settings_updated` event). On PUT, validate `llm_model` is in the configured-models registry; validate `embedding_model` is a known sentence-transformers model id (or a free-form string with warning).
+- [ ] **CARRY-003** *(@engineer)* — **`KnowledgeService` reads from settings** (ADR-15). On construction, read `MasterSettings.knowledge.llm_model` and `embedding_model` (via `get_settings_resolver()`) — fall back to env-var defaults from `config.py` only when no settings persisted. Pass these into `KnowledgeLLM(model=...)` and `KnowledgeEmbedder(model_name=...)`. Document the precedence: `MasterSettings.knowledge` > env var > hardcoded default.
+- [ ] **CARRY-004** *(@qa)* — Verify CARRY-001..003 with explicit probes: (a) ingest a folder containing 1 PNG + 1 PDF + 1 DOCX with Anthropic key set — image gets non-empty chunks; (b) without Anthropic key — image walked but skipped, no crash; (c) `PUT /api/settings/knowledge` with `{"llm_model": "claude-haiku-4-5"}` then `GET` returns the new value; (d) instantiating a new `KnowledgeService` after the PUT picks up the new model.
+
+### @engineer tasks — MCP server (implementation)
 
 - [ ] **TASK-E-001** — Create `dashboard/knowledge/mcp_server.py` defining a `FastMCP` instance (`from mcp.server.fastmcp import FastMCP; mcp = FastMCP("ostwin-knowledge")`) with the following 7 tools (one Python function per tool, decorated with `@mcp.tool()`):
   - `knowledge_list_namespaces() -> list[dict]`
   - `knowledge_create_namespace(name: str, language: str = "English", description: str = "") -> dict`
   - `knowledge_delete_namespace(name: str) -> dict`
-  - `knowledge_import_folder(namespace: str, folder_path: str, force: bool = False) -> dict` (returns `{job_id, status, message}`)
+  - `knowledge_import_folder(namespace: str, folder_path: str, force: bool = False) -> dict` — `folder_path` MUST be an absolute path; returns `{job_id, status, message}`
   - `knowledge_get_import_status(namespace: str, job_id: str) -> dict`
   - `knowledge_query(namespace: str, query: str, mode: str = "raw", top_k: int = 10) -> dict`
   - `knowledge_get_graph(namespace: str, limit: int = 100) -> dict`
-- [ ] **TASK-E-002** — Tool docstrings (each becomes the MCP description seen by the calling LLM): be explicit about arguments, return shape, when to use each tool, and when NOT to use it. Include 1-line examples in the docstring.
-- [ ] **TASK-E-003** — Each tool returns a JSON-serializable dict — never raises. Catch exceptions in the tool body and return `{"error": str(e), "code": "ERROR_CODE"}`. Tools wrap `KnowledgeService` calls; reuse the singleton from `routes/knowledge.py` (or instantiate a new one with sensible env-default config).
-- [ ] **TASK-E-004** — Mount the MCP ASGI app on the dashboard at `/mcp` in `dashboard/api.py`: `app.mount("/mcp", mcp.streamable_http_app())` (verify exact API; mcp[cli] >= 1.1.3 may differ — document the exact code line).
-- [ ] **TASK-E-005** — Auth: if `OSTWIN_API_KEY` is set AND `OSTWIN_DEV_MODE != "1"`, require `Authorization: Bearer <key>` on the MCP HTTP handshake. Otherwise allow anonymous. Use FastMCP's auth hook (research the exact API) or wrap the mounted app with a middleware that rejects unauthorised requests with 401.
+- [ ] **TASK-E-002** — Tool docstrings (each becomes the MCP description seen by the calling LLM): be explicit about arguments, return shape, when to use each tool, and when NOT to use it. For `knowledge_import_folder`: explicitly state "supports docx, pdf, xlsx, pptx, html, txt, md, csv, json, png, jpg (image OCR via Anthropic vision)". Include 1-line examples in the docstring.
+- [ ] **TASK-E-003** — Each tool returns a JSON-serializable dict — never raises. Catch exceptions in the tool body and return `{"error": str(e), "code": "ERROR_CODE"}`. Tools wrap a singleton `KnowledgeService` (lazy-instantiated on first tool call so the import is cheap).
+- [ ] **TASK-E-004** — Mount the MCP ASGI app on the dashboard at `/mcp` in `dashboard/api.py`: `app.mount("/mcp", mcp.streamable_http_app())` — verify exact API for `mcp[cli] >= 1.1.3` and pin the version in `requirements.txt`.
+- [ ] **TASK-E-005** — Auth: if `OSTWIN_API_KEY` is set AND `OSTWIN_DEV_MODE != "1"`, require `Authorization: Bearer <key>` on the MCP HTTP handshake. Otherwise allow anonymous. Use FastMCP's auth hook OR wrap the mounted app with a middleware that rejects unauthorised requests with 401.
 - [ ] **TASK-E-006** — Generate `dashboard/docs/knowledge-mcp-opencode.md` with a copy-pasteable `opencode.json` snippet that registers `http://localhost:9000/mcp` as an MCP server. Include both the streamable-HTTP transport block and the auth-header configuration.
 - [ ] **TASK-E-007** — Dev-mode startup banner: when `OSTWIN_DEV_MODE=1`, log the MCP endpoint URL on dashboard startup so users see `MCP server live at http://localhost:9000/mcp` in the console.
-- [ ] **TASK-E-008** — Engineer's integration test at `dashboard/tests/test_knowledge_mcp.py`. Spin up the FastAPI app via `TestClient(app)` OR a real uvicorn on a random port; connect a `mcp.ClientSession` using `streamable_http_client`; call `list_tools()` (verify 7 tools); then walk the lifecycle: `knowledge_create_namespace → knowledge_import_folder → knowledge_get_import_status (poll) → knowledge_query → knowledge_delete_namespace`. Assert structured responses for each. ~10 tests; coverage of `mcp_server.py` ≥ 80%.
-- [ ] **TASK-E-009** — Done report at `dashboard/docs/done-reports/EPIC-006-engineer.md`, including a verbatim opencode config snippet, the exact mcp[cli] version pinned, and a screenshot or transcript of `opencode mcp list` (or equivalent) showing the server recognized.
+- [ ] **TASK-E-008** — Engineer's integration test at `dashboard/tests/test_knowledge_mcp.py`. Spin up the FastAPI app via `TestClient(app)` OR a real uvicorn on a random port; connect a `mcp.ClientSession` using `streamable_http_client`; call `list_tools()` (verify 7 tools); then walk the lifecycle: `knowledge_create_namespace → knowledge_import_folder (with abs path) → knowledge_get_import_status (poll) → knowledge_query → knowledge_delete_namespace`. Assert structured responses for each. ~10 tests; coverage of `mcp_server.py` ≥ 80%.
+- [ ] **TASK-E-009** — Done report at `dashboard/docs/done-reports/EPIC-006-engineer.md`, including a verbatim opencode config snippet, the exact mcp[cli] version pinned, evidence that the abs-path import works for an image fixture, and a transcript of either `opencode mcp list` OR an MCP CLI client (`mcp` command from the `mcp[cli]` package) showing the server recognized.
 
 ### @qa tasks (verification)
 
@@ -769,6 +780,74 @@ pending → @engineer → @qa → @architect ─┬─► passed → SIGNOFF
 3. **Doc-correctness walk-through** (TASK-Q-005).
 4. **Benchmarks reasonable** (TASK-Q-006).
 5. **Structured-log shape correct** (TASK-Q-011).
+
+depends_on: [EPIC-006]
+
+---
+
+## EPIC-008 — Frontend Settings Panel for Knowledge
+
+Roles: @engineer, @qa, @architect
+
+Objective: Add a "Knowledge" tab to the existing dashboard settings page (`dashboard/fe/src/app/settings/page.tsx`) that lets the user configure the LLM model + embedding model used by the knowledge service. Backed by `GET/PUT /api/settings/knowledge` (built in EPIC-006 CARRY-002).
+
+Lifecycle:
+```text
+pending → @engineer → @qa → @architect ─┬─► passed → SIGNOFF
+                ▲                       │
+                └────── @engineer ◄─────┘ (on changes-requested → fixing)
+```
+
+### @engineer tasks (frontend implementation)
+
+- [ ] **TASK-E-001** — Add `'knowledge'` to the `SettingsNamespace` union in `dashboard/fe/src/types/settings.ts` (or wherever the namespace type is defined). Add a `KnowledgeSettings` interface mirroring the backend Pydantic model: `{ llm_model: string; embedding_model: string; embedding_dimension: number }`.
+- [ ] **TASK-E-002** — Add a "Knowledge" entry to the `SettingsSidebar` (`dashboard/fe/src/components/settings/SettingsSidebar.tsx`). Use Material Symbols icon `school` or `library_books`. Position after `memory`.
+- [ ] **TASK-E-003** — Create `dashboard/fe/src/components/settings/KnowledgePanel.tsx`:
+  - Props: `{ knowledge: KnowledgeSettings; onUpdate: (value: Partial<KnowledgeSettings>) => void; allModels: ModelInfo[] }` (pull `allModels` from the existing `useConfiguredModels` hook).
+  - Two model-picker dropdowns: one for `llm_model` (filtered to chat-capable models), one for `embedding_model` (free-form text + suggestions of common sentence-transformers ids: `BAAI/bge-small-en-v1.5`, `BAAI/bge-base-en-v1.5`, `sentence-transformers/all-MiniLM-L6-v2`, `intfloat/e5-small-v2`).
+  - A read-only "Embedding dimension" line showing the value.
+  - Standard settings-page styling (use existing `--color-*` CSS variables; match `RuntimePanel` and `MemoryPanel`).
+  - Save-on-change with optimistic UI update + toast on failure.
+- [ ] **TASK-E-004** — Wire the new namespace in `dashboard/fe/src/app/settings/page.tsx`'s `renderActivePanel()` switch:
+  ```tsx
+  case 'knowledge':
+    return (
+      <KnowledgePanel
+        knowledge={settings.knowledge || { llm_model: '', embedding_model: '', embedding_dimension: 384 }}
+        onUpdate={(value) => updateNamespace('knowledge', { ...settings.knowledge, ...value })}
+        allModels={allModels}
+      />
+    );
+  ```
+- [ ] **TASK-E-005** — Update the `useSettings` hook (`dashboard/fe/src/hooks/use-settings.ts`) — should already handle namespaces generically via `updateNamespace(name, value)`. If hardcoded for known namespaces only, extend it to accept `'knowledge'`.
+- [ ] **TASK-E-006** — Frontend tests at `dashboard/fe/src/__tests__/KnowledgePanel.test.tsx` (Jest + React Testing Library — match the existing pattern). Cover: renders with no settings (uses defaults); model dropdowns populate; selecting a value calls `onUpdate`; embedding-model accepts free text. ~5 tests.
+- [ ] **TASK-E-007** — Done report at `dashboard/docs/done-reports/EPIC-008-engineer.md`. Include a screenshot of the new panel (rendered via `npm run dev`) AND an example of changing a model from the UI.
+
+### @qa tasks (verification)
+
+- [ ] **TASK-Q-001** — Build the frontend: `cd dashboard/fe && npm run build` — must succeed with no TypeScript errors.
+- [ ] **TASK-Q-002** — Run frontend tests: `npm test -- KnowledgePanel` — all pass.
+- [ ] **TASK-Q-003** — Manual flow: start dashboard (`python dashboard/api.py`), open `http://localhost:3366/settings`, click the new "Knowledge" tab in the sidebar. Verify both dropdowns render, current values match `GET /api/settings/knowledge`, changing a value persists (verify via curl GET after change).
+- [ ] **TASK-Q-004** — Round-trip: change `llm_model` in the UI; verify `KnowledgeService` instantiated AFTER the change uses the new model (instantiate via Python REPL, check `service._llm.model`).
+- [ ] **TASK-Q-005** — Settings-broadcaster: open the dashboard in two browser tabs; change a setting in tab A; verify tab B reflects the change live (the existing `settings_updated` WebSocket event should propagate it).
+- [ ] **TASK-Q-006** — No regressions in other settings tabs (`providers`, `runtime`, `memory`).
+- [ ] **TASK-Q-007** — QA report at `dashboard/docs/qa-reports/EPIC-008-qa.md`.
+
+### Definition of Done (joint)
+
+- [ ] `KnowledgePanel` component renders cleanly in the existing settings page (TASK-E-003).
+- [ ] Sidebar shows the new entry between `memory` and bottom (TASK-E-002).
+- [ ] Settings change persists via `PUT /api/settings/knowledge` (TASK-Q-003).
+- [ ] `KnowledgeService` reads the persisted settings (TASK-Q-004 + EPIC-006 CARRY-003).
+- [ ] Frontend build passes; no TS errors (TASK-Q-001).
+- [ ] Frontend tests pass (TASK-Q-002).
+- [ ] Existing settings tabs not regressed (TASK-Q-006).
+
+### Acceptance criteria
+
+- [ ] User can navigate to `/settings`, click "Knowledge", change LLM model, save, and the next ingestion uses the new model. *(verifier: @qa TASK-Q-003 + TASK-Q-004)*
+- [ ] Embedding model field accepts free text (so users can paste arbitrary HF model ids). *(verifier: @qa TASK-Q-002)*
+- [ ] No console errors on the page. *(verifier: @qa TASK-Q-003)*
 
 depends_on: [EPIC-006]
 

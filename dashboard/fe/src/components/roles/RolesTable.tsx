@@ -18,7 +18,7 @@ interface RolesTableProps {
   totalRoles?: number;
 }
 
-type SortKey = 'name' | 'provider' | 'temperature' | 'budget_tokens_max';
+type SortKey = 'name' | 'provider';
 type SortDir = 'asc' | 'desc';
 
 const providerBranding: Record<string, { color: string; label: string; icon: string }> = {
@@ -196,30 +196,6 @@ export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onE
               </th>
               <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-faint)' }}>Skills</th>
               <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-faint)' }}>MCPs</th>
-              <th 
-                className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest cursor-pointer hover:bg-slate-50 transition-colors group" 
-                onClick={() => toggleSort('temperature')}
-                style={{ color: 'var(--color-text-faint)' }}
-              >
-                <div className="flex items-center gap-1">
-                  Sampling
-                  <span className={`material-symbols-outlined text-sm transition-opacity ${sortConfig.key === 'temperature' ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
-                    {sortConfig.dir === 'asc' ? 'expand_less' : 'expand_more'}
-                  </span>
-                </div>
-              </th>
-              <th 
-                className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest cursor-pointer hover:bg-slate-50 transition-colors group text-right" 
-                onClick={() => toggleSort('budget_tokens_max')}
-                style={{ color: 'var(--color-text-faint)' }}
-              >
-                <div className="flex items-center gap-1 justify-end">
-                  Budget
-                  <span className={`material-symbols-outlined text-sm transition-opacity ${sortConfig.key === 'budget_tokens_max' ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
-                    {sortConfig.dir === 'asc' ? 'expand_less' : 'expand_more'}
-                  </span>
-                </div>
-              </th>
               <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-right" style={{ color: 'var(--color-text-faint)' }}>Actions</th>
             </tr>
           </thead>
@@ -321,30 +297,9 @@ export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onE
                       )}
                     </div>
                   </td>
+
                   <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1.5 w-24">
-                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
-                        <span>{role.temperature}</span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden shadow-inner">
-                        <div 
-                          className="h-full transition-all duration-1000" 
-                          style={{ 
-                            width: `${(role.temperature / 2) * 100}%`, 
-                            background: role.temperature <= 0.4 ? 'var(--color-primary)' : role.temperature <= 0.8 ? 'var(--color-warning)' : 'var(--color-danger)' 
-                          }} 
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="text-sm font-mono font-bold text-slate-700">
-                      {(role.budget_tokens_max / 1000).toFixed(0)}k
-                    </div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tokens</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-end gap-1">
                       <TestConnectionButton version={role.version} />
                       <button 
                         onClick={() => onEdit(role)}

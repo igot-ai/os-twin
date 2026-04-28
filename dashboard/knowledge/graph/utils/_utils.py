@@ -218,6 +218,11 @@ class CircularMessageBuffer:
         msg_hash = self._hash_message(session_id, role, content)
         if any(getattr(msg, "hash", None) == msg_hash for msg in self.buffer):
             return True
+        # Create a simple object to hold the hash for deduplication
+        class StoredMessage:
+            def __init__(self, h):
+                self.hash = h
+        self.buffer.append(StoredMessage(msg_hash))
         return False
 
     def get_size(self) -> int:

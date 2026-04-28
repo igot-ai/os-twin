@@ -13,13 +13,14 @@ interface DAGEdgeProps {
 
 export default function DAGEdge({ edge, fromPos, toPos, mode, onDelete }: DAGEdgeProps) {
   const { is_critical } = edge;
-  const [isHovered, setIsHovered] = React.useState(false);
   
-  // Calculate path
-  const x1 = fromPos.x + 180;
-  const y1 = fromPos.y + 40;
+  // Calculate path — edges connect from right-center of source to left-center of target
+  const NODE_W = 200;
+  const NODE_H = 95;
+  const x1 = fromPos.x + NODE_W;
+  const y1 = fromPos.y + NODE_H / 2;
   const x2 = toPos.x;
-  const y2 = toPos.y + 40;
+  const y2 = toPos.y + NODE_H / 2;
   
   const midX = (x1 + x2) / 2;
   const midY = (y1 + y2) / 2;
@@ -33,11 +34,7 @@ export default function DAGEdge({ edge, fromPos, toPos, mode, onDelete }: DAGEdg
   const strokeDasharray = is_critical ? '0' : '5,5';
 
   return (
-    <g 
-      className="group"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <g className="group">
       <path
         d={pathD}
         fill="none"
@@ -58,21 +55,22 @@ export default function DAGEdge({ edge, fromPos, toPos, mode, onDelete }: DAGEdg
         <title>{`Dependency: ${edge.from} → ${edge.to}${is_critical ? ' (Critical Path)' : ''}`}</title>
       </path>
 
-      {/* Delete button (only in authoring mode on hover) */}
-      {mode === 'authoring' && isHovered && (
+      {/* Delete button (only in authoring mode, visible on group hover) */}
+      {mode === 'authoring' && (
         <g 
           onClick={(e) => {
             e.stopPropagation();
             onDelete?.(edge.from, edge.to);
           }}
-          className="cursor-pointer hover:scale-110 transition-transform"
+          className="cursor-pointer transition-all duration-200 opacity-0 group-hover:opacity-100"
         >
           <circle
             cx={midX}
             cy={midY}
             r="8"
             fill="#ef4444"
-            className="shadow-sm"
+            className="shadow-sm hover:scale-110 transition-transform origin-center"
+            style={{ transformOrigin: `${midX}px ${midY}px` }}
           />
           <text
             x={midX}
@@ -82,7 +80,7 @@ export default function DAGEdge({ edge, fromPos, toPos, mode, onDelete }: DAGEdg
             fill="white"
             fontSize="10"
             fontWeight="bold"
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           >
             ×
           </text>

@@ -151,6 +151,7 @@ class OpenAIClient(LLMClient):
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=REQUEST_TIMEOUT)
+        self.base_url = base_url
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list[dict]:
         result = []
@@ -294,16 +295,26 @@ class OpenAIClient(LLMClient):
 
 
 class GoogleClient(LLMClient):
+    # Gemini AI (consumer) OpenAI-compatible endpoint.
+    # Vertex AI uses a separate region-scoped URL resolved by create_client.
+    _GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
     def __init__(
         self,
         model: str,
         api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         config: Optional[LLMConfig] = None,
     ):
         super().__init__(model, config)
         from google.genai import Client
 
-        self._client = Client(api_key=api_key)
+        # Support model strings like "models/gemini-3.1-pro-preview" or plain "gemini-3.1-pro-preview".
+        # The genai SDK expects only the bare model ID (last segment after "/").
+        self.model_id = model.split("/")[-1]
+
+        self._client = Client()
+        self.base_url = base_url or self._GEMINI_OPENAI_BASE
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list:
         from google.genai import types
@@ -378,7 +389,7 @@ class GoogleClient(LLMClient):
             from google.genai import types
 
             converted = self._convert_messages(messages)
-            kwargs: dict = {"model": self.model, "contents": converted}
+            kwargs: dict = {"model": self.model_id, "contents": converted}
             converted_tools = self._convert_tools(tools)
             if converted_tools:
                 kwargs["config"] = types.GenerateContentConfig(tools=converted_tools)
@@ -419,7 +430,7 @@ class GoogleClient(LLMClient):
         from google.genai import types
 
         converted = self._convert_messages(messages)
-        kwargs: dict = {"model": self.model, "contents": converted}
+        kwargs: dict = {"model": self.model_id, "contents": converted}
         converted_tools = self._convert_tools(tools)
         if converted_tools:
             kwargs["config"] = types.GenerateContentConfig(tools=converted_tools)
@@ -446,6 +457,7 @@ PROVIDER_API_KEYS = {
     "anthropic": "ANTHROPIC_API_KEY",
     "google": "GOOGLE_API_KEY",
     "google-genai": "GOOGLE_API_KEY",
+    "google-vertex": "GOOGLE_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     "groq": "GROQ_API_KEY",
@@ -466,7 +478,7 @@ def _detect_provider_from_model(model: str) -> str:
         return "openai"
     elif "claude" in model_lower:
         return "anthropic"
-    elif "gemini" in model_lower:
+    elif "gemini" in model_lower or "vertex" in model_lower:
         return "google"
     elif "deepseek" in model_lower:
         return "deepseek"
@@ -496,7 +508,14 @@ def create_client(
         provider = _detect_provider_from_model(model)
 
     if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
-        return GoogleClient(model=model, api_key=api_key, config=config)
+        base_url = _get_base_url(provider)
+        if provider == "google-vertex" and base_url:
+            import os as _os
+
+            region = _os.environ.get("VERTEX_LOCATION", "global")
+            project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+            base_url = base_url.replace("{region}", region).replace("{project}", project)
+        return GoogleClient(model=model, base_url=base_url, config=config)
 
     base_url = _get_base_url(provider)
 

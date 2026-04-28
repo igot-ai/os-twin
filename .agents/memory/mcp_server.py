@@ -1205,6 +1205,67 @@ def find_memory(args: Optional[str] = None) -> str:
         return "Error: find command not found on this system."
 
 
+@optional_tool("find_notes_by_knowledge_link")
+def find_notes_by_knowledge_link(
+    namespace: str,
+    file_hash: str,
+    chunk_idx: Optional[int] = None,
+) -> str:
+    """Find memory notes that link to a specific knowledge chunk.
+
+    This is the reverse lookup for knowledge:// links. Given a namespace,
+    file_hash, and optionally a chunk index, returns all memory notes
+    that cite that knowledge chunk.
+
+    Args:
+        namespace: The knowledge namespace (e.g., "docs", "api")
+        file_hash: SHA256 hash of the source file (truncated)
+        chunk_idx: Optional chunk index. If None, matches any chunk in the file.
+
+    Returns:
+        JSON array of matching note IDs. Empty array if no matches.
+    """
+    logger.info(
+        "find_notes_by_knowledge_link: ns=%s hash=%s idx=%s",
+        namespace,
+        file_hash,
+        chunk_idx,
+    )
+
+    mem = get_memory()
+    matching_ids = []
+
+    # Build the link prefix to search for
+    if chunk_idx is not None:
+        target_prefix = f"knowledge://{namespace}/{file_hash}#{chunk_idx}"
+    else:
+        target_prefix = f"knowledge://{namespace}/{file_hash}#"
+
+    for note_id, note in mem.memories.items():
+        if not note.links:
+            continue
+        for link in note.links:
+            if not link.startswith("knowledge://"):
+                continue
+            if chunk_idx is not None:
+                # Exact match
+                if link == target_prefix:
+                    matching_ids.append(note_id)
+                    break
+            else:
+                # Prefix match (any chunk in this file)
+                if link.startswith(target_prefix):
+                    matching_ids.append(note_id)
+                    break
+
+    logger.info(
+        "find_notes_by_knowledge_link: found %d notes",
+        len(matching_ids),
+    )
+
+    return json.dumps(matching_ids, ensure_ascii=False)
+
+
 if __name__ == "__main__":
     import argparse
     import sys

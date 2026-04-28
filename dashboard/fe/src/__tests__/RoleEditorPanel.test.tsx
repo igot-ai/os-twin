@@ -71,7 +71,13 @@ const stableRegistry = {
   claude: [{ id: 'claude-opus-4', context_window: '200k', tier: 'flagship' }],
   gemini: [{ id: 'gemini-flash', context_window: '1M', tier: 'fast' }],
 };
-const stableRegistryReturn = { registry: stableRegistry, isLoading: false, isError: undefined };
+const stableRegistryReturn = { 
+  registry: stableRegistry, 
+  allModels: Object.values(stableRegistry).flat().map(m => ({ ...m, provider_id: 'claude' })), 
+  providers: ['Claude', 'Gemini'],
+  isLoading: false, 
+  isError: undefined 
+};
 const stableDepsReturn = { dependencies: null, isLoading: false, isError: undefined };
 
 describe('RoleEditorPanel', () => {
@@ -96,7 +102,7 @@ describe('RoleEditorPanel', () => {
     );
 
     expect(screen.getByText('Identity & Context')).toBeInTheDocument();
-    expect(screen.getByText('Model Binding')).toBeInTheDocument();
+    expect(screen.getByText('Model Provider')).toBeInTheDocument();
     expect(screen.getByText('Sampling Parameters')).toBeInTheDocument();
     expect(screen.getByText('Skill Matrix')).toBeInTheDocument();
     expect(screen.getByText('MCP Binding')).toBeInTheDocument();

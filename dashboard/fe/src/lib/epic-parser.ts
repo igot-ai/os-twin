@@ -30,6 +30,7 @@ export type SectionType = 'text' | 'checklist' | 'tasklist';
 export interface EpicSection {
   heading: string;                        // "Description", "Definition of Done", "Tasks", "Acceptance Criteria", etc.
   headingLevel: number;
+  sectionKey: string;                     // Stable lowercase identifier: "definition_of_done", "acceptance_criteria", "tasks", etc.
   type: SectionType;                      // Inferred from content
   content: string;                        // Raw content for 'text' type (including lines before/after lists)
   items?: CheckItem[];                    // For 'checklist' type (DoD, AC)
@@ -60,6 +61,43 @@ export interface TaskNode {
 }
 
 // ── Helpers ────────────────────────────────────────
+
+/** Convert a section heading to a stable lowercase key (e.g. "Acceptance Criteria" → "acceptance_criteria"). */
+export function headingToSectionKey(heading: string): string {
+  return heading
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')   // non-alphanumeric → underscore
+    .replace(/^_|_$/g, '');         // strip leading/trailing underscores
+}
+
+/** Known section keys for standard EPIC sections (used for type inference). */
+const CHECKLIST_SECTION_KEYS = new Set([
+  'definition_of_done', 'dod', 'acceptance_criteria', 'ac', 'criteria',
+]);
+
+/** Known section keys for task-list sections. */
+const TASKLIST_SECTION_KEYS = new Set([
+  'tasks',
+]);
+
+/**
+ * Find a section in an epic by its sectionKey (case-insensitive lookup).
+ * Returns the first matching section, or undefined if not found.
+ */
+export function findSectionByKey(epic: EpicNode, key: string): EpicSection | undefined {
+  const normalizedKey = headingToSectionKey(key);
+  return epic.sections.find(s => s.sectionKey === normalizedKey);
+}
+
+/**
+ * Find a section in an epic by its heading (case-insensitive).
+ * Returns the first matching section, or undefined if not found.
+ */
+export function findSectionByHeading(epic: EpicNode, heading: string): EpicSection | undefined {
+  const targetKey = headingToSectionKey(heading);
+  return epic.sections.find(s => s.sectionKey === targetKey);
+}
 
 function parseDependsOn(text: string): string[] {
   // Handle inline [A, B]
@@ -229,9 +267,12 @@ function parseEpicNode(lines: string[]): EpicNode {
 
     if (sectionMatch && !inCodeBlock) {
       flushSection();
+      const headingText = sectionMatch[1];
+      const sectionKey = headingToSectionKey(headingText);
       currentSection = {
-        heading: sectionMatch[1],
+        heading: headingText,
         headingLevel: line.startsWith('####') ? 4 : 3,
+        sectionKey,
         type: 'text',
         content: '',
         rawLines: [],
@@ -245,6 +286,7 @@ function parseEpicNode(lines: string[]): EpicNode {
         currentSection = {
           heading: '',
           headingLevel: 0,
+          sectionKey: '',
           type: 'text',
           content: '',
           rawLines: [],
@@ -291,9 +333,13 @@ function processSectionContent(section: EpicSection, lines: string[]) {
   section.content = lines.join('\n');
   section.preamble = [];
   section.postamble = [];
-  
+
+  // Use sectionKey to determine the expected type for known sections
+  const isKnownTasklist = TASKLIST_SECTION_KEYS.has(section.sectionKey);
+  const isKnownChecklist = CHECKLIST_SECTION_KEYS.has(section.sectionKey);
+
   // Check if it's a task list
-  const isTasklist = lines.some(l => l.trim().match(/^- \[[ x]\] (TASK-\d+|\*\*T-.*\*\*)/));
+  const isTasklist = isKnownTasklist || lines.some(l => l.trim().match(/^- \[[ x]\] (TASK-\d+|\*\*T-.*\*\*)/));
   if (isTasklist) {
     section.type = 'tasklist';
     section.tasks = [];
@@ -306,7 +352,7 @@ function processSectionContent(section: EpicSection, lines: string[]) {
       if (line.trim().startsWith('```')) {
           inCodeBlock = !inCodeBlock;
       }
-      
+
       const taskHeader = inCodeBlock ? null : parseTaskHeader(line);
       if (taskHeader && taskHeader.id) {
         if (currentTask) {
@@ -333,7 +379,7 @@ function processSectionContent(section: EpicSection, lines: string[]) {
           if (!inCodeBlock && (line.trim().startsWith('depends_on:') || line.trim() === '---')) {
             collectingPostamble = true;
           }
-          
+
           if (collectingPostamble) {
             section.postamble.push(line);
           } else {
@@ -352,9 +398,12 @@ function processSectionContent(section: EpicSection, lines: string[]) {
     return;
   }
 
-  // Check if it's a checklist
-  const isChecklist = lines.some(l => l.trim().match(/^- \[[ x]\]/));
-  if (isChecklist) {
+  // Check if it's a checklist: either has checkbox items, or is a known checklist
+  // section that uses plain `- Item` syntax (without `[ ]` checkboxes)
+  const hasCheckboxItems = lines.some(l => l.trim().match(/^- \[[ x]\]/));
+  const hasPlainItems = isKnownChecklist && lines.some(l => l.trim().match(/^- [^\[]/));
+
+  if (hasCheckboxItems || hasPlainItems) {
     section.type = 'checklist';
     section.items = [];
     let collectingPostamble = false;
@@ -365,12 +414,26 @@ function processSectionContent(section: EpicSection, lines: string[]) {
           inCodeBlock = !inCodeBlock;
       }
       const itemHeader = inCodeBlock ? null : parseCheckItem(line);
+      // Also handle plain list items (without checkboxes) in known checklist sections
+      const plainItemMatch = !itemHeader && !inCodeBlock && isKnownChecklist
+        ? line.match(/^(\s*- )(.*)$/)
+        : null;
+
       if (itemHeader) {
         section.items.push({
           text: itemHeader.text,
           checked: itemHeader.checked,
           rawLine: line,
           prefix: itemHeader.prefix,
+        });
+        collectingPostamble = false;
+      } else if (plainItemMatch) {
+        // Convert plain list item to a CheckItem (unchecked by default)
+        section.items.push({
+          text: plainItemMatch[2],
+          checked: false,
+          rawLine: line,
+          prefix: plainItemMatch[1],
         });
         collectingPostamble = false;
       } else {
@@ -425,36 +488,54 @@ function serializeEpicNode(epic: EpicNode): string {
   const lines: string[] = [];
   lines.push(epic.rawHeading);
 
-  // Track what needs to be added if not found in any preamble/postamble
-  const pendingKeys = new Set(epic.frontmatter.keys());
-  let dependsOnPending = epic.depends_on.length > 0;
+  // Determine which frontmatter keys and depends_on have already been
+  // placed inside a section's preamble/postamble so we don't duplicate them.
+  const keysInSectionPreamble = new Set<string>();
+  let dependsOnInPreamble = false;
 
-  // Scan all sections to see what's already there (even if it needs patching)
   for (const section of epic.sections) {
-    const allLines = [...section.preamble, ...section.postamble];
-    for (const line of allLines) {
-      const metadataMatch = line.match(/^\*\*(.*?)\*\*[:]?\s*(.*)$/) || 
-                          line.match(/^(Roles?|Working_dir|Objective|Skills):\s*(.*)$/i);
+    for (const line of [...section.preamble, ...section.postamble]) {
+      const metadataMatch = line.match(/^\*\*(.*?)\*\*[:]?\s*(.*)$/) ||
+                           line.match(/^(Roles?|Working_dir|Objective|Skills):\s*(.*)$/i);
       if (metadataMatch) {
         let key = metadataMatch[1].trim();
         if (key.endsWith(':')) key = key.slice(0, -1);
-        pendingKeys.delete(key);
+        keysInSectionPreamble.add(key);
       }
       if (line.trim().startsWith('depends_on:') || line.trim().startsWith('```yaml')) {
-        dependsOnPending = false;
+        dependsOnInPreamble = true;
       }
     }
   }
 
   // Clone sections so we can modify them without side effects
-  const sections = epic.sections.map(s => ({...s}));
+  const sections = epic.sections.map(s => ({...s, preamble: [...s.preamble], postamble: [...s.postamble]}));
 
-  // If there are pending metadata or depends_on, add them to the first section
-  if (pendingKeys.size > 0 || dependsOnPending) {
+  // Determine if we need to output depends_on
+  // Output it if: (1) array has items, OR (2) rawDependsOn is non-empty (means it was present in original, even if empty array)
+  const shouldOutputDependsOn = epic.depends_on.length > 0 || epic.rawDependsOn.length > 0;
+
+  // Only strip depends_on and --- separators if we're going to output depends_on
+  // This ensures we can place depends_on before any trailing ---
+  // If there's no depends_on, preserve the original structure
+  let hasTrailingSeparator = false;
+  if (shouldOutputDependsOn) {
+    hasTrailingSeparator = stripDependsOnFromSections(sections);
+  }
+
+  // Output frontmatter: emit any keys NOT already present in a section's preamble
+  const pendingKeys = new Set(epic.frontmatter.keys());
+  for (const key of keysInSectionPreamble) {
+    pendingKeys.delete(key);
+  }
+
+  if (pendingKeys.size > 0) {
+    // Add pending frontmatter to the first section's preamble
     if (sections.length === 0) {
       sections.push({
         heading: '',
         headingLevel: 0,
+        sectionKey: '',
         type: 'text',
         content: '',
         rawLines: [],
@@ -469,24 +550,194 @@ function serializeEpicNode(epic: EpicNode): string {
       const displayValue = /^Roles?$/i.test(key) ? formatRolesValue(value) : value;
       addedLines.push(`**${key}**: ${displayValue}`);
     }
-    if (dependsOnPending) {
-      addedLines.push(`depends_on: [${epic.depends_on.join(', ')}]`);
-    }
-    
+
     // Insert at the beginning of the first section's preamble
     sections[0].preamble = [...addedLines, ...sections[0].preamble];
   }
 
+  // Serialize each section
   for (const section of sections) {
-    lines.push(serializeSection(section, epic));
+    // Skip checklist/tasklist sections that have had all their items removed
+    if ((section.type === 'checklist' && (!section.items || section.items.length === 0)) ||
+        (section.type === 'tasklist' && (!section.tasks || section.tasks.length === 0))) {
+      // Only skip if the section has no heading (implicit section) or has no
+      // meaningful content beyond the empty list
+      const hasContent = section.preamble.some(l => l.trim() !== '' && !l.match(/^#{3,4}\s/)) ||
+                         section.postamble.some(l => l.trim() !== '' && !l.trim().startsWith('depends_on:'));
+      if (!hasContent) continue;
+    }
+
+    const sectionStr = serializeSection(section, epic);
+    // Split the section string into lines and add to our lines array
+    const sectionLines = sectionStr.split('\n');
+    lines.push(...sectionLines);
+  }
+
+  // Only strip trailing blank lines when we're about to add depends_on
+  // (to make room for the depends_on line with a blank line before it)
+  // For EPICs without depends_on, preserve the original trailing structure
+  if (shouldOutputDependsOn) {
+    while (lines.length > 0 && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+  }
+  
+  // Append depends_on at the end of the EPIC block
+  if (shouldOutputDependsOn) {
+    lines.push('');
+    lines.push(`depends_on: [${epic.depends_on.join(', ')}]`);
+    // Add trailing blank line to separate from next EPIC
+    lines.push('');
+  }
+
+  // Re-add the --- separator after depends_on if it was stripped
+  // Only add a blank line before --- if the last line isn't already blank
+  if (hasTrailingSeparator) {
+    if (lines.length > 0 && lines[lines.length - 1] !== '') {
+      lines.push('');
+    }
+    lines.push('---');
+    lines.push('');  // Blank line after separator
   }
 
   return lines.join('\n');
 }
 
+/**
+ * Strip depends_on lines, YAML blocks, and trailing --- separators from all section preambles/postambles.
+ * This ensures depends_on is only emitted once, at the end of the EPIC block,
+ * and --- separators are moved after depends_on.
+ * Returns true if a trailing --- was stripped (so it can be re-added after depends_on).
+ */
+function stripDependsOnFromSections(sections: EpicSection[]): boolean {
+  let hasTrailingSeparator = false;
+  for (const section of sections) {
+    const { stripped: strippedPreamble } = removeDependsOnLines(section.preamble);
+    section.preamble = strippedPreamble;
+    
+    const { stripped: strippedPostamble, hadSeparator } = removeDependsOnLines(section.postamble);
+    section.postamble = strippedPostamble;
+    if (hadSeparator) {
+      hasTrailingSeparator = true;
+    }
+  }
+  return hasTrailingSeparator;
+}
+
+/**
+ * Remove depends_on lines and fenced YAML blocks containing depends_on from a lines array.
+ * Only treats --- as a trailing separator if it appears after depends_on (or at the very end with no depends_on).
+ * Preserves --- lines that are followed by other content.
+ * Returns the filtered lines and whether a trailing --- separator was removed.
+ */
+function removeDependsOnLines(lines: string[]): { stripped: string[]; hadSeparator: boolean } {
+  const result: string[] = [];
+  let inCodeBlock = false;
+  let inYamlBlock = false;
+  let yamlStart = -1;
+  let hadSeparator = false;
+  
+  // Track the last non-empty line index to detect if --- is truly trailing
+  let lastNonEmptyIndex = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim() !== '') {
+      lastNonEmptyIndex = i;
+      break;
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.trim().startsWith('```')) {
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        if (line.trim().startsWith('```yaml')) {
+          inYamlBlock = true;
+          yamlStart = i;
+        } else {
+          result.push(line);
+        }
+      } else {
+        inCodeBlock = false;
+        if (inYamlBlock) {
+          inYamlBlock = false;
+          // Skip the closing ``` of the YAML block
+          yamlStart = -1;
+        } else {
+          result.push(line);
+        }
+      }
+      continue;
+    }
+
+    if (inYamlBlock) {
+      // Skip YAML block content (will be replaced by inline depends_on at end)
+      continue;
+    }
+
+    if (!inCodeBlock && line.trim().startsWith('depends_on:')) {
+      // Skip inline depends_on lines
+      continue;
+    }
+
+    // Only treat --- as a trailing separator if:
+    // 1. It's not inside a code block
+    // 2. It appears after a depends_on line OR it's the last non-empty content
+    if (!inCodeBlock && line.trim() === '---') {
+      // Check if this --- is followed by other non-empty content
+      let hasContentAfter = false;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim() !== '' && lines[j].trim() !== '---') {
+          hasContentAfter = true;
+          break;
+        }
+      }
+      
+      if (!hasContentAfter) {
+        // This is a trailing separator - skip it (will be re-added after depends_on)
+        hadSeparator = true;
+        continue;
+      }
+      // Otherwise keep the --- - it's followed by content
+    }
+
+    result.push(line);
+  }
+
+  return { stripped: result, hadSeparator };
+}
+
+/**
+ * Create a new EpicSection suitable for adding to an EPIC.
+ * This is the serializeNewSection helper from the epic brief.
+ */
+export function serializeNewSection(
+  heading: string,
+  headingLevel: number,
+  type: SectionType,
+  items?: CheckItem[],
+  tasks?: TaskNode[],
+  content?: string,
+): EpicSection {
+  const sectionKey = headingToSectionKey(heading);
+  return {
+    heading,
+    headingLevel,
+    sectionKey,
+    type,
+    content: content || '',
+    rawLines: [],
+    items: type === 'checklist' ? (items || []) : undefined,
+    tasks: type === 'tasklist' ? (tasks || []) : undefined,
+    preamble: [],
+    postamble: [],
+  };
+}
+
 function serializeSection(section: EpicSection, epic: EpicNode): string {
   const resultLines: string[] = [];
-  
+
   let preamble = [...section.preamble];
   // Ensure heading is present if it's not an implicit section
   if (section.heading && (preamble.length === 0 || !preamble[0].includes(section.heading))) {
@@ -494,21 +745,22 @@ function serializeSection(section: EpicSection, epic: EpicNode): string {
     preamble = [`${prefix} ${section.heading}`, ...preamble];
   }
 
-  // 1. Preamble with metadata and depends_on patching
-  resultLines.push(...patchLines(preamble, epic));
+  // 1. Preamble with metadata patching (depends_on already stripped)
+  resultLines.push(...patchMetadata(preamble, epic));
 
-  // 2. Structured list content
-  if (section.type === 'tasklist' && section.tasks) {
+  // 2. Structured list content — always serialize from AST arrays,
+  //    which respects any reordering, additions, or removals.
+  if (section.type === 'tasklist' && section.tasks && section.tasks.length > 0) {
     for (const task of section.tasks) {
       const checkbox = task.completed ? '[x]' : '[ ]';
       const prefix = task.prefix || '- [ ] ';
       const idPrefix = task.idPrefix || '';
       const idSuffix = task.idSuffix || '';
       const delimiter = task.delimiter || ' — ';
-      
+
       const header = `${prefix.replace(/\[[ x]\]/, checkbox)}${idPrefix}${task.id}${idSuffix}${delimiter}${task.title}`;
       resultLines.push(header);
-      
+
       const currentBody = task.bodyLines ? task.bodyLines.join('\n') : '';
       if (task.body !== currentBody && task.body !== '') {
           resultLines.push(task.body);
@@ -516,7 +768,7 @@ function serializeSection(section: EpicSection, epic: EpicNode): string {
           resultLines.push(...task.bodyLines);
       }
     }
-  } else if (section.type === 'checklist' && section.items) {
+  } else if (section.type === 'checklist' && section.items && section.items.length > 0) {
     for (const item of section.items) {
       const checkbox = item.checked ? '[x]' : '[ ]';
       const prefix = item.prefix || '- [ ] ';
@@ -530,8 +782,8 @@ function serializeSection(section: EpicSection, epic: EpicNode): string {
     }
   }
 
-  // 3. Postamble with metadata and depends_on patching
-  resultLines.push(...patchLines(section.postamble, epic));
+  // 3. Postamble with metadata patching (depends_on already stripped)
+  resultLines.push(...patchMetadata(section.postamble, epic));
 
   return resultLines.join('\n');
 }

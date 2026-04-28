@@ -21,7 +21,7 @@ import base64
 from dashboard.auth import get_current_user
 from dashboard.global_state import broadcaster
 import dashboard.global_state as global_state
-from dashboard.models import MasterSettings, EffectiveResolution
+from dashboard.models import MasterSettings, EffectiveResolution, KnowledgeSettings
 from dashboard.lib.settings import get_settings_resolver
 from dashboard.lib.settings.vault import get_vault
 from dashboard.lib.settings.opencode_sync import sync_opencode_config, SyncResult
@@ -179,8 +179,69 @@ _VALID_NAMESPACES = frozenset(
         "channels",
         "autonomy",
         "observability",
+        "knowledge",
     }
 )
+
+
+# ── Typed Knowledge Settings (ADR-15) ──────────────────────────────────
+#
+# Defined BEFORE the generic ``PUT /{namespace}`` so FastAPI matches the
+# typed routes first. The generic route still handles ``PUT /knowledge``
+# with a free-form payload (it remains in ``_VALID_NAMESPACES``), but
+# external clients (the FE settings panel) should prefer these typed
+# endpoints because they get full Pydantic validation + a stable response
+# shape.
+
+
+@router.get("/knowledge", response_model=KnowledgeSettings)
+async def get_knowledge_settings(
+    user: dict = Depends(get_current_user),
+):
+    """Get the current knowledge-service settings (ADR-15).
+
+    Returns ``KnowledgeSettings`` with empty strings for any unset override
+    (callers should treat empty as "use the env-var / hardcoded default").
+    """
+    settings = get_settings_resolver().get_master_settings()
+    return settings.knowledge
+
+
+@router.put("/knowledge", response_model=KnowledgeSettings)
+async def put_knowledge_settings(
+    payload: KnowledgeSettings = Body(..., description="New knowledge settings"),
+    user: dict = Depends(get_current_user),
+):
+    """Replace the knowledge-service settings (ADR-15).
+
+    Persisted to ``.agents/config.json`` under the ``knowledge`` key.
+    Broadcasts a ``settings_updated`` event so the FE settings panel can
+    react live.  Invalidates the running KnowledgeService's model cache so
+    the new settings take effect on the next LLM/embedding call without a
+    dashboard restart.
+    """
+    resolver = get_settings_resolver()
+    resolver.patch_namespace("knowledge", payload.model_dump(mode="json"))
+
+    # Invalidate cached LLM / embedder so next call picks up new settings.
+    # Best-effort: never let invalidation failure break the settings save.
+    try:
+        from dashboard.routes.knowledge import _get_service  # noqa: WPS433
+
+        svc = _get_service()
+        if hasattr(svc, "invalidate_model_cache"):
+            svc.invalidate_model_cache()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Knowledge model cache invalidation skipped: %s", exc)
+
+    await broadcaster.broadcast(
+        "settings_updated",
+        {
+            "namespace": "knowledge",
+            "settings": payload.model_dump(mode="json"),
+        },
+    )
+    return payload
 
 
 @router.put("/{namespace}")

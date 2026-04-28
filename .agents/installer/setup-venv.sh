@@ -74,6 +74,7 @@ setup_venv() {
       TMPDIR=/tmp uv pip install --quiet --upgrade --prerelease=allow \
         --python "$VENV_DIR/bin/python" \
         --extra-index-url https://download.pytorch.org/whl/cpu \
+        --index-strategy unsafe-best-match \
         "${req_args[@]}"
     else
       "$VENV_DIR/bin/pip" install --quiet --upgrade \

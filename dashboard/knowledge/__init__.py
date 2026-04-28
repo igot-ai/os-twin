@@ -3,15 +3,15 @@
 Public surface (post EPIC-003 v2):
 
 - :class:`KnowledgeService` — sync façade. Namespace lifecycle wired here;
-  ingestion (``import_folder``) lands in EPIC-003 and query (``query``,
-  ``get_graph``) in EPIC-004.
+  ingestion (``import_folder``) lands in EPIC-003 and query (``query``) in EPIC-004.
 - :class:`NamespaceManager`, :class:`NamespaceMeta`, :class:`NamespaceStats`,
   :class:`ImportRecord` — namespace lifecycle primitives.
 - Namespace exceptions: :class:`NamespaceError`, :class:`NamespaceNotFoundError`,
   :class:`NamespaceExistsError`, :class:`InvalidNamespaceIdError`.
-- :class:`KnowledgeLLM` — Anthropic wrapper for entity extraction, query
-  planning, and answer aggregation.
-- :class:`KnowledgeEmbedder` — sentence-transformers embedding helper.
+- :class:`KnowledgeLLM` — multi-provider LLM wrapper (via ``llm_client.py``)
+  for entity extraction, query planning, and answer aggregation.
+- :class:`KnowledgeEmbedder` — embedding helper supporting local
+  sentence-transformers and Google Gemini backends.
 - :class:`NamespaceVectorStore`, :class:`VectorHit` — per-namespace zvec
   vector wrapper used by ingestion and (in EPIC-004) query.
 - Graph internals: :class:`KuzuLabelledPropertyGraph`, :class:`GraphRAGExtractor`,
@@ -19,7 +19,7 @@ Public surface (post EPIC-003 v2):
   :class:`TrackVectorRetriever`.
 
 Importing this module is intentionally cheap — heavy deps (kuzu, zvec,
-sentence_transformers, markitdown, anthropic) are imported lazily inside the
+sentence_transformers, markitdown) are imported lazily inside the
 methods that need them.
 """
 
@@ -28,8 +28,10 @@ from __future__ import annotations
 from dashboard.knowledge.config import (
     EMBEDDING_DIMENSION,
     EMBEDDING_MODEL,
+    EMBEDDING_PROVIDER,
     KNOWLEDGE_DIR,
     LLM_MODEL,
+    LLM_PROVIDER,
 )
 from dashboard.knowledge.embeddings import KnowledgeEmbedder
 from dashboard.knowledge.graph.core import (
@@ -67,15 +69,17 @@ from dashboard.knowledge.namespace import (
     NamespaceMeta,
     NamespaceNotFoundError,
     NamespaceStats,
+    RetentionPolicy,  # EPIC-004
 )
 from dashboard.knowledge.service import KnowledgeService
 from dashboard.knowledge.vector_store import NamespaceVectorStore, VectorHit
-
 __all__ = [
     "KNOWLEDGE_DIR",
     "EMBEDDING_DIMENSION",
     "EMBEDDING_MODEL",
+    "EMBEDDING_PROVIDER",
     "LLM_MODEL",
+    "LLM_PROVIDER",
     "KnowledgeService",
     "KnowledgeLLM",
     "KnowledgeEmbedder",
@@ -93,6 +97,7 @@ __all__ = [
     "NamespaceNotFoundError",
     "NamespaceExistsError",
     "InvalidNamespaceIdError",
+    "RetentionPolicy",  # EPIC-004
     # Ingestion + jobs (EPIC-003)
     "Ingestor",
     "IngestOptions",

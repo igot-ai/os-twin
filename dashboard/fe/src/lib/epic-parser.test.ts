@@ -470,3 +470,155 @@ Roles: @engineer, ...
     expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer');
   });
 });
+
+// ─── Structural Mutation Tests ─────────────────────────────────────
+
+describe('Structural mutations', () => {
+  it('should add an AC section to an EPIC that did not have one', () => {
+    const md = `## EPIC-001 — Feature
+**Phase:** 1
+
+### Description
+Goal of the epic.
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+    
+    // Add a new Acceptance Criteria section
+    epic.sections.push({
+      heading: 'Acceptance Criteria',
+      headingLevel: 3,
+      sectionKey: 'acceptance_criteria',
+      type: 'checklist',
+      content: '',
+      items: [
+        { text: 'AC 1', checked: false, rawLine: '- [ ] AC 1', prefix: '- [ ] ' },
+        { text: 'AC 2', checked: false, rawLine: '- [ ] AC 2', prefix: '- [ ] ' },
+      ],
+      rawLines: [],
+      preamble: ['### Acceptance Criteria'],
+      postamble: [],
+    });
+    
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toContain('### Acceptance Criteria');
+    expect(result).toContain('- [ ] AC 1');
+    expect(result).toContain('- [ ] AC 2');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal of the epic.');
+  });
+
+  it('should reorder tasks and produce correctly ordered markdown', () => {
+    const md = `## EPIC-001 — Feature
+### Tasks
+- [ ] TASK-001 — First Task
+  Body 1.
+- [ ] TASK-002 — Second Task
+  Body 2.
+- [ ] TASK-003 — Third Task
+  Body 3.
+`;
+    const doc = parseEpicMarkdown(md);
+    const tasksSection = doc.epics[0].sections.find(s => s.type === 'tasklist');
+    
+    // Reverse the order of tasks
+    expect(tasksSection?.tasks).toBeDefined();
+    if (tasksSection && tasksSection.tasks) {
+      tasksSection.tasks.reverse();
+    }
+    
+    const result = serializeEpicMarkdown(doc);
+    // Third Task should now appear first
+    expect(result.indexOf('Third Task')).toBeLessThan(result.indexOf('First Task'));
+    expect(result).toContain('- [ ] TASK-003 — Third Task');
+    expect(result).toContain('- [ ] TASK-001 — First Task');
+    expect(result).toContain('Body 3.');
+    expect(result).toContain('Body 1.');
+  });
+
+  it('should remove section heading when all items are deleted from a checklist section', () => {
+    const md = `## EPIC-001 — Feature
+### Definition of Done
+- [ ] Item 1
+- [ ] Item 2
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    const dodSection = doc.epics[0].sections.find(s => s.sectionKey === 'definition_of_done');
+    
+    // Remove all items
+    expect(dodSection?.items).toBeDefined();
+    if (dodSection && dodSection.items) {
+      dodSection.items = [];
+    }
+    
+    const result = serializeEpicMarkdown(doc);
+    // Section heading should not appear
+    expect(result).not.toContain('### Definition of Done');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal.');
+  });
+
+  it('should remove section heading when all tasks are deleted from a tasklist section', () => {
+    const md = `## EPIC-001 — Feature
+### Tasks
+- [ ] TASK-001 — Task 1
+- [ ] TASK-002 — Task 2
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    const tasksSection = doc.epics[0].sections.find(s => s.type === 'tasklist');
+    
+    // Remove all tasks
+    expect(tasksSection?.tasks).toBeDefined();
+    if (tasksSection && tasksSection.tasks) {
+      tasksSection.tasks = [];
+    }
+    
+    const result = serializeEpicMarkdown(doc);
+    // Section heading should not appear
+    expect(result).not.toContain('### Tasks');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal.');
+  });
+
+  it('should preserve depends_on position at end of EPIC after modifications', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+Goal.
+
+depends_on: [EPIC-000]
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+    
+    // Add a new section
+    epic.sections.push({
+      heading: 'Acceptance Criteria',
+      headingLevel: 3,
+      sectionKey: 'acceptance_criteria',
+      type: 'checklist',
+      content: '',
+      items: [{ text: 'AC 1', checked: false, rawLine: '- [ ] AC 1', prefix: '- [ ] ' }],
+      rawLines: [],
+      preamble: ['### Acceptance Criteria'],
+      postamble: [],
+    });
+    
+    const result = serializeEpicMarkdown(doc);
+    
+    // depends_on should be at the end
+    const lastDependsOnIndex = result.lastIndexOf('depends_on:');
+    const lastSectionIndex = Math.max(
+      result.lastIndexOf('### Acceptance Criteria'),
+      result.lastIndexOf('### Description')
+    );
+    
+    expect(lastDependsOnIndex).toBeGreaterThan(lastSectionIndex);
+    expect(result).toContain('depends_on: [EPIC-000]');
+  });
+});

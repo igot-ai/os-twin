@@ -1,0 +1,309 @@
+{
+  "updated_at": "2026-04-11T20:15:18Z",
+  "count": 17,
+  "entries": [
+    {
+      "id": "mem-dec-1775933904958543000-72057",
+      "ts": "2026-04-11T18:58:24Z",
+      "kind": "decision",
+      "room_id": "room-dep-review",
+      "author_role": "architect",
+      "ref": "PLAN-REVIEW",
+      "tags": [
+        "dependency-graph",
+        "epic-planning",
+        "windows-port",
+        "parallelism",
+        "architecture"
+      ],
+      "summary": "Dependency graph analysis for Agent OS Windows port plan (5 EPICs). Result: EPIC-001 (modularize install.sh) has no deps. EPIC-002 (Windows installer) depends on EPIC-001 (needs extracted .py scripts and modular structure). EPIC-003 (ostwin.ps1 CLI) depends on EPIC-002 (needs Windows environment for testing). EPIC-004 (port 13 shell scripts) depends on EPIC-003 (needs ostwin.ps1 dispatcher). EPIC-005 (CI/CD) depends on EPIC-001 and EPIC-002 (needs both bash modules and PS1 installer to validate). Maximum parallelism: Wave 1=EPIC-001, Wave 2=EPIC-002, Wave 3=EPIC-003||EPIC-005 (parallel), Wave 4=EPIC-004.",
+      "detail": "## Dependency Graph JSON\n\n```json\n{\n  \"EPIC-001\": {\"depends_on\": []},\n  \"EPIC-002\": {\"depends_on\": [\"EPIC-001\"]},\n  \"EPIC-003\": {\"depends_on\": [\"EPIC-002\"]},\n  \"EPIC-004\": {\"depends_on\": [\"EPIC-003\"]},\n  \"EPIC-005\": {\"depends_on\": [\"EPIC-001\", \"EPIC-002\"]}\n}\n```\n\n## Rationale\n\n### EPIC-001 \u2192 no deps\nFoundation epic. Works on existing monolithic install.sh. No prerequisites.\n\n### EPIC-002 \u2192 EPIC-001\nEPIC-002 DoD line 70: \"MCP config patching reuses the extracted .py scripts from EPIC-001\"\nEPIC-002 mirrors the modular structure that EPIC-001 creates. Without modules, there's nothing to mirror.\n\n### EPIC-003 \u2192 EPIC-002\nAll 6 ACs explicitly state depends_on: EPIC-002. The CLI needs:\n- Windows installer to set up Python venv, Node, dashboard, MCP servers\n- Cannot test \"ostwin run executes plans\" without working Windows installation\n\n### EPIC-004 \u2192 EPIC-003\nDoD line 124: \"The ostwin.ps1 CLI (EPIC-003) dispatches to .ps1 versions\"\nAll ACs test via `ostwin <command>` requiring EPIC-003's dispatcher.\nNote: Code translation CAN start from bash scripts, but integration/validation needs EPIC-003.\n\n### EPIC-005 \u2192 EPIC-001, EPIC-002\n- Needs BATS tests for bash modules (EPIC-001 output)\n- Needs Pester tests for PS1 installer (EPIC-002 output)\n- AC line 147: \"CI green on all 3 platforms for every PR touching .agents/\"\n\n## Parallelism Analysis\n- Wave 1: EPIC-001 (solo)\n- Wave 2: EPIC-002 (solo, blocked by Wave 1)\n- Wave 3: EPIC-003 || EPIC-005 (parallel! both only need EPIC-002)\n- Wave 4: EPIC-004 (blocked by EPIC-003)\n\nMaximum parallelism achieved at Wave 3 where EPIC-003 and EPIC-005 run concurrently."
+    },
+    {
+      "id": "mem-art-1775934963425239000-72528",
+      "ts": "2026-04-11T19:16:03Z",
+      "kind": "artifact",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-001",
+      "tags": [
+        "installer",
+        "modular",
+        "shell",
+        "install.sh",
+        "epic-001"
+      ],
+      "summary": "Modularized install.sh (EPIC-001): Decomposed 1926-line monolith into 17 shell modules + 4 Python scripts under .agents/installer/. install.sh is now a 144-line thin orchestrator that sources modules. Module structure: lib.sh (colors/formatting/ask/version_gte), versions.conf (MIN_PYTHON=3.10, NODE_VER=v25.8.1, PWSH=7.4.7), detect-os.sh, check-deps.sh, install-deps.sh, install-files.sh, setup-venv.sh, setup-env.sh, patch-mcp.sh, build-frontend.sh (unified build_frontend replacing build_nextjs+build_dashboard_fe), setup-path.sh, setup-opencode.sh, sync-agents.sh, start-dashboard.sh, start-channels.sh, verify.sh, _orchestrate-deps.sh. Python scripts: patch_opencode_permissions.py, inject_env_to_mcp.py, merge_mcp_builtin.py, merge_mcp_to_opencode.py. All CLI flags preserved: --yes, --dir, --dashboard-only, --channel, --source-dir, --port, --skip-optional, --help.",
+      "detail": "## Module Map\n\n### .agents/install.sh (144 lines \u2014 orchestrator)\n- Argument parsing (--yes, --dir, --source-dir, --port, --skip-optional, --dashboard-only, --channel, --help)\n- Sources all 16 modules from .agents/installer/\n- Orchestration flow: detect OS \u2192 check/install deps \u2192 build frontends \u2192 install files \u2192 setup venv \u2192 patch MCP \u2192 setup env \u2192 opencode permissions \u2192 powershell modules \u2192 PATH \u2192 verify \u2192 start dashboard \u2192 channels \u2192 banner\n\n### .agents/installer/ (16 shell modules + 1 config)\n```\nlib.sh              \u2014 Colors, formatting, ask(), version_gte()\nversions.conf       \u2014 MIN_PYTHON_VERSION=3.10, PYTHON_INSTALL_VERSION=3.12, MIN_PWSH_VERSION=7, PWSH_INSTALL_VERSION=7.4.7, NODE_VER=v25.8.1\ndetect-os.sh        \u2014 detect_os() \u2192 OS, DISTRO, PKG_MGR, ARCH\ncheck-deps.sh       \u2014 check_python(), check_pwsh(), check_node(), check_uv(), check_opencode(), check_brew()\ninstall-deps.sh     \u2014 install_brew(), install_uv(), install_python(), install_pwsh(), install_node(), install_opencode(), install_pester()\ninstall-files.sh    \u2014 install_files(), compute_build_hash(), internal: _seed_mcp_config, _sync_amem, _setup_mcp_symlink, _migrate_mcp_config, _sync_dashboard, _load_contributed_roles\nsetup-venv.sh       \u2014 setup_venv()\nsetup-env.sh        \u2014 setup_env(), internal: _create_env_sh_hook, _migrate_env_keys\npatch-mcp.sh        \u2014 patch_mcp_config()\nbuild-frontend.sh   \u2014 build_frontend(subdir, label) \u2014 UNIFIED from build_nextjs + build_dashboard_fe\nsetup-path.sh       \u2014 setup_path()\nsetup-opencode.sh   \u2014 setup_opencode_permissions()\nsync-agents.sh      \u2014 sync_opencode_agents()\nstart-dashboard.sh  \u2014 start_dashboard(), publish_skills(), internal: _check_tunnel\nstart-channels.sh   \u2014 install_channels(), start_channels()\nverify.sh           \u2014 verify_components(), print_completion_banner()\n_orchestrate-deps.sh \u2014 dependency check/install orchestration (step 2, handles --dashboard-only branching)\n```\n\n### .agents/installer/scripts/ (4 Python scripts)\n```\npatch_opencode_permissions.py \u2014 Patches ~/.config/opencode/opencode.json permissions\ninject_env_to_mcp.py         \u2014 Injects .env vars into MCP server environment blocks\nmerge_mcp_builtin.py          \u2014 Merges built-in MCP servers into config.json\nmerge_mcp_to_opencode.py      \u2014 Normalizes, validates, merges MCP into opencode.json\n```\n\n### Key Design Decisions\n1. Each module has a double-source guard ([[ -n \"${_MODULE_LOADED:-}\" ]] && return 0)\n2. No module has side effects when sourced \u2014 only function definitions\n3. build_frontend() is parameterized: build_frontend \"dashboard/nextjs\" \"Next.js dashboard\"\n4. Python heredocs extracted to standalone .py files with CLI interfaces (sys.argv)\n5. Shellcheck passes clean on all 18 shell files\n6. 70 BATS tests across 16 test files, all passing"
+    },
+    {
+      "id": "mem-dec-1775934969268552000-72528",
+      "ts": "2026-04-11T19:16:09Z",
+      "kind": "decision",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-001",
+      "tags": [
+        "installer",
+        "architecture",
+        "pattern",
+        "sourcing"
+      ],
+      "summary": "EPIC-001 Design Decision: Module sourcing pattern with guards. Each module uses [[ -n \"${_MODULE_LOADED:-}\" ]] && return 0 to prevent double-sourcing. install.sh loops through all modules to source them. Dependency orchestration (_orchestrate-deps.sh) is inline-sourced because it contains conditional flow (if/else for --dashboard-only) that modifies global state rather than defining functions."
+    },
+    {
+      "id": "mem-int-1775934975095755000-72528",
+      "ts": "2026-04-11T19:16:15Z",
+      "kind": "interface",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-001",
+      "tags": [
+        "installer",
+        "python",
+        "scripts",
+        "mcp",
+        "api"
+      ],
+      "summary": "EPIC-001 extracted Python scripts API: (1) patch_opencode_permissions.py <config_path> \u2014 patches OpenCode permissions for .env reads. (2) inject_env_to_mcp.py <mcp_config> <env_file> \u2014 injects .env vars into MCP servers. (3) merge_mcp_builtin.py <config> <builtin> \u2014 merges built-in servers into config. (4) merge_mcp_to_opencode.py <mcp_source> <opencode_file> <mcp_module_dir> \u2014 normalizes/validates/merges MCP into opencode.json (imports validate_mcp from mcp_module_dir)."
+    },
+    {
+      "id": "mem-con-1775934981901263000-72528",
+      "ts": "2026-04-11T19:16:21Z",
+      "kind": "convention",
+      "room_id": "room-001",
+      "author_role": "engineer",
+      "ref": "EPIC-001",
+      "tags": [
+        "installer",
+        "versions",
+        "convention",
+        "configuration"
+      ],
+      "summary": "EPIC-001 Convention: versions.conf is the single source of truth for version constants. MIN_PYTHON_VERSION=3.10, PYTHON_INSTALL_VERSION=3.12, MIN_PWSH_VERSION=7, PWSH_INSTALL_VERSION=7.4.7, NODE_VER=v25.8.1. All modules source versions.conf \u2014 no hard-coded version strings anywhere else."
+    },
+    {
+      "id": "mem-int-1775936338607379000-80748",
+      "ts": "2026-04-11T19:38:58Z",
+      "kind": "interface",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "installer",
+        "windows",
+        "cli",
+        "install.ps1",
+        "flags"
+      ],
+      "summary": "EPIC-002 install.ps1 CLI interface: .\\install.ps1 [-Yes] [-Dir path] [-SourceDir path] [-Port 9000] [-DashboardOnly] [-Channel] [-SkipOptional] [-Help]. Mirrors install.sh --yes/--dir/--source-dir/--port/--dashboard-only/--channel/--skip-optional/--help flags exactly. Default install dir: $HOME\\.ostwin. Requires Windows 10/11, PowerShell 5.1+ (7+ recommended). No WSL/Cygwin/Git Bash dependency."
+    },
+    {
+      "id": "mem-art-1775936814157217000-84344",
+      "ts": "2026-04-11T19:46:54Z",
+      "kind": "artifact",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "installer",
+        "windows",
+        "pester",
+        "tests",
+        "testhelper",
+        "scoping-fix",
+        "epic-002"
+      ],
+      "summary": "EPIC-002 TASK-012: Fixed TestHelper.ps1 Pester test scoping bug. The Import-InstallerModule function now writes a combined temp script via New-InstallerModuleScript, and test files dot-source the result with `. $script:_ImportedModuleScript`. This fixes PowerShell's scope limitation where dot-sourcing inside a function doesn't expose functions to the caller's scope. Also fixed cross-platform resilience: Patch-MCP.ps1, Setup-OpenCode.ps1, Sync-Agents.ps1 now fall back to $HOME when $env:USERPROFILE is null (macOS/Linux). Setup-Env.Tests.ps1 isolates from host API keys during placeholder test. Result: 144 pass, 0 fail, 6 skip (Windows-only) on macOS. All 34 .ps1 files parse cleanly.",
+      "detail": "## Files Modified\n\n### TestHelper.ps1 (.agents/installer/tests/windows/TestHelper.ps1)\n- Replaced `Import-InstallerModule` implementation: now stores combined temp script path in `$script:_ImportedModuleScript`\n- Added `New-InstallerModuleScript` function that returns the temp file path\n- Uses `[ScriptBlock]::Create()` regex to strip both guard check and guard-set lines\n- Test files dot-source `$script:_ImportedModuleScript` after calling Import-InstallerModule\n\n### 16 Test Files Updated (all .agents/installer/tests/windows/*.Tests.ps1)\n- Added `. $script:_ImportedModuleScript` after every `Import-InstallerModule` call\n- Setup-Env.Tests.ps1: added env isolation for \"Should contain provider key placeholders\" test\n\n### 3 Module Files Fixed for Cross-Platform Resilience\n- Patch-MCP.ps1: added `$HOME` fallback when `$env:USERPROFILE` is null\n- Setup-OpenCode.ps1: added `$HOME` fallback when `$env:USERPROFILE` is null\n- Sync-Agents.ps1: added `$HOME` fallback when `$env:USERPROFILE` is null\n\n## Root Cause Analysis\nPowerShell scoping: when you dot-source a file inside a function, the functions defined in that file are only visible within the function's scope, not the caller's scope. The fix is to have the function return a temp file path and let the caller (BeforeAll block) dot-source it directly.",
+      "supersedes": "mem-art-1775936334625874000-80748"
+    },
+    {
+      "id": "mem-con-1775936820168845000-84344",
+      "ts": "2026-04-11T19:47:00Z",
+      "kind": "convention",
+      "room_id": "room-002",
+      "author_role": "engineer",
+      "ref": "EPIC-002",
+      "tags": [
+        "pester",
+        "tests",
+        "convention",
+        "windows",
+        "installer",
+        "epic-002"
+      ],
+      "summary": "EPIC-002 Pester test convention: All test files must follow this pattern: (1) BeforeAll: dot-source TestHelper.ps1, call Import-InstallerModule, then dot-source $script:_ImportedModuleScript. (2) Tests using env vars must isolate from host environment (save/restore pattern). (3) Windows-only tests use -Skip with $IsWindows check. (4) Module files referencing $env:USERPROFILE must include $HOME fallback for cross-platform testing."
+    },
+    {
+      "id": "mem-art-1775937418852638000-87057",
+      "ts": "2026-04-11T19:56:58Z",
+      "kind": "artifact",
+      "room_id": "room-005",
+      "author_role": "engineer",
+      "ref": "EPIC-005",
+      "tags": [
+        "ci",
+        "github-actions",
+        "cross-platform",
+        "bats",
+        "pester",
+        "testing",
+        "installer",
+        "workflow",
+        "epic-005"
+      ],
+      "summary": "EPIC-005: Created .github/workflows/ci.yml \u2014 unified cross-platform CI/CD workflow for Agent OS. 6 jobs: (1) bats-installer-tests on ubuntu+macos (16 BATS test files, 70 tests for EPIC-001 bash modules), (2) pester-installer-tests on all 3 platforms (15 Pester test files, 144+ tests for EPIC-002 PS1 modules), (3) pester-core-tests on all 3 platforms (67 existing Pester tests from .agents/tests/ \u2014 plan, channel, dynamic_roles, lib, lifecycle, roles, war-rooms, mcp, observe, standalone), (4) smoke-test-bash on Linux (install.sh --yes --skip-optional + dashboard health check), (5) smoke-test-powershell on Windows (install.ps1 -Yes -SkipOptional + dashboard health check), (6) ci-gate \u2014 synthetic gate job that fails if any of the 5 other jobs fail. All jobs have 15-min timeout. JUnit XML results uploaded as artifacts (30-day retention). Test reports via dorny/test-reporter@v1. Triggers on push/PR touching .agents/** or the workflow itself. Branch protection: require 'CI Gate \u2014 All Checks' status check.",
+      "detail": "## File Created\n### .github/workflows/ci.yml (426 lines)\n\n## Architecture\n6 parallel jobs \u2192 1 gate job:\n```\nbats-installer-tests (ubuntu, macos)     \u2500\u2510\npester-installer-tests (ubuntu, macos, windows) \u2500\u2524\npester-core-tests (ubuntu, macos, windows)      \u2500\u253c\u2192 ci-gate\nsmoke-test-bash (ubuntu)                         \u2500\u2524\nsmoke-test-powershell (windows)                  \u2500\u2518\n```\n\n## Job Details\n\n### 1. bats-installer-tests\n- Matrix: [ubuntu-latest, macos-latest]\n- Installs BATS (apt on Linux, brew on macOS)\n- Runs: .agents/installer/tests/test_*.bats (16 files, 70 tests)\n- Output: JUnit XML via `bats --formatter junit`\n\n### 2. pester-installer-tests\n- Matrix: [ubuntu-latest, macos-latest, windows-latest]\n- Runs: .agents/installer/tests/windows/ (15 files, 144+ tests)\n- Windows-only tests auto-skipped on macOS/Linux via -Skip flag\n\n### 3. pester-core-tests\n- Matrix: [ubuntu-latest, macos-latest, windows-latest]\n- Runs 5 separate Invoke-Pester calls:\n  1. Plan tests (isolated \u2014 .agents/tests/plan/)\n  2. Core tests (channel, dynamic_roles, lib, lifecycle, roles, war-rooms)\n  3. Standalone tests (.agents/tests/*.Tests.ps1)\n  4. MCP tests (.agents/tests/mcp/)\n  5. Observe tests (.agents/tests/observe/)\n\n### 4. smoke-test-bash\n- Runner: ubuntu-latest\n- Runs: .agents/install.sh --yes --skip-optional\n- Dashboard health check: imports dashboard.api FastAPI app, verifies routes > 0\n- Fallback: ast.parse() syntax check if venv not available\n\n### 5. smoke-test-powershell\n- Runner: windows-latest\n- Runs: .agents\\install.ps1 -Yes -SkipOptional -SourceDir $PWD\n- Dashboard health check: same pattern as bash, adapted for Windows paths\n\n### 6. ci-gate\n- Depends on all 5 jobs above\n- if: always() \u2014 runs even if upstream jobs fail\n- Fails (exit 1) if any upstream job has result == \"failure\"\n- Branch protection: require this single check \u2192 blocks merge on failure\n\n## Triggers\n- push to: main, hotfix/*, feature/*\n- pull_request to: main\n- workflow_dispatch (manual)\n- Path filter: .agents/** and .github/workflows/ci.yml\n\n## Artifacts\n- 5 upload-artifact steps (bats\u00d72, pester-installer\u00d73, pester-core\u00d73, smoke-bash\u00d71, smoke-ps1\u00d71)\n- 3 test-reporter steps with fail-on-error: true\n- 30-day retention\n\n## Relationship to Existing Workflow\n- pester-tests.yml (existing) runs only on ubuntu-latest with core tests\n- ci.yml (new) supersedes it functionally \u2014 runs core tests on all 3 platforms\n- pester-tests.yml left in place to avoid breaking existing branch protections\n- Recommended: after ci.yml is validated, update branch protection to require \"CI Gate \u2014 All Checks\" and disable the old pester-tests.yml check"
+    },
+    {
+      "id": "mem-dec-1775937424484607000-87057",
+      "ts": "2026-04-11T19:57:04Z",
+      "kind": "decision",
+      "room_id": "room-005",
+      "author_role": "engineer",
+      "ref": "EPIC-005",
+      "tags": [
+        "ci",
+        "branch-protection",
+        "architecture",
+        "github-actions",
+        "epic-005"
+      ],
+      "summary": "EPIC-005 Decision: Single ci-gate job pattern for branch protection. Instead of requiring multiple matrix jobs as required status checks (which is fragile when matrix dimensions change), we use a single 'CI Gate \u2014 All Checks' job that depends on all upstream jobs and fails if any failed. Branch protection only needs to require this one check. This pattern scales as new jobs are added \u2014 just add to the ci-gate needs list."
+    },
+    {
+      "id": "mem-con-1775937429422212000-87057",
+      "ts": "2026-04-11T19:57:09Z",
+      "kind": "convention",
+      "room_id": "room-005",
+      "author_role": "engineer",
+      "ref": "EPIC-005",
+      "tags": [
+        "ci",
+        "testing",
+        "pester",
+        "isolation",
+        "convention",
+        "epic-005"
+      ],
+      "summary": "EPIC-005 Convention: CI test isolation. Plan tests run in a separate Invoke-Pester call before other tests to prevent cross-test module pollution (same pattern as existing pester-tests.yml). Standalone root-level tests, MCP tests, and observe tests each run in their own Invoke-Pester call with conditional directory checks. All results written to separate JUnit XML files in test-results/."
+    },
+    {
+      "id": "mem-art-1775937523310085000-87039",
+      "ts": "2026-04-11T19:58:43Z",
+      "kind": "artifact",
+      "room_id": "room-003",
+      "author_role": "engineer",
+      "ref": "EPIC-003",
+      "tags": [
+        "cli",
+        "windows",
+        "powershell",
+        "ostwin",
+        "ostwin.ps1",
+        "ostwin.cmd",
+        "epic-003"
+      ],
+      "summary": "EPIC-003: Created ostwin.ps1 \u2014 complete PowerShell port of the 1291-line bash ostwin CLI. Located at .agents/bin/ostwin.ps1 (~950 lines). Provides full command parity with 25+ subcommands: agent, run, plan (create/start/list/clear), init, sync, status, logs, stop, dashboard, channel, clone-role, skills (sync/install/search/update/remove/list), mcp, reload-env, role, mac, config, health, test, test-ps, version. Key Windows adaptations: (1) Import-EnvFile replaces bash set -a/source, (2) Invoke-RestMethod replaces curl, (3) Start-Process/Stop-Process/Get-Process replace nohup/kill/lsof, (4) Join-Path replaces path concatenation, (5) $env:USERPROFILE/$HOME replaces $HOME, (6) ConvertTo-Json/ConvertFrom-Json replaces python -c json, (7) No ps_dispatch() dual-dispatch \u2014 native .ps1 invocation. Also created ostwin.cmd wrapper for cmd.exe/Windows Terminal invocation. 68 Pester tests, all passing.",
+      "detail": "## ostwin.ps1 Architecture\n\n### Entry Point\n```\n.agents/bin/ostwin.ps1\n```\nUses [CmdletBinding()] with $Command and $Arguments parameters. Main dispatch is a PowerShell switch statement.\n\n### Helper Functions\n- **Import-EnvFile** \u2014 Loads .env files, strips quotes, respects existing env vars\n- **Test-DashboardReachable** \u2014 Health check via Invoke-RestMethod /api/status\n- **Invoke-DashboardApi** \u2014 Generic dashboard API caller with auth headers\n- **Resolve-PlanId** \u2014 Resolves hex plan IDs via API or file paths\n- **Show-OstwinHelp** \u2014 Full help text matching bash version\n\n### Flag Translation (bash \u2192 PS)\n```\n--dry-run     \u2192 -DryRun\n--resume      \u2192 -Resume\n--expand      \u2192 -Expand\n--review      \u2192 -Review\n--working-dir \u2192 -ProjectDir\n--plan-file   \u2192 -PlanFile\n--json        \u2192 -JsonOutput\n--watch       \u2192 -Watch\n--max-rooms   \u2192 -MaxConcurrent\n--non-interactive \u2192 -NonInteractive\n```\n\n### Process Management\n- Dashboard: PID file at $OstwinHome/dashboard.pid, Stop-Process for shutdown\n- Channels: PID file at $OstwinHome/channels.pid\n- stop command: graceful \u2192 force after 5s timeout\n\n### GitHub Skills Install\nFull port of the multi-skill repo scanner:\n1. git clone --depth 1\n2. Scan for SKILL.md in source/skills, .agents/skills, skills/, root\n3. Detect nested vs top-level skills\n4. Install to both ~/.ostwin/.agents/skills/ and ~/.ostwin/skills/\n5. Write origin.json with provenance\n6. Optional --agent flag for role-scoped install\n\n### ostwin.cmd\n```cmd\n@echo off\nwhere pwsh >nul 2>&1\nif %errorlevel% equ 0 (\n    pwsh -NoProfile -ExecutionPolicy Bypass -File \"%~dp0ostwin.ps1\" %*\n    exit /b %errorlevel%\n)\nwhere powershell >nul 2>&1\nif %errorlevel% equ 0 (\n    powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0ostwin.ps1\" %*\n    exit /b %errorlevel%\n)\necho [ERROR] PowerShell not found.\nexit /b 1\n```\n\n## Files Created\n1. .agents/bin/ostwin.ps1 \u2014 Main CLI (~950 lines)\n2. .agents/bin/ostwin.cmd \u2014 CMD wrapper (~20 lines)\n3. .agents/bin/tests/ostwin.Tests.ps1 \u2014 Pester tests (68 tests)"
+    },
+    {
+      "id": "mem-int-1775937527373604000-87039",
+      "ts": "2026-04-11T19:58:47Z",
+      "kind": "interface",
+      "room_id": "room-003",
+      "author_role": "engineer",
+      "ref": "EPIC-003",
+      "tags": [
+        "cli",
+        "windows",
+        "powershell",
+        "ostwin",
+        "interface",
+        "epic-003"
+      ],
+      "summary": "EPIC-003 ostwin.ps1 CLI interface: ostwin.ps1 <command> [arguments]. Commands: agent, run, plan (create/start/list/clear), init, sync, status (--json/--watch), logs, stop (--force), dashboard (--port/--project-dir), channel, clone-role (--project-dir), skills (sync/install/search/update/remove/list with --agent/--from), mcp, reload-env, role (list/dispatch), mac (shorthand for macos-automation-engineer), config (--get/--set), health, test, test-ps, version. ostwin.cmd wrapper for cmd.exe invocation. Uses Invoke-RestMethod for API, Start-Process/Stop-Process for process management, Join-Path for paths."
+    },
+    {
+      "id": "mem-con-1775937530849973000-87039",
+      "ts": "2026-04-11T19:58:50Z",
+      "kind": "convention",
+      "room_id": "room-003",
+      "author_role": "engineer",
+      "ref": "EPIC-003",
+      "tags": [
+        "convention",
+        "windows",
+        "powershell",
+        "flags",
+        "cli",
+        "epic-003"
+      ],
+      "summary": "EPIC-003 Convention: ostwin.ps1 translates bash-style flags to PowerShell parameters at dispatch time. Pattern: --dry-run \u2192 -DryRun, --working-dir \u2192 -ProjectDir, --json \u2192 -JsonOutput, --watch \u2192 -Watch, etc. No dual-dispatch/ps_dispatch() \u2014 all .ps1 scripts invoked directly via pwsh -NoProfile -File. PID files stored at $OstwinHome/dashboard.pid and $OstwinHome/channels.pid using Windows-compatible paths."
+    },
+    {
+      "id": "mem-art-1775938503347119000-90373",
+      "ts": "2026-04-11T20:15:03Z",
+      "kind": "artifact",
+      "room_id": "room-004",
+      "author_role": "engineer",
+      "ref": "EPIC-004",
+      "tags": [
+        "powershell",
+        "windows",
+        "lifecycle-scripts",
+        "epic-004",
+        "init",
+        "dashboard",
+        "stop",
+        "health",
+        "sync",
+        "logs",
+        "config",
+        "uninstall",
+        "memory-monitor",
+        "clawhub",
+        "agent",
+        "memory",
+        "pester",
+        "tests"
+      ],
+      "summary": "EPIC-004: Created 13 PowerShell ports of lifecycle shell scripts. Files created: .agents/init.ps1 (~180 lines), .agents/dashboard.ps1 (~155 lines), .agents/stop.ps1 (~120 lines), .agents/health.ps1 (~185 lines), .agents/sync.ps1 (~180 lines), .agents/sync-skills.ps1 (~225 lines), .agents/logs.ps1 (~145 lines), .agents/config.ps1 (~145 lines), .agents/uninstall.ps1 (~95 lines), .agents/memory-monitor.ps1 (~120 lines), .agents/clawhub-install.ps1 (~450 lines), .agents/bin/agent.ps1 (~70 lines), .agents/bin/memory.ps1 (~245 lines). Total: ~2,315 lines of PowerShell. All scripts parse cleanly. Updated .agents/bin/ostwin.ps1 dispatcher to prefer .ps1 over .sh for: init, sync, logs, config, health, dashboard, skills sync/install/search/update/remove. Bash fallback preserved for non-Windows. Created .agents/tests/lifecycle-scripts/LifecycleScripts.Tests.ps1 with 54 Pester tests \u2014 all passing.",
+      "detail": "## Files Created\n\n### Lifecycle Scripts (.agents/)\n1. **init.ps1** \u2014 MCP initialization, scaffolds .agents/mcp, seeds config, updates .gitignore\n2. **dashboard.ps1** \u2014 FastAPI dashboard launcher with -Port/-ProjectDir/-Background params\n3. **stop.ps1** \u2014 Graceful shutdown with -Force flag, stops manager/dashboard/channels\n4. **health.ps1** \u2014 Health check with -JsonOutput flag, checks manager/rooms/agents\n5. **sync.ps1** \u2014 Framework sync preserving plans/.env/config.json, NTFS-safe paths\n6. **sync-skills.ps1** \u2014 SKILL.md scanner with -InstallFrom/-Port/-Home params, dashboard API registration\n7. **logs.ps1** \u2014 JSONL channel log viewer with -Follow/-Type/-From/-Last params\n8. **config.ps1** \u2014 Config manager with -Get KEY / -Set KEY -Value VALUE, dot-notation navigation\n9. **uninstall.ps1** \u2014 Clean removal with -Yes/-Dir params, Windows PATH cleanup via registry\n10. **memory-monitor.ps1** \u2014 status/watch/on/off subcommands for memory venv management\n11. **clawhub-install.ps1** \u2014 ClawHub registry client: install/search/update/remove/list\n\n### CLI Scripts (.agents/bin/)\n12. **agent.ps1** \u2014 opencode wrapper with .env loading and PID registration\n13. **memory.ps1** \u2014 Memory CLI with publish/query/search/context/list subcommands\n\n### Dispatcher Updates (.agents/bin/ostwin.ps1)\n- init \u2192 prefers init.ps1 with -Yes flag translation\n- sync \u2192 prefers sync.ps1\n- logs \u2192 prefers logs.ps1 with -Follow/-Type/-From/-Last translation\n- config \u2192 prefers config.ps1 with -Get/-Set/-Value translation\n- health \u2192 prefers health.ps1 with -JsonOutput translation\n- dashboard \u2192 prefers dashboard.ps1 with -Port/-ProjectDir/-Background translation\n- skills sync \u2192 prefers sync-skills.ps1\n- skills install/search/update/remove \u2192 prefers clawhub-install.ps1\n- run init \u2192 prefers init.ps1 for working directory initialization\n\n### Tests (.agents/tests/lifecycle-scripts/)\n- LifecycleScripts.Tests.ps1 \u2014 54 Pester tests covering:\n  - Parse validation for all 13 scripts (13 tests)\n  - init.ps1 functional tests: MCP scaffolding, .gitignore creation (2 tests)\n  - config.ps1 functional tests: print/get/set modes (3 tests)\n  - health.ps1 functional tests: JSON output, status reporting (2 tests)\n  - logs.ps1 functional tests: display/filter/limit (3 tests)\n  - stop.ps1 structural tests: parameter/function validation (2 tests)\n  - memory-monitor.ps1 functional test: status output (1 test)\n  - uninstall.ps1 functional test: missing dir handling (1 test)\n  - sync.ps1 functional test: missing .agents error (1 test)\n  - clawhub-install.ps1 functional tests: help, empty list (2 tests)\n  - bin/agent.ps1 structural test: parameter structure (1 test)\n  - bin/memory.ps1 functional tests: help text, parameter validation (2 tests)\n  - ostwin.ps1 dispatch tests: verify all 8 commands prefer .ps1 (8 tests)\n  - Bash non-regression tests: verify all 13 .sh files still exist (13 tests)\n\n## Key Windows Adaptations\n- Join-Path for all path construction (NTFS-safe)\n- $env:USERPROFILE with $HOME fallback for cross-platform\n- Start-Process/Stop-Process/Get-Process for process management\n- Get-Content -Wait for tail-follow mode\n- [System.Environment]::SetEnvironmentVariable for env management\n- Invoke-RestMethod/Invoke-WebRequest for HTTP calls\n- ConvertTo-Json/ConvertFrom-Json for JSON handling\n- Expand-Archive for zip extraction\n- Windows User PATH cleanup via registry in uninstall"
+    },
+    {
+      "id": "mem-int-1775938511077351000-90373",
+      "ts": "2026-04-11T20:15:11Z",
+      "kind": "interface",
+      "room_id": "room-004",
+      "author_role": "engineer",
+      "ref": "EPIC-004",
+      "tags": [
+        "powershell",
+        "windows",
+        "cli",
+        "interface",
+        "epic-004"
+      ],
+      "summary": "EPIC-004 PowerShell script interfaces: init.ps1 [-TargetDir .] [-Yes] [-Help] | dashboard.ps1 [-Port 9000] [-ProjectDir pwd] [-Background] [-Help] | stop.ps1 [-Force] | health.ps1 [-JsonOutput] | sync.ps1 [-TargetDir .] | sync-skills.ps1 [-InstallFrom dir] [-Port 9000] [-Home dir] | logs.ps1 [-RoomId id] [-Follow] [-Type type] [-From role] [-Last N] | config.ps1 [-Get KEY] [-Set KEY -Value VAL] [-Help] | uninstall.ps1 [-Yes] [-Dir path] | memory-monitor.ps1 [-Command status|watch|on|off] | clawhub-install.ps1 <install|search|update|remove|list> [args] | bin/agent.ps1 [args...] | bin/memory.ps1 <publish|query|search|context|list|help> [args]"
+    },
+    {
+      "id": "mem-con-1775938518318264000-90373",
+      "ts": "2026-04-11T20:15:18Z",
+      "kind": "convention",
+      "room_id": "room-004",
+      "author_role": "engineer",
+      "ref": "EPIC-004",
+      "tags": [
+        "convention",
+        "powershell",
+        "dispatch",
+        "flags",
+        "cli",
+        "epic-004"
+      ],
+      "summary": "EPIC-004 Convention: ostwin.ps1 dispatcher prefers .ps1 scripts over .sh for all lifecycle commands. Pattern: check for scriptname.ps1 \u2192 dispatch via `pwsh -NoProfile -File` with flag translation; fallback to bash scriptname.sh if .ps1 not found. Flag translation: --yes \u2192 -Yes, --json \u2192 -JsonOutput, --follow \u2192 -Follow, --type \u2192 -Type, --from \u2192 -From, --last \u2192 -Last, --get \u2192 -Get, --set \u2192 -Set (with added -Value), --port \u2192 -Port, --project-dir \u2192 -ProjectDir, --background \u2192 -Background, --force \u2192 -Force, --install-from \u2192 -InstallFrom. For skills commands, both sync-skills and clawhub-install check .ps1 first, then .sh. All .ps1 scripts use [CmdletBinding()] with named parameters."
+    }
+  ]
+}
