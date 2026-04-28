@@ -532,11 +532,11 @@ switch ($Command) {
 
         if ($resolvedWorkingDir -and $resolvedWorkingDir -ne ".") {
             if (-not (Test-Path $resolvedWorkingDir -PathType Container)) {
-                Write-Host ([char]0x1F4C1 + " Creating project directory: $resolvedWorkingDir")
+                Write-Host ([char]::ConvertFromUtf32(0x1F4C1) + " Creating project directory: $resolvedWorkingDir")
                 New-Item -ItemType Directory -Path $resolvedWorkingDir -Force | Out-Null
             }
             if (-not (Test-Path (Join-Path $resolvedWorkingDir ".agents"))) {
-                Write-Host ([char]0x1F527 + " Initializing project with ostwin init...")
+                Write-Host ([char]::ConvertFromUtf32(0x1F527) + " Initializing project with ostwin init...")
                 $initPs1 = Join-Path $AgentsDir "init.ps1"
                 $initScript = Join-Path $AgentsDir "init.sh"
                 if (Test-Path $initPs1) {
