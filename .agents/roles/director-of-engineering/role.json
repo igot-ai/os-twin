@@ -1,0 +1,33 @@
+{
+  "name": "director-of-engineering",
+  "description": "Director of Engineering — owns org-level OKRs, cross-team alignment, capacity planning, escalation routing, and organizational health across all engineering war-rooms",
+  "instance_type": "evaluator",
+  "capabilities": [
+    "okr-management",
+    "cross-team-alignment",
+    "capacity-planning",
+    "escalation-routing",
+    "org-health-monitoring",
+    "headcount-planning",
+    "strategic-prioritization"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "okrs-cascaded",
+    "capacity-validated",
+    "escalations-resolved",
+    "health-assessed"
+  ],
+  "skill_refs": [
+    "okr-alignment",
+    "cross-team-sync",
+    "capacity-planning",
+    "escalation-routing",
+    "org-health-check",
+    "brain-ops",
+    "war-room-communication"
+  ],
+  "cli": "agent",
+  "model": "google-vertex/zai-org/glm-5-maas",
+  "timeout": 3600
+}

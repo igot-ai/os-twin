@@ -1,0 +1,33 @@
+{
+  "name": "principal-engineer",
+  "description": "Principal Engineer — sets multi-quarter technical direction, writes RFCs, resolves cross-team technical disputes, and mentors staff engineers at the systems design and technology strategy level",
+  "instance_type": "evaluator",
+  "capabilities": [
+    "rfc-authoring",
+    "technology-evaluation",
+    "technical-dispute-resolution",
+    "system-design-review",
+    "engineering-standards",
+    "technical-vision",
+    "cross-team-mentorship"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "rfc-structured",
+    "evidence-based-decisions",
+    "scalability-validated",
+    "standards-documented"
+  ],
+  "skill_refs": [
+    "write-rfc",
+    "technology-radar",
+    "technical-dispute-resolution",
+    "system-design-review",
+    "engineering-standards",
+    "brain-ops",
+    "war-room-communication"
+  ],
+  "cli": "agent",
+  "model": "google-vertex/zai-org/glm-5-maas",
+  "timeout": 3600
+}

@@ -576,6 +576,177 @@
         "evidence-cited"
       ],
       "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "principal-engineer",
+      "description": "Principal Engineer — sets multi-quarter technical direction, writes RFCs, resolves cross-team technical disputes, and mentors staff engineers",
+      "definition": "roles/principal-engineer/role.json",
+      "prompt": "roles/principal-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "review",
+        "design",
+        "epic"
+      ],
+      "capabilities": [
+        "rfc-authoring",
+        "technology-evaluation",
+        "technical-dispute-resolution",
+        "system-design-review",
+        "engineering-standards",
+        "technical-vision",
+        "cross-team-mentorship"
+      ],
+      "quality_gates": [
+        "rfc-structured",
+        "evidence-based-decisions",
+        "scalability-validated",
+        "standards-documented"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "director-of-engineering",
+      "description": "Director of Engineering — owns org-level OKRs, cross-team alignment, capacity planning, escalation routing, and organizational health",
+      "definition": "roles/director-of-engineering/role.json",
+      "prompt": "roles/director-of-engineering/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "orchestration",
+        "epic"
+      ],
+      "capabilities": [
+        "okr-management",
+        "cross-team-alignment",
+        "capacity-planning",
+        "escalation-routing",
+        "org-health-monitoring",
+        "headcount-planning",
+        "strategic-prioritization"
+      ],
+      "quality_gates": [
+        "okrs-cascaded",
+        "capacity-validated",
+        "escalations-resolved",
+        "health-assessed"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "sre-lead",
+      "description": "SRE Lead — owns production reliability: SLOs, error budgets, incident response, runbooks, observability, and chaos engineering",
+      "definition": "roles/sre-lead/role.json",
+      "prompt": "roles/sre-lead/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "task",
+        "epic",
+        "investigation"
+      ],
+      "capabilities": [
+        "slo-management",
+        "incident-response",
+        "runbook-authoring",
+        "observability-design",
+        "chaos-engineering",
+        "error-budget-tracking",
+        "on-call-management"
+      ],
+      "quality_gates": [
+        "slo-defined",
+        "runbook-tested",
+        "alerts-actionable",
+        "rca-documented"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "program-manager",
+      "description": "Program Manager — owns cross-cutting program execution, milestone tracking, dependency mapping, stakeholder comms, and launch readiness",
+      "definition": "roles/program-manager/role.json",
+      "prompt": "roles/program-manager/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "orchestration",
+        "epic"
+      ],
+      "capabilities": [
+        "milestone-tracking",
+        "dependency-mapping",
+        "stakeholder-communications",
+        "risk-management",
+        "launch-readiness",
+        "cross-program-coordination",
+        "executive-reporting"
+      ],
+      "quality_gates": [
+        "milestones-tracked",
+        "dependencies-mapped",
+        "risks-registered",
+        "stakeholders-informed"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "platform-engineer",
+      "description": "Platform Engineer — builds shared platform, internal SDKs, CI/CD pipelines, developer experience, and infrastructure-as-code",
+      "definition": "roles/platform-engineer/role.json",
+      "prompt": "roles/platform-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": true,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "sdk-design",
+        "cicd-design",
+        "developer-experience",
+        "infrastructure-as-code",
+        "api-governance",
+        "platform-reliability",
+        "internal-tooling"
+      ],
+      "quality_gates": [
+        "sdk-documented",
+        "pipeline-green",
+        "dx-measured",
+        "iac-reviewed"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "security-engineer",
+      "description": "Security Engineer — shift-left security: threat modeling, secure code review, vulnerability management, security architecture, and compliance mapping",
+      "definition": "roles/security-engineer/role.json",
+      "prompt": "roles/security-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "review",
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "threat-modeling",
+        "secure-code-review",
+        "vulnerability-management",
+        "security-architecture",
+        "compliance-mapping",
+        "penetration-testing",
+        "security-automation"
+      ],
+      "quality_gates": [
+        "threat-model-complete",
+        "vulnerabilities-triaged",
+        "compliance-mapped",
+        "no-critical-findings"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     }
   ],
   "assignment_rules": {
@@ -584,7 +755,13 @@
     "design_role": "architect",
     "orchestration_role": "manager",
     "audit_role": "audit",
-    "staff_review_role": "staff-manager"
+    "staff_review_role": "staff-manager",
+    "principal_role": "principal-engineer",
+    "director_role": "director-of-engineering",
+    "reliability_role": "sre-lead",
+    "program_role": "program-manager",
+    "platform_role": "platform-engineer",
+    "security_role": "security-engineer"
   },
   "extensibility": {
     "custom_roles_dir": "roles/",
@@ -644,7 +821,41 @@
       "puzzle-prototype": "puzzle-web-prototyping",
       "play-test": "puzzle-play-testing",
       "playtest": "puzzle-play-testing",
-      "puzzle-qa": "puzzle-play-testing"
+      "puzzle-qa": "puzzle-play-testing",
+      "rfc": "rfc-authoring",
+      "tech-radar": "technology-evaluation",
+      "dispute": "technical-dispute-resolution",
+      "standards": "engineering-standards",
+      "okr": "okr-management",
+      "okrs": "okr-management",
+      "capacity": "capacity-planning",
+      "escalation": "escalation-routing",
+      "org-health": "org-health-monitoring",
+      "slo": "slo-management",
+      "slos": "slo-management",
+      "incident": "incident-response",
+      "runbook": "runbook-authoring",
+      "observability": "observability-design",
+      "monitoring": "observability-design",
+      "chaos": "chaos-engineering",
+      "milestone": "milestone-tracking",
+      "dependency-map": "dependency-mapping",
+      "stakeholder": "stakeholder-communications",
+      "launch": "launch-readiness",
+      "sdk": "sdk-design",
+      "pipeline": "cicd-design",
+      "dx": "developer-experience",
+      "iac": "infrastructure-as-code",
+      "terraform": "infrastructure-as-code",
+      "api-governance": "api-governance",
+      "threat-model": "threat-modeling",
+      "cve": "vulnerability-management",
+      "vulnerability": "vulnerability-management",
+      "soc2": "compliance-mapping",
+      "gdpr": "compliance-mapping",
+      "hipaa": "compliance-mapping",
+      "pci": "compliance-mapping",
+      "zero-trust": "security-architecture"
     }
   },
   "skills": {
