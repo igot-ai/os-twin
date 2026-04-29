@@ -479,6 +479,17 @@ class Ingestor:
                 or ""
             )
         except Exception as exc:  # noqa: BLE001
+            exc_name = type(exc).__name__
+            if "MissingDependency" in exc_name:
+                # Dependency-resolution errors are environment problems, not
+                # transient failures.  Surface them loudly so the operator can
+                # ``pip install markitdown[all]`` (or the missing extra).
+                logger.warning(
+                    "MarkItDown dependency error on %s — %s. "
+                    "Install missing extras: pip install 'markitdown[all]'",
+                    path.name, exc,
+                )
+                raise  # Let the caller report as "Failed", not "Skipped"
             logger.debug("MarkItDown failed on %s: %s", path, exc)
             text = ""
 

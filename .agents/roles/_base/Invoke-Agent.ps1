@@ -92,7 +92,7 @@ $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction Sile
 $_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
 $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
 
-# Ensure RoomDir is absolute for bash wrapper consistency (EPIC-002)
+# Ensure RoomDir is absolute for wrapper script consistency (EPIC-002)
 # Using GetUnresolvedProviderPathFromPSPath to handle non-existent paths (unlikely but safe)
 $absRoomDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RoomDir)
 
@@ -477,162 +477,123 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         # Ensure critical env vars for MCP server resolution are exported
         # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} placeholders
         # Use platform-specific venv Python path
-        $venvPythonUnix = Join-Path $OstwinHome ".venv" "bin" "python"
-        $venvPythonWin = Join-Path $OstwinHome ".venv" "Scripts" "python.exe"
-        $envExportLines = @"
-export AGENT_DIR='$safeOstwinHome'
-export OSTWIN_PYTHON='$venvPythonUnix'
-"@
+        $venvPythonPath = if ($runningOnWindows) {
+            Join-Path $OstwinHome ".venv" "Scripts" "python.exe"
+        } else {
+            Join-Path $OstwinHome ".venv" "bin" "python"
+        }
         
         # Log diagnostic info before exec
         Write-Host "[Invoke-Agent] Launching: CMD=$AgentCmd, PromptFile=$promptFile, ArgsLine=$argsLine"
-        Write-Host "[Invoke-Agent] About to enter if (runningOnWindows=$runningOnWindows) branch..."
         
+        # --- Unified PowerShell wrapper (all platforms) ---
+        # Normalize paths for the wrapper script
+        $wrapPidFile = $pidFile
+        $wrapOutput = $outputFile
+        $wrapPrompt = $promptFile
+        $wrapSkillsDir = $isolatedSkillsDir
+        $wrapOstwinHome = $OstwinHome
+        $wrapOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig } else { "" }
         if ($runningOnWindows) {
-            Write-Host "[Invoke-Agent] Taking Windows branch..."
-            # Windows: Use PowerShell wrapper instead of bash
-            $winPidFile = $pidFile.Replace('/', '\')
-            $winOutput = $outputFile.Replace('/', '\')
-            $winPrompt = $promptFile.Replace('/', '\')
-            $winSkillsDir = $isolatedSkillsDir.Replace('/', '\')
-            $winOstwinHome = $OstwinHome.Replace('/', '\')
-            $winOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig.Replace('/', '\') } else { "" }
-            
-            # Tokenize AgentCmd and args for PowerShell execution
-            # $AgentCmd may be "opencode run", "'/path/to/agent'", or "/path/to/mock.ps1"
-            $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-            $exe = $cmdParts[0]
-            $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length - 1)] } else { @() }
+            $wrapPidFile = $pidFile.Replace('/', '\')
+            $wrapOutput = $outputFile.Replace('/', '\')
+            $wrapPrompt = $promptFile.Replace('/', '\')
+            $wrapSkillsDir = $isolatedSkillsDir.Replace('/', '\')
+            $wrapOstwinHome = $OstwinHome.Replace('/', '\')
+            if ($tempMcpConfig) { $wrapOpencodeConfig = $tempMcpConfig.Replace('/', '\') }
+        }
+        
+        # Tokenize AgentCmd and args for PowerShell execution
+        # $AgentCmd may be "opencode run", "'/path/to/agent'", or "/path/to/mock.ps1"
+        $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+        $exe = $cmdParts[0]
+        $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length - 1)] } else { @() }
 
-            # If the command is a .ps1 script (possibly wrapped in "pwsh -NoProfile -File script.ps1"),
-            # extract the script path and run it directly via call operator in the wrapper.
-            # This avoids nested pwsh invocations with broken argument passing.
-            if ($exe -match '\.ps1$') {
-                # exe is already the .ps1 file — cmdArgs are its parameters
-                $allArgs = $cmdArgs + $extraCliArgs
-            } elseif ($exe -eq 'pwsh' -or $exe -eq 'powershell') {
-                # Look for -File flag and extract the script path
-                $fileIdx = [Array]::FindIndex($cmdArgs, [Predicate[object]]{ param($a) $a -eq '-File' })
-                if ($fileIdx -ge 0 -and ($fileIdx + 1) -lt $cmdArgs.Length) {
-                    $exe = $cmdArgs[$fileIdx + 1].Trim('"').Trim("'")
-                    # Drop -NoProfile, -File, and the script path from cmdArgs; keep the rest
-                    $remaining = @()
-                    for ($i = 0; $i -lt $cmdArgs.Length; $i++) {
-                        if ($i -eq $fileIdx -or $i -eq ($fileIdx + 1)) { continue }
-                        if ($cmdArgs[$i] -eq '-NoProfile' -or $cmdArgs[$i] -eq '-ExecutionPolicy' -or
-                            ($i -gt 0 -and $cmdArgs[$i - 1] -eq '-ExecutionPolicy')) { continue }
-                        $remaining += $cmdArgs[$i]
-                    }
-                    $allArgs = $remaining + $extraCliArgs
-                } else {
-                    $allArgs = $cmdArgs + $extraCliArgs
+        # If the command is a .ps1 script (possibly wrapped in "pwsh -NoProfile -File script.ps1"),
+        # extract the script path and run it directly via call operator in the wrapper.
+        if ($exe -match '\.ps1$') {
+            $allArgs = $cmdArgs + $extraCliArgs
+        } elseif ($exe -eq 'pwsh' -or $exe -eq 'powershell') {
+            $fileIdx = [Array]::FindIndex($cmdArgs, [Predicate[object]]{ param($a) $a -eq '-File' })
+            if ($fileIdx -ge 0 -and ($fileIdx + 1) -lt $cmdArgs.Length) {
+                $exe = $cmdArgs[$fileIdx + 1].Trim('"').Trim("'")
+                $remaining = @()
+                for ($i = 0; $i -lt $cmdArgs.Length; $i++) {
+                    if ($i -eq $fileIdx -or $i -eq ($fileIdx + 1)) { continue }
+                    if ($cmdArgs[$i] -eq '-NoProfile' -or $cmdArgs[$i] -eq '-ExecutionPolicy' -or
+                        ($i -gt 0 -and $cmdArgs[$i - 1] -eq '-ExecutionPolicy')) { continue }
+                    $remaining += $cmdArgs[$i]
                 }
+                $allArgs = $remaining + $extraCliArgs
             } else {
                 $allArgs = $cmdArgs + $extraCliArgs
             }
-            
-            # Serialize args array into the wrapper script as a PowerShell array literal
-            # Each arg must be properly escaped for PowerShell string handling
-            $escapedArgs = $allArgs | ForEach-Object {
-                $arg = $_
-                # Escape single quotes by doubling them, then wrap in single quotes
-                "'" + ($arg -replace "'", "''") + "'"
-            }
-            $argsArrayLiteral = "@(" + ($escapedArgs -join ',') + ")"
+        } else {
+            $allArgs = $cmdArgs + $extraCliArgs
+        }
+        
+        # Serialize args array into the wrapper script as a PowerShell array literal
+        $escapedArgs = $allArgs | ForEach-Object {
+            "'" + ($_ -replace "'", "''") + "'"
+        }
+        $argsArrayLiteral = "@(" + ($escapedArgs -join ',') + ")"
 
-            $psWrapperScript = Join-Path $artifactsDir "run-agent.ps1"
-            $psScriptContent = @"
+        $wrapperScript = Join-Path $artifactsDir "run-agent.ps1"
+        $psScriptContent = @"
+# --- run-agent.ps1 — Unified agent wrapper (all platforms) ---
 `$env:AGENT_OS_ROOM_DIR = '$safeRoomDir'
 `$env:AGENT_OS_ROLE = '$safeRole'
 `$env:AGENT_OS_PARENT_PID = $PID
-`$env:AGENT_OS_SKILLS_DIR = '$winSkillsDir'
-`$env:AGENT_OS_PID_FILE = '$winPidFile'
-`$env:OSTWIN_HOME = '$winOstwinHome'
-`$env:AGENT_DIR = '$winOstwinHome'
-`$env:OSTWIN_PYTHON = '$venvPythonWin'
-if ('$winOpencodeConfig') { `$env:OPENCODE_CONFIG = '$winOpencodeConfig' }
+`$env:AGENT_OS_SKILLS_DIR = '$wrapSkillsDir'
+`$env:AGENT_OS_PID_FILE = '$wrapPidFile'
+`$env:OSTWIN_HOME = '$wrapOstwinHome'
+`$env:AGENT_DIR = '$wrapOstwinHome'
+`$env:OSTWIN_PYTHON = '$venvPythonPath'
+if ('$wrapOpencodeConfig') { `$env:OPENCODE_CONFIG = '$wrapOpencodeConfig' }
 
-# Source user-controlled pre-exec hook
-`$envSh = Join-Path `$env:USERPROFILE '.ostwin' '.env.sh'
-if (Test-Path `$envSh) { . `$envSh }
+# Source user-controlled pre-exec hook (.env.sh as PowerShell-compatible)
+`$envHook = Join-Path '$wrapOstwinHome' '.env.ps1'
+if (Test-Path `$envHook) { . `$envHook }
+# Fallback: parse .env file for KEY=VALUE pairs
+`$envFile = Join-Path '$wrapOstwinHome' '.env'
+if (Test-Path `$envFile) {
+    foreach (`$line in Get-Content `$envFile) {
+        `$t = `$line.Trim()
+        if (-not `$t -or `$t.StartsWith('#') -or `$t -notmatch '=') { continue }
+        `$eqIdx = `$t.IndexOf('=')
+        `$k = `$t.Substring(0, `$eqIdx).Trim()
+        `$v = `$t.Substring(`$eqIdx + 1).Trim().Trim([char[]]@([char]39,[char]34))
+        if (-not [System.Environment]::GetEnvironmentVariable(`$k)) {
+            [System.Environment]::SetEnvironmentVariable(`$k, `$v)
+        }
+    }
+}
 
-# Write PID
-`$PID | Out-File -FilePath '$winPidFile' -Encoding ascii -NoNewline
+# Write PID before exec
+`$PID | Out-File -FilePath '$wrapPidFile' -Encoding ascii -NoNewline
 
 # Log diagnostics
 `$cmdArgs = $argsArrayLiteral
-"[$wrapper] PID=`$PID, CMD=$exe, ARGS=`$(`$cmdArgs -join ' ')" | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+"[wrapper] PID=`$PID, CMD=$exe, ARGS=`$(`$cmdArgs -join ' ')" | Out-File -FilePath '$wrapOutput' -Encoding utf8 -Append
+"[wrapper] PROMPT_FILE='$wrapPrompt' (exists: `$(Test-Path '$wrapPrompt'))" | Out-File -FilePath '$wrapOutput' -Encoding utf8 -Append
 
 # Execute using call operator with array
-& '$exe' @cmdArgs 2>&1 | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+& '$exe' @cmdArgs 2>&1 | Out-File -FilePath '$wrapOutput' -Encoding utf8 -Append
+`$exitCode = `$LASTEXITCODE
+if (`$exitCode -ne 0) {
+    "[wrapper] EXEC FAILED: exit=`$exitCode" | Out-File -FilePath '$wrapOutput' -Encoding utf8 -Append
+}
+exit `$exitCode
 "@
-            $psScriptContent | Out-File -FilePath $psWrapperScript -Encoding utf8 -Force
-            
-            # Launch PowerShell wrapper
-            $psi = [System.Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName = "pwsh"
-            if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
-                $psi.FileName = "powershell"
-            }
-            $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$psWrapperScript`""
-            $psi.UseShellExecute = $false
-            $psi.RedirectStandardInput = $true
-            $psi.CreateNoWindow = $true
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $proc.StandardInput.Close()
-            
-            $wrapperScript = $psWrapperScript
-            Write-Host "[Invoke-Agent] Windows branch: wrapperScript=$wrapperScript"
-        }
-        else {
-            Write-Host "[Invoke-Agent] Taking Unix/Mac branch..."
-            # Unix: Use bash wrapper (existing logic)
-            $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
-            Write-Host "[Invoke-Agent] Unix branch: wrapperScript=$wrapperScript"
-            $scriptContent = @"
-#!/bin/bash
-export AGENT_OS_ROOM_DIR='$safeRoomDir'
-export AGENT_OS_ROLE='$safeRole'
-export AGENT_OS_PARENT_PID='$PID'
-export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
-export AGENT_OS_PID_FILE='$safePidFile'
-export OSTWIN_HOME='$safeOstwinHome'
-$opencodeConfigLine
-$envExportLines
-# Static vars belong in `$safeOstwinHome`/.env; this file is for shell logic.
-if [ -f "`$HOME/.ostwin/.env.sh" ]; then . "`$HOME/.ostwin/.env.sh"; fi
-if [ -f '$safeOstwinHome/.env.sh' ]; then . '$safeOstwinHome/.env.sh'; fi
-$cwdLine
-# Write PID before exec — `$`$ survives exec, so this is the real agent PID.
-# bin/agent also writes this (harmless overwrite); this fallback ensures
-# non-bin/agent commands (opencode run, custom CLIs) still get tracked.
-echo "`$$" > '$safePidFile'
-# Log diagnostic info before exec
-echo "[wrapper] PID=`$$, CMD=$AgentCmd, CWD=`$(pwd)" >> '$safeOutput'
-echo "[wrapper] PROMPT_FILE='$safePrompt' (exists: `$(test -f '$safePrompt' && echo yes || echo no), size: `$(wc -c < '$safePrompt' 2>/dev/null || echo 0) bytes)" >> '$safeOutput'
-echo "[wrapper] EXEC: $AgentCmd $argsLine" >> '$safeOutput'
-exec $AgentCmd $argsLine >> '$safeOutput' 2>&1
-# If exec fails, this line runs:
-echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
-"@
-            $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
-            chmod +x $wrapperScript 2>$null
-
-            # --- Launch bash via System.Diagnostics.Process ---
-            # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
-            # (no console to attach to in headless runspace). Direct Process API works.
-            $psi = [System.Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName = "bash"
-            $psi.Arguments = "`"$wrapperScript`""
-            $psi.UseShellExecute = $false
-            $psi.RedirectStandardInput = $true
-            $psi.CreateNoWindow = $true
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $proc.StandardInput.Close()  # equivalent to /dev/null stdin
-        }
-
-        Write-Host "[Invoke-Agent] After if/else: wrapperScript='$wrapperScript'" -ForegroundColor Cyan
-        Write-Warning "[Invoke-Agent] bash launched as PID $($proc.Id), HasExited=$($proc.HasExited), wrapper=$wrapperScript"
+        $psScriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -Force
+        
+        # Launch PowerShell wrapper via Start-Process
+        $pwshExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
+        $proc = Start-Process -FilePath $pwshExe `
+            -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $wrapperScript) `
+            -NoNewWindow -PassThru
+        
+        Write-Host "[Invoke-Agent] Launched via $pwshExe (PID $($proc.Id)): $wrapperScript" -ForegroundColor Cyan
 
         # --- Wait for agent to self-register its PID (max 15s) ---
         # The wrapper writes $$ to the PID file before exec, and bin/agent
