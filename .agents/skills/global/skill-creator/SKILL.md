@@ -1,11 +1,6 @@
 ---
 name: skill-creator
-description: "Create new skills following the GBrain conformance standard. Generates SKILL.md
-with frontmatter, Contract, Phases, Output Format, and Anti-Patterns. Checks
-MECE against existing skills. Updates manifest and resolver.
-"
-tags: []
-trust_level: experimental
+description: Create new skills following the GBrain conformance standard. Generates SKILL.md with frontmatter, Contract, Phases, Output Format, and Anti-Patterns. Checks MECE against existing skills. Updates manifest and resolver.
 ---
 
 # Skill Creator

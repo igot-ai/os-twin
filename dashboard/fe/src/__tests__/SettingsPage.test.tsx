@@ -46,7 +46,7 @@ vi.mock('next/navigation', () => ({
   })),
 }));
 
-const SettingsPage = React.lazy(() => import('../app/settings/page'));
+import SettingsPage from '../app/settings/page';
 
 describe('Settings Page Integration', () => {
   beforeEach(() => {

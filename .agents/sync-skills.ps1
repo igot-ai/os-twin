@@ -76,9 +76,6 @@ function Get-SkillMeta {
         if ($yaml -match '(?m)^description:\s*[''"]?([^''"}\n]+)[''"]?') {
             $result.description = $Matches[1].Trim()
         }
-        if ($yaml -match '(?m)^tags:\s*(.+)') {
-            $result.tags = $Matches[1].Trim()
-        }
     }
     return $result
 }
@@ -117,7 +114,6 @@ function Install-FromDir {
         if ($isNested) { continue }
 
         $meta = Get-SkillMeta -SkillMdPath $skillMd.FullName
-        if ($meta.name) { $skillName = $meta.name }
 
         # Determine role and category from path
         $relPath = $skillDir.Substring($SourceDir.Length).TrimStart('\', '/')
@@ -131,17 +127,8 @@ function Install-FromDir {
             $destDir = Join-Path $destBase "global" $skillName
         }
         else {
-            # Fallback: infer from tags
-            $firstTag = ""
-            if ($meta.tags -match '^\[(.+)\]$') {
-                $firstTag = ($Matches[1] -split ',')[0].Trim().Trim('"', "'")
-            }
-            if ($firstTag) {
-                $destDir = Join-Path $destBase "roles" $firstTag $skillName
-            }
-            else {
-                $destDir = Join-Path $destBase "global" $skillName
-            }
+            # Default to global category
+            $destDir = Join-Path $destBase "global" $skillName
         }
 
         if (-not $destDir) {
@@ -212,8 +199,6 @@ function Sync-HomeSkills {
             $skillName = Split-Path $skillDir -Leaf
 
             $meta = Get-SkillMeta -SkillMdPath $skillMd.FullName
-            if ($meta.name) { $skillName = $meta.name }
-
             $total++
 
             # Install via API
@@ -221,7 +206,6 @@ function Sync-HomeSkills {
                 path        = $skillDir
                 name        = $meta.name
                 description = $meta.description
-                tags        = $meta.tags
             } | ConvertTo-Json -Compress
 
             try {

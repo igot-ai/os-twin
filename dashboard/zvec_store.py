@@ -2412,7 +2412,7 @@ class OSTwinStore:
         # Detect format
         has_epics_colon = bool(re.search(r"^#{2,3} Epic:", content, re.MULTILINE))
         has_epics_bare = bool(re.search(r"^#{2,3} EPIC-\d+", content, re.MULTILINE))
-        has_tasks = bool(re.search(r"^#{2,3} Task:", content, re.MULTILINE))
+        has_tasks = bool(re.search(r"^#{2,3} Tasks?:", content, re.MULTILINE))
 
         if has_epics_colon:
             # "## Epic: EPIC-001 — Title" format
@@ -2425,7 +2425,7 @@ class OSTwinStore:
             ref_pattern = r"(EPIC-\d+)\s*[—\-:]\s*(.*)"
             default_prefix = "EPIC"
         elif has_tasks:
-            split_pattern = r"^#{2,3} Task:\s*"
+            split_pattern = r"^#{2,3} Tasks?:\s*"
             ref_pattern = r"(TASK-\d+)\s*[—\-:]\s*(.*)"
             default_prefix = "TASK"
         else:
@@ -2449,13 +2449,22 @@ class OSTwinStore:
             item_body = "\n".join(lines[1:]).strip()
             room_id = f"room-{i:03d}"
 
+            depends_on = []
+            m_deps = re.search(r"depends_on:\s*\[(.*?)\]", item_body)
+            if m_deps:
+                deps_str = m_deps.group(1)
+                depends_on = [d.strip() for d in deps_str.split(",") if d.strip()]
+
             items.append(
                 {
                     "room_id": room_id,
                     "task_ref": item_ref,
+                    "epic_ref": item_ref,
                     "title": item_title,
                     "body": item_body,
                     "working_dir": working_dir,
+                    "depends_on": depends_on,
+                    "status": "pending",
                 }
             )
 

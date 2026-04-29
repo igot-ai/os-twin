@@ -229,8 +229,9 @@ Describe "Invoke-Agent" {
 
             $skills = Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue
             $skills.Count | Should -BeGreaterThan 0
-            # Should contain at least 'implement-epic' (auto-loaded engineer role-private skill)
-            $skills.Name | Should -Contain "implement-epic"
+            # Skills are now resolved via Dashboard API search (Resolve-RoleSkills.ps1).
+            # Without a running dashboard, only the source-tree subdirs (global, roles) exist.
+            # Do NOT assert on specific API-resolved skill names here.
         }
 
         It "does NOT create a skills directory inside the war-room" {

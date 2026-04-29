@@ -1064,6 +1064,7 @@ switch ($Command) {
         $channelCmd = Join-Path $AgentsDir "bin\channel_cmd.py"
         if (Test-Path $channelCmd) {
             & $PythonCmd $channelCmd @Arguments
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
         }
         else {
             Write-Error "[ERROR] channel_cmd.py not found at $channelCmd"

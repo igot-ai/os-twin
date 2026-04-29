@@ -392,9 +392,19 @@ export default function QueryPanel({
         >
           {/* Graph header */}
           <div className="flex items-center justify-between px-3 py-2 border-b shrink-0" style={{ borderColor: 'var(--color-border)' }}>
-            <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>
-              Knowledge Graph
-            </h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-semibold" style={{ color: 'var(--color-text-main)' }}>
+                Knowledge Graph
+              </h4>
+              {graphStats.node_count > 0 && (
+                <span 
+                  className="text-[9px] px-1.5 py-0.5 rounded-full" 
+                  style={{ background: 'var(--color-surface-hover)', color: 'var(--color-text-muted)' }}
+                >
+                  {graphStats.node_count} nodes · {graphStats.edge_count} edges
+                </span>
+              )}
+            </div>
             <button
               onClick={onRefreshGraph}
               className="p-1 rounded hover:bg-surface-hover transition-colors"

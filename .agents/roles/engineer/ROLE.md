@@ -11,12 +11,17 @@ trust_level: core
 When assigned an Epic, you own the full planning and implementation cycle:
 
 ### Phase 0 — Context (ALWAYS DO THIS FIRST)
-Before writing any code, check what other rooms have already built using the `memory` MCP tools:
+Before writing any code, load context from both layers:
 ```
+# Memory — what have other rooms built?
 search_memory(query="<terms from your brief — e.g. schema, API contract, conventions>")
 memory_tree()
+
+# Knowledge — what does the project believe?
+knowledge_query("project-docs", "What are the conventions for <area>?", mode="summarized")
 ```
-This tells you existing schemas, API contracts, and conventions to follow.
+Memory tells you existing code, interfaces, and decisions from parallel work.
+Knowledge tells you the canonical standards your implementation must align with.
 
 ### Phase 1 — Planning
 1. Read the Epic brief and understand the high-level goal. Check the `assets/` directory for any pre-injected project assets or reference materials mentioned in the manifest.

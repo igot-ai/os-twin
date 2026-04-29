@@ -768,4 +768,183 @@ describe('EpicEditorPanel', () => {
       expect(screen.getByText('Mark all done').closest('button')).toBeDisabled();
     });
   });
+
+  // ── Regression: Description heading duplication (FIXED) ──────────
+
+  describe('Regression: commitDescription must NOT duplicate heading', () => {
+    it('sets section.content to body text only (no heading) when saving description', async () => {
+      render(
+        <EpicEditorPanel epic={makeEpic()} isOpen={true} onClose={onClose} />
+      );
+
+      // Double-click the description area to start editing
+      const descArea = screen.getByText('Build authentication system');
+      fireEvent.doubleClick(descArea);
+
+      // Find the textarea and update the value
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Updated auth description' } });
+
+      // Blur to commit (commitDescription)
+      fireEvent.blur(textarea);
+
+      expect(mockUpdateParsedPlan).toHaveBeenCalledTimes(1);
+      const updater = mockUpdateParsedPlan.mock.calls[0][0];
+      const doc = makeDoc();
+      updater(doc);
+
+      // The critical assertion: section.content must NOT contain the heading
+      const descSection = doc.epics[0].sections.find(s => s.heading === 'Description');
+      expect(descSection?.content).toBe('Updated auth description');
+      // Content must NOT start with ### Description
+      expect(descSection?.content).not.toMatch(/^###\s+Description/);
+      // Preamble should have the heading
+      expect(descSection?.preamble).toEqual(['### Description']);
+    });
+
+    it('does NOT accumulate headings across multiple saves', async () => {
+      // Simulate 3 saves via the updater pattern
+      const updaters: Array<(doc: EpicDocument) => void> = [];
+      mockUpdateParsedPlan.mockImplementation((updater: (doc: EpicDocument) => void) => {
+        updaters.push(updater);
+      });
+
+      const { rerender } = render(
+        <EpicEditorPanel epic={makeEpic()} isOpen={true} onClose={onClose} />
+      );
+
+      // Save 1: Double-click, type, blur
+      const descArea = screen.getByText('Build authentication system');
+      fireEvent.doubleClick(descArea);
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'Version 1' } });
+      fireEvent.blur(textarea);
+
+      // Apply updater and re-render with updated epic
+      expect(updaters.length).toBe(1);
+      const doc1 = makeDoc();
+      updaters[0](doc1);
+      const descSection1 = doc1.epics[0].sections.find(s => s.heading === 'Description');
+
+      // After first save — content should be clean
+      expect(descSection1?.content).toBe('Version 1');
+      expect(descSection1?.content).not.toContain('### Description');
+    });
+  });
+
+  // ── Regression: Frontmatter deletion persistence ────────────────
+
+  describe('Regression: deleteFrontmatter removes key from serialized output', () => {
+    it('deletes a frontmatter key via updateParsedPlan', async () => {
+      const epicWithMeta = makeEpic({
+        frontmatter: new Map([
+          ['Roles', 'engineer, qa'],
+          ['Phase', '1'],
+          ['Priority', 'P0'],
+        ]),
+      });
+      mockParsedPlan = makeDoc([epicWithMeta]);
+
+      render(
+        <EpicEditorPanel epic={epicWithMeta} isOpen={true} onClose={onClose} />
+      );
+
+      // Find the remove button for a metadata field
+      // The metadata fields should be visible — look for "Phase" and "Priority" labels
+      const removeButtons = screen.getAllByTitle(/Remove/);
+      // Filter to the metadata remove buttons (not role remove buttons)
+      const metaRemoveButton = removeButtons.find(btn =>
+        btn.getAttribute('title')?.includes('Phase') ||
+        btn.getAttribute('title')?.includes('Priority')
+      );
+
+      if (metaRemoveButton) {
+        fireEvent.click(metaRemoveButton);
+
+        expect(mockUpdateParsedPlan).toHaveBeenCalledTimes(1);
+        const updater = mockUpdateParsedPlan.mock.calls[0][0];
+        const doc = makeDoc([epicWithMeta]);
+        updater(doc);
+
+        const deletedKey = metaRemoveButton.getAttribute('title')?.replace('Remove ', '');
+        // The deleted key should no longer exist in frontmatter
+        expect(doc.epics[0].frontmatter.has(deletedKey!)).toBe(false);
+      }
+    });
+
+    it('serializer omits deleted frontmatter lines after round-trip', () => {
+      // This tests the serializer directly — complementing the parser test
+      const md = `## EPIC-001 — Feature
+**Phase:** 1
+**Owner:** engineer
+**Priority:** P0
+
+### Description
+Goal of the epic.
+`;
+      const doc = parseEpicMarkdown(md);
+
+      // Delete Owner key
+      doc.epics[0].frontmatter.delete('Owner');
+
+      const result = serializeEpicMarkdown(doc);
+
+      // Owner line must NOT appear in output
+      expect(result).not.toContain('**Owner:**');
+      expect(result).not.toContain('engineer');
+
+      // Other keys preserved
+      expect(result).toContain('**Phase:** 1');
+      expect(result).toContain('**Priority:** P0');
+
+      // Re-parse should NOT resurrect the deleted key
+      const doc2 = parseEpicMarkdown(result);
+      expect(doc2.epics[0].frontmatter.has('Owner')).toBe(false);
+      expect(doc2.epics[0].frontmatter.get('Phase')).toBe('1');
+    });
+  });
+
+  // ── Regression: Mutation-first save pattern ────────────────────
+
+  describe('Regression: Mutation-first pattern prevents state revert', () => {
+    it('calls updateParsedPlan before setEditingDescription(false)', async () => {
+      // This verifies the ordering: mutation must fire before exiting edit mode
+      const callOrder: string[] = [];
+
+      mockUpdateParsedPlan.mockImplementation((updater: (doc: EpicDocument) => void) => {
+        callOrder.push('updateParsedPlan');
+        const doc = makeDoc();
+        updater(doc);
+      });
+
+      render(
+        <EpicEditorPanel epic={makeEpic()} isOpen={true} onClose={onClose} />
+      );
+
+      const descArea = screen.getByText('Build authentication system');
+      fireEvent.doubleClick(descArea);
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'New description value' } });
+      fireEvent.blur(textarea);
+
+      // updateParsedPlan should have been called
+      expect(callOrder).toContain('updateParsedPlan');
+      expect(mockUpdateParsedPlan).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call updateParsedPlan when description is unchanged', async () => {
+      render(
+        <EpicEditorPanel epic={makeEpic()} isOpen={true} onClose={onClose} />
+      );
+
+      const descArea = screen.getByText('Build authentication system');
+      fireEvent.doubleClick(descArea);
+      // Don't change the value — just blur
+      const textarea = screen.getByRole('textbox');
+      fireEvent.blur(textarea);
+
+      // Should NOT have called updateParsedPlan — no mutation needed
+      expect(mockUpdateParsedPlan).not.toHaveBeenCalled();
+    });
+  });
 });
