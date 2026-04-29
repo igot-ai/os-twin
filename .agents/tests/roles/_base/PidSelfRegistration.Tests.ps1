@@ -1,95 +1,61 @@
 # Agent OS — PID Self-Registration Tests
 #
-# Validates the new PID management design where:
-# 1. bin/agent self-registers PID via AGENT_OS_PID_FILE env var
-# 2. Invoke-Agent.ps1 no longer writes premature PIDs
-# 3. Wrapper scripts export AGENT_OS_PID_FILE instead of echo $$
+# Validates PID management in the unified PowerShell pipeline:
+# 1. Wrapper scripts (run-agent.ps1) write $PID to AGENT_OS_PID_FILE
+# 2. Invoke-Agent.ps1 does not write premature PIDs
+# 3. Generated run-agent.ps1 exports AGENT_OS_PID_FILE env var
 
 BeforeAll {
     $script:InvokeAgent = Join-Path (Resolve-Path "$PSScriptRoot/../../../roles/_base").Path "Invoke-Agent.ps1"
-    $script:agentBin    = Join-Path (Resolve-Path "$PSScriptRoot/../../../bin").Path "agent"
 }
 
 Describe "PID Self-Registration" {
 
     # ================================================================
-    # bin/agent — PID file writing via AGENT_OS_PID_FILE
+    # Wrapper PID file writing via AGENT_OS_PID_FILE
     # ================================================================
-    Context "bin/agent: AGENT_OS_PID_FILE behavior" {
+    Context "Wrapper: AGENT_OS_PID_FILE behavior" {
 
         It "writes PID to AGENT_OS_PID_FILE when env var is set" {
             $pidFile = Join-Path $TestDrive "test-agent.pid"
-            # Create a mock cli.py that just exits 0
-            $mockCliDir = Join-Path $TestDrive "mock-agents" "bin"
-            New-Item -ItemType Directory -Path $mockCliDir -Force | Out-Null
-            "import sys; sys.exit(0)" | Out-File (Join-Path $mockCliDir "cli.py") -Encoding utf8
-
-            # Create a thin wrapper that simulates the PID-writing portion of bin/agent
-            $testScript = Join-Path $TestDrive "test-pid-write.sh"
+            $testScript = Join-Path $TestDrive "test-pid-write.ps1"
             @"
-#!/bin/bash
-set -euo pipefail
-AGENT_OS_PID_FILE='$pidFile'
-if [[ -n "`${AGENT_OS_PID_FILE:-}" ]]; then
-  echo "`$$" > "`$AGENT_OS_PID_FILE"
-fi
-# Don't actually exec — just verify PID was written
+if (`$env:AGENT_OS_PID_FILE) {
+    `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
+}
 exit 0
-"@ | Out-File $testScript -Encoding utf8 -NoNewline
-            chmod +x $testScript
+"@ | Out-File $testScript -Encoding utf8
 
-            bash $testScript
-            $LASTEXITCODE | Should -Be 0
+            $env:AGENT_OS_PID_FILE = $pidFile
+            try {
+                pwsh -NoProfile -ExecutionPolicy Bypass -File $testScript
+                $LASTEXITCODE | Should -Be 0
+            } finally {
+                Remove-Item Env:AGENT_OS_PID_FILE -ErrorAction SilentlyContinue
+            }
 
             Test-Path $pidFile | Should -BeTrue
             $pidContent = (Get-Content $pidFile -Raw).Trim()
             $pidContent | Should -Match '^\d+$'
-            # PID should be a reasonable value (> 0)
             [int]$pidContent | Should -BeGreaterThan 0
         }
 
         It "does NOT write PID file when AGENT_OS_PID_FILE is unset" {
             $pidFile = Join-Path $TestDrive "should-not-exist.pid"
-            
-            $testScript = Join-Path $TestDrive "test-no-pid.sh"
+            $testScript = Join-Path $TestDrive "test-no-pid.ps1"
             @"
-#!/bin/bash
-set -euo pipefail
-# AGENT_OS_PID_FILE is intentionally NOT set
-unset AGENT_OS_PID_FILE 2>/dev/null || true
-if [[ -n "`${AGENT_OS_PID_FILE:-}" ]]; then
-  echo "`$$" > '$pidFile'
-fi
+Remove-Item Env:AGENT_OS_PID_FILE -ErrorAction SilentlyContinue
+if (`$env:AGENT_OS_PID_FILE) {
+    `$PID | Out-File -FilePath '$pidFile' -Encoding ascii -NoNewline
+}
 exit 0
-"@ | Out-File $testScript -Encoding utf8 -NoNewline
-            chmod +x $testScript
+"@ | Out-File $testScript -Encoding utf8
 
-            bash $testScript
+            Remove-Item Env:AGENT_OS_PID_FILE -ErrorAction SilentlyContinue
+            pwsh -NoProfile -ExecutionPolicy Bypass -File $testScript
             $LASTEXITCODE | Should -Be 0
 
             Test-Path $pidFile | Should -BeFalse
-        }
-
-        It "PID written matches the shell PID (exec inherits it)" {
-            $pidFile = Join-Path $TestDrive "exec-pid.pid"
-            # This test proves that exec inherits the shell PID.
-            # We use exec to replace bash with a command that reads its own PID.
-            $testScript = Join-Path $TestDrive "test-exec-pid.sh"
-            @"
-#!/bin/bash
-AGENT_OS_PID_FILE='$pidFile'
-echo "`$$" > "`$AGENT_OS_PID_FILE"
-# exec into a program that prints its PID — should match $$
-exec bash -c 'echo `$$'
-"@ | Out-File $testScript -Encoding utf8 -NoNewline
-            chmod +x $testScript
-
-            $execPid = bash $testScript
-            $LASTEXITCODE | Should -Be 0
-
-            $writtenPid = (Get-Content $pidFile -Raw).Trim()
-            # The PID written before exec should match the PID reported after exec
-            $writtenPid | Should -Be $execPid.Trim()
         }
     }
 
@@ -123,33 +89,16 @@ exec bash -c 'echo `$$'
             }
         }
 
-        It "wrapper script exports AGENT_OS_PID_FILE instead of echo '$$'" {
-            # Create a mock that captures the wrapper script before it's deleted
-            $wrapperCapture = Join-Path $TestDrive "captured-wrapper.sh"
-            $captureAgent = Join-Path $TestDrive "capture-agent.sh"
+        It "wrapper script sets AGENT_OS_PID_FILE and writes PID" {
+            # Use a slow mock so we can inspect the wrapper before cleanup
+            $startedFlag = Join-Path $TestDrive "started-$(Get-Random).flag"
+            $slowAgent = Join-Path $TestDrive "slow-capture.ps1"
             @"
-#!/bin/bash
-# Copy the calling wrapper script content to a known location
-# The wrapper is at `$0's parent dir / run-agent.sh
-cp "`$(dirname "`$0")/../artifacts/run-agent.sh" '$wrapperCapture' 2>/dev/null || true
-echo "captured"
+'' | Out-File -FilePath '$startedFlag' -Encoding utf8
+Start-Sleep -Seconds 1
+Write-Output 'done'
 exit 0
-"@ | Out-File $captureAgent -Encoding utf8 -NoNewline
-            chmod +x $captureAgent
-
-            # We can also just check that Invoke-Agent generates the right content
-            # by examining the artifacts/run-agent.sh before cleanup.
-            # But Invoke-Agent cleans up the wrapper. Instead, let's use a script
-            # that delays to give us time to read it.
-            $slowAgent = Join-Path $TestDrive "slow-capture.sh"
-            @"
-#!/bin/bash
-# Signal that we started by touching a file
-touch '$wrapperCapture.started'
-sleep 1
-echo "done"
-"@ | Out-File $slowAgent -Encoding utf8 -NoNewline
-            chmod +x $slowAgent
+"@ | Out-File $slowAgent -Encoding utf8
 
             # Start in background so we can inspect the wrapper
             $job = Start-Job -ScriptBlock {
@@ -160,22 +109,20 @@ echo "done"
 
             # Wait for the agent to start
             $deadline = (Get-Date).AddSeconds(10)
-            while (-not (Test-Path "$wrapperCapture.started") -and (Get-Date) -lt $deadline) {
+            while (-not (Test-Path $startedFlag) -and (Get-Date) -lt $deadline) {
                 Start-Sleep -Milliseconds 200
             }
 
-            # Read the wrapper script that Invoke-Agent generated
-            $wrapperFile = Join-Path $script:roomDir "artifacts" "run-agent.sh"
+            # Read the wrapper script that Invoke-Agent generated (now .ps1)
+            $wrapperFile = Join-Path $script:roomDir "artifacts" "run-agent.ps1"
             if (Test-Path $wrapperFile) {
                 $wrapperContent = Get-Content $wrapperFile -Raw
 
-                # Should contain AGENT_OS_PID_FILE export
-                $wrapperContent | Should -Match "export AGENT_OS_PID_FILE="
+                # Should set AGENT_OS_PID_FILE env var
+                $wrapperContent | Should -Match 'AGENT_OS_PID_FILE'
 
-                # Wrapper now writes PID as fallback for non-bin/agent commands
-                # (echo "$$" > pidfile). This is intentional — bin/agent may also
-                # write it (harmless overwrite).
-                $wrapperContent | Should -Match 'echo.*\$\$.*\.pid'
+                # Wrapper writes $PID to PID file as fallback
+                $wrapperContent | Should -Match '\$PID.*Out-File.*\.pid'
             }
 
             $job | Wait-Job -Timeout 15 | Out-Null
@@ -196,17 +143,15 @@ echo "done"
         }
 
         It "PID file contains a valid PID after agent completes" {
-            # Use a mock that writes to AGENT_OS_PID_FILE (simulating bin/agent behavior)
-            $pidWriter = Join-Path $TestDrive "pid-writer.sh"
+            # Use a mock that writes to AGENT_OS_PID_FILE (simulating agent behavior)
+            $pidWriter = Join-Path $TestDrive "pid-writer.ps1"
             @"
-#!/bin/bash
-if [[ -n "`${AGENT_OS_PID_FILE:-}" ]]; then
-  echo "`$$" > "`$AGENT_OS_PID_FILE"
-fi
-echo "agent output"
+if (`$env:AGENT_OS_PID_FILE) {
+    `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
+}
+Write-Output 'agent output'
 exit 0
-"@ | Out-File $pidWriter -Encoding utf8 -NoNewline
-            chmod +x $pidWriter
+"@ | Out-File $pidWriter -Encoding utf8
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
@@ -225,14 +170,11 @@ exit 0
 
         It "handles agent that does not write PID (backward compat)" {
             # An agent that ignores AGENT_OS_PID_FILE should still work
-            # (the PID file just won't be populated)
-            $noPidAgent = Join-Path $TestDrive "no-pid-agent.sh"
+            $noPidAgent = Join-Path $TestDrive "no-pid-agent.ps1"
             @"
-#!/bin/bash
-echo "I don't write PIDs"
+Write-Output 'I do not write PIDs'
 exit 0
-"@ | Out-File $noPidAgent -Encoding utf8 -NoNewline
-            chmod +x $noPidAgent
+"@ | Out-File $noPidAgent -Encoding utf8
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
@@ -244,26 +186,14 @@ exit 0
         }
 
         It "timeout kill uses confirmed PID from self-registration" {
-            # Create a slow mock that writes its PID, then sleeps forever
-            if ($IsWindows) {
-                $slowPidAgent = Join-Path $TestDrive "slow-pid.ps1"
-                @"
+            # Create a slow mock that writes its PID, then sleeps forever (pwsh wrapper)
+            $slowPidAgent = Join-Path $TestDrive "slow-pid.ps1"
+            @"
 if (`$env:AGENT_OS_PID_FILE) {
-  `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
+    `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
 }
 Start-Sleep -Seconds 300
-"@ | Out-File $slowPidAgent -Encoding utf8 -NoNewline
-            } else {
-                $slowPidAgent = Join-Path $TestDrive "slow-pid.sh"
-                @"
-#!/bin/bash
-if [[ -n "`${AGENT_OS_PID_FILE:-}" ]]; then
-  echo "`$$" > "`$AGENT_OS_PID_FILE"
-fi
-sleep 300
-"@ | Out-File $slowPidAgent -Encoding utf8 -NoNewline
-                chmod +x $slowPidAgent
-            }
+"@ | Out-File $slowPidAgent -Encoding utf8
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "slow" `
@@ -299,27 +229,14 @@ sleep 300
         It "complete flow: wrapper sets env, agent writes PID, Invoke-Agent confirms" {
             # Simulate the full chain: wrapper exports AGENT_OS_PID_FILE,
             # mock agent reads it and writes PID, Invoke-Agent picks it up
-            if ($IsWindows) {
-                $fullChainAgent = Join-Path $TestDrive "full-chain.ps1"
-                @"
+            $fullChainAgent = Join-Path $TestDrive "full-chain.ps1"
+            @"
 if (`$env:AGENT_OS_PID_FILE) {
-  `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
+    `$PID | Out-File -FilePath `$env:AGENT_OS_PID_FILE -Encoding ascii -NoNewline
 }
 Write-Output 'work complete'
 exit 0
-"@ | Out-File $fullChainAgent -Encoding utf8 -NoNewline
-            } else {
-                $fullChainAgent = Join-Path $TestDrive "full-chain.sh"
-                @"
-#!/bin/bash
-if [[ -n "`${AGENT_OS_PID_FILE:-}" ]]; then
-  echo "`$$" > "`$AGENT_OS_PID_FILE"
-fi
-echo "work complete"
-exit 0
-"@ | Out-File $fullChainAgent -Encoding utf8 -NoNewline
-                chmod +x $fullChainAgent
-            }
+"@ | Out-File $fullChainAgent -Encoding utf8
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "architect" -Prompt "review" `

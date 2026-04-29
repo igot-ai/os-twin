@@ -76,7 +76,7 @@ BeforeAll {
     }
 
     # --- Write a mock Invoke-Agent script that records what RoleName it received ---
-    # The mock writes mock_invoked_role.txt and a run-agent.sh reflecting the role.
+    # The mock writes mock_invoked_role.txt and a run-agent.ps1 reflecting the role.
     # Uses Add-Content to avoid nested here-string parse errors.
     function New-InvokeAgentMock {
         param([string]$Path, [string]$ResponseText = "Done.")
@@ -100,10 +100,10 @@ BeforeAll {
         Add-Content  -Path $Path -Value 'New-Item -ItemType Directory -Path $pidDir -Force | Out-Null'
         Add-Content  -Path $Path -Value '$pidFile = Join-Path $pidDir "$RoleName.pid"'
         Add-Content  -Path $Path -Value '$PID | Out-File -FilePath $pidFile -Encoding utf8 -NoNewline'
-        # Build run-agent.sh content: "#!/bin/bash\nexport AGENT_OS_ROLE='<role>'"
+        # Build run-agent.ps1 content with AGENT_OS_ROLE env var
         Add-Content  -Path $Path -Value '$nl = [Environment]::NewLine'
-        Add-Content  -Path $Path -Value ('$bash = "#!/bin/bash" + $nl + "export AGENT_OS_ROLE=" + [char]39 + $RoleName + [char]39')
-        Add-Content  -Path $Path -Value '$bash | Out-File (Join-Path $artifactsDir "run-agent.sh") -Encoding utf8 -NoNewline'
+        Add-Content  -Path $Path -Value ('$ps1Content = "# run-agent.ps1 — unified wrapper" + $nl + "`$env:AGENT_OS_ROLE = " + [char]39 + $RoleName + [char]39')
+        Add-Content  -Path $Path -Value '$ps1Content | Out-File (Join-Path $artifactsDir "run-agent.ps1") -Encoding utf8 -NoNewline'
         $safeOut = $ResponseText -replace "'", "''"
         Add-Content  -Path $Path -Value "return [PSCustomObject]@{ ExitCode=0; Output='$safeOut'; PidFile=`$pidFile; RoleName=`$RoleName; TimedOut=`$false }"
     }
@@ -286,7 +286,7 @@ Describe "Lifecycle Role Transition — game-engineer to game-qa" {
             Add-Content  -Path $script:mockGetRole `
                 -Value 'return [PSCustomObject]@{ Name=$RoleName; InstanceType=if($RoleName -eq "game-qa"){"evaluator"}else{"worker"}; Model="test"; Timeout=60 }'
 
-            # --- Mock: InvokeAgent records RoleName, writes run-agent.sh ---
+            # --- Mock: InvokeAgent records RoleName, writes run-agent.ps1 ---
             $script:mockInvoke = Join-Path $TestDrive "Mock-Invoke-$(Get-Random).ps1"
             New-InvokeAgentMock -Path $script:mockInvoke -ResponseText "VERDICT: PASS`nAll tests OK."
 
@@ -309,16 +309,16 @@ Describe "Lifecycle Role Transition — game-engineer to game-qa" {
             $invokedRole | Should -Be "game-qa"
         }
 
-        It "generates run-agent.sh with AGENT_OS_ROLE=game-qa (not game-engineer) in review state" {
+        It "generates run-agent.ps1 with AGENT_OS_ROLE=game-qa (not game-engineer) in review state" {
             & $script:StartDynamicRole -RoomDir $script:roomDir `
                                        -RoleName "game-qa" `
                                        -AgentsDir $script:agentsDir `
                                        -TimeoutSeconds 10 `
                                        @script:overrides
 
-            $runSh = Get-Content (Join-Path $script:roomDir "artifacts" "run-agent.sh") -Raw
-            $runSh | Should -Match "AGENT_OS_ROLE='game-qa'"
-            $runSh | Should -Not -Match "AGENT_OS_ROLE='game-engineer'"
+            $runPs1 = Get-Content (Join-Path $script:roomDir "artifacts" "run-agent.ps1") -Raw
+            $runPs1 | Should -Match "AGENT_OS_ROLE.*=.*'game-qa'"
+            $runPs1 | Should -Not -Match "AGENT_OS_ROLE.*=.*'game-engineer'"
         }
 
         It "posts channel message as game-qa (not game-engineer) when -RoleName game-qa passed" {
