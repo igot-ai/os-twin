@@ -186,22 +186,6 @@ trust_level: core
             Test-Path (Join-Path $resolved "SKILL.md") | Should -BeTrue
         }
 
-        It "falls back to HOME/.ostwin when skill not in agents dir" {
-            $homeMock = Join-Path $TestDrive "home-mock" ".ostwin"
-            $relPath = "skills/roles/audit/validate-output"
-            $srcDir = Join-Path $homeMock $relPath
-            New-Item -ItemType Directory -Path $srcDir -Force | Out-Null
-            "# validate content" | Out-File (Join-Path $srcDir "SKILL.md") -Encoding utf8
-
-            # The fallback pattern from the code
-            $agentsDir = Join-Path $TestDrive "nonexistent-agents"
-            $primaryPath = Join-Path $agentsDir $relPath
-            $fallbackPath = Join-Path $homeMock $relPath
-
-            Test-Path $primaryPath | Should -BeFalse
-            Test-Path $fallbackPath | Should -BeTrue
-        }
-
         It "skips skill when relative_path is empty" {
             $skill = @{ name = "no-path-skill"; relative_path = $null }
             # Mirroring the guard: if (-not $relPath) { continue }

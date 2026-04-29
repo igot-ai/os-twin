@@ -9,7 +9,7 @@ import { usePlanRefine } from '@/hooks/use-plan-refine';
 import { useAssets } from '@/hooks/use-assets';
 import { apiPost } from '@/lib/api-client';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { Plan, Epic, EpicStatus, WarRoomProgress } from '@/types';
+import { Plan, Epic, EpicStatus, DAGNodeRaw, WarRoomProgress } from '@/types';
 import { parseEpicMarkdown, serializeEpicMarkdown, EpicDocument } from '@/lib/epic-parser';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
@@ -329,6 +329,29 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
             tasks: [],
           });
           seenRefs.add(room.task_ref);
+        }
+      }
+    }
+
+    // 3. Synthesize epics from DAG nodes alone (pending plans — no war-rooms or progress yet)
+    if (result.length === 0 && dag?.nodes && typeof dag.nodes === 'object' && !Array.isArray(dag.nodes)) {
+      for (const [ref, node] of Object.entries(dag.nodes)) {
+        if (!seenRefs.has(ref)) {
+          const dagNode = node as DAGNodeRaw;
+          const depsRaw = dagNode.depends_on;
+          result.push({
+            epic_ref: ref,
+            plan_id: planId,
+            title: ref,
+            lifecycle_state: 'pending',
+            status: 'pending' as EpicStatus,
+            role: dagNode.role || 'unknown',
+            room_id: dagNode.room_id || '',
+            depends_on: Array.isArray(depsRaw) ? depsRaw : depsRaw ? [depsRaw] : [],
+            dependents: dagNode.dependents || [],
+            tasks: [],
+          });
+          seenRefs.add(ref);
         }
       }
     }

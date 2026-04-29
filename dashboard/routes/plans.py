@@ -2740,15 +2740,12 @@ async def get_plan_epics(plan_id: str):
     if store:
         epics = store.get_epics_for_plan(plan_id)
         if epics: return {"epics": epics, "count": len(epics)}
-    plans_dir = PLANS_DIR
-    plan_file = plans_dir / f"{plan_id}.md"
-    if not plan_file.exists():
+    plan_file = _find_plan_file(plan_id)
+    if not plan_file:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
     content = plan_file.read_text()
-    if store:
-        from dashboard.zvec_store import OSTwinStore
-        epics_raw = OSTwinStore._parse_plan_epics(content, plan_id)
-    else: epics_raw = []
+    from dashboard.zvec_store import OSTwinStore
+    epics_raw = OSTwinStore._parse_plan_epics(content, plan_id)
     return {"epics": epics_raw, "count": len(epics_raw)}
 
 @router.get("/api/search/plans")
@@ -3011,33 +3008,30 @@ async def get_plan_dag(plan_id: str, user: dict = Depends(get_current_user)):
     critical_path, waves, topological_order, and metadata like max_depth.
     """
     warrooms_dir = resolve_runtime_plan_warrooms_dir(plan_id)
-    if not warrooms_dir:
+    dag_file = warrooms_dir / "DAG.json" if warrooms_dir else None
+
+    if dag_file and dag_file.exists():
+        try:
+            return json.loads(dag_file.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to read DAG.json: {exc}")
+
+    # Fallback: build a temp DAG from the markdown
+    from dashboard.zvec_store import OSTwinStore
+    from dashboard.api_utils import generate_fallback_dag
+    plan_file = _find_plan_file(plan_id)
+    if not plan_file or not plan_file.exists():
         return {
-            "nodes": [],
-            "edges": [],
-            "critical_path": [],
-            "waves": {},
-            "topological_order": [],
-            "max_depth": 0,
-            "error": "DAG.json not found"
+            "nodes": {}, "edges": [], "critical_path": [],
+            "waves": {}, "topological_order": [], "max_depth": 0,
+            "total_nodes": 0, "generated_at": datetime.now(timezone.utc).isoformat(),
+            "critical_path_length": 0,
+            "error": "DAG.json not found and Plan markdown not found"
         }
-    dag_file = warrooms_dir / "DAG.json"
-    if not dag_file.exists():
-        # Avoid 404 for missing resource (prevents it being confused with missing endpoint)
-        return {
-            "nodes": [],
-            "edges": [],
-            "critical_path": [],
-            "waves": {},
-            "topological_order": [],
-            "max_depth": 0,
-            "error": "DAG.json not found"
-        }
-    try:
-        dag = json.loads(dag_file.read_text())
-    except (json.JSONDecodeError, OSError) as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to read DAG.json: {exc}")
-    return dag
+    
+    content = plan_file.read_text()
+    epics = OSTwinStore._parse_plan_epics(content, plan_id)
+    return generate_fallback_dag(epics)
 
 
 @router.get("/api/plans/{plan_id}/epics/{task_ref}")

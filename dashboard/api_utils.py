@@ -914,3 +914,77 @@ def add_comment(
 
     res = {"entity_id": entity_id, "stats": {"comments": 1}}
     return res, type("obj", (object,), {"model_dump": lambda: comment})()
+def generate_fallback_dag(epics: List[dict]) -> dict:
+    """Generate a fallback DAG shape matching the frontend's expected DAG interface."""
+    nodes = {}
+    edges = []
+    in_degree = {e["epic_ref"]: 0 for e in epics}
+    out_edges = {e["epic_ref"]: [] for e in epics}
+    
+    for epic in epics:
+        ref = epic["epic_ref"]
+        for dep in epic.get("depends_on", []):
+            edges.append({"source": dep, "target": ref})
+            if dep in out_edges:
+                out_edges[dep].append(ref)
+            if ref in in_degree:
+                in_degree[ref] += 1
+                
+    # compute dependents
+    for ref, outs in out_edges.items():
+        pass # we have outs
+
+    waves = {}
+    queue = [n for n, deg in in_degree.items() if deg == 0]
+    
+    wave_idx = 0
+    topological_order = []
+    depths = {n: 0 for n in in_degree}
+
+    while queue:
+        waves[str(wave_idx)] = list(queue)
+        next_queue = []
+        for n in queue:
+            topological_order.append(n)
+            for target in out_edges.get(n, []):
+                depths[target] = max(depths[target], depths[n] + 1)
+                if target in in_degree:
+                    in_degree[target] -= 1
+                    if in_degree[target] == 0:
+                        next_queue.append(target)
+        queue = next_queue
+        wave_idx += 1
+        
+    remaining = [n for n, deg in in_degree.items() if deg > 0]
+    if remaining:
+        # Cycle detected, log it
+        logger = logging.getLogger("api_utils")
+        logger.warning(f"Cycle detected or unresolvable dependencies in fallback DAG generation. Remaining nodes: {remaining}")
+        waves[str(wave_idx)] = remaining
+        topological_order.extend(remaining)
+        wave_idx += 1
+
+    for epic in epics:
+        ref = epic["epic_ref"]
+        nodes[ref] = {
+            "room_id": epic.get("room_id", ""),
+            "role": epic.get("role", "unknown"),
+            "candidate_roles": epic.get("candidate_roles", []),
+            "depends_on": epic.get("depends_on", []),
+            "dependents": out_edges.get(ref, []),
+            "depth": depths.get(ref, 0),
+            "on_critical_path": True, # conservative default
+        }
+        
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "total_nodes": len(nodes),
+        "nodes": nodes,
+        "edges": edges,
+        "critical_path": topological_order,
+        "critical_path_length": len(topological_order),
+        "waves": waves,
+        "topological_order": topological_order,
+        "max_depth": wave_idx,
+        "is_temp": True
+    }

@@ -291,13 +291,22 @@ function HeaderTitle({ epic }: { epic: EpicNode }) {
 
 // ── Overview Tab ───────────────────────────────────────────────────────────────
 
+// Helper to strip the heading from the parsed text content
+function getCleanDescription(epic: EpicNode) {
+  const section = epic.sections.find(s => s.heading.toLowerCase() === 'description');
+  if (!section) return '';
+  const lines = section.content.split('\n');
+  if (lines.length > 0 && lines[0].trim().match(/^#{1,6}\s+description\s*$/i)) {
+    return lines.slice(1).join('\n').trim();
+  }
+  return section.content.trim();
+}
+
 function OverviewTab({ epic }: { epic: EpicNode }) {
   const { updateParsedPlan } = usePlanContext();
   const { roles: globalRolesList } = useRoles();
   const [editingDescription, setEditingDescription] = useState(false);
-  const [descriptionValue, setDescriptionValue] = useState(
-    epic.sections.find(s => s.heading.toLowerCase() === 'description')?.content || ''
-  );
+  const [descriptionValue, setDescriptionValue] = useState(() => getCleanDescription(epic));
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [roleSearchQuery, setRoleSearchQuery] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -305,27 +314,49 @@ function OverviewTab({ epic }: { epic: EpicNode }) {
   // Sync description
   useEffect(() => {
     if (!editingDescription) {
-      const desc = epic.sections.find(s => s.heading.toLowerCase() === 'description')?.content || '';
-      setDescriptionValue(desc);
+      setDescriptionValue(getCleanDescription(epic));
     }
   }, [epic, editingDescription]);
 
   const commitDescription = () => {
-    setEditingDescription(false);
-    const descSection = epic.sections.find(s => s.heading.toLowerCase() === 'description');
-    const currentDesc = descSection?.content || '';
-    if (descriptionValue !== currentDesc) {
+    // Capture the value before any state changes can interfere
+    const newDesc = descriptionValue;
+    const currentDesc = getCleanDescription(epic);
+
+    // 1. Mutate the doc model FIRST (before exiting edit mode)
+    //    so that when useEffect syncs, it reads the already-updated epic
+    if (newDesc !== currentDesc) {
       updateParsedPlan((doc: EpicDocument) => {
         const e = doc.epics.find(e => e.ref === epic.ref);
         if (e) {
           const section = e.sections.find(s => s.heading.toLowerCase() === 'description');
+          const headerLine = `### Description`;
+
           if (section) {
-            section.content = descriptionValue;
+            // content = just the body text; heading is in preamble + section.heading
+            // The serializer (serializeSection) handles emitting the heading from preamble.
+            section.content = newDesc;
+            section.preamble = [headerLine];
+          } else {
+            const insertIndex = e.sections.length > 0 && e.sections[0].heading === '' ? 1 : 0;
+            e.sections.splice(insertIndex, 0, {
+              heading: 'Description',
+              headingLevel: 3,
+              sectionKey: 'description',
+              type: 'text',
+              content: newDesc,
+              rawLines: [],
+              preamble: [headerLine],
+              postamble: [],
+            });
           }
         }
         return doc;
       });
     }
+
+    // 2. THEN exit editing mode — useEffect will now sync from the updated epic
+    setEditingDescription(false);
   };
 
   // ── Role management ──

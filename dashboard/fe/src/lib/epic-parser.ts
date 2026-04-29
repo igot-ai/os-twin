@@ -79,6 +79,7 @@ const CHECKLIST_SECTION_KEYS = new Set([
 /** Known section keys for task-list sections. */
 const TASKLIST_SECTION_KEYS = new Set([
   'tasks',
+  'task',
 ]);
 
 /**
@@ -128,15 +129,15 @@ function parseDependsOn(text: string): string[] {
 }
 
 function parseTaskHeader(line: string) {
-  const match = line.match(/^(\s*- \[[ (x| )]\]\s+)(?:(TASK-\d+)|(\*\*)(T-.*?)(\*\*))?(\s*[:—-]\s*|\s+)?(.*)$/);
+  const match = line.match(/^(\s*- \[[ (x| )]\]\s+)(?:(\*\*)?(TASK-[\w.-]+|T-[\w.-]+)(\*\*)?)?(\s*[:—-]\s*|\s+)?(.*)$/);
   if (!match) return null;
   return {
     prefix: match[1],
-    idPrefix: match[3] || '',
-    id: match[2] || match[4],
-    idSuffix: match[5] || '',
-    delimiter: match[6] || '',
-    title: match[7],
+    idPrefix: match[2] || '',
+    id: match[3] || '',
+    idSuffix: match[4] || '',
+    delimiter: match[5] || '',
+    title: match[6],
     completed: line.trim().startsWith('- [x]'),
   };
 }
@@ -339,7 +340,7 @@ function processSectionContent(section: EpicSection, lines: string[]) {
   const isKnownChecklist = CHECKLIST_SECTION_KEYS.has(section.sectionKey);
 
   // Check if it's a task list
-  const isTasklist = isKnownTasklist || lines.some(l => l.trim().match(/^- \[[ x]\] (TASK-\d+|\*\*T-.*\*\*)/));
+  const isTasklist = isKnownTasklist || lines.some(l => l.trim().match(/^- \[[ x]\] (\*\*)?(TASK-[\w.-]+|T-[\w.-]+)(\*\*)?/));
   if (isTasklist) {
     section.type = 'tasklist';
     section.tasks = [];
@@ -805,15 +806,20 @@ function formatRolesValue(value: string): string {
 }
 
 function patchMetadata(lines: string[], epic: EpicNode): string[] {
-  const result = [...lines];
-  for (let i = 0; i < result.length; i++) {
-    const line = result[i];
+  const result: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const metadataMatch = line.match(/^\*\*(.*?)\*\*[:]?\s*(.*)$/) || line.match(/^(Roles?|Working_dir|Objective|Skills):\s*(.*)$/i);
     if (metadataMatch) {
       let key = metadataMatch[1].trim();
       if (key.endsWith(':')) key = key.slice(0, -1);
-      const newValue = epic.frontmatter.get(key);
-      if (newValue === undefined) continue;
+
+      // If the key was deleted from frontmatter, omit this line entirely
+      if (!epic.frontmatter.has(key)) {
+        continue;
+      }
+
+      const newValue = epic.frontmatter.get(key)!;
 
       // For Roles keys, compare normalized (bare) values to avoid
       // spurious rewrites when only the @ prefix differs.
@@ -828,16 +834,20 @@ function patchMetadata(lines: string[], epic: EpicNode): string[] {
         const colonOutside = !colonInside && line.includes('**:');
         if (isBold) {
           if (colonInside) {
-            result[i] = `**${key}:** ${displayValue}`;
+            result.push(`**${key}:** ${displayValue}`);
           } else if (colonOutside) {
-            result[i] = `**${key}**: ${displayValue}`;
+            result.push(`**${key}**: ${displayValue}`);
           } else {
-            result[i] = `**${key}** ${displayValue}`;
+            result.push(`**${key}** ${displayValue}`);
           }
         } else {
-          result[i] = `${key}: ${displayValue}`;
+          result.push(`${key}: ${displayValue}`);
         }
+      } else {
+        result.push(line);
       }
+    } else {
+      result.push(line);
     }
   }
   return result;

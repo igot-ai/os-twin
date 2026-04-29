@@ -1,11 +1,6 @@
 ---
 name: idea-ingest
-description: "Ingest links, articles, tweets, and ideas into the brain. Fetch content, save
-to brain with analysis, create author people page, and cross-link. Use when the
-user shares a link or says "read this", "save this", "think about this".
-"
-tags: []
-trust_level: experimental
+description: Ingest links, articles, tweets, and ideas into the brain. Fetch content, save to brain with analysis, create author people page, and cross-link. Use when the user shares a link or says "read this", "save this", "think about this
 ---
 
 # Idea Ingest Skill

@@ -545,6 +545,37 @@
       "prompt": "roles/qa **/ROLE.md",
       "default_assignment": false,
       "capabilities": []
+    },
+    {
+      "name": "staff-manager",
+      "description": "Staff-level technical evaluator — deep code review, data contract tracing, cross-room coherence, technical debt assessment, and team mentorship",
+      "definition": "roles/staff-manager/role.json",
+      "prompt": "roles/staff-manager/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "review",
+        "epic",
+        "investigation"
+      ],
+      "capabilities": [
+        "deep-code-review",
+        "data-contract-tracing",
+        "cross-room-coherence",
+        "dependency-audit",
+        "architecture-conformance",
+        "technical-debt-assessment",
+        "post-mortem-analysis",
+        "review-meta-analysis",
+        "mentorship"
+      ],
+      "quality_gates": [
+        "critical-thinking-applied",
+        "severity-classified",
+        "lesson-included",
+        "evidence-cited"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     }
   ],
   "assignment_rules": {
@@ -552,7 +583,8 @@
     "review_role": "qa",
     "design_role": "architect",
     "orchestration_role": "manager",
-    "audit_role": "audit"
+    "audit_role": "audit",
+    "staff_review_role": "staff-manager"
   },
   "extensibility": {
     "custom_roles_dir": "roles/",

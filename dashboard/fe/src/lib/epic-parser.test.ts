@@ -622,3 +622,152 @@ depends_on: [EPIC-000]
     expect(result).toContain('depends_on: [EPIC-000]');
   });
 });
+
+// ─── Description Heading Duplication Regression ───────────────────
+
+describe('Description heading duplication regression', () => {
+  it('should NOT duplicate ### Description when content is set without heading', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+Original description text.
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+    const section = epic.sections.find(s => s.heading === 'Description');
+
+    // Simulate commitDescription: set content to just body text (no heading)
+    // and preamble to just the heading line
+    if (section) {
+      section.content = 'Updated description text.';
+      section.preamble = ['### Description'];
+    }
+
+    const result = serializeEpicMarkdown(doc);
+
+    // Should contain exactly ONE ### Description heading
+    const headingCount = (result.match(/### Description/g) || []).length;
+    expect(headingCount).toBe(1);
+
+    // Should contain the updated text
+    expect(result).toContain('Updated description text.');
+    expect(result).not.toContain('Original description text.');
+  });
+
+  it('should NOT accumulate headings across multiple round-trips', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+First version.
+`;
+    let doc = parseEpicMarkdown(md);
+
+    // Simulate 3 consecutive saves (the pattern that caused the original bug)
+    for (let i = 0; i < 3; i++) {
+      const epic = doc.epics[0];
+      const section = epic.sections.find(s => s.heading === 'Description');
+      if (section) {
+        section.content = `Version ${i + 2}.`;
+        section.preamble = ['### Description'];
+      }
+      const serialized = serializeEpicMarkdown(doc);
+      doc = parseEpicMarkdown(serialized);
+    }
+
+    const finalResult = serializeEpicMarkdown(doc);
+
+    // Should still have exactly ONE ### Description heading
+    const headingCount = (finalResult.match(/### Description/g) || []).length;
+    expect(headingCount).toBe(1);
+
+    // Should contain only the last version
+    expect(finalResult).toContain('Version 4.');
+  });
+
+  it('should handle content that already contains the heading (legacy format)', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+Some text here.
+`;
+    const doc = parseEpicMarkdown(md);
+    // After parsing, section.content includes the heading line — this is the legacy format
+    const section = doc.epics[0].sections.find(s => s.heading === 'Description');
+    expect(section).toBeDefined();
+
+    // Round-trip without modification should preserve exactly
+    const result = serializeEpicMarkdown(doc);
+    const headingCount = (result.match(/### Description/g) || []).length;
+    expect(headingCount).toBe(1);
+  });
+});
+
+// ─── Frontmatter Deletion Regression ──────────────────────────────
+
+describe('Frontmatter deletion', () => {
+  it('should remove metadata line from output when key is deleted', () => {
+    const md = `## EPIC-001 — Feature
+**Phase:** 1
+**Owner:** engineer
+**Priority:** P0
+
+### Description
+Goal of the epic.
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+
+    // Verify all 3 keys parsed
+    expect(epic.frontmatter.get('Phase')).toBe('1');
+    expect(epic.frontmatter.get('Owner')).toBe('engineer');
+    expect(epic.frontmatter.get('Priority')).toBe('P0');
+
+    // Delete the "Owner" key
+    epic.frontmatter.delete('Owner');
+
+    const result = serializeEpicMarkdown(doc);
+
+    // Owner line should be gone
+    expect(result).not.toContain('**Owner:**');
+    expect(result).not.toContain('engineer');
+
+    // Other keys should remain
+    expect(result).toContain('**Phase:** 1');
+    expect(result).toContain('**Priority:** P0');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal of the epic.');
+  });
+
+  it('should survive a full round-trip after deletion', () => {
+    const md = `## EPIC-001 — Feature
+**Phase:** 1
+**Owner:** engineer
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    doc.epics[0].frontmatter.delete('Owner');
+
+    const serialized = serializeEpicMarkdown(doc);
+    const doc2 = parseEpicMarkdown(serialized);
+
+    // Owner should not be re-parsed
+    expect(doc2.epics[0].frontmatter.has('Owner')).toBe(false);
+    expect(doc2.epics[0].frontmatter.get('Phase')).toBe('1');
+  });
+
+  it('should remove plain-format metadata line (Key: value)', () => {
+    const md = `## EPIC-001 — Feature
+Roles: @engineer, @qa
+Working_dir: /path/to/project
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    doc.epics[0].frontmatter.delete('Working_dir');
+
+    const result = serializeEpicMarkdown(doc);
+    expect(result).not.toContain('Working_dir');
+    expect(result).not.toContain('/path/to/project');
+    expect(result).toContain('Roles: @engineer, @qa');
+  });
+});
