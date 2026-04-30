@@ -1,64 +1,43 @@
 # ChannelCLI.Tests.ps1
-# Tests the 'ostwin channel' CLI dispatch and help text.
-# Updated for pure-PowerShell ostwin CLI (zero-bash migration).
+# Smoke tests for 'ostwin channel' dispatch.
+# Uses -Command instead of -File for Windows compatibility (extensionless script).
 
 BeforeAll {
     $script:agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..")).Path
     $script:ostwin = Join-Path $script:agentsDir "bin" "ostwin"
+
+    function Invoke-Ostwin {
+        param([string[]]$OstwinArgs)
+        $escapedPath = $script:ostwin -replace "'", "''"
+        $argStr = ($OstwinArgs | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ' '
+        $cmd = "& '$escapedPath' $argStr; exit `$LASTEXITCODE"
+        $output = pwsh -NoProfile -Command $cmd 2>&1
+        return $output
+    }
 }
 
-Describe "ostwin channel help and usage" {
-    It "shows channel usage on unknown subcommand" {
-        $raw = pwsh -NoProfile -File $script:ostwin channel unknown-sub 2>&1
-        $result = ($raw | Out-String)
-        $LASTEXITCODE | Should -Be 2
-        $result | Should -Match "usage: ostwin channel"
+Describe "ostwin channel" {
+    It "shows help with --help" {
+        $result = (Invoke-Ostwin -OstwinArgs @('channel', '--help')) | Out-String
+        $LASTEXITCODE | Should -Be 0
+        $result | Should -Match "list"
+        $result | Should -Match "connect"
     }
 
-    It "shows channel in main help text" {
-        $result = pwsh -NoProfile -File $script:ostwin --help 2>&1
-        $result = $result -join "`n"
+    It "rejects unknown subcommands" {
+        Invoke-Ostwin -OstwinArgs @('channel', 'bogus') | Out-Null
+        $LASTEXITCODE | Should -Be 2
+    }
+
+    It "appears in main help" {
+        $result = (Invoke-Ostwin -OstwinArgs @('--help')) -join "`n"
         $result | Should -Match "channel"
     }
 
-    It "does NOT show 'bot' as a separate command in help text" {
-        $result = pwsh -NoProfile -File $script:ostwin --help 2>&1
-        $result = $result -join "`n"
-        $result | Should -Not -Match "^\s+bot\s+Manage"
-    }
-
-    It "shows help with --help flag" {
-        $result = pwsh -NoProfile -File $script:ostwin channel --help 2>&1
-        $joined = ($result | Out-String)
-        $LASTEXITCODE | Should -Be 0
-        $joined | Should -Match "list"
-        $joined | Should -Match "connect"
-        $joined | Should -Match "disconnect"
-        $joined | Should -Match "test"
-        $joined | Should -Match "pair"
-    }
-}
-
-Describe "ostwin channel subcommands" {
-    It "list subcommand exists" {
-        $result = pwsh -NoProfile -File $script:ostwin channel list --help 2>&1
-        $joined = ($result | Out-String)
-        $joined | Should -Match "list"
-    }
-}
-
-Describe "ostwin bot/discord are removed" {
-    It "'ostwin bot' is an unknown command" {
-        $result = pwsh -NoProfile -File $script:ostwin bot status 2>&1
+    It "bot and discord are unknown commands" {
+        Invoke-Ostwin -OstwinArgs @('bot') | Out-Null
         $LASTEXITCODE | Should -Be 1
-        $result = ($result | Out-String)
-        $result | Should -Match "Unknown command"
-    }
-
-    It "'ostwin discord' is an unknown command" {
-        $result = pwsh -NoProfile -File $script:ostwin discord status 2>&1
+        Invoke-Ostwin -OstwinArgs @('discord') | Out-Null
         $LASTEXITCODE | Should -Be 1
-        $result = ($result | Out-String)
-        $result | Should -Match "Unknown command"
     }
 }

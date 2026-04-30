@@ -287,5 +287,21 @@ Describe "Setup-Venv.ps1 regression tests" {
     It "should use UTF-8 without BOM for .cmd file creation" {
         $script:SetupVenvContent | Should -Match '\[System\.IO\.File\]::WriteAllText.*UTF8Encoding' -Because ".cmd files should use UTF-8 without BOM for path safety"
     }
+
+    It "should use uv sync for dashboard deps (Phase 1)" {
+        # Regression: Previously used 'uv pip install -r requirements.txt' which bypassed
+        # pyproject.toml resolver constraints (requests>=2.31.0 pin for llama-index-core)
+        $script:SetupVenvContent | Should -Match 'uv sync' -Because "Dashboard deps should use uv sync with pyproject.toml"
+    }
+
+    It "should NOT include dashboard/requirements.txt in Phase 2 collection" {
+        # Regression: Old code collected dashboard/requirements.txt alongside mcp/memory reqs,
+        # causing version conflicts because requirements.txt lacked the requests>=2.31.0 pin
+        $script:SetupVenvContent | Should -Not -Match '\$dashReqs\s*=.*dashboard.*requirements\.txt.*\n.*\$reqPaths\s*\+=' -Because "Dashboard deps are handled in Phase 1, not Phase 2"
+    }
+
+    It "should set UV_PROJECT_ENVIRONMENT for shared venv" {
+        $script:SetupVenvContent | Should -Match 'UV_PROJECT_ENVIRONMENT' -Because "uv sync must target the shared venv, not create a new one in dashboard/"
+    }
 }
 
