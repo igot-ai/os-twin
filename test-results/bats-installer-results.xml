@@ -1,4 +1,3 @@
-Error: Duplicate test name(s) in file "/home/tcuong1000/os-twin/.agents/installer/tests/test_install_files.bats": test_install-2dfiles-2esh_can_be_sourced_without_side_effects test_install-2d5ffiles_function_is_defined test_compute-2d5fbuild-2d5fhash_function_is_defined test_internal_helpers_are_defined
 <?xml version="1.0" encoding="UTF-8"?>
 <testsuites time="0">
 </testsuites>
