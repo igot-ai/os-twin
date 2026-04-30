@@ -1,9 +1,8 @@
 #!/bin/bash
-# Switch memory MCP transport between http, stdio, and sse for a project.
+# Switch memory MCP transport between stdio and sse for a project.
 #
 # Usage:
-#   switch-memory-transport.sh http [project-dir]     # switch to HTTP via dashboard (default)
-#   switch-memory-transport.sh stdio [project-dir]    # switch to stdio (per-process)
+#   switch-memory-transport.sh stdio [project-dir]   # switch to stdio (stateless per-call)
 #   switch-memory-transport.sh sse [project-dir]      # switch to sse (persistent daemon)
 #   switch-memory-transport.sh status [project-dir]   # show current transport
 
@@ -30,30 +29,13 @@ case "$TRANSPORT" in
 import json, sys
 with open(sys.argv[1]) as f:
     c = json.load(f)
-# Support both OpenCode format ("mcp") and legacy format ("mcpServers")
-servers = c.get("mcp", c.get("mcpServers", {}))
-mem = servers.get("memory", {})
-mtype = mem.get("type", "")
-url = mem.get("url", "")
-if mtype == "remote" and "/api/knowledge/" in url:
-    print(f"Transport: http (via dashboard)")
-    print(f"URL:       {url}")
-    import subprocess
-    # Extract port from URL
-    try:
-        port = url.split("://")[1].split(":")[1].split("/")[0]
-        r = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True)
-        if f":{port} " in r.stdout:
-            print(f"Dashboard: running (port {port})")
-        else:
-            print(f"Dashboard: NOT running (port {port})")
-    except (IndexError, Exception):
-        print(f"Dashboard: unknown")
-elif mtype == "sse":
+mem = c.get("mcpServers", {}).get("memory", {})
+if "type" in mem and mem["type"] == "sse":
     print(f"Transport: sse")
-    print(f"URL:       {url}")
+    print(f"URL:       {mem.get('url', 'N/A')}")
+    # Check if daemon is running
     import subprocess
-    port = url.split(":")[-1].split("/")[0]
+    port = mem.get("url", "").split(":")[-1].split("/")[0]
     if port:
         r = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True)
         if f":{port} " in r.stdout:
@@ -62,41 +44,11 @@ elif mtype == "sse":
             print(f"Daemon:    NOT running (port {port})")
 elif "command" in mem:
     print(f"Transport: stdio")
-    cmd = mem.get("command", "N/A")
-    if isinstance(cmd, list):
-        print(f"Command:   {' '.join(cmd)}")
-    else:
-        print(f"Command:   {cmd}")
-        print(f"Args:      {mem.get('args', [])}")
+    print(f"Command:   {mem.get('command', 'N/A')}")
+    print(f"Args:      {mem.get('args', [])}")
 else:
     print("Transport: unknown")
     print(json.dumps(mem, indent=2))
-PYEOF
-    ;;
-
-  http)
-    DASHBOARD_PORT="${DASHBOARD_PORT:-3366}"
-    "$PYTHON" - "$MCP_CONFIG" "$PROJECT_DIR" "$DASHBOARD_PORT" <<'PYEOF'
-import json, sys, os
-config_path, project_dir, port = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(config_path) as f:
-    config = json.load(f)
-# Support both OpenCode format ("mcp") and legacy format ("mcpServers")
-key = "mcp" if "mcp" in config else "mcpServers"
-if key not in config:
-    config[key] = {}
-persist_dir = os.path.join(project_dir, ".memory")
-config[key]["memory"] = {
-    "type": "remote",
-    "url": f"http://localhost:{port}/api/knowledge/mcp?persist_dir={persist_dir}"
-}
-with open(config_path, "w") as f:
-    json.dump(config, f, indent=2)
-    f.write("\n")
-print(f"Switched to http (dashboard port {port})")
-print(f"  Config:      {config_path}")
-print(f"  persist_dir: {persist_dir}")
-print(f"  Note: requires dashboard running on port {port}")
 PYEOF
     ;;
 
@@ -107,23 +59,14 @@ config_path, project_dir = sys.argv[1], sys.argv[2]
 with open(config_path) as f:
     config = json.load(f)
 
-key = "mcp" if "mcp" in config else "mcpServers"
-if key not in config:
-    config[key] = {}
-
 home = os.path.expanduser("~")
-# OpenCode format: command is an array
-config[key]["memory"] = {
-    "type": "local",
-    "command": [
-        os.path.join(home, ".ostwin", ".venv", "bin", "python"),
-        os.path.join(home, ".ostwin", ".agents", "memory", "mcp_server.py"),
-    ],
-    "timeout": 120000,
-    "environment": {
+config["mcpServers"]["memory"] = {
+    "command": os.path.join(home, ".ostwin", ".venv", "bin", "python"),
+    "args": [os.path.join(home, ".ostwin", ".agents", "memory", "mcp_server.py")],
+    "env": {
         "AGENT_OS_ROOT": project_dir,
         "MEMORY_PERSIST_DIR": os.path.join(project_dir, ".memory"),
-        "GOOGLE_API_KEY": os.environ.get("GOOGLE_API_KEY", ""),
+        "GOOGLE_API_KEY": os.environ.get("GOOGLE_API_KEY", "${GOOGLE_API_KEY}")
     }
 }
 
@@ -132,19 +75,20 @@ with open(config_path, "w") as f:
     f.write("\n")
 print(f"Switched to stdio")
 print(f"  Config: {config_path}")
-print(f"  Note: each agent spawns its own server process")
+print(f"  Note: each tool call spawns a new server process (stateless)")
 PYEOF
     ;;
 
   sse)
     # Check if daemon is running, start if not
     PORT_FILE="$PROJECT_DIR/.memory/.daemon.port"
-    if [[ ! -f "$PORT_FILE" ]]; then
+    if [[ -f "$PORT_FILE" ]]; then
+      PORT=$(cat "$PORT_FILE")
+    else
       echo "No SSE daemon running for $PROJECT_DIR"
       echo "Start one with: $SCRIPT_DIR/start-memory-daemon.sh $PROJECT_DIR"
       exit 1
     fi
-    PORT=$(cat "$PORT_FILE")
 
     # Verify daemon is actually running
     PID_FILE="$PROJECT_DIR/.memory/.daemon.pid"
@@ -154,10 +98,7 @@ import json, sys
 config_path, port = sys.argv[1], sys.argv[2]
 with open(config_path) as f:
     config = json.load(f)
-key = "mcp" if "mcp" in config else "mcpServers"
-if key not in config:
-    config[key] = {}
-config[key]["memory"] = {
+config["mcpServers"]["memory"] = {
     "type": "sse",
     "url": f"http://127.0.0.1:{port}/sse"
 }
@@ -176,7 +117,7 @@ PYEOF
     ;;
 
   *)
-    echo "Usage: $0 {http|stdio|sse|status} [project-dir]"
+    echo "Usage: $0 {stdio|sse|status} [project-dir]"
     exit 1
     ;;
 esac

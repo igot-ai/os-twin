@@ -21,7 +21,7 @@ gold-mining/
 .agents/mcp/mcp-config.json
 .agents/mcp/config.json
 .agents/mcp/mcp-manifest.json
-
+.agents/conversations/plans/index.json
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
 # ── Dependencies ──────────────────────────────────────────────────────────────
@@ -52,6 +52,11 @@ dashboard/.agents/
 # ── Generated docs ────────────────────────────────────────────────────────────
 **/TODO.md
 **/release_note.md
+
+# ── Test fixtures (war-room data should not be committed) ──────────────────────
+.agents/tests/war-rooms/room-*/
+.agents/tests/temp-war-rooms/
+dashboard/fe/war-room-sample/
 
 # ── Dummy project ──────────────────────────────────────────────────────────────
 cypress/screenshots
@@ -105,10 +110,4 @@ A-mem-sys*/**
 
 AGENTS.md
 image.png
-img_*.png
-img_*.jpg
-test-results/
-# Ostwin generated
-.opencode/opencode.json
-.war-rooms/
-!.agents/memory/
+CLAUDE.md

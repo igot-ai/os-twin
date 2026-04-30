@@ -1,13 +1,15 @@
 """Vector retriever that tracks matched IDs/scores and feeds them to the
 PageRank-based graph reranker on the engine.
 
-Refactor notes (EPIC-001):
-- Removed dependency on the deleted ``SignificanceAnalyzer``. The fancy
-  significance-filtering branch in ``calculate_triplet_scores`` is now a no-op
-  (we keep all triplets, scored via the simple combined score).
-- Embedding lookups use :class:`KnowledgeEmbedder` lazily (not used directly
-  here — we receive ``embed_model`` from the caller).
-- ``networkx`` is imported lazily (top of __init__).
+Significance filtering (re-introduced):
+- Uses :class:`~.significance_analyzer.SignificanceAnalyzer` to classify
+  entities into *significant*, *moderate*, and *baseline* buckets.
+- When ``use_significance_filtering=True`` (default), triplets where **both**
+  source and target fall below the adaptive baseline threshold are pruned,
+  cutting non-relevant noise from the result set.
+- ``remove_baseline=True`` (default) completely drops baseline entities from
+  the score map; ``remove_baseline=False`` dampens them instead (×0.7).
+- Significant entities receive a 1.5× boost to sharpen the signal.
 """
 
 from __future__ import annotations
@@ -23,12 +25,19 @@ from llama_index.core.vector_stores import MetadataFilters
 from llama_index.core.vector_stores.types import BasePydanticVectorStore
 
 from dashboard.knowledge.config import PAGERANK_SCORE_THRESHOLD
+from dashboard.knowledge.graph.core.significance_analyzer import SignificanceAnalyzer
 from dashboard.knowledge.graph.utils.rag import _get_nodes_from_triplets
 
 if TYPE_CHECKING:  # pragma: no cover
     from dashboard.knowledge.graph.core.graph_rag_query_engine import GraphRAGQueryEngine
 
 logger = logging.getLogger(__name__)
+
+# Boost / dampening constants – easy to tune from one place.
+_SIGNIFICANT_BOOST = 1.5
+_BASELINE_DAMPEN = 0.7
+_DEFAULT_SCORE = 0.01
+_MIN_SCORES_FOR_SIGNIFICANCE = 5  # need ≥5 data points for meaningful stats
 
 
 class TrackVectorRetriever(VectorContextRetriever):
@@ -101,32 +110,149 @@ class TrackVectorRetriever(VectorContextRetriever):
         triplets_filtered, scores_filtered = self.calculate_triplet_scores(ranks_ids, rel_map)
         return _get_nodes_from_triplets(self.graph, triplets_filtered, scores_filtered)
 
+    # ------------------------------------------------------------------
+    # Triplet scoring with significance filtering
+    # ------------------------------------------------------------------
+
     @staticmethod
     def calculate_triplet_scores(
         id_scores,
         raw_triplets: List[Triplet],
-        use_significance_filtering: bool = False,  # significance analyzer was removed
-        significance_method: str = "ensemble",  # kept for API compat
-        remove_baseline: bool = True,  # kept for API compat
+        use_significance_filtering: bool = True,
+        significance_method: str = "ensemble",
+        remove_baseline: bool = True,
     ):
-        """Score triplets via a simple combined formula. Significance filtering is a no-op."""
+        """Calculate triplet scores with optional significance-based filtering.
+
+        Args:
+            id_scores: List of ``(entity_id, score)`` tuples from PageRank.
+            raw_triplets: List of triplets to score.
+            use_significance_filtering: Whether to apply statistical
+                significance filtering (default ``True``).
+            significance_method: Method for significance detection –
+                ``'ensemble'``, ``'modified_z'``, ``'iqr'``, etc.
+            remove_baseline: If ``True``, completely removes baseline
+                variables; if ``False``, dampens them (×0.7).
+
+        Returns:
+            ``(filtered_triplets, scores)`` where *filtered_triplets* excludes
+            triplets whose **both** source and target scores fall below the
+            adaptive baseline threshold.
+        """
         score_map: Dict[str, float] = dict(id_scores)
-        scores: List[float] = []
+
+        # ── Phase 1: significance analysis & score-map conditioning ──
+        baseline_threshold: float = _DEFAULT_SCORE  # fallback
+
+        # Need enough data points for statistical significance to be meaningful.
+        _apply_significance = (
+            use_significance_filtering
+            and id_scores
+            and len(id_scores) >= _MIN_SCORES_FOR_SIGNIFICANCE
+        )
+
+        if _apply_significance:
+            analyzer = SignificanceAnalyzer()
+            significant_vars = analyzer.detect_significant_variables(
+                id_scores, significance_method
+            )
+
+            # Build lookup sets
+            significant_entities: set = set()
+            for category in ("significant", "moderate"):
+                for entity_id, _ in significant_vars[category]:
+                    significant_entities.add(entity_id)
+
+            baseline_threshold = analyzer.calculate_baseline_threshold(
+                id_scores, "adaptive"
+            )
+
+            action = "removed" if remove_baseline else "dampened"
+            logger.debug(
+                "Significance analysis: %d significant, %d moderate, "
+                "%d baseline variables (%s)",
+                len(significant_vars["significant"]),
+                len(significant_vars["moderate"]),
+                len(significant_vars["baseline"]),
+                action,
+            )
+
+            if remove_baseline:
+                baseline_ids = {eid for eid, _ in significant_vars["baseline"]}
+                for eid in list(score_map.keys()):
+                    if eid in baseline_ids:
+                        del score_map[eid]
+
+                # Boost remaining significant entities
+                for eid in list(score_map.keys()):
+                    if eid in significant_entities and score_map[eid] > baseline_threshold:
+                        score_map[eid] *= _SIGNIFICANT_BOOST
+            else:
+                for eid in list(score_map.keys()):
+                    if eid in significant_entities:
+                        if score_map[eid] > baseline_threshold:
+                            score_map[eid] *= _SIGNIFICANT_BOOST
+                    else:
+                        score_map[eid] = max(
+                            score_map[eid] * _BASELINE_DAMPEN, _DEFAULT_SCORE
+                        )
+
+        # ── Phase 2: score & filter triplets ──
         filtered_triplets: List[Triplet] = []
+        scores: List[float] = []
 
         for source, desc, target in raw_triplets:
-            source_score = score_map.get(source.id, 0.01)
-            target_score = score_map.get(target.id, 0.01)
+            source_score = score_map.get(source.id, _DEFAULT_SCORE)
+            target_score = score_map.get(target.id, _DEFAULT_SCORE)
+
+            # Filter triplets where BOTH endpoints are below baseline
+            if (
+                _apply_significance
+                and source_score <= baseline_threshold
+                and target_score <= baseline_threshold
+            ):
+                logger.debug(
+                    "Filtering out triplet: %s (%.6f) -> %s (%.6f) "
+                    "[both below baseline %.6f]",
+                    source.id,
+                    source_score,
+                    target.id,
+                    target_score,
+                    baseline_threshold,
+                )
+                continue
+
             relationship_weight = TrackVectorRetriever.get_relationship_weight(desc.id)
             combined = TrackVectorRetriever.calculate_combined_score(
                 source_score, target_score, relationship_weight
             )
+
             filtered_triplets.append((source, desc, target))
             scores.append(combined)
-            score_map[source.id] = TrackVectorRetriever.update_entity_score(source_score, combined)
-            score_map[target.id] = TrackVectorRetriever.update_entity_score(target_score, combined)
+
+            score_map[source.id] = TrackVectorRetriever.update_entity_score(
+                source_score, combined
+            )
+            score_map[target.id] = TrackVectorRetriever.update_entity_score(
+                target_score, combined
+            )
+
+        # Log filtering summary
+        if _apply_significance:
+            removed = len(raw_triplets) - len(filtered_triplets)
+            if removed > 0:
+                logger.debug(
+                    "Triplet filtering: removed %d/%d triplets where both "
+                    "endpoints were below baseline",
+                    removed,
+                    len(raw_triplets),
+                )
 
         return filtered_triplets, scores
+
+    # ------------------------------------------------------------------
+    # Scoring helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def get_relationship_weight(desc: str) -> float:

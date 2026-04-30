@@ -315,6 +315,7 @@ jobs:
           python -m unittest \
             tests.unit.test_memory_note \
             tests.unit.test_mcp_server \
+            tests.unit.test_llm_controller \
             tests.unit.test_time_decay \
             tests.unit.test_merge \
             tests.unit.test_import_docs \
@@ -323,6 +324,7 @@ jobs:
           python -m unittest \
             tests.unit.test_memory_note \
             tests.unit.test_mcp_server \
+            tests.unit.test_llm_controller \
             tests.unit.test_time_decay \
             tests.unit.test_merge \
             tests.unit.test_import_docs

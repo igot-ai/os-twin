@@ -24,7 +24,6 @@ setup() {
 
 @test "internal helpers are defined" {
   declare -f _seed_mcp_config > /dev/null
-  declare -f _sync_amem > /dev/null
   declare -f _setup_mcp_symlink > /dev/null
   declare -f _migrate_mcp_config > /dev/null
   declare -f _sync_dashboard > /dev/null

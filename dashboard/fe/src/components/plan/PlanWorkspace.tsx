@@ -9,7 +9,7 @@ import { usePlanRefine } from '@/hooks/use-plan-refine';
 import { useAssets } from '@/hooks/use-assets';
 import { apiPost } from '@/lib/api-client';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { Plan, Epic, EpicStatus, WarRoomProgress } from '@/types';
+import { Plan, Epic, EpicStatus, DAGNodeRaw, WarRoomProgress } from '@/types';
 import { parseEpicMarkdown, serializeEpicMarkdown, EpicDocument } from '@/lib/epic-parser';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
@@ -53,6 +53,12 @@ interface PlanContextType {
   refreshProgress: () => void;
   uploadAssets: (files: FileList | File[], epicRef?: string) => Promise<unknown>;
   isUploadingAssets: boolean;
+  // EPIC-007: Memory-Knowledge Bridge - highlight note on cross-tab navigation
+  highlightNoteId: string | null;
+  setHighlightNoteId: (id: string | null) => void;
+  // Edit Epic Drawer — signal edit mode from context menu / card
+  isEditingEpic: boolean;
+  setIsEditingEpic: (editing: boolean) => void;
 }
 
 export const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -96,6 +102,9 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  // EPIC-007: Memory-Knowledge Bridge - highlight note on cross-tab navigation
+  const [highlightNoteId, setHighlightNoteId] = useState<string | null>(null);
+  const [isEditingEpic, setIsEditingEpic] = useState(false);
 
   // Undo/Redo Stack
   const [undoStack, setUndoStack] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
@@ -324,6 +333,29 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
       }
     }
 
+    // 3. Synthesize epics from DAG nodes alone (pending plans — no war-rooms or progress yet)
+    if (result.length === 0 && dag?.nodes && typeof dag.nodes === 'object' && !Array.isArray(dag.nodes)) {
+      for (const [ref, node] of Object.entries(dag.nodes)) {
+        if (!seenRefs.has(ref)) {
+          const dagNode = node as DAGNodeRaw;
+          const depsRaw = dagNode.depends_on;
+          result.push({
+            epic_ref: ref,
+            plan_id: planId,
+            title: ref,
+            lifecycle_state: 'pending',
+            status: 'pending' as EpicStatus,
+            role: dagNode.role || 'unknown',
+            room_id: dagNode.room_id || '',
+            depends_on: Array.isArray(depsRaw) ? depsRaw : depsRaw ? [depsRaw] : [],
+            dependents: dagNode.dependents || [],
+            tasks: [],
+          });
+          seenRefs.add(ref);
+        }
+      }
+    }
+
     return result.length > 0 ? result : apiEpics;
   }, [apiEpics, progress, dag, planId]);
 
@@ -362,6 +394,12 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     refreshProgress: () => refreshProgress(),
     uploadAssets,
     isUploadingAssets,
+    // EPIC-007: Memory-Knowledge Bridge
+    highlightNoteId,
+    setHighlightNoteId,
+    // Edit Epic Drawer
+    isEditingEpic,
+    setIsEditingEpic,
   };
 
   if (planLoading && !plan) {

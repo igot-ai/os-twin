@@ -101,8 +101,12 @@ def _make_system(**overrides):
     mem.evo_threshold = 5
     mem._evolution_system_prompt = ""
 
-    # No llm_controller needed — shared.ai.get_completion is patched
-    # at the test class level via @patch decorator.
+    # Mock LLM controller
+    mock_llm = MagicMock()
+    mock_llm.llm.get_completion = MagicMock(
+        side_effect=[_mock_analysis(), _mock_evolution()] * 50
+    )
+    mem.llm_controller = mock_llm
 
     return mem, tmpdir
 
@@ -327,8 +331,6 @@ class TestSearchReranking(unittest.TestCase):
     """Test that search() correctly re-ranks by combined score."""
 
     def setUp(self):
-        self._patcher = patch("shared.ai.get_completion", return_value=_mock_analysis())
-        self._patcher.start()
         self.mem, self.tmpdir = _make_system(
             similarity_weight=0.8, decay_half_life_days=30.0
         )
@@ -338,7 +340,6 @@ class TestSearchReranking(unittest.TestCase):
         self.id3 = self.mem.add_note("OAuth2 authentication with PKCE flow for apps")
 
     def tearDown(self):
-        self._patcher.stop()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_fresh_note_boosted_above_similar_but_old(self):
@@ -422,8 +423,6 @@ class TestSearchAgenticReranking(unittest.TestCase):
     """Test that search_agentic() applies time-decay re-ranking."""
 
     def setUp(self):
-        self._patcher = patch("shared.ai.get_completion", return_value=_mock_analysis())
-        self._patcher.start()
         self.mem, self.tmpdir = _make_system(
             similarity_weight=0.8, decay_half_life_days=30.0
         )
@@ -432,7 +431,6 @@ class TestSearchAgenticReranking(unittest.TestCase):
         self.id3 = self.mem.add_note("OAuth2 PKCE authentication flow")
 
     def tearDown(self):
-        self._patcher.stop()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_agentic_results_sorted_by_combined_score(self):

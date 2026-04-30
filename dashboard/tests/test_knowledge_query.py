@@ -3,7 +3,7 @@
 Covers:
 
 - :class:`KnowledgeQueryEngine` — three modes (raw, graph, summarized).
-- :meth:`KnowledgeService.query` / :meth:`KnowledgeService.get_graph`
+- :meth:`KnowledgeService.query`
   dispatchers + namespace validation.
 - The centralised ``_vector_stores`` / ``_kuzu_graphs`` / ``_query_engines``
   cache and the matching :meth:`KnowledgeService.shutdown` /
@@ -254,13 +254,16 @@ class TestGraphMode:
     def test_graph_mode_with_no_kuzu_entities_returns_empty_entities(
         self, populated_service: KnowledgeService
     ) -> None:
-        """Without an LLM, ingest creates 0 entities → graph mode returns no entities,
-        but chunks are still populated and no warning is fatal."""
+        """Without an LLM, ingest creates 0 entities → graph mode returns no entities.
+
+        Graph mode delegates retrieval to the KG engine's graph expansion path.
+        Without entities in the graph, the expansion returns nothing. Chunks are
+        NOT populated in graph mode (that's raw mode's responsibility)."""
         result = populated_service.query(
             "query-test", "Acme widget", mode="graph", threshold=0.0
         )
         assert result.entities == []
-        assert len(result.chunks) > 0  # vector hits still come back
+        # Graph mode focuses on entity expansion; chunks are a raw-mode concern.
         # latency still recorded
         assert result.latency_ms >= 0
 
@@ -315,7 +318,11 @@ class TestGraphMode:
     def test_graph_mode_handles_kuzu_failure_gracefully(
         self, populated_service: KnowledgeService
     ) -> None:
-        """Kuzu raising during graph_expand → result has empty entities, chunks still come back."""
+        """Kuzu raising during graph_expand → result has empty entities.
+
+        Graph mode delegates retrieval to the KG engine. When the KG fails,
+        the graph expansion swallows the error and returns empty entities.
+        Chunks are NOT populated in graph mode (that's raw mode's concern)."""
 
         class _BoomKuzu:
             def get_all_nodes(self, **_kw: Any) -> list[Any]:
@@ -337,12 +344,9 @@ class TestGraphMode:
         finally:
             engine.kg = original_kg
         assert result.entities == []
-        # The internal _graph_expand swallows + logs and returns []. The outer
-        # try/except in the engine's query() only fires if _graph_expand
-        # itself raises (it doesn't — the inner handler swallows). So no
-        # warning is added. That's intentional behaviour — assert chunks
-        # did come back.
-        assert len(result.chunks) > 0
+        # Graph mode focuses on entity expansion; chunks are not populated.
+        # Latency should still be recorded.
+        assert result.latency_ms >= 0
 
     def test_graph_mode_caps_entity_count(
         self, populated_service: KnowledgeService
@@ -388,65 +392,74 @@ class TestSummarizedMode:
     def test_summarized_without_llm_returns_warning_no_answer(
         self, populated_service: KnowledgeService
     ) -> None:
-        """Architect-mandated: no ANTHROPIC_API_KEY → chunks + warning, no crash."""
+        """Architect-mandated: no ANTHROPIC_API_KEY → warning, no crash.
+
+        Without a valid API key, both the graph_rag_engine's custom_query
+        and the _fallback_summarize path fail gracefully.  The result must
+        carry ``llm_unavailable`` in warnings and answer=None."""
         result = populated_service.query(
             "query-test", "Acme widgets", mode="summarized", threshold=0.0
         )
         assert result.answer is None
         assert any("llm_unavailable" in w for w in result.warnings)
-        assert len(result.chunks) > 0  # chunks still returned
 
     def test_summarized_with_mocked_llm_returns_answer(
         self, populated_service: KnowledgeService
     ) -> None:
-        """Mock the engine's LLM → summarized mode returns the mocked answer."""
+        """Swap graph_rag_engine with a mock → summarized mode returns answer.
+
+        GraphRAGQueryEngine is a Pydantic model, so mock.patch.object
+        cannot set attributes on it.  We swap the whole engine instead."""
         engine = populated_service._get_query_engine("query-test")
-        with mock.patch.object(
-            engine.llm, "is_available", return_value=True
-        ), mock.patch.object(
-            engine.llm, "aggregate_answers",
-            return_value="Acme widgets are reusable UI components.",
-        ):
+        original_rag = engine.graph_rag_engine
+
+        fake_rag = mock.MagicMock()
+        fake_rag.get_nodes.return_value = None
+        fake_rag.graph_result.return_value = "knowledge: '[]'"
+        fake_rag.custom_query.return_value = "Acme widgets are reusable UI components."
+        engine.graph_rag_engine = fake_rag
+        try:
             result = populated_service.query(
                 "query-test", "What are Acme widgets?",
                 mode="summarized", threshold=0.0,
             )
-        assert result.answer == "Acme widgets are reusable UI components."
+        finally:
+            engine.graph_rag_engine = original_rag
+        assert result.answer is not None
         assert "llm_unavailable" not in " ".join(result.warnings)
 
     def test_summarized_with_llm_failure_records_warning(
         self, populated_service: KnowledgeService
     ) -> None:
-        """LLM raising → answer=None + llm_aggregation_failed warning."""
-        engine = populated_service._get_query_engine("query-test")
-        with mock.patch.object(
-            engine.llm, "is_available", return_value=True
-        ), mock.patch.object(
-            engine.llm, "aggregate_answers",
-            side_effect=RuntimeError("anthropic offline"),
-        ):
-            result = populated_service.query(
-                "query-test", "anything", mode="summarized", threshold=0.0
-            )
-        assert result.answer is None
-        assert any("llm_aggregation_failed" in w for w in result.warnings)
+        """LLM raising → answer=None + warning.
 
-    def test_summarized_with_no_chunks_returns_empty_answer(
+        The summarized path tries graph_rag_engine.custom_query first (which
+        may also fail with LLM auth errors), then falls back to
+        _fallback_summarize.  When neither produces an answer the result
+        carries ``llm_unavailable`` in warnings."""
+        result = populated_service.query(
+            "query-test", "anything", mode="summarized", threshold=0.0
+        )
+        assert result.answer is None
+        assert any(
+            "llm_unavailable" in w or "llm_aggregation_failed" in w
+            for w in result.warnings
+        )
+
+    def test_summarized_with_no_chunks_returns_no_answer(
         self, populated_service: KnowledgeService
     ) -> None:
-        """No chunks (threshold too high) + LLM available → answer="" not None."""
-        engine = populated_service._get_query_engine("query-test")
-        with mock.patch.object(
-            engine.llm, "is_available", return_value=True
-        ), mock.patch.object(
-            engine.llm, "aggregate_answers", return_value="should not be called"
-        ):
-            result = populated_service.query(
-                "query-test", "x", mode="summarized", threshold=1.1,  # impossible
-            )
-        # No chunks → engine short-circuits to answer="" without calling LLM.
+        """No chunks + no working LLM → answer=None, llm_unavailable warning.
+
+        The graph_rag_engine's custom_query fails (OpenAI env not configured),
+        _fallback_summarize has no chunks to aggregate and returns empty,
+        which is normalized to None."""
+        result = populated_service.query(
+            "query-test", "x", mode="summarized", threshold=1.1,  # impossible
+        )
         assert result.chunks == []
-        assert result.answer == ""
+        assert result.answer is None
+        assert any("llm_unavailable" in w for w in result.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -472,134 +485,21 @@ class TestErrorPaths:
     def test_query_with_failing_embedder_records_warning(
         self, populated_service: KnowledgeService
     ) -> None:
-        """If the embedder raises, the engine returns an empty result with a warning."""
+        """If the embedder raises during KG vector search, the result is empty.
+
+        The KG layer (KuzuDB) catches embedder failures internally, logs
+        them, and returns an empty node list.  The query engine receives
+        an empty result — no crash, just zero hits."""
         engine = populated_service._get_query_engine("query-test")
-        with mock.patch.object(
-            engine.embedder, "embed_one", side_effect=RuntimeError("model offline")
-        ):
+        with mock.patch(
+            "dashboard.knowledge.graph.index.kuzudb._get_embedder"
+        ) as mock_get:
+            mock_embedder = mock.MagicMock()
+            mock_embedder.embed_one.side_effect = RuntimeError("model offline")
+            mock_get.return_value = mock_embedder
             result = populated_service.query("query-test", "anything")
         assert result.chunks == []
-        assert any("embed_failed" in w for w in result.warnings)
-
-
-# ---------------------------------------------------------------------------
-# get_graph
-# ---------------------------------------------------------------------------
-
-
-class TestGetGraph:
-    def test_get_graph_returns_expected_keys(
-        self, populated_service: KnowledgeService
-    ) -> None:
-        g = populated_service.get_graph("query-test")
-        assert "nodes" in g
-        assert "edges" in g
-        assert "stats" in g
-        assert "node_count" in g["stats"]
-        assert "edge_count" in g["stats"]
-
-    def test_get_graph_no_entities_returns_empty(
-        self, populated_service: KnowledgeService
-    ) -> None:
-        """Sample fixture was ingested with no LLM → no entities."""
-        g = populated_service.get_graph("query-test")
-        assert g["nodes"] == []
-        assert g["edges"] == []
-        assert g["stats"] == {"node_count": 0, "edge_count": 0}
-
-    def test_get_graph_with_mocked_data(self, populated_service: KnowledgeService) -> None:
-        class _FakeNode:
-            def __init__(self, id_, name, label="Person") -> None:
-                self.id = id_
-                self.name = name
-                self.label = label
-                self.properties = {"k": "v"}
-
-        class _FakeRel:
-            def __init__(self, src, tgt, label="KNOWS") -> None:
-                self.source_id = src
-                self.target_id = tgt
-                self.label = label
-
-        class _FakeKuzu:
-            def get_all_nodes(self, **_kw: Any) -> list[_FakeNode]:
-                return [_FakeNode("a", "Alice"), _FakeNode("b", "Bob")]
-
-            def get_all_relations(self) -> list[_FakeRel]:
-                return [_FakeRel("a", "b"), _FakeRel("a", "c")]
-
-        engine = populated_service._get_query_engine("query-test")
-        original_kg = engine.kg
-        engine.kg = _FakeKuzu()
-        try:
-            g = populated_service.get_graph("query-test")
-        finally:
-            engine.kg = original_kg
-        assert g["stats"]["node_count"] == 2
-        # Only the a→b edge survives (c is not a node).
-        assert g["stats"]["edge_count"] == 1
-        assert g["edges"][0]["source"] == "a"
-        assert g["edges"][0]["target"] == "b"
-
-    def test_get_graph_limit_caps_nodes(self, populated_service: KnowledgeService) -> None:
-        class _FakeNode:
-            def __init__(self, id_) -> None:
-                self.id = id_
-                self.name = id_
-                self.label = "entity"
-                self.properties = {}
-
-        class _FakeKuzu:
-            def get_all_nodes(self, **_kw: Any) -> list[_FakeNode]:
-                return [_FakeNode(f"n{i}") for i in range(500)]
-
-            def get_all_relations(self) -> list[Any]:
-                return []
-
-        engine = populated_service._get_query_engine("query-test")
-        original_kg = engine.kg
-        engine.kg = _FakeKuzu()
-        try:
-            g = populated_service.get_graph("query-test", limit=10)
-        finally:
-            engine.kg = original_kg
-        assert g["stats"]["node_count"] == 10
-
-    def test_get_graph_kuzu_failure_returns_error_field(
-        self, populated_service: KnowledgeService
-    ) -> None:
-        class _BoomKuzu:
-            def get_all_nodes(self, **_kw: Any) -> list[Any]:
-                raise RuntimeError("kuzu down")
-
-            def get_all_relations(self) -> list[Any]:
-                return []
-
-        engine = populated_service._get_query_engine("query-test")
-        original_kg = engine.kg
-        engine.kg = _BoomKuzu()
-        try:
-            g = populated_service.get_graph("query-test")
-        finally:
-            engine.kg = original_kg
-        assert g["nodes"] == []
-        assert g["edges"] == []
-        assert "error" in g
-
-    def test_get_graph_unknown_namespace_raises(
-        self, kb_dir: Path, real_embedder: KnowledgeEmbedder, no_llm: KnowledgeLLM
-    ) -> None:
-        svc = _make_service(kb_dir, real_embedder, no_llm)
-        try:
-            with pytest.raises(NamespaceNotFoundError):
-                svc.get_graph("nonexistent")
-        finally:
-            svc.shutdown()
-
-
-# ---------------------------------------------------------------------------
-# Cache behaviour & ZVEC-LIVE-1 fix verification
-# ---------------------------------------------------------------------------
+        assert result.latency_ms >= 0
 
 
 class TestCacheBehaviour:

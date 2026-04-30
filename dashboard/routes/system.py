@@ -373,7 +373,14 @@ async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_cu
     target = Path(path).expanduser().resolve()
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=400, detail="Not a valid directory")
+
+    SUPPORTED_EXTS = {
+        '.pdf', '.pptx', '.xlsx', '.csv', '.md', '.txt',
+        '.mp4', '.mov', '.docx', '.doc', '.json', '.html', '.xml',
+    }
+
     dirs = []
+    files = []
     try:
         for entry in sorted(target.iterdir()):
             if entry.name.startswith('.'):
@@ -385,7 +392,14 @@ async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_cu
                 except PermissionError:
                     pass
                 dirs.append({"name": entry.name, "path": str(entry), "has_children": has_children})
+            elif entry.is_file() and entry.suffix.lower() in SUPPORTED_EXTS:
+                try:
+                    size = entry.stat().st_size
+                except OSError:
+                    size = 0
+                files.append({"name": entry.name, "path": str(entry), "size_bytes": size})
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
     parent = str(target.parent) if target != target.parent else None
-    return {"current": str(target), "parent": parent, "dirs": dirs}
+    return {"current": str(target), "parent": parent, "dirs": dirs, "files": files}
+

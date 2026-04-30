@@ -9,10 +9,10 @@ class instantiation. They guarantee:
 3. ``KnowledgeService.import_folder`` is wired (EPIC-003 — surfaces
    FileNotFoundError for missing folders); ``query`` still raises
    ``NotImplementedError`` (EPIC-004 placeholder).
-4. ``KnowledgeLLM`` degrades gracefully when no API key is configured.
+4. ``KnowledgeLLM`` degrades gracefully when no model or API key is configured.
 5. ``KnowledgeEmbedder`` instantiates without triggering a model download.
 6. Importing ``dashboard.knowledge`` does NOT pull in the heavy deps
-   (kuzu, zvec, sentence_transformers, markitdown, anthropic).
+   (kuzu, zvec, sentence_transformers, markitdown).
 """
 
 from __future__ import annotations
@@ -179,38 +179,47 @@ def test_supported_extensions_are_sets() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_llm_unavailable_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """is_available() must be False when no API key is in env or ctor."""
+def test_llm_unavailable_without_model_or_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """is_available() must be False when no model is configured."""
     from dashboard.knowledge import KnowledgeLLM
+    import dashboard.knowledge.llm as llm_mod
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    # Override the module-level LLM_MODEL so `model or LLM_MODEL` resolves empty.
+    monkeypatch.setattr(llm_mod, "LLM_MODEL", "")
     llm = KnowledgeLLM()
     assert llm.is_available() is False
 
 
 def test_llm_available_with_explicit_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Explicit api_key passes is_available()."""
+    """Explicit api_key + model passes is_available()."""
     from dashboard.knowledge import KnowledgeLLM
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    llm = KnowledgeLLM(api_key="sk-test")
+    llm = KnowledgeLLM(api_key="sk-test", model="claude-sonnet-4-5-20251022")
     assert llm.is_available() is True
 
 
 def test_llm_available_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Env-var ANTHROPIC_API_KEY is picked up automatically."""
+    """Env-var API key is picked up automatically for the detected provider."""
     from dashboard.knowledge import KnowledgeLLM
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-from-env")
-    llm = KnowledgeLLM()
+    llm = KnowledgeLLM(model="claude-sonnet-4-5-20251022")
     assert llm.is_available() is True
 
 
 def test_extract_entities_returns_empty_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """When unavailable, extract_entities returns ([], []) without raising."""
     from dashboard.knowledge import KnowledgeLLM
+    import dashboard.knowledge.llm as llm_mod
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setattr(llm_mod, "LLM_MODEL", "")
     llm = KnowledgeLLM(api_key=None)
     entities, relations = llm.extract_entities("any text")
     assert entities == []
@@ -220,8 +229,12 @@ def test_extract_entities_returns_empty_when_no_key(monkeypatch: pytest.MonkeyPa
 def test_plan_query_falls_back_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """plan_query returns a single passthrough step when unavailable."""
     from dashboard.knowledge import KnowledgeLLM
+    import dashboard.knowledge.llm as llm_mod
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setattr(llm_mod, "LLM_MODEL", "")
     llm = KnowledgeLLM(api_key=None)
     plan = llm.plan_query("q")
     assert plan == [{"term": "q", "is_query": True}]
@@ -230,8 +243,12 @@ def test_plan_query_falls_back_when_no_key(monkeypatch: pytest.MonkeyPatch) -> N
 def test_aggregate_answers_concatenates_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """aggregate_answers concatenates snippets when unavailable."""
     from dashboard.knowledge import KnowledgeLLM
+    import dashboard.knowledge.llm as llm_mod
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setattr(llm_mod, "LLM_MODEL", "")
     llm = KnowledgeLLM(api_key=None)
     out = llm.aggregate_answers(["snippet a", "snippet b"], "q")
     assert "snippet a" in out
@@ -272,7 +289,7 @@ def test_embedder_accepts_explicit_model_name() -> None:
 # ---------------------------------------------------------------------------
 
 
-_HEAVY_DEPS = ("kuzu", "zvec", "sentence_transformers", "markitdown", "anthropic")
+_HEAVY_DEPS = ("kuzu", "zvec", "sentence_transformers", "markitdown")
 
 
 def test_lazy_imports_via_subprocess() -> None:
@@ -301,3 +318,83 @@ def test_lazy_imports_via_subprocess() -> None:
     loaded = last_line[len("LOADED:") :].split(",") if last_line[len("LOADED:") :] else []
     loaded = [m for m in loaded if m]
     assert loaded == [], f"Heavy deps were loaded eagerly: {loaded}"
+
+
+# ---------------------------------------------------------------------------
+# 7) CARRY-003 — KnowledgeService reads from MasterSettings (ADR-15)
+# ---------------------------------------------------------------------------
+
+
+def test_service_reads_knowledge_settings_from_master(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When MasterSettings.knowledge.knowledge_llm_model is set, KnowledgeService picks it up.
+
+    Mocks ``dashboard.lib.settings.get_settings_resolver`` (the import path
+    KnowledgeService uses) so we don't need a real config file.
+    """
+    from unittest.mock import MagicMock
+
+    from dashboard.knowledge.service import KnowledgeService
+
+    fake_settings = MagicMock()
+    fake_settings.knowledge.knowledge_llm_model = "claude-haiku-CUSTOM"
+    fake_settings.knowledge.knowledge_llm_provider = ""
+    fake_settings.knowledge.knowledge_embedding_model = ""
+    fake_settings.knowledge.knowledge_embedding_backend = ""
+    fake_resolver = MagicMock()
+    fake_resolver.get_master_settings.return_value = fake_settings
+
+    # Patch the path the helper actually imports.
+    import dashboard.lib.settings as settings_pkg
+
+    monkeypatch.setattr(settings_pkg, "get_settings_resolver", lambda: fake_resolver)
+
+    ks = KnowledgeService()
+    # Trigger LLM construction.
+    llm = ks._get_llm()
+    assert llm.model == "claude-haiku-CUSTOM"
+
+
+def test_service_falls_back_to_default_when_settings_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty knowledge settings → KnowledgeService uses the env-var default."""
+    from unittest.mock import MagicMock
+
+    from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM
+    from dashboard.knowledge.service import KnowledgeService
+
+    fake_settings = MagicMock()
+    fake_settings.knowledge.knowledge_llm_model = ""
+    fake_settings.knowledge.knowledge_llm_provider = ""
+    fake_settings.knowledge.knowledge_embedding_model = ""
+    fake_settings.knowledge.knowledge_embedding_backend = ""
+    fake_resolver = MagicMock()
+    fake_resolver.get_master_settings.return_value = fake_settings
+
+    import dashboard.lib.settings as settings_pkg
+
+    monkeypatch.setattr(settings_pkg, "get_settings_resolver", lambda: fake_resolver)
+
+    ks = KnowledgeService()
+    llm = ks._get_llm()
+    assert llm.model == _DEFAULT_LLM
+
+
+def test_service_handles_missing_settings_resolver_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the settings resolver raises, KnowledgeService still constructs and uses defaults."""
+    from dashboard.knowledge.config import LLM_MODEL as _DEFAULT_LLM
+    from dashboard.knowledge.service import KnowledgeService
+
+    def _broken_resolver():
+        raise RuntimeError("config gone walkabout")
+
+    import dashboard.lib.settings as settings_pkg
+
+    monkeypatch.setattr(settings_pkg, "get_settings_resolver", _broken_resolver)
+
+    ks = KnowledgeService()
+    llm = ks._get_llm()
+    # Falls back to the hardcoded default — never crashes.
+    assert llm.model == _DEFAULT_LLM

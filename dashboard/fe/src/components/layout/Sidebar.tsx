@@ -11,10 +11,10 @@ import { Skeleton } from '@/components/ui/Skeleton';
 const navItems = [
   { href: '/', icon: 'home', label: 'Home' },
   { href: '/plans', icon: 'folder', label: 'Plans' },
+  { href: '/knowledge', icon: 'auto_stories', label: 'Knowledge' },
   { href: '/roles', icon: 'person', label: 'Roles' },
   { href: '/skills', icon: 'extension', label: 'Skills' },
   { href: '/mcp', icon: 'terminal', label: 'MCP' },
-  { href: '/channels', icon: 'hub', label: 'Channels' },
   { href: '/settings', icon: 'settings', label: 'Settings' },
 ];
 

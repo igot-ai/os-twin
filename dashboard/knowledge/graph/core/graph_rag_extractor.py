@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional
 
-from llama_index.core.async_utils import run_jobs
+from llama_index.core.async_utils import run_jobs  # noqa: F401 — kept for back-compat
 from llama_index.core.graph_stores.types import (
     KG_NODES_KEY,
     KG_RELATIONS_KEY,
@@ -116,80 +116,86 @@ class GraphRAGExtractor(TransformComponent):
     # -- Sync entrypoint ------------------------------------------------
 
     def __call__(self, nodes: List[BaseNode], show_progress: bool = False, **kwargs: Any) -> List[BaseNode]:
-        """Run the async pipeline in a fresh event loop on a worker thread."""
-        try:
-            import concurrent.futures
+        """Run extraction synchronously — one node at a time.
 
-            def runner():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(self.acall(nodes, show_progress=show_progress, **kwargs))
-                finally:
-                    loop.close()
+        Previous implementation nested ThreadPoolExecutor → event loop →
+        asyncio.to_thread → _run_sync → asyncio.run(), which caused
+        "cannot schedule new futures after shutdown" because asyncio.run()
+        shuts down the default executor on exit, poisoning subsequent
+        asyncio.to_thread calls in the same loop.
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(runner)
-                return future.result(timeout=self.config.timeout_seconds + 60)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("GraphRAGExtractor sync run failed: %s", exc)
-            for node in nodes:
-                node.metadata[KG_NODES_KEY] = []
-                node.metadata[KG_RELATIONS_KEY] = []
-            return nodes
-
-    # -- Async pipeline -------------------------------------------------
-
-    async def acall(self, nodes: List[BaseNode], show_progress: bool = False, **kwargs: Any) -> List[BaseNode]:
+        The fix: call ``extract_entities`` directly (it is already sync —
+        it handles async→sync bridging internally via ``_run_sync``).
+        No nested executors, no event-loop conflicts.
+        """
         if not nodes:
             return []
         logger.info("Starting graph extraction for %d nodes", len(nodes))
         self.metrics = ExtractionMetrics()
-        jobs = [self._extract_with_retry(node) for node in nodes]
-        try:
-            results = await run_jobs(
-                jobs,
-                workers=min(self.num_workers, len(nodes)),
-                show_progress=show_progress,
-                desc="Extracting knowledge graphs",
-            )
-            return results
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Batch extraction failed: %s", exc)
-            for node in nodes:
-                node.metadata[KG_NODES_KEY] = []
-                node.metadata[KG_RELATIONS_KEY] = []
-            return nodes
 
-    async def _extract_with_retry(self, node: BaseNode) -> BaseNode:
+        results: List[BaseNode] = []
+        for node in nodes:
+            try:
+                result = self._extract_single_sync(node)
+                results.append(result)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("GraphRAGExtractor failed for node %s: %s", node.id_, exc)
+                results.append(self._create_empty_extraction_result(node, str(exc)))
+        return results
+
+    # -- Sync extraction (no nested executors) --------------------------
+
+    def _extract_single_sync(self, node: BaseNode) -> BaseNode:
+        """Extract entities from a single node with retry — fully synchronous.
+
+        Calls ``self.llm.extract_entities`` directly (it handles its own
+        async→sync bridging internally).  Retries up to ``config.max_retries``
+        times with linear back-off.
+        """
+        import time as _time
+
+        if not hasattr(node, "text"):
+            return self._create_empty_extraction_result(node, "node missing .text")
+
+        text = node.get_content(metadata_mode="llm")
         last_error: Exception | None = None
+
         for attempt in range(self.config.max_retries + 1):
             try:
                 if attempt > 0:
-                    await asyncio.sleep(self.config.retry_delay * attempt)
-                return await self._aextract_single(node)
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-                logger.warning("Extraction attempt %d failed for %s: %s", attempt + 1, node.id_, exc)
-        return self._create_empty_extraction_result(node, str(last_error))
-
-    async def _aextract_single(self, node: BaseNode) -> BaseNode:
-        if not hasattr(node, "text"):
-            return self._create_empty_extraction_result(node, "node missing .text")
-        text = node.get_content(metadata_mode="llm")
-        try:
-            entities, relations = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.llm.extract_entities,
+                    _time.sleep(self.config.retry_delay * attempt)
+                entities, relations = self.llm.extract_entities(
                     text,
                     self.language,
                     self.domain_prompt,
-                ),
-                timeout=self.config.timeout_seconds,
-            )
-            return self._create_extraction_result(node, entities, relations)
-        except asyncio.TimeoutError:
-            raise ValueError(f"Extraction timeout for node {node.id_}")
+                )
+                return self._create_extraction_result(node, entities, relations)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                logger.error(
+                    "Extraction attempt %d failed for %s: %s",
+                    attempt + 1, node.id_, exc,
+                )
+
+        return self._create_empty_extraction_result(node, str(last_error))
+
+    # -- Async pipeline (kept for callers that prefer async) ------------
+
+    async def acall(self, nodes: List[BaseNode], show_progress: bool = False, **kwargs: Any) -> List[BaseNode]:
+        """Async extraction — delegates to sync ``_extract_single_sync`` via to_thread."""
+        if not nodes:
+            return []
+        logger.info("Starting async graph extraction for %d nodes", len(nodes))
+        self.metrics = ExtractionMetrics()
+        results: List[BaseNode] = []
+        for node in nodes:
+            try:
+                result = await asyncio.to_thread(self._extract_single_sync, node)
+                results.append(result)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Async extraction failed for node %s: %s", node.id_, exc)
+                results.append(self._create_empty_extraction_result(node, str(exc)))
+        return results
 
     # -- Result builders ------------------------------------------------
 
@@ -215,8 +221,9 @@ class GraphRAGExtractor(TransformComponent):
                 entity_texts.append(".".join([str(name), str(etype), str(desc)]))
             try:
                 embeddings = self.embedder.embed(entity_texts)
+                logger.info("Batch embedding completed for %s entities", len(entities))
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Batch embedding failed (%s); falling back to per-text", exc)
+                logger.error("Batch embedding failed (%s); falling back to per-text", exc)
                 embeddings = [self.embedder.embed_one(t) for t in entity_texts]
         else:
             embeddings = []
@@ -261,7 +268,21 @@ class GraphRAGExtractor(TransformComponent):
 
         node.metadata[KG_NODES_KEY] = existing_nodes
         node.metadata[KG_RELATIONS_KEY] = existing_relations
-        logger.debug(
+
+        # Ensure the source node (ChunkNode) also carries an embedding so it
+        # can be found via KuzuDB's QUERY_VECTOR_INDEX. If the node already
+        # has an embedding (e.g. from the PropertyGraphIndex embed_model) we
+        # leave it alone; otherwise we generate one from its text content.
+        if not getattr(node, "embedding", None):
+            try:
+                text_for_embed = node.get_content(metadata_mode="none")
+                if text_for_embed and text_for_embed.strip():
+                    node.embedding = self.embedder.embed_one(text_for_embed)
+                    logger.debug("Embedded source ChunkNode %s (%d chars)", node.id_, len(text_for_embed))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to embed source ChunkNode %s: %s", node.id_, exc)
+
+        logger.info(
             "Extraction: %d entities, %d relations",
             len(existing_nodes),
             len(existing_relations),
@@ -273,6 +294,27 @@ class GraphRAGExtractor(TransformComponent):
         node.metadata[KG_RELATIONS_KEY] = []
         node.metadata["extraction_error"] = error_msg
         node.metadata["extraction_status"] = ExtractionStatus.FAILED.value
+
+        # Ensure the ChunkNode still gets an embedding even when extraction
+        # fails. Without this the node is invisible to KuzuDB's
+        # QUERY_VECTOR_INDEX and unreachable via vector search.
+        if not getattr(node, "embedding", None):
+            try:
+                text_for_embed = node.get_content(metadata_mode="none")
+                if text_for_embed and text_for_embed.strip():
+                    node.embedding = self.embedder.embed_one(text_for_embed)
+                    logger.debug(
+                        "Embedded failed-extraction ChunkNode %s (%d chars)",
+                        node.id_,
+                        len(text_for_embed),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to embed ChunkNode %s after extraction error: %s",
+                    node.id_,
+                    exc,
+                )
+
         return node
 
     def get_metrics(self) -> ExtractionMetrics:

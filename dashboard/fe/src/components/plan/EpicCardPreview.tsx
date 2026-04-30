@@ -286,36 +286,37 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
   }, []);
 
   const handleTitleSubmit = () => {
-    setEditingTitle(false);
-    if (titleValue !== epic.title) {
+    const newTitle = titleValue;
+    if (newTitle !== epic.title) {
       updateParsedPlan((doc: EpicDocument) => {
         const epicToUpdate = doc.epics.find(e => e.ref === epic.ref);
         if (epicToUpdate) {
-          epicToUpdate.title = titleValue;
-          // Reconstruct rawHeading
+          epicToUpdate.title = newTitle;
           const prefix = epicToUpdate.headingLevel === 3 ? '###' : '##';
-          epicToUpdate.rawHeading = `${prefix} ${epicToUpdate.ref} — ${titleValue}`;
+          epicToUpdate.rawHeading = `${prefix} ${epicToUpdate.ref} — ${newTitle}`;
         }
         return doc;
       });
     }
+    setEditingTitle(false);
   };
 
   const handleDescriptionSubmit = () => {
-    setEditingDescription(false);
+    const newDesc = descriptionValue;
     const descSection = epic.sections.find(s => s.heading.toLowerCase() === 'description');
-    if (descSection && descriptionValue !== descSection.content) {
+    if (descSection && newDesc !== descSection.content) {
       updateParsedPlan((doc: EpicDocument) => {
         const epicToUpdate = doc.epics.find(e => e.ref === epic.ref);
         if (epicToUpdate) {
           const section = epicToUpdate.sections.find(s => s.heading.toLowerCase() === 'description');
           if (section) {
-            section.content = descriptionValue;
+            section.content = newDesc;
           }
         }
         return doc;
       });
     }
+    setEditingDescription(false);
   };
 
   const renderSection = (section: EpicSection) => {
@@ -352,6 +353,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
               <div 
                 className="cursor-text hover:bg-surface-hover/50 p-2 -m-2 rounded transition-colors"
                 onDoubleClick={() => setEditingDescription(true)}
+                data-testid="epic-description"
               >
                 <MarkdownRenderer content={cleanContent} className="text-sm text-text-main" />
               </div>
@@ -405,6 +407,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                         }`}
                         onClick={(e) => { e.stopPropagation(); handleStartEditCheckItem(section.heading, idx, item.text); }}
                         title="Click to edit"
+                        data-testid="check-item"
                       >
                         {renderInlineCode(item.text)}
                       </span>
@@ -477,7 +480,7 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
                     isEditingThisTask 
                       ? 'border-primary bg-background shadow-md' 
                       : 'border-border bg-background/50 hover:border-text-faint'
-                  }`}>
+                  }`} data-testid="task-item">
                     <div className="flex items-start gap-3">
                       <input
                         type="checkbox"
@@ -602,17 +605,31 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
       className={`mb-6 rounded-xl border bg-surface shadow-sm overflow-hidden transition-all duration-200 ${
         isCollapsed ? 'hover:border-text-faint' : 'border-border'
       }`}
+      data-testid="epic-card"
     >
       {/* Header */}
       <div 
-        className={`px-4 py-3 flex items-center justify-between cursor-pointer select-none bg-background/20 ${
+        className={`px-4 py-3 flex flex-col cursor-pointer select-none bg-background/20 ${
           isCollapsed ? '' : 'border-b border-border'
         }`}
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <Badge variant="primary" className="font-bold">{epic.ref}</Badge>
-          
+        <div className="flex items-center justify-between w-full mb-1">
+          <span className="text-[10px] font-bold text-text-faint tracking-wider uppercase">
+            {epic.ref}
+          </span>
+          <div className="flex items-center gap-2">
+            {/* Frontmatter Badges in Header when collapsed */}
+            {isCollapsed && Array.from(epic.frontmatter.entries()).slice(0, 2).map(([key, value]) => (
+              <Badge key={key} variant="muted" className="hidden sm:inline-flex capitalize">{value}</Badge>
+            ))}
+            <span className="material-symbols-outlined text-text-faint transition-transform duration-200" style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}>
+              expand_more
+            </span>
+          </div>
+        </div>
+
+        <div className="flex w-full min-w-0 mt-0.5">
           {editingTitle ? (
             <input
               ref={titleInputRef}
@@ -633,25 +650,16 @@ export function EpicCardPreview({ epic }: EpicCardPreviewProps) {
             />
           ) : (
             <h3 
-              className="text-sm font-bold text-text-main truncate hover:text-primary transition-colors"
+              className="text-[13px] font-bold text-text-main truncate hover:text-primary transition-colors"
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 setEditingTitle(true);
               }}
+              data-testid="epic-title"
             >
               {epic.title}
             </h3>
           )}
-        </div>
-
-        <div className="flex items-center gap-2 ml-4">
-          {/* Frontmatter Badges in Header when collapsed */}
-          {isCollapsed && Array.from(epic.frontmatter.entries()).slice(0, 2).map(([key, value]) => (
-            <Badge key={key} variant="muted" className="hidden sm:inline-flex capitalize">{value}</Badge>
-          ))}
-          <span className="material-symbols-outlined text-text-faint transition-transform duration-200" style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}>
-            expand_more
-          </span>
         </div>
       </div>
 

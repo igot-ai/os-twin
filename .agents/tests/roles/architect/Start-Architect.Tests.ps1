@@ -31,16 +31,12 @@ $TestDrive
         "review" | Out-File (Join-Path $script:roomDir "status") -NoNewline
         New-Item -ItemType File -Path (Join-Path $script:roomDir "channel.jsonl") -Force | Out-Null
 
-        # Create a config with mock that ignores the prompt and prints MOCK_OUT
-        if ($IsWindows) {
-            $script:mockAgentPath = Join-Path $TestDrive "mock-arch.ps1"
-            "Write-Output `"`$env:MOCK_OUT`"" | Out-File $script:mockAgentPath -Encoding ascii
-            $mockCli = "pwsh -NoProfile -File ""$script:mockAgentPath"""
-        } else {
-            $script:mockAgentPath = Join-Path $TestDrive "mock-arch.sh"
-            "echo `"`$MOCK_OUT`"" | Out-File $script:mockAgentPath -Encoding ascii
-            $mockCli = "bash ""$script:mockAgentPath"""
-        }
+        # Create a PowerShell mock that ignores the prompt and prints MOCK_OUT
+        # Must use .ps1 on all platforms — Invoke-Agent.ps1 tokenizes AgentCmd
+        # and calls it via PowerShell's call operator in a pwsh wrapper.
+        $script:mockAgentPath = Join-Path $TestDrive "mock-arch.ps1"
+        "Write-Output `"`$env:MOCK_OUT`"" | Out-File $script:mockAgentPath -Encoding ascii
+        $mockCli = $script:mockAgentPath
         $script:configFile = Join-Path $TestDrive "config-arch.json"
         @{
             engineer = @{

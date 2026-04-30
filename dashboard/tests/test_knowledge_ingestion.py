@@ -3,7 +3,7 @@
 Heavy deps (kuzu, sentence-transformers, markitdown, anthropic) are NEVER
 instantiated by the bulk of these tests. We:
 
-- Inject a ``fake_embedder`` (MagicMock with deterministic 384-dim output) so
+- Inject a ``fake_embedder`` (MagicMock with deterministic 768-dim output) so
   the real sentence-transformers model is never loaded.
 - Inject a ``KnowledgeLLM`` that's just a MagicMock — by default
   ``is_available()`` returns False so the ingestor takes the no-LLM path.
@@ -86,15 +86,16 @@ def _clear_kuzu_cache() -> Iterator[None]:
 
 @pytest.fixture
 def fake_embedder() -> MagicMock:
-    """Deterministic 384-dim embedder with no model load."""
+    """Deterministic 768-dim embedder with no model load."""
     e = MagicMock(name="FakeEmbedder")
-    e.dimension.return_value = 384
+    e.dimension.return_value = 768
+    e.model_name = "test-fake-embedder"
 
     def _embed(texts: list[str]) -> list[list[float]]:
-        return [[(hash(t) % 1000) / 1000.0] * 384 for t in texts]
+        return [[(hash(t) % 1000) / 1000.0] * 768 for t in texts]
 
     def _embed_one(t: str) -> list[float]:
-        return [(hash(t) % 1000) / 1000.0] * 384
+        return [(hash(t) % 1000) / 1000.0] * 768
 
     e.embed.side_effect = _embed
     e.embed_one.side_effect = _embed_one
@@ -209,15 +210,83 @@ def fake_anthropic_llm() -> MagicMock:
 
 @pytest.fixture
 def make_ingestor(nm, fake_embedder, no_llm, fake_store_factory):
-    """Factory that builds an Ingestor wired to a fake store + fake embedder + no-LLM."""
+    """Factory that builds an Ingestor wired to a fake store + fake embedder + no-LLM.
+
+    Now also provides a mock ``graph_index_factory`` that simulates
+    ``PropertyGraphIndex.insert_nodes()`` — embedding chunks, writing them
+    to the fake store, and populating KG_NODES_KEY / KG_RELATIONS_KEY in
+    node metadata to match what ``GraphRAGExtractor`` would produce.
+    """
 
     def _build(llm=None) -> Ingestor:
+        active_llm = llm if llm is not None else no_llm
+
+        def _make_graph_index(namespace: str):
+            """Build a mock PropertyGraphIndex that mirrors the real pipeline."""
+            fake_store = fake_store_factory(namespace)
+
+            mock_index = MagicMock()
+
+            def _insert_nodes(nodes, **kwargs):
+                from llama_index.core.graph_stores.types import (
+                    KG_NODES_KEY,
+                    KG_RELATIONS_KEY,
+                )
+
+                # Note: chunk persistence is handled by _extract_and_embed
+                # after this call — no need to write chunks here.
+
+                # 2) Simulate entity extraction (when LLM is available)
+                if hasattr(active_llm, "is_available") and active_llm.is_available():
+                    for node in nodes:
+                        try:
+                            entities, relations = active_llm.extract_entities(
+                                node.text,
+                            )
+                        except Exception:
+                            entities, relations = [], []
+
+                        # Populate metadata the way GraphRAGExtractor would
+                        entity_nodes = []
+                        for e in entities:
+                            entity_nodes.append({
+                                "name": e.get("name", ""),
+                                "type": e.get("type", "Entity"),
+                                "description": e.get("description", ""),
+                            })
+                            fake_store.entities.append({
+                                **e, "chunk_id": node.id_,
+                            })
+                        relation_objs = []
+                        for r in relations:
+                            relation_objs.append({
+                                "source": r.get("source", ""),
+                                "target": r.get("target", ""),
+                                "relation": r.get("relation", "RELATED_TO"),
+                            })
+                            fake_store.relations.append({
+                                **r, "chunk_id": node.id_,
+                            })
+
+                        node.metadata[KG_NODES_KEY] = entity_nodes
+                        node.metadata[KG_RELATIONS_KEY] = relation_objs
+                else:
+                    # No LLM — still set empty lists so counts work
+                    for node in nodes:
+                        node.metadata[KG_NODES_KEY] = []
+                        node.metadata[KG_RELATIONS_KEY] = []
+
+            mock_index.insert_nodes = _insert_nodes
+            return mock_index
+
         ing = Ingestor(
             namespace_manager=nm,
             embedder=fake_embedder,
-            llm=llm if llm is not None else no_llm,
+            llm=active_llm,
+            graph_index_factory=_make_graph_index,
         )
-        # Override _get_store to return the per-namespace _FakeStore.
+        # Override _get_store to return the per-namespace _FakeStore
+        # (still needed for hash-based idempotency checks).
         ing._get_store = lambda namespace: fake_store_factory(namespace)  # type: ignore[assignment]
         return ing
 
@@ -383,6 +452,112 @@ class TestChunk:
         for c in chunks:
             assert c["metadata"]["file_hash"] == "abc123"
             assert "chunk_hash" in c["metadata"]
+
+
+# ---------------------------------------------------------------------------
+# 3.5) Image ingestion (CARRY-001 — ADR-14 / ADR-17)
+# ---------------------------------------------------------------------------
+
+
+class TestImageIngestion:
+    """Image-extension support added in EPIC-006 CARRY-001 (ADR-14 / ADR-17)."""
+
+    def test_image_extensions_in_supported_set(self):
+        """ADR-17: SUPPORTED_DOCUMENT_EXTENSIONS includes every IMAGE_EXTENSIONS."""
+        from dashboard.knowledge.config import (
+            IMAGE_EXTENSIONS,
+            SUPPORTED_DOCUMENT_EXTENSIONS,
+        )
+
+        assert IMAGE_EXTENSIONS.issubset(SUPPORTED_DOCUMENT_EXTENSIONS)
+        # All seven canonical image types are walkable.
+        for ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"):
+            assert ext in SUPPORTED_DOCUMENT_EXTENSIONS
+
+    def test_walk_includes_png_files(self, tmp_path, make_ingestor):
+        """Folder walker now picks up PNG files (was excluded before ADR-17)."""
+        sub = tmp_path / "imgs"
+        sub.mkdir()
+        # Minimal PNG header bytes — enough for the walker (it only stats / sniffs ext).
+        png = sub / "tiny.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        # Add a non-image alongside so we know we're not just listing everything.
+        (sub / "notes.md").write_text("# title\nbody")
+
+        ing = make_ingestor()
+        files = list(ing._walk_folder(sub, IngestOptions()))
+        names = sorted(Path(f.path).name for f in files)
+        assert "tiny.png" in names
+        assert "notes.md" in names
+        # Verify the file_entry for the PNG carries the right extension.
+        png_entries = [f for f in files if f.extension == ".png"]
+        assert len(png_entries) == 1
+
+    def test_image_with_no_anthropic_key_logs_and_skips(
+        self, tmp_path, monkeypatch, caplog, make_ingestor
+    ):
+        """Image with no key → empty chunks + warning log line."""
+        import logging as _logging
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        png = tmp_path / "img.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        ing = make_ingestor()
+        # Force the converter to be one without vision (ANTHROPIC_API_KEY just got cleared).
+        ing._markitdown = None
+
+        fe = FileEntry(
+            path=str(png),
+            size=png.stat().st_size,
+            mtime=png.stat().st_mtime,
+            extension=".png",
+            content_hash="hash-png",
+        )
+        with caplog.at_level(_logging.WARNING, logger="dashboard.knowledge.ingestion"):
+            chunks = ing._parse_file(fe, IngestOptions())
+        assert chunks == []
+        # Exactly one warning line per file.
+        warns = [
+            r for r in caplog.records
+            if r.levelno >= _logging.WARNING and "img.png" in r.getMessage()
+        ]
+        assert len(warns) >= 1
+        joined = " ".join(r.getMessage() for r in warns).lower()
+        assert "vision" in joined or "image" in joined
+
+    def test_image_with_mocked_markitdown_produces_chunks(
+        self, tmp_path, monkeypatch, make_ingestor
+    ):
+        """Image + vision-enabled MarkItDown returns markdown → chunks produced."""
+        png = tmp_path / "screenshot.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        ing = make_ingestor()
+
+        # Stub the cached MarkItDown converter to return fake markdown content.
+        class _FakeResult:
+            text_content = "# Screenshot caption\n\nA cat sitting on a windowsill."
+
+        class _FakeConverter:
+            def convert(self, *_args, **_kw):
+                return _FakeResult()
+
+        ing._markitdown = _FakeConverter()
+
+        fe = FileEntry(
+            path=str(png),
+            size=png.stat().st_size,
+            mtime=png.stat().st_mtime,
+            extension=".png",
+            content_hash="hash-png",
+        )
+        chunks = ing._parse_file(fe, IngestOptions())
+        assert len(chunks) >= 1
+        # First chunk carries proper metadata.
+        assert chunks[0]["metadata"]["filename"] == "screenshot.png"
+        assert chunks[0]["metadata"]["extension"] == ".png"
+        assert "cat" in chunks[0]["text"].lower() or "screenshot" in chunks[0]["text"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -773,12 +948,12 @@ class TestNamespaceStoreVector:
             [
                 {
                     "text": "doc-a",
-                    "embedding": [0.1] * 384,
+                    "embedding": [0.1] * 768,
                     "metadata": {"file_hash": "h1", "filename": "a.md", "chunk_index": 0, "total_chunks": 1},
                 },
                 {
                     "text": "doc-b",
-                    "embedding": [0.2] * 384,
+                    "embedding": [0.2] * 768,
                     "metadata": {"file_hash": "h1", "filename": "a.md", "chunk_index": 1, "total_chunks": 2},
                 },
             ]
@@ -799,7 +974,7 @@ class TestNamespaceStoreVector:
             [
                 {
                     "text": "doc",
-                    "embedding": [0.0] * 384,
+                    "embedding": [0.0] * 768,
                     "metadata": {"file_hash": "abc", "filename": "x.md", "chunk_index": 0, "total_chunks": 1},
                 }
             ]
@@ -815,10 +990,10 @@ class TestNamespaceStoreVector:
         store = _ns_store(kb_dir, "ns")
         store.add_chunks(
             [
-                {"text": "1", "embedding": [0.0] * 384, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 3}},
-                {"text": "2", "embedding": [0.1] * 384, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 3}},
-                {"text": "3", "embedding": [0.2] * 384, "metadata": {"file_hash": "h1", "chunk_index": 2, "total_chunks": 3}},
-                {"text": "x", "embedding": [0.5] * 384, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
+                {"text": "1", "embedding": [0.0] * 768, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 3}},
+                {"text": "2", "embedding": [0.1] * 768, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 3}},
+                {"text": "3", "embedding": [0.2] * 768, "metadata": {"file_hash": "h1", "chunk_index": 2, "total_chunks": 3}},
+                {"text": "x", "embedding": [0.5] * 768, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
             ]
         )
         assert store.count_by_file_hash("h1") == 3
@@ -830,9 +1005,9 @@ class TestNamespaceStoreVector:
         store = _ns_store(kb_dir, "ns")
         store.add_chunks(
             [
-                {"text": "x", "embedding": [0.0] * 384, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 2}},
-                {"text": "y", "embedding": [0.1] * 384, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 2}},
-                {"text": "z", "embedding": [0.2] * 384, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
+                {"text": "x", "embedding": [0.0] * 768, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 2}},
+                {"text": "y", "embedding": [0.1] * 768, "metadata": {"file_hash": "h1", "chunk_index": 1, "total_chunks": 2}},
+                {"text": "z", "embedding": [0.2] * 768, "metadata": {"file_hash": "h2", "chunk_index": 0, "total_chunks": 1}},
             ]
         )
         deleted = store.delete_by_file_hash("h1")
@@ -845,7 +1020,7 @@ class TestNamespaceStoreVector:
         store = _ns_store(kb_dir, "ns")
         store.add_chunks(
             [
-                {"text": "x", "embedding": [0.0] * 384, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 1}},
+                {"text": "x", "embedding": [0.0] * 768, "metadata": {"file_hash": "h1", "chunk_index": 0, "total_chunks": 1}},
             ]
         )
         assert store.delete_by_file_hash("nope") == 0
@@ -863,7 +1038,7 @@ class TestNamespaceStoreVector:
             [
                 {
                     "text": "x",
-                    "embedding": [0.0] * 384,
+                    "embedding": [0.0] * 768,
                     "metadata": {"file_hash": weird, "chunk_index": 0, "total_chunks": 1},
                 }
             ]
@@ -873,38 +1048,7 @@ class TestNamespaceStoreVector:
         assert store.delete_by_file_hash(weird) == 1
 
 
-class TestNamespaceStoreEntities:
-    """Cover the entity/relation insertion path against a fake graph."""
 
-    def test_add_entities_and_relations_no_op_for_empty(self, kb_dir):
-        store = _ns_store(kb_dir, "ns")
-        ea, ra = store.add_entities_and_relations([], [], "chunk-id", {}, embedder=MagicMock())
-        assert (ea, ra) == (0, 0)
-
-    def test_add_entities_and_relations_writes_to_graph(self, kb_dir, fake_embedder):
-        # Inject a fake graph via the lock-protected slot.
-        store = _ns_store(kb_dir, "ns")
-        fake_graph = MagicMock()
-        store._graph = fake_graph  # bypass lazy-init
-
-        entities = [
-            {"name": "Alpha", "type": "Org", "description": "an org"},
-            {"name": "Beta", "type": "Concept", "description": "a thing"},
-            {"name": "", "type": "Garbage", "description": "skip me"},  # filtered
-        ]
-        relations = [
-            {"source": "Alpha", "target": "Beta", "relation": "USES", "description": "alpha uses beta"},
-            {"source": "Alpha", "target": "Missing", "relation": "GHOST"},  # filtered
-            {"source": "", "target": "Beta", "relation": "EMPTY"},  # filtered
-        ]
-        ea, ra = store.add_entities_and_relations(
-            entities, relations, "chunk-1", {"file_hash": "h"}, embedder=fake_embedder
-        )
-        assert ea == 2  # Alpha + Beta
-        assert ra == 1  # only Alpha→Beta resolved
-        # Graph received exactly one batch add_nodes call and one add_relation.
-        assert fake_graph.add_nodes.call_count == 1
-        assert fake_graph.add_relation.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -914,10 +1058,42 @@ class TestNamespaceStoreEntities:
 
 class TestKnowledgeService:
     def _service(self, nm, fake_embedder, llm, fake_store_factory) -> KnowledgeService:
-        ing = Ingestor(namespace_manager=nm, embedder=fake_embedder, llm=llm)
+        def _graph_index_factory(namespace: str):
+            """Build a mock PropertyGraphIndex for service-level tests."""
+            fake_store = fake_store_factory(namespace)
+            mock_index = MagicMock()
+
+            def _insert_nodes(nodes, **kwargs):
+                from llama_index.core.graph_stores.types import (
+                    KG_NODES_KEY,
+                    KG_RELATIONS_KEY,
+                )
+                texts = [n.text for n in nodes]
+                vectors = fake_embedder.embed(texts)
+                store_chunks = []
+                for node, vec in zip(nodes, vectors):
+                    store_chunks.append({
+                        "text": node.text,
+                        "embedding": vec,
+                        "metadata": node.metadata,
+                    })
+                fake_store.add_chunks(store_chunks)
+                for node in nodes:
+                    node.metadata[KG_NODES_KEY] = []
+                    node.metadata[KG_RELATIONS_KEY] = []
+
+            mock_index.insert_nodes = _insert_nodes
+            return mock_index
+
+        ing = Ingestor(
+            namespace_manager=nm,
+            embedder=fake_embedder,
+            llm=llm,
+            graph_index_factory=_graph_index_factory,
+        )
         ing._get_store = lambda namespace: fake_store_factory(namespace)  # type: ignore[assignment]
         jm = JobManager(base_dir=nm._base)  # noqa: SLF001
-        return KnowledgeService(namespace_manager=nm, job_manager=jm, ingestor=ing)
+        return KnowledgeService(namespace_manager=nm, job_manager=jm, ingestor=ing, embedder=fake_embedder)
 
     def test_import_folder_returns_job_id(self, nm, fake_embedder, no_llm, fake_store_factory):
         nm.create("docs")
@@ -1023,6 +1199,37 @@ class TestKnowledgeService:
 # ---------------------------------------------------------------------------
 
 
+def _make_noop_graph_index_factory(embedder):
+    """Build a reusable graph_index_factory that simulates PropertyGraphIndex.
+
+    Returns a factory ``f(namespace) -> mock_index`` whose ``insert_nodes()``
+    embeds chunks and sets KG_NODES_KEY / KG_RELATIONS_KEY in metadata,
+    mirroring the real pipeline without needing Kuzu or a real LLM.
+    """
+
+    def factory(namespace: str):
+        mock_index = MagicMock()
+
+        def _insert_nodes(nodes, **kwargs):
+            from llama_index.core.graph_stores.types import (
+                KG_NODES_KEY,
+                KG_RELATIONS_KEY,
+            )
+
+            # Embed nodes (may raise if embedder is broken — that's correct).
+            texts = [n.text for n in nodes]
+            embedder.embed(texts)
+
+            for node in nodes:
+                node.metadata[KG_NODES_KEY] = []
+                node.metadata[KG_RELATIONS_KEY] = []
+
+        mock_index.insert_nodes = _insert_nodes
+        return mock_index
+
+    return factory
+
+
 class TestPathRespectsBaseDir:
     """Defect 1: path helpers must root off ``NamespaceManager.base_dir``.
 
@@ -1054,11 +1261,14 @@ class TestPathRespectsBaseDir:
         from dashboard.knowledge.config import KNOWLEDGE_DIR
 
         nm = NamespaceManager(base_dir=tmp_path)
-        ing = Ingestor(namespace_manager=nm, embedder=fake_embedder, llm=no_llm)
+        ing = Ingestor(
+            namespace_manager=nm, embedder=fake_embedder, llm=no_llm,
+            graph_index_factory=_make_noop_graph_index_factory(fake_embedder),
+        )
         ing._get_store = lambda namespace: fake_store_factory(namespace)  # type: ignore[assignment]
         jm = JobManager(base_dir=nm._base)  # noqa: SLF001
         ks = KnowledgeService(
-            namespace_manager=nm, job_manager=jm, ingestor=ing
+            namespace_manager=nm, job_manager=jm, ingestor=ing, embedder=fake_embedder,
         )
         job_id = ks.import_folder("leak-test", str(FIXTURES))
         _wait_for_state(jm, job_id, JobState.COMPLETED)
@@ -1086,7 +1296,10 @@ class TestPathRespectsBaseDir:
 
         nm = NamespaceManager(base_dir=tmp_path)
         nm.create("zvec-leak-test")
-        ing = Ingestor(namespace_manager=nm, embedder=fake_embedder, llm=no_llm)
+        ing = Ingestor(
+            namespace_manager=nm, embedder=fake_embedder, llm=no_llm,
+            graph_index_factory=_make_noop_graph_index_factory(fake_embedder),
+        )
         result = ing.run("zvec-leak-test", str(FIXTURES))
         assert result["files_indexed"] == 5
         # Real on-disk directory under tmp_path.
@@ -1115,9 +1328,12 @@ class TestForceNoDoubleCount:
         self, tmp_path, fake_embedder, no_llm
     ):
         nm = NamespaceManager(base_dir=tmp_path)
+        # Use a no-op graph_index_factory so the lazy-built Ingestor works.
         ks = KnowledgeService(
-            namespace_manager=nm, embedder=fake_embedder, llm=no_llm
+            namespace_manager=nm, embedder=fake_embedder, llm=no_llm,
         )
+        ing = ks._get_ingestor()
+        ing._graph_index_factory = _make_noop_graph_index_factory(fake_embedder)
         try:
             # First import.
             j1 = ks.import_folder("force-test", str(FIXTURES))
@@ -1157,8 +1373,10 @@ class TestForceNoDoubleCount:
         """Three successive force re-imports stay invariant."""
         nm = NamespaceManager(base_dir=tmp_path)
         ks = KnowledgeService(
-            namespace_manager=nm, embedder=fake_embedder, llm=no_llm
+            namespace_manager=nm, embedder=fake_embedder, llm=no_llm,
         )
+        ing = ks._get_ingestor()
+        ing._graph_index_factory = _make_noop_graph_index_factory(fake_embedder)
         try:
             j0 = ks.import_folder("drift", str(FIXTURES))
             self._wait(ks._get_job_manager(), j0)
@@ -1194,7 +1412,7 @@ class TestRealE2E:
 
     This is the regression-killer: chromadb-mock-only suites historically
     missed both Defect 1 and Defect 2. Running the entire pipeline against
-    real backends — even with the cheap 384-dim BGE model — is the only way
+    real backends — even with the cheap 768-dim BGE model — is the only way
     to catch path-leak and stats-drift bugs ahead of integration testing.
     """
 
@@ -1214,6 +1432,8 @@ class TestRealE2E:
         ks = KnowledgeService(
             namespace_manager=nm, embedder=embedder, llm=no_llm_real
         )
+        ing = ks._get_ingestor()
+        ing._graph_index_factory = _make_noop_graph_index_factory(embedder)
         try:
             t0 = time.monotonic()
             job_id = ks.import_folder("e2e-real", str(FIXTURES))
@@ -1265,6 +1485,8 @@ class TestRealE2E:
         ks = KnowledgeService(
             namespace_manager=nm, embedder=embedder, llm=no_llm_real
         )
+        ing = ks._get_ingestor()
+        ing._graph_index_factory = _make_noop_graph_index_factory(embedder)
         try:
             j1 = ks.import_folder("force-real", str(FIXTURES))
             self._wait(ks._get_job_manager(), j1)

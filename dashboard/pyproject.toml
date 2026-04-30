@@ -1,0 +1,81 @@
+[project]
+name = "ostwin-dashboard"
+version = "0.1.0"
+description = "OS Twin Dashboard — API server, knowledge graph, and management UI"
+requires-python = ">=3.11,<3.13"
+readme = "docs/README.md"
+
+dependencies = [
+    # ── Core API ──────────────────────────────────────────────
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "websockets>=11.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.25.0",
+    "pyyaml>=6.0",
+    "tenacity>=8.2",
+    # ── AI / LLM Providers ────────────────────────────────────
+    "openai>=1.0.0",
+    "anthropic>=0.40",
+    "google-genai>=1.0.0",
+    # ── Embeddings & ML ───────────────────────────────────────
+    "sentence-transformers>=3.0,<5.0",
+    "transformers>=4.41.0,<5.0.0",
+    "torch>=2.0",
+    # ── Knowledge Graph & RAG ─────────────────────────────────
+    "kuzu>=0.6,<1.0",
+    "networkx>=3.0",
+    "zvec>=0.2.0",
+    "markitdown[all]>=0.0.1",
+    "llama-index-core>=0.11",
+    "llama-index-llms-openai>=0.3",
+    # ── Memory Pool (Plan 007) ────────────────────────────────
+    "litellm>=1.40",
+    "rank_bm25>=0.2.2",
+    "nltk>=3.8",
+    "scikit-learn>=1.3",
+    # ── Utilities ─────────────────────────────────────────────
+    "matplotlib>=3.8.0",
+    "mcp[cli]>=1.1.3",
+    "pyngrok>=7.0.0",
+    # Pin requests high enough for llama-index-core compatibility
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+# ── uv Configuration ─────────────────────────────────────────
+[tool.uv]
+# Use the project .venv by default (matches ~/.ostwin/.venv for prod installs)
+python-preference = "managed"
+
+[tool.uv.pip]
+# Allow pre-release for fast-moving AI packages
+prerelease = "if-necessary-or-explicit"
+
+# ── Build System ──────────────────────────────────────────────
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+# ── Ruff (linting / formatting) ──────────────────────────────
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+# ── Pytest ────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

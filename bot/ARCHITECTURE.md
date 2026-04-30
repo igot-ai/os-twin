@@ -36,7 +36,6 @@ The bot is **not** an ostwin agent role. It's a standalone Node.js/TypeScript ap
                           │         ▼                        │
                           │  ┌─────────────┐                │
                           │  │ Memory MCP  │                │
-                          │  │ (A-mem-sys) │                │
                           │  │ .memory/    │                │
                           │  └─────────────┘                │
                           └─────────────────────────────────┘

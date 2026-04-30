@@ -54,7 +54,7 @@ export default function MemoryPoolPanel() {
 
   const fetchHealth = useCallback(async () => {
     try {
-      const res = await fetch('/api/knowledge/health');
+      const res = await fetch('/api/memory-pool/health');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: PoolHealth = await res.json();
       setHealth(data);
@@ -112,7 +112,7 @@ export default function MemoryPoolPanel() {
         <div>
           <h2 className="text-lg font-bold text-text-main">Memory Pool</h2>
           <p className="text-sm text-text-secondary mt-0.5">
-            HTTP MCP at <code className="text-xs bg-border/20 px-1.5 py-0.5 rounded">/api/knowledge/mcp</code>
+            HTTP MCP at <code className="text-xs bg-border/20 px-1.5 py-0.5 rounded">/api/memory-pool/mcp</code>
           </p>
         </div>
         <button

@@ -14,6 +14,8 @@ import asyncio
 import logging
 from typing import Any, Callable, Optional
 
+from pydantic import PrivateAttr
+
 import yaml
 from llama_index.core import PropertyGraphIndex, StorageContext
 from llama_index.core.graph_stores.types import KG_SOURCE_REL
@@ -80,20 +82,24 @@ class GraphRAGQueryEngine(CustomQueryEngine):
     data_instruction: str = ""
     language: str = "English"
     node_id: str
+    embed_model: Any = None  # EmbedderAdapter (BaseEmbedding)
     include_graph: bool = False
     stream_handler: Optional[Callable] = None
     max_queries: int = 3
-    _tracking: Any = None
+    _tracking: Any = PrivateAttr(default=None)
 
     @property
     def tracking(self):
         if self._tracking is None:
+            # Resolve embed_model: prefer the explicit field, fall back to
+            # the index's internal attribute for backward compatibility.
+            _embed = self.embed_model or getattr(self.index, "_embed_model", None)
             self._tracking = TrackVectorRetriever(
                 engine=self,
                 graph_store=self.index.property_graph_store,
                 vector_store=self.index.vector_store,
                 include_text=False,
-                embed_model=self.index._embed_model,
+                embed_model=_embed,
             )
         return self._tracking
 

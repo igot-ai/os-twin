@@ -1,0 +1,33 @@
+{
+  "name": "program-manager",
+  "description": "Program Manager — owns cross-cutting program execution, milestone tracking, dependency mapping, stakeholder communications, risk registers, and launch readiness reviews",
+  "instance_type": "worker",
+  "capabilities": [
+    "milestone-tracking",
+    "dependency-mapping",
+    "stakeholder-communications",
+    "risk-management",
+    "launch-readiness",
+    "cross-program-coordination",
+    "executive-reporting"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "milestones-tracked",
+    "dependencies-mapped",
+    "risks-registered",
+    "stakeholders-informed"
+  ],
+  "skill_refs": [
+    "milestone-tracking",
+    "dependency-mapping",
+    "stakeholder-comms",
+    "risk-register",
+    "launch-readiness",
+    "brain-ops",
+    "war-room-communication"
+  ],
+  "cli": "agent",
+  "model": "google-vertex/zai-org/glm-5-maas",
+  "timeout": 3600
+}

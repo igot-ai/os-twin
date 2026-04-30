@@ -487,6 +487,30 @@
       "default_model": "google-vertex/gemini-3-flash-preview"
     },
     {
+      "name": "knowledge-curator",
+      "description": "Knowledge curator — manages knowledge namespaces, refresh schedules, retention decisions, ingest curation, and query-quality monitoring",
+      "definition": "contributes/roles/knowledge-curator/role.json",
+      "prompt": "contributes/roles/knowledge-curator/ROLE.md",
+      "default_assignment": false,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "knowledge-management",
+        "namespace-curation",
+        "retention-policy",
+        "quality-monitoring",
+        "curation-reporting"
+      ],
+      "quality_gates": [
+        "curation-report-produced",
+        "retention-policy-documented",
+        "no-unsafe-destructive-ops"
+      ],
+      "default_model": "google-vertex/gemini-3-flash-preview"
+    },
+    {
       "name": "technical-writer",
       "description": "Document gameplay instructions and verify final project state",
       "runner": "roles/_base/Start-DynamicRole.ps1",
@@ -514,13 +538,206 @@
       "capabilities": []
     },
     {
-      "name": "qa **",
-      "description": "- Modularize install.sh into Composable Shell Modules **",
-      "runner": "roles/_base/Start-DynamicRole.ps1",
-      "definition": "roles/qa **/role.json",
-      "prompt": "roles/qa **/ROLE.md",
+      "name": "staff-manager",
+      "description": "Staff-level technical evaluator — deep code review, data contract tracing, cross-room coherence, technical debt assessment, and team mentorship",
+      "definition": "roles/staff-manager/role.json",
+      "prompt": "roles/staff-manager/ROLE.md",
       "default_assignment": false,
-      "capabilities": []
+      "instance_support": false,
+      "supported_task_types": [
+        "review",
+        "epic",
+        "investigation"
+      ],
+      "capabilities": [
+        "deep-code-review",
+        "data-contract-tracing",
+        "cross-room-coherence",
+        "dependency-audit",
+        "architecture-conformance",
+        "technical-debt-assessment",
+        "post-mortem-analysis",
+        "review-meta-analysis",
+        "mentorship"
+      ],
+      "quality_gates": [
+        "critical-thinking-applied",
+        "severity-classified",
+        "lesson-included",
+        "evidence-cited"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "principal-engineer",
+      "description": "Principal Engineer — sets multi-quarter technical direction, writes RFCs, resolves cross-team technical disputes, and mentors staff engineers",
+      "definition": "roles/principal-engineer/role.json",
+      "prompt": "roles/principal-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "review",
+        "design",
+        "epic"
+      ],
+      "capabilities": [
+        "rfc-authoring",
+        "technology-evaluation",
+        "technical-dispute-resolution",
+        "system-design-review",
+        "engineering-standards",
+        "technical-vision",
+        "cross-team-mentorship"
+      ],
+      "quality_gates": [
+        "rfc-structured",
+        "evidence-based-decisions",
+        "scalability-validated",
+        "standards-documented"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "director-of-engineering",
+      "description": "Director of Engineering — owns org-level OKRs, cross-team alignment, capacity planning, escalation routing, and organizational health",
+      "definition": "roles/director-of-engineering/role.json",
+      "prompt": "roles/director-of-engineering/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "orchestration",
+        "epic"
+      ],
+      "capabilities": [
+        "okr-management",
+        "cross-team-alignment",
+        "capacity-planning",
+        "escalation-routing",
+        "org-health-monitoring",
+        "headcount-planning",
+        "strategic-prioritization"
+      ],
+      "quality_gates": [
+        "okrs-cascaded",
+        "capacity-validated",
+        "escalations-resolved",
+        "health-assessed"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "sre-lead",
+      "description": "SRE Lead — owns production reliability: SLOs, error budgets, incident response, runbooks, observability, and chaos engineering",
+      "definition": "roles/sre-lead/role.json",
+      "prompt": "roles/sre-lead/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "task",
+        "epic",
+        "investigation"
+      ],
+      "capabilities": [
+        "slo-management",
+        "incident-response",
+        "runbook-authoring",
+        "observability-design",
+        "chaos-engineering",
+        "error-budget-tracking",
+        "on-call-management"
+      ],
+      "quality_gates": [
+        "slo-defined",
+        "runbook-tested",
+        "alerts-actionable",
+        "rca-documented"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "program-manager",
+      "description": "Program Manager — owns cross-cutting program execution, milestone tracking, dependency mapping, stakeholder comms, and launch readiness",
+      "definition": "roles/program-manager/role.json",
+      "prompt": "roles/program-manager/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "orchestration",
+        "epic"
+      ],
+      "capabilities": [
+        "milestone-tracking",
+        "dependency-mapping",
+        "stakeholder-communications",
+        "risk-management",
+        "launch-readiness",
+        "cross-program-coordination",
+        "executive-reporting"
+      ],
+      "quality_gates": [
+        "milestones-tracked",
+        "dependencies-mapped",
+        "risks-registered",
+        "stakeholders-informed"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "platform-engineer",
+      "description": "Platform Engineer — builds shared platform, internal SDKs, CI/CD pipelines, developer experience, and infrastructure-as-code",
+      "definition": "roles/platform-engineer/role.json",
+      "prompt": "roles/platform-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": true,
+      "supported_task_types": [
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "sdk-design",
+        "cicd-design",
+        "developer-experience",
+        "infrastructure-as-code",
+        "api-governance",
+        "platform-reliability",
+        "internal-tooling"
+      ],
+      "quality_gates": [
+        "sdk-documented",
+        "pipeline-green",
+        "dx-measured",
+        "iac-reviewed"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
+    },
+    {
+      "name": "security-engineer",
+      "description": "Security Engineer — shift-left security: threat modeling, secure code review, vulnerability management, security architecture, and compliance mapping",
+      "definition": "roles/security-engineer/role.json",
+      "prompt": "roles/security-engineer/ROLE.md",
+      "default_assignment": false,
+      "instance_support": false,
+      "supported_task_types": [
+        "review",
+        "task",
+        "epic"
+      ],
+      "capabilities": [
+        "threat-modeling",
+        "secure-code-review",
+        "vulnerability-management",
+        "security-architecture",
+        "compliance-mapping",
+        "penetration-testing",
+        "security-automation"
+      ],
+      "quality_gates": [
+        "threat-model-complete",
+        "vulnerabilities-triaged",
+        "compliance-mapped",
+        "no-critical-findings"
+      ],
+      "default_model": "google-vertex/zai-org/glm-5-maas"
     }
   ],
   "assignment_rules": {
@@ -528,7 +745,14 @@
     "review_role": "qa",
     "design_role": "architect",
     "orchestration_role": "manager",
-    "audit_role": "audit"
+    "audit_role": "audit",
+    "staff_review_role": "staff-manager",
+    "principal_role": "principal-engineer",
+    "director_role": "director-of-engineering",
+    "reliability_role": "sre-lead",
+    "program_role": "program-manager",
+    "platform_role": "platform-engineer",
+    "security_role": "security-engineer"
   },
   "extensibility": {
     "custom_roles_dir": "roles/",
@@ -588,7 +812,41 @@
       "puzzle-prototype": "puzzle-web-prototyping",
       "play-test": "puzzle-play-testing",
       "playtest": "puzzle-play-testing",
-      "puzzle-qa": "puzzle-play-testing"
+      "puzzle-qa": "puzzle-play-testing",
+      "rfc": "rfc-authoring",
+      "tech-radar": "technology-evaluation",
+      "dispute": "technical-dispute-resolution",
+      "standards": "engineering-standards",
+      "okr": "okr-management",
+      "okrs": "okr-management",
+      "capacity": "capacity-planning",
+      "escalation": "escalation-routing",
+      "org-health": "org-health-monitoring",
+      "slo": "slo-management",
+      "slos": "slo-management",
+      "incident": "incident-response",
+      "runbook": "runbook-authoring",
+      "observability": "observability-design",
+      "monitoring": "observability-design",
+      "chaos": "chaos-engineering",
+      "milestone": "milestone-tracking",
+      "dependency-map": "dependency-mapping",
+      "stakeholder": "stakeholder-communications",
+      "launch": "launch-readiness",
+      "sdk": "sdk-design",
+      "pipeline": "cicd-design",
+      "dx": "developer-experience",
+      "iac": "infrastructure-as-code",
+      "terraform": "infrastructure-as-code",
+      "api-governance": "api-governance",
+      "threat-model": "threat-modeling",
+      "cve": "vulnerability-management",
+      "vulnerability": "vulnerability-management",
+      "soc2": "compliance-mapping",
+      "gdpr": "compliance-mapping",
+      "hipaa": "compliance-mapping",
+      "pci": "compliance-mapping",
+      "zero-trust": "security-architecture"
     }
   },
   "skills": {
@@ -602,127 +860,73 @@
         "name": "lang",
         "description": "Fetch LangGraph documentation for accurate, up-to-date guidance",
         "path": "skills/global/lang/SKILL.md",
-        "skills": "engineer, python, code-generation",
-        "tags": [
-          "engineer",
-          "python",
-          "code-generation"
-        ],
-        "trust_level": "core"
+        "skills": "engineer, python, code-generation"
       },
       {
         "name": "create-role",
         "description": "Scaffold a new agent role — generates role.json, ROLE.md, and registers in registry.json",
         "path": "skills/roles/architect/create-role/SKILL.md",
-        "skills": "architect, manager, scaffolding",
-        "tags": [
-          "architect",
-          "manager",
-          "scaffolding"
-        ],
-        "trust_level": "core"
+        "skills": "architect, manager, scaffolding"
       },
       {
         "name": "create-architecture",
         "description": "Generate architecture docs for an epic — ADRs, component diagrams, data flows, tech-stack rationale",
         "path": "skills/global/create-architecture/SKILL.md",
-        "skills": "architect, documentation, design",
-        "tags": [
-          "architect",
-          "documentation",
-          "design"
-        ],
-        "trust_level": "core"
+        "skills": "architect, documentation, design"
       },
       {
         "name": "create-lifecycle",
         "description": "Define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, escalation rules",
         "path": "skills/global/create-lifecycle/SKILL.md",
-        "skills": "architect, manager, process",
-        "tags": [
-          "architect",
-          "manager",
-          "process"
-        ],
-        "trust_level": "core"
+        "skills": "architect, manager, process"
       },
       {
         "name": "scope-investigation",
         "description": "Define investigation boundaries using the DEPT framework before commissioning analytical work",
         "path": "skills/roles/audit/scope-investigation/SKILL.md",
-        "skills": "audit, risk-officer, scoping",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "scoping",
-          "investigation"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, scoping"
       },
       {
         "name": "analytical-lenses",
         "description": "Select analytical lenses (Distribution, Deviation, Relationship, Temporality, Compounding) and formulate precise questions",
         "path": "skills/roles/audit/analytical-lenses/SKILL.md",
-        "skills": "audit, risk-officer, analytics",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "analytics",
-          "questioning"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, analytics"
       },
       {
         "name": "question-library",
         "description": "Maintain and query a reusable library of proven risk questions organized by Risk Theme × Data Domain × Analytical Lens",
         "path": "skills/roles/audit/question-library/SKILL.md",
-        "skills": "audit, risk-officer, playbook",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "question-library",
-          "continuous-audit"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, playbook"
       },
       {
         "name": "structure-data-request",
         "description": "Compose formal structured data requests using the DATA template and send as task messages to data analysts",
         "path": "skills/roles/audit/structure-data-request/SKILL.md",
-        "skills": "audit, risk-officer, data-request",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "data-request",
-          "war-room"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, data-request"
       },
       {
         "name": "validate-output",
         "description": "Pressure-test data analyst output using the Five Validation Questions before acting on findings",
         "path": "skills/roles/audit/validate-output/SKILL.md",
-        "skills": "audit, risk-officer, validation",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "validation",
-          "quality-gate"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, validation"
       },
       {
         "name": "risk-decision",
         "description": "Convert validated findings into decision categories (Accept, Mitigate, Investigate, Escalate) with Risk Decision Records",
         "path": "skills/roles/audit/risk-decision/SKILL.md",
-        "skills": "audit, risk-officer, decision-making",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "risk-management",
-          "governance"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, decision-making"
+      },
+      {
+        "name": "curate-namespace",
+        "description": "Perform a comprehensive curation audit of a knowledge namespace, assessing health and generating recommendations",
+        "path": "skills/roles/knowledge-curator/curate-namespace/SKILL.md",
+        "skills": "knowledge-curator, curation, audit"
+      },
+      {
+        "name": "ontology-knowledge",
+        "description": "Explore ontology namespaces in the knowledge base",
+        "path": "skills/roles/knowledge-curator/ontology-knowledge/SKILL.md",
+        "skills": "knowledge-curator, ontology"
       }
     ]
   }

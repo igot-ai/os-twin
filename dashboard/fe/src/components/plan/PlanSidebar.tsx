@@ -17,6 +17,7 @@ export default function PlanSidebar() {
     { id: 'history', label: 'History', icon: 'history' },
     { id: 'architect', label: 'AI Plan', icon: 'smart_toy' },
     { id: 'memory', label: 'Memory', icon: 'psychology' },
+    { id: 'knowledge', label: 'Knowledge', icon: 'auto_stories' },
   ];
 
   if (!plan) return null;

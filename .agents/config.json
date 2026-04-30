@@ -137,8 +137,10 @@
     "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "gemini-3.1-flash-lite-preview",
-    "timeout_seconds": 300
+    "default_model": "google-vertex/zai-org/glm-5-maas",
+    "timeout_seconds": 300,
+    "max_retries": 3,
+    "instance_type": "worker"
   },
   "autonomy": {
     "idle_explore_enabled": true,
@@ -158,5 +160,33 @@
     "mcp_refs": [
       "memory"
     ]
+  },
+  "knowledge": {
+    "llm_model": "google-vertex/gemini-3-flash-preview",
+    "embedding_model": "intfloat/multilingual-e5-base",
+    "embedding_dimension": 768,
+    "llm_provider": "",
+    "embedding_backend": "",
+    "knowledge_llm_model": "google-vertex/gemini-3-flash-preview",
+    "knowledge_embedding_model": "intfloat/multilingual-e5-base",
+    "knowledge_embedding_dimension": 768
+  },
+  "providers": {
+    "openai": null,
+    "anthropic": null,
+    "google": {
+      "api_key_ref": null,
+      "base_url": null,
+      "org_id": null,
+      "enabled": true,
+      "default_model": null,
+      "deployment_mode": "vertex",
+      "project_id": "igot-studio",
+      "vertex_location": null,
+      "vertex_auth_mode": "oauth",
+      "enabled_models": []
+    },
+    "byteplus": null,
+    "custom": {}
   }
 }

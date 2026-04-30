@@ -1,48 +1,56 @@
 import keyword
-import os
-import sys
 from typing import List, Dict, Optional, Any, Tuple
 import uuid
 from datetime import datetime
+from .llm_controller import LLMController
 from .retrievers import ChromaRetriever, ZvecRetriever
-
-# Ensure shared.ai is importable (needed when running as standalone MCP server)
-_agents_dir = os.path.join(os.path.dirname(__file__), "..", "..")
-if _agents_dir not in sys.path:
-    sys.path.insert(0, os.path.abspath(_agents_dir))
 from .memory_note import MemoryNote  # canonical definition lives here now
 import json
 import logging
 import numpy as np
+import os
 from abc import ABC, abstractmethod
 import pickle
 from pathlib import Path
 import time
 
-# Lazy imports for heavy ML libraries (transformers, nltk, sklearn)
-# LLM/embedding calls go through shared.ai — no litellm or sentence-transformers needed here.
+# Lazy imports for heavy ML libraries (torch, transformers, sentence-transformers, litellm)
+# These take 6+ seconds to import and are not all needed for every backend.
+SentenceTransformer = None
 AutoModel = None
 AutoTokenizer = None
 word_tokenize = None
 BM25Okapi = None
 cosine_similarity = None
+completion = None
 
 
 def _ensure_ml_imports():
     """Import heavy ML libraries on first use."""
-    global AutoModel, AutoTokenizer, word_tokenize, BM25Okapi, cosine_similarity
-    if cosine_similarity is not None:
+    global \
+        SentenceTransformer, \
+        AutoModel, \
+        AutoTokenizer, \
+        word_tokenize, \
+        BM25Okapi, \
+        cosine_similarity, \
+        completion
+    if completion is not None:
         return  # already imported
+    from sentence_transformers import SentenceTransformer as _ST
     from transformers import AutoModel as _AM, AutoTokenizer as _AT
     from nltk.tokenize import word_tokenize as _wt
     from rank_bm25 import BM25Okapi as _BM
     from sklearn.metrics.pairwise import cosine_similarity as _cs
+    from litellm import completion as _comp
 
+    SentenceTransformer = _ST
     AutoModel = _AM
     AutoTokenizer = _AT
     word_tokenize = _wt
     BM25Okapi = _BM
     cosine_similarity = _cs
+    completion = _comp
 
 
 logger = logging.getLogger(__name__)
@@ -146,7 +154,10 @@ class AgenticMemorySystem:
         if self.persist_dir:
             self._load_notes()
 
-        # LLM calls now go through shared.ai — no controller needed
+        # Initialize LLM controller
+        self.llm_controller = LLMController(
+            llm_backend, llm_model, api_key, sglang_host, sglang_port
+        )
         self.evo_cnt = 0
         self.evo_threshold = evo_threshold
 
@@ -286,9 +297,7 @@ class AgenticMemorySystem:
             f"{note_b.content}\n"
         )
 
-        from shared.ai import get_completion
-
-        response = get_completion(prompt, purpose="memory")
+        response = self.llm_controller.llm.get_completion(prompt)
         merged_content = response.strip() if response else None
         if not merged_content:
             raise ValueError("LLM returned empty merge result")
@@ -604,11 +613,8 @@ class AgenticMemorySystem:
         schema_properties.update(summary_schema)
 
         try:
-            from shared.ai import get_completion
-
-            response = get_completion(
+            response = self.llm_controller.llm.get_completion(
                 prompt,
-                purpose="memory",
                 response_format={
                     "type": "json_schema",
                     "json_schema": {
@@ -1636,12 +1642,8 @@ class AgenticMemorySystem:
             nearest_neighbors_memories=neighbors_text,
             neighbor_number=len(memory_ids),
         )
-        from shared.ai import get_completion
-
-        response = get_completion(
-            prompt,
-            purpose="memory",
-            response_format=self._EVOLUTION_RESPONSE_FORMAT,
+        response = self.llm_controller.llm.get_completion(
+            prompt, response_format=self._EVOLUTION_RESPONSE_FORMAT
         )
         return json.loads(response)
 

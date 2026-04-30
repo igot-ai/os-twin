@@ -1,14 +1,20 @@
 /**
  * agent-bridge.ts — AI agent with tool-calling capabilities.
  *
- * Routes all LLM calls through the shared AI gateway (/api/ai/complete).
- * Provider-agnostic — works with Gemini, Claude, GPT via litellm.
+ * Uses Gemini function calling to handle both Q&A about projects AND
+ * proactive actions (create plans, list plans, check status, launch plans).
  *
  * Shared by Discord @mentions and Telegram free-text.
  */
 
+import {
+  GoogleGenerativeAI,
+  SchemaType,
+  type Content,
+  type FunctionDeclaration,
+  type FunctionCall,
+} from '@google/generative-ai';
 import config from './config';
-import { complete, type CompleteResponse, type Message as GatewayMessage, type ToolDeclaration } from './ai-gateway';
 import api, {
   type Plan,
   type Room,
@@ -84,10 +90,10 @@ function sanitizeHistory(messages: Array<{ role: string; content: string }>): Ar
  * Convert session ChatMessage[] to Gemini Content[] format.
  * Maps role: 'assistant' → 'model' and wraps content in parts[].
  */
-function toGatewayHistory(messages: Array<{ role: string; content: string }>): GatewayMessage[] {
+function toGeminiHistory(messages: Array<{ role: string; content: string }>): Content[] {
   return sanitizeHistory(messages).map((msg) => ({
-    role: (msg.role === 'model' ? 'assistant' : msg.role) as GatewayMessage['role'],
-    content: msg.content,
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }],
   }));
 }
 import { type ConnectorConfig, type AttachmentMeta } from './connectors/base';
@@ -95,19 +101,12 @@ import { registry } from './connectors/registry';
 
 // ── Tool definitions for Gemini function calling ──────────────────────────
 
-// Tool declarations in Gemini-native format (name, description, parameters).
-// Converted to OpenAI format ({ type: 'function', function: {...} }) at call site.
-interface FunctionDeclaration {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
 const toolDeclarations: FunctionDeclaration[] = [
   {
     name: 'list_plans',
     description: 'List all current plans in the Ostwin system with their status, completion %, and epic counts.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {},
     },
   },
@@ -115,10 +114,10 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: 'get_plan_status',
     description: 'Get detailed status of a specific plan by its ID, including epics and war-room progress.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         plan_id: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'The plan ID to look up (e.g. "my-blog-website")',
         },
       },
@@ -131,10 +130,10 @@ const toolDeclarations: FunctionDeclaration[] = [
       'Create a new plan from a user idea. Use this when the user asks to build, make, create, or start a new project. ' +
       'This will draft a structured plan with epics and tasks using AI, then save it.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         idea: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'Description of what the user wants to build (e.g. "interactive blog website with CMS")',
         },
       },
@@ -148,14 +147,14 @@ const toolDeclarations: FunctionDeclaration[] = [
       'update tasks, add acceptance criteria, or make any changes to a plan. ' +
       'Also use when the user says "add authentication", "break into more epics", "make it simpler", etc.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         plan_id: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'The plan ID to refine (e.g. "gold-mining.plan")',
         },
         instruction: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'What changes to make to the plan (e.g. "add JWT authentication to EPIC-002")',
         },
       },
@@ -168,10 +167,10 @@ const toolDeclarations: FunctionDeclaration[] = [
       'Launch an existing plan into war-rooms so agents start working on it. ' +
       'Use this when the user explicitly asks to run, start, launch, or execute a plan.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         plan_id: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'The plan ID to launch',
         },
       },
@@ -182,7 +181,7 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: 'get_war_room_status',
     description: 'Get the current status of all active war-rooms, including which epics are being worked on and their progress.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {},
     },
   },
@@ -191,10 +190,10 @@ const toolDeclarations: FunctionDeclaration[] = [
     description:
       'Resume a previously failed or stopped plan. Use this when the user asks to resume, retry, or re-run a plan that has failed.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         plan_id: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'The plan ID to resume',
         },
       },
@@ -205,14 +204,14 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: 'get_logs',
     description: 'Read the latest messages from a war-room channel. Useful for checking what agents are saying or debugging issues.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         room_id: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'The war-room ID to read logs from (e.g. "room-001")',
         },
         limit: {
-          type: 'number',
+          type: SchemaType.NUMBER,
           description: 'Number of messages to retrieve (default 10)',
         },
       },
@@ -223,7 +222,7 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: 'get_health',
     description: 'Check the overall system health: manager status, bot status, and war-room summary.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {},
     },
   },
@@ -231,10 +230,10 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: 'search_skills',
     description: 'Search the ClawHub marketplace for available AI skills that can be installed.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         query: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'Search query (e.g. "web search", "code review", "testing")',
         },
       },
@@ -247,10 +246,10 @@ const toolDeclarations: FunctionDeclaration[] = [
       'List all assets and artifacts produced by a plan. Use this when the user asks about files, ' +
       'artifacts, deliverables, outputs, or the product of a plan.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         plan_id: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'The plan ID (e.g. "gold-mining.plan")',
         },
       },
@@ -264,10 +263,10 @@ const toolDeclarations: FunctionDeclaration[] = [
       'architectural decisions, code patterns, lessons learned, and context discovered by agents. ' +
       'Use this when the user asks about memories, what agents learned, what was saved, or knowledge base.',
     parameters: {
-      type: 'object',
+      type: SchemaType.OBJECT,
       properties: {
         plan_id: {
-          type: 'string',
+          type: SchemaType.STRING,
           description: 'The plan ID (e.g. "gold-mining.plan")',
         },
       },
@@ -284,11 +283,6 @@ interface AgentContext {
   referencedMessageContent?: string;
   /** Metadata about attached files so the agent knows assets were staged. */
   attachments?: AttachmentMeta[];
-}
-
-interface FunctionCall {
-  name: string;
-  args: Record<string, unknown>;
 }
 
 async function executeTool(
@@ -835,7 +829,7 @@ export async function askAgent(
 
   // ── Load conversation history ──
   const recentHistory = session.chatHistory.slice(-MAX_HISTORY_MESSAGES);
-  const gatewayHistory = toGatewayHistory(recentHistory);
+  const geminiHistory = toGeminiHistory(recentHistory);
 
   // ── Build system prompt (lazy context — tools fetch details on demand) ──
   const referenceContext = agentCtx.referencedMessageContent
@@ -857,6 +851,9 @@ export async function askAgent(
   const planCount = plansData.plans?.length || 0;
   const activeRooms = roomsData.rooms?.filter((r: Room) => !['passed', 'failed-final'].includes(r.status))?.length || 0;
   const contextSummary = `You have access to ${planCount} plan(s) and ${activeRooms} active war-room(s). Use list_plans or get_war_room_status tools to get details when needed.`;
+
+  // Get staged images for vision API
+  const stagedImages = agentCtx.userId ? getStagedImages(agentCtx.userId, agentCtx.platform) : [];
 
   const systemPrompt = `You are OS Twin, an autonomous AI assistant that manages software projects through the Ostwin multi-agent war-room orchestrator.
 
@@ -881,23 +878,20 @@ RULES:
 ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
 
   try {
-    // ── Build messages + tools for the AI gateway ──
-    const tools: ToolDeclaration[] = toolDeclarations.map((t) => ({
-      type: 'function' as const,
-      function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
-    }));
+    const genAI = new GoogleGenerativeAI(config.GOOGLE_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: config.GEMINI_MODEL,
+      tools: [{ functionDeclarations: toolDeclarations }],
+    });
 
-    const messages: GatewayMessage[] = [
-      { role: 'system', content: systemPrompt },
-      ...gatewayHistory,
-      { role: 'user', content: question },
-    ];
+    const chat = model.startChat({
+      history: geminiHistory,
+      systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
+    });
 
-    // ── Function-calling loop via gateway ──
-    const AGENT_TIMEOUT_MS = 25_000;
-    const TOOL_TIMEOUT_MS = 10_000;
-    const MAX_TOOL_ROUNDS = 5;
-    const agentStart = Date.now();
+    // ── Gemini interaction with timeouts ──
+    const AGENT_TIMEOUT_MS = 45_000;
+    const TOOL_TIMEOUT_MS = 30_000;
 
     const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
       Promise.race([
@@ -907,12 +901,33 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
         ),
       ]);
 
-    let gatewayResponse = await withTimeout(
-      complete({ messages, tools }),
-      AGENT_TIMEOUT_MS,
-      'AI Gateway',
-    );
+    const agentStart = Date.now();
 
+    // Build message parts: text + images if available
+    const messageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+    messageParts.push({ text: question });
+    
+    if (stagedImages.length > 0) {
+      console.log(`[BRIDGE] Including ${stagedImages.length} staged image(s) in request`);
+      for (const img of stagedImages) {
+        const base64Match = img.url.match(/^data:[^;]+;base64,(.+)$/);
+        if (base64Match) {
+          messageParts.push({
+            inlineData: {
+              mimeType: img.contentType,
+              data: base64Match[1],
+            },
+          });
+        }
+      }
+    }
+
+    let result = await withTimeout(chat.sendMessage(messageParts), AGENT_TIMEOUT_MS, 'Gemini');
+    let response = result.response;
+
+    // Function-calling loop with timeout + retry
+    const MAX_TOOL_ROUNDS = 5;
+    let lastToolResults: Array<{ name: string; response: Record<string, unknown> }> = [];
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const elapsed = Date.now() - agentStart;
       if (elapsed > AGENT_TIMEOUT_MS) {
@@ -920,41 +935,41 @@ ${contextSummary}${activePlanContext}${referenceContext}${attachmentContext}`;
         break;
       }
 
-      if (!gatewayResponse.tool_calls || gatewayResponse.tool_calls.length === 0) break;
+      const calls = response.functionCalls();
+      if (!calls || calls.length === 0) break;
 
       // Execute tools in parallel with retry on transient failures
-      const calls = gatewayResponse.tool_calls;
       const toolResults = await Promise.all(
-        calls.map((call) =>
-          executeToolWithRetry(
-            { name: call.function.name, args: JSON.parse(call.function.arguments) },
-            agentCtx,
-            pendingAttachments,
-            TOOL_TIMEOUT_MS,
-          ),
-        ),
+        calls.map((call) => executeToolWithRetry(call, agentCtx, pendingAttachments, TOOL_TIMEOUT_MS)),
       );
+      lastToolResults = toolResults;
 
-      // Append assistant tool_calls + tool results to messages
-      messages.push({ role: 'assistant', content: null, tool_calls: calls });
-      for (let i = 0; i < calls.length; i++) {
-        messages.push({
-          role: 'tool',
-          tool_call_id: calls[i].id,
-          content: JSON.stringify(toolResults[i].response),
-        });
-      }
-
-      // Send updated messages back to gateway
+      // Send tool results back to Gemini
       const remainingMs = Math.max(5000, AGENT_TIMEOUT_MS - (Date.now() - agentStart));
-      gatewayResponse = await withTimeout(
-        complete({ messages, tools }),
+      result = await withTimeout(
+        chat.sendMessage(
+          toolResults.map((r) => ({
+            functionResponse: { name: r.name, response: r.response },
+          })),
+        ),
         remainingMs,
-        'AI Gateway',
+        'Gemini',
       );
+      response = result.response;
     }
 
-    const answer = gatewayResponse.text;
+    let answer = response.text?.();
+    if (!answer && lastToolResults.length > 0) {
+      const successResult = lastToolResults.find(r => r.response?.success && r.response?.message);
+      if (successResult?.response?.message && typeof successResult.response.message === 'string') {
+        answer = successResult.response.message;
+      } else {
+        const errorResult = lastToolResults.find(r => r.response?.error);
+        if (errorResult?.response?.error) {
+          answer = `⚠️ Tool ${errorResult.name} failed: ${errorResult.response.error}`;
+        }
+      }
+    }
     if (!answer) return { text: '⚠️ AI returned an empty response.' };
 
     // Persist conversation turn

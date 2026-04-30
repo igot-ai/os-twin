@@ -35,7 +35,7 @@ These axes are composed independently through five architectural pillars:
 
 | System | Doc |
 |--------|-----|
-| [Agentic Memory MCP](agentic-memory.md) | Semantic knowledge base with auto-linking, tagging, and vector search (A-mem-sys). |
+| [Agentic Memory MCP](agentic-memory.md) | Semantic knowledge base with auto-linking, tagging, and vector search. |
 
 ## Execution Model
 

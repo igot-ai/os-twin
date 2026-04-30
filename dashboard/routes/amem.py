@@ -1,4 +1,4 @@
-"""Dashboard API routes for Agentic Memory (A-mem-sys).
+"""Dashboard API routes for Agentic Memory.
 
 Reads .memory/ directory from the plan's working_dir to serve
 graph snapshots, memory notes, and search results to the frontend.
@@ -14,15 +14,13 @@ import sys
 from dashboard.api_utils import PLANS_DIR
 from dashboard.auth import get_current_user
 
-# Reuse the canonical note parser from A-mem-sys instead of duplicating the
+# Reuse the canonical note parser from .agents/memory instead of duplicating the
 # YAML/frontmatter logic in the dashboard. We import from `memory_note`
 # (not `memory_system`) to avoid pulling in the heavy retriever stack
 # (sentence_transformers, chromadb, nltk, litellm) at dashboard startup.
 _AMEM_PATH_CANDIDATES = [
     Path.home() / ".ostwin" / ".agents" / "memory",
-    Path.home() / ".ostwin" / "A-mem-sys",
     Path(__file__).resolve().parent.parent.parent / ".agents" / "memory",
-    Path(__file__).resolve().parent.parent.parent / "A-mem-sys",
 ]
 for _p in _AMEM_PATH_CANDIDATES:
     if _p.is_dir() and str(_p) not in sys.path:
@@ -156,7 +154,7 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
     """Read a single markdown file and convert it to the dashboard's wire shape.
 
     Delegates frontmatter parsing to ``MemoryNote.from_markdown`` so we share
-    one parser with the rest of A-mem-sys. Falls back to a minimal stub if
+    one parser with the memory system. Falls back to a minimal stub if
     the import is unavailable (shouldn't happen at runtime, but defensive).
     """
     try:
@@ -205,7 +203,7 @@ def _load_notes(notes_dir: Path) -> list:
     """Load all markdown notes from the notes directory.
 
     Each note's frontmatter is parsed by ``MemoryNote.from_markdown`` (the
-    same code path A-mem-sys uses to write the file), so the dashboard sees
+    same code path the memory system uses to write the file), so the dashboard sees
     exactly the structured fields the MCP server intended.
     """
     if not notes_dir.exists():

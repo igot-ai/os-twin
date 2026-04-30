@@ -68,9 +68,7 @@ class RefineRequest(BaseModel):
     chat_history: list = Field(default_factory=list)
     working_dir: str = ""  # Target project directory for this plan
     asset_context: List[Dict[str, Any]] = Field(default_factory=list)
-    images: List[Dict[str, Any]] = Field(
-        default_factory=list
-    )  # [{url: "data:image/...;base64,...", name, contentType}]
+    images: List[Dict[str, Any]] = Field(default_factory=list)  # [{url: "data:image/...;base64,...", name, contentType}]
 
 
 class UpdatePlanRoleConfigRequest(BaseModel):
@@ -135,13 +133,15 @@ class Role(BaseModel):
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
-    instance_type: str = "worker"  # 'worker' | 'evaluator'
+    instance_type: str = "worker" # 'worker' | 'evaluator'
     created_at: str
     updated_at: str
 
 
 class CreateRoleRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9 \-_]+$")
+    name: str = Field(
+        ..., min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9 \-_]+$"
+    )
     description: str = Field("", max_length=500)
     instructions: str = ""
     provider: str
@@ -230,18 +230,10 @@ class ProviderSettings(BaseModel):
     org_id: Optional[str] = None
     enabled: bool = True
     default_model: Optional[str] = None
-    deployment_mode: Optional[str] = None  # 'gemini' | 'vertex' (Google only)
-    project_id: Optional[str] = None  # Vertex AI project ID (Google only)
-    vertex_location: Optional[str] = (
-        None  # Vertex AI region (Google only, default: global)
-    )
-    vertex_auth_mode: Optional[str] = (
-        None  # 'service_account' | 'oauth' (Vertex only, default: service_account)
-    )
-    embedding_model: Optional[str] = None  # Embedding model (e.g. "text-embedding-005")
-    vertex_claude_location: Optional[str] = (
-        None  # Region for Claude on Model Garden (e.g. "us-east5")
-    )
+    deployment_mode: Optional[str] = None   # 'gemini' | 'vertex' (Google only)
+    project_id: Optional[str] = None        # Vertex AI project ID (Google only)
+    vertex_location: Optional[str] = None   # Vertex AI region (Google only, default: global)
+    vertex_auth_mode: Optional[str] = None  # 'service_account' | 'oauth' (Vertex only, default: service_account)
     enabled_models: List[str] = Field(
         default_factory=list,
         description=(
@@ -273,27 +265,28 @@ class RoleSettings(BaseModel):
 
 class RuntimeSettings(BaseModel):
     poll_interval: int = Field(default=5, ge=1, le=300)
-    max_concurrent_rooms: int = Field(default=10, ge=1, le=500)
+    max_concurrent_rooms: int = Field(default=10, ge=1, le=10000)
     auto_approve_tools: bool = False
     dynamic_pipelines: bool = True
+    # Master agent default model — format: "provider/model_id" or plain "model_id".
+    # Empty string means "use the hardcoded default from master_agent.py".
+    master_agent_model: str = ""
 
 
 class MemorySettings(BaseModel):
     # -- Processing LLM --
-    llm_backend: str = (
-        "huggingface"  # gemini | openai | huggingface | ollama | openrouter | sglang
-    )
+    llm_backend: str = "huggingface"          # gemini | openai | huggingface | ollama | openrouter | sglang
     llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
     # -- Embedding --
     embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
     embedding_model: str = "microsoft/harrier-oss-v1-0.6b"
     # -- Vector store --
-    vector_backend: str = "zvec"  # zvec | chroma
+    vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --
-    context_aware: bool = True  # include similar memories in LLM analysis
-    auto_sync: bool = True  # periodic disk sync
-    auto_sync_interval: int = 60  # seconds between syncs
-    ttl_days: int = 30  # auto-delete entries older than N days
+    context_aware: bool = True                # include similar memories in LLM analysis
+    auto_sync: bool = True                    # periodic disk sync
+    auto_sync_interval: int = 60              # seconds between syncs
+    ttl_days: int = 30                        # auto-delete entries older than N days
     # Legacy alias — readers should prefer vector_backend
     vector_store: str = "zvec"
 
@@ -321,20 +314,27 @@ class ObservabilitySettings(BaseModel):
     otel_enabled: bool = False
 
 
-class AINamespace(BaseModel):
-    """Shared AI gateway configuration.
+class KnowledgeSettings(BaseModel):
+    """Knowledge service runtime settings (ADR-15).
 
-    Per-purpose model overrides (if set, these override
-    providers.google.default_model for specific callers).
+    Overrides the env-var defaults baked into ``dashboard/knowledge/config.py``.
+    Resolution precedence is ``MasterSettings.knowledge`` > env var >
+    hardcoded default — see :class:`KnowledgeService.__init__`.
+
+    All fields are prefixed with ``knowledge_`` to explicitly declare the
+    settings namespace and avoid field-name collisions across namespaces.
+
+    Empty strings mean "no override; use the env-var / hardcoded default".
+    ``knowledge_embedding_dimension`` is informational and read-only on the
+    frontend (the actual dim is determined by the embedding model that gets
+    loaded).
     """
 
-    completion_model: Optional[str] = None
-    knowledge_model: Optional[str] = None
-    memory_model: Optional[str] = None
-    cloud_embedding_model: str = "text-embedding-005"
-    local_embedding_model: str = "all-MiniLM-L6-v2"
-    timeout_seconds: int = 60
-    max_retries: int = 2
+    # -- LLM --
+    knowledge_llm_model: str = ""              # empty = use config.LLM_MODEL
+    # -- Embedding --
+    knowledge_embedding_model: str = ""        # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_dimension: int = 384   # read-only / informational
 
 
 class MasterSettings(BaseModel):
@@ -345,7 +345,7 @@ class MasterSettings(BaseModel):
     channels: ChannelsNamespace = Field(default_factory=ChannelsNamespace)
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
-    ai: AINamespace = Field(default_factory=AINamespace)
+    knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
 
 
 class EffectiveResolution(BaseModel):

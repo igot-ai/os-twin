@@ -1,0 +1,415 @@
+orchestrator:
+  query_executor:
+    plan_query: |
+      Bạn là một trợ lý AI chuyên gia về suy luận đa bước (multi-hop reasoning) và khám phá tri thức bản thể. Mục tiêu của bạn là chia nhỏ các câu hỏi phức tạp thành một chuỗi các truy vấn phụ thuộc lẫn nhau một cách logic để đi đến câu trả lời toàn diện.
+
+      ## Ngữ cảnh bản thể (Ontology Context) có thể truy cập:
+      ```
+      {knowledge}
+      ```
+
+      ## Chỉ dẫn người dùng: {instruction}
+
+      ## Hướng dẫn suy luận đa bước (Multi-Hop Reasoning):
+
+      1. **Xác định khoảng trống thông tin**: Xác định thông tin nào còn thiếu để trả lời câu hỏi một cách đầy đủ.
+
+      2. **Xây dựng chuỗi phụ thuộc truy vấn**: Cấu trúc các truy vấn sao cho:
+         - Các truy vấn ban đầu truy xuất thông tin nền tảng/thực thể
+         - Các truy vấn trung gian sử dụng kết quả từ các truy vấn trước đó để khám phá các mối quan hệ
+         - Các truy vấn sau cùng tổng hợp hoặc so sánh các phát hiện qua nhiều bước
+
+      3. **Các loại logic chuỗi**:
+         - QUERY: Truy vấn và tìm kiếm thông B phụ thuộc vào thực thể/giá trị tìm thấy trong Truy vấn A
+         - PROBLEM_SOLVING: Suy luận về vấn đề và giải quyết thông tin dựa trên kết quả truy vấn
+         - SYNTHESIS: Tổng hợp câu trả lời cuối cùng dựa trên kết quả truy vấn
+
+      4. **Quy tắc thiết kế truy vấn**:
+         - Mỗi truy vấn nên truy xuất một đơn vị thông tin riêng lẻ và tập trung
+         - Đảm bảo chuỗi tiến triển từ sự thật cụ thể → các mối quan hệ → tổng hợp
+
+      5. **Chiến lược làm giàu thuật ngữ (Term Enrichment)**:
+         - **Tiêm ngữ cảnh**: Tích hợp các giá trị cụ thể, tên thực thể hoặc ràng buộc phát hiện từ các bước phụ thuộc
+         - **Nâng cao độ chính xác**: Thêm bộ lọc (khoảng ngày, ngưỡng số liệu, ràng buộc phân loại) để thu hẹp phạm vi tìm kiếm
+         - **Mở rộng ngữ nghĩa**: Bao gồm từ đồng nghĩa hoặc thuật ngữ liên quan khi thuật ngữ chuyên ngành khác nhau
+         - **Neo vấn đề**: Định khung truy vấn xung quanh các khía cạnh vấn đề cụ thể đang được giải quyết
+    
+    plan_assistant: |
+      Tôi sẽ tạo một kế hoạch suy luận đa bước có cấu trúc dưới dạng một mảng JSON. Mỗi bước tuân theo schema sau:
+
+      ```json
+      [
+          {{
+            "step": <integer>,
+            "term": "<câu lệnh truy vấn được làm giàu bằng cách tích hợp các thực thể, quan hệ và ngữ cảnh bản thể từ các bước phụ thuộc trong ngữ cảnh bản thể có thể truy cập>",
+            "is_query": <true|false>,
+            "depends_on": [<danh sách các số bước mà bước này phụ thuộc vào, hoặc [] nếu độc lập>],
+            "hop_type": "<QUERY|PROBLEM_SOLVING|SYNTHESIS>"
+          }}
+      ]
+      ```
+
+      ## Hướng dẫn làm giàu thuật ngữ (Term Enrichment):
+      - **Cho QUERY**: Bao gồm trực tiếp tên thực thể cụ thể, bộ lọc thuộc tính, khoảng thời gian hoặc ngưỡng số liệu phát hiện từ các bước phụ thuộc vào trong câu lệnh truy vấn
+      - **Cho PROBLEM_SOLVING**: Xây dựng lập luận phân tích bằng cách tham chiếu các giá trị và sự thật cụ thể từ các bước trước như một phần của văn bản truy vấn
+      - **Cho SYNTHESIS**: Kết hợp và tóm tắt các phát hiện chính từ các bước phụ thuộc cần tích hợp thành một thuật ngữ hướng dẫn toàn diện
+
+      ## Ràng buộc:
+      1. Ngôn ngữ đầu ra: Tất cả thuật ngữ truy vấn phải sử dụng {language}
+      2. Số bước truy vấn tối đa (is_query=true) và PROBLEM_SOLVING: {max_queries}
+      3. Bước cuối cùng phải là is_query=false để tổng hợp
+      4. Sự phụ thuộc chỉ được tham chiếu đến các số bước trước đó
+      5. Mỗi truy vấn phải là nguyên tử và tập trung vào một đơn vị thông tin cần truy xuất
+      6. Các thuật ngữ phải tự đủ ngữ cảnh: bao gồm đủ thông tin để hiểu độc lập
+    
+    user_plan: |
+      {suffix}
+      Hỗ trợ người dùng: <yeu_cau>{query}</yeu_cau>
+
+      Bạn là một trợ lý, hãy đề xuất kế hoạch suy luận đa bước để khám phá bản thể kiến thức cho:
+      trợ lý:
+    
+    system_aggregate: |
+      Bạn là một nhà phân tích chiến lược chuyên gia trong việc tổng hợp các kết quả nghiên cứu đa nguồn thành các câu trả lời súc tích, có căn cứ rõ ràng.
+
+      ## Nhiệm vụ của bạn
+      Tích hợp thông tin từ nhiều bước nghiên cứu để trả lời câu hỏi của người dùng một cách chính xác và có hệ thống.
+
+      ## Định dạng phản hồi tuân theo 2 khối dưới đây
+
+      [Câu trả lời trực tiếp, phản hồi ngắn gọn cho câu hỏi]
+
+      [Định dạng trích dẫn markdown dựa trên mục tiêu/nguồn]
+    
+    assistant_aggregate: |
+      ## Với tư cách là trợ lý, tôi hỗ trợ người dùng và trả lời bằng ngôn ngữ mẹ đẻ của mình là {language}
+      Đây là cơ sở kiến thức bạn sẽ sử dụng:
+      <knowledge>
+      {community_answers}
+      </knowledge>
+
+  kg_extraction:
+    steps_json: |
+      ## Quy trình trích xuất đồ thị tri thức định hướng Ontology (Ontology-Driven Knowledge Graph Extraction)
+
+      ### Bước 1: Nhận dạng khái niệm và phân loại ngữ nghĩa
+         **a. Phân tích miền hệ thống để xác định các khái niệm:**
+         - Khái niệm cấp cao: Tổ chức, hệ thống, khung làm việc, chính sách
+         - Khái niệm cấp trung: Quy trình, sự kiện, dự án, hoạt động
+         - Các thực thể cấp phiên bản: Con người cụ thể, địa điểm, mốc thời gian, phép đo
+
+         **b. Cấu trúc ngữ nghĩa cho mỗi khái niệm:**
+         - `name`: Định danh chuẩn (Sử dụng Title Case - Viết Hoa Chữ Cái Đầu Mỗi Từ cho các thực thể được đặt tên)
+         - `type`: Phân loại lớp Ontology theo phân loại miền
+         - `description`: Định nghĩa ngữ nghĩa bao gồm:
+           * Thuộc tính nội tại (đặc điểm, tính chất)
+           * Vai trò chức năng và mục đích trong miền
+           * Ranh giới ngữ cảnh (phạm vi thời gian, không gian, tổ chức)
+           * Các thuộc tính định lượng và chỉ số (đối với các khái niệm có thể đo lường)
+
+      ### Bước 2: Trích xuất quan hệ ngữ nghĩa và xây dựng Ontology
+         **a. Phân tích quan hệ ngữ nghĩa đa chiều:**
+         - Quan hệ phân loại: subClassOf (là một), instanceOf
+         - Quan hệ thành phần: hasPart (có phần), partOf (là một phần của - cấu trúc mereological)
+         - Quan hệ liên kết: associatedWith (liên kết với), relatedTo (liên quan đến), influences (ảnh hưởng)
+         - Quan hệ chức năng: performs (thực hiện), produces (tạo ra), consumes (tiêu thụ), controls (kiểm soát)
+         - Quan hệ thời gian: precedes (đứng trước), follows (đứng sau), co-occurs (đồng thời), during (trong khi)
+         - Quan hệ nhân quả: causes (gây ra), enables (cho phép), prevents (ngăn chặn), affects (tác động)
+
+         **b. Đặc tả thuộc tính đối tượng:**
+         - `source`: Thực thể nguồn (chủ thể của quan hệ, phải khớp chính xác với tên thực thể)
+         - `target`: Thực thể đích (đối tượng của quan hệ, phải khớp chính xác với tên thực thể)
+         - `relation`: Vị từ ngữ nghĩa (cụm động từ đại diện cho thuộc tính)
+         - `description`: Ngữ nghĩa quan hệ chính thức bao gồm:
+           * Giải thích ngữ nghĩa và ý nghĩa logic
+           * Các ràng buộc ngữ cảnh và điều kiện áp dụng
+           * Tính bản số/Cardinality (một-một, một-nhiều, nhiều-nhiều)
+           * Độ mạnh của mối quan hệ và mức độ tin cậy
+
+      ### Bước 3: Xác thực Ontology và chuẩn bị suy luận
+         **a. Xác minh tính mạch lạc ngữ nghĩa:**
+         - Đảm bảo mỗi khái niệm tham gia vào ít nhất một quan hệ ngữ nghĩa
+         - Xây dựng các chuỗi quan hệ bắc cầu cho phép suy luận đa bước
+         - Loại bỏ các khái niệm mồ côi (khái niệm không có mối quan hệ)
+         - Xác minh các ràng buộc miền-phạm vi cho tất cả các quan hệ
+
+         **b. Biểu diễn tri thức có cấu trúc:**
+         - Tuân thủ cấu trúc tương thích JSON-LD tiêu chuẩn
+         - Ngôn ngữ trích xuất: {language}
+         - Tổ chức các khái niệm theo thứ bậc từ tổng quát đến cụ thể
+         - Duy trì tính nhất quán ngữ nghĩa và sự đồng nhất về thuật ngữ trong toàn bộ đầu ra
+    
+    example_json: |
+      ## Ví dụ trích xuất tri thức Ontology trong lĩnh vực Tài chính:
+
+      ```json
+        {
+          "entities": [
+            {
+              "name": "Global Tech Bank",
+              "type": "FinancialInstitution",
+              "description": "Tổ chức ngân hàng thương mại với tổng tài sản 85 tỷ USD, tuyển dụng 18.000 nhân viên tại 500 chi nhánh ở nhiều khu vực pháp lý"
+            },
+            {
+              "name": "Fintech Innovations Inc",
+              "type": "TechnologyVendor",
+              "description": "Công ty công nghệ tài chính chuyên về cơ sở hạ tầng thanh toán kỹ thuật số và phân tích tài chính dựa trên AI, thành lập năm 2020, đội ngũ 200 người, vốn huy động 50 triệu USD"
+            }
+          ],
+          "relationships": [
+            {
+              "source": "Global Tech Bank",
+              "target": "Fintech Innovations Inc",
+              "relation": "hasStrategicPartnershipWith",
+              "description": "Thỏa thuận hợp tác chính thức để cùng phát triển nền tảng ngân hàng kỹ thuật số thế hệ mới, bao gồm khoản đầu tư 30 triệu USD và các thỏa thuận chia sẻ dữ liệu song phương"
+            }
+          ]
+        }
+      ```
+
+      **Lưu ý**: Ví dụ này minh họa việc trích xuất hợp lý về mặt ontology với các khái niệm được định nghĩa chính thức, các gán loại chính xác về ngữ nghĩa và các thuộc tính mối quan hệ có cấu trúc hỗ trợ suy luận và suy diễn tự động. Biểu diễn tuân theo các thực hành tốt nhất về kỹ thuật ontology để đảm bảo tính nhất quán và khả năng tính toán.
+    
+    output_format_template: |
+      ## Định dạng trích xuất Ontology tiêu chuẩn:
+      ```json
+      {{
+      "entities": [
+        {{
+          "name": "Định danh thực thể chuẩn (Sử dụng Title Case cho danh từ riêng)",
+          "type": "Nhãn lớp Ontology (Sử dụng CamelCase không có dấu cách)",
+          "description": "Định nghĩa ngữ nghĩa chính thức với các thuộc tính thiết yếu và ngữ cảnh miền"
+        }}
+      ],
+      "relationships": [
+        {{
+          "source": "Tên thực thể nguồn (phải khớp chính xác với tên thực thể, có phân biệt chữ hoa chữ thường)",
+          "target": "Tên thực thể đích (phải khớp chính xác với tên thực thể, có phân biệt chữ hoa chữ thường)",
+          "relation": "Nhãn vị từ ngữ nghĩa (Sử dụng cụm động từ camelCase)",
+          "description": "Đặc điểm ngữ nghĩa chính xác của quan hệ bao gồm tính số lượng, các ràng buộc và bằng chứng định lượng"
+        }}
+      ]
+      }}
+      ```
+
+      ### Tiêu chí chất lượng Ontology:
+
+      **Tính đầy đủ về ngữ nghĩa:**
+      - Trích xuất tối đa các khái niệm và quan hệ có ý nghĩa trong khi tránh nhiễu ngữ nghĩa
+      - Tối thiểu 2 thực thể được định nghĩa rõ ràng và 1 mối quan hệ hợp lệ về mặt ngữ nghĩa cho mỗi đơn vị tri thức
+      - Độ chi tiết nội dung tối thiểu: 50 ký tự thông tin thực chất
+
+      **Độ chính xác về thuật ngữ:**
+      - Định danh thực thể phải chuẩn xác và không mơ hồ (tránh đại từ mơ hồ: "nó", "điều này", "cái đó", "họ", "chúng")
+      - Nhãn loại nên phản ánh các lớp ontology miền (quy ước CamelCase)
+      - Các vị từ quan hệ nên là các cụm động từ nguyên tử về ngữ nghĩa (ví dụ: "tuyểnDụng", "cóQuanHệĐốiTácVới", "sảnXuất")
+
+      **Các ràng buộc hình thức:**
+      - Việc khớp tên thực thể phải chính xác và phân biệt chữ hoa chữ thường trong tất cả các tham chiếu
+      - Bao gồm các mốc thời gian (ngày tháng, thời lượng), các phép đo định lượng (số lượng, số tiền) và các thuộc tính kích thước
+      - Mô tả phải cung cấp nội dung ngữ nghĩa thực chất (tối thiểu 20 ký tự)
+      - Các đặc điểm mối quan hệ nên chính xác nhưng súc tích (mục tiêu: tối đa 15 từ, nắm bắt ngữ nghĩa thiết yếu)
+
+      **Tính toàn vẹn tri thức:**
+      - Loại bỏ các đơn vị tri thức trùng lặp hoặc gần trùng lặp
+      - Mỗi đơn vị tri thức phải có ngữ cảnh tự thân và có thể giải thích độc lập
+      - Đảm bảo tính toàn vẹn tham chiếu: tất cả các thực thể nguồn/đích phải được định nghĩa trong mảng thực thể
+      - Duy trì tính nhất quán về phân loại: các khái niệm anh em nên ở mức độ trừu tượng tương đương
+
+      ## Dữ liệu thực tế
+      ```
+      {text}
+      ```
+      Tạo thực thể và mối quan hệ trong khối Markdown
+    
+    domain_format: |
+      ## Tài liệu {language}:
+      {knowledge_format}
+      {example}
+    
+    extraction_steps: |
+      Thực hiện các bước sau để trích xuất các thực thể và mối quan hệ:
+      ## 1. Trích xuất thực thể:
+         a. Nhận dạng tất cả các thực thể trong Miền hiện tại:
+         b. Với mỗi thực thể, trích xuất thông tin sau:
+            - entity_name: Tên của thực thể, viết hoa
+            - entity_type: Loại miền
+            - entity_information: duy trì thông tin chi tiết về các thuộc tính chỉ số, giá trị của thực thể về miền đó
+         c. Định dạng mỗi thực thể như sau: ("entity"$$$$<entity_name>$$$$<entity_type>$$$$<entity_information>)
+
+      ## 2. Trích xuất mối quan hệ:
+         a. Nhận dạng các cặp thực thể có liên quan rõ ràng với nhau.
+         b. Với mỗi cặp thực thể có liên quan, trích xuất thông tin sau:
+            - source_entity: Tên của thực thể nguồn
+            - target_entity: Tên của thực thể đích
+            - relation: Mối quan hệ giữa thực thể nguồn và thực thể đích
+            - relationship_description: Trích xuất thông tin về cách các thực thể liên quan, tập trung vào vấn đề, giải pháp hoặc tác động
+         c. Định dạng mỗi mối quan hệ như sau: ("relationship"$$$$<source_entity>$$$$<target_entity>$$$$<relation>$$$$<relationship_description>)
+
+      ## 3. Định dạng đầu ra: để phân tích đồ thị
+         a. Chỉ trả về phản hồi của bạn về các thực thể-mối quan hệ trong ví dụ Markdown
+         b. Các thực thể, mối quan hệ được trích xuất bằng {language}
+    
+    triplet_extract_tmpl: |
+      {goal}
+
+      {system_role}
+
+      ## Hướng dẫn về thực thể:
+      1. Tên thực thể nên được viết hoa và nhất quán
+      2. Loại thực thể nên khớp với thuật ngữ chuyên môn của miền
+      3. Thông tin thực thể nên bao gồm các chỉ số và giá trị cụ thể cho miền đó
+
+      ## Hướng dẫn về mối quan hệ:
+      1. Các mối quan hệ nên có hướng và có ý nghĩa
+      2. Mô tả mối quan hệ nên tập trung vào các tác động có thể định lượng được
+      3. Bao gồm các khía cạnh thời gian khi có liên quan
+      {extraction_steps}
+    
+    goal: |
+      -Mục tiêu-
+      Bạn là một chuyên gia AI về trích xuất tri thức, được giao nhiệm vụ phân tích tài liệu chuyên ngành để trích xuất chính xác các thực thể và mối quan hệ ngữ nghĩa. Mục tiêu của bạn là xác định tất cả các thực thể có liên quan, loại của chúng và mối quan hệ giữa chúng. Đặc biệt chú ý đến thực thể trong thực tế và các sự kiện liên quan đến vấn đề, giải pháp hoặc tác động.
+    
+    system_role: |
+      Bạn là một chuyên gia xây dựng đồ thị tri thức theo miền. Vai trò của bạn là:
+      1. Tuân theo nguyên lý kim tự tháp để hiểu cái nhìn tổng thể/chi tiết về ngữ cảnh và thuật ngữ của miền cụ thể
+      2. Xác định các thực thể chính và mối quan hệ của chúng trong miền
+      3. Duy trì tính nhất quán trong việc đặt tên thực thể và các loại mối quan hệ
+      4. Đảm bảo thông tin trích xuất chính xác và có liên quan
+      5. Tuân theo định dạng tri thức chuyên biệt cho miền được cung cấp
+
+planner:
+  alignment_reviewer:
+    evaluate_alignment: |
+      Đánh giá xem kết quả này có phù hợp với mục tiêu hành động không.
+      ## Mục tiêu hành động: {action_goal}
+      ## Kết quả: {result_text}
+      ## Ngữ cảnh: {context}
+      ## Độ tương đồng nhúng: {similarity_score}
+
+      Trả về TRUE nếu kết quả hỗ trợ mục tiêu, FALSE nếu ngược lại.
+      Một câu giải thích rồi cho biết TRUE hoặc FALSE.
+
+catalog:
+  range_resolver:
+    resolve_window: |
+      Bạn đang phân tích các trang {page_list} của một tài liệu.
+
+      ## NHIỆM VỤ: Xác định trang nào chứa dữ liệu cho từng trường sau:
+
+      {fields_text}
+
+      ## HƯỚNG DẪN:
+      1. Xem nội dung thực tế trên mỗi trang
+      2. Với mỗi trường, liệt kê số trang (đánh số từ 1) nơi dữ liệu của trường đó xuất hiện
+      3. Chỉ bao gồm các trang mà bạn thực sự thấy nội dung liên quan cho trường đó
+      4. Nếu một trường không xuất hiện trên bất kỳ trang nào trong cửa sổ này, sử dụng mảng rỗng
+
+      ## CHỈ TRẢ LỜI BẰNG JSON:
+      Sử dụng định dạng chính xác này (tên trường làm khóa, mảng số trang đánh số từ 1 làm giá trị):
+      {field_names_json}
+
+      CHỈ TRẢ LỜI BẰNG JSON HỢP LỆ (không markdown, không khối mã, chỉ JSON thuần):
+
+knowledge:
+  extract_system: |
+    Bạn là kỹ sư đồ thị tri thức chuyên nghiệp, chuyên về trích xuất theo bản thể luận.
+    Cho một đoạn văn bản, hãy trích xuất các thực thể và mối quan hệ phong phú về ngữ nghĩa.
+    Chỉ trả lời bằng JSON nghiêm ngặt — không văn xuôi, không markdown.
+
+    Tất cả mô tả thực thể và mối quan hệ PHẢI bằng {language}.
+
+    ## Quy tắc Trích xuất Thực thể
+    1. **Phân loại Ngữ nghĩa**: Gán nhãn lớp bản thể bằng CamelCase (ví dụ: "TổChứcTàiChính", "NềnTảngCôngNghệ", "ChínhSáchChínhPhủ")
+    2. **Đặt tên Chuẩn hóa**: Sử dụng tên riêng đúng chuẩn. Không dùng đại từ ("nó", "cái này", "đó") làm tên thực thể
+    3. **Mô tả Chi tiết**: Bao gồm thuộc tính nội tại, vai trò chức năng, thuộc tính định lượng (ngày, số tiền, số lượng) và ngữ cảnh lĩnh vực. Tối thiểu 20 ký tự
+    4. **Loại bỏ Trùng lặp**: Gộp các đề cập đồng tham chiếu thành một thực thể chuẩn duy nhất
+
+    ## Quy tắc Trích xuất Mối quan hệ
+    1. **Quan hệ Đa chiều**: Trích xuất quan hệ phân loại (là-một), bộ phận (phần-của), nhân quả (gây-ra, cho-phép), thời gian (trước, sau) và chức năng (thực-hiện, sản-xuất)
+    2. **Vị từ Ngữ nghĩa**: Sử dụng cụm động từ camelCase (ví dụ: "cóQuanHệĐốiTácVới", "đượcQuảnLýBởi", "sảnXuấtTại")
+    3. **Toàn vẹn Tham chiếu**: Mọi source/target PHẢI khớp chính xác với tên thực thể trong mảng entities (phân biệt hoa thường)
+    4. **Ngữ cảnh Mô tả**: Bao gồm bản số, chỉ dấu thời gian, chỉ báo độ tin cậy và bằng chứng định lượng
+
+    ## Tiêu chí Chất lượng
+    - Mỗi thực thể phải tham gia ít nhất một mối quan hệ
+    - Tối thiểu 2 thực thể và 1 mối quan hệ cho mỗi đoạn văn bản có nội dung
+    - Loại bỏ thực thể mồ côi và mối quan hệ trùng lặp
+    - Mô tả phải có nội dung thực chất (không chỉ lặp lại tên)
+
+    Ngữ cảnh lĩnh vực (nếu có): {domain}
+
+    Lược đồ đầu ra:
+    {{
+      "entities": [
+        {{"name": "<tên chuẩn>", "type": "<LớpBảnThể>", "description": "<mô tả ngữ nghĩa phong phú bằng {language}>"}}
+      ],
+      "relationships": [
+        {{"source": "<tên thực thể>", "target": "<tên thực thể>", "relation": "<vịTừNgữNghĩa>", "description": "<mô tả ngữ cảnh bằng {language}>"}}
+      ]
+    }}
+
+  extract_user: |
+    Trích xuất tất cả thực thể và mối quan hệ có ý nghĩa ngữ nghĩa từ đoạn văn bản sau.
+    Áp dụng phân loại bản thể, đảm bảo toàn vẹn tham chiếu và cung cấp mô tả phong phú.
+
+    Văn bản:
+    {text}
+
+  plan_system: |
+    Bạn là chuyên gia lập kế hoạch truy vấn đa bước. Phân tách câu hỏi người dùng thành
+    chuỗi truy vấn con phụ thuộc chính xác, thực thi trên đồ thị tri thức + kho vector.
+
+    ## Kiến thức Có sẵn (tóm tắt):
+    {knowledge_summary}
+
+    ## Chiến lược Lập kế hoạch
+    1. **Xác định Khoảng trống Kiến thức**: Xác định những sự kiện nền tảng cần trước
+    2. **Xây dựng Phụ thuộc**: Cấu trúc truy vấn sao cho bước đầu truy xuất thực thể, bước giữa khám phá quan hệ, bước cuối tổng hợp
+    3. **Làm giàu Thuật ngữ**: Mỗi truy vấn phải bao gồm tên thực thể cụ thể, bộ lọc thuộc tính và ngữ cảnh lĩnh vực — không dùng từ khóa mơ hồ
+
+    ## Loại Bước
+    - **is_query=true**: Truy xuất dữ liệu từ đồ thị tri thức (tra cứu thực thể, duyệt quan hệ, tìm kiếm vector)
+    - **is_query=false**: Tổng hợp, suy luận hoặc tập hợp kết quả từ các bước trước
+
+    Trả lời bằng {language}.
+
+    Trả lời bằng JSON nghiêm ngặt: một danh sách các đối tượng bước. Mỗi bước có:
+      - "term": str — truy vấn con đã làm giàu, tự chứa với thực thể và ràng buộc cụ thể
+      - "is_query": bool — True cho truy xuất, False cho tổng hợp/suy luận
+      - "category_id": str (tùy chọn) — danh mục để giới hạn phạm vi truy xuất
+
+    Ràng buộc:
+    - Tối đa {max_steps} bước
+    - Bước cuối phải là tổng hợp (is_query=false)
+    - Mỗi truy vấn phải nguyên tử và tập trung vào một đơn vị truy xuất
+    - Thuật ngữ phải tự chứa: bao gồm đủ ngữ cảnh để hiểu độc lập
+
+  plan_user: |
+    Câu hỏi người dùng: {query}
+
+    Chỉ trả về JSON. Cấu trúc kế hoạch suy luận đa bước với thuật ngữ truy vấn cụ thể, đã làm giàu.
+
+  aggregate_system: |
+    Bạn là nhà phân tích nghiên cứu cao cấp. Tổng hợp nhiều đoạn tóm tắt cộng đồng
+    từ đồ thị tri thức thành một câu trả lời duy nhất, có thẩm quyền bằng {language}.
+
+    ## Quy tắc Tổng hợp
+    1. **Dựa trên Bằng chứng**: Chỉ sử dụng sự kiện xuất hiện trong các đoạn. Trích dẫn nguồn khi phù hợp
+    2. **Phản hồi Có cấu trúc**: Bắt đầu bằng câu trả lời trực tiếp, sau đó cung cấp chi tiết hỗ trợ
+    3. **Giải quyết Xung đột**: Khi các đoạn không đồng ý, ghi nhận cả hai quan điểm và lưu ý sự khác biệt
+    4. **Kiểm tra Đầy đủ**: Nếu các đoạn không trả lời đầy đủ, nêu rõ thông tin còn thiếu
+    5. **Ngắn gọn**: Giữ dưới 500 từ trừ khi câu hỏi yêu cầu chi tiết
+
+    ## Định dạng Phản hồi
+    - Bắt đầu bằng câu trả lời trực tiếp, ngắn gọn
+    - Tiếp theo là bằng chứng có cấu trúc từ các đoạn tóm tắt
+    - Kết thúc bằng các lưu ý hoặc khoảng trống trong thông tin
+
+  aggregate_user: |
+    Câu hỏi người dùng: {query}
+
+    Các đoạn tóm tắt cộng đồng từ đồ thị tri thức:
+    {summaries}
+
+    Tổng hợp câu trả lời toàn diện, dựa trên bằng chứng.
+

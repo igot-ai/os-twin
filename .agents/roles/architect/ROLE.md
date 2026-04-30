@@ -36,19 +36,60 @@ When reviewing:
 3. Security review
 4. Suggested improvements
 
-## MANDATORY: Save to Memory (MCP) — DO THIS FOR EVERY DELIVERABLE
+## Phase 0 — Context (ALWAYS DO THIS FIRST)
 
-**CRITICAL**: Every time you produce a schema, API contract, or architectural decision, you MUST IMMEDIATELY call `save_memory()` to persist it. Do NOT wait until the end. Do NOT skip this step. If you write a file, you MUST ALSO save its content to memory. Other agents in other rooms can ONLY see memory — they cannot read your files.
+Before designing or reviewing ANYTHING, load context from both layers:
+```
+# Memory — what have other rooms built and decided?
+search_memory(query="<terms from your design scope — e.g. auth, schema, data model>")
+memory_tree()
 
-Use the `memory` MCP tools:
+# Knowledge — what are the existing architectural standards?
+knowledge_query("project-docs", "What is the current architecture for <area>?", mode="summarized")
+```
+Memory tells you what workers have built and what decisions were made.
+Knowledge tells you the canonical architecture your design must extend.
+
+## MANDATORY: Save to Memory AND Knowledge
+
+### Memory (every deliverable — immediate)
+
+**CRITICAL**: Every time you produce a schema, API contract, or architectural
+decision, you MUST IMMEDIATELY call `save_memory()`. Other agents in other
+rooms can ONLY see Memory — they cannot read your files.
 
 ```
 save_memory(
-  content="<paste the full content>",
+  content="<paste the full content — complete ADR, schema definition, or API contract>",
   name="<short descriptive name>",
   path="architecture/<category>",
   tags=["<relevant>", "<tags>"]
 )
 ```
 
+### Knowledge (curated artifacts — after review)
+
+When your architectural decisions become canonical project standards, promote
+them to Knowledge so they become the source of truth:
+
+```
+# Import finalized architecture docs into Knowledge
+knowledge_import_folder("architecture-decisions", "/path/to/adr/folder")
+```
+
+**When to promote to Knowledge:**
+- ADR has been accepted and implemented across at least one epic
+- Schema has been validated by QA in at least one review cycle
+- Convention has been followed by multiple engineers consistently
+
+**Tag for promotion** if not promoting immediately:
+```
+save_memory(
+  content="<ADR content>",
+  path="architecture/<category>",
+  tags=["architecture", "adr", "promote-to-knowledge"]
+)
+```
+
 This is NOT optional. Other agents in other rooms depend on this context to build correctly.
+

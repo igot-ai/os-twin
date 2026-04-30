@@ -25,7 +25,7 @@ Describe "Read-OstwinConfig" {
                 state_timeout_seconds = 900
             }
             engineer     = @{
-                cli             = "deepagents"
+                cli             = "agent"
                 default_model   = "google-vertex/gemini-3-flash-preview"
                 timeout_seconds = 600
                 max_prompt_bytes = 102400
