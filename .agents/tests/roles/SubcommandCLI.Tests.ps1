@@ -38,9 +38,9 @@ Describe "ostwin role discovery" {
         @{
             role = $testRole
             subcommands = @{
-                "hello" = @{ invoke = "echo hello {args}"; description = "Say hello" }
+                "hello" = @{ invoke = "echo `"hello {args}`""; description = "Say hello" }
             }
-        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json") -Encoding utf8
 
         try {
             $output = Invoke-Ostwin -OstwinArgs @('role', $testRole)
@@ -69,9 +69,9 @@ Describe "ostwin role dispatch" {
         @{
             role = $testRole
             subcommands = @{
-                "greet" = @{ invoke = "echo GREETING: {args}"; description = "Greet" }
+                "greet" = @{ invoke = "echo `"GREETING: {args}`""; description = "Greet" }
             }
-        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json") -Encoding utf8
 
         try {
             $output = Invoke-Ostwin -OstwinArgs @('role', $testRole, 'greet', 'hello', 'world')
@@ -90,9 +90,9 @@ Describe "ostwin role dispatch" {
         @{
             role = $testRole
             subcommands = @{
-                "run" = @{ invoke = "echo RAN:"; description = "Run" }
+                "run" = @{ invoke = "echo `"RAN:`""; description = "Run" }
             }
-        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json") -Encoding utf8
 
         try {
             $output = Invoke-Ostwin -OstwinArgs @('role', $testRole, 'run', 'extra', 'args')
@@ -119,9 +119,9 @@ Describe "ostwin role errors" {
         @{
             role = $testRole
             subcommands = @{
-                "valid" = @{ invoke = "echo ok"; description = "Ok" }
+                "valid" = @{ invoke = "echo `"ok`""; description = "Ok" }
             }
-        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
+        } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json") -Encoding utf8
 
         try {
             $result = Invoke-Ostwin -OstwinArgs @('role', $testRole, "bogus-sub-$(Get-Random)")
