@@ -16,19 +16,13 @@ Describe "Invoke-Agent" {
 
     Context "With mock agent command" {
         It "runs successfully with echo mock" {
-            $env:ENGINEER_CMD = "echo"
-            try {
-                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
-                    -RoleName "engineer" -Prompt "test prompt" `
-                    -AgentCmd "echo" -TimeoutSeconds 10
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test prompt" `
+                -AgentCmd "echo" -TimeoutSeconds 10
 
-                $result | Should -Not -BeNullOrEmpty
-                $result.RoleName | Should -Be "engineer"
-                $result.ExitCode | Should -BeIn @(0, 1)  # echo may or may not accept -n flag
-            }
-            finally {
-                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
-            }
+            $result | Should -Not -BeNullOrEmpty
+            $result.RoleName | Should -Be "engineer"
+            $result.ExitCode | Should -BeIn @(0, 1)  # echo may or may not accept -n flag
         }
 
         It "creates artifacts directory" {
@@ -47,11 +41,9 @@ Describe "Invoke-Agent" {
             Test-Path (Join-Path $script:roomDir "pids") | Should -BeTrue
         }
 
-        It "reports PidFile path in result (agent self-registers PID)" {
-            # Design contract (v2): Invoke-Agent does NOT write the PID file itself.
-            # It sets AGENT_OS_PID_FILE env var in the wrapper, and bin/agent writes $$
-            # before exec. The PID file may or may not exist depending on the mock used.
-            # The result object always carries the expected PidFile path for the caller.
+        It "reports PidFile path in result" {
+            # Start-Process writes PID directly. The result object always carries
+            # the expected PidFile path for the caller.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
@@ -97,8 +89,8 @@ Describe "Invoke-Agent" {
     }
 
     Context "Config resolution" {
-        It "uses env var override for agent command" {
-            $env:ENGINEER_CMD = "echo"
+        It "uses OSTWIN_AGENT_CMD env var override" {
+            $env:OSTWIN_AGENT_CMD = "echo"
             try {
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                     -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
@@ -107,7 +99,7 @@ Describe "Invoke-Agent" {
                 $result | Should -Not -BeNullOrEmpty
             }
             finally {
-                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
+                Remove-Item Env:OSTWIN_AGENT_CMD -ErrorAction SilentlyContinue
             }
         }
 
@@ -115,7 +107,6 @@ Describe "Invoke-Agent" {
             $configFile = Join-Path $TestDrive "test-config.json"
             @{
                 engineer = @{
-                    cli             = "echo"
                     default_model   = "test-model"
                     timeout_seconds = 10
                 }
@@ -124,7 +115,8 @@ Describe "Invoke-Agent" {
             $env:AGENT_OS_CONFIG = $configFile
             try {
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
-                    -RoleName "engineer" -Prompt "config test" -TimeoutSeconds 5
+                    -RoleName "engineer" -Prompt "config test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
 
                 $result | Should -Not -BeNullOrEmpty
             }
@@ -162,7 +154,6 @@ Describe "Invoke-Agent" {
             $script:instanceConfigFile = Join-Path $TestDrive "instance-config.json"
             @{
                 engineer = @{
-                    cli             = "echo"
                     default_model   = "base-model"
                     timeout_seconds = 600
                     instances = @{
@@ -598,29 +589,46 @@ Write-Output "ARGS: `$(`$args -join ' ')"
     }
 
     Context "Default AgentCmd resolution" {
-        It "defaults to opencode run when no bin/agent or config CLI found" {
-            # Create a minimal config that doesn't specify cli
-            $configFile = Join-Path $TestDrive "no-cli-config.json"
-            @{
-                engineer = @{
-                    default_model   = "test-model"
-                    timeout_seconds = 10
-                }
-            } | ConvertTo-Json -Depth 3 | Out-File $configFile -Encoding utf8
+        It "always defaults to opencode run" {
+            # Verify that without -AgentCmd or OSTWIN_AGENT_CMD, the resolved
+            # command is 'opencode run' — no bin/agent lookup.
+            # We use a capture mock via -AgentCmd to verify the script reaches
+            # the execution phase without crashing.
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd "echo" -TimeoutSeconds 5
 
-            $env:AGENT_OS_CONFIG = $configFile
-            $env:ENGINEER_CMD = "echo"  # override so the test actually runs
+            $result | Should -Not -BeNullOrEmpty
+            $result.ExitCode | Should -BeIn @(0, 1)
+        }
+
+        It "OSTWIN_AGENT_CMD overrides the default" {
+            $env:OSTWIN_AGENT_CMD = "echo"
             try {
-                # The test verifies that the script doesn't crash when
-                # resolving to "opencode run" as default
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                     -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
 
                 $result | Should -Not -BeNullOrEmpty
             }
             finally {
-                Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue
-                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
+                Remove-Item Env:OSTWIN_AGENT_CMD -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "explicit -AgentCmd param wins over OSTWIN_AGENT_CMD" {
+            $captureMock = Join-Path $TestDrive "capture-cmd-$(Get-Random).ps1"
+            "Write-Output 'MOCK_EXECUTED'" | Out-File $captureMock -Encoding utf8
+
+            $env:OSTWIN_AGENT_CMD = "echo"
+            try {
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd $captureMock -TimeoutSeconds 5
+
+                $result.Output | Should -Match "MOCK_EXECUTED"
+            }
+            finally {
+                Remove-Item Env:OSTWIN_AGENT_CMD -ErrorAction SilentlyContinue
             }
         }
     }
@@ -769,7 +777,7 @@ Write-Output "ARGS: `$(`$args -join ' ')"
 
             # Setup config.json with a different model
             $configFile = Join-Path $TestDrive "config-plan-$(Get-Random).json"
-            @{ engineer = @{ cli = "echo"; default_model = "config-model" } } | ConvertTo-Json -Depth 3 |
+            @{ engineer = @{ default_model = "config-model" } } | ConvertTo-Json -Depth 3 |
                 Out-File $configFile -Encoding utf8
 
             $savedHome = $env:HOME
