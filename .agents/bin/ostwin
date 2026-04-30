@@ -102,8 +102,12 @@ else {
 
 # Final fallback: script-relative
 if (-not $AgentsDir) {
-    $scriptDir = Split-Path $PSCommandPath -Parent
-    $AgentsDir = (Resolve-Path (Join-Path $scriptDir "..")).Path
+    if ($PSCommandPath) {
+        $scriptDir = Split-Path $PSCommandPath -Parent
+        $AgentsDir = (Resolve-Path (Join-Path $scriptDir "..")).Path
+    } else {
+        $AgentsDir = Join-Path $OstwinHome ".agents"
+    }
 }
 
 # After venv activation, resolve python
@@ -301,7 +305,6 @@ Usage:
   ostwin <command> [options]
 
 Commands:
-  agent [args...]    Run the Agent OS agent (opencode run wrapper)
   run <plan_id|file> Execute a plan by ID or file path
                      Options: --dry-run, --resume, --expand, --working-dir PATH
   plan <sub>        Plan management (AI-assisted)
@@ -365,24 +368,7 @@ Environment:
 # ──────────────────────────────────────────────────────────────────────────────
 switch ($Command) {
 
-    # ── agent ────────────────────────────────────────────────────────────────
-    "agent" {
-        # Prefer local repo's agent script, fallback to OSTWIN_HOME copy
-        $scriptDir = Split-Path $PSCommandPath -Parent
-        $localAgentPs1 = Join-Path $scriptDir "agent.ps1"
-        $homeAgentPs1 = Join-Path $OstwinHome ".agents\bin\agent.ps1"
 
-        if (Test-Path $localAgentPs1) {
-            & pwsh -NoProfile -File $localAgentPs1 @Arguments
-        }
-        elseif (Test-Path $homeAgentPs1) {
-            & pwsh -NoProfile -File $homeAgentPs1 @Arguments
-        }
-        else {
-            Write-Error "[ERROR] agent.ps1 not found."
-            exit 1
-        }
-    }
 
     # ── run ──────────────────────────────────────────────────────────────────
     "run" {
@@ -1091,7 +1077,8 @@ switch ($Command) {
         }
 
         # Delegate to: ostwin role manager clone -RoleName <role> -ProjectDir <path>
-        & $PSCommandPath role manager clone -RoleName $roleName -ProjectDir $cloneProjectDir
+        $ostwinExec = if ($PSCommandPath) { $PSCommandPath } else { Join-Path $AgentsDir "bin" "ostwin" }
+        & $ostwinExec role manager clone -RoleName $roleName -ProjectDir $cloneProjectDir
     }
 
     # ── skills ───────────────────────────────────────────────────────────────
@@ -1645,7 +1632,8 @@ switch ($Command) {
     # ── mac ──────────────────────────────────────────────────────────────────
     "mac" {
         # Shorthand for: ostwin role macos-automation-engineer <sub> [args]
-        & $PSCommandPath role macos-automation-engineer @Arguments
+        $ostwinExec = if ($PSCommandPath) { $PSCommandPath } else { Join-Path $AgentsDir "bin" "ostwin" }
+        & $ostwinExec role macos-automation-engineer @Arguments
     }
 
     # ── config ───────────────────────────────────────────────────────────────
