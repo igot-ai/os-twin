@@ -277,11 +277,13 @@ $rawOutput = $result.Output
 # --- Strip tool-calling noise from agent output ---
 # deepagents --quiet still emits "🔧 Calling tool:" lines and MCP loading messages.
 # These are meaningless for channel/release notes and cause signoff rejection.
-$cleanLines = ($rawOutput -split "`n") | Where-Object {
+$cleanLines = ($rawOutput -split "`r?\n") | Where-Object {
     $line = $_.Trim()
-    # Skip empty and very short lines (likely corrupted fragments)
-    if (-not $line -or $line.Length -lt 4) { return $false }
-    -not ($line -match '^🔧' -or
+    # Preserve empty lines for formatting
+    if (-not $line) { return $true }
+
+    # Strip specific noise patterns
+    $isNoise = ($line -match '^🔧' -or
         $line -match '[Cc]alling tool:' -or
         $line -match '^\w{0,5}\s*tool:' -or
         $line -match '^Loading MCP' -or
@@ -292,6 +294,8 @@ $cleanLines = ($rawOutput -split "`n") | Where-Object {
         $line -match '^\s*google-vertex/gemini-' -or
         $line -match '^✓ Task completed' -or
         $line -match '^System\.Management\.Automation')
+    
+    return (-not $isNoise)
 }
 $output = ($cleanLines -join "`n").Trim()
 if (-not $output) {

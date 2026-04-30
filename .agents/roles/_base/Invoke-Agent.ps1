@@ -7,9 +7,10 @@
     prompts, config, PID tracking, timeout, and output capture.
     Used by Start-Engineer.ps1, Start-QA.ps1, and future role runners.
 
-    v0.4 — direct child process execution (no generated wrapper script).
-    Env vars set inline with save/restore to prevent process pollution.
-    PID tracked directly from Start-Process, no polling needed.
+    v0.5 — pure PowerShell execution via Start-Process.
+    Always launches "opencode run" as the child process (no external
+    bin/agent binary). Env vars set inline with save/restore to prevent
+    process pollution. PID tracked directly from Start-Process.
     Ctrl+C propagation via try/finally cleanup.
 
 .PARAMETER RoomDir
@@ -263,25 +264,23 @@ if (Test-Path $configPath) {
     if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
     if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
-    # --- CLI resolution: env override → OSTWIN_HOME/.agents/bin/agent (mandatory) ---
-    if (-not $AgentCmd) {
-        if ($env:OSTWIN_AGENT_CMD) {
-            $AgentCmd = $env:OSTWIN_AGENT_CMD
-        }
-        else {
-            $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
-            if (Test-Path $ostwinAgent) {
-                $AgentCmd = "'$ostwinAgent'"
-            }
-            else {
-                Write-Error "Agent binary not found at: $ostwinAgent`nRun the installer or set `$OSTWIN_AGENT_CMD."
-                exit 1
-            }
-        }
-    }
 }
 
-if (-not $AgentCmd) { $AgentCmd = "opencode run" }
+# --- CLI resolution ---
+# Priority: (1) explicit -AgentCmd param  →  (2) Role-specific env (e.g. ARCHITECT_CMD) → (3) OSTWIN_AGENT_CMD env  →  (4) "opencode run"
+# No bin/agent binary lookup — the full flow is managed by Start-Process.
+if (-not $AgentCmd) {
+    $roleEnvCmd = (Get-ChildItem Env: | Where-Object { $_.Name -eq "$($RoleName.ToUpper())_CMD" }).Value
+    if ($roleEnvCmd) {
+        $AgentCmd = $roleEnvCmd
+    }
+    elseif ($env:OSTWIN_AGENT_CMD) {
+        $AgentCmd = $env:OSTWIN_AGENT_CMD
+    }
+    else {
+        $AgentCmd = "opencode run"
+    }
+}
 
 # --- Role.json model + max_retries fallback (runs even when config.json is absent) ---
 # If no model was resolved from -Model param, plan.roles.json, or config.json,
@@ -306,11 +305,6 @@ if (-not $Model -or $maxProcessRetries -eq 3) {
     }
 }
 if (-not $Model) { $Model = "google-vertex/zai-org/glm-5-maas" }
-
-# --- Env var overrides for testing ---
-$envCmdVar = "${RoleName}_CMD".ToUpper()
-$envCmd = [System.Environment]::GetEnvironmentVariable($envCmdVar)
-if ($envCmd) { $AgentCmd = $envCmd }
 
 # --- Log resolved model/timeout/retries for debugging ---
 # These are the values that will actually drive opencode run.

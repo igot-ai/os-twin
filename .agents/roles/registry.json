@@ -538,15 +538,6 @@
       "capabilities": []
     },
     {
-      "name": "qa **",
-      "description": "- Modularize install.sh into Composable Shell Modules **",
-      "runner": "roles/_base/Start-DynamicRole.ps1",
-      "definition": "roles/qa **/role.json",
-      "prompt": "roles/qa **/ROLE.md",
-      "default_assignment": false,
-      "capabilities": []
-    },
-    {
       "name": "staff-manager",
       "description": "Staff-level technical evaluator — deep code review, data contract tracing, cross-room coherence, technical debt assessment, and team mentorship",
       "definition": "roles/staff-manager/role.json",

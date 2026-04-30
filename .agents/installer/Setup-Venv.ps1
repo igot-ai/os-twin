@@ -104,7 +104,7 @@ function Setup-Venv {
             # Run via bat file to fully isolate uv's console progress output on Windows
             $uvExe = (Get-Command uv).Source
             $uvArgs = @(
-                "pip", "install", "--quiet", "--upgrade", "--prerelease=allow",
+                "pip", "install", "--no-progress", "--upgrade", "--prerelease=if-necessary",
                 "--python", "`"$venvPython`"",
                 "--extra-index-url", "https://download.pytorch.org/whl/cpu"
             ) + $reqArgsCmd
@@ -116,7 +116,7 @@ function Setup-Venv {
             $batFile = Join-Path $logsDir "_uv-install.cmd"
             $batContent = "@echo off`r`n`"$uvExe`" $uvArgStr >`"$uvLog`" 2>&1"
 
-            # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
+            # Write with UTF-8 without BOM
             [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
 
             $proc = Start-Process -FilePath "cmd.exe" `
@@ -124,7 +124,12 @@ function Setup-Venv {
                 -WindowStyle Hidden -Wait -PassThru
 
             if ($proc.ExitCode -ne 0) {
-                Write-Fail "uv pip install failed (exit $($proc.ExitCode)) — check $uvLog"
+                Write-Fail "uv pip install failed (exit $($proc.ExitCode))"
+                if (Test-Path $uvLog) {
+                    Write-Host "--- BEGIN uv-install.log ---" -ForegroundColor Gray
+                    Get-Content $uvLog | ForEach-Object { Write-Host $_ -ForegroundColor Gray }
+                    Write-Host "--- END uv-install.log ---" -ForegroundColor Gray
+                }
                 throw "Python dependency installation failed"
             }
         }
