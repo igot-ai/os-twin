@@ -9,6 +9,9 @@
 BeforeAll {
     $script:agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..")).Path
     $script:ostwin = Join-Path $script:agentsDir "bin" "ostwin"
+    if ($IsWindows) {
+        $script:ostwin += ".cmd"
+    }
 
     # Cross-platform helper: invokes ostwin via -Command to avoid the
     # Windows .ps1 extension requirement of -File.
