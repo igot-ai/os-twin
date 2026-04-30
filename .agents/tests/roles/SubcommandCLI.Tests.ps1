@@ -10,7 +10,7 @@ BeforeAll {
 Describe "ostwin role discovery" {
     It "lists all discoverable roles" {
         $env:AGENTS_DIR = $script:agentsDir
-        $output = bash -c "AGENTS_DIR='$($script:agentsDir)' '$($script:ostwin)' role" 2>&1
+        $output = pwsh -NoProfile -File $script:ostwin role 2>&1
         $joined = ($output | Out-String)
         $joined | Should -Match "Available roles with subcommands"
     }
@@ -28,7 +28,7 @@ Describe "ostwin role discovery" {
         } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
 
         try {
-            $output = bash $script:ostwin role $testRole
+            $output = pwsh -NoProfile -File $script:ostwin role $testRole
             $joined = $output -join "`n"
             $joined | Should -Match "Subcommands for role '$testRole'"
             $joined | Should -Match "hello"
@@ -40,7 +40,7 @@ Describe "ostwin role discovery" {
     }
 
     It "shows error for role without subcommands.json" {
-        $output = bash $script:ostwin role "nonexistent-pester-role-$(Get-Random)" 2>&1
+        $output = pwsh -NoProfile -File $script:ostwin role "nonexistent-pester-role-$(Get-Random)" 2>&1
         $joined = $output -join "`n"
         $joined | Should -Match "not found or has no subcommands"
     }
@@ -59,9 +59,9 @@ Describe "ostwin role dispatch" {
         } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
 
         try {
-            $output = bash $script:ostwin role $testRole greet hello world
+            $output = pwsh -NoProfile -File $script:ostwin role $testRole greet hello world
             $joined = $output -join "`n"
-            $joined | Should -Match "GREETING: hello world"
+            $joined | Should -Match "GREETING:[\s\r\n]+hello[\s\r\n]+world"
         }
         finally {
             Remove-Item -Path $testRoleDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -80,7 +80,7 @@ Describe "ostwin role dispatch" {
         } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
 
         try {
-            $output = bash $script:ostwin role $testRole run extra args
+            $output = pwsh -NoProfile -File $script:ostwin role $testRole run extra args
             $joined = $output -join "`n"
             $joined | Should -Match "RAN:"
         }
@@ -92,7 +92,7 @@ Describe "ostwin role dispatch" {
 
 Describe "ostwin role errors" {
     It "exits 1 for unknown role" {
-        bash $script:ostwin role "definitely-not-a-role-$(Get-Random)" 2>&1 | Out-Null
+        pwsh -NoProfile -File $script:ostwin role "definitely-not-a-role-$(Get-Random)" 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 1
     }
 
@@ -109,7 +109,7 @@ Describe "ostwin role errors" {
         } | ConvertTo-Json -Depth 5 | Out-File (Join-Path $testRoleDir "subcommands.json")
 
         try {
-            $result = bash $script:ostwin role $testRole "bogus-sub-$(Get-Random)" 2>&1
+            $result = pwsh -NoProfile -File $script:ostwin role $testRole "bogus-sub-$(Get-Random)" 2>&1
             $LASTEXITCODE | Should -Be 1
             $joined = $result -join "`n"
             $joined | Should -Match "not found"

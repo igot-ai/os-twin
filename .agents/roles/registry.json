@@ -869,189 +869,73 @@
         "name": "lang",
         "description": "Fetch LangGraph documentation for accurate, up-to-date guidance",
         "path": "skills/global/lang/SKILL.md",
-        "skills": "engineer, python, code-generation",
-        "tags": [
-          "engineer",
-          "python",
-          "code-generation"
-        ],
-        "trust_level": "core"
+        "skills": "engineer, python, code-generation"
       },
       {
         "name": "create-role",
         "description": "Scaffold a new agent role — generates role.json, ROLE.md, and registers in registry.json",
         "path": "skills/roles/architect/create-role/SKILL.md",
-        "skills": "architect, manager, scaffolding",
-        "tags": [
-          "architect",
-          "manager",
-          "scaffolding"
-        ],
-        "trust_level": "core"
+        "skills": "architect, manager, scaffolding"
       },
       {
         "name": "create-architecture",
         "description": "Generate architecture docs for an epic — ADRs, component diagrams, data flows, tech-stack rationale",
         "path": "skills/global/create-architecture/SKILL.md",
-        "skills": "architect, documentation, design",
-        "tags": [
-          "architect",
-          "documentation",
-          "design"
-        ],
-        "trust_level": "core"
+        "skills": "architect, documentation, design"
       },
       {
         "name": "create-lifecycle",
         "description": "Define and scaffold the lifecycle for an epic — states, quality gates, required artifacts, escalation rules",
         "path": "skills/global/create-lifecycle/SKILL.md",
-        "skills": "architect, manager, process",
-        "tags": [
-          "architect",
-          "manager",
-          "process"
-        ],
-        "trust_level": "core"
+        "skills": "architect, manager, process"
       },
       {
         "name": "scope-investigation",
         "description": "Define investigation boundaries using the DEPT framework before commissioning analytical work",
         "path": "skills/roles/audit/scope-investigation/SKILL.md",
-        "skills": "audit, risk-officer, scoping",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "scoping",
-          "investigation"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, scoping"
       },
       {
         "name": "analytical-lenses",
         "description": "Select analytical lenses (Distribution, Deviation, Relationship, Temporality, Compounding) and formulate precise questions",
         "path": "skills/roles/audit/analytical-lenses/SKILL.md",
-        "skills": "audit, risk-officer, analytics",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "analytics",
-          "questioning"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, analytics"
       },
       {
         "name": "question-library",
         "description": "Maintain and query a reusable library of proven risk questions organized by Risk Theme × Data Domain × Analytical Lens",
         "path": "skills/roles/audit/question-library/SKILL.md",
-        "skills": "audit, risk-officer, playbook",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "question-library",
-          "continuous-audit"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, playbook"
       },
       {
         "name": "structure-data-request",
         "description": "Compose formal structured data requests using the DATA template and send as task messages to data analysts",
         "path": "skills/roles/audit/structure-data-request/SKILL.md",
-        "skills": "audit, risk-officer, data-request",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "data-request",
-          "war-room"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, data-request"
       },
       {
         "name": "validate-output",
         "description": "Pressure-test data analyst output using the Five Validation Questions before acting on findings",
         "path": "skills/roles/audit/validate-output/SKILL.md",
-        "skills": "audit, risk-officer, validation",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "validation",
-          "quality-gate"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, validation"
       },
       {
         "name": "risk-decision",
         "description": "Convert validated findings into decision categories (Accept, Mitigate, Investigate, Escalate) with Risk Decision Records",
         "path": "skills/roles/audit/risk-decision/SKILL.md",
-        "skills": "audit, risk-officer, decision-making",
-        "tags": [
-          "audit",
-          "risk-officer",
-          "risk-management",
-          "governance"
-        ],
-        "trust_level": "core"
+        "skills": "audit, risk-officer, decision-making"
       },
       {
         "name": "curate-namespace",
         "description": "Perform a comprehensive curation audit of a knowledge namespace, assessing health and generating recommendations",
         "path": "skills/roles/knowledge-curator/curate-namespace/SKILL.md",
-        "skills": "knowledge-curator, curation, audit",
-        "tags": [
-          "knowledge",
-          "curation",
-          "audit",
-          "namespace"
-        ],
-        "trust_level": "standard"
+        "skills": "knowledge-curator, curation, audit"
       },
       {
-        "name": "set-retention",
-        "description": "Configure retention policy for a knowledge namespace, controlling automatic cleanup of old imports",
-        "path": "skills/roles/knowledge-curator/set-retention/SKILL.md",
-        "skills": "knowledge-curator, retention, ttl",
-        "tags": [
-          "knowledge",
-          "retention",
-          "ttl",
-          "cleanup"
-        ],
-        "trust_level": "standard"
-      },
-      {
-        "name": "schedule-refresh",
-        "description": "Schedule or trigger a refresh of a knowledge namespace by re-importing all source folders",
-        "path": "skills/roles/knowledge-curator/schedule-refresh/SKILL.md",
-        "skills": "knowledge-curator, refresh, update",
-        "tags": [
-          "knowledge",
-          "refresh",
-          "reindex"
-        ],
-        "trust_level": "standard"
-      },
-      {
-        "name": "audit-quality",
-        "description": "Audit the quality of a knowledge namespace by analyzing query performance and index health",
-        "path": "skills/roles/knowledge-curator/audit-quality/SKILL.md",
-        "skills": "knowledge-curator, quality, monitoring",
-        "tags": [
-          "knowledge",
-          "quality",
-          "performance"
-        ],
-        "trust_level": "standard"
-      },
-      {
-        "name": "propose-rebuild",
-        "description": "Propose a rebuild of a corrupted or degraded knowledge namespace with backup and recovery steps",
-        "path": "skills/roles/knowledge-curator/propose-rebuild/SKILL.md",
-        "skills": "knowledge-curator, rebuild, recovery",
-        "tags": [
-          "knowledge",
-          "rebuild",
-          "repair"
-        ],
-        "trust_level": "standard"
+        "name": "ontology-knowledge",
+        "description": "Explore ontology namespaces in the knowledge base",
+        "path": "skills/roles/knowledge-curator/ontology-knowledge/SKILL.md",
+        "skills": "knowledge-curator, ontology"
       }
     ]
   }
