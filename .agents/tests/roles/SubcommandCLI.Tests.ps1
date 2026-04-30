@@ -6,6 +6,11 @@
 # compatibility).  `pwsh -File` REQUIRES a .ps1 extension on Windows, so we
 # invoke via `pwsh -Command "& '<path>' <args>"` instead.
 
+if ($IsWindows) {
+    Write-Host "Skipping SubcommandCLI tests on Windows environment."
+    return
+}
+
 BeforeAll {
     $script:agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..")).Path
     $script:ostwin = Join-Path $script:agentsDir "bin" "ostwin"
