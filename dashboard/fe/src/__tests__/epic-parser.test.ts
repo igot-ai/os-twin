@@ -67,3 +67,62 @@ describe('Epic Markdown Parser & Serializer', () => {
     expect(tasksSection?.tasks?.[1].completed).toBe(true);
   });
 });
+
+// ── Regression test: Roles duplication ────────────────────────────────
+
+describe('Roles duplication regression', () => {
+  const rolesMarkdown = `# Plan: KẾ HOẠCH KIỂM TOÁN
+
+## EPIC-001 — Setup
+Roles: @engineer, @audit
+
+### Definition of Done
+- [ ] Data Quality Score ≥ 90%
+
+depends_on: []
+
+## EPIC-002 — Dashboard
+Roles: @engineer, @audit
+
+### Definition of Done
+- [ ] Dashboard renders correctly
+
+depends_on: [EPIC-001]
+`;
+
+  it('should not duplicate Roles lines on round-trip', () => {
+    const doc = parseEpicMarkdown(rolesMarkdown);
+    const serialized = serializeEpicMarkdown(doc);
+
+    // Count how many "Roles:" lines exist
+    const rolesCount = (serialized.match(/^Roles:/gm) || []).length;
+    const boldRolesCount = (serialized.match(/^\*\*Roles\*\*/gm) || []).length;
+    const totalRolesLines = rolesCount + boldRolesCount;
+
+    // Should have exactly 2 Roles lines (one per EPIC)
+    expect(totalRolesLines).toBe(2);
+  });
+
+  it('should not accumulate Roles lines over multiple cycles', () => {
+    let md = rolesMarkdown;
+
+    // Simulate 5 parse→serialize cycles (as happens on repeated saves)
+    for (let i = 0; i < 5; i++) {
+      const doc = parseEpicMarkdown(md);
+      md = serializeEpicMarkdown(doc);
+    }
+
+    const rolesCount = (md.match(/Roles:/gm) || []).length;
+    const boldRolesCount = (md.match(/\*\*Roles\*\*/gm) || []).length;
+    const totalRolesLines = rolesCount + boldRolesCount;
+
+    // Should still be exactly 2 Roles lines after 5 cycles
+    expect(totalRolesLines).toBe(2);
+  });
+
+  it('should preserve Roles in frontmatter correctly', () => {
+    const doc = parseEpicMarkdown(rolesMarkdown);
+    expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer, audit');
+    expect(doc.epics[1].frontmatter.get('Roles')).toBe('engineer, audit');
+  });
+});

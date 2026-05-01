@@ -105,8 +105,6 @@ Write-Host "  State timeout: ${stateTimeout}s"
 Write-Host ""
 
 # --- Pre-flight checks ---
-# Resolve-RoomSkills: Before spawning a worker, search the dashboard API
-# for skills matching the epic's requirements and write them to the room config.
 $dashboardBaseUrl = if ($env:OSTWIN_DASHBOARD_URL) { $env:OSTWIN_DASHBOARD_URL } else { "http://localhost:3366" }
 
 # --- Inject runtime context into ManagerLoop-Helpers module ---
@@ -134,6 +132,7 @@ if (Get-Command Set-ManagerLoopContext -ErrorAction SilentlyContinue) {
 $iteration = 0
 $stallCycles = 0
 
+try {
 while (-not $script:shuttingDown) {
     $iteration++
 
@@ -300,8 +299,8 @@ while (-not $script:shuttingDown) {
                 }
 
                 if ((Get-ActiveCount) -lt $maxConcurrent) {
-                    # --- SKILL RESOLUTION: resolve skills from dashboard before spawning ---
-                    Resolve-RoomSkills -RoomDir $roomDir -TaskRef $taskRef -AssignedRole $assignedRole
+                    # Skills are resolved per-agent at spawn time by Invoke-Agent.ps1
+                    # via Resolve-RoleSkills.ps1 using config-driven skill_refs.
                     $nextState = if ($lifecycle -and $lifecycle.initial_state) { $lifecycle.initial_state } else { "developing" }
                     Write-Log "INFO" "[$taskRef] Dependencies met. Transitioning to $nextState in $roomId..."
                     Write-RoomStatus $roomDir $nextState
@@ -804,13 +803,17 @@ while (-not $script:shuttingDown) {
 
     Start-Sleep -Seconds $pollInterval
 }
-
-# --- Cleanup on exit ---
-if ($script:shuttingDown) {
+} # end try
+finally {
+    # --- Cleanup on exit (runs on graceful exit, Ctrl+C, and unhandled errors) ---
     Write-Log "INFO" "Shutting down all war-rooms..."
+    # Kill all agent processes in every room
     Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue | ForEach-Object {
         Stop-RoomProcesses $_.FullName
     }
+    # Stop all PowerShell background jobs (Start-WorkerJob creates these)
+    Get-Job -ErrorAction SilentlyContinue | Stop-Job -PassThru -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+    # Clean up manager PID file
     Remove-Item $managerPidFile -Force -ErrorAction SilentlyContinue
     Write-Log "INFO" "Shutdown complete."
 }

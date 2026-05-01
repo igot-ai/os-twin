@@ -2234,7 +2234,7 @@ Context "PLAN-REVIEW Verdict Logic" {
 `$env:AGENT_OS_PROJECT_DIR = '/Users/test/project'
 `$PID | Out-File -FilePath '$pidFile' -Encoding ascii -NoNewline
 "[wrapper] PID=`$PID, CMD=opencode" | Out-File -FilePath '$outputFile' -Encoding utf8 -Append
-& opencode run 'Execute the task described in the attached prompt file.' --model $Model --agent $Role --file '$promptFile' 2>&1 | Out-File -FilePath '$outputFile' -Encoding utf8 -Append
+& opencode run '...' --model $Model --agent $Role --file '$promptFile' 2>&1 | Out-File -FilePath '$outputFile' -Encoding utf8 -Append
 "@
                 $scriptPath = Join-Path $artifactsDir "run-agent.ps1"
                 $content | Out-File -FilePath $scriptPath -Encoding utf8 -NoNewline -Force

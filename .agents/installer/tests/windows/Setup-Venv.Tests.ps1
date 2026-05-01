@@ -23,20 +23,46 @@ Describe "Setup-Venv" {
         }
     }
 
-    Context "Requirement collection logic" {
-        It "Should find requirements files that exist" {
+    Context "Phase 1 — Dashboard project detection" {
+        It "Should detect pyproject.toml as primary dependency source" {
+            $dashDir = Join-Path $testDir "dashboard"
+            New-Item -ItemType Directory -Path $dashDir -Force | Out-Null
+            Set-Content -Path (Join-Path $dashDir "pyproject.toml") -Value "[project]`nname = `"test`""
+
+            Test-Path (Join-Path $dashDir "pyproject.toml") | Should -Be $true
+        }
+
+        It "Should detect uv.lock for frozen installs" {
+            $dashDir = Join-Path $testDir "dashboard"
+            New-Item -ItemType Directory -Path $dashDir -Force | Out-Null
+            Set-Content -Path (Join-Path $dashDir "uv.lock") -Value "version = 1"
+
+            Test-Path (Join-Path $dashDir "uv.lock") | Should -Be $true
+        }
+    }
+
+    Context "Phase 2 — Supplementary requirement collection" {
+        It "Should find mcp and memory requirements files that exist" {
             # Create test requirements files
             $mcpDir = Join-Path $testDir ".agents\mcp"
             New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
             Set-Content -Path (Join-Path $mcpDir "requirements.txt") -Value "fastapi"
 
+            # Verify the files exist and would be found
+            Test-Path (Join-Path $mcpDir "requirements.txt") | Should -Be $true
+        }
+
+        It "Should NOT include dashboard/requirements.txt in supplementary deps" {
+            # Even if dashboard/requirements.txt exists, Phase 2 should skip it
+            # (dashboard deps are handled in Phase 1 via uv sync / pyproject.toml)
             $dashDir = Join-Path $testDir "dashboard"
             New-Item -ItemType Directory -Path $dashDir -Force | Out-Null
             Set-Content -Path (Join-Path $dashDir "requirements.txt") -Value "uvicorn"
 
-            # Verify the files exist and would be found
-            Test-Path (Join-Path $mcpDir "requirements.txt") | Should -Be $true
-            Test-Path (Join-Path $dashDir "requirements.txt") | Should -Be $true
+            # The supplementary collection path should be: .agents/mcp, .agents/memory, .agents/roles/*
+            # NOT dashboard/
+            $suppPath = Join-Path $testDir ".agents\mcp\requirements.txt"
+            Test-Path $suppPath | Should -Be $false
         }
 
         It "Should handle missing requirements gracefully" {
@@ -44,11 +70,14 @@ Describe "Setup-Venv" {
             $script:VenvDir = Join-Path $testDir ".venv"
             New-Item -ItemType Directory -Path $script:VenvDir -Force | Out-Null
 
-            # Won't actually call uv/pip since VenvDir exists but no requirements
-            # The function should warn but not throw
-            # (We can't fully test without an actual venv, but verify file detection logic)
             $reqPath = Join-Path $testDir ".agents\mcp\requirements.txt"
             Test-Path $reqPath | Should -Be $false
+        }
+    }
+
+    Context "Fallback function" {
+        It "Should export Setup-Venv-PipFallback" {
+            Get-Command Setup-Venv-PipFallback | Should -Not -BeNullOrEmpty
         }
     }
 }

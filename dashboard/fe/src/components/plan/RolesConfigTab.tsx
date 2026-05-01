@@ -28,6 +28,171 @@ interface ModelInfo {
 
 type ModelsRegistry = Record<string, ModelInfo[]>;
 
+// ── Duration Utilities ───────────────────────────────────────────────
+
+/** Convert seconds into a human-readable duration string (e.g. "1h 30m", "45m", "2h") */
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds <= 0) return '0s';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0 && hours === 0) parts.push(`${seconds}s`); // only show seconds if under 1 hour
+  return parts.join(' ') || '0s';
+}
+
+/** Parse a duration string like "1h 30m", "45m 10s", "2h" into total seconds.
+ *  Returns null if the string is not a valid duration. */
+function parseDuration(input: string): number | null {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return null;
+
+  // Pure number → treat as seconds
+  if (/^\d+$/.test(trimmed)) return parseInt(trimmed);
+
+  let total = 0;
+  let matched = false;
+  const hourMatch = trimmed.match(/(\d+)\s*h/);
+  const minMatch = trimmed.match(/(\d+)\s*m(?:in)?/);
+  const secMatch = trimmed.match(/(\d+)\s*s(?:ec)?/);
+
+  if (hourMatch) { total += parseInt(hourMatch[1]) * 3600; matched = true; }
+  if (minMatch) { total += parseInt(minMatch[1]) * 60; matched = true; }
+  if (secMatch) { total += parseInt(secMatch[1]); matched = true; }
+
+  return matched ? total : null;
+}
+
+const TIMEOUT_PRESETS = [
+  { label: '15m', seconds: 900 },
+  { label: '30m', seconds: 1800 },
+  { label: '1h', seconds: 3600 },
+  { label: '2h', seconds: 7200 },
+  { label: '6h', seconds: 21600 },
+  { label: '12h', seconds: 43200 },
+  { label: '24h', seconds: 86400 },
+];
+
+// ── TimeoutInput Component ───────────────────────────────────────────
+
+function TimeoutInput({ value, onChange, provenance }: {
+  value: number | undefined;
+  onChange: (val: number) => void;
+  provenance?: string;
+}) {
+  const [inputMode, setInputMode] = useState<'seconds' | 'duration'>('seconds');
+  const [durationText, setDurationText] = useState('');
+
+  const seconds = value ?? 0;
+  const durationLabel = seconds > 0 ? formatDuration(seconds) : '';
+
+  const handleSecondsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value);
+    if (!isNaN(val) && val >= 10) {
+      onChange(val);
+    }
+  };
+
+  const handleDurationSubmit = () => {
+    const parsed = parseDuration(durationText);
+    if (parsed !== null && parsed >= 10) {
+      onChange(parsed);
+      setInputMode('seconds');
+      setDurationText('');
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-[10px] font-bold text-text-faint uppercase tracking-wider block mb-1">
+        Timeout
+      </label>
+
+      {inputMode === 'seconds' ? (
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <input
+              type="number"
+              min="10"
+              step="10"
+              value={value ?? ''}
+              onChange={handleSecondsChange}
+              placeholder="Seconds"
+              className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary pr-8"
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-text-faint font-medium">s</span>
+          </div>
+          <button
+            onClick={() => { setInputMode('duration'); setDurationText(durationLabel); }}
+            className="p-1.5 rounded-md border border-border hover:border-primary/40 hover:bg-primary/5 text-text-faint hover:text-primary transition-all"
+            title="Switch to duration input (e.g. 1h 30m)"
+          >
+            <span className="material-symbols-outlined text-[16px]">schedule</span>
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={durationText}
+            onChange={(e) => setDurationText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleDurationSubmit();
+              if (e.key === 'Escape') { setInputMode('seconds'); setDurationText(''); }
+            }}
+            onBlur={handleDurationSubmit}
+            placeholder="e.g. 1h 30m, 45m, 2h"
+            autoFocus
+            className="flex-1 rounded-lg border border-primary bg-background px-3 py-1.5 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <button
+            onClick={() => { setInputMode('seconds'); setDurationText(''); }}
+            className="p-1.5 rounded-md border border-border hover:border-primary/40 hover:bg-primary/5 text-text-faint hover:text-primary transition-all"
+            title="Switch to seconds input"
+          >
+            <span className="material-symbols-outlined text-[16px]">pin</span>
+          </button>
+        </div>
+      )}
+
+      {/* Duration chip (always visible when value > 0) */}
+      {seconds > 0 && inputMode === 'seconds' && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-[13px] text-text-faint">timer</span>
+          <span className="text-[11px] font-semibold text-text-muted">{durationLabel}</span>
+          <span className="text-[10px] text-text-faint">({seconds.toLocaleString()}s)</span>
+        </div>
+      )}
+
+      {/* Quick presets */}
+      <div className="mt-2 flex flex-wrap gap-1">
+        {TIMEOUT_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => onChange(p.seconds)}
+            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-all ${
+              seconds === p.seconds
+                ? 'bg-primary text-white border-primary shadow-sm'
+                : 'bg-surface-hover/50 text-text-faint border-border hover:border-primary/40 hover:text-primary hover:bg-primary/5'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {provenance && (
+        <div className="mt-1">
+          <ProvenanceChip source={provenance} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 const AUTOSAVE_DELAY = 800; // ms debounce
 
 export default function RolesConfigTab() {
@@ -308,28 +473,11 @@ export default function RolesConfigTab() {
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-text-faint uppercase tracking-wider block mb-1">
-                        Timeout (s)
-                      </label>
-                      <input
-                        type="number"
-                        min="60"
-                        max="3600"
-                        value={cfg.timeout_seconds ?? ''}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          if (!isNaN(val) && val >= 60 && val <= 3600) {
-                            updateRoleField(role.name, 'timeout_seconds', val);
-                          }
-                        }}
-                        placeholder="60-3600"
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      <TimeoutInput
+                        value={cfg.timeout_seconds}
+                        onChange={(val) => updateRoleField(role.name, 'timeout_seconds', val)}
+                        provenance={provenance.timeout_seconds}
                       />
-                      {provenance.timeout_seconds && (
-                        <div className="mt-1">
-                          <ProvenanceChip source={provenance.timeout_seconds} />
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -341,15 +489,15 @@ export default function RolesConfigTab() {
                       <input
                         type="number"
                         min="1"
-                        max="10"
+                        step="1"
                         value={cfg.max_retries ?? ''}
                         onChange={(e) => {
                           const val = parseInt(e.target.value);
-                          if (!isNaN(val) && val >= 1 && val <= 10) {
+                          if (!isNaN(val) && val >= 1) {
                             updateRoleField(role.name, 'max_retries', val);
                           }
                         }}
-                        placeholder="1-10"
+                        placeholder="Min: 1"
                         className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                       />
                       {provenance.max_retries && (

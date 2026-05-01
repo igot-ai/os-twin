@@ -111,7 +111,16 @@
     "max_summary_bytes": 4096,
     "max_detail_bytes": 16384,
     "max_context_entries": 15,
-    "auto_publish_on_done": true
+    "auto_publish_on_done": true,
+    "llm_backend": "huggingface",
+    "llm_model": "LiquidAI/LFM2-1.2B-Extract",
+    "embedding_backend": "sentence-transformer",
+    "embedding_model": "microsoft/harrier-oss-v1-0.6b",
+    "vector_backend": "zvec",
+    "context_aware": true,
+    "auto_sync": true,
+    "auto_sync_interval": 60,
+    "ttl_days": 30
   },
   "channel": {
     "format": "jsonl",

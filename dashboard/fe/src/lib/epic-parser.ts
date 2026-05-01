@@ -777,9 +777,14 @@ function serializeSection(section: EpicSection, epic: EpicNode): string {
       resultLines.push(line);
     }
   } else if (section.type === 'text') {
-    const fullText = [...preamble, ...section.postamble].join('\n');
-    if (section.content && !fullText.includes(section.content)) {
-      resultLines.push(section.content);
+    // For implicit sections (no heading), all content is already in preamble —
+    // don't re-emit section.content as it causes duplication when patchMetadata
+    // reformats lines (e.g. Roles: → **Roles**: @...), breaking the includes() check.
+    if (section.heading) {
+      const fullText = [...preamble, ...section.postamble].join('\n');
+      if (section.content && !fullText.includes(section.content)) {
+        resultLines.push(section.content);
+      }
     }
   }
 

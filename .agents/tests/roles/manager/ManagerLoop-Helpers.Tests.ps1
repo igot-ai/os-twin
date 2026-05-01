@@ -786,42 +786,6 @@ param(
 }
 
 # ===========================================================================
-# Resolve-RoomSkills
-# ===========================================================================
-Describe "Resolve-RoomSkills" {
-    BeforeEach {
-        $script:wd = Join-Path $TestDrive "rrs-$(Get-Random)"
-        New-Item -ItemType Directory -Path $script:wd -Force | Out-Null
-        Set-TestContext -RoomsDir $script:wd
-        $script:rd = New-TestRoom -Base $script:wd -Status "developing"
-    }
-
-    It "does nothing when config.json missing" {
-        $emptyDir = Join-Path $TestDrive "empty-$(Get-Random)"
-        New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
-        { Resolve-RoomSkills -RoomDir $emptyDir -TaskRef "T1" -AssignedRole "engineer" } | Should -Not -Throw
-    }
-
-    It "skips when skill_refs already populated" {
-        $cfgPath = Join-Path $script:rd "config.json"
-        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-        $cfg | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue @("skill-a") -Force
-        $cfg | ConvertTo-Json | Out-File $cfgPath -Encoding utf8
-        { Resolve-RoomSkills -RoomDir $script:rd -TaskRef "T1" -AssignedRole "engineer" } | Should -Not -Throw
-    }
-
-    It "uses brief.md content as query when present" {
-        "# Brief`nBuild a login form with OAuth" | Out-File (Join-Path $script:rd "brief.md") -Encoding utf8
-        # Dashboard at :9999 is offline — should log WARN but not throw
-        { Resolve-RoomSkills -RoomDir $script:rd -TaskRef "T1" -AssignedRole "engineer" } | Should -Not -Throw
-    }
-
-    It "falls back to TaskRef when brief.md missing" {
-        { Resolve-RoomSkills -RoomDir $script:rd -TaskRef "TASK-001" -AssignedRole "engineer" } | Should -Not -Throw
-    }
-}
-
-# ===========================================================================
 # Get-CachedDag
 # ===========================================================================
 Describe "Get-CachedDag" {
@@ -1036,79 +1000,5 @@ Describe "Get-CachedDag — cache hit path" {
         $dag1.nodes.EP1.room_id | Should -Be "r1"
         # Second call — same mtime, should reuse (or reload, both valid — just should not throw)
         { $dag2 = Get-CachedDag } | Should -Not -Throw
-    }
-}
-
-# ===========================================================================
-# Resolve-RoomSkills — success path via mocked Invoke-RestMethod
-# ===========================================================================
-Describe "Resolve-RoomSkills — success path" {
-    BeforeEach {
-        $script:wd = Join-Path $TestDrive "rrs2-$(Get-Random)"
-        New-Item -ItemType Directory -Path $script:wd -Force | Out-Null
-        Set-TestContext -RoomsDir $script:wd
-        $script:rd = New-TestRoom -Base $script:wd -Status "developing"
-    }
-
-    It "resolves and writes skill_refs to config.json when dashboard responds" {
-        $mockSkills = @(
-            [PSCustomObject]@{ name = "skill-auth"; relative_path = "skills/roles/engineer/auth" }
-        )
-        # Mock Invoke-RestMethod in module scope
-        InModuleScope ManagerLoop-Helpers {
-            Mock Invoke-RestMethod { return @([PSCustomObject]@{ name = "skill-test"; relative_path = "skills/x" }) }
-            $td = Join-Path ([System.IO.Path]::GetTempPath()) "test-room-skill-$(Get-Random)"
-            New-Item -ItemType Directory -Path $td -Force | Out-Null
-            @{ task_ref="T1"; assignment=@{assigned_role="engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
-            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "engineer"
-            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
-            $cfg.skill_refs | Should -Not -BeNull
-            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    It "retries without role filter when API returns 0 results with role filter" {
-        InModuleScope ManagerLoop-Helpers {
-            $script:callCount = 0
-            Mock Invoke-RestMethod {
-                $script:callCount++
-                # First call (with role filter) returns empty
-                if ($Uri -match 'role=') { return @() }
-                # Second call (without role filter) returns results
-                return @([PSCustomObject]@{ name = "skill-fallback"; relative_path = "skills/roles/engineer/fallback" })
-            }
-            $td = Join-Path ([System.IO.Path]::GetTempPath()) "test-room-noprole-$(Get-Random)"
-            New-Item -ItemType Directory -Path $td -Force | Out-Null
-            @{ task_ref="T1"; assignment=@{assigned_role="game-engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
-            "Build a game UI" | Out-File (Join-Path $td "brief.md") -Encoding utf8
-
-            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "game-engineer"
-
-            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
-            $cfg.skill_refs | Should -Not -BeNullOrEmpty
-            $cfg.skill_refs | Should -Contain "skill-fallback"
-            # Verify it was called twice — first with role filter, then without
-            $script:callCount | Should -Be 2
-            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    It "uses results from role-filtered call when API returns matches" {
-        InModuleScope ManagerLoop-Helpers {
-            Mock Invoke-RestMethod {
-                # API returns results with role filter — should NOT retry
-                return @([PSCustomObject]@{ name = "role-matched-skill"; relative_path = "skills/roles/engineer/matched" })
-            }
-            $td = Join-Path ([System.IO.Path]::GetTempPath()) "test-room-roleok-$(Get-Random)"
-            New-Item -ItemType Directory -Path $td -Force | Out-Null
-            @{ task_ref="T1"; assignment=@{assigned_role="engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
-
-            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "engineer"
-
-            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
-            $cfg.skill_refs | Should -Contain "role-matched-skill"
-            Assert-MockCalled Invoke-RestMethod -Times 1 -Exactly
-            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
-        }
     }
 }
