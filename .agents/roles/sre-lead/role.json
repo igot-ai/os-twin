@@ -1,0 +1,33 @@
+{
+  "name": "sre-lead",
+  "description": "SRE Lead — owns production reliability including SLOs, error budgets, incident response, runbooks, observability design, and chaos engineering",
+  "instance_type": "worker",
+  "capabilities": [
+    "slo-management",
+    "incident-response",
+    "runbook-authoring",
+    "observability-design",
+    "chaos-engineering",
+    "error-budget-tracking",
+    "on-call-management"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "slo-defined",
+    "runbook-tested",
+    "alerts-actionable",
+    "rca-documented"
+  ],
+  "skill_refs": [
+    "define-slo",
+    "incident-response",
+    "runbook-authoring",
+    "observability-design",
+    "chaos-engineering",
+    "brain-ops",
+    "war-room-communication"
+  ],
+  "cli": "agent",
+  "model": "google-vertex/zai-org/glm-5-maas",
+  "timeout": 3600
+}
