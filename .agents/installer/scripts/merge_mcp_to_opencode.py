@@ -92,6 +92,23 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
                 if not (isinstance(v, str) and _env_ref.search(v))
             }
 
+    # Resolve {env:*} in headers (for remote servers like knowledge)
+    for _name, _cfg in validated_mcp.items():
+        _hdrs = _cfg.get("headers")
+        if isinstance(_hdrs, dict):
+            resolved_hdrs = {}
+            for k, v in _hdrs.items():
+                if isinstance(v, str):
+                    v = _env_ref.sub(
+                        lambda m: _env_known.get(
+                            m.group(1), os.environ.get(m.group(1), m.group(0))
+                        ),
+                        v,
+                    )
+                if not (isinstance(v, str) and _env_ref.search(v)):
+                    resolved_hdrs[k] = v
+            _cfg["headers"] = resolved_hdrs
+
     # Build tools deny + agent config:
     #   - Global tools deny: blocks all MCP tools EXCEPT core servers
     #     (channel, warroom, memory are available to ALL agents)

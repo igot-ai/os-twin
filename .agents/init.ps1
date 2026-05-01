@@ -169,6 +169,38 @@ if ((Test-Path $McpExtensionScript) -and (Get-Command bash -ErrorAction Silently
     & bash $McpExtensionScript --project-dir $TargetDir compile
 }
 
+# ─── Sync MCP to global ~/.config/opencode/opencode.json ─────────────────────
+# After compiling the project-local config, also update the global opencode
+# config so tools running outside a project context see the latest MCP servers
+# with resolved API keys (e.g. knowledge server's OSTWIN_API_KEY).
+
+$ResolveScript = Join-Path $ScriptDir "mcp" "resolve_opencode.py"
+$CompiledConfig = Join-Path $TargetAgents "mcp" "config.json"
+$GlobalOpencodeDir = if ($env:XDG_CONFIG_HOME) { Join-Path $env:XDG_CONFIG_HOME "opencode" } else { Join-Path $HOME ".config" "opencode" }
+
+if ((Test-Path $ResolveScript) -and (Test-Path $CompiledConfig)) {
+    Write-Step "Syncing MCP config to global opencode.json..."
+
+    # Collect env files for resolution: project .env and .env.mcp
+    $envArgs = @()
+    $projectEnv = Join-Path $TargetDir ".env"
+    $mcpEnv = Join-Path $TargetAgents "mcp" ".env.mcp"
+    if (Test-Path $projectEnv)  { $envArgs = @("--env-file", $projectEnv) }
+    elseif (Test-Path $mcpEnv) { $envArgs = @("--env-file", $mcpEnv) }
+
+    # Find python: prefer venv, fall back to system
+    $pythonCmd = "python3"
+    $globalVenvPython = Join-Path $HOME ".ostwin" "venv" "bin" "python"
+    if (Test-Path $globalVenvPython) { $pythonCmd = $globalVenvPython }
+
+    & $pythonCmd $ResolveScript $CompiledConfig $GlobalOpencodeDir @envArgs --merge
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "Global opencode.json synced at $GlobalOpencodeDir"
+    } else {
+        Write-Warn "Failed to sync global opencode.json (non-critical)"
+    }
+}
+
 # ─── Update .gitignore ────────────────────────────────────────────────────────
 
 $Gitignore = Join-Path $TargetDir ".gitignore"

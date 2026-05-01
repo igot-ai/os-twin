@@ -63,11 +63,7 @@ def _ensure_correct_interpreter() -> None:
     _os.execv(target, [target, _os.path.abspath(__file__), *_sys.argv[1:]])
 
 
-# Only re-exec when running as a standalone stdio process.  When imported as
-# a module (e.g. by the dashboard for HTTP transport), the host process
-# already has the right interpreter and deps.
-if __name__ == "__main__":
-    _ensure_correct_interpreter()
+_ensure_correct_interpreter()
 
 import json
 import logging
@@ -130,18 +126,7 @@ def _find_project_root() -> str:
 
 _project_root = _find_project_root()
 _default_persist = os.path.join(_project_root, ".memory")
-_env_persist = os.getenv("MEMORY_PERSIST_DIR", "")
-
-# Resolve MEMORY_PERSIST_DIR:
-# - Absolute path → use as-is
-# - Relative path (./.memory) → resolve relative to project root, not CWD
-# - Not set → use project_root/.memory
-if _env_persist and os.path.isabs(_env_persist):
-    PERSIST_DIR = _env_persist
-elif _env_persist:
-    PERSIST_DIR = os.path.join(_project_root, _env_persist.lstrip("./"))
-else:
-    PERSIST_DIR = _default_persist
+PERSIST_DIR = os.getenv("MEMORY_PERSIST_DIR", _default_persist)
 LOG_DIR = os.getenv("MEMORY_LOG_DIR", PERSIST_DIR)
 
 # --- Logging setup ---

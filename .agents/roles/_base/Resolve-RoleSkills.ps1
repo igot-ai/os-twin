@@ -1,16 +1,20 @@
 <#
 .SYNOPSIS
-    Resolves a set of skills for a specific role via Dashboard API search.
+    Resolves a set of skills for a specific role via plan-roles config + task-aware discovery.
 
 .DESCRIPTION
-    Skills are discovered exclusively through the Dashboard API:
-      - Searches /api/skills/search with brief.md content → top 5 matches
+    Phase 1 — CONFIG-DRIVEN skill_refs (what the role always needs):
+      1. Plan-roles config:  ~/.ostwin/.agents/plans/{plan_id}.roles.json → $role.skill_refs
+      2. HOME role.json:     ~/.ostwin/roles/{RoleName}/role.json → skill_refs
+      3. Local role.json:    roles/{RoleName}/role.json → skill_refs
+      First non-empty wins (no merging across sources).
 
-    No fallback sources are used (no role.json skill_refs, no room config
-    skill_refs, no plan-level overrides, no role-private auto-loading).
-    This ensures only contextually relevant skills are loaded.
+    Phase 2 — TASK-AWARE API SEARCH (discover extra skills for this task):
+      Reads brief.md + TASKS.md from RoomDir, searches the Dashboard API,
+      and merges up to 5 additional skill refs not already in Phase 1.
+      Runs only when ApiKey is available and task content is meaningful.
 
-    Resolution strategy (for each API-returned ref):
+    Phase 3 — LOCAL RESOLUTION (stage each ref to disk):
       1. Registry lookup: from ~/.ostwin/roles/registry.json
       2. Local skills: hierarchical search in skills/ tree
       3. Backend fetch: downloaded from dashboard API when not found locally
@@ -19,14 +23,14 @@
     Deduplication is performed based on skill directory name (identifier).
 
 .PARAMETER RoleName
-    Name of the role (e.g., engineer, architect).
+    Name of the role (e.g., engineer, architect). Supports instance suffix (engineer:fe).
 .PARAMETER RolePath
-    Legacy parameter — kept for backward compatibility. Not used.
+    Path to the role directory (unused — kept for backward compat).
 .PARAMETER RoomDir
-    Optional. War-room directory path — used to read brief.md for the
-    API skill search query.
+    Optional. War-room directory path — used to read plan_id from config.json,
+    and brief.md + TASKS.md for task-aware API search.
 .PARAMETER PlanId
-    Optional. Not used (kept for backward compatibility).
+    Optional. Explicit plan ID override. When omitted, read from room config.json.
 .PARAMETER SkillsBaseDir
     Optional. Override for the base skills directory (defaults to ../../skills).
 .PARAMETER DashboardUrl
@@ -109,44 +113,128 @@ function Test-SkillEnabled {
 $_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
 $ostwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
 
-# --- Collect skill refs from Dashboard API search (sole source) ---
+# --- Strip instance suffix (engineer:fe → engineer) ---
+$baseRole = $RoleName -replace ':.*$', ''
+
+# =======================================================================
+# PHASE 1: CONFIG-DRIVEN SKILL REFS
+# =======================================================================
 $allRefs = @()
 
-if ($RoomDir) {
-    $briefFile = Join-Path $RoomDir "brief.md"
-    if (Test-Path $briefFile) {
-        $briefContent = Get-Content $briefFile -Raw -ErrorAction SilentlyContinue
-        if ($briefContent) {
+# Source 1: Plan-roles config (~/.ostwin/.agents/plans/{plan_id}.roles.json → $role.skill_refs)
+if ($allRefs.Count -eq 0) {
+    # Resolve plan_id: explicit parameter > room config.json
+    $effectivePlanId = $PlanId
+    if (-not $effectivePlanId -and $RoomDir -and (Test-Path $RoomDir)) {
+        $roomConfigFile = Join-Path $RoomDir "config.json"
+        if (Test-Path $roomConfigFile) {
             try {
-                $headers = @{}
-                if ($ApiKey) { $headers["X-API-Key"] = $ApiKey }
-                # Truncate brief to avoid URL length issues (safe GET limit ~2000 chars)
-                $queryText = if ($briefContent.Length -gt 500) { $briefContent.Substring(0, 500) } else { $briefContent }
-                $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($queryText))"
-                $response = @(Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop)
-
-                if ($response.Count -gt 0 -and $null -ne $response[0]) {
-                    $apiNames = @($response | Select-Object -First 5 | ForEach-Object { $_.name })
-                    $allRefs += $apiNames
-                    Write-Verbose "Dashboard API search matched ($($apiNames.Count)): $($apiNames -join ', ')"
+                $roomCfg = Get-Content $roomConfigFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($roomCfg.plan_id) {
+                    $effectivePlanId = $roomCfg.plan_id
                 }
-            }
-            catch {
-                Write-Verbose "Dashboard API search failed (non-fatal): $_"
-            }
+            } catch { }
+        }
+    }
+
+    if ($effectivePlanId) {
+        $planRolesFile = Join-Path $ostwinHome ".agents" "plans" "$effectivePlanId.roles.json"
+        if (Test-Path $planRolesFile) {
+            try {
+                $planRolesData = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+                if ($planRolesData.$baseRole -and $planRolesData.$baseRole.skill_refs -and $planRolesData.$baseRole.skill_refs.Count -gt 0) {
+                    $allRefs = @($planRolesData.$baseRole.skill_refs)
+                    Write-Verbose "Skill refs from plan-roles ($effectivePlanId): $($allRefs -join ', ')"
+                }
+            } catch { }
         }
     }
 }
 
+# Source 2: HOME role.json (~/.ostwin/roles/{RoleName}/role.json → skill_refs)
+if ($allRefs.Count -eq 0) {
+    $homeRoleJson = Join-Path $ostwinHome "roles" $baseRole "role.json"
+    if (Test-Path $homeRoleJson) {
+        try {
+            $homeRoleData = Get-Content $homeRoleJson -Raw | ConvertFrom-Json
+            if ($homeRoleData.skill_refs -and $homeRoleData.skill_refs.Count -gt 0) {
+                $allRefs = @($homeRoleData.skill_refs)
+                Write-Verbose "Skill refs from HOME role.json: $($allRefs -join ', ')"
+            }
+        } catch { }
+    }
+}
+
+# Source 3: Local role.json (roles/{RoleName}/role.json → skill_refs)
+if ($allRefs.Count -eq 0) {
+    $localRoleJson = Join-Path $PSScriptRoot ".." $baseRole "role.json"
+    if (Test-Path $localRoleJson) {
+        try {
+            $localRoleData = Get-Content $localRoleJson -Raw | ConvertFrom-Json
+            if ($localRoleData.skill_refs -and $localRoleData.skill_refs.Count -gt 0) {
+                $allRefs = @($localRoleData.skill_refs)
+                Write-Verbose "Skill refs from local role.json: $($allRefs -join ', ')"
+            }
+        } catch { }
+    }
+}
+
+# =======================================================================
+# PHASE 2: TASK-AWARE API SEARCH (additive — supplements Phase 1 refs)
+# =======================================================================
+if ($RoomDir -and (Test-Path $RoomDir) -and $ApiKey) {
+    $taskContext = ""
+    $briefFile = Join-Path $RoomDir "brief.md"
+    $tasksFile = Join-Path $RoomDir "TASKS.md"
+
+    if (Test-Path $briefFile) {
+        $taskContext += (Get-Content $briefFile -Raw -ErrorAction SilentlyContinue)
+    }
+    if (Test-Path $tasksFile) {
+        $taskContext += "`n" + (Get-Content $tasksFile -Raw -ErrorAction SilentlyContinue)
+    }
+
+    # Only search with meaningful content (>50 chars avoids noise from empty briefs)
+    if ($taskContext.Length -gt 50) {
+        try {
+            $query = $taskContext.Substring(0, [Math]::Min($taskContext.Length, 500))
+            $headers = @{ "X-API-Key" = $ApiKey }
+            $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($query))&role=$([uri]::EscapeDataString($baseRole))"
+            $searchResults = @(Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop)
+
+            if ($searchResults.Count -gt 0 -and $null -ne $searchResults[0]) {
+                $existingNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                foreach ($r in $allRefs) { $existingNames.Add($r) | Out-Null }
+
+                $addedCount = 0
+                foreach ($result in $searchResults) {
+                    if ($addedCount -ge 5) { break }
+                    if ($result.name -and -not $existingNames.Contains($result.name)) {
+                        $allRefs += $result.name
+                        $existingNames.Add($result.name) | Out-Null
+                        $addedCount++
+                        Write-Verbose "Phase 2 discovered skill: $($result.name)"
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Verbose "Task-aware skill search failed (non-fatal): $_"
+        }
+    }
+}
+
+# =======================================================================
+# PHASE 3: LOCAL RESOLUTION (stage each ref to disk)
+# =======================================================================
+
 # Deduplicate
 $allRefs = @($allRefs | Select-Object -Unique)
-Write-Verbose "Skill refs from API ($($allRefs.Count)): $($allRefs -join ', ')"
+Write-Verbose "Skill refs to resolve ($($allRefs.Count)): $($allRefs -join ', ')"
 
 if ($allRefs.Count -eq 0) {
     return @()
 }
-
-# --- Resolve each API-returned ref to a local SKILL.md path ---
 
 # Registry always from HOME ~/.ostwin/roles/registry.json
 $registryFile = Join-Path $ostwinHome "roles" "registry.json"
@@ -177,7 +265,7 @@ foreach ($ref in $allRefs) {
         }
     }
 
-    # Check if already resolved (duplicate from API)
+    # Check if already resolved (duplicate)
     if ($resolvedSkills.ContainsKey($ref)) { continue }
 
     # Strategy 2: Local hierarchical search
@@ -187,7 +275,7 @@ foreach ($ref in $allRefs) {
     #   3. skills/global/<ref>/SKILL.md             (global)
     #   4. skills/roles/*/<ref>/SKILL.md            (any role)
     $localPath = $null
-    $ownRolePath = Join-Path $SkillsBaseDir "roles" $RoleName $ref "SKILL.md"
+    $ownRolePath = Join-Path $SkillsBaseDir "roles" $baseRole $ref "SKILL.md"
     $searchPaths = @(
         $ownRolePath
         (Join-Path $SkillsBaseDir $ref "SKILL.md")
@@ -196,7 +284,7 @@ foreach ($ref in $allRefs) {
     $rolesSkillDir = Join-Path $SkillsBaseDir "roles"
     if (Test-Path $rolesSkillDir) {
         Get-ChildItem -Path $rolesSkillDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            if ($_.Name -ne $RoleName) {
+            if ($_.Name -ne $baseRole) {
                 $searchPaths += Join-Path $_.FullName $ref "SKILL.md"
             }
         }
@@ -230,7 +318,7 @@ foreach ($ref in $allRefs) {
         if ($ApiKey) {
             try {
                 $headers = @{ "X-API-Key" = $ApiKey }
-                $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($ref))&role=$([uri]::EscapeDataString($RoleName))"
+                $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($ref))&role=$([uri]::EscapeDataString($baseRole))"
                 $response = @(Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop)
 
                 $matchedSkill = $null
@@ -273,7 +361,7 @@ description: $($matchedSkill.description)
         }
 
         if (-not $fetched) {
-            # All API-discovered refs are best-effort — skip gracefully
+            # Unresolvable — skip gracefully
             Write-Verbose "Skill '$ref' not resolvable locally or via backend — skipping"
         }
     }

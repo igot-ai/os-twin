@@ -42,18 +42,5 @@
     "sync_from_disk",
     "sync_to_disk",
     "graph_snapshot"
-  ],
-
-  "pool": {
-    "_comment": "Configuration for the HTTP memory pool (Plan 007). Only used when the memory MCP is mounted inside the dashboard, not in stdio mode.",
-    "idle_timeout_s": 300,
-    "max_instances": 10,
-    "eviction_policy": "lru",
-    "ml_preload": true,
-    "ml_ready_timeout_s": 30,
-    "sync_interval_s": 60,
-    "sync_on_kill": true,
-    "allowed_paths": null,
-    "sweep_interval_s": 30
-  }
+  ]
 }

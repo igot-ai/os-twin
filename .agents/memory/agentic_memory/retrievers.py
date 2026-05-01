@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional, Union, Protocol, runtime_checkable
+from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
 import nltk
 import numpy as np
@@ -6,13 +7,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pickle
 from nltk.tokenize import word_tokenize
 import os
-import sys
 import json
-
-# Ensure shared.ai is importable (needed when running as standalone MCP server)
-_agents_dir = os.path.join(os.path.dirname(__file__), "..", "..")
-if _agents_dir not in sys.path:
-    sys.path.insert(0, os.path.abspath(_agents_dir))
+import litellm
 
 
 @runtime_checkable
@@ -30,20 +26,37 @@ def simple_tokenize(text):
     return word_tokenize(text)
 
 
+class GeminiEmbeddingFunction(EmbeddingFunction):
+    """ChromaDB embedding function using Gemini embedding models via litellm."""
+
+    def __init__(self, model_name: str = "gemini-embedding-001"):
+        self.model_name = (
+            f"gemini/{model_name}"
+            if not model_name.startswith("gemini/")
+            else model_name
+        )
+
+    def __call__(self, input: Documents) -> Embeddings:
+        response = litellm.embedding(model=self.model_name, input=input)
+        return [item["embedding"] for item in response.data]
+
+
+class SentenceTransformerEmbeddingFunction:
+    """SentenceTransformer embedding function (avoids chromadb import)."""
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        self.model = SentenceTransformer(model_name)
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return self.model.encode(input).tolist()
+
+
 def _create_embedding_function(embedding_backend: str, model_name: str):
-    """Create an embedding function that routes through shared.ai.
-
-    - ``"gemini"`` or ``"vertex_ai"`` → cloud embedding via Vertex AI
-    - ``"sentence-transformer"`` → local SentenceTransformer model
-    """
-    from shared.ai import get_embedding
-
-    if embedding_backend in ("gemini", "vertex_ai"):
-        model = f"vertex_ai/{model_name}" if "/" not in model_name else model_name
-        return lambda texts: get_embedding(texts, model=model)
+    """Create an embedding function based on the backend type."""
+    if embedding_backend == "gemini":
+        return GeminiEmbeddingFunction(model_name=model_name)
     else:
-        model = f"local/{model_name}" if "/" not in model_name else model_name
-        return lambda texts: get_embedding(texts, model=model)
+        return SentenceTransformerEmbeddingFunction(model_name=model_name)
 
 
 def _parse_json_field(metadata: Dict, field: str) -> list:

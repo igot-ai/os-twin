@@ -11,7 +11,8 @@ Usage:
 
 Rules:
   - command arrays:      resolve ALL {env:*} to literal paths
-  - environment/headers: STRIP values containing {env:*} (secrets stay in parent env)
+  - headers:             resolve ALL {env:*}, strip still-unresolved entries
+  - environment:         STRIP values containing {env:*} (secrets stay in parent env)
   - url strings:         resolve ALL {env:*} to literal values
   - bare python/python3: resolve to absolute path via shutil.which()
 """
@@ -51,7 +52,8 @@ def resolve_mcp_servers(servers, env_all):
     """Resolve a dict of MCP server configs, returning cleaned configs.
 
     - command arrays: resolve {env:*} and bare python to absolute paths
-    - environment/headers dicts: strip values containing {env:*}
+    - headers dicts: resolve {env:*}, strip still-unresolved entries
+    - environment dicts: strip values containing {env:*}
     - url strings: resolve {env:*}
     """
     python_abs = shutil.which('python') or shutil.which('python3') or 'python'
@@ -70,7 +72,17 @@ def resolve_mcp_servers(servers, env_all):
                             c = python_abs
                     resolved_cmd.append(c)
                 out[key] = resolved_cmd
-            elif key in ('environment', 'headers') and isinstance(val, dict):
+            elif key == 'headers' and isinstance(val, dict):
+                # Resolve {env:*} in header values, then strip still-unresolved
+                resolved_headers = {}
+                for k, v in val.items():
+                    if isinstance(v, str):
+                        v = resolve_env_refs(v, env_all)
+                    if not (isinstance(v, str) and env_ref_pattern.search(v)):
+                        resolved_headers[k] = v
+                if resolved_headers:
+                    out[key] = resolved_headers
+            elif key == 'environment' and isinstance(val, dict):
                 cleaned = {
                     k: v for k, v in val.items()
                     if not (isinstance(v, str) and env_ref_pattern.search(v))

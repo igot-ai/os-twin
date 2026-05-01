@@ -8,7 +8,7 @@
     manager's core logic without running the infinite while-loop.
 
     Functions exported:
-      Resolve-RoomSkills, Get-ActiveCount, Get-MsgCount, Get-LatestBody,
+      Get-ActiveCount, Get-MsgCount, Get-LatestBody,
       Test-StateTimedOut, Stop-RoomProcesses, Write-RoomStatus,
       Find-LatestSignal, Invoke-SignalActions, Write-Log,
       Write-SpawnLock, Test-SpawnLock, Start-WorkerJob,
@@ -37,61 +37,6 @@ function Get-ManagerLoopContext { return $script:_ctx }
 # Convenience accessors (short names used internally)
 function _ctx([string]$Key) { return $script:_ctx[$Key] }
 #endregion
-
-# ---------------------------------------------------------------------------
-# Resolve-RoomSkills
-# ---------------------------------------------------------------------------
-function Resolve-RoomSkills {
-    param([string]$RoomDir, [string]$TaskRef, [string]$AssignedRole)
-
-    $agentsDir            = _ctx 'agentsDir'
-    $dashboardBaseUrl     = _ctx 'dashboardBaseUrl'
-
-    $roomConfigFile = Join-Path $RoomDir "config.json"
-    if (-not (Test-Path $roomConfigFile)) { return }
-    $rc = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
-
-    if ($rc.skill_refs -and $rc.skill_refs.Count -gt 0) { return }
-
-    $query = $TaskRef
-    $briefFile = Join-Path $RoomDir "brief.md"
-    if (Test-Path $briefFile) {
-        $briefContent = (Get-Content $briefFile -Raw -ErrorAction SilentlyContinue)
-        if ($briefContent) { $query = $briefContent }
-    }
-
-    try {
-        $encodedQuery = [System.Uri]::EscapeDataString($query)
-        $encodedRole  = [System.Uri]::EscapeDataString($AssignedRole)
-        $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
-
-        # Try with role filter first
-        $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}&limit=5"
-        $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
-
-        # Retry without role filter when role-filtered call returns empty
-        if (-not $response -or $response.Count -eq 0) {
-            Write-Log "DEBUG" "[$TaskRef] Role-filtered skill search returned 0 results, retrying without role filter"
-            $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&limit=5"
-            $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
-        }
-
-        if ($response -and $response.Count -gt 0) {
-            $topSkills  = @($response | Select-Object -First 5)
-            $skillNames = @($topSkills | ForEach-Object { $_.name })
-
-            $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
-            $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
-
-            # Physical skill copying is handled by Invoke-Agent.ps1 via Resolve-RoleSkills.ps1.
-            # This function only writes skill_refs to config.json so the agent knows what to pull.
-            Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for ${AssignedRole}: $($skillNames -join ', ')"
-        }
-    }
-    catch {
-        Write-Log "WARN" "[$TaskRef] Skill resolution failed (dashboard may be offline): $_"
-    }
-}
 
 # ---------------------------------------------------------------------------
 # Get-ActiveCount
@@ -151,6 +96,10 @@ function Test-StateTimedOut {
 
 # ---------------------------------------------------------------------------
 # Stop-RoomProcesses
+# Kills agent processes and their entire process trees (MCP servers, etc.).
+# On Unix: uses process-group kill (kill -- -PID) for reliable tree cleanup.
+# On Windows: uses taskkill /T /F for tree kill.
+# Falls back to Stop-Process if group/tree kill is unavailable.
 # ---------------------------------------------------------------------------
 function Stop-RoomProcesses {
     param([string]$RoomDir)
@@ -159,7 +108,32 @@ function Stop-RoomProcesses {
     Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
         $pidVal = (Get-Content $_.FullName -Raw).Trim()
         if ($pidVal -match '^\d+$') {
-            try { Stop-Process -Id ([int]$pidVal) -Force -ErrorAction SilentlyContinue } catch { }
+            $p = [int]$pidVal
+            # Verify the process is alive before attempting kill
+            $alive = $false
+            try { $null = Get-Process -Id $p -ErrorAction Stop; $alive = $true } catch {}
+            if ($alive) {
+                if ($IsWindows) {
+                    # Windows: tree kill via taskkill
+                    try { & taskkill /T /F /PID $p 2>&1 | Out-Null } catch {}
+                } elseif ($IsLinux -or $IsMacOS) {
+                    # Unix: attempt process-group kill first (covers child MCP servers).
+                    # This works when PID is a group leader (the exec pattern in Invoke-Agent).
+                    try { & /bin/kill -- -$p 2>&1 | Out-Null } catch {}
+                    Start-Sleep -Milliseconds 500
+                    # Check if process is still alive — if group kill didn't work
+                    # (PID wasn't a group leader), fall back to single-process kill.
+                    $stillAlive = $false
+                    try { $null = Get-Process -Id $p -ErrorAction Stop; $stillAlive = $true } catch {}
+                    if ($stillAlive) {
+                        # Fallback: direct SIGKILL to the process itself
+                        try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+                    }
+                } else {
+                    # Fallback: single-process kill
+                    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+                }
+            }
         }
         Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
     }
