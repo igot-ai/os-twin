@@ -1,11 +1,13 @@
 """Unit tests for dashboard/ai/config.py.
 
 Covers:
-  - AIConfig.full_model() — purpose routing, already-qualified models
-  - AIConfig.full_cloud_embedding_model()
+  - AIConfig.full_model() — purpose routing, bare model names
+  - AIConfig.display_model() — provider/model display format
+  - AIConfig.full_cloud_embedding_model() — bare embedding model
   - get_config() — singleton caching and settings-fallback-to-env
   - reset_config() — cache invalidation
   - _load_from_env() — env var mapping and defaults
+  - _map_provider() — legacy provider name normalisation
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dashboard.ai.config import AIConfig
+from dashboard.ai.config import AIConfig, _map_provider
 
 
 # ---------------------------------------------------------------------------
@@ -25,50 +27,77 @@ from dashboard.ai.config import AIConfig
 
 class TestAIConfig:
     def test_full_model_default_purpose(self):
-        """No purpose → completion_model prefixed with provider."""
-        cfg = AIConfig(provider="vertex_ai", completion_model="gemini-3-flash-preview")
-        assert cfg.full_model() == "vertex_ai/gemini-3-flash-preview"
+        """No purpose → completion_model (bare, no prefix)."""
+        cfg = AIConfig(provider="google-vertex", completion_model="gemini-3-flash-preview")
+        assert cfg.full_model() == "gemini-3-flash-preview"
 
     def test_full_model_knowledge_purpose_uses_override(self):
         cfg = AIConfig(
-            provider="gemini",
+            provider="google",
             completion_model="flash",
             knowledge_model="claude-3-5-sonnet",
         )
-        assert cfg.full_model("knowledge") == "gemini/claude-3-5-sonnet"
+        assert cfg.full_model("knowledge") == "claude-3-5-sonnet"
 
     def test_full_model_memory_purpose_uses_override(self):
         cfg = AIConfig(
-            provider="vertex_ai",
+            provider="google-vertex",
             completion_model="flash",
             memory_model="gemini-3-flash-lite",
         )
-        assert cfg.full_model("memory") == "vertex_ai/gemini-3-flash-lite"
+        assert cfg.full_model("memory") == "gemini-3-flash-lite"
 
     def test_full_model_falls_back_to_completion_when_no_override(self):
         """Unknown purpose (or None override) falls back to completion_model."""
         cfg = AIConfig(
-            provider="gemini",
+            provider="google",
             completion_model="flash",
             knowledge_model=None,
         )
-        assert cfg.full_model("knowledge") == "gemini/flash"
+        assert cfg.full_model("knowledge") == "flash"
 
-    def test_full_model_already_qualified_not_double_prefixed(self):
-        """If model already contains '/', don't add provider prefix."""
-        cfg = AIConfig(provider="vertex_ai", completion_model="vertex_ai/already-qualified")
-        assert cfg.full_model() == "vertex_ai/already-qualified"
+    def test_display_model_includes_provider_prefix(self):
+        """display_model() should return 'provider/model' for API responses."""
+        cfg = AIConfig(provider="google-vertex", completion_model="gemini-3-flash-preview")
+        assert cfg.display_model() == "google-vertex/gemini-3-flash-preview"
 
-    def test_full_cloud_embedding_model_prefixes_provider(self):
-        cfg = AIConfig(provider="vertex_ai", cloud_embedding_model="text-embedding-005")
-        assert cfg.full_cloud_embedding_model() == "vertex_ai/text-embedding-005"
-
-    def test_full_cloud_embedding_model_already_qualified(self):
+    def test_display_model_with_purpose(self):
         cfg = AIConfig(
-            provider="vertex_ai",
-            cloud_embedding_model="vertex_ai/text-embedding-005",
+            provider="google",
+            completion_model="flash",
+            knowledge_model="claude-3-5-sonnet",
         )
-        assert cfg.full_cloud_embedding_model() == "vertex_ai/text-embedding-005"
+        assert cfg.display_model("knowledge") == "google/claude-3-5-sonnet"
+
+    def test_full_cloud_embedding_model_returns_bare_name(self):
+        cfg = AIConfig(provider="google-vertex", cloud_embedding_model="text-embedding-005")
+        assert cfg.full_cloud_embedding_model() == "text-embedding-005"
+
+
+# ---------------------------------------------------------------------------
+# TestMapProvider — legacy name normalisation
+# ---------------------------------------------------------------------------
+
+
+class TestMapProvider:
+    def test_vertex_ai_maps_to_google_vertex(self):
+        assert _map_provider("vertex_ai") == "google-vertex"
+
+    def test_gemini_maps_to_google(self):
+        assert _map_provider("gemini") == "google"
+
+    def test_google_stays_google(self):
+        assert _map_provider("google") == "google"
+
+    def test_openai_stays_openai(self):
+        assert _map_provider("openai") == "openai"
+
+    def test_unknown_provider_passed_through(self):
+        assert _map_provider("ollama") == "ollama"
+
+    def test_case_insensitive(self):
+        assert _map_provider("Vertex_AI") == "google-vertex"
+        assert _map_provider("GEMINI") == "google"
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +146,7 @@ class TestGetConfig:
             cfg = cfg_mod.get_config()
 
         assert cfg.completion_model == "gemini-test-model"
-        assert cfg.provider == "gemini"
+        assert cfg.provider == "google"
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +170,7 @@ class TestLoadFromEnv:
         from dashboard.ai.config import _load_from_env
 
         cfg = _load_from_env()
-        assert cfg.provider == "gemini"
+        assert cfg.provider == "google"
         assert cfg.completion_model == "gemini-3-flash-preview"
         assert cfg.cloud_embedding_model == "text-embedding-005"
         assert cfg.local_embedding_model == "all-MiniLM-L6-v2"
@@ -154,8 +183,19 @@ class TestLoadFromEnv:
         from dashboard.ai.config import _load_from_env
 
         cfg = _load_from_env()
-        assert cfg.provider == "vertex_ai"
-        assert cfg.vertex_project == "my-gcp-project"
+        assert cfg.provider == "google-vertex"
+
+    def test_no_vertex_specific_fields(self, monkeypatch):
+        """After migration, AIConfig should NOT have vertex_project etc."""
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-gcp-project")
+
+        from dashboard.ai.config import _load_from_env
+
+        cfg = _load_from_env()
+        assert not hasattr(cfg, "vertex_project")
+        assert not hasattr(cfg, "vertex_location")
+        assert not hasattr(cfg, "vertex_auth_mode")
+        assert not hasattr(cfg, "vertex_claude_location")
 
     def test_custom_model_from_env(self, monkeypatch):
         monkeypatch.setenv("LLM_MODEL", "gemini-3-pro")

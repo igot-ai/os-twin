@@ -67,6 +67,7 @@ async def handle_complete(req: CompleteRequest):
 
     cfg = get_config()
     model = req.model or cfg.full_model(req.purpose)
+    display = req.model or cfg.display_model(req.purpose)
 
     try:
         result = complete(
@@ -83,7 +84,7 @@ async def handle_complete(req: CompleteRequest):
         return CompleteResponse(
             text=result.text,
             tool_calls=result.tool_calls,
-            model=model,
+            model=display,
             usage=result.usage,
         )
     except Exception as exc:
@@ -98,12 +99,12 @@ async def handle_embed(req: EmbedRequest):
     from dashboard.ai.config import get_config
 
     cfg = get_config()
-    model = req.model or cfg.full_cloud_embedding_model()
+    display = req.model or cfg.full_cloud_embedding_model()
 
     try:
         vectors = embed(texts=req.texts)
         dims = len(vectors[0]) if vectors else 0
-        return EmbedResponse(vectors=vectors, model=model, dimensions=dims)
+        return EmbedResponse(vectors=vectors, model=display, dimensions=dims)
     except Exception as exc:
         logger.exception("AI embedding failed")
         raise HTTPException(status_code=500, detail=str(exc))

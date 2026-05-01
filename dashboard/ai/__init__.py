@@ -1,6 +1,7 @@
 """Unified AI gateway for the dashboard.
 
-Provides completion via litellm, and embedding via
+Provides completion via :mod:`dashboard.llm_client` (multi-provider native
+SDK abstraction), and embedding via
 :class:`~dashboard.knowledge.embeddings.KnowledgeEmbedder`.
 
 Usage::

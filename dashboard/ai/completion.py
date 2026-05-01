@@ -1,7 +1,14 @@
-"""Unified completion — single function for all LLM text generation."""
+"""Unified completion — single function for all LLM text generation.
+
+Uses ``dashboard.llm_client`` (native SDK abstraction) as the LLM backend.
+Supports OpenAI, Google (Gemini / Vertex), Anthropic, and any
+OpenAI-compatible endpoint via ``llm_client.create_client()``.
+"""
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -9,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .config import get_config
-from .errors import AIAuthError, AIError, AITimeoutError
+from .errors import AIAuthError, AIError, AIQuotaError, AITimeoutError
 from .retry import with_retry
 
 logger = logging.getLogger(__name__)
@@ -25,6 +32,66 @@ class CompletionResult:
     text: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     usage: Optional[Dict[str, int]] = None
+
+
+# ---------------------------------------------------------------------------
+# Async → Sync bridge
+# ---------------------------------------------------------------------------
+
+def _run_sync(coro):
+    """Execute an async coroutine from sync code.
+
+    If an event loop is already running (e.g. called from within an async
+    framework like FastAPI's ``run_in_executor``), we spin up a new loop
+    in a thread.  Otherwise we use ``asyncio.run()``.
+
+    Mirrors the pattern used in ``knowledge.llm._run_sync()``.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Already inside a loop → use a thread-based loop
+    def runner():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(runner).result()
+
+
+# ---------------------------------------------------------------------------
+# Error mapping
+# ---------------------------------------------------------------------------
+
+def _map_llm_error(exc: Exception) -> AIError:
+    """Map a ``LLMError`` (or generic exception) to the ``AIError`` hierarchy.
+
+    ``llm_client.py`` raises a single ``LLMError`` type.  We heuristically
+    classify it into auth / timeout / quota / generic based on the error
+    message and any wrapped original exception.
+    """
+    msg = str(exc).lower()
+    original = getattr(exc, "original_error", None)
+
+    # Auth errors
+    if any(kw in msg for kw in ("auth", "api key", "401", "403", "permission", "credentials")):
+        return AIAuthError(str(exc))
+    # Timeout errors
+    if any(kw in msg for kw in ("timeout", "timed out", "deadline")):
+        return AITimeoutError(str(exc))
+    # Quota / rate-limit errors
+    if any(kw in msg for kw in ("rate limit", "quota", "429", "resource_exhausted")):
+        return AIQuotaError(str(exc))
+
+    return AIError(str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Main completion function
+# ---------------------------------------------------------------------------
 
 
 def complete(
@@ -51,12 +118,12 @@ def complete(
     Args:
         prompt:  User message (simple mode).
         messages:  Full message history (multi-turn mode).
-        model:  Fully-qualified model ID (e.g. ``"vertex_ai/gemini-3-flash-preview"``).
+        model:  Bare model name (e.g. ``"gemini-3-flash-preview"``).
             If ``None``, resolved from config + *purpose*.
         purpose:  Hint for per-purpose model override (``"knowledge"``, ``"memory"``).
         system:  System prompt.  Ignored when *messages* already contains one.
-        response_format:  JSON schema for structured output.
-        tools:  Function declarations (OpenAI format).  litellm translates
+        response_format:  JSON schema for structured output (provider support varies).
+        tools:  Function declarations (OpenAI format).  ``llm_client`` translates
             to each provider's native format automatically.
         max_tokens:  Maximum tokens in response.
         temperature:  Sampling temperature (0.0 = deterministic).
@@ -64,48 +131,46 @@ def complete(
     Returns:
         ``CompletionResult`` with either ``.text`` or ``.tool_calls`` populated.
     """
-    import litellm
+    from dashboard.llm_client import (
+        ChatMessage,
+        LLMConfig,
+        LLMError,
+        create_client,
+    )
 
     cfg = get_config()
     model = model or cfg.full_model(purpose)
 
-    # Set litellm Vertex AI project/location if using vertex_ai provider
-    if model.startswith("vertex_ai/"):
-        litellm.vertex_project = cfg.vertex_project or os.environ.get(
-            "GOOGLE_CLOUD_PROJECT"
-        )
-        litellm.vertex_location = cfg.vertex_location or os.environ.get(
-            "GOOGLE_VERTEX_LOCATION", "global"
-        )
-
-    # Build messages
+    # Build ChatMessage list
+    chat_messages: List[ChatMessage] = []
     if messages:
-        msg_list = [dict(m) for m in messages]
+        for m in messages:
+            chat_messages.append(
+                ChatMessage(
+                    role=m.get("role", "user"),
+                    content=m.get("content"),
+                    tool_call_id=m.get("tool_call_id"),
+                    name=m.get("name"),
+                )
+            )
     else:
-        msg_list = []
         if system:
-            msg_list.append({"role": "system", "content": system})
+            chat_messages.append(ChatMessage(role="system", content=system))
         elif response_format:
             # Encourage JSON output when structured format is requested
-            msg_list.append({"role": "system", "content": _SYSTEM_JSON_PROMPT})
-        msg_list.append({"role": "user", "content": prompt or ""})
+            chat_messages.append(ChatMessage(role="system", content=_SYSTEM_JSON_PROMPT))
+        chat_messages.append(ChatMessage(role="user", content=prompt or ""))
 
-    kwargs: Dict[str, Any] = {
-        "model": model,
-        "messages": msg_list,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "timeout": cfg.timeout,
-    }
-
-    # Claude on Vertex Model Garden needs a specific region
-    if "claude" in model.lower() and model.startswith("vertex_ai/"):
-        kwargs["vertex_ai_location"] = cfg.vertex_claude_location
-
-    if response_format:
-        kwargs["response_format"] = response_format
-    if tools:
-        kwargs["tools"] = tools
+    # Create client
+    llm_config = LLMConfig(
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    client = create_client(
+        model=model,
+        provider=cfg.provider,
+        config=llm_config,
+    )
 
     def _call() -> CompletionResult:
         from .monitor import record_completion
@@ -113,62 +178,54 @@ def complete(
 
         t0 = _time.time()
         try:
-            response = litellm.completion(**kwargs)
-        except litellm.AuthenticationError as exc:
-            record_completion(
-                model,
-                purpose,
-                (_time.time() - t0) * 1000,
-                success=False,
-                error=str(exc),
-            )
-            raise AIAuthError(str(exc)) from exc
-        except litellm.Timeout as exc:
-            record_completion(
-                model,
-                purpose,
-                (_time.time() - t0) * 1000,
-                success=False,
-                error=str(exc),
-            )
-            raise AITimeoutError(str(exc)) from exc
+            async def _async_chat():
+                return await asyncio.wait_for(
+                    client.chat(chat_messages, tools=tools),
+                    timeout=cfg.timeout,
+                )
+
+            response = _run_sync(_async_chat())
+        except asyncio.TimeoutError as exc:
+            latency_ms = (_time.time() - t0) * 1000
+            record_completion(model, purpose, latency_ms, success=False, error="timeout")
+            raise AITimeoutError(f"Request timed out after {cfg.timeout}s") from exc
+        except LLMError as exc:
+            latency_ms = (_time.time() - t0) * 1000
+            record_completion(model, purpose, latency_ms, success=False, error=str(exc))
+            raise _map_llm_error(exc) from exc
+        except (AIAuthError, AITimeoutError, AIQuotaError):
+            # Already mapped — re-raise
+            raise
         except Exception as exc:
-            record_completion(
-                model,
-                purpose,
-                (_time.time() - t0) * 1000,
-                success=False,
-                error=str(exc),
-            )
+            latency_ms = (_time.time() - t0) * 1000
+            record_completion(model, purpose, latency_ms, success=False, error=str(exc))
             raise AIError(str(exc)) from exc
 
-        choice = response.choices[0]
-        content = (choice.message.content or "").strip() or None
+        # --- Map response → CompletionResult ---
+        content = (response.content or "").strip() or None
 
-        # Check for tool calls
-        tool_calls = None
-        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
-            tool_calls = [
+        # Tool calls
+        result_tool_calls = None
+        if response.tool_calls:
+            result_tool_calls = [
                 {
                     "id": tc.id,
                     "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
+                        "name": tc.name,
+                        "arguments": json.dumps(tc.arguments)
+                            if isinstance(tc.arguments, dict) else tc.arguments,
                     },
                 }
-                for tc in choice.message.tool_calls
+                for tc in response.tool_calls
             ]
 
+        # Usage — llm_client.ChatMessage doesn't carry usage data,
+        # so we report None (monitor tracks latency separately).
         usage = None
-        in_tok, out_tok = 0, 0
-        if hasattr(response, "usage") and response.usage:
-            in_tok = response.usage.prompt_tokens or 0
-            out_tok = response.usage.completion_tokens or 0
-            usage = {"input_tokens": in_tok, "output_tokens": out_tok}
 
-        latency = (_time.time() - t0) * 1000
-        record_completion(model, purpose, latency, in_tok, out_tok)
+        latency_ms = (_time.time() - t0) * 1000
+        record_completion(model, purpose, latency_ms)
 
-        return CompletionResult(text=content, tool_calls=tool_calls, usage=usage)
+        return CompletionResult(text=content, tool_calls=result_tool_calls, usage=usage)
 
     return with_retry(_call, max_retries=cfg.max_retries)

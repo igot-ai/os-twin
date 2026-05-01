@@ -7,6 +7,12 @@ available. Falls back to environment variables when running standalone
 Config is cached after first load.  Call ``reset_config()`` to force
 a re-read (done automatically when ``PUT /api/settings/providers``
 or ``PUT /api/settings/ai`` is called on the dashboard).
+
+Provider names follow ``llm_client.py`` conventions:
+  - ``"google"``       — Gemini AI Studio (consumer API key)
+  - ``"google-vertex"``— Vertex AI (ADC / service account)
+  - ``"openai"``       — OpenAI
+  - ``"anthropic"``    — Anthropic (via OpenAI-compatible endpoint)
 """
 
 from __future__ import annotations
@@ -21,12 +27,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AIConfig:
-    """Resolved AI gateway configuration."""
+    """Resolved AI gateway configuration.
 
-    # Provider prefix for litellm (e.g. "vertex_ai", "gemini")
-    provider: str = "vertex_ai"
+    Provider values follow ``llm_client.py`` naming (``"google"``,
+    ``"google-vertex"``, ``"openai"``, etc.) — NOT litellm prefixes.
+    """
 
-    # Completion models
+    # Provider for llm_client.create_client()
+    provider: str = "google"
+
+    # Completion models (bare names — no provider prefix)
     completion_model: str = "gemini-3-flash-preview"
     knowledge_model: Optional[str] = None  # for knowledge graph (e.g. Claude)
     memory_model: Optional[str] = None  # for memory analysis
@@ -35,41 +45,35 @@ class AIConfig:
     cloud_embedding_model: str = "text-embedding-005"
     local_embedding_model: str = "all-MiniLM-L6-v2"
 
-    # Vertex AI specifics
-    vertex_project: Optional[str] = None
-    vertex_location: str = "global"
-    vertex_auth_mode: str = "oauth"
-    vertex_claude_location: str = "us-east5"
-
     # Runtime
     timeout: int = 60
     max_retries: int = 2
 
     def full_model(self, purpose: Optional[str] = None) -> str:
-        """Return the fully-qualified model ID for litellm.
+        """Return the bare model name for the given purpose.
 
         Args:
             purpose: Optional purpose hint (``"knowledge"``, ``"memory"``).
                 Selects a per-purpose model override if configured.
+
+        Returns:
+            Bare model name (e.g. ``"gemini-3-flash-preview"``).
+            Passed directly to ``llm_client.create_client(model=...)``.
         """
         if purpose == "knowledge" and self.knowledge_model:
-            model = self.knowledge_model
+            return self.knowledge_model
         elif purpose == "memory" and self.memory_model:
-            model = self.memory_model
-        else:
-            model = self.completion_model
+            return self.memory_model
+        return self.completion_model
 
-        # Already fully qualified (e.g. "vertex_ai/gemini-3-flash-preview")
-        if "/" in model:
-            return model
+    def display_model(self, purpose: Optional[str] = None) -> str:
+        """Return ``"provider/model"`` for display in API responses."""
+        model = self.full_model(purpose)
         return f"{self.provider}/{model}"
 
     def full_cloud_embedding_model(self) -> str:
-        """Return the fully-qualified cloud embedding model ID."""
-        m = self.cloud_embedding_model
-        if "/" in m:
-            return m
-        return f"{self.provider}/{m}"
+        """Return the cloud embedding model name (bare, no prefix)."""
+        return self.cloud_embedding_model
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +106,28 @@ def reset_config() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Provider mapping helpers
+# ---------------------------------------------------------------------------
+
+# Maps MasterSettings deployment_mode / legacy names → llm_client provider keys
+_PROVIDER_MAP = {
+    "vertex_ai": "google-vertex",
+    "vertex": "google-vertex",
+    "google-vertex": "google-vertex",
+    "gemini": "google",
+    "google": "google",
+    "google-genai": "google",
+    "openai": "openai",
+    "anthropic": "anthropic",
+}
+
+
+def _map_provider(raw: str) -> str:
+    """Normalise a provider string to a ``llm_client.py`` key."""
+    return _PROVIDER_MAP.get(raw.lower(), raw.lower())
+
+
+# ---------------------------------------------------------------------------
 # Loaders
 # ---------------------------------------------------------------------------
 
@@ -119,13 +145,7 @@ def _load_from_settings() -> AIConfig:
         raise ValueError("Google provider not configured or disabled in settings")
 
     is_vertex = (google.deployment_mode or "").lower() == "vertex"
-    provider = "vertex_ai" if is_vertex else "gemini"
-
-    # --- providers.anthropic ---
-    anthropic = settings.providers.anthropic if settings.providers else None
-    vertex_claude_location = "us-east5"
-    if anthropic and hasattr(anthropic, "vertex_claude_location"):
-        vertex_claude_location = anthropic.vertex_claude_location or "us-east5"
+    provider = "google-vertex" if is_vertex else "google"
 
     # --- ai namespace ---
     ai_ns = getattr(settings, "ai", None)
@@ -157,10 +177,6 @@ def _load_from_settings() -> AIConfig:
         memory_model=memory_model,
         cloud_embedding_model=cloud_embedding,
         local_embedding_model=local_embedding,
-        vertex_project=google.project_id,
-        vertex_location=google.vertex_location or "global",
-        vertex_auth_mode=google.vertex_auth_mode or "oauth",
-        vertex_claude_location=vertex_claude_location,
         timeout=timeout,
         max_retries=max_retries,
     )
@@ -173,7 +189,7 @@ def _load_from_env() -> AIConfig:
     so even without the dashboard the values are correct.
     """
     is_vertex = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
-    provider = "vertex_ai" if is_vertex else "gemini"
+    provider = "google-vertex" if is_vertex else "google"
 
     return AIConfig(
         provider=provider,
@@ -184,8 +200,6 @@ def _load_from_env() -> AIConfig:
         local_embedding_model=os.environ.get(
             "LLM_LOCAL_EMBEDDING_MODEL", "all-MiniLM-L6-v2"
         ),
-        vertex_project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
-        vertex_location=os.environ.get("VERTEX_LOCATION", "global"),
         timeout=int(os.environ.get("LLM_TIMEOUT", "60")),
         max_retries=int(os.environ.get("LLM_MAX_RETRIES", "2")),
     )
