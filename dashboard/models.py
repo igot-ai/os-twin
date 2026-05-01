@@ -279,7 +279,7 @@ class MemorySettings(BaseModel):
     llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
     # -- Embedding --
     embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
-    embedding_model: str = "microsoft/harrier-oss-v1-0.6b"
+    embedding_model: str = "all-MiniLM-L6-v2"
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --

@@ -61,9 +61,11 @@ def extract_timestamp_from_uuid7(uid: str) -> datetime:
 class OSTwinStore:
     """In-process vector store for OS Twin logs and metadata."""
 
-    def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
+    def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None, embedder=None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
+        self._embedder = embedder  # Optional KnowledgeEmbedder (lazy-created if None)
+        self._embedding_dim = EMBEDDING_DIM  # Per-instance; updated when model loads
         # Global zvec store at ~/.ostwin/.zvec — clean with: rm -rf ~/.ostwin/.zvec
         env_zvec_dir = os.environ.get("OSTWIN_ZVEC_DIR")
         if env_zvec_dir:
@@ -141,8 +143,11 @@ class OSTwinStore:
     def ensure_collections(self) -> None:
         """Create or open all collections."""
         zvec.init(log_level=zvec.LogLevel.WARN)
-        # Ensure model is loaded and dynamic EMBEDDING_DIM is set before opening
+        # Ensure model is loaded and _embedding_dim is set before opening
         self._get_embed_fn()
+        # Update module-level EMBEDDING_DIM for collection schemas
+        global EMBEDDING_DIM
+        EMBEDDING_DIM = self._embedding_dim
         # Check for migrations first
         self.migrate_collections()
         self._messages = self._open_or_create_messages()
@@ -683,34 +688,31 @@ class OSTwinStore:
     # ── Embedding ──────────────────────────────────────────────────────
 
     def _get_embed_fn(self):
-        """Lazy-load embedding via shared.ai gateway.
+        """Lazy-load embedding via KnowledgeEmbedder.
 
-        Returns an object with .encode() and .get_sentence_embedding_dimension()
-        so existing callers don't need to change.
+        Uses the same embedding stack as the knowledge graph
+        (dashboard/knowledge/embeddings.py), injected or lazy-created.
+        Returns an object with .encode() and .get_sentence_embedding_dimension().
         """
         if self._embed_available is False:
             return None
         if self._embed_fn is not None:
             return self._embed_fn
         try:
-            import sys
-            from pathlib import Path
+            if self._embedder is None:
+                from dashboard.knowledge.embeddings import KnowledgeEmbedder
+                self._embedder = KnowledgeEmbedder(model_name=OSTWIN_EMBED_MODEL)
 
-            _agents_dir = str(Path(__file__).resolve().parent.parent / ".agents")
-            if _agents_dir not in sys.path:
-                sys.path.insert(0, _agents_dir)
-
-            from shared.ai import get_embedding
             import numpy as np
 
-            model_name = OSTWIN_EMBED_MODEL
-            model_ref = f"local/{model_name}"
-            logger.info("Loading embedding model via shared.ai: %s", model_ref)
+            embedder = self._embedder
+            logger.info("Loading embedding model via KnowledgeEmbedder: %s", embedder.model_name)
 
             class _EmbedProxy:
-                """Wraps shared.ai.get_embedding to match SentenceTransformer API."""
+                """Wraps KnowledgeEmbedder to match SentenceTransformer API."""
 
-                def __init__(self):
+                def __init__(self, ke):
+                    self._ke = ke
                     self._dim = None
 
                 def encode(
@@ -718,25 +720,24 @@ class OSTwinStore:
                 ):
                     if isinstance(texts, str):
                         texts = [texts]
-                    vecs = get_embedding(texts, model=model_ref)
+                    vecs = self._ke.embed(texts)
                     if convert_to_numpy:
                         return np.array(vecs)
                     return vecs
 
                 def get_sentence_embedding_dimension(self):
                     if self._dim is None:
-                        test = get_embedding(["test"], model=model_ref)
-                        self._dim = len(test[0]) if test else 384
+                        self._dim = self._ke.dimension()
                     return self._dim
 
-            self._embed_fn = _EmbedProxy()
+            self._embed_fn = _EmbedProxy(embedder)
 
-            # Dynamically adapt EMBEDDING_DIM
-            global EMBEDDING_DIM
-            EMBEDDING_DIM = self._embed_fn.get_sentence_embedding_dimension()
+            # Store dimension as instance attribute (not global) to prevent
+            # race conditions when multiple OSTwinStore instances exist.
+            self._embedding_dim = self._embed_fn.get_sentence_embedding_dimension()
 
             self._embed_available = True
-            logger.info("Embedding model loaded via shared.ai (dim=%d)", EMBEDDING_DIM)
+            logger.info("Embedding model loaded via KnowledgeEmbedder (dim=%d)", self._embedding_dim)
             return self._embed_fn
         except Exception as e:
             logger.warning("Embedding unavailable: %s. Vector search disabled.", e)
