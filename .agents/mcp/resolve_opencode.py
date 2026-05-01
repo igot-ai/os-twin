@@ -202,12 +202,20 @@ def _permission_key(server_name):
     return f"{server_name}_*"
 
 
+# Infrastructure MCP servers that are ALWAYS allowed for every role.
+# These are required for inter-agent communication (channel) and room state
+# management (warroom). Without these, agents cannot post signals or update
+# status, breaking the lifecycle state machine.
+INFRA_SERVERS = {"channel", "warroom", "memory"}
+
+
 def build_agent_permissions(roles, mcp_server_names):
     """Build per-agent permission blocks from roles and available MCP servers.
 
     For each role:
+      - Infrastructure servers (channel, warroom): ALWAYS allow
       - If mcp_refs is a non-empty list: allow listed servers, deny the rest
-      - If mcp_refs is [] or None (absent): deny ALL servers
+      - If mcp_refs is [] or None (absent): deny ALL non-infra servers
 
     Returns:
         {"role_name": {"permission": {"channel_*": "allow", ...}}}
@@ -222,7 +230,10 @@ def build_agent_permissions(roles, mcp_server_names):
         permission = {}
         for srv in server_names:
             pkey = _permission_key(srv)
-            permission[pkey] = "allow" if srv in allowed else "deny"
+            if srv in INFRA_SERVERS:
+                permission[pkey] = "allow"
+            else:
+                permission[pkey] = "allow" if srv in allowed else "deny"
 
         agents[role_name] = {
             "permission": permission,

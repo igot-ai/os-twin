@@ -125,7 +125,7 @@ $contextContent | Out-File -FilePath $contextFile -Encoding utf8 -Force
 $isEpic = $taskRef -match '^EPIC-'
 
 # --- Read the engineer's "done" message ---
-$engineerReport = "No engineer report found."
+$engineerReport = "."
 try {
     $doneMsgs = & $readMessages -RoomDir $RoomDir -FilterType "done" -Last 1 -AsObject
     if ($doneMsgs -and $doneMsgs.Count -gt 0) {
@@ -164,7 +164,7 @@ $tasksSection = ""
 if ($isEpic -and $tasksMd) {
     $tasksSection = @"
 
-## Engineer's Task Breakdown (TASKS.md)
+## Team's Task Breakdown (TASKS.md)
 
 $tasksMd
 "@
@@ -173,7 +173,7 @@ $tasksMd
 # --- Build review instructions ---
 if ($isEpic) {
     $reviewInstructions = @"
-You are reviewing an EPIC — a complete feature delivered by the engineer.
+You are reviewing an EPIC — a complete feature delivered by the team.
 
 1. Review ALL code changes holistically across the full epic
 2. Verify the TASKS.md checklist is complete — all sub-tasks must be checked off
@@ -185,7 +185,7 @@ You are reviewing an EPIC — a complete feature delivered by the engineer.
 }
 else {
     $reviewInstructions = @"
-1. Review the code changes described in the engineer's report
+1. Review the code changes described in the team's report
 2. Verify the implementation meets the task requirements
 3. Run tests if applicable
 4. Provide your verdict
@@ -232,7 +232,7 @@ if (Test-Path $triageFile) {
 # --- Assemble final prompt using Build-SystemPrompt.ps1 ---
 $buildPrompt = Join-Path $agentsDir "roles" "_base" "Build-SystemPrompt.ps1"
 $extraContext = @"
-## Engineer's Report
+## Team's Report
 
 $engineerReport
 
@@ -277,13 +277,16 @@ $rawOutput = $result.Output
 # --- Strip tool-calling noise from agent output ---
 # deepagents --quiet still emits "🔧 Calling tool:" lines and MCP loading messages.
 # These are meaningless for channel/release notes and cause signoff rejection.
+# Also strip [wrapper] preamble and MCP tool-call lines (⚙) which contain
+# channel message dumps with stale verdicts that corrupt verdict parsing.
 $cleanLines = ($rawOutput -split "`r?\n") | Where-Object {
     $line = $_.Trim()
     # Preserve empty lines for formatting
     if (-not $line) { return $true }
 
     # Strip specific noise patterns
-    $isNoise = ($line -match '^🔧' -or
+    $isNoise = ($line -match '^\[wrapper\]' -or
+        $line -match '^🔧' -or
         $line -match '[Cc]alling tool:' -or
         $line -match '^\w{0,5}\s*tool:' -or
         $line -match '^Loading MCP' -or
@@ -293,7 +296,11 @@ $cleanLines = ($rawOutput -split "`r?\n") | Where-Object {
         $line -match '^\s*Reqs\s+InputTok' -or
         $line -match '^\s*google-vertex/gemini-' -or
         $line -match '^✓ Task completed' -or
-        $line -match '^System\.Management\.Automation')
+        $line -match '^System\.Management\.Automation' -or
+        $line -match '^⚙\s' -or
+        $line -match '^[✗✓•→✱]\s' -or
+        $line -match '^\x1b\[0m[⚙✗✓•→✱]\s' -or
+        $line -match '^\x1b\[\d+m' -and $line -match '^\x1b\[0m\s*$')
     
     return (-not $isNoise)
 }
@@ -304,22 +311,36 @@ if (-not $output) {
 }
 
 $verdict = ""
+$outputLines = $output -split "`n"
 
-# Strategy 1: Line starts with VERDICT:
-if ($output -match '(?m)^VERDICT:\s*(PASS|FAIL|ESCALATE)') {
-    $verdict = $Matches[1].ToUpper()
-}
+# --- Verdict parsing: scan from the END of output ---
+# The agent's output may contain channel_read_messages dumps with stale
+# VERDICT: FAIL from prior iterations. Parsing from the start would match
+# the stale verdict. Parsing from the end matches the agent's final verdict.
 
-# Strategy 2: VERDICT: anywhere in a line
-if (-not $verdict -and $output -match 'VERDICT:\s*(PASS|FAIL|ESCALATE)') {
-    $verdict = $Matches[1].ToUpper()
-}
-
-# Strategy 3: standalone PASS/FAIL/ESCALATE in first 20 lines
-if (-not $verdict) {
-    $first20 = ($output -split "`n" | Select-Object -First 20) -join "`n"
-    if ($first20 -match '\b(PASS|FAIL|ESCALATE)\b') {
+# Strategy 1: Last line starting with VERDICT: (scan from end)
+for ($i = $outputLines.Count - 1; $i -ge 0; $i--) {
+    if ($outputLines[$i] -match '^\s*\*{0,2}VERDICT:?\s*(PASS|FAIL|ESCALATE)') {
         $verdict = $Matches[1].ToUpper()
+        break
+    }
+}
+
+# Strategy 2: Last VERDICT: in final 80 lines
+if (-not $verdict) {
+    $last80 = ($outputLines | Select-Object -Last 80) -join "`n"
+    $allMatches = [regex]::Matches($last80, 'VERDICT:\s*(PASS|FAIL|ESCALATE)')
+    if ($allMatches.Count -gt 0) {
+        $verdict = $allMatches[$allMatches.Count - 1].Groups[1].Value.ToUpper()
+    }
+}
+
+# Strategy 3: standalone PASS/FAIL/ESCALATE in last 20 lines (not first 20)
+if (-not $verdict) {
+    $last20 = ($outputLines | Select-Object -Last 20) -join "`n"
+    $allBare = [regex]::Matches($last20, '\b(PASS|FAIL|ESCALATE)\b')
+    if ($allBare.Count -gt 0) {
+        $verdict = $allBare[$allBare.Count - 1].Groups[1].Value.ToUpper()
     }
 }
 

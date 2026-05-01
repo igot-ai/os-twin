@@ -522,6 +522,17 @@ while (-not $script:shuttingDown) {
                             $actions = @()
                             if ($transitionDef.actions) { $actions = @($transitionDef.actions) }
 
+                            # --- Retry exhaustion guard ---
+                            # Signals with increment_retries (e.g. review.fail → optimize) must
+                            # check against max_retries. Without this, the review→optimize loop
+                            # runs indefinitely because the 'failed' decision state is never reached.
+                            if ($actions -contains 'increment_retries' -and $retries -ge ($v2MaxRetries - 1)) {
+                                Write-Log "WARN" "[$taskRef] Signal '$matchedSignal' would exceed max retries ($($retries+1)/$v2MaxRetries). Redirecting to failed."
+                                Invoke-SignalActions -RoomDir $roomDir -Actions $actions -TaskRef $taskRef -BaseRole $baseRole
+                                Write-RoomStatus $roomDir "failed"
+                                continue
+                            }
+
                             Write-Log "INFO" "[$taskRef] V2 signal '$matchedSignal' in '$status' -> '$targetState'."
                             # Resolve the TARGET state's role so post_fix delivers to the fixer,
                             # not the current state's reviewer/worker.

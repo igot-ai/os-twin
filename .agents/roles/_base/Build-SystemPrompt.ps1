@@ -134,41 +134,6 @@ $briefContent
 "@)
     }
 
-    # Goals from config.json
-    $configFile = Join-Path $RoomDir "config.json"
-    if (Test-Path $configFile) {
-        try {
-            $roomConfig = Get-Content $configFile -Raw | ConvertFrom-Json
-
-            $goalSection = "`n## Goals`n"
-
-            if ($roomConfig.goals.definition_of_done -and $roomConfig.goals.definition_of_done.Count -gt 0) {
-                $goalSection += "`n### Definition of Done`n"
-                foreach ($dod in $roomConfig.goals.definition_of_done) {
-                    $goalSection += "- [ ] $dod`n"
-                }
-            }
-
-            if ($roomConfig.goals.acceptance_criteria -and $roomConfig.goals.acceptance_criteria.Count -gt 0) {
-                $goalSection += "`n### Acceptance Criteria`n"
-                foreach ($ac in $roomConfig.goals.acceptance_criteria) {
-                    $goalSection += "- [ ] $ac`n"
-                }
-            }
-
-            if ($roomConfig.goals.quality_requirements) {
-                $qr = $roomConfig.goals.quality_requirements
-                $goalSection += "`n### Quality Requirements`n"
-                $goalSection += "- Test coverage minimum: $($qr.test_coverage_min)%`n"
-                $goalSection += "- Lint clean: $($qr.lint_clean)`n"
-                $goalSection += "- Security scan pass: $($qr.security_scan_pass)`n"
-            }
-
-            $sections.Add($goalSection)
-        }
-        catch { }
-    }
-
     # TASKS.md for epics
     $tasksFile = Join-Path $RoomDir "TASKS.md"
     if (Test-Path $tasksFile) {
@@ -181,33 +146,6 @@ $tasksContent
 "@)
     }
 
-    # Previous QA feedback (for fix cycles)
-    $channelDir = Join-Path (Split-Path $PSScriptRoot) ".." "channel"
-    $readMessages = Join-Path $channelDir "Read-Messages.ps1"
-    if (Test-Path $readMessages) {
-        try {
-            $failMsgs = & $readMessages -RoomDir $RoomDir -FilterType "fail" -Last 1 -AsObject 2>$null
-            if ($failMsgs -and $failMsgs.Count -gt 0) {
-                $sections.Add(@"
-
-## Previous QA Feedback (FIX THIS)
-
-$($failMsgs[-1].body)
-"@)
-            }
-
-            $fixMsgs = & $readMessages -RoomDir $RoomDir -FilterType "fix" -Last 1 -AsObject 2>$null
-            if ($fixMsgs -and $fixMsgs.Count -gt 0) {
-                $sections.Add(@"
-
-## Fix Instructions
-
-$($fixMsgs[-1].body)
-"@)
-            }
-        }
-        catch { }
-    }
 }
 
 # Section 6: Overrides

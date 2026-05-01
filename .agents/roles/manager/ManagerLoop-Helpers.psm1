@@ -239,9 +239,24 @@ function Find-LatestSignal {
                     }
                 }
 
-                $accepted = ($msgTs -gt $changedAt)
+                # Accept signals posted at or after the state change.
+                # Using -ge (not -gt) because the worker's MCP tool may update
+                # state_changed_at and post a channel signal in the same epoch
+                # second — -gt would reject that signal as "stale".
+                $accepted = ($msgTs -ge $changedAt)
                 Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' from='$($latest.from)' msgTs=$msgTs changedAt=$changedAt accepted=$accepted body=[$bodyPreview]"
-                if ($accepted) { return $sigType }
+                if ($accepted) {
+                    # --- Output-grep cross-check (defense-in-depth) ---
+                    # The agent itself may have posted a different signal via
+                    # the channel_post_message MCP tool than what the worker
+                    # script parsed and re-posted. Prefer the agent's intent.
+                    $outputSignal = Get-OutputSignal -RoomDir $RoomDir -Role $expectedRole
+                    if ($outputSignal -and $outputSignal -ne $sigType -and $outputSignal -in $expectedSignals) {
+                        Write-Log "WARN" "[Find-LatestSignal][$roomId] OUTPUT OVERRIDE: channel='$sigType' but agent output shows msg_type='$outputSignal'. Using '$outputSignal'."
+                        return $outputSignal
+                    }
+                    return $sigType
+                }
             } else {
                 Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' — no messages found"
             }
@@ -251,6 +266,51 @@ function Find-LatestSignal {
     }
     Write-Log "DEBUG" "[Find-LatestSignal][$roomId] no matching signal found"
     return $null
+}
+
+# ---------------------------------------------------------------------------
+# Get-OutputSignal
+# Reads the role's raw output file and extracts the msg_type from the LAST
+# channel_post_message MCP tool call. This is the agent's direct intent,
+# uncontaminated by the worker script's verdict parsing.
+#
+# Format in output file:
+#   ⚙ channel_post_message {"msg_type":"pass",...}
+# ---------------------------------------------------------------------------
+function Get-OutputSignal {
+    param(
+        [string]$RoomDir,
+        [string]$Role
+    )
+    $outputFile = Join-Path $RoomDir "artifacts" "$Role-output.txt"
+    if (-not (Test-Path $outputFile)) { return $null }
+
+    $lastMsgType = $null
+    try {
+        # Read the file and scan for channel_post_message lines from the end
+        $lines = Get-Content $outputFile -ErrorAction Stop
+        for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+            if ($lines[$i] -match 'channel_post_message\s+(\{.+\})') {
+                $jsonStr = $Matches[1]
+                try {
+                    $parsed = $jsonStr | ConvertFrom-Json
+                    if ($parsed.msg_type) {
+                        $lastMsgType = $parsed.msg_type.ToLower()
+                        break
+                    }
+                } catch {
+                    # JSON parse failed — try regex fallback
+                    if ($jsonStr -match '"msg_type"\s*:\s*"(pass|fail|done|error|escalate)"') {
+                        $lastMsgType = $Matches[1].ToLower()
+                        break
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Log "DEBUG" "[Get-OutputSignal] Error reading ${outputFile}: $($_.Exception.Message)"
+    }
+    return $lastMsgType
 }
 
 # ---------------------------------------------------------------------------
