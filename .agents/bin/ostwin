@@ -1388,36 +1388,52 @@ switch ($Command) {
 
     # ── mcp ──────────────────────────────────────────────────────────────────
     "mcp" {
-        # Resolve project root by walking up from cwd
-        $mcpProjectRoot = ""
-        $mcpSearch = $cwd
-        while ($mcpSearch -and $mcpSearch -ne [System.IO.Path]::GetPathRoot($mcpSearch)) {
-            if (Test-Path (Join-Path $mcpSearch ".agents\mcp") -PathType Container) {
-                $mcpProjectRoot = $mcpSearch
-                break
-            }
-            $mcpSearch = Split-Path $mcpSearch -Parent
-        }
+        $mcpSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "" }
+        $mcpSubArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
 
-        $mcpPs1 = Join-Path $AgentsDir "mcp\MCP-Extension.ps1"
-        $mcpSh = Join-Path $AgentsDir "mcp\mcp-extension.sh"
-        if (Test-Path $mcpPs1) {
-            $mcpArgs = [System.Collections.ArrayList]::new()
-            if ($mcpProjectRoot) {
-                $null = $mcpArgs.Add('-ProjectDir')
-                $null = $mcpArgs.Add($mcpProjectRoot)
+        if ($mcpSub -eq "sync") {
+            # ── ostwin mcp sync ──
+            # Canonical sync: resolve MCP servers + generate agent permissions
+            # from role.json mcp_refs. Writes to ~/.config/opencode/opencode.json.
+            $resolveScript = Join-Path $OstwinHome ".agents" "mcp" "resolve_opencode.py"
+            if (-not (Test-Path $resolveScript)) {
+                $resolveScript = Join-Path $AgentsDir "mcp" "resolve_opencode.py"
             }
-            foreach ($a in $Arguments) { $null = $mcpArgs.Add($a) }
-            & pwsh -NoProfile -File $mcpPs1 @mcpArgs
-        }
-        elseif (Test-Path $mcpSh) {
-            Write-Error "[ERROR] MCP-Extension.ps1 not found. Only mcp-extension.sh is available."
-            Write-Error "  Port mcp-extension.sh to PowerShell or run: bash $mcpSh $($Arguments -join ' ')"
-            exit 1
+            if (-not (Test-Path $resolveScript)) {
+                Write-Error "[ERROR] resolve_opencode.py not found."
+                exit 1
+            }
+
+            $syncArgs = [System.Collections.ArrayList]::new()
+            $null = $syncArgs.Add($resolveScript)
+            $null = $syncArgs.Add("sync")
+
+            # Parse --flags and forward to Python
+            foreach ($a in $mcpSubArgs) {
+                $null = $syncArgs.Add($a)
+            }
+
+            Write-Host "Syncing MCP permissions from role definitions..."
+            & $PythonCmd @syncArgs
         }
         else {
-            Write-Error "[ERROR] MCP extension script not found."
-            exit 1
+            # ── All other MCP subcommands → mcp-extension.sh ──
+            # (install, list, catalog, remove, credentials, test, etc.)
+            $mcpSh = Join-Path $AgentsDir "mcp" "mcp-extension.sh"
+
+            # Also check the global install location
+            if (-not (Test-Path $mcpSh)) {
+                $mcpSh = Join-Path $OstwinHome ".agents" "mcp" "mcp-extension.sh"
+            }
+
+            if (Test-Path $mcpSh) {
+                & bash $mcpSh @Arguments
+            }
+            else {
+                Write-Error "[ERROR] mcp-extension.sh not found."
+                Write-Error "  Searched: $AgentsDir/mcp/ and $OstwinHome/.agents/mcp/"
+                exit 1
+            }
         }
     }
 

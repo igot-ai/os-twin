@@ -118,12 +118,12 @@ _stats = _Stats()
 
 
 def _infer_caller() -> str:
-    """Walk the call stack to find the first caller outside shared.ai."""
+    """Walk the call stack to find the first caller outside dashboard.ai."""
     import inspect
 
     for frame_info in inspect.stack():
         module = frame_info.frame.f_globals.get("__name__", "")
-        if module and not module.startswith("shared.ai"):
+        if module and not module.startswith("dashboard.ai"):
             filename = frame_info.filename.rsplit("/", 1)[-1]
             return f"{filename}:{frame_info.lineno}"
     return "unknown"
@@ -241,11 +241,30 @@ _MONITOR_FILE = os.path.join(
 _file_lock = threading.Lock()
 
 
+def _lock_file(f) -> None:
+    """Acquire an exclusive file lock (cross-platform)."""
+    try:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_EX)
+    except ImportError:
+        # Windows fallback
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_file(f) -> None:
+    """Release the file lock (cross-platform)."""
+    try:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_UN)
+    except ImportError:
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 def _append_to_file(record: CallRecord) -> None:
     """Append a record to the shared JSONL file with file locking."""
     try:
-        import fcntl
-
         entry = {
             "ts": record.timestamp,
             "type": record.call_type,
@@ -265,11 +284,11 @@ def _append_to_file(record: CallRecord) -> None:
         with _file_lock:
             os.makedirs(os.path.dirname(_MONITOR_FILE), exist_ok=True)
             with open(_MONITOR_FILE, "a", encoding="utf-8") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
+                _lock_file(f)
                 f.write(line)
-                fcntl.flock(f, fcntl.LOCK_UN)
-    except Exception:
-        pass  # Don't crash the caller if file write fails
+                _unlock_file(f)
+    except Exception as exc:
+        logger.debug("Failed to append AI monitor record: %s", exc)
 
 
 def _read_from_file(max_age_seconds: int = 3600) -> list[dict]:
@@ -388,5 +407,5 @@ def reset_stats() -> None:
     try:
         with open(_MONITOR_FILE, "w") as f:
             f.truncate(0)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to truncate AI monitor file: %s", exc)
