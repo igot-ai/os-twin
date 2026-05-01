@@ -1,4 +1,4 @@
-"""AI Gateway routes — exposes shared/ai as HTTP for TypeScript callers.
+"""AI Gateway routes — exposes dashboard.ai as HTTP for TypeScript callers.
 
 Two endpoints on the existing dashboard (port 9000):
 - ``POST /api/ai/complete`` — completion (prompt or multi-turn + tools)
@@ -8,19 +8,12 @@ Two endpoints on the existing dashboard (port 9000):
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-
-# Ensure shared module is importable
-_agents_dir = Path(__file__).resolve().parent.parent.parent / ".agents"
-if str(_agents_dir) not in sys.path:
-    sys.path.insert(0, str(_agents_dir))
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -69,8 +62,8 @@ class EmbedResponse(BaseModel):
 @router.post("/complete", response_model=CompleteResponse)
 async def handle_complete(req: CompleteRequest):
     """Completion endpoint — supports simple prompt or multi-turn + tools."""
-    from shared.ai import complete
-    from shared.ai.config import get_config
+    from dashboard.ai import complete
+    from dashboard.ai.config import get_config
 
     cfg = get_config()
     model = req.model or cfg.full_model(req.purpose)
@@ -100,15 +93,15 @@ async def handle_complete(req: CompleteRequest):
 
 @router.post("/embed", response_model=EmbedResponse)
 async def handle_embed(req: EmbedRequest):
-    """Embedding endpoint — routes cloud vs local based on model prefix."""
-    from shared.ai import embed
-    from shared.ai.config import get_config
+    """Embedding endpoint — routes to KnowledgeEmbedder."""
+    from dashboard.ai import embed
+    from dashboard.ai.config import get_config
 
     cfg = get_config()
     model = req.model or cfg.full_cloud_embedding_model()
 
     try:
-        vectors = embed(texts=req.texts, model=model)
+        vectors = embed(texts=req.texts)
         dims = len(vectors[0]) if vectors else 0
         return EmbedResponse(vectors=vectors, model=model, dimensions=dims)
     except Exception as exc:
@@ -119,7 +112,7 @@ async def handle_embed(req: EmbedRequest):
 @router.get("/stats")
 async def handle_stats():
     """Return AI gateway traffic stats — call counts, latency, per-model breakdown."""
-    from shared.ai.monitor import get_stats
+    from dashboard.ai import get_stats
 
     return get_stats()
 
@@ -127,7 +120,7 @@ async def handle_stats():
 @router.post("/stats/reset")
 async def handle_reset_stats():
     """Reset AI gateway stats counters."""
-    from shared.ai.monitor import reset_stats
+    from dashboard.ai import reset_stats
 
     reset_stats()
     return {"status": "ok"}

@@ -111,3 +111,14 @@ A-mem-sys*/**
 AGENTS.md
 image.png
 CLAUDE.md
+
+# ── Dev tooling / IDE config (auto-generated, never commit) ───────────────────
+**/.opencode/
+**/scratch/
+test_extless
+test_extless.ps1
+
+# ── Test artifacts & build output ─────────────────────────────────────────────
+*.tar.zst
+lint_output.txt
+test_results.txt
