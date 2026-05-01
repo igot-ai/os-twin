@@ -487,9 +487,15 @@ switch ($Command) {
         # ── Ensure working_dir exists and is initialized ──
         if (-not $resolvedWorkingDir -and (Test-Path $resolvedPlanFile)) {
             $pc = Get-Content $resolvedPlanFile -Raw
+            # Pattern 1: YAML-style  working_dir: /path
             if ($pc -match '(?m)^\s*working_dir:\s*(.+)$') {
                 $resolvedWorkingDir = $Matches[1].Trim()
             }
+            # Pattern 2: Markdown    > **Working dir:** `/path`
+            if (-not $resolvedWorkingDir -and ($pc -match '(?m)^>\s*\*\*Working dir:\*\*\s*`([^`]+)`')) {
+                $resolvedWorkingDir = $Matches[1].Trim()
+            }
+            # Pattern 3: Markdown    > Project: /path
             if (-not $resolvedWorkingDir -and ($pc -match '(?m)^>\s*Project:\s*(.+)$')) {
                 $resolvedWorkingDir = $Matches[1].Trim()
             }
@@ -500,15 +506,33 @@ switch ($Command) {
                 Write-Host ([char]::ConvertFromUtf32(0x1F4C1) + " Creating project directory: $resolvedWorkingDir")
                 New-Item -ItemType Directory -Path $resolvedWorkingDir -Force | Out-Null
             }
-            if (-not (Test-Path (Join-Path $resolvedWorkingDir ".agents"))) {
-                Write-Host ([char]::ConvertFromUtf32(0x1F527) + " Initializing project with ostwin init...")
-                $initPs1 = Join-Path $AgentsDir "init.ps1"
-                if (Test-Path $initPs1) {
-                    & pwsh -NoProfile -File $initPs1 $resolvedWorkingDir
+        }
+        # Ensure project env is initialized (.agents/ + .opencode/opencode.json)
+        # Uses the same pattern as `ostwin init`, plus -PlanId for memory binding.
+        # init.ps1 handles idempotency — fast-exits when already set up.
+        $initTarget = if ($resolvedWorkingDir -and $resolvedWorkingDir -ne ".") { $resolvedWorkingDir } else { (Get-Location).Path }
+        $initPs1 = Join-Path $AgentsDir "init.ps1"
+        if (Test-Path $initPs1) {
+            $psArgs = [System.Collections.ArrayList]::new()
+            $null = $psArgs.Add($initTarget)
+            $null = $psArgs.Add('-Yes')   # non-interactive during run
+            # Extract plan_id from plan filename (stem = plan_id, e.g. 107240b7fe28.md → 107240b7fe28)
+            if ($resolvedPlanFile) {
+                $initPlanId = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPlanFile)
+                $initPlanId = $initPlanId -replace '\.refined$', ''
+                if ($initPlanId -and $initPlanId -ne 'PLAN.template') {
+                    $null = $psArgs.Add('-PlanId')
+                    $null = $psArgs.Add($initPlanId)
                 }
             }
+            try {
+                & pwsh -NoProfile -File $initPs1 @psArgs
+            } catch {
+                Write-Host "  [init] Warning: init.ps1 returned non-zero: $_"
+            }
+        } else {
+            Write-Error "[ERROR] init.ps1 not found at $initPs1"
         }
-
         # Dispatch to Start-Plan.ps1
         $startPlan = Join-Path $AgentsDir "plan\Start-Plan.ps1"
         if (Test-Path $startPlan) {

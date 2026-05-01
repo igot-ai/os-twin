@@ -346,8 +346,6 @@ def resolve_and_write(config_path, output_dir, env_file=None, merge=False,
         f.write('\n')
 
     check_unresolved(resolved_mcp, strict)
-
-    print(f"  Generated {opencode_file}")
     return resolved_mcp
 
 
