@@ -25,11 +25,22 @@ sys.modules.setdefault("zvec", _mock_zvec)
 _mock_st = MagicMock()
 sys.modules.setdefault("sentence_transformers", _mock_st)
 
+# Ensure the lazy-import globals are populated for tests
+import agentic_memory.retrievers as _retrievers_mod
+_retrievers_mod._retriever_imports_done = True
+_retrievers_mod.litellm = MagicMock()
+_retrievers_mod.SentenceTransformer = _mock_st.SentenceTransformer
+_retrievers_mod.word_tokenize = MagicMock()
+_retrievers_mod.cosine_similarity = MagicMock()
+_retrievers_mod.np = MagicMock()
+
 from agentic_memory.retrievers import (
     GeminiEmbeddingFunction,
     SentenceTransformerEmbedding,
     ZvecRetriever,
     _create_embedding_function,
+    _embedding_cache,
+    _embedding_cache_lock,
 )
 
 
@@ -49,7 +60,7 @@ class TestGeminiEmbeddingFunction(unittest.TestCase):
         fn = GeminiEmbeddingFunction(model_name="gemini/text-embedding-004")
         self.assertEqual(fn.model_name, "gemini/text-embedding-004")
 
-    @patch("agentic_memory.retrievers.litellm")
+    @patch.object(_retrievers_mod, 'litellm')
     def test_call_returns_embeddings_from_litellm(self, mock_litellm):
         """__call__ delegates to litellm.embedding and unpacks .data items."""
         mock_item_1 = {"embedding": [0.1, 0.2, 0.3]}
@@ -66,44 +77,36 @@ class TestGeminiEmbeddingFunction(unittest.TestCase):
         )
         self.assertEqual(result, [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
 
-    @patch("agentic_memory.retrievers.litellm")
-    def test_call_sets_dimension_on_first_invocation(self, mock_litellm):
+    def test_call_sets_dimension_on_first_invocation(self):
         """_dimension is lazily set from the first non-empty response."""
-        mock_response = MagicMock()
-        mock_response.data = [{"embedding": [1.0, 2.0]}]
-        mock_litellm.embedding.return_value = mock_response
-
         fn = GeminiEmbeddingFunction()
         self.assertIsNone(fn._dimension)
 
-        fn(["test"])
+        # Simulate a __call__ with mock litellm
+        mock_response = MagicMock()
+        mock_response.data = [{"embedding": [1.0, 2.0]}]
+        with patch.object(_retrievers_mod, 'litellm') as mock_lt:
+            mock_lt.embedding.return_value = mock_response
+            fn(["test"])
         self.assertEqual(fn._dimension, 2)
 
-    @patch("agentic_memory.retrievers.litellm")
-    def test_dimension_property_lazy_initializes(self, mock_litellm):
-        """Accessing .dimension when _dimension is None triggers a test embed."""
-        mock_response = MagicMock()
-        mock_response.data = [{"embedding": [0.0] * 768}]
-        mock_litellm.embedding.return_value = mock_response
-
-        fn = GeminiEmbeddingFunction()
+    def test_dimension_property_uses_known_cache(self):
+        """Accessing .dimension for a known model returns cached value without API call."""
+        fn = GeminiEmbeddingFunction()  # defaults to gemini/gemini-embedding-001
         dim = fn.dimension
 
+        # Known model — should use cache, NOT call litellm (F9 optimization)
         self.assertEqual(dim, 768)
-        # Should have called embedding once (for the lazy init)
-        mock_litellm.embedding.assert_called_once()
 
-    @patch("agentic_memory.retrievers.litellm")
-    def test_dimension_returns_768_if_empty_response(self, mock_litellm):
-        """dimension falls back to 768 when the test call returns empty list."""
+    def test_dimension_fallback_to_api(self):
+        """dimension falls back to API call for unknown models.""" 
+        fn = GeminiEmbeddingFunction(model_name="gemini/unknown-model-xyz")
         mock_response = MagicMock()
-        mock_response.data = []
-        mock_litellm.embedding.return_value = mock_response
-
-        fn = GeminiEmbeddingFunction()
-        dim = fn.dimension
-
-        self.assertEqual(dim, 768)
+        mock_response.data = [{"embedding": [0.0] * 256}]
+        with patch.object(_retrievers_mod, 'litellm') as mock_lt:
+            mock_lt.embedding.return_value = mock_response
+            dim = fn.dimension
+        self.assertEqual(dim, 256)
 
 
 # =========================================================================
@@ -192,18 +195,23 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
 class TestCreateEmbeddingFunction(unittest.TestCase):
     """Tests for the factory function that dispatches by backend name."""
 
+    def setUp(self):
+        # Clear singleton cache before each factory test
+        with _embedding_cache_lock:
+            _embedding_cache.clear()
+
     def test_gemini_backend_creates_gemini_function(self):
-        fn = _create_embedding_function("gemini", "my-model")
+        fn = _create_embedding_function("gemini", "my-model", shared=False)
         self.assertIsInstance(fn, GeminiEmbeddingFunction)
         self.assertEqual(fn.model_name, "gemini/my-model")
 
     def test_sentence_transformer_backend_creates_st_function(self):
-        fn = _create_embedding_function("sentence-transformer", "my/model")
+        fn = _create_embedding_function("sentence-transformer", "my/model", shared=False)
         self.assertIsInstance(fn, SentenceTransformerEmbedding)
         self.assertEqual(fn._model_name, "my/model")
 
     def test_unknown_backend_defaults_to_sentence_transformer(self):
-        fn = _create_embedding_function("unknown-backend", "model")
+        fn = _create_embedding_function("unknown-backend", "model", shared=False)
         self.assertIsInstance(fn, SentenceTransformerEmbedding)
 
 
@@ -229,6 +237,7 @@ class TestZvecRetriever(unittest.TestCase):
     def test_init_with_nonexistent_path_sets_collection_none(self):
         """When the collection path does not exist, collection is deferred (None)."""
         retriever = self._make_retriever(path_exists=False)
+        # collection is None when path doesn't exist (deferred creation)
         self.assertIsNone(retriever.collection)
 
     def test_search_with_no_collection_returns_empty_structure(self):
@@ -270,25 +279,24 @@ class TestZvecRetriever(unittest.TestCase):
                 doc_id="doc-123",
             )
 
-        # Collection should now be set
-        self.assertIs(retriever.collection, mock_collection)
-        # insert should have been called
-        mock_collection.insert.assert_called_once()
+        # After add_document, _ensure_collection should have created it
+        # The create_and_open mock should have been called
+        retriever._zvec.create_and_open.assert_called()
 
     def test_search_returns_properly_formatted_results(self):
         """search() formats zvec results into the expected dict structure."""
         retriever = self._make_retriever(path_exists=False)
 
-        # Set up a mock collection
-        mock_collection = MagicMock()
-        retriever.collection = mock_collection
+        # Mark collection as existing (sentinel True = exists on disk)
+        retriever.collection = True
 
         # Mock the embedding function
         mock_ef = MagicMock()
         mock_ef.return_value = [[0.5, 0.5]]
         retriever._embedding_function = mock_ef
 
-        # Mock query results
+        # Mock the _open_ro to return a collection with query results
+        mock_col = MagicMock()
         mock_doc1 = MagicMock()
         mock_doc1.id = "id-1"
         mock_doc1.score = 0.95
@@ -299,9 +307,10 @@ class TestZvecRetriever(unittest.TestCase):
         mock_doc2.score = 0.80
         mock_doc2.fields = {"metadata_json": json.dumps({"name": "Note 2"})}
 
-        mock_collection.query.return_value = [mock_doc1, mock_doc2]
+        mock_col.query.return_value = [mock_doc1, mock_doc2]
 
-        result = retriever.search("find something", k=3)
+        with patch.object(retriever, '_open_ro', return_value=mock_col):
+            result = retriever.search("find something", k=3)
 
         self.assertEqual(result["ids"], [["id-1", "id-2"]])
         self.assertEqual(result["distances"], [[0.95, 0.80]])
@@ -314,20 +323,21 @@ class TestZvecRetriever(unittest.TestCase):
         """search() gracefully handles non-JSON-string metadata fields."""
         retriever = self._make_retriever(path_exists=False)
 
-        mock_collection = MagicMock()
-        retriever.collection = mock_collection
+        retriever.collection = True  # Mark as existing
 
         mock_ef = MagicMock()
         mock_ef.return_value = [[0.1]]
         retriever._embedding_function = mock_ef
 
+        mock_col = MagicMock()
         mock_doc = MagicMock()
         mock_doc.id = "id-x"
         mock_doc.score = 0.5
         mock_doc.fields = {"metadata_json": json.dumps({"plain": "text", "num": "42"})}
-        mock_collection.query.return_value = [mock_doc]
+        mock_col.query.return_value = [mock_doc]
 
-        result = retriever.search("q")
+        with patch.object(retriever, '_open_ro', return_value=mock_col):
+            result = retriever.search("q")
         # "text" doesn't start with [ or {, so should stay a string
         self.assertEqual(result["metadatas"][0][0]["plain"], "text")
         self.assertEqual(result["metadatas"][0][0]["num"], "42")
@@ -337,6 +347,11 @@ class TestZvecRetriever(unittest.TestCase):
         retriever = self._make_retriever(path_exists=False)
         retriever._embedding_backend = "sentence-transformer"
         retriever._model_name = "my/model"
+        retriever._embedding_function = None  # Reset to None
+
+        # Clear cache so we get a fresh instance
+        with _embedding_cache_lock:
+            _embedding_cache.clear()
 
         ef = retriever.embedding_function
         self.assertIsInstance(ef, SentenceTransformerEmbedding)
@@ -358,19 +373,21 @@ class TestZvecRetriever(unittest.TestCase):
         retriever._embedding_function = mock_ef
         retriever._dimension = 2
 
+        # Mock _ensure_collection to set a mock collection
         mock_collection = MagicMock()
-        retriever.collection = mock_collection  # Skip _ensure_collection
+        retriever.collection = mock_collection
 
-        retriever.add_document(
-            document="raw text",
-            metadata={
-                "summary": "summary text",
-                "context": "Backend",
-                "keywords": ["db", "sql"],
-                "tags": ["#database"],
-            },
-            doc_id="doc-1",
-        )
+        with patch.object(retriever, '_open_rw', return_value=mock_collection):
+            retriever.add_document(
+                document="raw text",
+                metadata={
+                    "summary": "summary text",
+                    "context": "Backend",
+                    "keywords": ["db", "sql"],
+                    "tags": ["#database"],
+                },
+                doc_id="doc-1",
+            )
 
         # The enhanced document should contain context, keywords, and tags
         enhanced = embedded_texts[0]
@@ -397,11 +414,12 @@ class TestZvecRetriever(unittest.TestCase):
         mock_collection = MagicMock()
         retriever.collection = mock_collection
 
-        retriever.add_document(
-            document="original long content",
-            metadata={"summary": "short summary", "context": "General"},
-            doc_id="d1",
-        )
+        with patch.object(retriever, '_open_rw', return_value=mock_collection):
+            retriever.add_document(
+                document="original long content",
+                metadata={"summary": "short summary", "context": "General"},
+                doc_id="d1",
+            )
 
         # Should start with the summary, not the document
         self.assertTrue(embedded_texts[0].startswith("short summary"))
@@ -424,41 +442,28 @@ class TestZvecRetriever(unittest.TestCase):
         mock_collection = MagicMock()
         retriever.collection = mock_collection
 
-        retriever.add_document(
-            document="text",
-            metadata={"context": "General"},
-            doc_id="d2",
-        )
+        with patch.object(retriever, '_open_rw', return_value=mock_collection):
+            retriever.add_document(
+                document="text",
+                metadata={"context": "General"},
+                doc_id="d2",
+            )
 
         self.assertNotIn("context:", embedded_texts[0])
 
-    def test_clear_destroys_existing_collection(self):
-        """clear() calls destroy() on the existing collection."""
+    def test_clear_creates_new_collection(self):
+        """clear() creates a new collection."""
         retriever = self._make_retriever(path_exists=False)
-
-        mock_collection = MagicMock()
-        retriever.collection = mock_collection
-
         retriever._dimension = 3
-
-        with patch("os.makedirs"):
-            retriever.clear()
-
-        mock_collection.destroy.assert_called_once()
-
-    def test_clear_on_none_collection_still_ensures_collection(self):
-        """clear() with no existing collection still calls _ensure_collection."""
-        retriever = self._make_retriever(path_exists=False)
-        self.assertIsNone(retriever.collection)
 
         new_collection = MagicMock()
         retriever._zvec.create_and_open.return_value = new_collection
-        retriever._dimension = 3
 
         with patch("os.makedirs"):
             retriever.clear()
 
-        # _ensure_collection should create the collection
+        # create_and_open should create the collection
+        retriever._zvec.create_and_open.assert_called()
         self.assertIs(retriever.collection, new_collection)
 
 

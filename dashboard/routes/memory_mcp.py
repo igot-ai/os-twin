@@ -4,14 +4,15 @@ Mounts the Agentic Memory system as an MCP endpoint at ``/api/memory-pool/mcp``
 via FastMCP's Streamable HTTP transport.  A ``MemoryPool`` manages one
 AgenticMemorySystem instance per unique plan namespace.
 
-Agents specify which memory store to use via a **tool parameter**::
+Plan isolation is driven by the **URL query string**::
 
-    save_memory(content="...", plan_id="my-plan")
-    search_memory(query="...", plan_id="my-plan")
+    http://localhost:3366/api/memory-pool/mcp?plan_id=my-plan
 
-The server resolves the ``plan_id`` to a centralized directory at
-``~/.ostwin/memory/memory-<plan_id>/``.  When ``plan_id`` is omitted,
-the ``_default`` namespace is used.
+The ASGI wrapper ``_PlanIdInjectingApp`` extracts ``plan_id`` from the
+query string and injects it into a ``ContextVar`` before the MCP handler
+runs.  All ``@mcp.tool()`` functions read the plan from this context —
+they do **not** accept ``plan_id`` as a tool argument.  When the URL
+omits ``plan_id``, the ``_global`` namespace is used.
 
 The stdio transport in ``mcp_server.py`` is **not** affected — it continues
 to work for agents that prefer the legacy per-process model.
@@ -19,12 +20,14 @@ to work for agents that prefer the legacy per-process model.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
 import sys
 import uuid
 from typing import Any, Optional
+from urllib.parse import parse_qs
 
 from pathlib import Path
 
@@ -52,7 +55,14 @@ from memory_pool import MemoryPool  # noqa: E402
 MEMORY_BASE_DIR: Path = Path(
     os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory"))
 )
-DEFAULT_NAMESPACE = "_default"
+DEFAULT_NAMESPACE = "_global"
+
+# ---------------------------------------------------------------------------
+# Request-scoped plan_id — set by the ASGI wrapper, read by @mcp.tool()
+# ---------------------------------------------------------------------------
+_plan_id_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_plan_id_ctx", default=None,
+)
 
 # ---------------------------------------------------------------------------
 # Pool singleton — created once, lives for the dashboard process lifetime
@@ -91,12 +101,13 @@ def _resolve_persist_dir(plan_id: str) -> str:
 # Helper: resolve memory system for a given plan_id
 # ---------------------------------------------------------------------------
 def _get_memory_for_plan(plan_id: Optional[str] = None):
-    """Return the AgenticMemorySystem for the given plan_id.
+    """Return the AgenticMemorySystem for the active plan.
 
-    Falls back to the ``_default`` namespace when *plan_id* is ``None``
-    or empty.
+    Reads ``plan_id`` from the request-scoped ``_plan_id_ctx`` ContextVar
+    (set by ``_PlanIdInjectingApp``).  Falls back to ``_global`` when no
+    plan_id is present.
     """
-    resolved = plan_id or DEFAULT_NAMESPACE
+    resolved = plan_id or _plan_id_ctx.get() or DEFAULT_NAMESPACE
     persist_dir = _resolve_persist_dir(resolved)
     pool = _get_pool()
     slot = pool.get_or_create(persist_dir)
@@ -122,9 +133,10 @@ mcp = FastMCP(
 
 
 # -- Tools -----------------------------------------------------------------
-# Thin wrappers that route through the pool via _get_memory_for_request().
-# The tool signatures and docstrings match mcp_server.py so agents see the
-# same interface regardless of transport.
+# Thin wrappers that route through the pool.  Plan isolation is handled
+# transparently via ``_plan_id_ctx`` (set by the ASGI wrapper from the
+# URL query string).  Tools do NOT accept ``plan_id`` — agents never
+# need to specify it; the URL ``?plan_id=XXX`` is authoritative.
 
 
 @mcp.tool()
@@ -133,7 +145,6 @@ def save_memory(
     name: Optional[str] = None,
     path: Optional[str] = None,
     tags: Optional[list[str]] = None,
-    plan_id: Optional[str] = None,
 ) -> str:
     """Save a new memory note to the knowledge base.
 
@@ -159,13 +170,11 @@ def save_memory(
         path: Optional directory path (e.g. "backend/database").
             Auto-generated if not provided.
         tags: Optional list of tags. Auto-generated if not provided.
-        plan_id: Optional plan identifier. Resolves storage to
-            ``~/.ostwin/memory/memory-<plan_id>/``. Defaults to ``_default``.
 
     Returns:
         JSON with the saved memory's id and status.
     """
-    mem = _get_memory_for_plan(plan_id)
+    mem = _get_memory_for_plan()
     memory_id = str(uuid.uuid4())
 
     kwargs: dict[str, Any] = {"id": memory_id}
@@ -176,7 +185,7 @@ def save_memory(
     if tags:
         kwargs["tags"] = tags
 
-    resolved_plan = plan_id or DEFAULT_NAMESPACE
+    resolved_plan = _plan_id_ctx.get() or DEFAULT_NAMESPACE
     logger.info(
         "save_memory [HTTP]: id=%s plan_id=%s content_len=%d",
         memory_id,
@@ -204,7 +213,7 @@ def save_memory(
 
 
 @mcp.tool()
-def search_memory(query: str, k: int = 5, plan_id: Optional[str] = None) -> str:
+def search_memory(query: str, k: int = 5) -> str:
     """Search the knowledge base using natural language.
 
     Returns the most semantically relevant memories for the query.
@@ -212,13 +221,12 @@ def search_memory(query: str, k: int = 5, plan_id: Optional[str] = None) -> str:
     Args:
         query: Natural language search query. Be specific and descriptive.
         k: Maximum number of results to return (default: 5).
-        plan_id: Optional plan identifier. Defaults to ``_default``.
 
     Returns:
         JSON array of matching memories with content, tags, path, and links.
     """
-    mem = _get_memory_for_plan(plan_id)
-    logger.info("search_memory [HTTP]: query=%r k=%d plan_id=%s", query, k, plan_id or DEFAULT_NAMESPACE)
+    mem = _get_memory_for_plan()
+    logger.info("search_memory [HTTP]: query=%r k=%d plan_id=%s", query, k, _plan_id_ctx.get() or DEFAULT_NAMESPACE)
     results = mem.search(query, k=k)
 
     output = []
@@ -240,20 +248,17 @@ def search_memory(query: str, k: int = 5, plan_id: Optional[str] = None) -> str:
 
 
 @mcp.tool()
-def memory_tree(plan_id: Optional[str] = None) -> str:
+def memory_tree() -> str:
     """Show the full directory tree of all memories.
-
-    Args:
-        plan_id: Optional plan identifier. Defaults to ``_default``.
 
     Returns:
         Tree-formatted string of the memory directory structure.
     """
-    return _get_memory_for_plan(plan_id).tree()
+    return _get_memory_for_plan().tree()
 
 
 @mcp.tool()
-def grep_memory(pattern: str, flags: Optional[str] = None, plan_id: Optional[str] = None) -> str:
+def grep_memory(pattern: str, flags: Optional[str] = None) -> str:
     """Search memory files using grep (full CLI grep).
 
     Runs grep on all markdown files in the memory notes directory.
@@ -266,14 +271,13 @@ def grep_memory(pattern: str, flags: Optional[str] = None, plan_id: Optional[str
     Args:
         pattern: Search pattern (string or regex depending on flags).
         flags: Optional grep flags as a single string.
-        plan_id: Optional plan identifier. Defaults to ``_default``.
 
     Returns:
         Grep output with paths relative to notes directory.
     """
     import subprocess
 
-    mem = _get_memory_for_plan(plan_id)
+    mem = _get_memory_for_plan()
     notes_dir = os.path.join(os.path.abspath(mem.persist_dir), "notes")
     os.makedirs(notes_dir, exist_ok=True)
 
@@ -296,7 +300,7 @@ def grep_memory(pattern: str, flags: Optional[str] = None, plan_id: Optional[str
 
 
 @mcp.tool()
-def find_memory(args: Optional[str] = None, plan_id: Optional[str] = None) -> str:
+def find_memory(args: Optional[str] = None) -> str:
     """Search memory files using find (full CLI find).
 
     Runs find on the memory notes directory.
@@ -308,7 +312,6 @@ def find_memory(args: Optional[str] = None, plan_id: Optional[str] = None) -> st
 
     Args:
         args: Optional find arguments as a single string.
-        plan_id: Optional plan identifier. Defaults to ``_default``.
 
     Returns:
         Find output with paths relative to notes directory.
@@ -316,7 +319,7 @@ def find_memory(args: Optional[str] = None, plan_id: Optional[str] = None) -> st
     import shlex
     import subprocess
 
-    mem = _get_memory_for_plan(plan_id)
+    mem = _get_memory_for_plan()
     notes_dir = os.path.join(os.path.abspath(mem.persist_dir), "notes")
     os.makedirs(notes_dir, exist_ok=True)
 
@@ -348,7 +351,7 @@ def find_memory(args: Optional[str] = None, plan_id: Optional[str] = None) -> st
 # ---------------------------------------------------------------------------
 from mcp.server.fastmcp.server import StreamableHTTPASGIApp  # noqa: E402
 from starlette.applications import Starlette  # noqa: E402
-from starlette.routing import Route  # noqa: E402
+from starlette.routing import Mount, Route  # noqa: E402
 from starlette.responses import JSONResponse  # noqa: E402
 
 # Trigger lazy creation of the session manager
@@ -356,6 +359,34 @@ mcp.streamable_http_app()
 
 # Build the ASGI handler from the session manager directly
 _mcp_handler = StreamableHTTPASGIApp(mcp.session_manager)
+
+
+# ---------------------------------------------------------------------------
+# ASGI wrapper: extract plan_id from ?plan_id=XXX and inject into ContextVar
+# ---------------------------------------------------------------------------
+class _PlanIdInjectingApp:
+    """ASGI middleware that extracts ``plan_id`` from the HTTP query string
+    and sets ``_plan_id_ctx`` before delegating to the real MCP handler.
+
+    This ensures every ``@mcp.tool()`` invocation within the request
+    automatically resolves to the correct plan namespace without the
+    agent needing to pass ``plan_id`` as a tool argument.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            qs = parse_qs(scope.get("query_string", b"").decode())
+            plan_id = qs.get("plan_id", [None])[0]
+            token = _plan_id_ctx.set(plan_id)
+            try:
+                await self._inner(scope, receive, send)
+            finally:
+                _plan_id_ctx.reset(token)
+        else:
+            await self._inner(scope, receive, send)
 
 
 async def _health_endpoint(request):
@@ -372,10 +403,9 @@ async def _health_endpoint(request):
     stats["namespaces"] = namespaces
     return JSONResponse(stats)
 
-
 knowledge_mcp_app = Starlette(
     routes=[
-        Route("/mcp", endpoint=_mcp_handler),
+        Route("/mcp", endpoint=_PlanIdInjectingApp(_mcp_handler)),
         Route("/health", endpoint=_health_endpoint, methods=["GET"]),
     ],
     # NO lifespan — we manage session_manager lifecycle from api.py

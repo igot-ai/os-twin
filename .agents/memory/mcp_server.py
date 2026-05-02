@@ -440,7 +440,8 @@ def _collect_links(notes) -> tuple[list[dict[str, Any]], int]:
     links: list[dict[str, Any]] = []
     link_pairs: set[tuple[str, str]] = set()
     total_forward_links = 0
-    memories = get_memory().memories
+    mem = get_memory()
+    memories = mem.memories
 
     for note in notes:
         for target_id in note.links:
@@ -465,7 +466,11 @@ def _collect_links(notes) -> tuple[list[dict[str, Any]], int]:
 
 
 def _collect_nodes(notes, group_meta) -> list[dict[str, Any]]:
-    """Build node list with group colors and weights."""
+    """Build node list with group colors and weights.
+
+    Content and summary are excluded to reduce memory allocation (F14).
+    Clients that need full content should call read_memory() per-node.
+    """
     nodes: list[dict[str, Any]] = []
     for note in notes:
         group_id = _slugify(_note_group_key(note))
@@ -481,8 +486,6 @@ def _collect_nodes(notes, group_meta) -> list[dict[str, Any]]:
                 "path": note.filepath,
                 "pathLabel": note.path,
                 "excerpt": _note_excerpt(note),
-                "content": note.content,
-                "summary": note.summary,
                 "keywords": note.keywords,
                 "tags": note.tags,
                 "groupId": group_id,
@@ -690,11 +693,12 @@ def search_memory(query: str, k: int = 5) -> str:
         JSON array of matching memories with content, tags, path, and links.
     """
     logger.info("search_memory: query=%r k=%d", query, k)
-    results = get_memory().search(query, k=k)
+    mem = get_memory()
+    results = mem.search(query, k=k)
     logger.info("search_memory: returned %d results", len(results))
     output = []
     for r in results:
-        note = get_memory().read(r["id"])
+        note = mem.read(r["id"])
         entry = {
             "id": r["id"],
             "name": note.name if note else None,

@@ -74,6 +74,9 @@ class MemoryPool:
         self._ml_ready = threading.Event()
         self._sweep_stop = threading.Event()
         self._sweep_thread: Optional[threading.Thread] = None
+        # Track eviction/cleanup threads so kill_all() can join them (F5)
+        self._cleanup_threads: list[threading.Thread] = []
+        self._cleanup_threads_lock = threading.Lock()
 
         # --- Tier 1: ML preload ---
         if self._config.ml_preload:
@@ -216,13 +219,18 @@ class MemoryPool:
             victim = min(candidates, key=lambda s: s.last_activity)
 
         self._slots.pop(victim.persist_dir, None)
-        # Schedule cleanup outside the lock
-        threading.Thread(
+        # Schedule cleanup outside the lock; track the thread (F5)
+        t = threading.Thread(
             target=self._cleanup_slot,
             args=(victim,),
             daemon=True,
             name=f"pool-evict-{os.path.basename(victim.persist_dir)}",
-        ).start()
+        )
+        with self._cleanup_threads_lock:
+            # Prune completed threads to avoid unbounded growth
+            self._cleanup_threads = [ct for ct in self._cleanup_threads if ct.is_alive()]
+            self._cleanup_threads.append(t)
+        t.start()
         logger.info("Evicted slot (%s): %s", policy, victim.persist_dir)
         return True
 
@@ -297,23 +305,49 @@ class MemoryPool:
         return True
 
     def _cleanup_slot(self, slot: MemorySlot) -> None:
-        """Stop sync thread and optionally run final sync.  Thread-safe."""
+        """Stop sync thread, run final sync with timeout, and release resources.
+
+        Thread-safe.  The sync is capped at 30s to avoid indefinite blocking
+        if disk I/O hangs (F6).  The retriever's close() is called to release
+        any resources it holds (F1).
+        """
         slot.sync_stop.set()
         if self._config.sync_on_kill:
+            import concurrent.futures
             try:
-                slot.system.sync_to_disk()
-                logger.info("Final sync completed: %s", slot.persist_dir)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(slot.system.sync_to_disk)
+                    future.result(timeout=30)  # 30s max for final sync
+                    logger.info("Final sync completed: %s", slot.persist_dir)
+            except concurrent.futures.TimeoutError:
+                logger.warning(
+                    "Final sync timed out after 30s: %s", slot.persist_dir
+                )
             except Exception:
                 logger.exception("Final sync failed: %s", slot.persist_dir)
+        # Release retriever resources (embedding model ref, handles)
+        if hasattr(slot.system, 'retriever') and hasattr(slot.system.retriever, 'close'):
+            try:
+                slot.system.retriever.close()
+            except Exception:
+                logger.exception("Retriever close failed: %s", slot.persist_dir)
         logger.info("Killed memory slot: %s", slot.persist_dir)
 
     def kill_all(self) -> None:
-        """Kill every slot.  Called on dashboard shutdown."""
+        """Kill every slot and join cleanup threads.  Called on dashboard shutdown."""
         self._sweep_stop.set()
         with self._lock:
             dirs = list(self._slots.keys())
         for d in dirs:
             self.kill_slot(d)
+        # Wait for any in-flight eviction/cleanup threads (F5)
+        with self._cleanup_threads_lock:
+            threads_to_join = list(self._cleanup_threads)
+            self._cleanup_threads.clear()
+        for t in threads_to_join:
+            t.join(timeout=10)
+            if t.is_alive():
+                logger.warning("Cleanup thread %s did not finish in 10s", t.name)
         logger.info("All memory slots killed")
 
     def stats(self) -> dict:

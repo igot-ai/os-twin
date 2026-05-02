@@ -1,4 +1,3 @@
-import keyword
 from typing import List, Dict, Optional, Any, Tuple
 import uuid
 from datetime import datetime
@@ -7,11 +6,7 @@ from .retrievers import ChromaRetriever, ZvecRetriever
 from .memory_note import MemoryNote  # canonical definition lives here now
 import json
 import logging
-import numpy as np
 import os
-from abc import ABC, abstractmethod
-import pickle
-from pathlib import Path
 import time
 
 # Lazy imports for heavy ML libraries (torch, transformers, sentence-transformers, litellm)
@@ -127,6 +122,10 @@ class AgenticMemorySystem:
         self.decay_half_life_days = max(0.01, decay_half_life_days)
         self.conflict_resolution = conflict_resolution
         self._initialize_evolution_prompt()
+
+        # Dirty flag: tracks whether in-memory state has changed since
+        # last sync, so sync_to_disk() can skip no-op merges (F12).
+        self._dirty = False
 
         # Set up subdirectories for persistence
         self._notes_dir = None
@@ -678,11 +677,16 @@ class AgenticMemorySystem:
 
         # Add to memories before evolution so add_link can find it
         self.memories[note.id] = note
+        self._dirty = True
         evo_label, note = self.process_memory(note)
         self._save_note(note)
 
         metadata = self._build_note_metadata(note)
         self.retriever.add_document(note.content, metadata, note.id)
+
+        # Flush any deferred GC from retriever operations
+        if hasattr(self.retriever, 'flush_gc'):
+            self.retriever.flush_gc()
 
         if evo_label is True:
             self.evo_cnt += 1
@@ -736,6 +740,9 @@ class AgenticMemorySystem:
         skipped = 0
         failed = 0
 
+        # Pre-build hash set for O(1) duplicate detection (F8)
+        _existing_hashes = {n.content_hash for n in self.memories.values()}
+
         for dirpath, _dirnames, filenames in os.walk(renamed):
             for filename in filenames:
                 if not filename.endswith(".md"):
@@ -761,23 +768,18 @@ class AgenticMemorySystem:
 
                 # Skip if a note with identical content already exists
                 # (prevents re-import if the user places the same docs again)
+                # Uses pre-built hash set instead of O(N) scan per file (F8).
                 candidate = MemoryNote(
                     content=content,
                     name=name,
                     path=path,
                     context="General",
                 )
-                dup = False
-                for existing in self.memories.values():
-                    if existing.content_hash == candidate.content_hash:
-                        logger.info(
-                            "import_docs: skipping duplicate %s (matches %s)",
-                            filepath,
-                            existing.id,
-                        )
-                        dup = True
-                        break
-                if dup:
+                if candidate.content_hash in _existing_hashes:
+                    logger.info(
+                        "import_docs: skipping duplicate %s",
+                        filepath,
+                    )
                     skipped += 1
                     continue
 
@@ -788,6 +790,8 @@ class AgenticMemorySystem:
                         name=name,
                         path=path,
                     )
+                    # Update hash set for subsequent duplicate checks
+                    _existing_hashes.add(candidate.content_hash)
                     logger.info(
                         "import_docs: imported %s as %s",
                         filepath,
@@ -957,13 +961,14 @@ class AgenticMemorySystem:
         """Sync: read current persistent files → update in-memory state + vectordb.
 
         Loads all markdown files from disk, detects added/modified/deleted notes
-        compared to current in-memory state, and rebuilds the vector index.
+        compared to current in-memory state, and updates the vector index
+        incrementally (only changed/new notes are re-embedded).
 
         Caveats:
         - Notes that exist on disk but not in memory are ADDED.
         - Notes that exist in memory but not on disk are REMOVED.
         - Notes whose content differs on disk are UPDATED (disk wins).
-        - Vector index is fully rebuilt after sync.
+        - Vector index entries are added/updated/removed incrementally.
         - Backlinks are rebuilt from forward links.
 
         Returns:
@@ -978,30 +983,45 @@ class AgenticMemorySystem:
         updated = 0
         removed = 0
 
-        # Detect added and updated
+        # Detect added and updated — update vectordb incrementally (F4)
         for nid, disk_note in disk_notes.items():
             if nid not in self.memories:
                 added += 1
-            elif disk_note.content != self.memories[nid].content:
+                self.memories[nid] = disk_note
+                metadata = self._build_note_metadata(disk_note)
+                self.retriever.add_document(disk_note.content, metadata, nid)
+            elif disk_note.content_hash != self.memories[nid].content_hash:
                 updated += 1
-            self.memories[nid] = disk_note
+                self.memories[nid] = disk_note
+                self.retriever.delete_document(nid)
+                metadata = self._build_note_metadata(disk_note)
+                self.retriever.add_document(disk_note.content, metadata, nid)
+            else:
+                # Content unchanged — just adopt disk note (metadata may differ)
+                self.memories[nid] = disk_note
 
         # Detect removed (in memory but not on disk)
         removed_ids = [nid for nid in self.memories if nid not in disk_notes]
         for nid in removed_ids:
+            self.retriever.delete_document(nid)
             del self.memories[nid]
             removed += 1
 
-        # Rebuild backlinks and vector index
+        # Rebuild backlinks from forward links
         self._rebuild_backlinks()
-        self.consolidate_memories()
 
+        # Flush any deferred GC from retriever operations
+        if hasattr(self.retriever, 'flush_gc'):
+            self.retriever.flush_gc()
+
+        self._dirty = False
         return {"added": added, "updated": updated, "removed": removed}
 
     def sync_to_disk(self) -> Dict:
         """Sync: merge disk state, then write unified state to disk.
 
-        1. Calls ``merge_from_disk()`` to reconcile disk ↔ memory.
+        1. Calls ``merge_from_disk()`` to reconcile disk ↔ memory
+           (skipped if nothing has changed since last sync — F12).
         2. Writes all in-memory notes to disk.
         3. Does **not** delete orphan files (they may belong to another
            agent process running concurrently).
@@ -1012,8 +1032,15 @@ class AgenticMemorySystem:
         if not self._notes_dir:
             return {"error": "No persist_dir configured"}
 
-        # Step 1: merge first so we don't clobber another agent's work
-        merge_result = self.merge_from_disk()
+        # Skip merge if nothing changed locally (F12: dirty-flag optimization).
+        # We still merge if dirty because merge_from_disk also picks up
+        # external edits from other processes.
+        # Use getattr for backward compat (test fixtures may bypass __init__).
+        is_dirty = getattr(self, "_dirty", True)
+        if is_dirty:
+            merge_result = self.merge_from_disk()
+        else:
+            merge_result = {"skipped": True, "reason": "no local changes"}
 
         # Step 2: write all in-memory notes (now includes merged disk notes)
         written = 0
@@ -1021,6 +1048,7 @@ class AgenticMemorySystem:
             self._save_note(note, touch_modified=False)
             written += 1
 
+        self._dirty = False
         return {
             "merge": merge_result,
             "written": written,
@@ -1190,6 +1218,11 @@ class AgenticMemorySystem:
             document=note.content, metadata=metadata, doc_id=memory_id
         )
         self._save_note(note)
+        self._dirty = True
+
+        # Flush any deferred GC from retriever operations
+        if hasattr(self.retriever, 'flush_gc'):
+            self.retriever.flush_gc()
 
         return True
 
@@ -1273,6 +1306,12 @@ class AgenticMemorySystem:
             self.retriever.delete_document(memory_id)
             # Delete from local storage
             del self.memories[memory_id]
+            self._dirty = True
+
+            # Flush any deferred GC from retriever operations
+            if hasattr(self.retriever, 'flush_gc'):
+                self.retriever.flush_gc()
+
             return True
         return False
 
@@ -1369,70 +1408,10 @@ class AgenticMemorySystem:
 
         return memories[:k]
 
-    def _search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Search for memories using a hybrid retrieval approach.
-
-        This method combines results from both:
-        1. ChromaDB vector store (semantic similarity)
-        2. Embedding-based retrieval (dense vectors)
-
-        The results are deduplicated and ranked by relevance.
-
-        Args:
-            query (str): The search query text
-            k (int): Maximum number of results to return
-
-        Returns:
-            List[Dict[str, Any]]: List of search results, each containing:
-                - id: Memory ID
-                - content: Memory content
-                - context: Memory context
-                - keywords: Memory keywords
-                - tags: Memory tags
-                - score: Similarity score
-        """
-        # Get results from ChromaDB
-        chroma_results = self.retriever.search(query, k)
-        memories = []
-
-        # Process ChromaDB results
-        for i, doc_id in enumerate(chroma_results["ids"][0]):
-            memory = self.memories.get(doc_id)
-            if memory:
-                memories.append(
-                    {
-                        "id": doc_id,
-                        "content": memory.content,
-                        "context": memory.context,
-                        "keywords": memory.keywords,
-                        "tags": memory.tags,
-                        "score": chroma_results["distances"][0][i],
-                    }
-                )
-
-        # Get results from embedding retriever
-        embedding_results = self.retriever.search(query, k)
-
-        # Combine results with deduplication
-        seen_ids = {m["id"] for m in memories}
-        for result in embedding_results:
-            memory_id = result.get("id")
-            if memory_id and memory_id not in seen_ids:
-                memory = self.memories.get(memory_id)
-                if memory:
-                    memories.append(
-                        {
-                            "id": memory_id,
-                            "content": memory.content,
-                            "context": memory.context,
-                            "keywords": memory.keywords,
-                            "tags": memory.tags,
-                            "score": result.get("score", 0.0),
-                        }
-                    )
-                    seen_ids.add(memory_id)
-
-        return memories[:k]
+    # NOTE: _search() method removed (F7) — it performed two identical
+    # calls to self.retriever.search() pretending to combine "ChromaDB"
+    # and "embedding" results but they were the same backend. Use
+    # search() or search_agentic() instead.
 
     def search_agentic(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Search for memories using vector retrieval with link-following and time-decay."""

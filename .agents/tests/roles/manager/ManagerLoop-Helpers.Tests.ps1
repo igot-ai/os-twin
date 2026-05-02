@@ -593,9 +593,9 @@ Describe "Write-TriageContext" {
 }
 
 # ===========================================================================
-# Handle-PlanApproval
+# Complete-PlanApproval
 # ===========================================================================
-Describe "Handle-PlanApproval" {
+Describe "Complete-PlanApproval" {
     BeforeEach {
         $script:wd = Join-Path $TestDrive "hpa-$(Get-Random)"
         New-Item -ItemType Directory -Path $script:wd -Force | Out-Null
@@ -603,7 +603,7 @@ Describe "Handle-PlanApproval" {
     }
 
     It "does nothing for non-PLAN-REVIEW tasks" {
-        { Handle-PlanApproval -TaskRef "EPIC-001" } | Should -Not -Throw
+        { Complete-PlanApproval -TaskRef "EPIC-001" } | Should -Not -Throw
     }
 
     It "calls Build-DependencyGraph.ps1 when present (PLAN-REVIEW)" {
@@ -617,12 +617,12 @@ Describe "Handle-PlanApproval" {
             Copy-Item $buildScript $backupScript -Force
         }
         try {
-            # Write stub over the real path (Handle-PlanApproval looks here)
+            # Write stub over the real path (Complete-PlanApproval looks here)
             @"
 param([string]`$WarRoomsDir)
 "dag-built" | Out-File '$stubCalled' -Encoding utf8 -NoNewline
 "@ | Out-File $buildScript -Encoding utf8 -Force
-            Handle-PlanApproval -TaskRef "PLAN-REVIEW"
+            Complete-PlanApproval -TaskRef "PLAN-REVIEW"
         } finally {
             # Restore the original file
             if (Test-Path $backupScript) {
@@ -633,7 +633,7 @@ param([string]`$WarRoomsDir)
 
     It "does not throw when Build-DependencyGraph.ps1 absent" {
         # agentsDir's plan/Build-DependencyGraph.ps1 may not exist — handle gracefully
-        { Handle-PlanApproval -TaskRef "PLAN-REVIEW" } | Should -Not -Throw
+        { Complete-PlanApproval -TaskRef "PLAN-REVIEW" } | Should -Not -Throw
     }
 }
 
@@ -1000,5 +1000,121 @@ Describe "Get-CachedDag — cache hit path" {
         $dag1.nodes.EP1.room_id | Should -Be "r1"
         # Second call — same mtime, should reuse (or reload, both valid — just should not throw)
         { $dag2 = Get-CachedDag } | Should -Not -Throw
+    }
+}
+
+# ===========================================================================
+# Get-UnixEpoch — P0#3 culture-invariant epoch
+# ===========================================================================
+Describe "Get-UnixEpoch" {
+    It "returns a positive integer (current epoch)" {
+        $epoch = Get-UnixEpoch
+        $epoch | Should -BeGreaterThan 1700000000  # sanity: after 2023
+        $epoch | Should -BeOfType [long]
+    }
+
+    It "returns consistent results within a 2-second window" {
+        $e1 = Get-UnixEpoch
+        Start-Sleep -Milliseconds 100
+        $e2 = Get-UnixEpoch
+        ($e2 - $e1) | Should -BeLessOrEqual 2
+    }
+
+    It "matches [DateTimeOffset]::UtcNow within tolerance" {
+        $epoch = Get-UnixEpoch
+        $dotnet = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        [Math]::Abs($epoch - $dotnet) | Should -BeLessOrEqual 1
+    }
+}
+
+# ===========================================================================
+# Write-AtomicFile — P0#2 atomic file writes
+# ===========================================================================
+Describe "Write-AtomicFile" {
+    It "creates a new file with expected content" {
+        $path = Join-Path $TestDrive "atomic-new-$(Get-Random).txt"
+        Write-AtomicFile -Path $path -Content "hello-atomic"
+        Test-Path $path | Should -BeTrue
+        (Get-Content $path -Raw) | Should -Be "hello-atomic"
+    }
+
+    It "overwrites existing file atomically" {
+        $path = Join-Path $TestDrive "atomic-overwrite-$(Get-Random).txt"
+        "old-content" | Out-File $path -Encoding utf8 -NoNewline
+        Write-AtomicFile -Path $path -Content "new-content"
+        (Get-Content $path -Raw) | Should -Be "new-content"
+    }
+
+    It "does not leave temp files behind" {
+        $path = Join-Path $TestDrive "atomic-clean-$(Get-Random).txt"
+        Write-AtomicFile -Path $path -Content "clean"
+        $dir = Split-Path $path
+        $tmpFiles = Get-ChildItem $dir -Filter "*.tmp.*" -ErrorAction SilentlyContinue
+        $tmpFiles.Count | Should -Be 0
+    }
+}
+
+# ===========================================================================
+# Test-ValidRoomState — P2#14 state validation
+# ===========================================================================
+Describe "Test-ValidRoomState" {
+    It "returns true for valid state in lifecycle" {
+        $lc = @{
+            states = @{
+                developing = @{ type = "work" }
+                review     = @{ type = "review" }
+                passed     = @{ type = "terminal" }
+            }
+        } | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+        Test-ValidRoomState -State "developing" -Lifecycle $lc | Should -BeTrue
+        Test-ValidRoomState -State "review" -Lifecycle $lc | Should -BeTrue
+        Test-ValidRoomState -State "passed" -Lifecycle $lc | Should -BeTrue
+    }
+
+    It "returns false for invalid state in lifecycle" {
+        $lc = @{
+            states = @{
+                developing = @{ type = "work" }
+            }
+        } | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+        Test-ValidRoomState -State "devloping" -Lifecycle $lc | Should -BeFalse
+        Test-ValidRoomState -State "unknown" -Lifecycle $lc | Should -BeFalse
+    }
+
+    It "returns true when no lifecycle provided (graceful fallback)" {
+        Test-ValidRoomState -State "anything" -Lifecycle $null | Should -BeTrue
+    }
+
+    It "returns true when lifecycle has no states property" {
+        $lc = @{ version = 2 } | ConvertTo-Json | ConvertFrom-Json
+        Test-ValidRoomState -State "anything" -Lifecycle $lc | Should -BeTrue
+    }
+}
+
+# ===========================================================================
+# CmdletBinding compliance — P2#12 all exported functions must be advanced
+# ===========================================================================
+Describe "CmdletBinding compliance" {
+    It "all exported functions have [CmdletBinding()] attribute" {
+        $mod = Get-Module ManagerLoop-Helpers
+        $exportedFunctions = $mod.ExportedFunctions.Keys
+        $exportedFunctions.Count | Should -BeGreaterThan 0
+
+        foreach ($fnName in $exportedFunctions) {
+            $cmd = Get-Command $fnName -Module ManagerLoop-Helpers -ErrorAction SilentlyContinue
+            $cmd | Should -Not -BeNull -Because "function '$fnName' should exist"
+            $cmd.CmdletBinding | Should -BeTrue -Because "function '$fnName' should have [CmdletBinding()]"
+        }
+    }
+
+    It "does not export internal _ctx function" {
+        $mod = Get-Module ManagerLoop-Helpers
+        $mod.ExportedFunctions.Keys | Should -Not -Contain '_ctx'
+    }
+
+    It "does not export Handle-PlanApproval (renamed to Complete-PlanApproval)" {
+        $mod = Get-Module ManagerLoop-Helpers
+        $mod.ExportedFunctions.Keys | Should -Not -Contain 'Handle-PlanApproval'
+        $mod.ExportedFunctions.Keys | Should -Contain 'Complete-PlanApproval'
     }
 }

@@ -262,10 +262,10 @@ Describe "Start-ManagerLoop — V2 Lifecycle Unit Tests" {
             & $script:NewWarRoom -RoomId "room-040" -TaskRef "TASK-040" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-040"
-            $oldEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10000
+            $oldEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10000
             $oldEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
-            $now = [int][double]::Parse((Get-Date -UFormat %s))
+            $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
             ($now - $changedAt) | Should -BeGreaterThan 900
         }
     }
@@ -606,7 +606,7 @@ Classified as implementation bug. Engineer should fix.
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Set state_changed_at to a past epoch (10 seconds ago)
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Post done message now (ts will be > pastEpoch)
@@ -619,7 +619,7 @@ Classified as implementation bug. Engineer should fix.
             # Parse the same way Find-LatestSignal does
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $msgTs | Should -BeGreaterOrEqual $pastEpoch
         }
@@ -635,7 +635,7 @@ Classified as implementation bug. Engineer should fix.
                                   -Type "done" -Ref "TASK-202" -Body "Old done"
 
             # Simulate state timeout reset: set state_changed_at to future
-            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 60
+            $futureEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 60
             $futureEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # The old done message should NOT be detected
@@ -643,14 +643,14 @@ Classified as implementation bug. Engineer should fix.
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             # msgTs should be LESS than the future state_changed_at
             $msgTs | Should -BeLessThan $futureEpoch
         }
     }
 
-    Context "Leak fix — Handle-PlanApproval one-shot flag" {
+    Context "Leak fix — Complete-PlanApproval one-shot flag" {
         It "creates .plan_approved flag file on first PLAN-REVIEW passed" {
             & $script:NewWarRoom -RoomId "room-210" -TaskRef "PLAN-REVIEW" `
                                  -TaskDescription "Approval gate" -WarRoomsDir $script:warRoomsDir
@@ -665,7 +665,7 @@ Classified as implementation bug. Engineer should fix.
             Test-Path $flagFile | Should -BeTrue
         }
 
-        It "flag file prevents second Handle-PlanApproval invocation" {
+        It "flag file prevents second Complete-PlanApproval invocation" {
             # Simulate the one-shot guard
             $warRoomsDir = $script:warRoomsDir
             $taskRef = "PLAN-REVIEW"
@@ -708,7 +708,7 @@ Classified as implementation bug. Engineer should fix.
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Set state_changed_at to past (so done signal is "newer")
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Engineer posts done and cleans up PID (simulating the crash window)
@@ -736,7 +736,7 @@ Classified as implementation bug. Engineer should fix.
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -902,7 +902,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Set state_changed_at to past
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Engineer posted done (signal pending)
@@ -926,7 +926,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Strict timing: signal is after state_changed_at
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
             ($msgTs -gt $changedAt) | Should -BeTrue
@@ -991,7 +991,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Write a spawn lock (just now)
             $pidDir = Join-Path $roomDir "pids"
             New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
-            $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+            $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
             $nowEpoch.ToString() | Out-File -FilePath (Join-Path $pidDir "engineer.spawned_at") -NoNewline
 
             # Spawn lock should be active (within 30s grace)
@@ -1010,11 +1010,11 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Write an expired spawn lock (60 seconds ago)
             $pidDir = Join-Path $roomDir "pids"
             New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
-            $expiredEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 60
+            $expiredEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 60
             $expiredEpoch.ToString() | Out-File -FilePath (Join-Path $pidDir "engineer.spawned_at") -NoNewline
 
             # Spawn lock should be expired (> 30s)
-            $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+            $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
             $elapsed = $nowEpoch - $expiredEpoch
             $elapsed | Should -BeGreaterOrEqual 30
         }
@@ -1120,7 +1120,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             # Set state_changed_at to 10s in the past
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Post signal now (will be > pastEpoch)
@@ -1131,7 +1131,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
 
@@ -1149,14 +1149,14 @@ Context "PLAN-REVIEW Verdict Logic" {
                                   -Type "pass" -Ref "TASK-411" -Body "VERDICT: PASS"
 
             # Set state_changed_at to future (simulates state reset after the message)
-            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 60
+            $futureEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 60
             $futureEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
 
@@ -1178,7 +1178,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             # Set state_changed_at = msgTs (same second)
             $msgTs.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
@@ -1199,7 +1199,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # State 'developing' has role='engineer' — post done from 'engineer'
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
@@ -1235,7 +1235,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "game-designer"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Post 'done' from 'game-engineer' (WRONG sender for game-designer state)
@@ -1276,7 +1276,7 @@ Context "PLAN-REVIEW Verdict Logic" {
 
             # Start in developing state
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # game-engineer posts 'done'
@@ -1333,7 +1333,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "game-designer"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # game-designer posts done (CORRECT sender)
@@ -1353,7 +1353,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Timing also passes (message posted after state_changed_at)
             $msgTs = 0
             if ($msgs[0].ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $msgs[0].ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($msgs[0].ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
             ($msgTs -gt $changedAt) | Should -BeTrue
@@ -1375,7 +1375,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # game-engineer posts done — only this one signal exists
@@ -1425,7 +1425,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             # Set state_changed_at to past to ensure signal is "new"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Architect posts 'pass' signal
@@ -1449,7 +1449,7 @@ Context "PLAN-REVIEW Verdict Logic" {
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -1492,7 +1492,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Architect posts 'fail' signal
@@ -1516,7 +1516,7 @@ Context "PLAN-REVIEW Verdict Logic" {
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -1557,7 +1557,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Architect posted pass signal AND cleaned up its PID
@@ -1584,7 +1584,7 @@ Context "PLAN-REVIEW Verdict Logic" {
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -1801,7 +1801,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             # Set state_changed_at to past
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # QA agent crashes and posts error
@@ -1831,7 +1831,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Write-V2Lifecycle -RoomDir $roomDir
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Engineer posts error (wrong sender for review state)
@@ -2549,7 +2549,7 @@ Describe "Integration — ManagerLoop helpers against tests/sample/room-001" {
         Set-SampleContext -RoomsParent (Split-Path $rd -Parent)
 
         # Set state_changed_at to FAR future so all existing messages are stale
-        $future = [int][double]::Parse((Get-Date -UFormat %s)) + 99999
+        $future = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 99999
         $future.ToString() | Out-File (Join-Path $rd "state_changed_at") -Encoding utf8 -NoNewline
 
         $sig = Find-LatestSignal -RoomDir $rd -Lifecycle $lc -StateName "review"
