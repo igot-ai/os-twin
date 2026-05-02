@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { KnowledgeSettings, ModelInfo } from '@/types/settings';
+import type { KnowledgeSettings, MemoryEmbeddingBackend, ModelInfo } from '@/types/settings';
 import { ModelSelect } from '@/components/settings/ModelSelect';
+import { ProviderIcon } from './ProviderIcon';
 
 export interface KnowledgePanelProps {
   knowledge: KnowledgeSettings;
@@ -10,44 +11,98 @@ export interface KnowledgePanelProps {
   allModels: ModelInfo[];
 }
 
-// ── Suggested Hugging Face embedding models ─────────────────────────────────
+// ── Backend option definitions (synchronised with MemoryPanel) ──────────────
 
-interface EmbeddingSuggestion {
-  id: string;
-  dim: number;
+interface BackendOption {
+  value: string;
+  label: string;
   description: string;
+  requiresKey?: string;
+  icon: string;
 }
 
-const SUGGESTED_EMBEDDINGS: EmbeddingSuggestion[] = [
-  { id: 'BAAI/bge-small-en-v1.5',                       dim: 384,  description: 'Recommended default — fast, good quality' },
-  { id: 'BAAI/bge-base-en-v1.5',                        dim: 768,  description: 'Higher quality, ~3x slower' },
-  { id: 'BAAI/bge-large-en-v1.5',                       dim: 1024, description: 'Best quality, ~10x slower than small' },
-  { id: 'sentence-transformers/all-MiniLM-L6-v2',       dim: 384,  description: 'Classic baseline, smaller footprint' },
-  { id: 'intfloat/e5-small-v2',                         dim: 384,  description: 'Strong on multilingual, instruction-tuned' },
-  { id: 'intfloat/multilingual-e5-base',                dim: 768,  description: 'Multilingual with broader coverage' },
+const LLM_BACKENDS: BackendOption[] = [
+  { value: '',          label: '— Use server default —', description: 'Uses env-var / hardcoded default', icon: 'settings' },
+  { value: 'gemini',    label: 'Gemini',                 description: 'Google Gemini API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
+  { value: 'openai',    label: 'OpenAI',                 description: 'GPT models via OpenAI API', requiresKey: 'OPENAI_API_KEY', icon: 'smart_toy' },
+  { value: 'ollama',    label: 'Ollama (Local)',          description: 'Local Ollama server', icon: 'dns' },
+  { value: 'google-vertex', label: 'Vertex AI',          description: 'Google Vertex AI', requiresKey: 'GOOGLE_API_KEY', icon: 'cloud' },
 ];
 
-// ── Defaults (match backend KnowledgeSettings defaults) ─────────────────────
+const EMBEDDING_BACKENDS: BackendOption[] = [
+  { value: '',                    label: '— Use server default —',     description: 'Uses env-var / hardcoded default', icon: 'settings' },
+  { value: 'sentence-transformer', label: 'SentenceTransformer (Local)', description: 'Local embedding — no API key', icon: 'precision_manufacturing' },
+  { value: 'gemini',               label: 'Gemini Embedding',           description: 'Google Gemini embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
+  { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
+  { value: 'vertex',               label: 'Vertex AI',                  description: 'Google Vertex AI embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'cloud' },
+];
+
+// ── Recommended models per backend (synchronised with MemoryPanel) ──────────
+
+const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
+  gemini: [
+    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (recommended)' },
+    { model: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
+  ],
+  openai: [
+    { model: 'gpt-4o-mini', label: 'GPT-4o Mini (recommended)' },
+    { model: 'gpt-4o', label: 'GPT-4o' },
+  ],
+  ollama: [
+    { model: 'llama3.2', label: 'Llama 3.2 (recommended)' },
+    { model: 'mistral', label: 'Mistral' },
+  ],
+  'google-vertex': [
+    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (recommended)' },
+  ],
+};
+
+const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
+  'sentence-transformer': [
+    { model: 'BAAI/bge-base-en-v1.5', label: 'BGE Base EN v1.5 (recommended)' },
+    { model: 'all-MiniLM-L6-v2', label: 'MiniLM L6 v2 (lightweight)' },
+  ],
+  gemini: [
+    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
+  ],
+  ollama: [
+    { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
+    { model: 'embeddinggemma', label: 'Embedding Gemma' },
+    { model: 'qwen3-embedding:0.6b', label: 'Qwen3 Embedding 0.6B' },
+  ],
+  vertex: [
+    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
+    { model: 'text-embedding-005', label: 'Text Embedding 005' },
+  ],
+};
+
+// ── Defaults ────────────────────────────────────────────────────────────────
 
 const DEFAULTS: KnowledgeSettings = {
+  knowledge_llm_backend: '',
   knowledge_llm_model: '',
+  knowledge_embedding_backend: '',
   knowledge_embedding_model: '',
-  knowledge_embedding_dimension: 384,
-} as any; // Cast for now since type might still have the old fields
+  knowledge_embedding_dimension: 768,
+};
 
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePanelProps) {
   const effective = { ...DEFAULTS, ...knowledge };
 
-  const [embedInput, setEmbedInput] = useState(effective.knowledge_embedding_model);
+  const [llmModelInput, setLlmModelInput] = useState(effective.knowledge_llm_model);
+  const [embedModelInput, setEmbedModelInput] = useState(effective.knowledge_embedding_model);
   const [savingMsg, setSavingMsg] = useState<string | null>(null);
   const [savingError, setSavingError] = useState(false);
 
-  // Keep local input in sync if external settings change (e.g. WS broadcast)
+  // Keep local inputs in sync if external settings change (e.g. WS broadcast)
   useEffect(() => {
-    setEmbedInput(effective.knowledge_embedding_model);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLlmModelInput(effective.knowledge_llm_model);
+  }, [effective.knowledge_llm_model]);
+
+  useEffect(() => {
+    setEmbedModelInput(effective.knowledge_embedding_model);
   }, [effective.knowledge_embedding_model]);
 
   // Filter out obvious embedding-only models from chat picker
@@ -64,26 +119,11 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     }
   };
 
-  const handleLlmChange = async (model: string) => {
+  const save = async (patch: Partial<KnowledgeSettings>) => {
     setSavingMsg('Saving…');
     setSavingError(false);
     try {
-      await onUpdate({ knowledge_llm_model: model });
-      flashSavedMessage('Saved — takes effect on next query', false, 3000);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'unknown error';
-      flashSavedMessage(`Save failed: ${msg}`, true);
-    }
-  };
-
-  const commitEmbedding = async (modelId: string) => {
-    if (modelId === effective.knowledge_embedding_model) return;
-    setSavingMsg('Saving…');
-    setSavingError(false);
-    try {
-      const match = SUGGESTED_EMBEDDINGS.find((s) => s.id === modelId);
-      const dim = match?.dim ?? effective.knowledge_embedding_dimension;
-      await onUpdate({ knowledge_embedding_model: modelId, knowledge_embedding_dimension: dim });
+      await onUpdate(patch);
       flashSavedMessage('Saved — restart dashboard to apply', false, 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
@@ -91,27 +131,60 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     }
   };
 
-  const handleEmbedBlur = () => {
-    void commitEmbedding(embedInput);
+  // ── LLM handlers ────────────────────────────────────────────────────────
+
+  const handleLlmBackendChange = (backend: string) => {
+    const suggestions = LLM_MODEL_SUGGESTIONS[backend] ?? [];
+    const model = suggestions[0]?.model ?? '';
+    void save({ knowledge_llm_backend: backend, knowledge_llm_model: model });
+    setLlmModelInput(model);
   };
 
-  const handleEmbedKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      (e.target as HTMLInputElement).blur();
+  const handleLlmModelSelect = (model: string) => {
+    void save({ knowledge_llm_model: model });
+    setLlmModelInput(model);
+  };
+
+  const commitLlmModelInput = () => {
+    if (llmModelInput !== effective.knowledge_llm_model) {
+      void save({ knowledge_llm_model: llmModelInput });
     }
   };
 
-  const handleSuggestionClick = (id: string) => {
-    setEmbedInput(id);
-    void commitEmbedding(id);
+  // ── Embedding handlers ──────────────────────────────────────────────────
+
+  const handleEmbedBackendChange = (backend: string) => {
+    const suggestions = EMBEDDING_MODEL_SUGGESTIONS[backend] ?? [];
+    const model = suggestions[0]?.model ?? '';
+    void save({
+      knowledge_embedding_backend: backend as MemoryEmbeddingBackend | '',
+      knowledge_embedding_model: model,
+      knowledge_embedding_dimension: 768,
+    });
+    setEmbedModelInput(model);
   };
 
-  // Used only by the embedding text input
+  const handleEmbedModelSelect = (model: string) => {
+    void save({ knowledge_embedding_model: model, knowledge_embedding_dimension: 768 });
+    setEmbedModelInput(model);
+  };
+
+  const commitEmbedModelInput = () => {
+    if (embedModelInput !== effective.knowledge_embedding_model) {
+      void save({ knowledge_embedding_model: embedModelInput, knowledge_embedding_dimension: 768 });
+    }
+  };
+
+  // ── Render ──────────────────────────────────────────────────────────────
+
   const inputStyle = {
     background: '#f1f5f9',
     border: '1px solid #e2e8f0',
     color: '#0f172a',
   };
+
+  const llmSuggestions = LLM_MODEL_SUGGESTIONS[effective.knowledge_llm_backend] ?? [];
+  const embedSuggestions = EMBEDDING_MODEL_SUGGESTIONS[effective.knowledge_embedding_backend] ?? [];
 
   return (
     <div className="space-y-8">
@@ -127,127 +200,224 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           Knowledge Models
         </h2>
         <p className="text-sm text-on-surface-variant">
-          Configure the LLM and embedding models used by the knowledge service for entity
-          extraction, query answering, and document indexing. Overrides{' '}
-          <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">
-            KNOWLEDGE_*
-          </code>{' '}
-          environment variable defaults when set.
+          Configure the LLM and embedding backends used by the knowledge service for entity
+          extraction, query answering, and document indexing. All embeddings are normalised to{' '}
+          <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">768</code>{' '}
+          dimensions.
         </p>
       </div>
 
-      {/* ── Section 1: LLM Model ────────────────────────────── */}
+      {/* ── Section 1: LLM Backend ───────────────────────────── */}
       <section>
         <div className="flex items-center gap-2 mb-3">
           <span className="material-symbols-outlined text-blue-600 text-lg">psychology</span>
-          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">LLM Model</h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">knowledge_llm_model</span>
+          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Processing Model</h3>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">knowledge_llm_backend / knowledge_llm_model</span>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <p className="text-[10px] text-slate-500 mb-3">
-            Used for entity extraction during ingest and answer aggregation in{' '}
-            <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">summarized</code>{' '}
-            query mode. Pick any chat-capable model from your configured providers, or leave on
-            server default.
-          </p>
-          <ModelSelect
-            value={effective.knowledge_llm_model}
-            onChange={handleLlmChange}
-            models={chatModels}
-            showTier={true}
-            showContext={true}
-            placeholder="— Use server default —"
-          />
-          {chatModels.length === 0 && (
-            <p className="text-[10px] text-amber-600 mt-2">
-              No providers configured — add one in Provider Config.
-            </p>
-          )}
-          <p className="text-[10px] text-slate-400 mt-2">
-            Currently effective:{' '}
-            <code className="font-mono text-[10px] text-slate-600">
-              {effective.knowledge_llm_model || '(server default)'}
-            </code>
-          </p>
-        </div>
-      </section>
-
-      {/* ── Section 2: Embedding Model ──────────────────────── */}
-      <section>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="material-symbols-outlined text-purple-600 text-lg">layers</span>
-          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">
-            Embedding Model
-          </h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">
-            knowledge_embedding_model
-          </span>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-          <p className="text-[10px] text-slate-500">
-            Hugging Face model id used by sentence-transformers for vector indexing and retrieval.
-            Changing this requires a <strong>fresh namespace</strong> — existing vectors won&apos;t
-            be re-embedded.
-          </p>
-
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* LLM Backend Selector */}
           <div>
-            <label className="text-[9px] text-slate-400 mb-1 block">Hugging Face model id:</label>
-            <input
-              type="text"
-              value={embedInput}
-              onChange={(e) => setEmbedInput(e.target.value)}
-              onBlur={handleEmbedBlur}
-              onKeyDown={handleEmbedKeyDown}
-              placeholder="BAAI/bge-small-en-v1.5"
-              className="w-full px-3 py-2 rounded-md text-xs font-mono"
-              style={inputStyle}
-            />
-          </div>
-
-          <details className="group">
-            <summary className="flex items-center gap-1.5 cursor-pointer text-[10px] text-blue-600 hover:text-blue-700 select-none">
-              <span className="material-symbols-outlined text-sm group-open:rotate-180 transition-transform">
-                expand_more
-              </span>
-              <span className="font-semibold uppercase tracking-wider">
-                Suggested embeddings
-              </span>
-            </summary>
-            <div className="mt-2 space-y-1.5">
-              {SUGGESTED_EMBEDDINGS.map((s) => {
-                const isActive = embedInput === s.id;
+            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
+              LLM Backend
+            </label>
+            <div className="space-y-1.5">
+              {LLM_BACKENDS.map((b) => {
+                const isActive = effective.knowledge_llm_backend === b.value;
                 return (
                   <button
-                    key={s.id}
+                    key={b.value}
                     type="button"
-                    onClick={() => handleSuggestionClick(s.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all ${
+                    onClick={() => handleLlmBackendChange(b.value)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
                       isActive
-                        ? 'bg-purple-50 border border-purple-400 text-purple-700'
-                        : 'bg-white border border-slate-200 text-slate-600 hover:border-purple-300'
+                        ? 'bg-blue-50 border-2 border-blue-500 shadow-sm'
+                        : 'bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 cursor-pointer'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <code className="font-mono text-[10px]">{s.id}</code>
-                      <span className="text-[9px] text-slate-400 font-mono ml-2 whitespace-nowrap">
-                        dim {s.dim}
-                      </span>
+                    <ProviderIcon provider={b.value} size={16} className={isActive ? '' : 'opacity-50'} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-semibold ${isActive ? 'text-blue-700' : 'text-slate-700'}`}>
+                          {b.label}
+                        </span>
+                        {!b.requiresKey && b.value !== '' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                            Local
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-slate-400 truncate">{b.description}</p>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{s.description}</p>
+                    {isActive && (
+                      <span className="material-symbols-outlined text-blue-600 text-sm">check_circle</span>
+                    )}
                   </button>
                 );
               })}
             </div>
-          </details>
+          </div>
 
-          <p className="text-[10px] text-slate-400">
-            Currently effective:{' '}
-            <code className="font-mono text-[10px] text-slate-600">
-              {effective.knowledge_embedding_model || '(server default)'}
-            </code>
-          </p>
+          {/* LLM Model Selector */}
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
+              Model
+            </label>
+            {/* Suggested models for the selected backend */}
+            {effective.knowledge_llm_backend && llmSuggestions.length > 0 && (
+              <div className="space-y-1 mb-3">
+                {llmSuggestions.map((s) => {
+                  const isActive = llmModelInput === s.model;
+                  return (
+                    <button
+                      key={s.model}
+                      type="button"
+                      onClick={() => handleLlmModelSelect(s.model)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between ${
+                        isActive
+                          ? 'bg-blue-50 border border-blue-400 text-blue-700 font-semibold'
+                          : 'bg-white border border-slate-200 text-slate-600 hover:border-blue-300'
+                      }`}
+                    >
+                      <span className="font-mono text-[10px]">{s.label}</span>
+                      {isActive && <span className="material-symbols-outlined text-blue-500 text-sm">check</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* Custom model input */}
+            <div>
+              <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
+              <input
+                type="text"
+                value={llmModelInput}
+                onChange={(e) => setLlmModelInput(e.target.value)}
+                onBlur={commitLlmModelInput}
+                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                placeholder="e.g. gemini-3-flash-preview"
+                className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                style={inputStyle}
+              />
+            </div>
+            {/* Also allow ModelSelect from configured providers */}
+            {effective.knowledge_llm_backend === '' && (
+              <div className="mt-3">
+                <p className="text-[10px] text-slate-500 mb-2">
+                  Or pick a model from your configured providers:
+                </p>
+                <ModelSelect
+                  value={effective.knowledge_llm_model}
+                  onChange={(m) => handleLlmModelSelect(m)}
+                  models={chatModels}
+                  showTier={true}
+                  showContext={true}
+                  placeholder="— Use server default —"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Section 2: Embedding ─────────────────────────────── */}
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="material-symbols-outlined text-purple-600 text-lg">layers</span>
+          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Embedding</h3>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">
+            knowledge_embedding_backend / knowledge_embedding_model
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Embedding Backend Selector */}
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
+              Embedding Backend
+            </label>
+            <div className="space-y-1.5">
+              {EMBEDDING_BACKENDS.map((b) => {
+                const isActive = effective.knowledge_embedding_backend === b.value;
+                return (
+                  <button
+                    key={b.value}
+                    type="button"
+                    onClick={() => handleEmbedBackendChange(b.value)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
+                      isActive
+                        ? 'bg-purple-50 border-2 border-purple-500 shadow-sm'
+                        : 'bg-white border border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 cursor-pointer'
+                    }`}
+                  >
+                    <ProviderIcon provider={b.value} size={16} className={isActive ? '' : 'opacity-50'} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-semibold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>
+                          {b.label}
+                        </span>
+                        {!b.requiresKey && b.value !== '' && (
+                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                            Local
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-slate-400 truncate">{b.description}</p>
+                    </div>
+                    {isActive && (
+                      <span className="material-symbols-outlined text-purple-600 text-sm">check_circle</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Embedding Model Selector */}
+          <div>
+            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
+              Embedding Model
+            </label>
+            {effective.knowledge_embedding_backend && embedSuggestions.length > 0 && (
+              <div className="space-y-1 mb-3">
+                {embedSuggestions.map((s) => {
+                  const isActive = embedModelInput === s.model;
+                  return (
+                    <button
+                      key={s.model}
+                      type="button"
+                      onClick={() => handleEmbedModelSelect(s.model)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between ${
+                        isActive
+                          ? 'bg-purple-50 border border-purple-400 text-purple-700 font-semibold'
+                          : 'bg-white border border-slate-200 text-slate-600 hover:border-purple-300'
+                      }`}
+                    >
+                      <span className="font-mono text-[10px]">{s.label}</span>
+                      {isActive && <span className="material-symbols-outlined text-purple-500 text-sm">check</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div>
+              <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
+              <input
+                type="text"
+                value={embedModelInput}
+                onChange={(e) => setEmbedModelInput(e.target.value)}
+                onBlur={commitEmbedModelInput}
+                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                placeholder="e.g. gemini-embedding-001"
+                className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                style={inputStyle}
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-3">
+              All vectors are normalised to <strong>768 dimensions</strong>. Changing backend requires a{' '}
+              <strong>fresh namespace</strong>.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -258,19 +428,17 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">
             Embedding Dimension
           </h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">read-only</span>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">fixed: 768</span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <p className="text-[10px] text-slate-500 mb-3">
-            Fixed by the embedding model above. Existing namespaces store this value at creation
-            time; changing the embedding model later will not retro-update old vectors.
+            All embedding backends produce vectors normalised to <strong>768 dimensions</strong> for
+            consistency. This is enforced globally and cannot be changed.
           </p>
           <div className="flex items-baseline gap-2">
-            <code className="text-2xl font-extrabold font-mono text-slate-900">
-              {effective.knowledge_embedding_dimension}
-            </code>
-            <span className="text-[10px] text-slate-400">dimensions</span>
+            <code className="text-2xl font-extrabold font-mono text-slate-900">768</code>
+            <span className="text-[10px] text-slate-400">dimensions (fixed)</span>
           </div>
         </div>
       </section>

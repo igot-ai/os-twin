@@ -121,7 +121,7 @@ export interface AutonomySettings {
 }
 
 export type MemoryLLMBackend = 'huggingface' | 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang';
-export type MemoryEmbeddingBackend = 'sentence-transformer' | 'gemini';
+export type MemoryEmbeddingBackend = 'sentence-transformer' | 'gemini' | 'ollama' | 'vertex';
 export type MemoryVectorBackend = 'zvec' | 'chroma';
 
 export interface MemorySettings {
@@ -162,11 +162,15 @@ export interface ObservabilitySettings {
 }
 
 export interface KnowledgeSettings {
+  /** Empty string means "use server default". */
+  knowledge_llm_backend: string;
   /** Empty string means "use server default (config.LLM_MODEL / env var)". */
   knowledge_llm_model: string;
+  /** Empty string means "use server default". */
+  knowledge_embedding_backend: MemoryEmbeddingBackend | '';
   /** Empty string means "use server default (config.EMBEDDING_MODEL / env var)". */
   knowledge_embedding_model: string;
-  /** Read-only / informational. The actual dim is determined by the loaded embedding model. */
+  /** Read-only / informational. Always 768. */
   knowledge_embedding_dimension: number;
 }
 

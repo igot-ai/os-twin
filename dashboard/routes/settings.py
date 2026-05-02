@@ -234,6 +234,10 @@ async def put_knowledge_settings(
     except Exception as exc:  # noqa: BLE001
         logger.debug("Knowledge model cache invalidation skipped: %s", exc)
 
+    # Flag config reload for the MCP memory server — knowledge embedding
+    # settings affect the memory system's embedding pipeline.
+    _flag_memory_config_reload()
+
     await broadcaster.broadcast(
         "settings_updated",
         {
@@ -268,6 +272,10 @@ async def patch_global_namespace(
     # Sync Vertex AI env vars to ~/.ostwin/.env when provider config changes.
     if namespace == "providers":
         _sync_vertex_env(value)
+
+    # Flag config reload for the MCP memory server when memory settings change.
+    if namespace == "memory":
+        _flag_memory_config_reload()
 
     await broadcaster.broadcast(
         "settings_updated",
@@ -709,6 +717,25 @@ def _notify_bot_restart() -> None:
         global_state.bot_manager.schedule_restart()
     else:
         logger.debug("[SETTINGS] No bot_manager — skipping restart signal")
+
+
+_MEMORY_CONFIG_DIRTY_FLAG = FSPath.home() / ".ostwin" / ".agents" / ".memory_config_dirty"
+
+
+def _flag_memory_config_reload() -> None:
+    """Write a sentinel file that tells the MCP memory server to reload config.
+
+    The MCP server checks for this flag (cheap ``stat()``) on every
+    ``get_memory()`` call instead of re-parsing the full config.json
+    every time.  When the flag is detected the server reloads config
+    and deletes the file.
+    """
+    try:
+        _MEMORY_CONFIG_DIRTY_FLAG.parent.mkdir(parents=True, exist_ok=True)
+        _MEMORY_CONFIG_DIRTY_FLAG.write_text("1")
+        logger.info("[SETTINGS] Flagged memory config reload: %s", _MEMORY_CONFIG_DIRTY_FLAG)
+    except Exception as exc:
+        logger.warning("[SETTINGS] Failed to write memory config flag: %s", exc)
 
 
 def _try_opencode_sync() -> None:

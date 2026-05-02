@@ -35,12 +35,16 @@ _retrievers_mod.cosine_similarity = MagicMock()
 _retrievers_mod.np = MagicMock()
 
 from agentic_memory.retrievers import (
+    EMBEDDING_DIMENSION,
     GeminiEmbeddingFunction,
+    OllamaEmbeddingFunction,
     SentenceTransformerEmbedding,
+    VertexEmbeddingFunction,
     ZvecRetriever,
     _create_embedding_function,
     _embedding_cache,
     _embedding_cache_lock,
+    _truncate_to_dim,
 )
 
 
@@ -61,52 +65,30 @@ class TestGeminiEmbeddingFunction(unittest.TestCase):
         self.assertEqual(fn.model_name, "gemini/text-embedding-004")
 
     @patch.object(_retrievers_mod, 'litellm')
-    def test_call_returns_embeddings_from_litellm(self, mock_litellm):
-        """__call__ delegates to litellm.embedding and unpacks .data items."""
-        mock_item_1 = {"embedding": [0.1, 0.2, 0.3]}
-        mock_item_2 = {"embedding": [0.4, 0.5, 0.6]}
+    def test_call_returns_truncated_embeddings(self, mock_litellm):
+        """__call__ delegates to litellm and truncates/pads to 768."""
+        # Return 1024-dim vectors — should be truncated to 768
+        mock_item = {"embedding": [0.1] * 1024}
         mock_response = MagicMock()
-        mock_response.data = [mock_item_1, mock_item_2]
+        mock_response.data = [mock_item]
         mock_litellm.embedding.return_value = mock_response
 
         fn = GeminiEmbeddingFunction(model_name="gemini/test-model")
-        result = fn(["hello", "world"])
+        result = fn(["hello"])
 
         mock_litellm.embedding.assert_called_once_with(
-            model="gemini/test-model", input=["hello", "world"]
+            model="gemini/test-model", input=["hello"],
+            dimensions=EMBEDDING_DIMENSION,
         )
-        self.assertEqual(result, [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
+        self.assertEqual(len(result[0]), 768)
 
-    def test_call_sets_dimension_on_first_invocation(self):
-        """_dimension is lazily set from the first non-empty response."""
+    def test_dimension_always_returns_768(self):
+        """dimension always returns EMBEDDING_DIMENSION regardless of model."""
         fn = GeminiEmbeddingFunction()
-        self.assertIsNone(fn._dimension)
+        self.assertEqual(fn.dimension, 768)
 
-        # Simulate a __call__ with mock litellm
-        mock_response = MagicMock()
-        mock_response.data = [{"embedding": [1.0, 2.0]}]
-        with patch.object(_retrievers_mod, 'litellm') as mock_lt:
-            mock_lt.embedding.return_value = mock_response
-            fn(["test"])
-        self.assertEqual(fn._dimension, 2)
-
-    def test_dimension_property_uses_known_cache(self):
-        """Accessing .dimension for a known model returns cached value without API call."""
-        fn = GeminiEmbeddingFunction()  # defaults to gemini/gemini-embedding-001
-        dim = fn.dimension
-
-        # Known model — should use cache, NOT call litellm (F9 optimization)
-        self.assertEqual(dim, 768)
-
-    def test_dimension_fallback_to_api(self):
-        """dimension falls back to API call for unknown models.""" 
-        fn = GeminiEmbeddingFunction(model_name="gemini/unknown-model-xyz")
-        mock_response = MagicMock()
-        mock_response.data = [{"embedding": [0.0] * 256}]
-        with patch.object(_retrievers_mod, 'litellm') as mock_lt:
-            mock_lt.embedding.return_value = mock_response
-            dim = fn.dimension
-        self.assertEqual(dim, 256)
+        fn2 = GeminiEmbeddingFunction(model_name="gemini/unknown-model")
+        self.assertEqual(fn2.dimension, 768)
 
 
 # =========================================================================
@@ -122,20 +104,39 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
         self.assertIsNone(fn._model)
 
     @patch("agentic_memory.retrievers.SentenceTransformerEmbedding._ensure_model")
-    def test_ensure_model_loads_lazily(self, mock_ensure):
-        """_ensure_model is called on __call__ to lazy-load."""
-        import numpy as np
-
+    def test_call_truncates_to_768(self, mock_ensure):
+        """__call__ truncates output to EMBEDDING_DIMENSION."""
         mock_model = MagicMock()
-        mock_model.encode.return_value = MagicMock(tolist=lambda: [[0.1, 0.2]])
+        # Simulate a model that returns 1024-dim vectors
+        mock_model.encode.return_value = MagicMock(tolist=lambda: [[0.1] * 1024])
         mock_ensure.return_value = mock_model
 
         fn = SentenceTransformerEmbedding()
         result = fn(["test"])
 
-        mock_ensure.assert_called_once()
-        mock_model.encode.assert_called_once_with(["test"])
-        self.assertEqual(result, [[0.1, 0.2]])
+        self.assertEqual(len(result[0]), 768)
+
+    @patch("agentic_memory.retrievers.SentenceTransformerEmbedding._ensure_model")
+    def test_call_pads_short_vectors(self, mock_ensure):
+        """__call__ pads vectors shorter than EMBEDDING_DIMENSION with zeros."""
+        mock_model = MagicMock()
+        mock_model.encode.return_value = MagicMock(tolist=lambda: [[1.0, 2.0, 3.0]])
+        mock_ensure.return_value = mock_model
+
+        fn = SentenceTransformerEmbedding()
+        result = fn(["test"])
+
+        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(result[0][:3], [1.0, 2.0, 3.0])
+        self.assertEqual(result[0][3], 0.0)  # padded with zeros
+
+    def test_dimension_always_returns_768(self):
+        """dimension always returns EMBEDDING_DIMENSION regardless of model."""
+        fn = SentenceTransformerEmbedding()
+        self.assertEqual(fn.dimension, 768)
+
+        fn2 = SentenceTransformerEmbedding(model_name="all-MiniLM-L6-v2")
+        self.assertEqual(fn2.dimension, 768)
 
     def test_ensure_model_imports_sentence_transformer(self):
         """_ensure_model imports and instantiates SentenceTransformer."""
@@ -150,43 +151,6 @@ class TestSentenceTransformerEmbedding(unittest.TestCase):
 
         self.assertIs(result, mock_instance)
         mock_st_class.assert_called_once_with("test/model")
-
-    @patch("agentic_memory.retrievers.SentenceTransformerEmbedding._ensure_model")
-    def test_call_sets_dimension_on_first_invocation(self, mock_ensure):
-        """_dimension is lazily set from the first non-empty result."""
-        mock_model = MagicMock()
-        mock_model.encode.return_value = MagicMock(tolist=lambda: [[1.0, 2.0, 3.0]])
-        mock_ensure.return_value = mock_model
-
-        fn = SentenceTransformerEmbedding()
-        self.assertIsNone(fn._dimension)
-
-        fn(["hello"])
-        self.assertEqual(fn._dimension, 3)
-
-    @patch("agentic_memory.retrievers.SentenceTransformerEmbedding._ensure_model")
-    def test_dimension_property_lazy_initializes(self, mock_ensure):
-        """Accessing .dimension triggers a test embed when _dimension is None."""
-        mock_model = MagicMock()
-        mock_model.encode.return_value = MagicMock(tolist=lambda: [[0.0] * 384])
-        mock_ensure.return_value = mock_model
-
-        fn = SentenceTransformerEmbedding()
-        dim = fn.dimension
-
-        self.assertEqual(dim, 384)
-
-    @patch("agentic_memory.retrievers.SentenceTransformerEmbedding._ensure_model")
-    def test_dimension_returns_384_if_empty_response(self, mock_ensure):
-        """dimension falls back to 384 when the test call returns empty list."""
-        mock_model = MagicMock()
-        mock_model.encode.return_value = MagicMock(tolist=lambda: [])
-        mock_ensure.return_value = mock_model
-
-        fn = SentenceTransformerEmbedding()
-        dim = fn.dimension
-
-        self.assertEqual(dim, 384)
 
 
 # =========================================================================
@@ -214,6 +178,128 @@ class TestCreateEmbeddingFunction(unittest.TestCase):
         fn = _create_embedding_function("unknown-backend", "model", shared=False)
         self.assertIsInstance(fn, SentenceTransformerEmbedding)
 
+    def test_ollama_backend_creates_ollama_function(self):
+        fn = _create_embedding_function("ollama", "leoipulsar/harrier-0.6b", shared=False)
+        self.assertIsInstance(fn, OllamaEmbeddingFunction)
+        self.assertEqual(fn._model_name, "leoipulsar/harrier-0.6b")
+
+    def test_vertex_backend_creates_vertex_function(self):
+        fn = _create_embedding_function("vertex", "gemini-embedding-001", shared=False)
+        self.assertIsInstance(fn, VertexEmbeddingFunction)
+        self.assertEqual(fn._model_name, "gemini-embedding-001")
+
+
+# =========================================================================
+# OllamaEmbeddingFunction
+# =========================================================================
+class TestOllamaEmbeddingFunction(unittest.TestCase):
+    """Tests for the Ollama embedding wrapper using native SDK."""
+
+    def test_init_stores_model_name(self):
+        fn = OllamaEmbeddingFunction(model_name="embeddinggemma")
+        self.assertEqual(fn._model_name, "embeddinggemma")
+
+    def test_init_default_model(self):
+        fn = OllamaEmbeddingFunction()
+        self.assertEqual(fn._model_name, "leoipulsar/harrier-0.6b")
+
+    @patch.dict("sys.modules", {"ollama": MagicMock()})
+    def test_call_truncates_to_768(self):
+        """__call__ should truncate 1024-dim Ollama output to 768."""
+        import sys
+        mock_ollama = sys.modules["ollama"]
+        mock_ollama.embed.return_value = {
+            "embeddings": [[0.1] * 1024]
+        }
+
+        fn = OllamaEmbeddingFunction(model_name="leoipulsar/harrier-0.6b")
+        result = fn(["hello"])
+
+        self.assertEqual(len(result[0]), 768)
+
+    @patch.dict("sys.modules", {"ollama": MagicMock()})
+    def test_call_pads_short_vectors(self):
+        """__call__ should pad <768-dim Ollama output to 768."""
+        import sys
+        mock_ollama = sys.modules["ollama"]
+        mock_ollama.embed.return_value = {
+            "embeddings": [[0.5] * 256]
+        }
+
+        fn = OllamaEmbeddingFunction(model_name="small-model")
+        result = fn(["hello"])
+
+        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(result[0][255], 0.5)
+        self.assertEqual(result[0][256], 0.0)  # zero-padded
+
+    def test_dimension_always_returns_768(self):
+        """dimension always returns EMBEDDING_DIMENSION regardless of model."""
+        fn = OllamaEmbeddingFunction(model_name="leoipulsar/harrier-0.6b")
+        self.assertEqual(fn.dimension, 768)
+
+        fn2 = OllamaEmbeddingFunction(model_name="embeddinggemma")
+        self.assertEqual(fn2.dimension, 768)
+
+        fn3 = OllamaEmbeddingFunction(model_name="qwen3-embedding:0.6b")
+        self.assertEqual(fn3.dimension, 768)
+
+
+# =========================================================================
+# VertexEmbeddingFunction
+# =========================================================================
+class TestVertexEmbeddingFunction(unittest.TestCase):
+    """Tests for the Vertex AI embedding wrapper using google.genai."""
+
+    def test_init_defaults(self):
+        fn = VertexEmbeddingFunction()
+        self.assertEqual(fn._model_name, "gemini-embedding-001")
+        self.assertEqual(fn._task_type, "RETRIEVAL_DOCUMENT")
+
+    def test_init_custom_params(self):
+        fn = VertexEmbeddingFunction(
+            model_name="text-embedding-005",
+            task_type="RETRIEVAL_QUERY",
+        )
+        self.assertEqual(fn._model_name, "text-embedding-005")
+        self.assertEqual(fn._task_type, "RETRIEVAL_QUERY")
+
+    def test_dimension_always_returns_768(self):
+        """dimension always returns EMBEDDING_DIMENSION."""
+        fn = VertexEmbeddingFunction()
+        self.assertEqual(fn.dimension, 768)
+
+        fn2 = VertexEmbeddingFunction(model_name="text-embedding-005")
+        self.assertEqual(fn2.dimension, 768)
+
+
+# =========================================================================
+# _truncate_to_dim helper
+# =========================================================================
+class TestTruncateToDim(unittest.TestCase):
+    """Tests for the _truncate_to_dim utility."""
+
+    def test_truncates_long_vectors(self):
+        result = _truncate_to_dim([[0.1] * 1024])
+        self.assertEqual(len(result[0]), 768)
+
+    def test_pads_short_vectors(self):
+        result = _truncate_to_dim([[1.0, 2.0, 3.0]])
+        self.assertEqual(len(result[0]), 768)
+        self.assertEqual(result[0][:3], [1.0, 2.0, 3.0])
+        self.assertTrue(all(v == 0.0 for v in result[0][3:]))
+
+    def test_exact_dimension_unchanged(self):
+        vec = [0.5] * 768
+        result = _truncate_to_dim([vec])
+        self.assertEqual(result[0], vec)
+
+    def test_empty_list(self):
+        self.assertEqual(_truncate_to_dim([]), [])
+
+    def test_custom_dimension(self):
+        result = _truncate_to_dim([[0.1] * 100], dim=50)
+        self.assertEqual(len(result[0]), 50)
 
 # =========================================================================
 # ZvecRetriever

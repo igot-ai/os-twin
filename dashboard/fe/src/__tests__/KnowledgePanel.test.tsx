@@ -25,9 +25,11 @@ const mockModels: ModelInfo[] = [
 ];
 
 const defaults: KnowledgeSettings = {
+  knowledge_llm_backend: '',
   knowledge_llm_model: '',
+  knowledge_embedding_backend: '',
   knowledge_embedding_model: '',
-  knowledge_embedding_dimension: 384,
+  knowledge_embedding_dimension: 768,
 };
 
 // Helper: open the ModelSelect dropdown (click the trigger button)

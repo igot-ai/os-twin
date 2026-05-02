@@ -434,7 +434,7 @@ function SettingsPageContent() {
         );
 
       case 'knowledge': {
-        const knowledgeDefaults = { knowledge_llm_model: '', knowledge_embedding_model: '', knowledge_embedding_dimension: 384 };
+        const knowledgeDefaults = { knowledge_llm_backend: '', knowledge_llm_model: '', knowledge_embedding_backend: '' as const, knowledge_embedding_model: '', knowledge_embedding_dimension: 768 };
         const knowledgeCurrent = settings.knowledge ?? knowledgeDefaults;
         return (
           <KnowledgePanel

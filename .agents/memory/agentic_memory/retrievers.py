@@ -79,6 +79,14 @@ def simple_tokenize(text):
     return word_tokenize(text)
 
 
+# --- Global embedding dimension -------------------------------------------
+# All backends MUST produce vectors of this dimension to avoid conflicts
+# when storing / querying a single vector collection.  Backends that natively
+# support output-dimensionality (Vertex, Gemini) pass it explicitly; others
+# (Ollama, SentenceTransformer) truncate after embedding.
+EMBEDDING_DIMENSION: int = 768
+
+
 # --- Embedding function singleton cache -----------------------------------
 # Keyed by (backend, model_name) so each unique model is loaded exactly once
 # when shared=True (default).
@@ -86,7 +94,8 @@ def simple_tokenize(text):
 _embedding_cache: Dict[tuple, Any] = {}
 _embedding_cache_lock = threading.Lock()
 
-# Known embedding dimensions per model — avoids a test embedding call (F9).
+# Native model dimensions (before truncation) — avoids a test embedding call (F9).
+# NOTE: at runtime every backend is normalised to EMBEDDING_DIMENSION.
 _KNOWN_DIMENSIONS: Dict[str, int] = {
     "all-MiniLM-L6-v2": 384,
     "all-MiniLM-L12-v2": 384,
@@ -96,14 +105,38 @@ _KNOWN_DIMENSIONS: Dict[str, int] = {
     "gemini-embedding-001": 768,
     "gemini/gemini-embedding-001": 768,
     "text-embedding-004": 768,
+    # Ollama embedding models (native dims — truncated to 768 at runtime)
+    "leoipulsar/harrier-0.6b": 1024,
+    "embeddinggemma": 768,
+    "qwen3-embedding:0.6b": 896,
+    # Vertex AI models
+    "text-embedding-005": 768,
 }
+
+
+def _truncate_to_dim(embeddings: Embeddings, dim: int = EMBEDDING_DIMENSION) -> Embeddings:
+    """Truncate (or zero-pad) each embedding vector to exactly *dim* floats.
+
+    Truncation of MRL (Matryoshka Representation Learning) models is
+    dimension-preserving: the first *dim* components retain full semantic
+    quality.  Zero-padding is a lossy fallback for models whose native
+    dimension is smaller than the target.
+    """
+    out: Embeddings = []
+    for vec in embeddings:
+        if len(vec) >= dim:
+            out.append(vec[:dim])
+        else:
+            out.append(vec + [0.0] * (dim - len(vec)))
+    return out
 
 
 class GeminiEmbeddingFunction(EmbeddingFunction):
     """Gemini embedding function via litellm.
 
-    Defers model dimension discovery until first call or explicit
-    ``.dimension`` access.
+    Always produces ``EMBEDDING_DIMENSION``-wide vectors by passing
+    ``dimensions=EMBEDDING_DIMENSION`` to litellm and truncating as a
+    safety net.
     """
 
     def __init__(self, model_name: str = "gemini-embedding-001"):
@@ -112,50 +145,32 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
             if not model_name.startswith("gemini/")
             else model_name
         )
-        self._dimension: Optional[int] = None
 
     def __call__(self, input: Documents) -> Embeddings:
         _ensure_retriever_imports()
-        response = litellm.embedding(model=self.model_name, input=input)
+        response = litellm.embedding(
+            model=self.model_name,
+            input=input,
+            dimensions=EMBEDDING_DIMENSION,
+        )
         result = [item["embedding"] for item in response.data]
-        if result and self._dimension is None:
-            self._dimension = len(result[0])
-        return result
+        return _truncate_to_dim(result)
 
     @property
     def dimension(self) -> int:
-        """Return embedding dimension; lazy-initializes via test embed if needed."""
-        if self._dimension is not None:
-            return self._dimension
-        # Check known dimensions first (avoids API call — F9)
-        dim = _KNOWN_DIMENSIONS.get(self.model_name)
-        if dim is not None:
-            self._dimension = dim
-            return dim
-        stripped = self.model_name.removeprefix("gemini/")
-        dim = _KNOWN_DIMENSIONS.get(stripped)
-        if dim is not None:
-            self._dimension = dim
-            return dim
-        # Fallback: test embed
-        _ensure_retriever_imports()
-        response = litellm.embedding(model=self.model_name, input=["dimension probe"])
-        result = [item["embedding"] for item in response.data]
-        self._dimension = len(result[0]) if result else 768
-        return self._dimension
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
+        return EMBEDDING_DIMENSION
 
 
 class SentenceTransformerEmbedding(EmbeddingFunction):
     """SentenceTransformer embedding function with true lazy model loading.
 
-    The model is NOT loaded on construction — only on first ``__call__``
-    or ``_ensure_model()`` invocation, keeping import + construction cheap.
+    Output is always truncated/padded to ``EMBEDDING_DIMENSION`` (768).
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         self._model_name = model_name
         self._model = None
-        self._dimension: Optional[int] = None
 
     def _ensure_model(self):
         """Import and load the SentenceTransformer model on first use."""
@@ -169,24 +184,12 @@ class SentenceTransformerEmbedding(EmbeddingFunction):
     def __call__(self, input: Documents) -> Embeddings:
         model = self._ensure_model()
         result = model.encode(input).tolist()
-        if result and self._dimension is None:
-            self._dimension = len(result[0])
-        return result
+        return _truncate_to_dim(result)
 
     @property
     def dimension(self) -> int:
-        """Return embedding dimension; lazy-initializes via test embed if needed."""
-        if self._dimension is not None:
-            return self._dimension
-        # Check known dimensions first (F9)
-        dim = _KNOWN_DIMENSIONS.get(self._model_name)
-        if dim is not None:
-            self._dimension = dim
-            return dim
-        # Fallback: test embed
-        result = self(["dimension probe"])
-        self._dimension = len(result[0]) if result else 384
-        return self._dimension
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
+        return EMBEDDING_DIMENSION
 
     def close(self):
         """Release the underlying model to free GPU/CPU memory."""
@@ -197,6 +200,87 @@ class SentenceTransformerEmbedding(EmbeddingFunction):
 
 # Backward-compatible alias
 SentenceTransformerEmbeddingFunction = SentenceTransformerEmbedding
+
+
+class OllamaEmbeddingFunction(EmbeddingFunction):
+    """Ollama embedding function via the native ``ollama`` Python SDK.
+
+    Output is always truncated to ``EMBEDDING_DIMENSION`` (768) to ensure
+    consistency across all backends.  No litellm dependency.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "leoipulsar/harrier-0.6b",
+        base_url: Optional[str] = None,
+    ):
+        self._model_name = model_name
+        self._base_url = base_url  # None → ollama default (localhost:11434)
+
+    def __call__(self, input: Documents) -> Embeddings:
+        import ollama as _ollama  # noqa: WPS433 — lazy import
+
+        kwargs: Dict[str, Any] = {"model": self._model_name, "input": input}
+        if self._base_url:
+            client = _ollama.Client(host=self._base_url)
+            response = client.embed(**kwargs)
+        else:
+            response = _ollama.embed(**kwargs)
+
+        result = response["embeddings"]
+        return _truncate_to_dim(result)
+
+    @property
+    def dimension(self) -> int:
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
+        return EMBEDDING_DIMENSION
+
+
+class VertexEmbeddingFunction(EmbeddingFunction):
+    """Google Vertex AI embedding function via ``google.genai``.
+
+    Always requests ``output_dimensionality=EMBEDDING_DIMENSION`` (768)
+    from the API, and truncates as a safety net.  No litellm dependency.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "gemini-embedding-001",
+        task_type: str = "RETRIEVAL_DOCUMENT",
+    ):
+        self._model_name = model_name
+        self._task_type = task_type
+        self._client = None
+
+    def _ensure_client(self):
+        """Lazy-create the google.genai Client."""
+        if self._client is not None:
+            return self._client
+        from google import genai  # noqa: WPS433
+        api_key = os.getenv("GOOGLE_API_KEY")
+        self._client = genai.Client(api_key=api_key) if api_key else genai.Client()
+        return self._client
+
+    def __call__(self, input: Documents) -> Embeddings:
+        from google.genai.types import EmbedContentConfig  # noqa: WPS433
+
+        client = self._ensure_client()
+        response = client.models.embed_content(
+            model=self._model_name,
+            contents=input,
+            config=EmbedContentConfig(
+                task_type=self._task_type,
+                output_dimensionality=EMBEDDING_DIMENSION,
+            ),
+        )
+
+        result = [list(e.values) for e in response.embeddings]
+        return _truncate_to_dim(result)
+
+    @property
+    def dimension(self) -> int:
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
+        return EMBEDDING_DIMENSION
 
 
 def _create_embedding_function(
@@ -216,6 +300,10 @@ def _create_embedding_function(
     Returns:
         An embedding function callable.
     """
+    # Normalise backend aliases
+    if embedding_backend in ("sentence-transformer", "huggingface"):
+        embedding_backend = "sentence-transformer"
+
     cache_key = (embedding_backend, model_name)
 
     if shared:
@@ -226,6 +314,10 @@ def _create_embedding_function(
 
     if embedding_backend == "gemini":
         fn = GeminiEmbeddingFunction(model_name=model_name)
+    elif embedding_backend == "ollama":
+        fn = OllamaEmbeddingFunction(model_name=model_name)
+    elif embedding_backend == "vertex":
+        fn = VertexEmbeddingFunction(model_name=model_name)
     else:
         fn = SentenceTransformerEmbedding(model_name=model_name)
 

@@ -1,6 +1,7 @@
 'use client';
 
 import type { ProviderSettings, ModelInfo } from '@/types/settings';
+import { ProviderIcon } from './ProviderIcon';
 
 export interface BytedanceProviderCardProps {
   provider: ProviderSettings;
@@ -31,7 +32,7 @@ export function BytedanceProviderCard({
       <div className="md:w-1/3 bg-slate-900 p-8 text-white flex flex-col justify-between">
         <div>
           <div className="flex items-center gap-3 mb-6">
-            <span className="material-symbols-outlined text-blue-400">rocket_launch</span>
+            <ProviderIcon provider="byteplus" size={22} className="brightness-0 invert" />
             <h3 className="text-sm font-bold uppercase tracking-widest">Bytedance (Ark)</h3>
           </div>
           <p className="text-sm text-slate-400 leading-relaxed mb-6">
