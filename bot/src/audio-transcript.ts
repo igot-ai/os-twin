@@ -1,15 +1,15 @@
 /**
- * audio-transcript.ts — Transcribe voice recordings using Gemini.
+ * audio-transcript.ts — Transcribe voice recordings via shared AI gateway.
  *
  * Converts PCM recordings (48kHz, 16-bit, stereo) from Discord voice channels
- * to WAV (16kHz, mono), sends to Gemini for transcription.
+ * to WAV (16kHz, mono), sends to the AI gateway for transcription.
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
 import config from './config';
 import api from './api';
+import { complete } from './ai-gateway';
 
 const RECORDINGS_DIR = path.resolve(__dirname, '../recordings');
 
@@ -123,21 +123,21 @@ export async function transcribeAudio(filename: string): Promise<TranscriptionRe
   }
 
   const base64Audio = wavData.toString('base64');
+  const dataUrl = `data:audio/wav;base64,${base64Audio}`;
 
-  const genAI = new GoogleGenerativeAI(config.GOOGLE_API_KEY);
-  const model = genAI.getGenerativeModel({ model: config.GEMINI_MODEL });
-
-  const result = await model.generateContent({
-    contents: [{
+  // Send multimodal content (audio + text) through the AI gateway.
+  // litellm supports base64 inline data via the image_url content part format.
+  const result = await complete({
+    messages: [{
       role: 'user',
-      parts: [
-        { inlineData: { mimeType: 'audio/wav', data: base64Audio } },
-        { text: 'Transcribe this audio recording accurately. Return only the transcription text. If multiple speakers are present, indicate speaker changes with "Speaker 1:", "Speaker 2:", etc.' },
-      ],
+      content: [
+        { type: 'image_url', image_url: { url: dataUrl } },
+        { type: 'text', text: 'Transcribe this audio recording accurately. Return only the transcription text. If multiple speakers are present, indicate speaker changes with "Speaker 1:", "Speaker 2:", etc.' },
+      ] as unknown as string,  // gateway passes content through to litellm as-is
     }],
   });
 
-  const text = result.response?.text?.();
+  const text = result.text;
   if (!text) throw new Error('Transcription returned empty result.');
 
   return { text, filename, durationSecs };

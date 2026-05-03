@@ -2,14 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ProvenanceChip } from './ProvenanceChip';
+import { ProviderIcon } from './ProviderIcon';
 import type { ProviderSettings, GoogleDeploymentMode, VertexAuthMode, ModelInfo } from '@/types/settings';
 import { apiPost, apiGet } from '@/lib/api-client';
-
-const PROVIDER_ICONS: Record<string, { icon: string; color: string }> = {
-  google: { icon: 'cloud', color: 'text-blue-600' },
-  anthropic: { icon: 'psychology', color: 'text-orange-600' },
-  openai: { icon: 'hub', color: 'text-green-700' },
-};
 
 export interface ProviderCardProps {
   name: string;
@@ -146,7 +141,7 @@ export function ProviderCard({
     }
   };
 
-  const meta = PROVIDER_ICONS[name] || { icon: 'memory', color: 'text-slate-600' };
+
 
   // ── Google Primary variant with Deployment Mode ───────────────────
   if (variant === 'primary' && name === 'google') {
@@ -156,7 +151,7 @@ export function ProviderCard({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <span className={`material-symbols-outlined ${meta.color}`}>{meta.icon}</span>
+            <ProviderIcon provider="google" size={22} />
             <span className="text-xs font-bold uppercase tracking-widest text-slate-900">
               Google Cloud Provisioning
             </span>
@@ -449,7 +444,7 @@ export function ProviderCard({
       <section className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <span className={`material-symbols-outlined ${meta.color}`}>{meta.icon}</span>
+            <ProviderIcon provider={name} size={22} />
             <span className="text-xs font-bold uppercase tracking-widest text-slate-900">
               {name} Provisioning
             </span>
@@ -492,11 +487,11 @@ export function ProviderCard({
   // ── Compact variant (secondary providers) ─────────────────────────
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-6 relative">
-      <div className="absolute left-0 top-6 w-1 h-8" style={{ background: meta.color === 'text-orange-600' ? '#ea580c' : '#16a34a' }} />
+      <div className="absolute left-0 top-6 w-1 h-8" style={{ background: name === 'anthropic' ? '#ea580c' : '#16a34a' }} />
 
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <span className={`material-symbols-outlined ${meta.color}`}>{meta.icon}</span>
+          <ProviderIcon provider={name} size={20} />
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-900">{name}</h3>
         </div>
       </div>

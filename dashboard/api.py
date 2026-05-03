@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
 # ── Load ~/.ostwin/.env early ──
 # This makes the dashboard self-contained: it works whether started via
 # `ostwin dashboard` (which already sources .env) or directly via `python api.py`.
@@ -52,13 +53,14 @@ from dashboard.api_utils import (
 )
 from dashboard.frontend_fallback import resolve_frontend_file
 from dashboard.tasks import startup_all
+
 # --- Route Imports ---
 # Heavy libraries (torch, langchain) are now lazy-loaded inside these routes
 # so direct imports here translate to < 2s total dashboard boot time.
 from dashboard.routes import (
     auth, system, mcp, threads, plans, rooms, skills, 
     roles, memory, amem, channels, command, tunnel, 
-    files, settings, engagement, knowledge
+    files, settings, engagement, knowledge, memory_mcp
 )
 
 # Configure logging — file + console
@@ -134,6 +136,13 @@ async def app_lifespan(_app):
         service.start_background()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to start knowledge background services: %s", exc)
+
+    # Start Memory Pool MCP session manager (Plan 007)
+    try:
+        from dashboard.routes.memory_mcp import startup_knowledge as _start_pool
+        await _start_pool()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to start memory pool MCP: %s", exc)
 
     # Drive the FastMCP app's own lifespan inside ours so its
     # ``session_manager.run()`` initialises the task group. Without this,
@@ -229,6 +238,13 @@ async def _shutdown_app() -> None:
         service.shutdown()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to shutdown knowledge service: %s", exc)
+
+    # Shutdown Memory Pool MCP (Plan 007)
+    try:
+        from dashboard.routes.memory_mcp import shutdown_knowledge as _stop_pool
+        await _stop_pool()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to shutdown memory pool MCP: %s", exc)
 
 
 app = FastAPI(
@@ -363,6 +379,11 @@ try:
             )
 except Exception as _mcp_exc:
     logger.warning("Failed to mount knowledge MCP server: %s", _mcp_exc)
+
+# --- Memory Pool MCP over Streamable HTTP (Plan 007) ---
+# Mount before the static frontend catch-all so /api/memory-pool/* is handled
+# by the MCP ASGI app, not the SPA fallback.
+app.mount("/api/memory-pool", memory_mcp.knowledge_mcp_app)
 
 # --- Static Frontend Serving ---
 # Hybrid approach:

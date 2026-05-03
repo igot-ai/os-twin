@@ -214,11 +214,15 @@ def _patch_mcp_exception_silence() -> None:
 
 _patch_mcp_exception_silence()
 # --- Configuration ---
-# Defaults come from config.default.json, overridden by MEMORY_* env vars.
+# Defaults come from config.default.json, overridden by ~/.ostwin/.agents/config.json,
+# then MEMORY_* env vars.  Config is re-read on every get_memory() call so the MCP
+# server always reflects the latest dashboard settings.
 from agentic_memory.config import load_config as _load_config
 
 _cfg = _load_config()
 
+# Module-level snapshots used for startup logging and tool registration.
+# These are NOT used by _init_memory — it reads fresh config each time.
 LLM_BACKEND = _cfg.llm.backend
 LLM_MODEL = _cfg.llm.model
 EMBEDDING_MODEL = _cfg.embedding.model
@@ -284,32 +288,63 @@ _memory = None
 _memory_init_error: Optional[Exception] = None
 _memory_lock = threading.Lock()
 _memory_ready = threading.Event()
+# Track the config fingerprint used to init the current _memory instance so
+# get_memory() can detect when the dashboard settings changed.
+_memory_config_fingerprint: Optional[str] = None
 
 
-def _init_memory():
-    """Initialize the memory system (runs in background thread)."""
-    global _memory, _memory_init_error, AgenticMemorySystem
+def _config_fingerprint(cfg) -> str:
+    """Return a hashable string summarising the config keys that affect the
+    memory system instance (backends, models, vector store, etc.)."""
+    return (
+        f"{cfg.llm.backend}|{cfg.llm.model}|"
+        f"{cfg.embedding.backend}|{cfg.embedding.model}|"
+        f"{cfg.vector.backend}|"
+        f"{cfg.evolution.context_aware}|{cfg.evolution.context_aware_tree}|"
+        f"{cfg.evolution.max_links}|"
+        f"{cfg.search.similarity_weight}|{cfg.search.decay_half_life_days}|"
+        f"{cfg.sync.conflict_resolution}"
+    )
+
+
+def _init_memory(cfg=None):
+    """Initialize the memory system (runs in background thread).
+
+    If *cfg* is None, a fresh config is loaded from all layers
+    (defaults → dashboard → env vars).
+    """
+    global _memory, _memory_init_error, _memory_config_fingerprint, AgenticMemorySystem
     try:
+        if cfg is None:
+            cfg = _load_config()
+
         logger.info("Background: importing agentic_memory...")
         from agentic_memory.memory_system import AgenticMemorySystem as _AMS
 
         AgenticMemorySystem = _AMS
-        logger.info("Background: initializing memory system...")
+        logger.info(
+            "Background: initializing memory system "
+            "(llm=%s/%s  embedding=%s/%s  vector=%s)...",
+            cfg.llm.backend, cfg.llm.model,
+            cfg.embedding.backend, cfg.embedding.model,
+            cfg.vector.backend,
+        )
         with _memory_lock:
             _memory = AgenticMemorySystem(
-                model_name=EMBEDDING_MODEL,
-                embedding_backend=EMBEDDING_BACKEND,
-                vector_backend=VECTOR_BACKEND,
-                llm_backend=LLM_BACKEND,
-                llm_model=LLM_MODEL,
+                model_name=cfg.embedding.model,
+                embedding_backend=cfg.embedding.backend,
+                vector_backend=cfg.vector.backend,
+                llm_backend=cfg.llm.backend,
+                llm_model=cfg.llm.model,
                 persist_dir=PERSIST_DIR,
-                context_aware_analysis=CONTEXT_AWARE,
-                context_aware_tree=CONTEXT_AWARE_TREE,
-                max_links=MAX_LINKS,
-                similarity_weight=SIMILARITY_WEIGHT,
-                decay_half_life_days=DECAY_HALF_LIFE,
-                conflict_resolution=CONFLICT_RESOLUTION,
+                context_aware_analysis=cfg.evolution.context_aware,
+                context_aware_tree=cfg.evolution.context_aware_tree,
+                max_links=cfg.evolution.max_links,
+                similarity_weight=cfg.search.similarity_weight,
+                decay_half_life_days=cfg.search.decay_half_life_days,
+                conflict_resolution=cfg.sync.conflict_resolution,
             )
+            _memory_config_fingerprint = _config_fingerprint(cfg)
         logger.info(
             "Background: memory system ready (%d memories loaded)",
             len(_memory.memories),
@@ -337,10 +372,17 @@ _init_thread.start()
 def get_memory():
     """Get the memory system, waiting for background init if needed.
 
+    When the dashboard saves memory/knowledge settings it writes a sentinel
+    file (``~/.ostwin/.agents/.memory_config_dirty``).  This function checks
+    for that flag on every call (cheap ``os.path.exists``) and only reloads
+    + reinitialises when the flag is present.
+
     Raises a RuntimeError that includes the original initialization exception
     (and python interpreter path) so MCP clients see actionable diagnostics
     instead of a generic failure.
     """
+    global _memory, _memory_init_error, _memory_config_fingerprint
+
     if _memory is None:
         logger.info("Waiting for memory system initialization...")
         _memory_ready.wait(timeout=60)
@@ -357,6 +399,32 @@ def get_memory():
                 "Memory system failed to initialize within 60s "
                 f"(python={_sys.executable}). See {os.path.join(LOG_DIR, 'mcp_server.log')}."
             )
+
+    # --- Hot-reload: check for dashboard config-dirty flag ---
+    _dirty_flag = os.path.join(
+        os.path.expanduser("~"), ".ostwin", ".agents", ".memory_config_dirty"
+    )
+    if os.path.exists(_dirty_flag):
+        try:
+            os.remove(_dirty_flag)
+            logger.info("Config-dirty flag detected, reloading config...")
+            fresh_cfg = _load_config()
+            fresh_fp = _config_fingerprint(fresh_cfg)
+            if fresh_fp != _memory_config_fingerprint:
+                logger.info(
+                    "Config change detected (old=%s new=%s), reinitializing memory system...",
+                    _memory_config_fingerprint,
+                    fresh_fp,
+                )
+                _memory_ready.clear()
+                _memory = None
+                _memory_init_error = None
+                _init_memory(cfg=fresh_cfg)
+            else:
+                logger.info("Config-dirty flag was set but config unchanged — skipping reinit")
+        except Exception:
+            logger.exception("Failed to reload config from dirty flag — using existing memory system")
+
     return _memory
 
 
@@ -440,7 +508,8 @@ def _collect_links(notes) -> tuple[list[dict[str, Any]], int]:
     links: list[dict[str, Any]] = []
     link_pairs: set[tuple[str, str]] = set()
     total_forward_links = 0
-    memories = get_memory().memories
+    mem = get_memory()
+    memories = mem.memories
 
     for note in notes:
         for target_id in note.links:
@@ -465,7 +534,11 @@ def _collect_links(notes) -> tuple[list[dict[str, Any]], int]:
 
 
 def _collect_nodes(notes, group_meta) -> list[dict[str, Any]]:
-    """Build node list with group colors and weights."""
+    """Build node list with group colors and weights.
+
+    Content and summary are excluded to reduce memory allocation (F14).
+    Clients that need full content should call read_memory() per-node.
+    """
     nodes: list[dict[str, Any]] = []
     for note in notes:
         group_id = _slugify(_note_group_key(note))
@@ -481,8 +554,6 @@ def _collect_nodes(notes, group_meta) -> list[dict[str, Any]]:
                 "path": note.filepath,
                 "pathLabel": note.path,
                 "excerpt": _note_excerpt(note),
-                "content": note.content,
-                "summary": note.summary,
                 "keywords": note.keywords,
                 "tags": note.tags,
                 "groupId": group_id,
@@ -690,11 +761,12 @@ def search_memory(query: str, k: int = 5) -> str:
         JSON array of matching memories with content, tags, path, and links.
     """
     logger.info("search_memory: query=%r k=%d", query, k)
-    results = get_memory().search(query, k=k)
+    mem = get_memory()
+    results = mem.search(query, k=k)
     logger.info("search_memory: returned %d results", len(results))
     output = []
     for r in results:
-        note = get_memory().read(r["id"])
+        note = mem.read(r["id"])
         entry = {
             "id": r["id"],
             "name": note.name if note else None,

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { McpServersTable } from '@/components/mcp/McpServersTable';
 import { AddServerDialog } from '@/components/mcp/AddServerDialog';
+import MemoryPoolPanel from '@/components/mcp/MemoryPoolPanel';
 
 export default function McpPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -30,8 +31,11 @@ export default function McpPage() {
         </button>
       </div>
 
-      {/* Main Content */}
+      {/* MCP Servers Table */}
       <McpServersTable />
+
+      {/* Memory Pool Monitor */}
+      <MemoryPoolPanel />
 
       {/* Dialogs */}
       <AddServerDialog

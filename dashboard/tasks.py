@@ -257,9 +257,7 @@ async def poll_war_rooms():
             await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise
-        except (
-            Exception
-        ) as e:  # noqa: BLE001 - intentional catch-all for polling resilience
+        except Exception as e:  # noqa: BLE001 - intentional catch-all for polling resilience
             logger.error("poll_war_rooms error: %s", e, exc_info=True)
             await asyncio.sleep(2)
 
@@ -318,6 +316,7 @@ async def startup_all():
     # Planning thread store (initialized early/sync to avoid race conditions with first requests)
     try:
         from dashboard.planning_thread_store import PlanningThreadStore
+
         global_state.planning_store = PlanningThreadStore()
         logger.info("Planning thread store initialized (Sync)")
     except Exception as e:
@@ -345,18 +344,23 @@ async def startup_all():
             skills_routes._sync_in_progress = True
             try:
                 # ── Grace Period ──
-                # Give the browser 5 seconds to load HTML/JS/CSS before we 
+                # Give the browser 5 seconds to load HTML/JS/CSS before we
                 # start hogging the CPU with Torch and YAML parsing.
                 import time
+
                 time.sleep(5)
 
                 # Lazy import of heavy vector store
                 from dashboard.zvec_store import OSTwinStore
+
                 global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
 
                 # ── Load model catalog from models.dev ────────────────────────────
                 try:
-                    from dashboard.lib.settings.models_dev_loader import load_models_on_startup
+                    from dashboard.lib.settings.models_dev_loader import (
+                        load_models_on_startup,
+                    )
+
                     load_models_on_startup()
                 except Exception as e:
                     logger.error("Models catalog load failed: %s", e)
@@ -371,7 +375,7 @@ async def startup_all():
                 
                 # Initialization (slow — loads 600MB model)
                 global_state.store.ensure_collections()
-                
+
                 # Syncing
                 global_state.store.sync_from_disk()
                 from dashboard.api_utils import SKILLS_DIRS

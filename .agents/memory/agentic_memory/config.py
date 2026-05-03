@@ -38,6 +38,12 @@ class LLMConfig:
 
 @dataclass
 class EmbeddingConfig:
+    """Embedding configuration.
+
+    Valid backends: ``"sentence-transformer"``, ``"gemini"``, ``"ollama"``,
+    ``"vertex"``.
+    """
+
     backend: str = "gemini"
     model: str = "gemini-embedding-001"
 
@@ -108,12 +114,83 @@ def _env_bool(key: str, default: bool) -> bool:
     return val.lower() in ("true", "1", "yes")
 
 
-def load_config() -> MemoryConfig:
-    """Build a MemoryConfig by merging: defaults file → env vars.
+def _load_system_settings() -> dict:
+    """Load memory settings from the dashboard's system config.
 
-    Returns a fully-resolved MemoryConfig dataclass.
+    The dashboard writes user-configured memory settings (backend, model, etc.)
+    into ``~/.ostwin/.agents/config.json`` under the ``memory`` key using a
+    **flat** schema::
+
+        { "memory": { "llm_backend": "ollama", "llm_model": "...", ... } }
+
+    This function reads that file fresh on every call so the MCP server always
+    reflects the latest dashboard settings without a restart.
+
+    Returns a nested dict matching the shape of ``config.default.json`` so it
+    can be merged directly into the defaults dict.
+    """
+    config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    flat = raw.get("memory", {})
+    if not isinstance(flat, dict) or not flat:
+        return {}
+
+    # Map the flat dashboard keys → nested config.default.json shape.
+    result: dict = {}
+    if flat.get("llm_backend") or flat.get("llm_model"):
+        result["llm"] = {}
+        if flat.get("llm_backend"):
+            result["llm"]["backend"] = flat["llm_backend"]
+        if flat.get("llm_model"):
+            result["llm"]["model"] = flat["llm_model"]
+
+    if flat.get("embedding_backend") or flat.get("embedding_model"):
+        result["embedding"] = {}
+        if flat.get("embedding_backend"):
+            result["embedding"]["backend"] = flat["embedding_backend"]
+        if flat.get("embedding_model"):
+            result["embedding"]["model"] = flat["embedding_model"]
+
+    if flat.get("vector_backend"):
+        result["vector"] = {"backend": flat["vector_backend"]}
+
+    if "context_aware" in flat:
+        result.setdefault("evolution", {})["context_aware"] = flat["context_aware"]
+    if "auto_sync" in flat:
+        result.setdefault("sync", {})["auto_sync"] = flat["auto_sync"]
+    if "auto_sync_interval" in flat:
+        result.setdefault("sync", {})["auto_sync_interval"] = flat["auto_sync_interval"]
+    if "ttl_days" in flat:
+        result.setdefault("search", {})["decay_half_life_days"] = float(flat["ttl_days"])
+
+    return result
+
+
+def load_config() -> MemoryConfig:
+    """Build a MemoryConfig by merging: defaults file → system settings → env vars.
+
+    Resolution order (later wins):
+      1. ``config.default.json``  — bundled package defaults
+      2. ``~/.ostwin/.agents/config.json``  — dashboard / UI settings
+      3. ``MEMORY_*`` environment variables  — explicit overrides
+
+    The system settings file is re-read on every call so the MCP server always
+    reflects the latest dashboard configuration.
     """
     d = _load_json_defaults()
+
+    # Layer 2: merge dashboard system settings on top of defaults
+    sys_settings = _load_system_settings()
+    for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
+        if section_key in sys_settings:
+            d.setdefault(section_key, {}).update(sys_settings[section_key])
 
     llm_d = d.get("llm", {})
     embedding_d = d.get("embedding", {})

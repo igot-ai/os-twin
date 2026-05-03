@@ -61,9 +61,11 @@ def extract_timestamp_from_uuid7(uid: str) -> datetime:
 class OSTwinStore:
     """In-process vector store for OS Twin logs and metadata."""
 
-    def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
+    def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None, embedder=None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
+        self._embedder = embedder  # Optional KnowledgeEmbedder (lazy-created if None)
+        self._embedding_dim = EMBEDDING_DIM  # Per-instance; updated when model loads
         # Global zvec store at ~/.ostwin/.zvec — clean with: rm -rf ~/.ostwin/.zvec
         env_zvec_dir = os.environ.get("OSTWIN_ZVEC_DIR")
         if env_zvec_dir:
@@ -141,8 +143,11 @@ class OSTwinStore:
     def ensure_collections(self) -> None:
         """Create or open all collections."""
         zvec.init(log_level=zvec.LogLevel.WARN)
-        # Ensure model is loaded and dynamic EMBEDDING_DIM is set before opening
+        # Ensure model is loaded and _embedding_dim is set before opening
         self._get_embed_fn()
+        # Update module-level EMBEDDING_DIM for collection schemas
+        global EMBEDDING_DIM
+        EMBEDDING_DIM = self._embedding_dim
         # Check for migrations first
         self.migrate_collections()
         self._messages = self._open_or_create_messages()
@@ -182,7 +187,9 @@ class OSTwinStore:
                 schema = col.schema
                 has_time_id = any(f.name == "time_id" for f in schema.fields)
                 has_enabled = any(f.name == "enabled" for f in schema.fields)
-                has_instance_type = any(f.name == "instance_type" for f in schema.fields)
+                has_instance_type = any(
+                    f.name == "instance_type" for f in schema.fields
+                )
 
                 # Check vector dimension mismatch (Harrier migration).
                 # zvec exposes `schema.vectors` as either a list of VectorSchema
@@ -204,7 +211,12 @@ class OSTwinStore:
 
                 needs_enabled = name == SKILLS_COLLECTION and not has_enabled
                 needs_instance_type = name == ROLES_COLLECTION and not has_instance_type
-                if not has_time_id or dim_mismatch or needs_enabled or needs_instance_type:
+                if (
+                    not has_time_id
+                    or dim_mismatch
+                    or needs_enabled
+                    or needs_instance_type
+                ):
                     reasons = []
                     if dim_mismatch:
                         reasons.append(f"dim {current_dim} → {EMBEDDING_DIM}")
@@ -676,25 +688,56 @@ class OSTwinStore:
     # ── Embedding ──────────────────────────────────────────────────────
 
     def _get_embed_fn(self):
-        """Lazy-load embedding model on first use."""
+        """Lazy-load embedding via KnowledgeEmbedder.
+
+        Uses the same embedding stack as the knowledge graph
+        (dashboard/knowledge/embeddings.py), injected or lazy-created.
+        Returns an object with .encode() and .get_sentence_embedding_dimension().
+        """
         if self._embed_available is False:
             return None
         if self._embed_fn is not None:
             return self._embed_fn
         try:
-            model_name = OSTWIN_EMBED_MODEL
-            from sentence_transformers import SentenceTransformer
-            logger.info("Loading SentenceTransformer model: %s", model_name)
-            self._embed_fn = SentenceTransformer(
-                model_name, model_kwargs={"dtype": "auto"}
-            )
+            if self._embedder is None:
+                from dashboard.knowledge.embeddings import KnowledgeEmbedder
+                self._embedder = KnowledgeEmbedder(model_name=OSTWIN_EMBED_MODEL)
 
-            # Dynamically adapt EMBEDDING_DIM
-            global EMBEDDING_DIM
-            EMBEDDING_DIM = self._embed_fn.get_sentence_embedding_dimension()
+            import numpy as np
+
+            embedder = self._embedder
+            logger.info("Loading embedding model via KnowledgeEmbedder: %s", embedder.model_name)
+
+            class _EmbedProxy:
+                """Wraps KnowledgeEmbedder to match SentenceTransformer API."""
+
+                def __init__(self, ke):
+                    self._ke = ke
+                    self._dim = None
+
+                def encode(
+                    self, texts, convert_to_numpy=False, show_progress_bar=False
+                ):
+                    if isinstance(texts, str):
+                        texts = [texts]
+                    vecs = self._ke.embed(texts)
+                    if convert_to_numpy:
+                        return np.array(vecs)
+                    return vecs
+
+                def get_sentence_embedding_dimension(self):
+                    if self._dim is None:
+                        self._dim = self._ke.dimension()
+                    return self._dim
+
+            self._embed_fn = _EmbedProxy(embedder)
+
+            # Store dimension as instance attribute (not global) to prevent
+            # race conditions when multiple OSTwinStore instances exist.
+            self._embedding_dim = self._embed_fn.get_sentence_embedding_dimension()
 
             self._embed_available = True
-            logger.info("Embedding model loaded (dim=%d)", EMBEDDING_DIM)
+            logger.info("Embedding model loaded via KnowledgeEmbedder (dim=%d)", self._embedding_dim)
             return self._embed_fn
         except Exception as e:
             logger.warning("Embedding unavailable: %s. Vector search disabled.", e)
@@ -1854,7 +1897,9 @@ class OSTwinStore:
         desc_clean = self._sanitize_text(description)
         inst_type_clean = self._sanitize_text(instance_type)
 
-        embed_text = f"{name} {provider} {desc_clean} {skill_refs_str} {inst_type_clean}"
+        embed_text = (
+            f"{name} {provider} {desc_clean} {skill_refs_str} {inst_type_clean}"
+        )
         embedding = self._embed_text(embed_text, is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM

@@ -279,7 +279,7 @@ class MemorySettings(BaseModel):
     llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
     # -- Embedding --
     embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
-    embedding_model: str = "microsoft/harrier-oss-v1-0.6b"
+    embedding_model: str = "all-MiniLM-L6-v2"
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --
@@ -331,10 +331,12 @@ class KnowledgeSettings(BaseModel):
     """
 
     # -- LLM --
-    knowledge_llm_model: str = ""              # empty = use config.LLM_MODEL
+    knowledge_llm_backend: str = ""             # empty = use config.LLM_PROVIDER
+    knowledge_llm_model: str = ""               # empty = use config.LLM_MODEL
     # -- Embedding --
-    knowledge_embedding_model: str = ""        # empty = use config.EMBEDDING_MODEL
-    knowledge_embedding_dimension: int = 384   # read-only / informational
+    knowledge_embedding_backend: str = ""       # empty = use config.EMBEDDING_PROVIDER
+    knowledge_embedding_model: str = ""         # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
 
 
 class MasterSettings(BaseModel):

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ProvenanceChip } from './ProvenanceChip';
+import { ProviderIcon } from './ProviderIcon';
 import type {
   MemorySettings,
   MemoryLLMBackend,
@@ -38,6 +39,8 @@ const LLM_BACKENDS: BackendOption[] = [
 const EMBEDDING_BACKENDS: BackendOption[] = [
   { value: 'sentence-transformer', label: 'SentenceTransformer (Local)', description: 'Local embedding — no API key', icon: 'precision_manufacturing' },
   { value: 'gemini',               label: 'Gemini Embedding',           description: 'Google Gemini embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
+  { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
+  { value: 'vertex',               label: 'Vertex AI',                  description: 'Google Vertex AI embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'cloud' },
 ];
 
 const VECTOR_BACKENDS: BackendOption[] = [
@@ -80,6 +83,15 @@ const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string
   ],
   gemini: [
     { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
+  ],
+  ollama: [
+    { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
+    { model: 'embeddinggemma', label: 'Embedding Gemma' },
+    { model: 'qwen3-embedding:0.6b', label: 'Qwen3 Embedding 0.6B' },
+  ],
+  vertex: [
+    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
+    { model: 'text-embedding-005', label: 'Text Embedding 005' },
   ],
 };
 
@@ -207,9 +219,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
                         : 'bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 cursor-pointer'
                     }`}
                   >
-                    <span className={`material-symbols-outlined text-base ${isSelected ? 'text-blue-600' : 'text-slate-400'}`}>
-                      {opt.icon}
-                    </span>
+                    <ProviderIcon provider={opt.value} size={16} className={isSelected ? '' : 'opacity-50'} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-700'}`}>
@@ -319,9 +329,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
                         : 'bg-white border border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 cursor-pointer'
                     }`}
                   >
-                    <span className={`material-symbols-outlined text-base ${isSelected ? 'text-purple-600' : 'text-slate-400'}`}>
-                      {opt.icon}
-                    </span>
+                    <ProviderIcon provider={opt.value} size={16} className={isSelected ? '' : 'opacity-50'} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className={`text-xs font-semibold ${isSelected ? 'text-purple-700' : 'text-slate-700'}`}>
