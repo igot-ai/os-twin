@@ -361,6 +361,28 @@ if (Test-Path $resolveSkillsScript) {
                 
                 # Copy contents specifically to avoid nested directory issues
                 Copy-Item -Path (Join-Path $skillSrcDir "*") -Destination $destPath -Recurse -Force -ErrorAction SilentlyContinue
+
+                # ── Gemini protocol guard: truncate description in staged SKILL.md ──
+                # opencode reads SKILL.md files directly and sends the description field
+                # as a Gemini function_declaration. Descriptions >1,024 chars cause
+                # GENERIC_STRING_INVALID_TOO_LONG and a crash-respawn loop.
+                # This pass covers locally-authored skills that bypass the API fetch path.
+                $stagedMd = Join-Path $destPath "SKILL.md"
+                if (Test-Path $stagedMd) {
+                    try {
+                        $mdContent = Get-Content -Path $stagedMd -Raw -ErrorAction Stop
+                        if ($mdContent -match '(?m)^(description:\s*)(.{1022,})') {
+                            $prefix  = $Matches[1]
+                            $longVal = $Matches[2]
+                            $shortVal = $longVal.Substring(0, 1018) + '...'
+                            $mdContent = $mdContent -replace [regex]::Escape($prefix + $longVal), ($prefix + $shortVal)
+                            $mdContent | Out-File -FilePath $stagedMd -Encoding utf8 -Force
+                            Write-Verbose "Truncated long description in staged skill: $skillName"
+                        }
+                    } catch {
+                        Write-Verbose "Could not sanitize staged SKILL.md for '$skillName': $_"
+                    }
+                }
             }
             else {
                 Write-Warning "Skill source path not found for '$($skill.Name)': $($skill.Path)"
