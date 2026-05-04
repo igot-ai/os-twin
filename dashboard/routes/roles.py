@@ -795,17 +795,45 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
     resolved_version = _resolve_model_id(version)
     logger.info("test_model_connection: %r → resolved %r", version, resolved_version)
 
-    cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", "/tmp"]
+    # ── Isolated test environment ─────────────────────────────────────────────
+    # CRITICAL: do NOT use --dir /tmp or any dir that inherits the global
+    # ~/.config/opencode/opencode.json.  That file includes MCP servers whose
+    # tool descriptions can exceed Gemini's 1,024-char limit, causing the
+    # GENERIC_STRING_INVALID_TOO_LONG error before the model even responds.
+    #
+    # Solution: write a minimal opencode.json with zero MCP servers into a
+    # private temp directory and point opencode there.  This test only needs
+    # to validate that the model credentials work — MCP tools are irrelevant.
+    import tempfile
+    import json as _json
+
+    tmp_dir = tempfile.mkdtemp(prefix="ostwin-conntest-")
+    minimal_config = {
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {},      # no MCP servers → no tool declarations → no protocol errors
+        "agent": {},
+    }
+    config_path = os.path.join(tmp_dir, "opencode.json")
+    with open(config_path, "w") as _f:
+        _json.dump(minimal_config, _f)
+
+    cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", tmp_dir]
+    logger.info("test_model_connection cmd: %s", " ".join(cmd))
 
     def _run() -> tuple[int, str, str]:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env={**os.environ},
-        )
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env={**os.environ},
+            )
+            return result.returncode, result.stdout.strip(), result.stderr.strip()
+        finally:
+            # Clean up temp dir regardless of outcome
+            import shutil as _shutil
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _diagnose(returncode: int, stdout: str, stderr: str, resolved: str) -> dict:
         """Parse opencode output and return a structured diagnostic."""
