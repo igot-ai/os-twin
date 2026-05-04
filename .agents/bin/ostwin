@@ -516,11 +516,21 @@ switch ($Command) {
             $psArgs = [System.Collections.ArrayList]::new()
             $null = $psArgs.Add($initTarget)
             $null = $psArgs.Add('-Yes')   # non-interactive during run
-            # Extract plan_id from plan filename (stem = plan_id, e.g. 107240b7fe28.md → 107240b7fe28)
+            # Extract plan_id: use hash ID if filename is hex, else generate stable hash
             if ($resolvedPlanFile) {
-                $initPlanId = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPlanFile)
-                $initPlanId = $initPlanId -replace '\.refined$', ''
-                if ($initPlanId -and $initPlanId -ne 'PLAN.template') {
+                $initPlanStem = [System.IO.Path]::GetFileNameWithoutExtension($resolvedPlanFile)
+                $initPlanStem = $initPlanStem -replace '\.refined$', ''
+                if ($initPlanStem -and $initPlanStem -ne 'PLAN.template') {
+                    if ($initPlanStem -match '^[0-9a-fA-F]{8,64}$') {
+                        $initPlanId = $initPlanStem
+                    } else {
+                        # Generate stable hash from working_dir + filename
+                        $hashInput = "${initTarget}:${initPlanStem}"
+                        $sha = [System.Security.Cryptography.SHA256]::Create()
+                        $bytes = [System.Text.Encoding]::UTF8.GetBytes($hashInput)
+                        $hash = $sha.ComputeHash($bytes)
+                        $initPlanId = [BitConverter]::ToString($hash).Replace('-', '').Substring(0, 12).ToLower()
+                    }
                     $null = $psArgs.Add('-PlanId')
                     $null = $psArgs.Add($initPlanId)
                 }
