@@ -774,26 +774,26 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
 async def test_model_connection(version: str, user: dict = Depends(get_current_user)):
     """Test model connectivity by running: opencode run "just say YES" --model <version>.
 
-    This validates the real end-to-end path — the same CLI the agent runtime uses —
-    rather than constructing a fragile LangChain shim with manual key resolution.
-
-    The ``version`` path parameter may be a bare model ID (e.g.
-    ``gemini-3-flash-preview``) when a role was stored without its provider
-    prefix.  ``_resolve_model_id`` normalises it to the fully-qualified form
-    that opencode expects (e.g. ``gemini/gemini-3-flash-preview``) before
-    the CLI is invoked.
+    Returns structured diagnostics on failure — not just a generic error string —
+    so the settings UI can surface actionable information to the user.
     """
     import shutil
     import subprocess
     import time
+    import os
 
     opencode = shutil.which("opencode")
     if not opencode:
-        return {"status": "fail", "error": "opencode CLI not found on PATH"}
+        return {
+            "status": "fail",
+            "error": "opencode CLI not found on PATH",
+            "diagnosis": "opencode is not installed or not on the system PATH. Run: npm install -g opencode",
+            "category": "install",
+        }
 
     # Normalise bare IDs → fully-qualified provider/model form
     resolved_version = _resolve_model_id(version)
-    logger.debug("test_model_connection: %r → resolved %r", version, resolved_version)
+    logger.info("test_model_connection: %r → resolved %r", version, resolved_version)
 
     cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", "/tmp"]
 
@@ -803,9 +803,80 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
             capture_output=True,
             text=True,
             timeout=60,
-            env={**__import__("os").environ},
+            env={**os.environ},
         )
         return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+    def _diagnose(returncode: int, stdout: str, stderr: str, resolved: str) -> dict:
+        """Parse opencode output and return a structured diagnostic."""
+        combined = (stderr + "\n" + stdout).lower()
+        raw = (stderr + "\n" + stdout).strip()
+
+        # ── Known failure signatures ──────────────────────────────────────────
+        if "generic_string_invalid_too_long" in combined:
+            return {
+                "category": "protocol",
+                "error": "GENERIC_STRING_INVALID_TOO_LONG — a skill or tool description exceeds Gemini's 1,024-character limit",
+                "fix": "This is the known skill-description bug. Ensure you have the latest fix deployed and restart the manager.",
+            }
+
+        if "api key" in combined or "api_key" in combined or "apikey" in combined:
+            provider = resolved.split("/")[0] if "/" in resolved else "unknown"
+            return {
+                "category": "auth",
+                "error": f"API key missing or invalid for provider '{provider}'",
+                "fix": f"Check Settings → Providers → {provider}: ensure your API key is saved and valid.",
+            }
+
+        if "unauthenticated" in combined or "unauthorized" in combined or "401" in combined or "403" in combined:
+            return {
+                "category": "auth",
+                "error": "Authentication failed — credentials rejected by the provider",
+                "fix": "Verify your API key and project credentials in Settings → Providers.",
+            }
+
+        if "not found" in combined and ("model" in combined or "404" in combined):
+            return {
+                "category": "model",
+                "error": f"Model '{resolved}' not found — the provider does not recognise this model ID",
+                "fix": "Check the model ID spelling. Use Settings → Models to browse available models.",
+            }
+
+        if "quota" in combined or "rate limit" in combined or "429" in combined:
+            return {
+                "category": "quota",
+                "error": "Rate limit or quota exceeded",
+                "fix": "Wait and retry, or check your provider quota dashboard.",
+            }
+
+        if "connection refused" in combined or "econnrefused" in combined or "timeout" in combined:
+            return {
+                "category": "network",
+                "error": "Network connection failed — cannot reach the provider endpoint",
+                "fix": "Check your internet connection, firewall rules, or VPN settings.",
+            }
+
+        if "vertex" in combined and ("project" in combined or "location" in combined or "credential" in combined):
+            return {
+                "category": "auth",
+                "error": "Google Vertex AI credential error — project or ADC not configured",
+                "fix": "Run: gcloud auth application-default login  and verify GOOGLE_CLOUD_PROJECT is set.",
+            }
+
+        if "permission" in combined and ("denied" in combined or "iam" in combined):
+            return {
+                "category": "auth",
+                "error": "Permission denied — the service account lacks access to this model/resource",
+                "fix": "Grant the 'Vertex AI User' IAM role to the service account in Google Cloud Console.",
+            }
+
+        # Generic fallback — include both raw output and the raw command for copy-paste
+        snippet = raw[-600:] if len(raw) > 600 else raw
+        return {
+            "category": "unknown",
+            "error": snippet or "opencode exited with no output",
+            "fix": f"Run manually to see full output:\n  {' '.join(cmd)}",
+        }
 
     start = time.time()
     try:
@@ -814,24 +885,45 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
         )
         latency = int((time.time() - start) * 1000)
 
-        if returncode == 0:
-            output_snippet = stdout[-200:] if stdout else ""
-            # The model must actually respond with "YES" to confirm connectivity
-            if "YES" in (stdout or "").upper():
-                return {"status": "ok", "latency_ms": latency, "output": output_snippet}
-            else:
-                return {
-                    "status": "fail",
-                    "latency_ms": latency,
-                    "error": f"{stdout}",
-                }
-        else:
-            error_msg = stderr[-300:] if stderr else stdout[-300:] if stdout else "Unknown error"
-            return {"status": "fail", "latency_ms": latency, "error": error_msg}
+        if returncode == 0 and "YES" in (stdout or "").upper():
+            return {
+                "status": "ok",
+                "latency_ms": latency,
+                "output": stdout[-300:] if stdout else "",
+                "resolved_model": resolved_version,
+            }
+
+        # Non-zero exit or no YES in output → structured diagnosis
+        diag = _diagnose(returncode, stdout, stderr, resolved_version)
+        logger.warning(
+            "test_model_connection failed: version=%r resolved=%r rc=%d category=%s error=%r",
+            version, resolved_version, returncode, diag.get("category"), diag.get("error"),
+        )
+        return {
+            "status": "fail",
+            "latency_ms": latency,
+            "resolved_model": resolved_version,
+            "raw_output": (stderr + "\n" + stdout).strip()[-800:],
+            **diag,
+        }
+
     except subprocess.TimeoutExpired:
         latency = int((time.time() - start) * 1000)
-        return {"status": "fail", "latency_ms": latency, "error": "Timed out after 60s"}
+        return {
+            "status": "fail",
+            "latency_ms": latency,
+            "category": "timeout",
+            "error": "opencode did not respond within 60s",
+            "fix": "The model provider may be slow or unreachable. Check your network and try again.",
+        }
     except Exception as exc:
         latency = int((time.time() - start) * 1000)
-        return {"status": "fail", "latency_ms": latency, "error": str(exc)}
+        logger.exception("test_model_connection unexpected error: %s", exc)
+        return {
+            "status": "fail",
+            "latency_ms": latency,
+            "category": "internal",
+            "error": str(exc),
+            "fix": "Unexpected server error. Check the dashboard logs for details.",
+        }
 
