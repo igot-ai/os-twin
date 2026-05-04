@@ -80,6 +80,18 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
         if "command" in _cfg:
             _cfg["command"] = _resolve_command(_cfg["command"])
 
+    # Wrap every stdio (command) MCP server with mcp-proxy.py so that
+    # tools/list responses are intercepted and tool descriptions are
+    # truncated to Gemini's 1,024-char limit before reaching opencode.
+    # URL-based (SSE/HTTP) servers are skipped — they don't use stdio.
+    _proxy_path = os.path.join(mcp_module_dir, "mcp-proxy.py")
+    if os.path.exists(_proxy_path):
+        for _name, _cfg in validated_mcp.items():
+            _cmd = _cfg.get("command")
+            if isinstance(_cmd, list) and _cmd and "mcp-proxy.py" not in str(_cmd):
+                _cfg["command"] = [ostwin_python, _proxy_path,
+                                   "--server-name", _name, "--"] + _cmd
+
     # Reference-aware filtering: drop any environment entries that still contain
     # unresolved {env:VAR} references so OpenCode never sees a literal placeholder
     # as an env value. (Resolved values were already injected upstream from .env.)
