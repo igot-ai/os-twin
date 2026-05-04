@@ -10,18 +10,18 @@ const config: Config = {
     extend: {
       colors: {
         "primary": "#2563eb",
-        "background-light": "#f8fafc",
-        "background-dark": "#0f172a",
+        "background-light": "#ffffff",
+        "background-dark": "#000000",
         "surface": "#ffffff",
-        "text-main": "#0f172a",
-        "text-muted": "#64748b",
-        "border-color": "#e2e8f0",
+        "text-main": "#000000",
+        "text-muted": "#6b7280",
+        "border-color": "#e5e7eb",
         "warning": "#eab308",
         "warning-light": "#fef9c3",
         "warning-text": "#854d0e",
-        "terminal-bg": "#0f172a",
+        "terminal-bg": "#000000",
         "terminal-sys": "#38bdf8",
-        "terminal-out": "#e2e8f0"
+        "terminal-out": "#e5e7eb"
       },
       fontFamily: {
         "display": ["Plus Jakarta Sans", "sans-serif"],
