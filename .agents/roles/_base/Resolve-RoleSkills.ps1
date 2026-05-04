@@ -337,15 +337,10 @@ foreach ($ref in $allRefs) {
                         New-Item -ItemType Directory -Path $localSkillDir -Force | Out-Null
                     }
 
-                    # Truncate description to 1,021 chars to comply with Gemini protocol limits
-                    # (prevents GENERIC_STRING_INVALID_TOO_LONG on function_declarations[N].description)
-                    $rawDesc = [string]$matchedSkill.description
-                    $safeDesc = if ($rawDesc.Length -gt 1021) { $rawDesc.Substring(0, 1021) + '...' } else { $rawDesc }
-
                     $frontmatter = @"
 ---
 name: $($matchedSkill.name)
-description: $safeDesc
+description: $($matchedSkill.description)
 ---
 "@
                     $fullContent = "$frontmatter`n`n$($matchedSkill.content)"

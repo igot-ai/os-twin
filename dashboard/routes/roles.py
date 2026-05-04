@@ -772,130 +772,71 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
 
 @router.post("/api/models/{version:path}/test")
 async def test_model_connection(version: str, user: dict = Depends(get_current_user)):
-    """Test model connectivity via a direct API call — no opencode subprocess.
+    """Test model connectivity by running: opencode run "just say YES" --model <version>.
 
-    opencode always loads its own built-in tools (with descriptions that can
-    exceed Gemini's 1,024-char limit), regardless of --dir, OPENCODE_CONFIG, or
-    mcp:{} in the config.  The only reliable fix is to skip opencode entirely
-    and call the model's API directly via dashboard.llm_client.
+    This validates the real end-to-end path — the same CLI the agent runtime uses —
+    rather than constructing a fragile LangChain shim with manual key resolution.
 
-    This sends zero tool declarations, so Gemini's function_declaration length
-    limit cannot be triggered.
+    The ``version`` path parameter may be a bare model ID (e.g.
+    ``gemini-3-flash-preview``) when a role was stored without its provider
+    prefix.  ``_resolve_model_id`` normalises it to the fully-qualified form
+    that opencode expects (e.g. ``gemini/gemini-3-flash-preview``) before
+    the CLI is invoked.
     """
+    import shutil
+    import subprocess
     import time
 
+    opencode = shutil.which("opencode")
+    if not opencode:
+        return {"status": "fail", "error": "opencode CLI not found on PATH"}
+
+    # Normalise bare IDs → fully-qualified provider/model form
     resolved_version = _resolve_model_id(version)
-    logger.info("test_model_connection: %r → resolved %r (direct API)", version, resolved_version)
+    logger.info("test_model_connection: %r → resolved %r", version, resolved_version)
+
+    cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", "/tmp"]
+
+    def _run() -> tuple[int, str, str]:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**__import__("os").environ},
+        )
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
 
     start = time.time()
-
     try:
-        # Use dashboard.ai.completion.complete() — the same path used by all
-        # other AI calls in the dashboard.  It loads provider + credentials via
-        # get_config() → SettingsResolver, which correctly handles Vertex AI ADC,
-        # service accounts, and Gemini API keys without us needing to replicate
-        # that logic here.
-        #
-        # complete() expects a BARE model name (no provider prefix), e.g.
-        # "gemini-3-flash-preview" not "google-vertex/gemini-3-flash-preview".
-        # Strip the prefix if present so we pass what complete() expects.
-        from dashboard.ai.completion import complete as _complete
+        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(
+            None, _run
+        )
+        latency = int((time.time() - start) * 1000)
 
-        bare_model = resolved_version.split("/", 1)[-1] if "/" in resolved_version else resolved_version
-
-        def _call():
-            return _complete(
-                prompt="Say YES",
-                model=bare_model,
-                max_tokens=16,
-                temperature=0.0,
+        if returncode == 0:
+            output_snippet = stdout[-200:] if stdout else ""
+            if "YES" in (stdout or "").upper():
+                return {"status": "ok", "latency_ms": latency, "output": output_snippet}
+            else:
+                logger.warning(
+                    "test_model_connection: no YES in output version=%r resolved=%r stdout=%r",
+                    version, resolved_version, stdout[-300:],
+                )
+                return {"status": "fail", "latency_ms": latency, "error": f"{stdout}"}
+        else:
+            error_msg = stderr[-300:] if stderr else stdout[-300:] if stdout else "Unknown error"
+            logger.warning(
+                "test_model_connection failed: version=%r resolved=%r rc=%d error=%r",
+                version, resolved_version, returncode, error_msg,
             )
-
-        result = await asyncio.get_event_loop().run_in_executor(None, _call)
+            return {"status": "fail", "latency_ms": latency, "error": error_msg}
+    except subprocess.TimeoutExpired:
         latency = int((time.time() - start) * 1000)
-        text = (result.text or "").strip()
-
-        return {
-            "status": "ok",
-            "latency_ms": latency,
-            "output": text[:100] if text else "(model responded successfully)",
-            "resolved_model": resolved_version,
-        }
-
-    except asyncio.TimeoutError:
-        latency = int((time.time() - start) * 1000)
-        return {
-            "status": "fail",
-            "latency_ms": latency,
-            "category": "timeout",
-            "error": "Model did not respond within 30s",
-            "fix": "The provider endpoint may be slow or unreachable. Check your network and try again.",
-            "resolved_model": resolved_version,
-        }
-
+        logger.warning("test_model_connection timed out: version=%r resolved=%r", version, resolved_version)
+        return {"status": "fail", "latency_ms": latency, "error": "Timed out after 60s"}
     except Exception as exc:
         latency = int((time.time() - start) * 1000)
-        msg = str(exc)
-        msg_lower = msg.lower()
-
-        logger.warning(
-            "test_model_connection failed: version=%r resolved=%r error=%r",
-            version, resolved_version, msg,
-        )
-
-        # ── Structured diagnosis from exception message ───────────────────────
-        _provider = resolved_version.split("/")[0] if "/" in resolved_version else "unknown"
-        if any(k in msg_lower for k in ("api key", "api_key", "apikey", "unauthenticated",
-                                         "unauthorized", "401", "403", "credentials", "permission")):
-            if "vertex" in resolved_version.lower() or "google" in resolved_version.lower():
-                return {
-                    "status": "fail", "latency_ms": latency, "category": "auth",
-                    "resolved_model": resolved_version,
-                    "error": "Google Vertex AI authentication failed",
-                    "fix": "Run: gcloud auth application-default login\nVerify GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are set.",
-                    "raw_output": msg[-600:],
-                }
-            return {
-                "status": "fail", "latency_ms": latency, "category": "auth",
-                "resolved_model": resolved_version,
-                "error": f"Authentication failed for provider '{_provider}'",
-                "fix": f"Check Settings → Providers → {_provider}: ensure your API key is saved and valid.",
-                "raw_output": msg[-600:],
-            }
-
-        if any(k in msg_lower for k in ("not found", "404", "does not exist", "model_not_found")):
-            return {
-                "status": "fail", "latency_ms": latency, "category": "model",
-                "resolved_model": resolved_version,
-                "error": f"Model '{resolved_version}' not found",
-                "fix": "Check the model ID. Use Settings → Models to browse available models.",
-                "raw_output": msg[-600:],
-            }
-
-        if any(k in msg_lower for k in ("quota", "rate limit", "429", "resource_exhausted")):
-            return {
-                "status": "fail", "latency_ms": latency, "category": "quota",
-                "resolved_model": resolved_version,
-                "error": "Rate limit or quota exceeded",
-                "fix": "Wait and retry, or check your provider quota dashboard.",
-                "raw_output": msg[-600:],
-            }
-
-        if any(k in msg_lower for k in ("connection", "network", "refused", "unreachable")):
-            return {
-                "status": "fail", "latency_ms": latency, "category": "network",
-                "resolved_model": resolved_version,
-                "error": "Network error — cannot reach the provider",
-                "fix": "Check your internet connection, firewall rules, or VPN settings.",
-                "raw_output": msg[-600:],
-            }
-
-        # Generic fallback
-        return {
-            "status": "fail", "latency_ms": latency, "category": "unknown",
-            "resolved_model": resolved_version,
-            "error": msg[:300] or "Unknown error",
-            "fix": "Check the dashboard server logs for the full stack trace.",
-            "raw_output": msg[-600:],
-        }
+        logger.warning("test_model_connection error: version=%r resolved=%r error=%r", version, resolved_version, str(exc))
+        return {"status": "fail", "latency_ms": latency, "error": str(exc)}
 

@@ -169,21 +169,6 @@ def forward_server_to_client(server_stdout, client_stdout, pending, lock,
                         )
                     write_log(room_dir, entry)
 
-            # ── Gemini protocol guard: truncate tool descriptions in tools/list ──
-            # Gemini rejects any function_declaration.description > 1,024 chars.
-            # This intercept applies to ALL MCP servers wrapped by this proxy,
-            # including external packages (playwright, chrome-devtools, etc.)
-            # that we cannot patch directly.
-            if ok and isinstance(msg.get("result"), dict) and "tools" in msg["result"]:
-                modified = False
-                for tool in msg["result"]["tools"]:
-                    desc = tool.get("description", "")
-                    if isinstance(desc, str) and len(desc) > 1021:
-                        tool["description"] = desc[:1021] + "..."
-                        modified = True
-                if modified:
-                    line = (json.dumps(msg) + "\n").encode()
-
             client_stdout.write(line)
             client_stdout.flush()
     except (BrokenPipeError, OSError):

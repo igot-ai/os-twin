@@ -1,6 +1,6 @@
 ---
 name: detect-ui
-description: Analyse UI screenshots to generate _detection.json (schema 5.0.0). Produces a nested canvas tree for GameObjects and a flat objects array for animation analysis. Covers Image, Button, ScrollRect, LayoutGroups, etc. Includes background classification and sprite resolution. Trigger on: 'analyse UI', 'detect UI', 'UI detection', 'screenshot to UI', 'identify UI elements'. Useful for breaking down UI structure from reference images.
+description: Analyse a UI reference screenshot and generate a _detection.json (schema 5.0.0). Output includes both a nested canvas-native tree for building GameObjects AND a flat objects[] array for animation-analyzer. Covers all component types (Image, Button, ScrollRect, Toggle, Slider, InputField, Mask, LayoutGroups, etc.), background classification, hierarchy detection, and sprite resolution. Triggers on 'analyse UI', 'detect UI', 'UI detection', 'generate detection JSON', 'screenshot to UI', 'parse UI screenshot', 'identify UI elements', 'UI structure from image'. Use this skill whenever the user has a screenshot of a UI screen and wants to extract structured detection data from it -- even if they just say 'what elements are in this screenshot' or 'break down this UI'."
 argument-hint: <detection_image> [output_json_path] [real_bg_asset_path]
 tags: []
 
