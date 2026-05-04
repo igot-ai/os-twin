@@ -774,28 +774,31 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
 async def test_model_connection(version: str, user: dict = Depends(get_current_user)):
     """Test model connectivity by running: opencode run "just say YES" --model <version>.
 
-    This validates the real end-to-end path — the same CLI the agent runtime uses —
-    rather than constructing a fragile LangChain shim with manual key resolution.
-
-    The ``version`` path parameter may be a bare model ID (e.g.
-    ``gemini-3-flash-preview``) when a role was stored without its provider
-    prefix.  ``_resolve_model_id`` normalises it to the fully-qualified form
-    that opencode expects (e.g. ``gemini/gemini-3-flash-preview``) before
-    the CLI is invoked.
+    Uses the original opencode subprocess — the same CLI the agent runtime uses.
+    Parses the raw output for known error signatures and returns structured
+    diagnostics so the UI can show actionable information instead of raw logs.
     """
+    import re
     import shutil
     import subprocess
     import time
 
     opencode = shutil.which("opencode")
     if not opencode:
-        return {"status": "fail", "error": "opencode CLI not found on PATH"}
+        return {
+            "status": "fail",
+            "category": "install",
+            "error": "opencode CLI not found on PATH",
+            "fix": "Run: npm install -g opencode",
+        }
 
-    # Normalise bare IDs → fully-qualified provider/model form
     resolved_version = _resolve_model_id(version)
     logger.info("test_model_connection: %r → resolved %r", version, resolved_version)
 
     cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", "/tmp"]
+
+    def _strip_ansi(text: str) -> str:
+        return re.sub(r"\x1b\[[0-9;]*[mGKHF]", "", text)
 
     def _run() -> tuple[int, str, str]:
         result = subprocess.run(
@@ -805,38 +808,73 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
             timeout=60,
             env={**__import__("os").environ},
         )
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
+        return (
+            result.returncode,
+            _strip_ansi(result.stdout.strip()),
+            _strip_ansi(result.stderr.strip()),
+        )
+
+    def _diagnose(returncode: int, stdout: str, stderr: str) -> dict:
+        """Parse opencode output and return structured diagnostic fields."""
+        combined = (stderr + "\n" + stdout).lower()
+        raw = (stderr + "\n" + stdout).strip()
+        raw_snippet = raw[-600:] if len(raw) > 600 else raw
+
+        if "generic_string_invalid_too_long" in combined:
+            return {
+                "category": "protocol",
+                "error": "A tool/skill description exceeds Gemini's 1,024-character limit (GENERIC_STRING_INVALID_TOO_LONG)",
+                "fix": "This is a known protocol error. The fix requires sanitising skill descriptions — check with the team for the latest patch.",
+                "raw_output": raw_snippet,
+            }
+        if any(k in combined for k in ("unauthenticated", "api key", "api_key", "401", "403", "invalid credentials")):
+            provider = resolved_version.split("/")[0] if "/" in resolved_version else "unknown"
+            fix = "Run: gcloud auth application-default login\nVerify GOOGLE_CLOUD_PROJECT is set." if "vertex" in resolved_version.lower() or "google" in resolved_version.lower() \
+                else f"Check Settings → Providers → {provider}: ensure your API key is saved and valid."
+            return {"category": "auth", "error": "Authentication failed", "fix": fix, "raw_output": raw_snippet}
+        if "not found" in combined and ("model" in combined or "404" in combined):
+            return {
+                "category": "model",
+                "error": f"Model not found: {resolved_version}",
+                "fix": "Check the model ID. Use Settings → Models to browse available models.",
+                "raw_output": raw_snippet,
+            }
+        if any(k in combined for k in ("quota", "rate limit", "429", "resource_exhausted")):
+            return {"category": "quota", "error": "Rate limit or quota exceeded", "fix": "Wait and retry, or check your provider quota dashboard.", "raw_output": raw_snippet}
+        if any(k in combined for k in ("connection refused", "econnrefused", "network", "timeout", "unreachable")):
+            return {"category": "network", "error": "Cannot reach the provider endpoint", "fix": "Check your internet connection, firewall, or VPN settings.", "raw_output": raw_snippet}
+        if "permission" in combined and ("denied" in combined or "iam" in combined):
+            return {"category": "auth", "error": "Permission denied", "fix": "Grant the 'Vertex AI User' IAM role in Google Cloud Console.", "raw_output": raw_snippet}
+
+        # Unknown — surface the raw output so the user can see the actual error
+        return {
+            "category": "unknown",
+            "error": raw_snippet or "opencode exited with no output",
+            "fix": f"Run manually for full output:\n  {' '.join(cmd)}",
+            "raw_output": raw_snippet,
+        }
 
     start = time.time()
     try:
-        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(
-            None, _run
-        )
+        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(None, _run)
         latency = int((time.time() - start) * 1000)
 
-        if returncode == 0:
-            output_snippet = stdout[-200:] if stdout else ""
-            if "YES" in (stdout or "").upper():
-                return {"status": "ok", "latency_ms": latency, "output": output_snippet}
-            else:
-                logger.warning(
-                    "test_model_connection: no YES in output version=%r resolved=%r stdout=%r",
-                    version, resolved_version, stdout[-300:],
-                )
-                return {"status": "fail", "latency_ms": latency, "error": f"{stdout}"}
-        else:
-            error_msg = stderr[-300:] if stderr else stdout[-300:] if stdout else "Unknown error"
-            logger.warning(
-                "test_model_connection failed: version=%r resolved=%r rc=%d error=%r",
-                version, resolved_version, returncode, error_msg,
-            )
-            return {"status": "fail", "latency_ms": latency, "error": error_msg}
+        if returncode == 0 and "YES" in (stdout or "").upper():
+            return {"status": "ok", "latency_ms": latency, "output": stdout[-200:], "resolved_model": resolved_version}
+
+        diag = _diagnose(returncode, stdout, stderr)
+        logger.warning(
+            "test_model_connection failed: version=%r resolved=%r rc=%d category=%s error=%r",
+            version, resolved_version, returncode, diag.get("category"), diag.get("error"),
+        )
+        return {"status": "fail", "latency_ms": latency, "resolved_model": resolved_version, **diag}
+
     except subprocess.TimeoutExpired:
         latency = int((time.time() - start) * 1000)
         logger.warning("test_model_connection timed out: version=%r resolved=%r", version, resolved_version)
-        return {"status": "fail", "latency_ms": latency, "error": "Timed out after 60s"}
+        return {"status": "fail", "latency_ms": latency, "category": "timeout", "error": "opencode did not respond within 60s", "fix": "The provider may be slow or unreachable. Try again."}
     except Exception as exc:
         latency = int((time.time() - start) * 1000)
         logger.warning("test_model_connection error: version=%r resolved=%r error=%r", version, resolved_version, str(exc))
-        return {"status": "fail", "latency_ms": latency, "error": str(exc)}
+        return {"status": "fail", "latency_ms": latency, "category": "unknown", "error": str(exc), "fix": "Check the dashboard server logs for the full stack trace."}
 
