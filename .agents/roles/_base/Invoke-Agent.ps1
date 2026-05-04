@@ -492,14 +492,14 @@ export OSTWIN_PYTHON='$venvPythonUnix'
             # $AgentCmd may be "opencode run", "'/path/to/agent'", or "/path/to/mock.ps1"
             $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
             $exe = $cmdParts[0]
-            $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length - 1)] } else { @() }
+            $cmdArgs = if ($cmdParts.Length -gt 1) { @($cmdParts[1..($cmdParts.Length - 1)]) } else { @() }
 
             # If the command is a .ps1 script (possibly wrapped in "pwsh -NoProfile -File script.ps1"),
             # extract the script path and run it directly via call operator in the wrapper.
             # This avoids nested pwsh invocations with broken argument passing.
             if ($exe -match '\.ps1$') {
                 # exe is already the .ps1 file — cmdArgs are its parameters
-                $allArgs = $cmdArgs + $extraCliArgs
+                $allArgs = @($cmdArgs) + @($extraCliArgs)
             } elseif ($exe -eq 'pwsh' -or $exe -eq 'powershell') {
                 # Look for -File flag and extract the script path
                 $fileIdx = [Array]::FindIndex($cmdArgs, [Predicate[object]]{ param($a) $a -eq '-File' })
@@ -513,12 +513,12 @@ export OSTWIN_PYTHON='$venvPythonUnix'
                             ($i -gt 0 -and $cmdArgs[$i - 1] -eq '-ExecutionPolicy')) { continue }
                         $remaining += $cmdArgs[$i]
                     }
-                    $allArgs = $remaining + $extraCliArgs
+                    $allArgs = @($remaining) + @($extraCliArgs)
                 } else {
-                    $allArgs = $cmdArgs + $extraCliArgs
+                    $allArgs = @($cmdArgs) + @($extraCliArgs)
                 }
             } else {
-                $allArgs = $cmdArgs + $extraCliArgs
+                $allArgs = @($cmdArgs) + @($extraCliArgs)
             }
             
             # Serialize args array into the wrapper script as a PowerShell array literal

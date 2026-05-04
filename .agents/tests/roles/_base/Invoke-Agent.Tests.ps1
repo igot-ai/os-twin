@@ -859,6 +859,23 @@ Write-Output "ARGS: `$(`$args -join ' ')"
             $capturedArgs[9] | Should -Be "--dangerously-skip-permissions"
         }
 
+        It "keeps multi-word AgentCmd prefix as separate arguments on Windows" {
+            $result = & $script:InvokeAgent -RoomDir $script:safeRoomDir `
+                -RoleName "engineer" -Prompt "test multi-word agent command" `
+                -Model "test-model" `
+                -AgentCmd "$script:safeArgsMock run" -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            $capturedArgs[0] | Should -Be "run" `
+                -Because "multi-word AgentCmd such as 'opencode run' must keep the subcommand as its own arg"
+            $capturedArgs[1] | Should -Be "..." `
+                -Because "the positional prompt placeholder must not concatenate with the subcommand"
+            $capturedArgs | Should -Not -Contain "run..." `
+                -Because "PowerShell scalar addition must not merge 'run' and '...'"
+        }
+
         It "--dir value is never concatenated with adjacent arguments" {
             # This is the exact regression test for the bug where Start-Process
             # with array-based -ArgumentList concatenated --dir path with 'run':
