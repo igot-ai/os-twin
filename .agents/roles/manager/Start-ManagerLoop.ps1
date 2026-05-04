@@ -136,6 +136,9 @@ try {
 while (-not $script:shuttingDown) {
     $iteration++
 
+    # --- Cleanup: remove completed/failed background jobs to prevent memory leaks ---
+    Prune-WorkerJobs
+
     # --- Hot-reload: check for new roles every 30s ---
     $nowEpochHR = Get-UnixEpoch
     if (($nowEpochHR - $script:rolesCacheMtime) -ge 30) {

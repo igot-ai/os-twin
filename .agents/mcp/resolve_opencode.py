@@ -106,6 +106,17 @@ def resolve_mcp_servers(servers, env_all):
                 out[key] = resolve_env_refs(val, env_all)
             else:
                 out[key] = val
+
+        # ── Gemini protocol guard: wrap local servers with mcp-proxy ──
+        # mcp-proxy.py intercepts tools/list responses and truncates any
+        # description > 1,024 chars before opencode forwards them to Gemini.
+        # This handles third-party servers (playwright, chrome-devtools, etc.)
+        # that we cannot patch directly.
+        server_type = cfg.get("type", "")
+        if server_type == "local" and "command" in out and isinstance(out["command"], list):
+            proxy_script = os.path.join(os.path.dirname(__file__), "mcp-proxy.py")
+            out["command"] = [python_abs, proxy_script, "--server-name", name, "--"] + out["command"]
+
         resolved[name] = out
 
     return resolved

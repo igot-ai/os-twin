@@ -1,5 +1,6 @@
+from __future__ import annotations
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Room(BaseModel):
@@ -118,6 +119,14 @@ class Skill(BaseModel):
     enabled: bool = True
     active_epics_count: int = 0
 
+    @field_validator("description", mode="before")
+    @classmethod
+    def _truncate_description(cls, v: str) -> str:
+        """Enforce 1,024-char limit for Gemini/Vertex AI tool declarations."""
+        if isinstance(v, str) and len(v) > 1021:
+            return v[:1021] + "..."
+        return v
+
 
 class Role(BaseModel):
     id: str
@@ -136,6 +145,14 @@ class Role(BaseModel):
     instance_type: str = "worker" # 'worker' | 'evaluator'
     created_at: str
     updated_at: str
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _truncate_description(cls, v: str) -> str:
+        """Enforce 1,024-char limit for Gemini/Vertex AI tool declarations."""
+        if isinstance(v, str) and len(v) > 1021:
+            return v[:1021] + "..."
+        return v
 
 
 class CreateRoleRequest(BaseModel):

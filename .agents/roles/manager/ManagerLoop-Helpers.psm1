@@ -808,6 +808,34 @@ function Complete-PlanApproval {
     }
 }
 
+# ---------------------------------------------------------------------------
+# Prune-WorkerJobs — remove completed/failed background jobs to prevent leaks
+# ---------------------------------------------------------------------------
+function Prune-WorkerJobs {
+    <#
+    .SYNOPSIS
+        Remove PowerShell background jobs that have completed or failed.
+    .DESCRIPTION
+        Long-running manager loops accumulate job handles in memory. Each completed
+        job retains stdout/stderr buffers until explicitly removed. Calling this
+        function every loop iteration prevents the handle count from growing
+        unboundedly, which avoids memory pressure and thermal thrashing during
+        agent crash/respawn loops.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $jobs = Get-Job -ErrorAction SilentlyContinue
+    if (-not $jobs) { return }
+
+    foreach ($job in $jobs) {
+        if ($job.State -in @('Completed', 'Failed', 'Stopped')) {
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            Write-Log "DEBUG" "[Prune-WorkerJobs] Removed job Id=$($job.Id) Name='$($job.Name)' State=$($job.State)"
+        }
+    }
+}
+
 Export-ModuleMember -Function @(
     'Get-UnixEpoch',
     'Write-AtomicFile',
@@ -832,5 +860,6 @@ Export-ModuleMember -Function @(
     'Set-BlockedDescendants',
     'Invoke-ManagerTriage',
     'Write-TriageContext',
-    'Complete-PlanApproval'
+    'Complete-PlanApproval',
+    'Prune-WorkerJobs'
 )
