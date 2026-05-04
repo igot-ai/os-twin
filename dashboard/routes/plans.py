@@ -2277,13 +2277,20 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     local_plan_path = local_plans_dir / f"{plan_id}.md"
     launch_plan_path = local_plan_path if local_plan_path.exists() else plan_path
 
-    # Spawn OS Twin in background
+    # Log file for debugging ostwin run
+    log_file = wd_path / ".agents" / "logs" / f"launch-{plan_id}.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = open(log_file, 'w')
+
+    # Spawn OS Twin in background (capture output to log file)
+    # Run from working_dir - ostwin will auto-detect project context
     subprocess.Popen(
-        [str(ostwin_bin), "run", str(launch_plan_path), "--working-dir", str(wd_path)],
+        [str(ostwin_bin), "run", str(launch_plan_path), "--non-interactive"],
         cwd=str(wd_path),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
     )
+    logger.info(f"run_plan: launched ostwin run for {plan_id}, logs: {log_file}")
 
     return {"status": "launched", "plan_file": plan_filename, "plan_id": plan_id}
 
