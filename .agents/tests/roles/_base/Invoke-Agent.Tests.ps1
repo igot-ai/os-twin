@@ -1,4 +1,4 @@
-# Agent OS — Invoke-Agent Pester Tests
+# Agent OS - Invoke-Agent Pester Tests
 
 BeforeAll {
     $script:InvokeAgent = Join-Path (Resolve-Path "$PSScriptRoot/../../../roles/_base").Path "Invoke-Agent.ps1"
@@ -256,7 +256,7 @@ Describe "Invoke-Agent" {
                 -AgentCmd "echo" -TimeoutSeconds 5
 
             $countAfterSecond = (Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue).Count
-            # Skill count should be stable — same skills, not doubled
+            # Skill count should be stable - same skills, not doubled
             $countAfterSecond | Should -Be $countAfterFirst
         }
 
@@ -275,7 +275,7 @@ Describe "Invoke-Agent" {
         }
 
         It "handles non-existent role gracefully without crashing" {
-            # Non-existent role has no role.json and no private skills — should not throw
+            # Non-existent role has no role.json and no private skills - should not throw
             { & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "non-existent-role" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5 } | Should -Not -Throw
@@ -527,7 +527,7 @@ Write-Output "PROJDIR_CHECK:`$val"
         }
 
         It "does not pass --dir when ProjectDir cannot be resolved" {
-            # $script:roomDir is NOT inside .war-rooms — ProjectDir stays empty
+            # $script:roomDir is NOT inside .war-rooms - ProjectDir stays empty
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd $script:argsMock -TimeoutSeconds 5
@@ -591,7 +591,7 @@ Write-Output "ARGS: `$(`$args -join ' ')"
     Context "Default AgentCmd resolution" {
         It "always defaults to opencode run" {
             # Verify that without -AgentCmd or OSTWIN_AGENT_CMD, the resolved
-            # command is 'opencode run' — no bin/agent lookup.
+            # command is 'opencode run' - no bin/agent lookup.
             # We use a capture mock via -AgentCmd to verify the script reaches
             # the execution phase without crashing.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
@@ -693,8 +693,8 @@ Write-Output "ARGS: `$(`$args -join ' ')"
     }
 
     Context "Model resolution fallback chain (integration)" {
-        # Full chain: -Model param → plan.roles.json → config.json instance →
-        #             config.json role → role.json → hardcoded default.
+        # Full chain: -Model param -> plan.roles.json -> config.json instance ->
+        #             config.json role -> role.json -> hardcoded default.
         # Critical: role.json fallback must work even when config.json is ABSENT.
 
         It "uses role.json model when config.json is absent" {
@@ -888,7 +888,7 @@ Write-Output "ARGS: `$(`$args -join ' ')"
             Test-Path $script:safeArgsDump | Should -BeTrue
             $capturedArgs = Get-Content $script:safeArgsDump
 
-            # The --dir value must be EXACTLY the project dir — no trailing junk
+            # The --dir value must be EXACTLY the project dir - no trailing junk
             $dirIdx = [array]::IndexOf($capturedArgs, "--dir")
             $dirIdx | Should -BeGreaterOrEqual 0 -Because "--dir flag must be present"
             $dirValue = $capturedArgs[$dirIdx + 1]
@@ -933,7 +933,7 @@ Write-Output "ARGS: `$(`$args -join ' ')"
                 -Because "spaces in path must be preserved as a single argument, not split"
         }
 
-        It "prompt text is never inlined — only passed via --file" {
+        It "prompt text is never inlined - only passed via --file" {
             $longPrompt = "This is a detailed prompt about authentication and user management"
 
             $result = & $script:InvokeAgent -RoomDir $script:safeRoomDir `
@@ -1006,7 +1006,7 @@ Write-Output "ARGS: `$(`$args -join ' ')"
         }
 
         It "without ProjectDir, --dir is omitted and arg count adjusts" {
-            # Use a room that is NOT inside .war-rooms — no ProjectDir
+            # Use a room that is NOT inside .war-rooms - no ProjectDir
             $flatRoom = Join-Path $TestDrive "flat-room-$(Get-Random)"
             New-Item -ItemType Directory -Path (Join-Path $flatRoom "artifacts") -Force | Out-Null
             New-Item -ItemType Directory -Path (Join-Path $flatRoom "pids") -Force | Out-Null
