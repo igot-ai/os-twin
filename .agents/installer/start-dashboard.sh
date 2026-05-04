@@ -20,19 +20,35 @@ start_dashboard() {
     return
   fi
 
-  # Stop any existing process on the dashboard port
-  local local_pids
-  local_pids=$(lsof -ti:"$DASHBOARD_PORT" 2>/dev/null || true)
-  if [[ -n "$local_pids" ]]; then
-    step "Stopping existing process on :$DASHBOARD_PORT..."
-    echo "$local_pids" | xargs kill 2>/dev/null || true
-    sleep 2
-    # Force-kill if still alive (ML models can delay graceful shutdown)
-    local_pids=$(lsof -ti:"$DASHBOARD_PORT" 2>/dev/null || true)
-    if [[ -n "$local_pids" ]]; then
-      echo "$local_pids" | xargs kill -9 2>/dev/null || true
-      sleep 1
+  # Stop any existing dashboard process.
+  # Only kill Python/uvicorn processes — NOT SSH tunnels or VS Code port forwards
+  # which also show up on the same port via lsof.
+  local pid_file="$INSTALL_DIR/dashboard.pid"
+  if [[ -f "$pid_file" ]]; then
+    local old_pid
+    old_pid=$(cat "$pid_file" 2>/dev/null)
+    if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+      step "Stopping existing dashboard (PID $old_pid)..."
+      kill "$old_pid" 2>/dev/null || true
+      sleep 2
+      if kill -0 "$old_pid" 2>/dev/null; then
+        kill -9 "$old_pid" 2>/dev/null || true
+        sleep 1
+      fi
     fi
+    rm -f "$pid_file"
+  fi
+  # Fallback: if no PID file but a Python process is listening, kill it (not SSH)
+  local py_pids
+  py_pids=$(lsof -ti:"$DASHBOARD_PORT" -sTCP:LISTEN 2>/dev/null | while read pid; do
+    local comm
+    comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+    case "$comm" in *python*|*uvicorn*) echo "$pid" ;; esac
+  done)
+  if [[ -n "$py_pids" ]]; then
+    step "Stopping stale dashboard process on :$DASHBOARD_PORT..."
+    echo "$py_pids" | xargs kill 2>/dev/null || true
+    sleep 2
   fi
 
   # Source .env so the dashboard process inherits API keys
