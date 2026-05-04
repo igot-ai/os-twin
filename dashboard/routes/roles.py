@@ -822,12 +822,18 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
 
     def _run() -> tuple[int, str, str]:
         try:
+            # ── Override OPENCODE_CONFIG ───────────────────────────────────────
+            # The dashboard process may have OPENCODE_CONFIG set (by Invoke-Agent.ps1)
+            # pointing to the project's opencode.json which includes MCP servers.
+            # OPENCODE_CONFIG takes precedence over --dir, so even our minimal
+            # tempdir config would be ignored without this override.
+            test_env = {**os.environ, "OPENCODE_CONFIG": config_path}
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=60,
-                env={**os.environ},
+                env=test_env,
             )
             return result.returncode, result.stdout.strip(), result.stderr.strip()
         finally:
