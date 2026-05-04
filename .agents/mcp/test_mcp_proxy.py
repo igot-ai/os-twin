@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for mcp-proxy.py — MCP stdio logging proxy."""
 
-import fcntl
 import json
 import os
 import signal
@@ -11,6 +10,13 @@ import tempfile
 import textwrap
 import time
 import unittest
+
+# Cross-platform file locking for test utilities
+try:
+    import fcntl
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False
 
 PROXY_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp-proxy.py")
 PYTHON = sys.executable

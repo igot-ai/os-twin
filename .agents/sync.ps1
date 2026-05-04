@@ -155,9 +155,13 @@ Write-Host "  [synced] libraries"
 $binDir = Join-Path $TargetAgents "bin"
 if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir -Force | Out-Null }
 $srcOstwin = Join-Path $SourceAgents "bin" "ostwin"
-if (Test-Path $srcOstwin) { Copy-Item -Path $srcOstwin -Destination (Join-Path $binDir "ostwin") -Force }
-# Also sync PS1 entry points
-foreach ($ps1 in @("ostwin.ps1", "ostwin.cmd", "agent.ps1", "memory.ps1")) {
+if (Test-Path $srcOstwin) {
+    Copy-Item -Path $srcOstwin -Destination (Join-Path $binDir "ostwin") -Force
+    # On Windows, also create ostwin.ps1 from ostwin (ostwin.cmd calls ostwin.ps1)
+    Copy-Item -Path $srcOstwin -Destination (Join-Path $binDir "ostwin.ps1") -Force
+}
+# Also sync other PS1 entry points
+foreach ($ps1 in @("ostwin.cmd", "agent.ps1", "memory.ps1")) {
     $src = Join-Path $SourceAgents "bin" $ps1
     if (Test-Path $src) { Copy-Item -Path $src -Destination (Join-Path $binDir $ps1) -Force }
 }

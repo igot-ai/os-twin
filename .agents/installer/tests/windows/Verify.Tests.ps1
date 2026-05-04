@@ -4,7 +4,7 @@
 
 BeforeAll {
     . "$PSScriptRoot/TestHelper.ps1"
-    Import-InstallerModule -Modules @("Lib.ps1", "Versions.ps1", "Check-Deps.ps1", "Verify.ps1")
+    Import-InstallerModule -Modules @("Lib.ps1", "Versions.ps1", "Check-Deps.ps1", "Install-Deps.ps1", "Verify.ps1")
     . $script:_ImportedModuleScript
 }
 
@@ -23,12 +23,30 @@ Describe "Verify-Components" {
     }
 
     It "Should not throw in full mode" {
-        { Verify-Components } | Should -Not -Throw
+        { Verify-Components 6>$null } | Should -Not -Throw
     }
 
-    It "Should not throw in dashboard-only mode" {
+    It "should not throw in dashboard-only mode" {
         $script:DashboardOnly = $true
-        { Verify-Components } | Should -Not -Throw
+        { Verify-Components 6>$null } | Should -Not -Throw
+    }
+
+    It "should show obscura path when installed" {
+        # Create fake obscura.exe
+        $binDir = Join-Path $testDir ".agents\bin"
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+        $fakeObscura = Join-Path $binDir "obscura.exe"
+        [System.IO.File]::WriteAllText($fakeObscura, "fake")
+
+        # Capture Write-Host output via InformationVariable
+        $info = @()
+        Verify-Components -InformationVariable info 6>$null
+        $output = $info -join "`n"
+
+        # Output should include obscura line with version and path
+        $output | Should -Match "obscura.*installed"
+        # Check path contains the expected bin directory
+        $output | Should -Match "\.agents\\bin\\obscura\.exe"
     }
 }
 
@@ -42,26 +60,26 @@ Describe "Print-CompletionBanner" {
         $script:StartChannel = $false
     }
 
-    It "Should not throw" {
-        { Print-CompletionBanner } | Should -Not -Throw
+    It "should not throw" {
+        { Print-CompletionBanner 6>$null } | Should -Not -Throw
     }
 
-    It "Should not throw with tunnel URL" {
+    It "should not throw with tunnel URL" {
         $script:TunnelUrl = "https://test.ngrok.io"
-        { Print-CompletionBanner } | Should -Not -Throw
+        { Print-CompletionBanner 6>$null } | Should -Not -Throw
     }
 
-    It "Should not throw with channel enabled" {
+    It "should not throw with channel enabled" {
         $script:StartChannel = $true
-        { Print-CompletionBanner } | Should -Not -Throw
+        { Print-CompletionBanner 6>$null } | Should -Not -Throw
     }
 
-    It "Should display API key when available" {
+    It "should display API key when available" {
         # Create .env with key
         $envFile = Join-Path $testDir ".env"
         Set-Content -Path $envFile -Value "OSTWIN_API_KEY=test_key_123"
 
-        { Print-CompletionBanner } | Should -Not -Throw
+        { Print-CompletionBanner 6>$null } | Should -Not -Throw
     }
 }
 

@@ -6,10 +6,41 @@ Usage: python merge_mcp_builtin.py <config_path> <builtin_path>
 Reads the built-in server definitions and adds any that don't already
 exist in the user's config. Also updates environment blocks for existing
 servers if they were previously empty.
+
+Removes deprecated builtin servers if they match old managed commands.
 """
 
 import json
 import sys
+
+
+DEPRECATED_BUILTINS = {
+    "chrome-devtools": ["chrome-devtools-mcp"],
+}
+
+
+def _is_deprecated_managed_server(name: str, server: dict) -> bool:
+    """Check if server is a deprecated managed builtin (not user-custom).
+
+    Handles command as either a list or a string.
+    """
+    if name not in DEPRECATED_BUILTINS:
+        return False
+
+    deprecated_patterns = DEPRECATED_BUILTINS[name]
+    cmd = server.get("command", "")
+
+    if isinstance(cmd, list):
+        cmd_str = " ".join(str(c) for c in cmd)
+    elif isinstance(cmd, str):
+        cmd_str = cmd
+    else:
+        return False
+
+    for pattern in deprecated_patterns:
+        if pattern in cmd_str:
+            return True
+    return False
 
 
 def merge_builtin(cfg_path: str, builtin_path: str) -> None:
@@ -20,6 +51,13 @@ def merge_builtin(cfg_path: str, builtin_path: str) -> None:
 
     cfg_servers = config.setdefault("mcp", config.get("mcpServers", {}))
     builtin_servers = builtin.get("mcp", builtin.get("mcpServers", {}))
+
+    removed = []
+    for name in list(cfg_servers.keys()):
+        server = cfg_servers[name]
+        if isinstance(server, dict) and _is_deprecated_managed_server(name, server):
+            del cfg_servers[name]
+            removed.append(name)
 
     added = []
     updated = []
@@ -42,11 +80,13 @@ def merge_builtin(cfg_path: str, builtin_path: str) -> None:
                 existing["environment"] = server["environment"]
                 updated.append(name)
 
-    if added or updated:
+    if added or updated or removed:
         with open(cfg_path, "w") as f:
             json.dump(config, f, indent=2)
             f.write("\n")
         parts = []
+        if removed:
+            parts.append(f"removed {len(removed)} deprecated server(s): {', '.join(removed)}")
         if added:
             parts.append(f"added {len(added)} new server(s): {', '.join(added)}")
         if updated:

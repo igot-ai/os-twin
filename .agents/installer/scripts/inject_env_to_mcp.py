@@ -62,7 +62,7 @@ def inject_env(mcp_path: str, env_path: str) -> None:
         server_str = json.dumps(server)
         server_refs = set(re.findall(r"\$\{(\w+)(?:[:-][^}]*)?\}", server_str))
         server_refs |= set(re.findall(r"\{env:(\w+)\}", server_str))
-        # Only inject vars that this server references, or resolve existing placeholder env values
+        # Resolve placeholders in environment block
         for k, v in env_vars.items():
             if k in server[env_key]:
                 cur = server[env_key][k]
@@ -70,6 +70,14 @@ def inject_env(mcp_path: str, env_path: str) -> None:
                     server[env_key][k] = v
             elif k in server_refs and v:
                 server[env_key][k] = v
+        # Resolve {env:VAR} placeholders in command array elements
+        if "command" in server and isinstance(server["command"], list):
+            for idx, cmd_elem in enumerate(server["command"]):
+                if isinstance(cmd_elem, str):
+                    for k, v in env_vars.items():
+                        placeholder = f"{{env:{k}}}"
+                        if placeholder in cmd_elem and v:
+                            server["command"][idx] = cmd_elem.replace(placeholder, v)
 
     with open(mcp_path, "w") as f:
         json.dump(config, f, indent=2)

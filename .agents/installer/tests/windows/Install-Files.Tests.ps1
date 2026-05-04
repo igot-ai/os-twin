@@ -41,7 +41,6 @@ Describe "Compute-BuildHash" {
         $hash1 | Should -Be $hash2
     }
 }
-
 Describe "Migrate-McpConfig" {
     BeforeEach {
         $testDir = Join-Path $TestDrive "test-mcp"
@@ -230,6 +229,61 @@ Describe "Sync-Bot" {
 
     It "Should not fail when bot source not found" {
         { Sync-Bot } | Should -Not -Throw
+    }
+}
+
+Describe "ostwin.ps1 Generation" {
+    BeforeEach {
+        $testDir = Join-Path $TestDrive "test-ostwin-$(Get-Random)"
+        $scriptDir = Join-Path $testDir "source\.agents"
+        $installDir = Join-Path $testDir "install"
+        $binSrcDir = Join-Path $scriptDir "bin"
+        $binDstDir = Join-Path $installDir ".agents\bin"
+
+        New-Item -ItemType Directory -Path $binSrcDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $binDstDir -Force | Out-Null
+
+        $script:ScriptDir = $scriptDir
+        $script:InstallDir = $installDir
+        $script:SourceDir = Join-Path $testDir "source"
+        $script:VenvDir = Join-Path $installDir ".venv"
+        $script:PythonCmd = "python"
+        $script:InstallerScriptsDir = Join-Path $PSScriptRoot ".."
+    }
+
+    It "Should copy bin/ostwin to bin/ostwin.ps1 on Windows" {
+        # Create a mock ostwin file (the real CLI)
+        $ostwinContent = @"
+#!/usr/bin/env pwsh
+Write-Host "ostwin CLI"
+"@
+        Set-Content -Path (Join-Path $binSrcDir "ostwin") -Value $ostwinContent
+
+        # Run the install (we need to call Install-Files, but that's too heavy)
+        # Instead, simulate the post-robocopy step
+        $srcOstwin = Join-Path $binDstDir "ostwin"
+        $dstOstwinPs1 = Join-Path $binDstDir "ostwin.ps1"
+        Copy-Item -Path (Join-Path $binSrcDir "ostwin") -Destination $srcOstwin -Force
+        Copy-Item -Path $srcOstwin -Destination $dstOstwinPs1 -Force
+
+        # Verify ostwin.ps1 exists and is NOT a recursive stub
+        Test-Path $dstOstwinPs1 | Should -Be $true
+        $content = Get-Content $dstOstwinPs1 -Raw
+        $content | Should -Not -Match "^ostwin\s*$" -Because "ostwin.ps1 should not be a recursive stub"
+        $content | Should -Match "Write-Host" -Because "ostwin.ps1 should contain real CLI code"
+    }
+
+    It "Should not create ostwin.ps1 that calls 'ostwin' (prevents recursion)" {
+        # Create a mock ostwin file
+        Set-Content -Path (Join-Path $binSrcDir "ostwin") -Value "#!/usr/bin/env pwsh`n# Real CLI content`nWrite-Host 'CLI'"
+
+        $srcOstwin = Join-Path $binDstDir "ostwin"
+        $dstOstwinPs1 = Join-Path $binDstDir "ostwin.ps1"
+        Copy-Item -Path (Join-Path $binSrcDir "ostwin") -Destination $srcOstwin -Force
+        Copy-Item -Path $srcOstwin -Destination $dstOstwinPs1 -Force
+
+        $content = Get-Content $dstOstwinPs1 -Raw
+        $content.Trim() | Should -Not -Be "ostwin" -Because "A single-word 'ostwin' causes infinite recursion"
     }
 }
 

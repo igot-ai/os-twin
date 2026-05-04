@@ -368,3 +368,121 @@ function Install-PesterModule {
         }
     }
 }
+
+# ─── Helper: Select Obscura release asset ─────────────────────────────────────
+
+function _Select-ObscuraAsset {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Release,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AssetPattern
+    )
+
+    $assets = $Release.assets
+    foreach ($asset in $assets) {
+        if ($asset.name -match $AssetPattern) {
+            return $asset
+        }
+    }
+    return $null
+}
+
+# ─── Obscura (headless browser for MCP) ───────────────────────────────────────
+
+function Install-Obscura {
+    [CmdletBinding()]
+    param()
+
+    # Already installed?
+    $obscuraPath = Check-Obscura
+    if ($obscuraPath) {
+        $ver = Get-ObscuraVersionSafe -Path $obscuraPath
+        Write-Ok "obscura $ver ($obscuraPath)"
+        return
+    }
+
+    Write-Step "Installing Obscura (headless browser for MCP)..."
+
+    # Only support Windows x64 for now
+    if ($script:ARCH -notin @("x64", "amd64")) {
+        Write-Warn "Obscura binary not available for architecture: $($script:ARCH)"
+        Write-Info "Install manually from: https://github.com/h4ckf0r0day/obscura/releases"
+        return
+    }
+
+    # Ensure install directory exists
+    $binDir = Join-Path $script:InstallDir ".agents\bin"
+    if (-not (Test-Path $binDir)) {
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    }
+
+    # Create unique temp directory for this install
+    $tempDir = Join-Path $env:TEMP "ostwin-obscura-$(New-Guid)"
+    $zipPath = Join-Path $tempDir "obscura.zip"
+    $extractDir = Join-Path $tempDir "extract"
+
+    try {
+        # Fetch latest release info from GitHub API
+        Write-Step "Fetching latest Obscura release..."
+        $releaseUrl = "https://api.github.com/repos/h4ckf0r0day/obscura/releases/latest"
+        $headers = @{
+            "Accept" = "application/vnd.github.v3+json"
+            "User-Agent" = "Ostwin-Installer"
+        }
+        $release = Invoke-RestMethod -Uri $releaseUrl -Headers $headers -UseBasicParsing
+
+        # Find Windows x64 asset
+        $asset = _Select-ObscuraAsset -Release $release -AssetPattern "obscura-x86_64-windows\.zip"
+        if (-not $asset) {
+            Write-Warn "Could not find obscura-x86_64-windows.zip in latest release"
+            Write-Info "Available assets: $($release.assets.name -join ', ')"
+            return
+        }
+
+        $downloadUrl = $asset.browser_download_url
+        Write-Step "Downloading from $downloadUrl..."
+
+        # Create unique temp directory
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+
+        # Download to unique temp path
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -UseBasicParsing
+
+        # Extract
+        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+        # Find obscura.exe in extracted content
+        $obscuraExe = Get-ChildItem -Path $extractDir -Filter "obscura.exe" -Recurse | Select-Object -First 1
+        if (-not $obscuraExe) {
+            Write-Warn "obscura.exe not found in downloaded archive"
+            return
+        }
+
+        # Copy to install location
+        $destPath = Join-Path $binDir "obscura.exe"
+        Copy-Item -Path $obscuraExe.FullName -Destination $destPath -Force
+
+        # Add to PATH for current session
+        if ($env:PATH -notlike "*$binDir*") {
+            $env:PATH = "$binDir;$env:PATH"
+        }
+
+        # Verify
+        $ver = Get-ObscuraVersionSafe -Path $destPath
+        Write-Ok "obscura $ver installed to $destPath"
+    }
+    catch {
+        Write-Warn "Failed to install Obscura: $_"
+        Write-Info "Install manually from: https://github.com/h4ckf0r0day/obscura/releases"
+    }
+    finally {
+        # Cleanup temp directory
+        if (Test-Path $tempDir) {
+            Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}

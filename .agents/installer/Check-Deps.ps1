@@ -1,7 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Check-Deps.ps1 — Dependency presence checks (pure — no installs)
 #
-# Provides: Check-Python, Check-Pwsh, Check-Node, Check-UV, Check-OpenCode
+# Provides: Check-Python, Check-Pwsh, Check-Node, Check-UV, Check-OpenCode,
+#           Check-Obscura, Get-ObscuraVersionSafe
 #
 # Requires: Lib.ps1 (Compare-VersionGte), Versions.ps1 (MinPythonVersion, MinPwshVersion)
 #
@@ -111,4 +112,51 @@ function Check-OpenCode {
     param()
 
     $null -ne (Get-Command opencode -ErrorAction SilentlyContinue)
+}
+
+# ─── Obscura (headless browser for MCP) ───────────────────────────────────────
+
+function Check-Obscura {
+    [CmdletBinding()]
+    param()
+
+    # Check if obscura is on PATH
+    $obscuraCmd = Get-Command obscura -ErrorAction SilentlyContinue
+    if ($obscuraCmd) {
+        return $obscuraCmd.Source
+    }
+
+    # Check if installed in .agents\bin
+    if ($script:InstallDir) {
+        $obscuraExe = Join-Path $script:InstallDir ".agents\bin\obscura.exe"
+        if (Test-Path $obscuraExe) {
+            return $obscuraExe
+        }
+    }
+
+    return ""
+}
+
+function Get-ObscuraVersionSafe {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return ""
+    }
+
+    try {
+        $verOutput = & $Path --version 2>&1
+        $ver = ($verOutput -replace '[^0-9.]', '' | Select-Object -First 1)
+        if ($ver) {
+            return $ver
+        }
+        return "installed"
+    }
+    catch {
+        return "installed"
+    }
 }

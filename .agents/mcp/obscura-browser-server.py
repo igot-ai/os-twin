@@ -1,0 +1,516 @@
+#!/usr/bin/env python3
+"""
+Agent OS — MCP Obscura Browser Server
+
+Controls Obscura browser through Chrome DevTools Protocol (CDP).
+Uses Playwright Python as a CDP client only — does NOT require browser installation.
+
+Environment:
+    OBSCURA_BIN           Path to obscura binary (default: "obscura")
+    OBSCURA_PORT          CDP port (default: 9222)
+    OBSCURA_ARGS          Additional args for obscura serve (e.g., "--stealth")
+    OSTWIN_BROWSER_DOWNLOAD_DIR  Download directory (default: AGENT_OS_ROOM_DIR/artifacts/downloads)
+    AGENT_OS_ROOM_DIR     Fallback for download dir resolution
+"""
+
+import asyncio
+import base64
+import json
+import os
+import re
+import shutil
+import subprocess
+import pathlib
+from typing import Annotated, Any, Dict, List, Optional
+
+original_is_file = pathlib.Path.is_file
+def safe_is_file(self):
+    try:
+        return original_is_file(self)
+    except PermissionError:
+        return False
+pathlib.Path.is_file = safe_is_file
+
+from pydantic import Field
+from mcp.server.fastmcp import FastMCP
+
+
+OBSCURA_BIN = os.environ.get("OBSCURA_BIN", "obscura")
+OBSCURA_PORT = int(os.environ.get("OBSCURA_PORT", "9222"))
+OBSCURA_ARGS = os.environ.get("OBSCURA_ARGS", "")
+
+
+def _resolve_download_dir() -> str:
+    """Resolve download directory from env, with safe fallbacks."""
+    download_dir = os.environ.get("OSTWIN_BROWSER_DOWNLOAD_DIR", "")
+    if download_dir:
+        path = os.path.abspath(download_dir)
+    else:
+        room_dir = os.environ.get("AGENT_OS_ROOM_DIR", "")
+        if room_dir:
+            path = os.path.join(room_dir, "artifacts", "downloads")
+        else:
+            path = os.path.abspath("./downloads")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal and invalid characters.
+
+    Cross-platform: strips both / and \\ separators on all OSes.
+    - Extracts basename (last component after / or \\)
+    - Removes parent directory references
+    - Keeps only alphanumeric, dash, underscore, dot
+    - Strips leading dots (hidden files)
+    - Preserves extension when truncating
+    - Max length 255
+    """
+    if not filename:
+        return "download"
+    parts = re.split(r"[/\\]", filename)
+    filename = parts[-1] if parts else "download"
+    filename = re.sub(r"[^\w\-.]", "_", filename)
+    filename = re.sub(r"_+", "_", filename).strip("_")
+    filename = filename.lstrip(".")
+    if not filename:
+        filename = "download"
+    if len(filename) > 255:
+        ext = ""
+        if "." in filename:
+            name, ext = filename.rsplit(".", 1)
+            ext = "." + ext
+            max_name = 255 - len(ext)
+            filename = name[:max_name] + ext
+        else:
+            filename = filename[:255]
+    return filename
+
+
+def _is_safe_download_path(download_dir: str, target_path: str) -> bool:
+    """Check if target_path is inside download_dir (no path traversal)."""
+    try:
+        download_dir = os.path.abspath(download_dir)
+        target_path = os.path.abspath(target_path)
+        return os.path.commonpath([download_dir]) == os.path.commonpath([download_dir, target_path])
+    except (ValueError, OSError):
+        return False
+
+
+def _safe_download_path(download_dir: str, filename: str) -> str:
+    """Construct a safe download path, raising if traversal attempted."""
+    sanitized = _sanitize_filename(filename)
+    full_path = os.path.join(download_dir, sanitized)
+    if not _is_safe_download_path(download_dir, full_path):
+        raise ValueError(f"Path traversal blocked: {filename}")
+    return full_path
+
+
+def _get_default_launch_args(port: int) -> List[str]:
+    """Get default launch args for obscura serve (no --stealth by default)."""
+    return ["serve", "--port", str(port)]
+
+
+def _build_launch_args(port: int, extra_args: str = "") -> List[str]:
+    """Build complete launch args, merging defaults with OBSCURA_ARGS."""
+    args = _get_default_launch_args(port)
+    if extra_args:
+        extra = extra_args.strip().split()
+        for arg in extra:
+            if arg and arg not in args:
+                args.append(arg)
+    return args
+
+
+_element_ref_map: Dict[str, Dict[str, Any]] = {}
+_ref_counter: int = 0
+
+
+def _reset_ref_map() -> None:
+    """Reset the element ref map (for testing)."""
+    global _element_ref_map, _ref_counter
+    _element_ref_map = {}
+    _ref_counter = 0
+
+
+def _build_ref() -> str:
+    """Build a new element ref like @e1, @e2, etc."""
+    global _ref_counter
+    _ref_counter += 1
+    return f"@e{_ref_counter}"
+
+
+def _store_element(ref: str, element_data: Dict[str, Any]) -> None:
+    """Store element data in ref map."""
+    _element_ref_map[ref] = element_data
+
+
+def _resolve_ref(ref_or_selector: str) -> str:
+    """Resolve @eN ref to selector, or return raw selector if not a ref."""
+    if ref_or_selector.startswith("@e") and ref_or_selector in _element_ref_map:
+        elem = _element_ref_map[ref_or_selector]
+        return elem.get("selector", ref_or_selector)
+    return ref_or_selector
+
+
+def _build_elements_from_accessibility_tree(node: Any, elements: List[Dict], selector_prefix: str = "") -> None:
+    """Flatten accessibility tree into element list with refs and selectors."""
+    if not isinstance(node, dict):
+        return
+
+    role = node.get("role", "")
+    name = node.get("name", "")
+
+    if role and name:
+        ref = _build_ref()
+        selector = f'[aria-label="{name}"]' if name else f'[role="{role}"]'
+        if role == "button":
+            selector = f'button:has-text("{name}")' if name else "button"
+        elif role == "link":
+            selector = f'a:has-text("{name}")' if name else "a"
+        elif role == "textbox":
+            selector = f'input[aria-label="{name}"]' if name else "input[type=text], textarea"
+        elif role == "heading":
+            selector = f'h1, h2, h3, h4, h5, h6'
+
+        elem_data = {"ref": ref, "role": role, "name": name, "selector": selector}
+        elements.append(elem_data)
+        _store_element(ref, elem_data)
+
+    for child in node.get("children", []):
+        _build_elements_from_accessibility_tree(child, elements)
+
+
+mcp = FastMCP("ostwin-obscura-browser", log_level="CRITICAL")
+
+_browser_process: Optional[subprocess.Popen] = None
+_playwright: Any = None
+_cdp_client: Any = None
+_page: Any = None
+
+
+async def _ensure_browser() -> dict:
+    """Ensure browser is running and connected. Returns status dict."""
+    global _playwright, _cdp_client, _page
+
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return {"running": False, "error": "playwright not installed"}
+
+    if _page is not None:
+        try:
+            await _page.evaluate("1")
+            return {"running": True, "port": OBSCURA_PORT}
+        except Exception:
+            _page = None
+            _cdp_client = None
+            _playwright = None
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"http://localhost:{OBSCURA_PORT}/json/version")
+            if resp.status_code == 200:
+                data = resp.json()
+                ws_url = data.get("webSocketDebuggerUrl")
+                if ws_url:
+                    _playwright = await async_playwright().start()
+                    _cdp_client = await _playwright.chromium.connect_over_cdp(ws_url)
+                    contexts = _cdp_client.contexts
+                    if contexts:
+                        pages = contexts[0].pages
+                        _page = pages[0] if pages else await contexts[0].new_page()
+                    else:
+                        ctx = await _cdp_client.new_context()
+                        _page = await ctx.new_page()
+                    return {"running": True, "port": OBSCURA_PORT}
+    except Exception:
+        pass
+
+    return {"running": False, "port": OBSCURA_PORT}
+
+
+async def _start_browser(headless: bool = True) -> dict:
+    """Start Obscura browser process."""
+    global _browser_process
+
+    status = await _ensure_browser()
+    if status.get("running"):
+        return status
+
+    obscura_exe = shutil.which(OBSCURA_BIN) or OBSCURA_BIN
+    args = _build_launch_args(OBSCURA_PORT, OBSCURA_ARGS)
+    full_cmd = [obscura_exe] + args
+
+    try:
+        _browser_process = subprocess.Popen(
+            full_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        return {"running": False, "error": f"Obscura binary not found: {obscura_exe}"}
+    except Exception as e:
+        return {"running": False, "error": str(e)}
+
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        status = await _ensure_browser()
+        if status.get("running"):
+            return status
+
+    return {"running": False, "error": "Browser failed to start within timeout"}
+
+
+@mcp.tool()
+async def browser_health() -> str:
+    """Check browser connection health.
+
+    Returns JSON with 'running' boolean and optional 'error' or 'port'.
+    """
+    status = await _ensure_browser()
+    return json.dumps(status)
+
+
+@mcp.tool()
+async def browser_open(
+    url: Annotated[str, Field(description="URL to navigate to")],
+    headless: Annotated[bool, Field(description="Run in headless mode (default: true)")] = True,
+    wait_until: Annotated[str, Field(description="Wait condition: load | domcontentloaded | networkidle")] = "load",
+) -> str:
+    """Open URL in browser, starting browser if needed.
+
+    Returns JSON with 'success' boolean and 'url' or 'error'.
+    """
+    status = await _ensure_browser()
+    if not status.get("running"):
+        start_result = await _start_browser(headless=headless)
+        if not start_result.get("running"):
+            return json.dumps(start_result)
+
+    if _page is None:
+        return json.dumps({"success": False, "error": "No page available"})
+
+    try:
+        await _page.goto(url, wait_until=wait_until, timeout=30000)
+        return json.dumps({"success": True, "url": url, "title": await _page.title()})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+
+@mcp.tool()
+async def browser_snapshot() -> str:
+    """Capture accessibility snapshot of current page with deterministic element refs.
+
+    Returns JSON like:
+    { "url": "...", "title": "...", "elements": [{ "ref": "@e1", "role": "...", "name": "...", "selector": "..." }] }
+    """
+    if _page is None:
+        return json.dumps({"error": "No page open"})
+
+    try:
+        _reset_ref_map()
+        acc = await _page.accessibility.snapshot()
+        elements: List[Dict] = []
+        _build_elements_from_accessibility_tree(acc, elements)
+        return json.dumps({
+            "url": _page.url,
+            "title": await _page.title(),
+            "elements": elements
+        }, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+async def browser_click(
+    selector: Annotated[str, Field(description="CSS selector or @eN ref from browser_snapshot")],
+    timeout: Annotated[int, Field(description="Timeout in ms (default: 5000)")] = 5000,
+) -> str:
+    """Click element matching selector or ref.
+
+    Returns JSON with 'success' boolean and 'selector' or 'error'.
+    """
+    if _page is None:
+        return json.dumps({"success": False, "error": "No page open"})
+
+    resolved = _resolve_ref(selector)
+    try:
+        await _page.click(resolved, timeout=timeout)
+        return json.dumps({"success": True, "selector": selector, "resolved": resolved})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e), "selector": selector})
+
+
+@mcp.tool()
+async def browser_fill(
+    selector: Annotated[str, Field(description="CSS selector or @eN ref for input element")],
+    value: Annotated[str, Field(description="Value to fill")],
+    clear: Annotated[bool, Field(description="Clear field before filling (default: true)")] = True,
+) -> str:
+    """Fill text into input field.
+
+    Returns JSON with 'success' boolean and 'selector' or 'error'.
+    """
+    if _page is None:
+        return json.dumps({"success": False, "error": "No page open"})
+
+    resolved = _resolve_ref(selector)
+    try:
+        if clear:
+            await _page.fill(resolved, value)
+        else:
+            await _page.type(resolved, value)
+        return json.dumps({"success": True, "selector": selector, "resolved": resolved, "filled": True})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e), "selector": selector})
+
+
+@mcp.tool()
+async def browser_press(
+    key: Annotated[str, Field(description="Key to press (e.g., Enter, Tab, ArrowDown)")],
+) -> str:
+    """Press a keyboard key.
+
+    Returns JSON with 'success' boolean and 'key' or 'error'.
+    """
+    if _page is None:
+        return json.dumps({"success": False, "error": "No page open"})
+
+    try:
+        await _page.keyboard.press(key)
+        return json.dumps({"success": True, "key": key})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+
+@mcp.tool()
+async def browser_screenshot(
+    path: Annotated[str, Field(description="Filename for screenshot (will be sanitized)")] = "screenshot.png",
+    full_page: Annotated[bool, Field(description="Capture full page (default: false)")] = False,
+) -> str:
+    """Capture screenshot of current page.
+
+    Returns JSON with 'success', 'path', and base64 'data' or 'error'.
+    """
+    if _page is None:
+        return json.dumps({"success": False, "error": "No page open"})
+
+    download_dir = _resolve_download_dir()
+    try:
+        safe_path = _safe_download_path(download_dir, path)
+    except ValueError as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+    try:
+        await _page.screenshot(path=safe_path, full_page=full_page)
+        with open(safe_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("utf-8")
+        return json.dumps({"success": True, "path": safe_path, "data": data[:100] + "..."})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+
+@mcp.tool()
+async def browser_pdf(
+    path: Annotated[str, Field(description="Filename for PDF (will be sanitized)")] = "page.pdf",
+) -> str:
+    """Save current page as PDF.
+
+    Returns JSON with 'success' and 'path' or 'error'.
+    """
+    if _page is None:
+        return json.dumps({"success": False, "error": "No page open"})
+
+    download_dir = _resolve_download_dir()
+    try:
+        safe_path = _safe_download_path(download_dir, path)
+    except ValueError as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+    try:
+        await _page.pdf(path=safe_path)
+        return json.dumps({"success": True, "path": safe_path})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+
+
+@mcp.tool()
+async def browser_click_and_download(
+    selector: Annotated[str, Field(description="CSS selector or @eN ref for download trigger")],
+    expected_filename: Annotated[str, Field(description="Expected download filename (will be sanitized)")] = "",
+    timeout: Annotated[int, Field(description="Download timeout in ms (default: 30000)")] = 30000,
+) -> str:
+    """Click element and wait for download to complete.
+
+    Downloads are saved to OSTWIN_BROWSER_DOWNLOAD_DIR.
+    Returns JSON with 'success', 'path', 'filename' or 'error'.
+    """
+    if _page is None:
+        return json.dumps({"success": False, "error": "No page open"})
+
+    download_dir = _resolve_download_dir()
+    resolved = _resolve_ref(selector)
+
+    try:
+        async with _page.expect_download(timeout=timeout) as download_info:
+            await _page.click(resolved)
+        download = await download_info.value
+
+        suggested = download.suggested_filename
+        if not suggested:
+            suggested = expected_filename or "download"
+
+        safe_filename = _sanitize_filename(suggested)
+        safe_path = os.path.join(download_dir, safe_filename)
+
+        if not _is_safe_download_path(download_dir, safe_path):
+            return json.dumps({"success": False, "error": f"Path traversal blocked: {suggested}"})
+
+        await download.save_as(safe_path)
+        return json.dumps({"success": True, "path": safe_path, "filename": safe_filename, "selector": selector, "resolved": resolved})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e), "selector": selector})
+
+
+@mcp.tool()
+async def browser_close() -> str:
+    """Close browser and clean up.
+
+    Returns JSON with 'success' boolean.
+    """
+    global _browser_process, _playwright, _cdp_client, _page
+
+    if _cdp_client is not None:
+        try:
+            await _cdp_client.close()
+        except Exception:
+            pass
+    _page = None
+    _cdp_client = None
+
+    if _playwright is not None:
+        try:
+            await _playwright.stop()
+        except Exception:
+            pass
+    _playwright = None
+
+    if _browser_process is not None:
+        try:
+            _browser_process.terminate()
+            _browser_process.wait(timeout=5)
+        except Exception:
+            try:
+                _browser_process.kill()
+            except Exception:
+                pass
+        _browser_process = None
+
+    return json.dumps({"success": True})
+
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
