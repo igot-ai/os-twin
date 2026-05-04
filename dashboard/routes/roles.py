@@ -772,192 +772,135 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
 
 @router.post("/api/models/{version:path}/test")
 async def test_model_connection(version: str, user: dict = Depends(get_current_user)):
-    """Test model connectivity by running: opencode run "just say YES" --model <version>.
+    """Test model connectivity via a direct API call — no opencode subprocess.
 
-    Returns structured diagnostics on failure — not just a generic error string —
-    so the settings UI can surface actionable information to the user.
+    opencode always loads its own built-in tools (with descriptions that can
+    exceed Gemini's 1,024-char limit), regardless of --dir, OPENCODE_CONFIG, or
+    mcp:{} in the config.  The only reliable fix is to skip opencode entirely
+    and call the model's API directly via dashboard.llm_client.
+
+    This sends zero tool declarations, so Gemini's function_declaration length
+    limit cannot be triggered.
     """
-    import shutil
-    import subprocess
     import time
-    import os
 
-    opencode = shutil.which("opencode")
-    if not opencode:
-        return {
-            "status": "fail",
-            "error": "opencode CLI not found on PATH",
-            "diagnosis": "opencode is not installed or not on the system PATH. Run: npm install -g opencode",
-            "category": "install",
-        }
-
-    # Normalise bare IDs → fully-qualified provider/model form
     resolved_version = _resolve_model_id(version)
-    logger.info("test_model_connection: %r → resolved %r", version, resolved_version)
+    logger.info("test_model_connection: %r → resolved %r (direct API)", version, resolved_version)
 
-    # ── Isolated test environment ─────────────────────────────────────────────
-    # CRITICAL: do NOT use --dir /tmp or any dir that inherits the global
-    # ~/.config/opencode/opencode.json.  That file includes MCP servers whose
-    # tool descriptions can exceed Gemini's 1,024-char limit, causing the
-    # GENERIC_STRING_INVALID_TOO_LONG error before the model even responds.
-    #
-    # Solution: write a minimal opencode.json with zero MCP servers into a
-    # private temp directory and point opencode there.  This test only needs
-    # to validate that the model credentials work — MCP tools are irrelevant.
-    import tempfile
-    import json as _json
-
-    tmp_dir = tempfile.mkdtemp(prefix="ostwin-conntest-")
-    minimal_config = {
-        "$schema": "https://opencode.ai/config.json",
-        "mcp": {},      # no MCP servers → no tool declarations → no protocol errors
-        "agent": {},
-    }
-    config_path = os.path.join(tmp_dir, "opencode.json")
-    with open(config_path, "w") as _f:
-        _json.dump(minimal_config, _f)
-
-    cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", tmp_dir]
-    logger.info("test_model_connection cmd: %s", " ".join(cmd))
-
-    def _run() -> tuple[int, str, str]:
-        try:
-            # ── Override OPENCODE_CONFIG ───────────────────────────────────────
-            # The dashboard process may have OPENCODE_CONFIG set (by Invoke-Agent.ps1)
-            # pointing to the project's opencode.json which includes MCP servers.
-            # OPENCODE_CONFIG takes precedence over --dir, so even our minimal
-            # tempdir config would be ignored without this override.
-            test_env = {**os.environ, "OPENCODE_CONFIG": config_path}
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env=test_env,
-            )
-            return result.returncode, result.stdout.strip(), result.stderr.strip()
-        finally:
-            # Clean up temp dir regardless of outcome
-            import shutil as _shutil
-            _shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    def _diagnose(returncode: int, stdout: str, stderr: str, resolved: str) -> dict:
-        """Parse opencode output and return a structured diagnostic."""
-        combined = (stderr + "\n" + stdout).lower()
-        raw = (stderr + "\n" + stdout).strip()
-
-        # ── Known failure signatures ──────────────────────────────────────────
-        if "generic_string_invalid_too_long" in combined:
-            return {
-                "category": "protocol",
-                "error": "GENERIC_STRING_INVALID_TOO_LONG — a skill or tool description exceeds Gemini's 1,024-character limit",
-                "fix": "This is the known skill-description bug. Ensure you have the latest fix deployed and restart the manager.",
-            }
-
-        if "api key" in combined or "api_key" in combined or "apikey" in combined:
-            provider = resolved.split("/")[0] if "/" in resolved else "unknown"
-            return {
-                "category": "auth",
-                "error": f"API key missing or invalid for provider '{provider}'",
-                "fix": f"Check Settings → Providers → {provider}: ensure your API key is saved and valid.",
-            }
-
-        if "unauthenticated" in combined or "unauthorized" in combined or "401" in combined or "403" in combined:
-            return {
-                "category": "auth",
-                "error": "Authentication failed — credentials rejected by the provider",
-                "fix": "Verify your API key and project credentials in Settings → Providers.",
-            }
-
-        if "not found" in combined and ("model" in combined or "404" in combined):
-            return {
-                "category": "model",
-                "error": f"Model '{resolved}' not found — the provider does not recognise this model ID",
-                "fix": "Check the model ID spelling. Use Settings → Models to browse available models.",
-            }
-
-        if "quota" in combined or "rate limit" in combined or "429" in combined:
-            return {
-                "category": "quota",
-                "error": "Rate limit or quota exceeded",
-                "fix": "Wait and retry, or check your provider quota dashboard.",
-            }
-
-        if "connection refused" in combined or "econnrefused" in combined or "timeout" in combined:
-            return {
-                "category": "network",
-                "error": "Network connection failed — cannot reach the provider endpoint",
-                "fix": "Check your internet connection, firewall rules, or VPN settings.",
-            }
-
-        if "vertex" in combined and ("project" in combined or "location" in combined or "credential" in combined):
-            return {
-                "category": "auth",
-                "error": "Google Vertex AI credential error — project or ADC not configured",
-                "fix": "Run: gcloud auth application-default login  and verify GOOGLE_CLOUD_PROJECT is set.",
-            }
-
-        if "permission" in combined and ("denied" in combined or "iam" in combined):
-            return {
-                "category": "auth",
-                "error": "Permission denied — the service account lacks access to this model/resource",
-                "fix": "Grant the 'Vertex AI User' IAM role to the service account in Google Cloud Console.",
-            }
-
-        # Generic fallback — include both raw output and the raw command for copy-paste
-        snippet = raw[-600:] if len(raw) > 600 else raw
-        return {
-            "category": "unknown",
-            "error": snippet or "opencode exited with no output",
-            "fix": f"Run manually to see full output:\n  {' '.join(cmd)}",
-        }
+    # Parse provider / model-id from the resolved string
+    if "/" in resolved_version:
+        provider_id, model_id = resolved_version.split("/", 1)
+    else:
+        provider_id, model_id = "unknown", resolved_version
 
     start = time.time()
-    try:
-        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(
-            None, _run
-        )
-        latency = int((time.time() - start) * 1000)
 
-        if returncode == 0 and "YES" in (stdout or "").upper():
+    try:
+        from dashboard.llm_client import ChatMessage, LLMConfig, LLMError, create_client
+
+        client = create_client(
+            model=resolved_version,
+            provider=provider_id,
+            config=LLMConfig(max_tokens=16, temperature=0.0),
+        )
+
+        response = await asyncio.wait_for(
+            client.chat([ChatMessage(role="user", content="Say YES")]),
+            timeout=30,
+        )
+
+        latency = int((time.time() - start) * 1000)
+        text = (response.content or "").strip()
+
+        if text:
             return {
                 "status": "ok",
                 "latency_ms": latency,
-                "output": stdout[-300:] if stdout else "",
+                "output": text[:100],
                 "resolved_model": resolved_version,
             }
 
-        # Non-zero exit or no YES in output → structured diagnosis
-        diag = _diagnose(returncode, stdout, stderr, resolved_version)
-        logger.warning(
-            "test_model_connection failed: version=%r resolved=%r rc=%d category=%s error=%r",
-            version, resolved_version, returncode, diag.get("category"), diag.get("error"),
-        )
+        # Empty response — connected but model returned nothing
         return {
-            "status": "fail",
+            "status": "ok",
             "latency_ms": latency,
+            "output": "(empty response — model connected successfully)",
             "resolved_model": resolved_version,
-            "raw_output": (stderr + "\n" + stdout).strip()[-800:],
-            **diag,
         }
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         latency = int((time.time() - start) * 1000)
         return {
             "status": "fail",
             "latency_ms": latency,
             "category": "timeout",
-            "error": "opencode did not respond within 60s",
-            "fix": "The model provider may be slow or unreachable. Check your network and try again.",
+            "error": "Model did not respond within 30s",
+            "fix": "The provider endpoint may be slow or unreachable. Check your network and try again.",
+            "resolved_model": resolved_version,
         }
+
     except Exception as exc:
         latency = int((time.time() - start) * 1000)
-        logger.exception("test_model_connection unexpected error: %s", exc)
+        msg = str(exc)
+        msg_lower = msg.lower()
+
+        logger.warning(
+            "test_model_connection failed: version=%r resolved=%r error=%r",
+            version, resolved_version, msg,
+        )
+
+        # ── Structured diagnosis from exception message ───────────────────────
+        if any(k in msg_lower for k in ("api key", "api_key", "apikey", "unauthenticated",
+                                         "unauthorized", "401", "403", "credentials", "permission")):
+            if "vertex" in msg_lower or "google" in msg_lower:
+                return {
+                    "status": "fail", "latency_ms": latency, "category": "auth",
+                    "resolved_model": resolved_version,
+                    "error": "Google Vertex AI authentication failed",
+                    "fix": "Run: gcloud auth application-default login\nVerify GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are set.",
+                    "raw_output": msg[-600:],
+                }
+            return {
+                "status": "fail", "latency_ms": latency, "category": "auth",
+                "resolved_model": resolved_version,
+                "error": f"Authentication failed for provider '{provider_id}'",
+                "fix": f"Check Settings → Providers → {provider_id}: ensure your API key is saved and valid.",
+                "raw_output": msg[-600:],
+            }
+
+        if any(k in msg_lower for k in ("not found", "404", "does not exist", "model_not_found")):
+            return {
+                "status": "fail", "latency_ms": latency, "category": "model",
+                "resolved_model": resolved_version,
+                "error": f"Model '{resolved_version}' not found",
+                "fix": "Check the model ID. Use Settings → Models to browse available models.",
+                "raw_output": msg[-600:],
+            }
+
+        if any(k in msg_lower for k in ("quota", "rate limit", "429", "resource_exhausted")):
+            return {
+                "status": "fail", "latency_ms": latency, "category": "quota",
+                "resolved_model": resolved_version,
+                "error": "Rate limit or quota exceeded",
+                "fix": "Wait and retry, or check your provider quota dashboard.",
+                "raw_output": msg[-600:],
+            }
+
+        if any(k in msg_lower for k in ("connection", "network", "refused", "unreachable")):
+            return {
+                "status": "fail", "latency_ms": latency, "category": "network",
+                "resolved_model": resolved_version,
+                "error": "Network error — cannot reach the provider",
+                "fix": "Check your internet connection, firewall rules, or VPN settings.",
+                "raw_output": msg[-600:],
+            }
+
+        # Generic fallback
         return {
-            "status": "fail",
-            "latency_ms": latency,
-            "category": "internal",
-            "error": str(exc),
-            "fix": "Unexpected server error. Check the dashboard logs for details.",
+            "status": "fail", "latency_ms": latency, "category": "unknown",
+            "resolved_model": resolved_version,
+            "error": msg[:300] or "Unknown error",
+            "fix": "Check the dashboard server logs for the full stack trace.",
+            "raw_output": msg[-600:],
         }
 
