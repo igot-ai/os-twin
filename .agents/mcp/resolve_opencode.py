@@ -64,7 +64,9 @@ def resolve_env_refs(text, env_all):
 def resolve_mcp_servers(servers, env_all):
     """Resolve a dict of MCP server configs, returning cleaned configs.
 
-    - command arrays: resolve {env:*} and bare python to absolute paths
+    - command arrays: resolve {env:*} and bare python to absolute paths,
+      then wrap with mcp-proxy.py to enforce Gemini's 1,024-char tool
+      description limit at the MCP protocol layer.
     - headers dicts: resolve {env:*}, strip still-unresolved entries
     - environment dicts: strip values containing {env:*}
     - url strings: resolve {env:*}
@@ -72,6 +74,10 @@ def resolve_mcp_servers(servers, env_all):
     python_abs = shutil.which('python') or shutil.which('python3') or 'python'
     env_ref_pattern = re.compile(r'\{env:\w+\}')
     resolved = {}
+
+    # Locate mcp-proxy.py relative to this script so the path is always valid
+    # regardless of cwd or installation location.
+    _proxy_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mcp-proxy.py')
 
     for name, cfg in servers.items():
         out = {}
@@ -84,6 +90,14 @@ def resolve_mcp_servers(servers, env_all):
                         if i == 0 and c in ('python', 'python3'):
                             c = python_abs
                     resolved_cmd.append(c)
+
+                # Wrap with mcp-proxy.py so tools/list responses are intercepted
+                # and tool descriptions are truncated to Gemini's 1,024-char limit.
+                # Only wrap stdio (command) servers — URL-based servers use HTTP.
+                if os.path.exists(_proxy_path):
+                    resolved_cmd = [python_abs, _proxy_path,
+                                    '--server-name', name, '--'] + resolved_cmd
+
                 out[key] = resolved_cmd
             elif key == 'headers' and isinstance(val, dict):
                 # Resolve {env:*} in header values, then strip still-unresolved
