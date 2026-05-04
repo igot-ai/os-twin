@@ -2099,9 +2099,9 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     if not has_epics and not has_goal:
         raise HTTPException(status_code=400, detail="Plan must contain a '# Plan: Title' goal or at least one '## EPIC-XXX - Title' section.")
 
-    run_sh = AGENTS_DIR / "run.sh"
-    if not run_sh.exists():
-        raise HTTPException(status_code=500, detail="OS Twin run.sh not found")
+    ostwin_bin = AGENTS_DIR / "bin" / "ostwin"
+    if not ostwin_bin.exists():
+        raise HTTPException(status_code=500, detail="OS Twin binary not found")
 
     plans_dir = PLANS_DIR
     plans_dir.mkdir(exist_ok=True)
@@ -2228,7 +2228,6 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     wd_path = Path(working_dir) if Path(working_dir).is_absolute() else PROJECT_ROOT / working_dir
     if not (wd_path / ".agents").exists():
         logger.info(f"run_plan: target dir {wd_path} not initialized, running ostwin init...")
-        ostwin_bin = AGENTS_DIR / "bin" / "ostwin"
         if ostwin_bin.exists():
             init_result = subprocess.run(
                 [str(ostwin_bin), "init"],
@@ -2274,13 +2273,13 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
                     shutil.copy2(str(asset_file), str(dst_file))
         logger.info(f"run_plan: synced assets -> {local_assets_dir}")
 
-    # Use the local copy for run.sh so the path is within the sandbox
+    # Use the local copy for ostwin run so the path is within the sandbox
     local_plan_path = local_plans_dir / f"{plan_id}.md"
     launch_plan_path = local_plan_path if local_plan_path.exists() else plan_path
 
     # Spawn OS Twin in background
     subprocess.Popen(
-        [str(run_sh), str(launch_plan_path)],
+        [str(ostwin_bin), "run", str(launch_plan_path), "--working-dir", str(wd_path)],
         cwd=str(wd_path),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
