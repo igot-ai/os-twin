@@ -2099,9 +2099,9 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     if not has_epics and not has_goal:
         raise HTTPException(status_code=400, detail="Plan must contain a '# Plan: Title' goal or at least one '## EPIC-XXX - Title' section.")
 
-    run_sh = AGENTS_DIR / "run.sh"
-    if not run_sh.exists():
-        raise HTTPException(status_code=500, detail="OS Twin run.sh not found")
+    ostwin_bin = AGENTS_DIR / "bin" / "ostwin"
+    if not ostwin_bin.exists():
+        raise HTTPException(status_code=500, detail="OS Twin binary not found")
 
     plans_dir = PLANS_DIR
     plans_dir.mkdir(exist_ok=True)
@@ -2228,7 +2228,6 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     wd_path = Path(working_dir) if Path(working_dir).is_absolute() else PROJECT_ROOT / working_dir
     if not (wd_path / ".agents").exists():
         logger.info(f"run_plan: target dir {wd_path} not initialized, running ostwin init...")
-        ostwin_bin = AGENTS_DIR / "bin" / "ostwin"
         if ostwin_bin.exists():
             init_result = subprocess.run(
                 [str(ostwin_bin), "init"],
@@ -2274,17 +2273,24 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
                     shutil.copy2(str(asset_file), str(dst_file))
         logger.info(f"run_plan: synced assets -> {local_assets_dir}")
 
-    # Use the local copy for run.sh so the path is within the sandbox
+    # Use the local copy for ostwin run so the path is within the sandbox
     local_plan_path = local_plans_dir / f"{plan_id}.md"
     launch_plan_path = local_plan_path if local_plan_path.exists() else plan_path
 
-    # Spawn OS Twin in background
+    # Log file for debugging ostwin run
+    log_file = wd_path / ".agents" / "logs" / f"launch-{plan_id}.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = open(log_file, 'w')
+
+    # Spawn OS Twin in background (capture output to log file)
+    # Run from working_dir - ostwin will auto-detect project context
     subprocess.Popen(
-        [str(run_sh), str(launch_plan_path)],
+        [str(ostwin_bin), "run", str(launch_plan_path), "--non-interactive"],
         cwd=str(wd_path),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
     )
+    logger.info(f"run_plan: launched ostwin run for {plan_id}, logs: {log_file}")
 
     return {"status": "launched", "plan_file": plan_filename, "plan_id": plan_id}
 

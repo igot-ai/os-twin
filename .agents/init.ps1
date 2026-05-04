@@ -249,22 +249,21 @@ if (Test-Path $GlobalOpencodeFile) {
 
 if ($PlanId -and (Test-Path $ProjectOpencodeFile)) {
     # Two-pass: (1) strip any existing ?plan_id=... (2) append the new one
-    # Use single-quoted strings to avoid PowerShell escaping issues with sed regex
-    $sedClean = 's|/api/memory-pool/mcp?plan_id=[^"]*|/api/memory-pool/mcp|g'
-    $sedBind  = 's|/api/memory-pool/mcp"|/api/memory-pool/mcp?plan_id=' + $PlanId + '"|g'
+    # Handle URL ending with: "  ",   or newline
+    $sedClean = 's|/api/memory-pool/mcp?plan_id=[^"[:space:]]*|/api/memory-pool/mcp|g'
+    $sedBind  = 's|/api/memory-pool/mcp\(["[:space:]]\)|/api/memory-pool/mcp?plan_id=' + $PlanId + '\1|g'
     if (Get-Command sed -ErrorAction SilentlyContinue) {
         & sed -i '' -e $sedClean -e $sedBind $ProjectOpencodeFile 2>$null
         Write-Ok "Bound plan_id=$PlanId to memory MCP URL"
     } else {
-        # Fallback: PowerShell string replacement
+        # Fallback: PowerShell string replacement with capture group
         $ocContent = Get-Content $ProjectOpencodeFile -Raw
-        $ocContent = $ocContent -replace '/api/memory-pool/mcp\?plan_id=[^"]*', '/api/memory-pool/mcp'
-        $ocContent = $ocContent -replace '/api/memory-pool/mcp"', "/api/memory-pool/mcp?plan_id=$PlanId`""
+        $ocContent = $ocContent -replace '/api/memory-pool/mcp\?plan_id=[^"\s]*', '/api/memory-pool/mcp'
+        $ocContent = $ocContent -replace '/api/memory-pool/mcp([""\s])', "/api/memory-pool/mcp?plan_id=$PlanId`$1"
         $ocContent | Out-File -FilePath $ProjectOpencodeFile -Encoding utf8 -NoNewline
         Write-Ok "Bound plan_id=$PlanId to memory MCP URL (PS fallback)"
     }
 }
-
 # ─── Update .gitignore ────────────────────────────────────────────────────────
 
 $Gitignore = Join-Path $TargetDir ".gitignore"
