@@ -2285,7 +2285,7 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     # Spawn OS Twin in background (capture output to log file)
     # Run from working_dir - ostwin will auto-detect project context
     subprocess.Popen(
-        [str(ostwin_bin), "run", str(launch_plan_path), "--non-interactive"],
+        [str(ostwin_bin), "run", str(launch_plan_path), "--working-dir", str(wd_path), "--non-interactive"],
         cwd=str(wd_path),
         stdout=log_handle,
         stderr=subprocess.STDOUT,
