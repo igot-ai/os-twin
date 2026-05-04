@@ -1,6 +1,6 @@
 ---
 name: unit-code-review
-description: Use Serena MCP tools to analyze, refactor, and fix C# code with Unity patterns in mind. Trigger on: 'refactor this code', 'fix this bug', 'what's wrong with this', 'improve this class', 'analyze this code', 'suggest improvements', 'find bugs', 'optimize this code', 'apply SOLID principles', or when the user asks for code analysis and you want to leverage Serena's semantic tools for deeper code understanding. Also invoke proactively when the user mentions code editing, refactoring, bug fixing, or performance issues, or when you identify opportunities for code improvement using Serena's symbol analysis capabilities. Always initialize Serena's semantic index at the start of a session, prioritize Serena symbol tools over generic shell searches, manage large C# files by targeting 300-500 line chunks, and persist key architectural decisions with /memory add."
+description: Analyze, refactor, and fix C# code using Serena MCP tools for semantic understanding. Trigger on: 'refactor this code', 'fix this bug', 'improve this class', 'analyze this code', 'suggest improvements', 'apply SOLID principles'. Leverages symbol analysis for deep code understanding. Prioritizes Serena tools over generic searches, manages large files in 300-500 line chunks, and persists architectural decisions via /memory.
 tags: []
 
 ---

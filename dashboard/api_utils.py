@@ -353,6 +353,10 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
                         meta_dict = meta
                         name = meta.get("name", name)
                         description = meta.get("description", description)
+                        # Truncate to 1024 characters for Gemini/LLM tool compatibility
+                        # (prevents GENERIC_STRING_INVALID_TOO_LONG errors)
+                        if len(description) > 1024:
+                            description = f"{description[:1021]}..."
                         tags = meta.get("tags", tags)
                         if isinstance(tags, str):
                             tags = [t.strip() for t in tags.split(",")]
