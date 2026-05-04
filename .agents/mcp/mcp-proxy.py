@@ -5,6 +5,10 @@ MCP Stdio Proxy — intercepts tools/call JSON-RPC and logs to mcp-tools.jsonl.
 Sits between the MCP client (deepagents) and the real MCP server, forwarding
 all stdio traffic transparently while logging tool call requests and responses.
 
+Also enforces Gemini's 1,024-character limit on tool descriptions by
+intercepting tools/list responses and truncating any description that exceeds
+1,021 characters (leaving room for the ellipsis).
+
 Usage:
     python mcp-proxy.py [--server-name NAME] -- <command> [args...]
 
@@ -26,6 +30,10 @@ from datetime import datetime, timezone
 
 _LOG_FILENAME = "mcp-tools.jsonl"
 _MAX_RESULT_LEN = 4096
+
+# Gemini enforces a 1,024-character hard limit on function_declaration.description.
+# Truncate to 1,021 to leave room for the ellipsis character.
+_GEMINI_DESC_LIMIT = 1021
 
 
 # ── Argument parsing ────────────────────────────────────────────────────────
@@ -98,6 +106,39 @@ def _truncate(s, max_len=_MAX_RESULT_LEN):
     return s
 
 
+def _sanitise_tools_list(msg: dict) -> tuple[dict, int]:
+    """Truncate tool descriptions in a tools/list result to Gemini's 1,024-char limit.
+
+    Works for both the result form  {"result": {"tools": [...]}}  and
+    the notification form           {"method": "notifications/tools/list_changed"}.
+    Returns (possibly-modified msg, number of descriptions truncated).
+    """
+    truncated = 0
+    result = msg.get("result", {})
+    tools = result.get("tools") if isinstance(result, dict) else None
+    if not isinstance(tools, list):
+        return msg, 0
+
+    new_tools = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            new_tools.append(tool)
+            continue
+        desc = tool.get("description", "")
+        if isinstance(desc, str) and len(desc) > _GEMINI_DESC_LIMIT:
+            tool = dict(tool)  # shallow copy — don't mutate the original
+            tool["description"] = desc[:_GEMINI_DESC_LIMIT] + "…"
+            truncated += 1
+        new_tools.append(tool)
+
+    if truncated:
+        msg = dict(msg)
+        msg["result"] = dict(result)
+        msg["result"]["tools"] = new_tools
+
+    return msg, truncated
+
+
 # ── Forwarding threads ─────────────────────────────────────────────────────
 
 def forward_client_to_server(client_stdin, server_stdin, pending, lock):
@@ -134,7 +175,11 @@ def forward_client_to_server(client_stdin, server_stdin, pending, lock):
 
 def forward_server_to_client(server_stdout, client_stdout, pending, lock,
                              room_dir, server_name):
-    """Read lines from server, match responses to pending calls, log, forward to client."""
+    """Read lines from server, match responses to pending calls, log, forward to client.
+
+    Also intercepts tools/list responses to enforce Gemini's 1,024-char
+    description limit before the declarations reach opencode.
+    """
     try:
         for line in server_stdout:
             if not line.strip():
@@ -143,6 +188,23 @@ def forward_server_to_client(server_stdout, client_stdout, pending, lock,
                 continue
 
             msg, ok = _try_parse_json(line)
+
+            # ── Gemini protocol guard ─────────────────────────────────────────
+            # Intercept tools/list result and truncate long descriptions so that
+            # opencode never sends a function_declaration with description > 1,024
+            # chars to Gemini.  Re-serialise only when a truncation was made.
+            if ok and "result" in msg and "id" in msg:
+                msg, n_truncated = _sanitise_tools_list(msg)
+                if n_truncated:
+                    import sys as _sys
+                    print(
+                        f"[mcp-proxy] {server_name}: truncated {n_truncated} tool "
+                        f"description(s) to {_GEMINI_DESC_LIMIT} chars (Gemini limit)",
+                        file=_sys.stderr,
+                    )
+                    line = (json.dumps(msg) + "\n").encode()
+            # ─────────────────────────────────────────────────────────────────
+
             if ok and "id" in msg:
                 call_id = msg["id"]
                 with lock:
