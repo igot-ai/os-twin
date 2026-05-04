@@ -1,7 +1,6 @@
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Callable
 import uuid
 from datetime import datetime
-from .llm_controller import LLMController
 from .retrievers import ChromaRetriever, ZvecRetriever
 from .memory_note import MemoryNote  # canonical definition lives here now
 import json
@@ -9,43 +8,29 @@ import logging
 import os
 import time
 
-# Lazy imports for heavy ML libraries (torch, transformers, sentence-transformers, litellm)
-# These take 6+ seconds to import and are not all needed for every backend.
-SentenceTransformer = None
-AutoModel = None
-AutoTokenizer = None
+# Lazy imports for text processing libraries (nltk, bm25, sklearn).
+# ML model imports (sentence-transformers, litellm) are no longer needed here —
+# all AI calls go through dashboard.ai gateway.
 word_tokenize = None
 BM25Okapi = None
 cosine_similarity = None
-completion = None
+
+_ml_imported = False
 
 
 def _ensure_ml_imports():
-    """Import heavy ML libraries on first use."""
-    global \
-        SentenceTransformer, \
-        AutoModel, \
-        AutoTokenizer, \
-        word_tokenize, \
-        BM25Okapi, \
-        cosine_similarity, \
-        completion
-    if completion is not None:
-        return  # already imported
-    from sentence_transformers import SentenceTransformer as _ST
-    from transformers import AutoModel as _AM, AutoTokenizer as _AT
+    """Import text processing libraries on first use."""
+    global word_tokenize, BM25Okapi, cosine_similarity, _ml_imported
+    if _ml_imported:
+        return
     from nltk.tokenize import word_tokenize as _wt
     from rank_bm25 import BM25Okapi as _BM
     from sklearn.metrics.pairwise import cosine_similarity as _cs
-    from litellm import completion as _comp
 
-    SentenceTransformer = _ST
-    AutoModel = _AM
-    AutoTokenizer = _AT
     word_tokenize = _wt
     BM25Okapi = _BM
     cosine_similarity = _cs
-    completion = _comp
+    _ml_imported = True
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +68,8 @@ class AgenticMemorySystem:
         similarity_weight: float = 0.8,
         decay_half_life_days: float = 30.0,
         conflict_resolution: str = "last_modified",
+        completion_fn: Optional[Callable[..., str]] = None,
+        embed_fn: Optional[Callable[..., list]] = None,
     ):
         """Initialize the memory system.
 
@@ -148,26 +135,68 @@ class AgenticMemorySystem:
             except Exception as e:
                 logger.warning(f"Could not reset ChromaDB collection: {e}")
 
+        self._embed_fn = embed_fn  # injected or resolved in _create_retriever
         self.retriever = self._create_retriever()
 
         if self.persist_dir:
             self._load_notes()
 
-        # Initialize LLM controller
-        self.llm_controller = LLMController(
-            llm_backend, llm_model, api_key, sglang_host, sglang_port
-        )
+        # LLM completion function — injected by caller or resolved from gateway.
+        # Signature: completion_fn(prompt: str, response_format=None, ...) -> str
+        if completion_fn is not None:
+            self._completion_fn = completion_fn
+        else:
+            self._completion_fn = self._resolve_completion_fn(
+                llm_backend, llm_model, api_key, sglang_host, sglang_port
+            )
         self.evo_cnt = 0
         self.evo_threshold = evo_threshold
 
+    @staticmethod
+    def _resolve_completion_fn(
+        llm_backend: str, llm_model: str, api_key: Optional[str],
+        sglang_host: str, sglang_port: int,
+    ) -> Callable[..., str]:
+        """Resolve the completion function from the centralized AI gateway.
+
+        All LLM calls go through ``dashboard.ai.get_completion()`` so they
+        are monitored, retried, and configurable from the dashboard Settings
+        page.  The dashboard must be running.
+        """
+        from dashboard.ai import get_completion as _gw
+
+        def _gateway_completion(prompt, response_format=None, **kw):
+            return _gw(prompt, purpose="memory", response_format=response_format)
+
+        logger.info("Using dashboard.ai gateway for LLM completion")
+        return _gateway_completion
+
     def _create_retriever(self):
-        """Create the vector retriever based on configured backend."""
+        """Create the vector retriever with embeddings via the AI gateway.
+
+        All embedding calls go through ``dashboard.ai.get_embedding()`` so
+        they are monitored and configurable from the dashboard Settings page.
+        If ``embed_fn`` was injected via the constructor (e.g. by tests),
+        it is used directly.
+        """
+        if self._embed_fn is not None:
+            _gateway_embed = self._embed_fn
+            logger.info("Using injected embed_fn for embeddings")
+        else:
+            from dashboard.ai import get_embedding as _gw_embed
+
+            def _gateway_embed(texts):
+                return _gw_embed(texts)
+
+            logger.info("Using dashboard.ai gateway for embeddings")
+
         if self.vector_backend == "zvec":
             return ZvecRetriever(
                 collection_name="memories",
                 model_name=self.model_name,
                 persist_dir=self._vector_dir,
                 embedding_backend=self.embedding_backend,
+                embed_fn=_gateway_embed,
             )
         else:
             return ChromaRetriever(
@@ -175,6 +204,7 @@ class AgenticMemorySystem:
                 model_name=self.model_name,
                 persist_dir=self._vector_dir,
                 embedding_backend=self.embedding_backend,
+                embed_fn=_gateway_embed,
             )
 
     # --- Persistence helpers ---
@@ -296,7 +326,7 @@ class AgenticMemorySystem:
             f"{note_b.content}\n"
         )
 
-        response = self.llm_controller.llm.get_completion(prompt)
+        response = self._completion_fn(prompt)
         merged_content = response.strip() if response else None
         if not merged_content:
             raise ValueError("LLM returned empty merge result")
@@ -612,7 +642,7 @@ class AgenticMemorySystem:
         schema_properties.update(summary_schema)
 
         try:
-            response = self.llm_controller.llm.get_completion(
+            response = self._completion_fn(
                 prompt,
                 response_format={
                     "type": "json_schema",
@@ -1621,7 +1651,7 @@ class AgenticMemorySystem:
             nearest_neighbors_memories=neighbors_text,
             neighbor_number=len(memory_ids),
         )
-        response = self.llm_controller.llm.get_completion(
+        response = self._completion_fn(
             prompt, response_format=self._EVOLUTION_RESPONSE_FORMAT
         )
         return json.loads(response)

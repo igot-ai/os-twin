@@ -15,6 +15,7 @@ import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
 import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
 import { ChannelsPanel } from '@/components/settings/ChannelsPanel';
+import { AIMonitorPanel } from '@/components/settings/AIMonitorPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
 import { apiGet, apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
@@ -449,6 +450,9 @@ function SettingsPageContent() {
 
       case 'channels':
         return <ChannelsPanel />;
+
+      case 'ai-monitor':
+        return <AIMonitorPanel />;
 
       default:
         return null;

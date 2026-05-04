@@ -101,12 +101,11 @@ def _make_system(**overrides):
     mem.evo_threshold = 5
     mem._evolution_system_prompt = ""
 
-    # Mock LLM controller
-    mock_llm = MagicMock()
-    mock_llm.llm.get_completion = MagicMock(
+    # Mock completion function
+    mock_completion = MagicMock(
         side_effect=[_mock_analysis(), _mock_evolution()] * 50
     )
-    mem.llm_controller = mock_llm
+    mem._completion_fn = mock_completion
 
     return mem, tmpdir
 

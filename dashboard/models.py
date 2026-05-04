@@ -339,6 +339,22 @@ class KnowledgeSettings(BaseModel):
     knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
 
 
+class AISettings(BaseModel):
+    """AI gateway settings — per-purpose model overrides.
+
+    Read by ``dashboard/ai/config.py``.  Empty strings mean "use the
+    provider's default model".
+    """
+
+    completion_model: str = ""
+    knowledge_model: str = ""
+    memory_model: str = ""
+    cloud_embedding_model: str = ""
+    local_embedding_model: str = ""
+    timeout_seconds: int = 120
+    max_retries: int = 2
+
+
 class MasterSettings(BaseModel):
     providers: ProvidersNamespace = Field(default_factory=ProvidersNamespace)
     roles: Dict[str, RoleSettings] = Field(default_factory=dict)
@@ -348,6 +364,7 @@ class MasterSettings(BaseModel):
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
+    ai: AISettings = Field(default_factory=AISettings)
 
 
 class EffectiveResolution(BaseModel):

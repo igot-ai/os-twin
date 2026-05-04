@@ -67,14 +67,12 @@ def _make_system(persist_dir):
     sys.conflict_resolution = "last_modified"
     sys.evo_cnt = 0
     sys.evo_threshold = 5
-    # Mock LLM controller so analyze_content returns deterministic results
-    mock_llm = MagicMock()
-    mock_llm.llm.get_completion.return_value = (
+    # Mock completion function so analyze_content returns deterministic results
+    sys._completion_fn = MagicMock(return_value=(
         '{"name": "test-note", "path": "test", '
         '"keywords": ["k1", "k2"], "context": "Test context", '
         '"tags": ["tag1", "tag2"]}'
-    )
-    sys.llm_controller = mock_llm
+    ))
     sys._evolution_system_prompt = ""
     return sys
 
@@ -246,7 +244,7 @@ class TestImportDocs(unittest.TestCase):
 
         # LLM should have been called at least twice (once per doc)
         self.assertGreaterEqual(
-            self.sys.llm_controller.llm.get_completion.call_count, 2
+            self.sys._completion_fn.call_count, 2
         )
 
     def test_notes_written_to_disk(self):

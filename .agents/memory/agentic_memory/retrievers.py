@@ -1,12 +1,16 @@
 """Retriever backends for the Agentic Memory vector store.
 
 Provides ChromaDB and Zvec retriever implementations with pluggable
-embedding functions (SentenceTransformer local, Gemini API).
+embedding functions.
+
+Embedding is handled via an injected ``embed_fn`` callable that routes
+through the centralized AI gateway (``dashboard.ai.get_embedding``).
+The legacy embedding classes (SentenceTransformer, Gemini, Ollama, Vertex)
+are no longer used — all AI calls go through the gateway for monitoring
+and configurability.
 
 Memory-management design:
-- Heavy ML imports (sentence_transformers, nltk, sklearn, litellm) are
-  lazy-loaded on first use, not at module level (F11).
-- Embedding functions cache the model and defer loading until first call (F1/F9).
+- Heavy ML imports (nltk, sklearn) are lazy-loaded on first use (F11).
 - ZvecRetriever holds a single persistent collection handle; zvec handles concurrency internally.
 - Embedding dimension is cached per model to avoid test-embedding calls (F9).
 """
@@ -27,18 +31,16 @@ _retriever_imports_done = False
 _import_lock = threading.Lock()
 
 # Sentinel — the *module-level* names stay None until lazy-loaded.
-SentenceTransformer = None
 BM25Okapi = None
 word_tokenize = None
 cosine_similarity = None
 np = None
-litellm = None
 
 
 def _ensure_retriever_imports():
     """Import heavy ML libraries on first use (lazy pattern — F11)."""
-    global _retriever_imports_done, SentenceTransformer, BM25Okapi
-    global word_tokenize, cosine_similarity, np, litellm
+    global _retriever_imports_done, BM25Okapi
+    global word_tokenize, cosine_similarity, np
 
     if _retriever_imports_done:
         return
@@ -47,19 +49,15 @@ def _ensure_retriever_imports():
         if _retriever_imports_done:
             return
 
-        from sentence_transformers import SentenceTransformer as _ST
         from rank_bm25 import BM25Okapi as _BM
         from nltk.tokenize import word_tokenize as _wt
         from sklearn.metrics.pairwise import cosine_similarity as _cs
         import numpy as _np
-        import litellm as _lt
 
-        SentenceTransformer = _ST
         BM25Okapi = _BM
         word_tokenize = _wt
         cosine_similarity = _cs
         np = _np
-        litellm = _lt
         _retriever_imports_done = True
 
 
@@ -80,258 +78,16 @@ def simple_tokenize(text):
 
 
 # --- Global embedding dimension -------------------------------------------
-# All backends MUST produce vectors of this dimension to avoid conflicts
-# when storing / querying a single vector collection.  Backends that natively
-# support output-dimensionality (Vertex, Gemini) pass it explicitly; others
-# (Ollama, SentenceTransformer) truncate after embedding.
 EMBEDDING_DIMENSION: int = 768
 
-
-# --- Embedding function singleton cache -----------------------------------
-# Keyed by (backend, model_name) so each unique model is loaded exactly once
-# when shared=True (default).
-
-_embedding_cache: Dict[tuple, Any] = {}
-_embedding_cache_lock = threading.Lock()
-
-# Native model dimensions (before truncation) — avoids a test embedding call (F9).
-# NOTE: at runtime every backend is normalised to EMBEDDING_DIMENSION.
+# Known dimensions (for zvec collection creation before first embed call)
 _KNOWN_DIMENSIONS: Dict[str, int] = {
     "all-MiniLM-L6-v2": 384,
-    "all-MiniLM-L12-v2": 384,
     "all-mpnet-base-v2": 768,
-    "paraphrase-MiniLM-L6-v2": 384,
-    "paraphrase-multilingual-MiniLM-L12-v2": 384,
     "gemini-embedding-001": 768,
-    "gemini/gemini-embedding-001": 768,
     "text-embedding-004": 768,
-    # Ollama embedding models (native dims — truncated to 768 at runtime)
-    "leoipulsar/harrier-0.6b": 1024,
-    "embeddinggemma": 768,
-    "qwen3-embedding:0.6b": 896,
-    # Vertex AI models
     "text-embedding-005": 768,
 }
-
-
-def _truncate_to_dim(embeddings: Embeddings, dim: int = EMBEDDING_DIMENSION) -> Embeddings:
-    """Truncate (or zero-pad) each embedding vector to exactly *dim* floats.
-
-    Truncation of MRL (Matryoshka Representation Learning) models is
-    dimension-preserving: the first *dim* components retain full semantic
-    quality.  Zero-padding is a lossy fallback for models whose native
-    dimension is smaller than the target.
-    """
-    out: Embeddings = []
-    for vec in embeddings:
-        if len(vec) >= dim:
-            out.append(vec[:dim])
-        else:
-            out.append(vec + [0.0] * (dim - len(vec)))
-    return out
-
-
-class GeminiEmbeddingFunction(EmbeddingFunction):
-    """Gemini embedding function via litellm.
-
-    Always produces ``EMBEDDING_DIMENSION``-wide vectors by passing
-    ``dimensions=EMBEDDING_DIMENSION`` to litellm and truncating as a
-    safety net.
-    """
-
-    def __init__(self, model_name: str = "gemini-embedding-001"):
-        self.model_name = (
-            f"gemini/{model_name}"
-            if not model_name.startswith("gemini/")
-            else model_name
-        )
-
-    def __call__(self, input: Documents) -> Embeddings:
-        _ensure_retriever_imports()
-        response = litellm.embedding(
-            model=self.model_name,
-            input=input,
-            dimensions=EMBEDDING_DIMENSION,
-        )
-        result = [item["embedding"] for item in response.data]
-        return _truncate_to_dim(result)
-
-    @property
-    def dimension(self) -> int:
-        """Always returns the global EMBEDDING_DIMENSION (768)."""
-        return EMBEDDING_DIMENSION
-
-
-class SentenceTransformerEmbedding(EmbeddingFunction):
-    """SentenceTransformer embedding function with true lazy model loading.
-
-    Output is always truncated/padded to ``EMBEDDING_DIMENSION`` (768).
-    """
-
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        self._model_name = model_name
-        self._model = None
-
-    def _ensure_model(self):
-        """Import and load the SentenceTransformer model on first use."""
-        if self._model is not None:
-            return self._model
-        _ensure_retriever_imports()
-        from sentence_transformers import SentenceTransformer as _ST
-        self._model = _ST(self._model_name)
-        return self._model
-
-    def __call__(self, input: Documents) -> Embeddings:
-        model = self._ensure_model()
-        result = model.encode(input).tolist()
-        return _truncate_to_dim(result)
-
-    @property
-    def dimension(self) -> int:
-        """Always returns the global EMBEDDING_DIMENSION (768)."""
-        return EMBEDDING_DIMENSION
-
-    def close(self):
-        """Release the underlying model to free GPU/CPU memory."""
-        if self._model is not None:
-            del self._model
-            self._model = None
-
-
-# Backward-compatible alias
-SentenceTransformerEmbeddingFunction = SentenceTransformerEmbedding
-
-
-class OllamaEmbeddingFunction(EmbeddingFunction):
-    """Ollama embedding function via the native ``ollama`` Python SDK.
-
-    Output is always truncated to ``EMBEDDING_DIMENSION`` (768) to ensure
-    consistency across all backends.  No litellm dependency.
-    """
-
-    def __init__(
-        self,
-        model_name: str = "leoipulsar/harrier-0.6b",
-        base_url: Optional[str] = None,
-    ):
-        self._model_name = model_name
-        self._base_url = base_url  # None → ollama default (localhost:11434)
-
-    def __call__(self, input: Documents) -> Embeddings:
-        import ollama as _ollama  # noqa: WPS433 — lazy import
-
-        kwargs: Dict[str, Any] = {"model": self._model_name, "input": input}
-        if self._base_url:
-            client = _ollama.Client(host=self._base_url)
-            response = client.embed(**kwargs)
-        else:
-            response = _ollama.embed(**kwargs)
-
-        result = response["embeddings"]
-        return _truncate_to_dim(result)
-
-    @property
-    def dimension(self) -> int:
-        """Always returns the global EMBEDDING_DIMENSION (768)."""
-        return EMBEDDING_DIMENSION
-
-
-class VertexEmbeddingFunction(EmbeddingFunction):
-    """Google Vertex AI embedding function via ``google.genai``.
-
-    Always requests ``output_dimensionality=EMBEDDING_DIMENSION`` (768)
-    from the API, and truncates as a safety net.  No litellm dependency.
-    """
-
-    def __init__(
-        self,
-        model_name: str = "gemini-embedding-001",
-        task_type: str = "RETRIEVAL_DOCUMENT",
-    ):
-        self._model_name = model_name
-        self._task_type = task_type
-        self._client = None
-
-    def _ensure_client(self):
-        """Lazy-create the google.genai Client."""
-        if self._client is not None:
-            return self._client
-        from google import genai  # noqa: WPS433
-        api_key = os.getenv("GOOGLE_API_KEY")
-        self._client = genai.Client(api_key=api_key) if api_key else genai.Client()
-        return self._client
-
-    def __call__(self, input: Documents) -> Embeddings:
-        from google.genai.types import EmbedContentConfig  # noqa: WPS433
-
-        client = self._ensure_client()
-        response = client.models.embed_content(
-            model=self._model_name,
-            contents=input,
-            config=EmbedContentConfig(
-                task_type=self._task_type,
-                output_dimensionality=EMBEDDING_DIMENSION,
-            ),
-        )
-
-        result = [list(e.values) for e in response.embeddings]
-        return _truncate_to_dim(result)
-
-    @property
-    def dimension(self) -> int:
-        """Always returns the global EMBEDDING_DIMENSION (768)."""
-        return EMBEDDING_DIMENSION
-
-
-def _create_embedding_function(
-    embedding_backend: str,
-    model_name: str,
-    *,
-    shared: bool = True,
-):
-    """Create or retrieve a cached embedding function.
-
-    Args:
-        embedding_backend: "sentence-transformer" or "gemini"
-        model_name: Model identifier
-        shared: If True (default), return a singleton instance cached by
-            (backend, model_name).  Set False to get a private instance.
-
-    Returns:
-        An embedding function callable.
-    """
-    # Normalise backend aliases
-    if embedding_backend in ("sentence-transformer", "huggingface"):
-        embedding_backend = "sentence-transformer"
-
-    cache_key = (embedding_backend, model_name)
-
-    if shared:
-        with _embedding_cache_lock:
-            cached = _embedding_cache.get(cache_key)
-            if cached is not None:
-                return cached
-
-    if embedding_backend == "gemini":
-        fn = GeminiEmbeddingFunction(model_name=model_name)
-    elif embedding_backend == "ollama":
-        fn = OllamaEmbeddingFunction(model_name=model_name)
-    elif embedding_backend == "vertex":
-        fn = VertexEmbeddingFunction(model_name=model_name)
-    else:
-        fn = SentenceTransformerEmbedding(model_name=model_name)
-
-    if shared:
-        with _embedding_cache_lock:
-            # Double-check: another thread may have created it
-            existing = _embedding_cache.get(cache_key)
-            if existing is not None:
-                if hasattr(fn, "close"):
-                    fn.close()
-                return existing
-            _embedding_cache[cache_key] = fn
-
-    return fn
 
 
 def _parse_json_field(metadata: Dict, field: str) -> list:
@@ -393,6 +149,7 @@ class ChromaRetriever:
         model_name: str = "all-MiniLM-L6-v2",
         persist_dir: str = None,
         embedding_backend: str = "sentence-transformer",
+        embed_fn: Optional[Any] = None,
     ):
         """Initialize ChromaDB retriever.
 
@@ -401,6 +158,7 @@ class ChromaRetriever:
             model_name: Name of the embedding model
             persist_dir: Directory for persistent storage. If None, uses in-memory mode.
             embedding_backend: "sentence-transformer" or "gemini"
+            embed_fn: Optional external embedding function (from gateway)
         """
         import chromadb
         from chromadb.config import Settings
@@ -411,7 +169,7 @@ class ChromaRetriever:
             self.client = chromadb.Client(Settings(allow_reset=True))
         self.persist_dir = persist_dir
 
-        self.embedding_function = _create_embedding_function(
+        self.embedding_function = embed_fn or _create_embedding_function(
             embedding_backend, model_name
         )
         self.collection = self.client.get_or_create_collection(
@@ -552,13 +310,16 @@ class ZvecRetriever:
         model_name: str = "all-MiniLM-L6-v2",
         persist_dir: str = None,
         embedding_backend: str = "sentence-transformer",
+        embed_fn: Optional[Any] = None,
     ):
         import zvec as _zvec
 
         self._zvec = _zvec
         self._model_name = model_name
         self._embedding_backend = embedding_backend
-        self._embedding_function: Optional[Any] = None
+        # If an external embed_fn is injected (e.g. from dashboard.ai gateway),
+        # use it directly and skip the 4 embedding classes.
+        self._embedding_function: Optional[Any] = embed_fn
 
         self.persist_dir = persist_dir
         self._dimension: Optional[int] = None

@@ -134,7 +134,7 @@ class TestAgenticMemorySystemIntegration(unittest.TestCase):
             first_id = memory_system.add_note("Shared domain memory about Python services")
             second_id = memory_system.add_note("Shared domain memory about Python queues")
 
-            memory_system.llm_controller.llm = EvolvingLLM(max_connections=1)
+            memory_system._completion_fn = EvolvingLLM(max_connections=1).get_completion
 
             candidate = MemoryNote(
                 content="Shared domain bridge note for Python workers",

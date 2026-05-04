@@ -68,7 +68,7 @@ def _make_system(persist_dir, conflict_resolution="last_modified"):
     sys.conflict_resolution = conflict_resolution
     sys.evo_cnt = 0
     sys.evo_threshold = 5
-    sys.llm_controller = None
+    sys._completion_fn = None
     sys._evolution_system_prompt = ""
     return sys
 

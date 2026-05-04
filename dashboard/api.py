@@ -58,8 +58,8 @@ from dashboard.tasks import startup_all
 # Heavy libraries (torch, langchain) are now lazy-loaded inside these routes
 # so direct imports here translate to < 2s total dashboard boot time.
 from dashboard.routes import (
-    auth, system, mcp, threads, plans, rooms, skills, 
-    roles, memory, amem, channels, command, tunnel, 
+    ai, auth, system, mcp, threads, plans, rooms, skills,
+    roles, memory, amem, channels, command, tunnel,
     files, settings, engagement, knowledge, memory_mcp
 )
 
@@ -314,6 +314,7 @@ app.include_router(tunnel.router)
 app.include_router(files.router)
 app.include_router(settings.router)
 app.include_router(knowledge.router)  # EPIC-001: /api/knowledge/* REST API
+app.include_router(ai.router)         # Plan 006: /api/ai/* unified gateway
 
 # --- MCP endpoint (knowledge) -------------------------------------------
 # Mounted as a sub-app at /api/knowledge/mcp via FastMCP's streamable-HTTP

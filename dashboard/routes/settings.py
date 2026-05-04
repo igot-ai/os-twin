@@ -180,6 +180,7 @@ _VALID_NAMESPACES = frozenset(
         "autonomy",
         "observability",
         "knowledge",
+        "ai",
     }
 )
 

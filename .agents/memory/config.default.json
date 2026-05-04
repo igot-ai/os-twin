@@ -42,5 +42,18 @@
     "sync_from_disk",
     "sync_to_disk",
     "graph_snapshot"
-  ]
+  ],
+
+  "pool": {
+    "_comment": "HTTP memory pool config (Plan 007). Only used when mounted in the dashboard.",
+    "idle_timeout_s": 300,
+    "max_instances": 10,
+    "eviction_policy": "lru",
+    "ml_preload": true,
+    "ml_ready_timeout_s": 30,
+    "sync_interval_s": 60,
+    "sync_on_kill": true,
+    "allowed_paths": null,
+    "sweep_interval_s": 30
+  }
 }
