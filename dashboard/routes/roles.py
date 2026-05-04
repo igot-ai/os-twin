@@ -787,44 +787,38 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
     resolved_version = _resolve_model_id(version)
     logger.info("test_model_connection: %r → resolved %r (direct API)", version, resolved_version)
 
-    # Parse provider / model-id from the resolved string
-    if "/" in resolved_version:
-        provider_id, model_id = resolved_version.split("/", 1)
-    else:
-        provider_id, model_id = "unknown", resolved_version
-
     start = time.time()
 
     try:
-        from dashboard.llm_client import ChatMessage, LLMConfig, LLMError, create_client
+        # Use dashboard.ai.completion.complete() — the same path used by all
+        # other AI calls in the dashboard.  It loads provider + credentials via
+        # get_config() → SettingsResolver, which correctly handles Vertex AI ADC,
+        # service accounts, and Gemini API keys without us needing to replicate
+        # that logic here.
+        #
+        # complete() expects a BARE model name (no provider prefix), e.g.
+        # "gemini-3-flash-preview" not "google-vertex/gemini-3-flash-preview".
+        # Strip the prefix if present so we pass what complete() expects.
+        from dashboard.ai.completion import complete as _complete
 
-        client = create_client(
-            model=resolved_version,
-            provider=provider_id,
-            config=LLMConfig(max_tokens=16, temperature=0.0),
-        )
+        bare_model = resolved_version.split("/", 1)[-1] if "/" in resolved_version else resolved_version
 
-        response = await asyncio.wait_for(
-            client.chat([ChatMessage(role="user", content="Say YES")]),
-            timeout=30,
-        )
+        def _call():
+            return _complete(
+                prompt="Say YES",
+                model=bare_model,
+                max_tokens=16,
+                temperature=0.0,
+            )
 
+        result = await asyncio.get_event_loop().run_in_executor(None, _call)
         latency = int((time.time() - start) * 1000)
-        text = (response.content or "").strip()
+        text = (result.text or "").strip()
 
-        if text:
-            return {
-                "status": "ok",
-                "latency_ms": latency,
-                "output": text[:100],
-                "resolved_model": resolved_version,
-            }
-
-        # Empty response — connected but model returned nothing
         return {
             "status": "ok",
             "latency_ms": latency,
-            "output": "(empty response — model connected successfully)",
+            "output": text[:100] if text else "(model responded successfully)",
             "resolved_model": resolved_version,
         }
 
@@ -850,9 +844,10 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
         )
 
         # ── Structured diagnosis from exception message ───────────────────────
+        _provider = resolved_version.split("/")[0] if "/" in resolved_version else "unknown"
         if any(k in msg_lower for k in ("api key", "api_key", "apikey", "unauthenticated",
                                          "unauthorized", "401", "403", "credentials", "permission")):
-            if "vertex" in msg_lower or "google" in msg_lower:
+            if "vertex" in resolved_version.lower() or "google" in resolved_version.lower():
                 return {
                     "status": "fail", "latency_ms": latency, "category": "auth",
                     "resolved_model": resolved_version,
@@ -863,8 +858,8 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
             return {
                 "status": "fail", "latency_ms": latency, "category": "auth",
                 "resolved_model": resolved_version,
-                "error": f"Authentication failed for provider '{provider_id}'",
-                "fix": f"Check Settings → Providers → {provider_id}: ensure your API key is saved and valid.",
+                "error": f"Authentication failed for provider '{_provider}'",
+                "fix": f"Check Settings → Providers → {_provider}: ensure your API key is saved and valid.",
                 "raw_output": msg[-600:],
             }
 
