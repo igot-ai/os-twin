@@ -63,6 +63,9 @@ DEFAULT_NAMESPACE = "_global"
 _plan_id_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_plan_id_ctx", default=None,
 )
+_persist_dir_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_persist_dir_ctx", default=None,
+)
 
 # ---------------------------------------------------------------------------
 # Pool singleton — created once, lives for the dashboard process lifetime
@@ -103,10 +106,24 @@ def _resolve_persist_dir(plan_id: str) -> str:
 def _get_memory_for_plan(plan_id: Optional[str] = None):
     """Return the AgenticMemorySystem for the active plan.
 
-    Reads ``plan_id`` from the request-scoped ``_plan_id_ctx`` ContextVar
-    (set by ``_PlanIdInjectingApp``).  Falls back to ``_global`` when no
-    plan_id is present.
+    Resolution priority:
+    1. Explicit ``persist_dir`` from query string (absolute path to .memory/)
+    2. ``plan_id`` from query string → centralized namespace under MEMORY_BASE_DIR
+    3. ``_global`` namespace
+
+    This supports both Plan 007 agents (``?persist_dir=/path/.memory``)
+    and Plan 008 agents (``?plan_id=my-plan``).
     """
+    # Check for direct persist_dir first (Plan 007 compat)
+    persist_dir_direct = _persist_dir_ctx.get()
+    if persist_dir_direct:
+        os.makedirs(persist_dir_direct, exist_ok=True)
+        pool = _get_pool()
+        slot = pool.get_or_create(persist_dir_direct)
+        pool.touch(persist_dir_direct)
+        return slot.system
+
+    # Fall back to plan_id namespace
     resolved = plan_id or _plan_id_ctx.get() or DEFAULT_NAMESPACE
     persist_dir = _resolve_persist_dir(resolved)
     pool = _get_pool()
@@ -380,11 +397,14 @@ class _PlanIdInjectingApp:
         if scope["type"] == "http":
             qs = parse_qs(scope.get("query_string", b"").decode())
             plan_id = qs.get("plan_id", [None])[0]
-            token = _plan_id_ctx.set(plan_id)
+            persist_dir = qs.get("persist_dir", [None])[0]
+            token_plan = _plan_id_ctx.set(plan_id)
+            token_dir = _persist_dir_ctx.set(persist_dir)
             try:
                 await self._inner(scope, receive, send)
             finally:
-                _plan_id_ctx.reset(token)
+                _plan_id_ctx.reset(token_plan)
+                _persist_dir_ctx.reset(token_dir)
         else:
             await self._inner(scope, receive, send)
 

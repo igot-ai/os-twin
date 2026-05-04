@@ -22,7 +22,7 @@
     },
     "memory": {
       "type": "remote",
-      "url": "http://localhost:3366/api/memory-pool/mcp",
+      "url": "http://localhost:3366/api/memory-pool/mcp?persist_dir={env:PROJECT_DIR}/.memory",
       "headers": {
         "Authorization": "Bearer {env:OSTWIN_API_KEY}"
       }
