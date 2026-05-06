@@ -8,6 +8,15 @@ from pathlib import Path
 import importlib.util
 
 
+LEGACY_MANAGED_BROWSER_NAME = "chrome-devtools"
+LEGACY_MANAGED_BROWSER_PACKAGE = "chrome-devtools-mcp"
+LEGACY_MANAGED_BROWSER_COMMAND = [
+    "npx",
+    "-y",
+    f"{LEGACY_MANAGED_BROWSER_PACKAGE}@latest",
+]
+
+
 def _load_merge_module():
     """Load merge_mcp_builtin.py as a module."""
     spec = importlib.util.spec_from_file_location(
@@ -31,8 +40,8 @@ def _read_json(path: Path) -> dict:
 class TestMergeMcpBuiltin:
     """Tests for merge_builtin function."""
 
-    def test_removes_old_managed_chrome_devtools(self):
-        """Existing config with old managed chrome-devtools gets removed."""
+    def test_prunes_legacy_managed_chrome_devtools_config(self):
+        """Old installer-owned browser MCP config is removed during migration."""
         module = _load_merge_module()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -41,9 +50,9 @@ class TestMergeMcpBuiltin:
 
             existing_config = {
                 "mcp": {
-                    "chrome-devtools": {
+                    LEGACY_MANAGED_BROWSER_NAME: {
                         "type": "local",
-                        "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+                        "command": LEGACY_MANAGED_BROWSER_COMMAND,
                         "environment": {"PATH": "{env:PATH}"}
                     },
                     "playwright": {
@@ -76,10 +85,10 @@ class TestMergeMcpBuiltin:
 
             result = _read_json(config_path)
 
-            assert "chrome-devtools" not in result["mcp"]
+            assert LEGACY_MANAGED_BROWSER_NAME not in result["mcp"]
 
-    def test_removes_chrome_devtools_with_string_command(self):
-        """Existing config with chrome-devtools command as string gets removed."""
+    def test_prunes_legacy_managed_chrome_devtools_string_command(self):
+        """Legacy managed browser MCP command strings are removed too."""
         module = _load_merge_module()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -88,9 +97,9 @@ class TestMergeMcpBuiltin:
 
             existing_config = {
                 "mcp": {
-                    "chrome-devtools": {
+                    LEGACY_MANAGED_BROWSER_NAME: {
                         "type": "local",
-                        "command": "npx -y chrome-devtools-mcp@latest",
+                        "command": f"npx -y {LEGACY_MANAGED_BROWSER_PACKAGE}@latest",
                         "environment": {}
                     }
                 }
@@ -113,7 +122,7 @@ class TestMergeMcpBuiltin:
 
             result = _read_json(config_path)
 
-            assert "chrome-devtools" not in result["mcp"]
+            assert LEGACY_MANAGED_BROWSER_NAME not in result["mcp"]
 
     def test_adds_obscura_browser_from_builtin(self):
         """Existing config gets obscura-browser added from builtin."""
@@ -235,8 +244,8 @@ class TestMergeMcpBuiltin:
             assert result["mcp"]["my-custom-server"]["command"] == ["python", custom_server_path]
             assert result["mcp"]["my-custom-server"]["environment"]["MY_VAR"] == "secret"
 
-    def test_keeps_custom_chrome_devtools_if_not_managed(self):
-        """Existing config keeps custom chrome-devtools if command does not contain chrome-devtools-mcp."""
+    def test_keeps_user_custom_server_with_legacy_name_if_not_managed(self):
+        """User-owned servers are kept when they do not use the old managed package."""
         module = _load_merge_module()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -246,7 +255,7 @@ class TestMergeMcpBuiltin:
 
             existing_config = {
                 "mcp": {
-                    "chrome-devtools": {
+                    LEGACY_MANAGED_BROWSER_NAME: {
                         "type": "local",
                         "command": [custom_tool_path],
                         "environment": {"CUSTOM": "value"}
@@ -271,9 +280,9 @@ class TestMergeMcpBuiltin:
 
             result = _read_json(config_path)
 
-            assert "chrome-devtools" in result["mcp"]
-            assert result["mcp"]["chrome-devtools"]["command"] == [custom_tool_path]
-            assert result["mcp"]["chrome-devtools"]["environment"]["CUSTOM"] == "value"
+            assert LEGACY_MANAGED_BROWSER_NAME in result["mcp"]
+            assert result["mcp"][LEGACY_MANAGED_BROWSER_NAME]["command"] == [custom_tool_path]
+            assert result["mcp"][LEGACY_MANAGED_BROWSER_NAME]["environment"]["CUSTOM"] == "value"
 
     def test_updates_empty_environment_from_builtin(self):
         """Existing server with empty environment gets updated from builtin."""
@@ -322,9 +331,9 @@ class TestMergeMcpBuiltin:
 
             existing_config = {
                 "mcp": {
-                    "chrome-devtools": {
+                    LEGACY_MANAGED_BROWSER_NAME: {
                         "type": "local",
-                        "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+                        "command": LEGACY_MANAGED_BROWSER_COMMAND,
                         "environment": {}
                     }
                 }
@@ -347,7 +356,7 @@ class TestMergeMcpBuiltin:
 
             result = _read_json(config_path)
 
-            assert "chrome-devtools" not in result["mcp"]
+            assert LEGACY_MANAGED_BROWSER_NAME not in result["mcp"]
             assert "obscura-browser" in result["mcp"]
 
 
