@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ProvenanceChip } from './ProvenanceChip';
 import { ProviderIcon } from './ProviderIcon';
+import { ModelSelect } from './ModelSelect';
 import type {
   MemorySettings,
   MemoryLLMBackend,
   MemoryEmbeddingBackend,
   MemoryVectorBackend,
+  ModelInfo,
 } from '@/types/settings';
 import { apiGet } from '@/lib/api-client';
 
@@ -15,6 +17,7 @@ export interface MemoryPanelProps {
   memory: MemorySettings;
   provenance?: Record<string, string>;
   onUpdate: (value: Partial<MemorySettings>) => void;
+  allModels?: ModelInfo[];
 }
 
 // ── Backend option definitions ──────────────────────────────────────────────
@@ -28,19 +31,13 @@ interface BackendOption {
 }
 
 const LLM_BACKENDS: BackendOption[] = [
-  { value: 'huggingface', label: 'HuggingFace (Local)', description: 'Local inference — no API key needed', icon: 'precision_manufacturing' },
-  { value: 'gemini',      label: 'Gemini',              description: 'Google Gemini API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
-  { value: 'openai',      label: 'OpenAI',              description: 'GPT models via OpenAI API', requiresKey: 'OPENAI_API_KEY', icon: 'smart_toy' },
-  { value: 'ollama',      label: 'Ollama (Local)',       description: 'Local Ollama server', icon: 'dns' },
-  { value: 'openrouter',  label: 'OpenRouter',           description: 'Multi-provider gateway', requiresKey: 'OPENROUTER_API_KEY', icon: 'hub' },
-  { value: 'sglang',      label: 'SGLang (Local)',       description: 'Local SGLang server', icon: 'terminal' },
+  { value: 'ollama',           label: 'Ollama (Local)',        description: 'Local Ollama server', icon: 'dns' },
+  { value: 'openai-compatible', label: 'OpenAI-Compatible',    description: 'Any OpenAI-compatible API server', icon: 'api' },
 ];
 
 const EMBEDDING_BACKENDS: BackendOption[] = [
-  { value: 'sentence-transformer', label: 'SentenceTransformer (Local)', description: 'Local embedding — no API key', icon: 'precision_manufacturing' },
-  { value: 'gemini',               label: 'Gemini Embedding',           description: 'Google Gemini embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
   { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
-  { value: 'vertex',               label: 'Vertex AI',                  description: 'Google Vertex AI embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'cloud' },
+  { value: 'openai-compatible',    label: 'OpenAI-Compatible',          description: 'Any OpenAI-compatible embedding API', icon: 'api' },
 ];
 
 const VECTOR_BACKENDS: BackendOption[] = [
@@ -51,47 +48,24 @@ const VECTOR_BACKENDS: BackendOption[] = [
 // ── Recommended models per backend ──────────────────────────────────────────
 
 const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
-  huggingface: [
-    { model: 'LiquidAI/LFM2-1.2B-Extract', label: 'LFM2 1.2B Extract (recommended)' },
-  ],
-  gemini: [
-    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (recommended)' },
-    { model: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
-    { model: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-  ],
-  openai: [
-    { model: 'gpt-4o-mini', label: 'GPT-4o Mini (recommended)' },
-    { model: 'gpt-4o', label: 'GPT-4o' },
-  ],
   ollama: [
     { model: 'llama3.2', label: 'Llama 3.2 (recommended)' },
     { model: 'mistral', label: 'Mistral' },
   ],
-  openrouter: [
-    { model: 'openai/gpt-4o-mini', label: 'GPT-4o Mini via OpenRouter' },
-    { model: 'google/gemini-flash-1.5', label: 'Gemini Flash via OpenRouter' },
-  ],
-  sglang: [
-    { model: 'default', label: 'Default model on SGLang server' },
+  'openai-compatible': [
+    { model: 'gpt-4', label: 'GPT-4' },
+    { model: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
   ],
 };
 
 const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
-  'sentence-transformer': [
-    { model: 'microsoft/harrier-oss-v1-0.6b', label: 'Harrier OSS 0.6B (recommended)' },
-    { model: 'all-MiniLM-L6-v2', label: 'MiniLM L6 v2 (lightweight)' },
-  ],
-  gemini: [
-    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
-  ],
   ollama: [
     { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
     { model: 'embeddinggemma', label: 'Embedding Gemma' },
     { model: 'qwen3-embedding:0.6b', label: 'Qwen3 Embedding 0.6B' },
   ],
-  vertex: [
-    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
-    { model: 'text-embedding-005', label: 'Text Embedding 005' },
+  'openai-compatible': [
+    { model: 'default', label: 'Model configured on your server' },
   ],
 };
 
@@ -101,10 +75,10 @@ const DEFAULTS: Required<Pick<MemorySettings,
   'llm_backend' | 'llm_model' | 'embedding_backend' | 'embedding_model' |
   'vector_backend' | 'context_aware' | 'auto_sync' | 'auto_sync_interval' | 'ttl_days'
 >> = {
-  llm_backend: 'huggingface',
-  llm_model: 'LiquidAI/LFM2-1.2B-Extract',
-  embedding_backend: 'sentence-transformer',
-  embedding_model: 'microsoft/harrier-oss-v1-0.6b',
+  llm_backend: 'ollama',
+  llm_model: 'llama3.2',
+  embedding_backend: 'ollama',
+  embedding_model: 'leoipulsar/harrier-0.6b',
   vector_backend: 'zvec',
   context_aware: true,
   auto_sync: true,
@@ -114,8 +88,26 @@ const DEFAULTS: Required<Pick<MemorySettings,
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelProps) {
+export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] }: MemoryPanelProps) {
   const [availableProviders, setAvailableProviders] = useState<Set<string>>(new Set());
+  
+  // Local state for inputs - initialized from props
+  const [llmModelInput, setLlmModelInput] = useState(memory.llm_model ?? '');
+  const [embeddingModelInput, setEmbeddingModelInput] = useState(memory.embedding_model ?? '');
+  const [syncIntervalInput, setSyncIntervalInput] = useState(String(memory.auto_sync_interval ?? 60));
+  const [ttlDaysInput, setTtlDaysInput] = useState(String(memory.ttl_days ?? 30));
+  
+  // OpenAI-compatible specific fields
+  const [llmCompatibleUrl, setLlmCompatibleUrl] = useState(memory.llm_compatible_url ?? '');
+  const [llmCompatibleKey, setLlmCompatibleKey] = useState(memory.llm_compatible_key ?? '');
+  const [embeddingCompatibleUrl, setEmbeddingCompatibleUrl] = useState(memory.embedding_compatible_url ?? '');
+  const [embeddingCompatibleKey, setEmbeddingCompatibleKey] = useState(memory.embedding_compatible_key ?? '');
+
+  // Filter out embedding models from the model picker
+  const chatModels = useMemo(
+    () => allModels.filter((m) => !m.id.toLowerCase().includes('embed')),
+    [allModels],
+  );
 
   // Detect which API keys are available (for showing provider availability badges)
   useEffect(() => {
@@ -285,14 +277,63 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
               <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
               <input
                 type="text"
-                value={effective.llm_model}
-                onChange={(e) => onUpdate({ llm_model: e.target.value })}
-                placeholder="e.g. LiquidAI/LFM2-1.2B-Extract"
+                value={llmModelInput}
+                onChange={(e) => setLlmModelInput(e.target.value)}
+                onBlur={() => onUpdate({ llm_model: llmModelInput })}
+                placeholder="e.g. llama3.2"
                 className="w-full px-3 py-2 rounded-md text-xs font-mono"
                 style={inputStyle}
               />
             </div>
+            
+            {/* Model dropdown from configured providers */}
+            {chatModels.length > 0 && (
+              <div className="mt-3">
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Or pick from configured providers:
+                </label>
+                <ModelSelect
+                  value={effective.llm_model || ''}
+                  onChange={(model) => onUpdate({ llm_model: model })}
+                  models={chatModels}
+                  showTier={true}
+                  showContext={true}
+                  placeholder="— Select from providers —"
+                />
+              </div>
+            )}
+            
             {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
+            
+            {/* OpenAI-compatible specific fields */}
+            {effective.llm_backend === 'openai-compatible' && (
+              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
+                  <input
+                    type="text"
+                    value={llmCompatibleUrl}
+                    onChange={(e) => setLlmCompatibleUrl(e.target.value)}
+                    onBlur={() => onUpdate({ llm_compatible_url: llmCompatibleUrl })}
+                    placeholder="http://localhost:8000/v1"
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
+                  <input
+                    type="password"
+                    value={llmCompatibleKey}
+                    onChange={(e) => setLlmCompatibleKey(e.target.value)}
+                    onBlur={() => onUpdate({ llm_compatible_key: llmCompatibleKey })}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -387,14 +428,63 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
               <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
               <input
                 type="text"
-                value={effective.embedding_model}
-                onChange={(e) => onUpdate({ embedding_model: e.target.value })}
-                placeholder="e.g. microsoft/harrier-oss-v1-0.6b"
+                value={embeddingModelInput}
+                onChange={(e) => setEmbeddingModelInput(e.target.value)}
+                onBlur={() => onUpdate({ embedding_model: embeddingModelInput })}
+                placeholder="e.g. leoipulsar/harrier-0.6b"
                 className="w-full px-3 py-2 rounded-md text-xs font-mono"
                 style={inputStyle}
               />
             </div>
+            
+            {/* Model dropdown from configured providers */}
+            {allModels.length > 0 && (
+              <div className="mt-3">
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Or pick from configured providers:
+                </label>
+                <ModelSelect
+                  value={effective.embedding_model || ''}
+                  onChange={(model) => onUpdate({ embedding_model: model })}
+                  models={allModels}
+                  showTier={true}
+                  showContext={false}
+                  placeholder="— Select from providers —"
+                />
+              </div>
+            )}
+            
             {provenance.embedding_model && <ProvenanceChip source={provenance.embedding_model} />}
+            
+            {/* OpenAI-compatible specific fields */}
+            {effective.embedding_backend === 'openai-compatible' && (
+              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
+                  <input
+                    type="text"
+                    value={embeddingCompatibleUrl}
+                    onChange={(e) => setEmbeddingCompatibleUrl(e.target.value)}
+                    onBlur={() => onUpdate({ embedding_compatible_url: embeddingCompatibleUrl })}
+                    placeholder="http://localhost:8000/v1"
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
+                  <input
+                    type="password"
+                    value={embeddingCompatibleKey}
+                    onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
+                    onBlur={() => onUpdate({ embedding_compatible_key: embeddingCompatibleKey })}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -501,8 +591,13 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
             <div className="flex items-baseline gap-1">
               <input
                 type="number"
-                value={effective.auto_sync_interval}
-                onChange={(e) => onUpdate({ auto_sync_interval: Math.max(10, parseInt(e.target.value, 10) || 60) })}
+                value={syncIntervalInput}
+                onChange={(e) => setSyncIntervalInput(e.target.value)}
+                onBlur={() => {
+                  const parsed = Math.max(10, parseInt(syncIntervalInput, 10) || 60);
+                  setSyncIntervalInput(String(parsed));
+                  onUpdate({ auto_sync_interval: parsed });
+                }}
                 min={10}
                 max={3600}
                 disabled={!effective.auto_sync}
@@ -522,8 +617,13 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
             <div className="flex items-baseline gap-1">
               <input
                 type="number"
-                value={effective.ttl_days}
-                onChange={(e) => onUpdate({ ttl_days: Math.max(1, parseInt(e.target.value, 10) || 30) })}
+                value={ttlDaysInput}
+                onChange={(e) => setTtlDaysInput(e.target.value)}
+                onBlur={() => {
+                  const parsed = Math.max(1, parseInt(ttlDaysInput, 10) || 30);
+                  setTtlDaysInput(String(parsed));
+                  onUpdate({ ttl_days: parsed });
+                }}
                 min={1}
                 max={365}
                 className="w-full px-2 py-1.5 rounded text-xs font-mono"

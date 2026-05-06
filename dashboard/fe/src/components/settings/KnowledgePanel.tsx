@@ -23,56 +23,37 @@ interface BackendOption {
 
 const LLM_BACKENDS: BackendOption[] = [
   { value: '',          label: '— Use server default —', description: 'Uses env-var / hardcoded default', icon: 'settings' },
-  { value: 'gemini',    label: 'Gemini',                 description: 'Google Gemini API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
-  { value: 'openai',    label: 'OpenAI',                 description: 'GPT models via OpenAI API', requiresKey: 'OPENAI_API_KEY', icon: 'smart_toy' },
   { value: 'ollama',    label: 'Ollama (Local)',          description: 'Local Ollama server', icon: 'dns' },
-  { value: 'google-vertex', label: 'Vertex AI',          description: 'Google Vertex AI', requiresKey: 'GOOGLE_API_KEY', icon: 'cloud' },
+  { value: 'openai-compatible', label: 'OpenAI-Compatible', description: 'Any OpenAI-compatible API server', icon: 'api' },
 ];
 
 const EMBEDDING_BACKENDS: BackendOption[] = [
   { value: '',                    label: '— Use server default —',     description: 'Uses env-var / hardcoded default', icon: 'settings' },
-  { value: 'sentence-transformer', label: 'SentenceTransformer (Local)', description: 'Local embedding — no API key', icon: 'precision_manufacturing' },
-  { value: 'gemini',               label: 'Gemini Embedding',           description: 'Google Gemini embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
   { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
-  { value: 'vertex',               label: 'Vertex AI',                  description: 'Google Vertex AI embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'cloud' },
+  { value: 'openai-compatible',    label: 'OpenAI-Compatible',          description: 'Any OpenAI-compatible embedding API', icon: 'api' },
 ];
 
 // ── Recommended models per backend (synchronised with MemoryPanel) ──────────
 
 const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
-  gemini: [
-    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (recommended)' },
-    { model: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
-  ],
-  openai: [
-    { model: 'gpt-4o-mini', label: 'GPT-4o Mini (recommended)' },
-    { model: 'gpt-4o', label: 'GPT-4o' },
-  ],
   ollama: [
     { model: 'llama3.2', label: 'Llama 3.2 (recommended)' },
     { model: 'mistral', label: 'Mistral' },
   ],
-  'google-vertex': [
-    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (recommended)' },
+  'openai-compatible': [
+    { model: 'gpt-4', label: 'GPT-4' },
+    { model: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
   ],
 };
 
 const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
-  'sentence-transformer': [
-    { model: 'BAAI/bge-base-en-v1.5', label: 'BGE Base EN v1.5 (recommended)' },
-    { model: 'all-MiniLM-L6-v2', label: 'MiniLM L6 v2 (lightweight)' },
-  ],
-  gemini: [
-    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
-  ],
   ollama: [
     { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
     { model: 'embeddinggemma', label: 'Embedding Gemma' },
     { model: 'qwen3-embedding:0.6b', label: 'Qwen3 Embedding 0.6B' },
   ],
-  vertex: [
-    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
-    { model: 'text-embedding-005', label: 'Text Embedding 005' },
+  'openai-compatible': [
+    { model: 'default', label: 'Model configured on your server' },
   ],
 };
 
@@ -95,6 +76,12 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
   const [embedModelInput, setEmbedModelInput] = useState(effective.knowledge_embedding_model);
   const [savingMsg, setSavingMsg] = useState<string | null>(null);
   const [savingError, setSavingError] = useState(false);
+  
+  // OpenAI-compatible specific fields
+  const [llmCompatibleUrl, setLlmCompatibleUrl] = useState(effective.knowledge_llm_compatible_url ?? '');
+  const [llmCompatibleKey, setLlmCompatibleKey] = useState(effective.knowledge_llm_compatible_key ?? '');
+  const [embeddingCompatibleUrl, setEmbeddingCompatibleUrl] = useState(effective.knowledge_embedding_compatible_url ?? '');
+  const [embeddingCompatibleKey, setEmbeddingCompatibleKey] = useState(effective.knowledge_embedding_compatible_key ?? '');
 
   // Keep local inputs in sync if external settings change (e.g. WS broadcast)
   useEffect(() => {
@@ -295,124 +282,76 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                 onChange={(e) => setLlmModelInput(e.target.value)}
                 onBlur={commitLlmModelInput}
                 onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                placeholder="e.g. gemini-3-flash-preview"
+                placeholder="e.g. llama3.2"
                 className="w-full px-3 py-2 rounded-md text-xs font-mono"
                 style={inputStyle}
               />
             </div>
-            {/* Also allow ModelSelect from configured providers */}
-            {effective.knowledge_llm_backend === '' && (
+            
+            {/* Model dropdown from configured providers */}
+            {chatModels.length > 0 && (
               <div className="mt-3">
-                <p className="text-[10px] text-slate-500 mb-2">
-                  Or pick a model from your configured providers:
-                </p>
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Or pick from configured providers:
+                </label>
                 <ModelSelect
-                  value={effective.knowledge_llm_model}
+                  value={effective.knowledge_llm_model || ''}
                   onChange={(m) => handleLlmModelSelect(m)}
                   models={chatModels}
                   showTier={true}
                   showContext={true}
-                  placeholder="— Use server default —"
+                  placeholder="— Select from providers —"
                 />
               </div>
             )}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Section 2: Embedding ─────────────────────────────── */}
-      <section>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="material-symbols-outlined text-purple-600 text-lg">layers</span>
-          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">Embedding</h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">
-            knowledge_embedding_backend / knowledge_embedding_model
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Embedding Backend Selector */}
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
-              Embedding Backend
-            </label>
-            <div className="space-y-1.5">
-              {EMBEDDING_BACKENDS.map((b) => {
-                const isActive = effective.knowledge_embedding_backend === b.value;
-                return (
-                  <button
-                    key={b.value}
-                    type="button"
-                    onClick={() => handleEmbedBackendChange(b.value)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
-                      isActive
-                        ? 'bg-purple-50 border-2 border-purple-500 shadow-sm'
-                        : 'bg-white border border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 cursor-pointer'
-                    }`}
-                  >
-                    <ProviderIcon provider={b.value} size={16} className={isActive ? '' : 'opacity-50'} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-xs font-semibold ${isActive ? 'text-purple-700' : 'text-slate-700'}`}>
-                          {b.label}
-                        </span>
-                        {!b.requiresKey && b.value !== '' && (
-                          <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
-                            Local
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[9px] text-slate-400 truncate">{b.description}</p>
-                    </div>
-                    {isActive && (
-                      <span className="material-symbols-outlined text-purple-600 text-sm">check_circle</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Embedding Model Selector */}
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
-              Embedding Model
-            </label>
-            {effective.knowledge_embedding_backend && embedSuggestions.length > 0 && (
-              <div className="space-y-1 mb-3">
-                {embedSuggestions.map((s) => {
-                  const isActive = embedModelInput === s.model;
-                  return (
-                    <button
-                      key={s.model}
-                      type="button"
-                      onClick={() => handleEmbedModelSelect(s.model)}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between ${
-                        isActive
-                          ? 'bg-purple-50 border border-purple-400 text-purple-700 font-semibold'
-                          : 'bg-white border border-slate-200 text-slate-600 hover:border-purple-300'
-                      }`}
-                    >
-                      <span className="font-mono text-[10px]">{s.label}</span>
-                      {isActive && <span className="material-symbols-outlined text-purple-500 text-sm">check</span>}
-                    </button>
-                  );
-                })}
+            
+            {/* Model dropdown from configured providers */}
+            {allModels.length > 0 && (
+              <div className="mt-3">
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Or pick from configured providers:
+                </label>
+                <ModelSelect
+                  value={effective.knowledge_embedding_model || ''}
+                  onChange={(m) => handleEmbedModelSelect(m)}
+                  models={allModels}
+                  showTier={true}
+                  showContext={false}
+                  placeholder="— Select from providers —"
+                />
               </div>
             )}
-            <div>
-              <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
-              <input
-                type="text"
-                value={embedModelInput}
-                onChange={(e) => setEmbedModelInput(e.target.value)}
-                onBlur={commitEmbedModelInput}
-                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                placeholder="e.g. gemini-embedding-001"
-                className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                style={inputStyle}
-              />
-            </div>
+            
+            {/* OpenAI-compatible specific fields */}
+            {effective.knowledge_embedding_backend === 'openai-compatible' && (
+              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
+                  <input
+                    type="text"
+                    value={embeddingCompatibleUrl}
+                    onChange={(e) => setEmbeddingCompatibleUrl(e.target.value)}
+                    onBlur={() => save({ knowledge_embedding_compatible_url: embeddingCompatibleUrl })}
+                    placeholder="http://localhost:8000/v1"
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
+                  <input
+                    type="password"
+                    value={embeddingCompatibleKey}
+                    onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
+                    onBlur={() => save({ knowledge_embedding_compatible_key: embeddingCompatibleKey })}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            )}
+            
             <p className="text-[10px] text-slate-400 mt-3">
               All vectors are normalised to <strong>768 dimensions</strong>. Changing backend requires a{' '}
               <strong>fresh namespace</strong>.
