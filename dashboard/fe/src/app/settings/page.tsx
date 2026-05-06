@@ -126,23 +126,43 @@ function SettingsPageContent() {
 
   const handleRemoveProvider = async (providerId: string) => {
     try {
-      await apiDelete(`/settings/vault/providers/${providerId}`);
-      await apiPost('/models/reload');
-      // Refresh vault status
-      const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
-      const entries = raw.keys ?? raw;
-      const status: Record<string, boolean> = {};
-      Object.entries(entries).forEach(([key, value]) => {
-        if (value && typeof value === 'object' && 'is_set' in value) {
-          status[key] = value.is_set;
-        }
-      });
-      setVaultStatus(status);
-      reloadModels();
+      const isSet = vaultStatus[providerId];
+      
+      if (isSet) {
+        // First click: remove key
+        await apiDelete(`/settings/vault/providers/${providerId}`);
+        await apiPost('/models/reload');
+        
+        // Refresh vault status
+        const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+        const entries = raw.keys ?? raw;
+        const status: Record<string, boolean> = {};
+        Object.entries(entries).forEach(([key, value]) => {
+          if (value && typeof value === 'object' && 'is_set' in value) {
+            status[key] = value.is_set;
+          }
+        });
+        setVaultStatus(status);
+        reloadModels();
+      } else {
+        // Second click (or no key existed): dismiss from UI
+        const provSettings = (providers as Record<string, ProviderSettings>)[providerId] || { enabled: false };
+        updateProvider(providerId, provSettings, { dismissed: true });
+        
+        await apiDelete(`/settings/vault/providers/${providerId}`).catch(() => {});
+        await apiPost('/models/reload');
+        reloadModels();
+      }
     } catch { /* ignore */ }
   };
 
-  const handleProviderAdded = async (_providerId: string) => {
+  const handleProviderAdded = async (providerId: string) => {
+    // If the provider was previously dismissed, un-dismiss it
+    const provSettings = (providers as Record<string, ProviderSettings>)[providerId];
+    if (provSettings?.dismissed) {
+      updateProvider(providerId, provSettings, { dismissed: false });
+    }
+
     // Refresh vault status + model catalog
     try {
       const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
@@ -176,9 +196,9 @@ function SettingsPageContent() {
     ? allModels.map((m) => m.id)
     : Object.values(modelRegistry).flat().map((m) => m.id);
 
-  // Dynamic providers: those configured in auth.json but NOT legacy primary
+  // Dynamic providers: those configured in auth.json but NOT legacy primary, and NOT dismissed
   const dynamicProviderIds = Object.keys(configuredProviders).filter(
-    (pid) => !LEGACY_PRIMARY_PROVIDERS.has(pid),
+    (pid) => !LEGACY_PRIMARY_PROVIDERS.has(pid) && !(providers as Record<string, ProviderSettings>)[pid]?.dismissed,
   );
 
   if (isLoading) {

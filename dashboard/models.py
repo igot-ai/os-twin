@@ -237,10 +237,11 @@ class ProviderSettings(BaseModel):
     enabled_models: List[str] = Field(
         default_factory=list,
         description=(
-            "Model IDs from the catalog that this provider exposes. "
-            "Empty list means ALL models for this provider are enabled."
+            "List of allowed model IDs. "
+            "If empty, all models from this provider are allowed."
         ),
     )
+    dismissed: Optional[bool] = False
 
 
 class ProvidersNamespace(BaseModel):
