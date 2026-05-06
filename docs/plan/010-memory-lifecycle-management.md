@@ -6,6 +6,82 @@
 
 ---
 
+## What is this?
+
+Ostwin is a multi-agent orchestrator. When you run a plan (e.g., "build a gold mining game"), multiple AI agents (architect, engineer, QA) work in parallel inside "war-rooms." These agents have a **shared memory system** — they can save notes, search previous learnings, and build a knowledge graph that persists across sessions.
+
+### How memory works today
+
+- Each plan gets its own memory namespace, stored centrally at `~/.ostwin/memory/<plan_id>/`
+- Inside each namespace: `notes/` (markdown files with metadata) and `vectordb/` (semantic search index)
+- Agents save memories via the MCP tool `save_memory` (e.g., "we decided to use TypeScript for this project")
+- Agents search memories via `search_memory` (semantic vector search with time-decay reranking)
+- A project-level symlink (`project/.memory → ~/.ostwin/memory/<plan_id>/`) lets you browse notes from the project directory
+- All AI calls (LLM completions for analysis, embeddings for vector search) go through a centralized AI gateway with monitoring
+
+### What you can do today
+
+| Action | How | Works? |
+|---|---|---|
+| Save a memory | Agent calls `save_memory` during work | Yes |
+| Search memories | Agent calls `search_memory` | Yes |
+| Browse notes | `ls project/.memory/notes/` or MemoryTab in dashboard | Yes |
+| View memory graph | Dashboard → plan → Memory tab | Yes |
+| Monitor pool health | Dashboard → MCP page → Memory Pool panel | Yes |
+| Delete a single note | Not available | No |
+| Clear all memories for a plan | `rm -rf ~/.ostwin/memory/<plan_id>/` | Manual only |
+| Archive memories before re-running | Not available | No |
+| Export memories | Not available | No |
+| Manage from CLI | Not available | No |
+
+### The problem
+
+Memories persist forever. When you re-run a plan, agents see old notes from previous runs. Sometimes this is helpful (agents remember past decisions). Sometimes it's harmful (old architecture notes conflict with a new approach). **Users have no way to manage this** — no clear, no archive, no export, no delete. The only option is `rm -rf`.
+
+---
+
+## Features (what this plan adds)
+
+### For the dashboard user
+
+1. **Clear Memory** — one-click button in the Memory tab to wipe all notes for a plan. Confirmation modal prevents accidents.
+
+2. **Archive Memory** — save current memories to a timestamped archive (`<plan_id>.archive-20260506/`), then start fresh. Nothing lost, agents start clean.
+
+3. **Export Memory** — download all notes as a `.tar.gz` file. Useful for backup, sharing, or moving to another machine.
+
+4. **Delete Individual Notes** — trash icon next to each note in the Memory tab. Remove a specific outdated or wrong memory without clearing everything.
+
+5. **Namespace Management** — see all plan memory namespaces in the Memory Pool panel with note counts, disk usage, and management buttons.
+
+### For the CLI user
+
+```bash
+ostwin memory list                      # List all plan namespaces with stats
+ostwin memory stats <plan_id>           # Show stats for a specific plan
+ostwin memory tree <plan_id>            # Show note directory tree
+ostwin memory clear <plan_id> --force   # Delete all notes for a plan
+ostwin memory delete <plan_id> <id>     # Delete a single note
+ostwin memory archive <plan_id>         # Archive and start fresh
+ostwin memory export <plan_id>          # Download as .tar.gz
+```
+
+### For agents (MCP tools)
+
+- `delete_memory` tool exposed via HTTP MCP — agents can remove their own outdated notes
+
+### For the REST API consumer
+
+```
+GET    /api/amem/namespaces                    List all namespaces
+DELETE /api/amem/{plan_id}                     Clear all notes
+DELETE /api/amem/{plan_id}/notes/{note_id}     Delete single note
+POST   /api/amem/{plan_id}/archive             Archive namespace
+GET    /api/amem/{plan_id}/export              Download as tar.gz
+```
+
+---
+
 ## Problem
 
 Memories persist forever across plan runs. Users have no way to clear, archive, or manage them — from CLI, dashboard, or API. The only option is `rm -rf ~/.ostwin/memory/<plan_id>/`.
