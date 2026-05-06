@@ -34,7 +34,7 @@
         "{env:AGENT_DIR}/mcp/obscura-browser-server.py"
       ],
       "environment": {
-        "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
+        "AGENT_OS_ROOT": ".",
         "PATH": "{env:PATH}"
       }
     },

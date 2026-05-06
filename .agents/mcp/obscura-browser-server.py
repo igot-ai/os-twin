@@ -3,7 +3,7 @@
 Agent OS - MCP Obscura Browser Server
 
 Controls Obscura browser through Chrome DevTools Protocol (CDP).
-Uses Playwright Python as the CDP client only; it does not install or launch Chrome.
+Uses Playwright Python as the CDP client only; it launches Obscura, not Chrome.
 
 Environment:
     OBSCURA_BIN           Path to obscura binary (default: "obscura")
@@ -315,6 +315,8 @@ async def _start_browser() -> dict:
     status = await _ensure_browser()
     if status.get("running"):
         return status
+    if status.get("error"):
+        return status
 
     obscura_exe = shutil.which(OBSCURA_BIN) or OBSCURA_BIN
     try:
@@ -490,7 +492,7 @@ async def browser_screenshot(
 ) -> str:
     """Capture screenshot of current page.
 
-    Returns JSON with 'success', 'path', and base64 'data' or 'error'.
+    Returns JSON with 'success', 'path', and a short base64 'data_preview' or 'error'.
     """
     if _page is None:
         return json.dumps({"success": False, "error": "No page open"})
@@ -504,8 +506,8 @@ async def browser_screenshot(
     try:
         await _page.screenshot(path=safe_path, full_page=full_page)
         with open(safe_path, "rb") as f:
-            data = base64.b64encode(f.read()).decode("utf-8")
-        return json.dumps({"success": True, "path": safe_path, "data": data[:100] + "..."})
+            data_preview = base64.b64encode(f.read()).decode("utf-8")[:100] + "..."
+        return json.dumps({"success": True, "path": safe_path, "data_preview": data_preview})
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)})
 

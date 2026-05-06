@@ -166,10 +166,11 @@ Describe "mcp-builtin.json Server Configuration" {
         $obscuraCmd | Should -Not -Match "/usr/local/bin/python"
     }
 
-    It "obscura-browser environment should include AGENT_OS_ROOT placeholder" {
+    It "obscura-browser environment should use project-relative AGENT_OS_ROOT" {
         $config = Get-Content $script:BuiltinConfigPath -Raw | ConvertFrom-Json
         $env = $config.mcp.'obscura-browser'.environment
-        $env.AGENT_OS_ROOT | Should -Be "{env:PROJECT_DIR}"
+        $env.AGENT_OS_ROOT | Should -Be "."
+        $env.AGENT_OS_ROOT | Should -Not -Match "\{env:"
     }
 
     It "obscura-browser environment should include PATH placeholder" {

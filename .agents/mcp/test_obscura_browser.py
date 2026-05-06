@@ -383,6 +383,23 @@ class TestRefMap:
 class TestMCPTools:
     """Tests for MCP tool functions (no browser required)."""
 
+    def test_start_browser_returns_dependency_error_without_launch(self, monkeypatch):
+        module = _load_obscura_server()
+        import asyncio
+
+        async def fake_ensure_browser():
+            return {"running": False, "port": 9222, "error": "playwright not installed"}
+
+        def fail_popen(*_args, **_kwargs):
+            raise AssertionError("Popen should not be called when client dependency is missing")
+
+        monkeypatch.setattr(module, "_ensure_browser", fake_ensure_browser)
+        monkeypatch.setattr(module.subprocess, "Popen", fail_popen)
+
+        result = asyncio.run(module._start_browser())
+        assert result["running"] is False
+        assert result["error"] == "playwright not installed"
+
     def test_browser_close_returns_success(self):
         module = _load_obscura_server()
         import asyncio
