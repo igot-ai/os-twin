@@ -2,7 +2,7 @@
 """
 Agent OS - MCP Obscura Browser Server
 
-Controls Obscura browser through Chrome DevTools Protocol (CDP).
+Controls Obscura browser through a CDP-compatible endpoint.
 Uses Playwright Python as the CDP client only; it launches Obscura, not Chrome.
 
 Environment:

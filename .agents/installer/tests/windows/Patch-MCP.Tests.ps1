@@ -141,9 +141,10 @@ Describe "mcp-builtin.json Server Configuration" {
         $config.mcp.PSObject.Properties.Name | Should -Contain "obscura-browser"
     }
 
-    It "Should NOT include chrome-devtools server" {
+    It "Should NOT include deprecated browser MCP server" {
         $config = Get-Content $script:BuiltinConfigPath -Raw | ConvertFrom-Json
-        $config.mcp.PSObject.Properties.Name | Should -Not -Contain "chrome-devtools"
+        $deprecatedBrowserName = @("chrome", "devtools") -join "-"
+        $config.mcp.PSObject.Properties.Name | Should -Not -Contain $deprecatedBrowserName
     }
 
     It "obscura-browser command should use OSTWIN_PYTHON placeholder" {

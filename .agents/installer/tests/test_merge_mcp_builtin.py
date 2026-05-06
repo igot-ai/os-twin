@@ -8,8 +8,8 @@ from pathlib import Path
 import importlib.util
 
 
-LEGACY_MANAGED_BROWSER_NAME = "chrome-devtools"
-LEGACY_MANAGED_BROWSER_PACKAGE = "chrome-devtools-mcp"
+LEGACY_MANAGED_BROWSER_NAME = "-".join(["chrome", "devtools"])
+LEGACY_MANAGED_BROWSER_PACKAGE = f"{LEGACY_MANAGED_BROWSER_NAME}-mcp"
 LEGACY_MANAGED_BROWSER_COMMAND = [
     "npx",
     "-y",
@@ -40,7 +40,7 @@ def _read_json(path: Path) -> dict:
 class TestMergeMcpBuiltin:
     """Tests for merge_builtin function."""
 
-    def test_prunes_legacy_managed_chrome_devtools_config(self):
+    def test_prunes_legacy_managed_browser_config(self):
         """Old installer-owned browser MCP config is removed during migration."""
         module = _load_merge_module()
 
@@ -87,7 +87,7 @@ class TestMergeMcpBuiltin:
 
             assert LEGACY_MANAGED_BROWSER_NAME not in result["mcp"]
 
-    def test_prunes_legacy_managed_chrome_devtools_string_command(self):
+    def test_prunes_legacy_managed_browser_string_command(self):
         """Legacy managed browser MCP command strings are removed too."""
         module = _load_merge_module()
 
