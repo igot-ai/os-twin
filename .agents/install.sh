@@ -10,6 +10,7 @@
 #   ./install.sh --dir /path   # Install to custom location (default: ~/.ostwin)
 #   ./install.sh --channel        # Also install & start the channel connectors (Telegram + Discord + Slack)
 #   ./install.sh --dashboard-only  # Install dashboard API + frontend only
+#   ./install.sh --no-opencode-config  # Skip writing to ~/.config/opencode/opencode.json
 #   ./install.sh --help        # Show this help
 #
 # What gets installed:
@@ -31,7 +32,7 @@ INSTALL_DIR="${HOME}/.ostwin"
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 # shellcheck disable=SC2034
 AUTO_YES=false; SKIP_OPTIONAL=false; DASHBOARD_ONLY=false
-START_CHANNEL=false; DASHBOARD_PORT=3366
+START_CHANNEL=false; DASHBOARD_PORT=3366; SKIP_OPENCODE_CONFIG=false
 # shellcheck disable=SC2034
 PYTHON_VERSION=""
 # shellcheck disable=SC2034
@@ -47,7 +48,8 @@ while [[ $# -gt 0 ]]; do
     --skip-optional)  SKIP_OPTIONAL=true; shift ;;
     --dashboard-only) DASHBOARD_ONLY=true; AUTO_YES=true; shift ;;
     --channel)        START_CHANNEL=true; shift ;;
-    --help|-h)        head -22 "$0" | tail -20; exit 0 ;;
+    --no-opencode-config) SKIP_OPENCODE_CONFIG=true; shift ;;
+    --help|-h)        head -23 "$0" | tail -21; exit 0 ;;
     *)  echo "[ERROR] Unknown option: $1" >&2
         echo "Run './install.sh --help' for usage." >&2; exit 1 ;;
   esac
@@ -132,7 +134,11 @@ else
 fi
 patch_mcp_config; sync_opencode_agents; compute_build_hash
 header "5d. OpenCode agent permissions"
-setup_opencode_permissions
+if $SKIP_OPENCODE_CONFIG; then
+  info "Skipping OpenCode config (--no-opencode-config)"
+else
+  setup_opencode_permissions
+fi
 
 if $DASHBOARD_ONLY; then
   header "6. PowerShell modules (skipped — dashboard-only)"; info "Skipping in dashboard-only mode"

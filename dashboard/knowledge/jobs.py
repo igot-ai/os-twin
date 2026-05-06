@@ -132,6 +132,7 @@ class JobManager:
         self,
         base_dir: Optional[Path] = None,
         max_workers: int = 2,
+        completed_job_ttl: int = 3600,
     ) -> None:
         # Lazy import: keep this module import-cheap. config has no heavy deps,
         # but importing it inside __init__ avoids a static dependency loop with
@@ -150,6 +151,7 @@ class JobManager:
         # cancel flags polled by long-running fns
         self._cancel_flags: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
+        self._completed_job_ttl = completed_job_ttl
         # Recovery: scan running jobs and mark interrupted (ADR-08).
         self._recover_interrupted()
 
@@ -313,6 +315,9 @@ class JobManager:
 
         Returns the ``job_id`` immediately — DOES NOT wait for ``fn`` to start.
         """
+        # Evict stale completed jobs to prevent unbounded memory growth
+        self._evict_completed()
+
         job_id = uuid.uuid4().hex
         now = _utcnow()
         status = JobStatus(
@@ -419,6 +424,34 @@ class JobManager:
     def shutdown(self, wait: bool = False) -> None:
         """Stop accepting new work; optionally wait for in-flight jobs."""
         self._exec.shutdown(wait=wait)
+
+    def _evict_completed(self) -> int:
+        """Evict terminal jobs older than ``_completed_job_ttl`` seconds.
+
+        Prevents unbounded growth of the in-memory ``_jobs`` dict during
+        long-running sessions with many knowledge imports.  Disk logs
+        are untouched — the ``get()`` fallback can still replay them.
+
+        Returns the number of evicted entries.
+        """
+        now = _utcnow()
+        evicted = 0
+        with self._lock:
+            expired = [
+                jid
+                for jid, status in self._jobs.items()
+                if status.state in TERMINAL_STATES
+                and status.finished_at
+                and (now - status.finished_at).total_seconds() > self._completed_job_ttl
+            ]
+            for jid in expired:
+                del self._jobs[jid]
+                self._futures.pop(jid, None)
+                self._cancel_flags.pop(jid, None)
+                evicted += 1
+        if evicted:
+            logger.debug("Evicted %d completed jobs from in-memory cache", evicted)
+        return evicted
 
     # ---- Worker --------------------------------------------------------
 

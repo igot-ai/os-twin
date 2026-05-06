@@ -26,6 +26,9 @@ def inject_env(mcp_path: str, env_path: str) -> None:
                 continue
             key, _, val = line.partition("=")
             key = key.strip()
+            # Handle shell-style 'export VAR=...' lines
+            if key.startswith("export "):
+                key = key[len("export "):].strip()
             # Strip surrounding quotes
             val = val.strip().strip('"').strip("'")
             if key:

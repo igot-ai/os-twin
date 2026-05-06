@@ -6,7 +6,6 @@ gold-mining/
 *pid
 .build-hash
 **/.war-rooms/
-.war-rooms/
 
 # ── Agents (runtime data, not source) ────────────────────────────────────────
 .agents/.venv/
@@ -122,8 +121,3 @@ test_extless.ps1
 *.tar.zst
 lint_output.txt
 test_results.txt
-# Ostwin generated
-.opencode/opencode.json
-.war-rooms/
-.agents/*
-!.agents/memory/

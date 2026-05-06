@@ -54,7 +54,7 @@ const ToastItem = ({ toast }: { toast: ToastMessage }) => {
         <motion.div
           initial={{ width: '100%' }}
           animate={{ width: 0 }}
-          transition={{ duration: 8, ease: 'linear' }}
+          transition={{ duration: 2, ease: 'linear' }}
           className="absolute bottom-0 left-0 h-0.5 bg-current opacity-20"
         />
       )}

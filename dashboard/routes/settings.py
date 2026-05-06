@@ -96,6 +96,7 @@ async def get_master_settings(
     Never dereferences vault refs.  Returns the raw config structure.
     """
     resolver = get_settings_resolver()
+    print("Resolver.get_master_settings():", resolver.get_master_settings())
     return resolver.get_master_settings()
 
 
@@ -247,6 +248,131 @@ async def put_knowledge_settings(
         },
     )
     return payload
+
+
+# ── Ollama Integration Endpoints ────────────────────────────────────────
+
+class OllamaHealthResponse(BaseModel):
+    running: bool
+    model_exists: bool
+
+class OllamaPullRequest(BaseModel):
+    model: str
+
+@router.get("/ollama/health", response_model=OllamaHealthResponse)
+async def get_ollama_health(
+    model: str = Query(..., description="Model name to check (e.g. llama3.2)"),
+    user: dict = Depends(get_current_user),
+):
+    """Check if Ollama is running and if the requested model is pulled."""
+    import httpx
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:11434/api/tags", timeout=2.0)
+            if response.status_code != 200:
+                return OllamaHealthResponse(running=True, model_exists=False)
+            
+            data = response.json()
+            models = [m.get("name", "") for m in data.get("models", [])]
+            
+            # Ollama models often have ":latest" suffix. 
+            # If the user asks for "llama3.2", check if it exists (also considering hf.co/ prefix)
+            model_exists = any(
+                m == model or 
+                m == f"{model}:latest" or 
+                m == f"hf.co/{model}" or 
+                m == f"hf.co/{model}:latest" 
+                for m in models
+            )
+            
+            return OllamaHealthResponse(running=True, model_exists=model_exists)
+    except httpx.RequestError:
+        return OllamaHealthResponse(running=False, model_exists=False)
+
+@router.get("/ollama/models")
+async def list_ollama_models(
+    user: dict = Depends(get_current_user),
+):
+    """List all installed Ollama models."""
+    import httpx
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:11434/api/tags", timeout=2.0)
+            if response.status_code != 200:
+                return {"models": []}
+            
+            data = response.json()
+            models = []
+            for m in data.get("models", []):
+                raw_name = m.get("name", "")
+                if not raw_name:
+                    continue
+                
+                display_name = raw_name
+                if display_name.startswith("hf.co/"):
+                    display_name = display_name[len("hf.co/"):]
+                if display_name.endswith(":latest"):
+                    display_name = display_name[:-len(":latest")]
+                
+                details = m.get("details", {})
+                families = details.get("families", []) or []
+                
+                is_embed = (
+                    "bert" in families or
+                    "nomic-bert" in families or
+                    "embed" in display_name.lower() or
+                    "e5" in display_name.lower() or
+                    "bge" in display_name.lower()
+                )
+                
+                models.append({
+                    "raw_name": raw_name,
+                    "display_name": display_name,
+                    "is_embed": is_embed
+                })
+                
+            return {"models": models}
+    except httpx.RequestError:
+        return {"models": []}
+
+@router.post("/ollama/pull")
+async def pull_ollama_model(
+    request: OllamaPullRequest = Body(...),
+    user: dict = Depends(get_current_user),
+):
+    """Stream model pull progress from Ollama."""
+    import httpx
+    from fastapi.responses import StreamingResponse
+    import json
+    
+    async def stream_generator():
+        model_name = request.model
+        if not model_name.startswith("hf.co/"):
+            model_name = f"hf.co/{model_name}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST", 
+                    "http://localhost:11434/api/pull", 
+                    json={"name": model_name},
+                    timeout=None # Pulling can take a long time
+                ) as r:
+                    if r.status_code != 200:
+                        yield json.dumps({"error": f"Ollama returned status {r.status_code}"}) + "\n"
+                        return
+                    
+                    async for chunk in r.aiter_lines():
+                        if chunk:
+                            yield chunk + "\n"
+        except httpx.ConnectError:
+            yield json.dumps({"error": "Ollama server is unreachable."}) + "\n"
+        except Exception as e:
+            yield json.dumps({"error": f"An error occurred: {str(e)}"}) + "\n"
+
+    return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
 
 
 @router.put("/{namespace}")

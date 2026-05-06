@@ -47,7 +47,9 @@ param(
 
     [switch]$SkipLoop,
 
-    [switch]$Unified
+    [switch]$Unified,
+
+    [switch]$NonInteractive
 )
 
 # --- Resolve paths ---

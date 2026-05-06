@@ -136,15 +136,7 @@ def get_model_registry_from_configured() -> Dict[str, List[dict]]:
 
             cost = model_data.get("cost", {})
 
-            # Companion models (google-vertex/*, google-vertex-anthropic/*) already
-            # have the companion-provider prefix baked into their model_id key, so
-            # they must be kept as-is.  All other providers need the
-            # "provider_id/model_id" composite so the registry id is routable
-            # (e.g. "poe/topazlabs-co/topazlabs", "anthropic/claude-opus-4-6").
-            if model_data.get("companion_provider"):
-                registry_id = model_id  # already like "google-vertex/gemini-3-flash"
-            else:
-                registry_id = f"{provider_id}/{model_id}"
+            registry_id = f"{provider_id}/{model_id}"
 
             model_entry = {
                 "id": registry_id,
@@ -181,9 +173,13 @@ def get_available_providers() -> List[Dict[str, Any]]:
 
     configured = set((_read_configured_providers() or {}).keys())
 
+    _HIDDEN_FROM_ADD = {"google", "google-vertex", "google-vertex-anthropic", "openai", "anthropic"}
+
     result: List[Dict[str, Any]] = []
     for pid, pdata in sorted(raw.items(), key=lambda kv: kv[1].get("name", kv[0])):
         if not isinstance(pdata, dict) or "models" not in pdata:
+            continue
+        if pid in _HIDDEN_FROM_ADD:
             continue
         result.append(
             {
@@ -314,6 +310,11 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
     except Exception as exc:
         logger.debug("Vault provider discovery skipped: %s", exc)
 
+    # 5. Always inject Google deployment mode if Google is present.
+    # Because it dictates which companion catalogs to merge.
+    if "google" in providers:
+        providers["google"]["deployment_mode"] = _read_google_deployment_mode()
+
     return providers
 
 
@@ -423,21 +424,16 @@ def _build_configured_models(
                 "models": {},
             }
 
-        # Resolve companion providers early so step 1 can skip base
-        # models when companions will supply properly-prefixed ones.
+        # Resolve companion providers.
         mode = provider_cfg.get("deployment_mode", "")
         companions_by_mode = _COMPANION_PROVIDERS.get(provider_id, {})
         companion_ids = companions_by_mode.get(mode, []) if mode else []
-        # If no mode-specific entry, try a flat list fallback
         if not companion_ids and isinstance(companions_by_mode, list):
             companion_ids = companions_by_mode
 
-        # ── 1) Ingest models.dev models ───────────────────────────
-        # When companion providers are active (e.g. google in vertex
-        # mode), skip base models — they have bare IDs and aren't
-        # routable via the companion API.  All models come from the
-        # companion catalog with properly prefixed IDs instead.
-        if raw_provider is not None and not companion_ids:
+        # ── 1) Ingest models.dev base models ──────────────────────
+        # Always include base models regardless of deployment mode.
+        if raw_provider is not None:
             for model_id, model_data in raw_provider.get("models", {}).items():
                 provider_entry["models"][model_id] = {
                     "id": model_id,
@@ -455,20 +451,29 @@ def _build_configured_models(
                     "source": "models.dev",
                 }
 
-        # ── 2) Ingest companion provider models ───────────────────
-
+        # ── 2) Emit companion providers as SEPARATE top-level entries
+        # This ensures the UI groups them independently (e.g. "Google
+        # Vertex AI" vs "Google") rather than merging everything under
+        # one flat list.
         for companion_id in companion_ids:
-            companion = raw_catalog.get(companion_id)
-            if companion is None:
+            companion_raw = raw_catalog.get(companion_id)
+            if companion_raw is None:
                 continue
-            for model_id, model_data in companion.get("models", {}).items():
-                # Prefix model id with companion provider so it's
-                # unique and routable: "google-vertex/gemini-3-flash"
-                prefixed_id = f"{companion_id}/{model_id}"
-                if prefixed_id in provider_entry["models"]:
-                    continue
-                provider_entry["models"][prefixed_id] = {
-                    "id": prefixed_id,
+            companion_entry = {
+                "id": companion_id,
+                "name": companion_raw.get("name", companion_id),
+                "doc": companion_raw.get("doc", ""),
+                "api": companion_raw.get("api", ""),
+                "npm": companion_raw.get("npm", ""),
+                "env": companion_raw.get("env", []),
+                "logo_url": get_provider_logo_url(provider_id),
+                "source": "companion",
+                "parent_provider": provider_id,
+                "models": {},
+            }
+            for model_id, model_data in companion_raw.get("models", {}).items():
+                companion_entry["models"][model_id] = {
+                    "id": model_id,
                     "name": model_data.get("name", model_id),
                     "family": model_data.get("family", ""),
                     "reasoning": model_data.get("reasoning", False),
@@ -483,6 +488,8 @@ def _build_configured_models(
                     "source": "models.dev",
                     "companion_provider": companion_id,
                 }
+            if companion_entry["models"]:
+                result["providers"][companion_id] = companion_entry
 
         # ── 3) Merge custom models from opencode.json ─────────────
         if custom_block is not None:

@@ -49,7 +49,7 @@ patch_mcp_config() {
   local venv_python="$VENV_DIR/bin/python"
 
   # Remove any existing entries (with or without export) and add fresh ones
-  for key in AGENT_DIR OSTWIN_PYTHON; do
+  for key in AGENT_DIR OSTWIN_PYTHON PATH; do
     if [[ -f "$env_file" ]]; then
       # Remove lines starting with optional 'export ' followed by the key
       sed "${sed_opts[@]}" "/^export ${key}=/d" "$env_file"
@@ -57,10 +57,31 @@ patch_mcp_config() {
     fi
   done
 
+  # Construct PATH for MCP servers (npx, pwsh, ostwin bin, etc.)
+  local mcp_path="$VENV_DIR/bin"
+  # Add PowerShell if installed
+  if command -v pwsh &>/dev/null; then
+    local pwsh_dir
+    pwsh_dir="$(dirname "$(command -v pwsh)")"
+    mcp_path="$mcp_path:$pwsh_dir"
+  fi
+  # Add ostwin bin directories
+  mcp_path="$mcp_path:$INSTALL_DIR/.agents/bin:$HOME/.local/bin:$HOME/.opencode/bin"
+  # Add homebrew paths (macOS)
+  if [[ -d "/opt/homebrew/bin" ]]; then
+    mcp_path="$mcp_path:/opt/homebrew/bin:/opt/homebrew/sbin"
+  fi
+  if [[ -d "/usr/local/Homebrew/bin" ]]; then
+    mcp_path="$mcp_path:/usr/local/Homebrew/bin"
+  fi
+  # Add standard system paths
+  mcp_path="$mcp_path:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
   # Append the new entries
   {
     echo "export AGENT_DIR=$INSTALL_DIR"
     echo "export OSTWIN_PYTHON=$venv_python"
+    echo "export PATH=$mcp_path"
   } >> "$env_file"
 
   # 2. Inject all .env variables into every MCP server's "environment" block

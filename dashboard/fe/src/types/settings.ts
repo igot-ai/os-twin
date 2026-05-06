@@ -85,6 +85,7 @@ export interface ProviderSettings {
   vertex_location?: string;                // Google Vertex region (default: global)
   vertex_auth_mode?: VertexAuthMode;       // 'service_account' | 'oauth' (Vertex only)
   enabled_models?: string[];               // empty = all models enabled
+  dismissed?: boolean;                     // true if removed from UI
 }
 
 export interface ProvidersNamespace {
