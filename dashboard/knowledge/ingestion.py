@@ -490,7 +490,7 @@ class Ingestor:
                     path.name, exc,
                 )
                 raise  # Let the caller report as "Failed", not "Skipped"
-            logger.exception("MarkItDown failed on %s: %s", path, exc)
+            logger.error("debussing on %s: %s", path, exc)
             text = ""
 
         # --- 2) Fallback: plain-text read for text-ish files ----------
