@@ -100,28 +100,17 @@ function Remove-LockEntry {
 
 function Invoke-DashboardSync {
     $syncScript = Join-Path $OstwinHome "sync-skills.ps1"
-    if (-not (Test-Path $syncScript)) {
-        $syncScript = Join-Path $OstwinHome "sync-skills.sh"
-    }
     # Try project-local
     $agentsDir = Join-Path (Get-Location).Path ".agents"
     if (Test-Path $agentsDir) {
         $localSync = Join-Path $agentsDir "sync-skills.ps1"
         if (Test-Path $localSync) { $syncScript = $localSync }
-        elseif (Test-Path (Join-Path $agentsDir "sync-skills.sh")) { $syncScript = Join-Path $agentsDir "sync-skills.sh" }
     }
 
     if (Test-Path $syncScript) {
         Write-Info "Syncing with dashboard..."
         $env:OSTWIN_HOME = $OstwinHome
-        if ($syncScript -match '\.ps1$') {
-            & pwsh -NoProfile -File $syncScript 2>$null
-        }
-        else {
-            if (Get-Command bash -ErrorAction SilentlyContinue) {
-                & bash $syncScript 2>$null
-            }
-        }
+        & pwsh -NoProfile -File $syncScript 2>$null
     }
 }
 

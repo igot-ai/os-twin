@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Ostwin generated
+.opencode/opencode.json
+.war-rooms/
+.agents/*
+!.agents/memory/

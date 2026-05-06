@@ -5,7 +5,7 @@ version: 1.0.0
 category: Design
 applicable_roles: [game-architect, architect]
 tags: [architect, design, architecture, unity, performance]
-trust_level: core
+
 source: project
 author: Agent OS Core
 ---

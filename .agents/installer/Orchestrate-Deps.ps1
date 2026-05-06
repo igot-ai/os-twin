@@ -119,6 +119,9 @@ function Invoke-DependencyOrchestration {
             if (-not $ocVer) { $ocVer = "installed" }
             Write-Ok "opencode $ocVer"
         }
+        elseif ($script:SkipOptional) {
+            Write-Warn "opencode not found (skipped — SkipOptional)"
+        }
         else {
             Install-OpenCode
         }

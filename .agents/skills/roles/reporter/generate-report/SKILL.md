@@ -2,7 +2,7 @@
 name: generate-report
 description: Use this skill to compose a full report spec from a brief — gather data, build pages using available components, and render to PDF.
 tags: [reporter, pdf, report-generation, document-composition]
-trust_level: core
+
 ---
 
 # generate-report

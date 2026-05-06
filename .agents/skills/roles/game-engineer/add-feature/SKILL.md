@@ -5,7 +5,7 @@ version: 1.0.0
 category: Implementation
 applicable_roles: [game-engineer, engineer]
 tags: [engineer, implementation, unity, feature, architecture]
-trust_level: core
+
 source: project
 author: Agent OS Core
 ---

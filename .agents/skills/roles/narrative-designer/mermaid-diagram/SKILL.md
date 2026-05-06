@@ -2,7 +2,7 @@
 name: mermaid-diagram
 description: Generate Mermaid diagrams for architecture visualization
 tags: [tech-writer, documentation, diagrams]
-trust_level: core
+
 source: project
 ---
 

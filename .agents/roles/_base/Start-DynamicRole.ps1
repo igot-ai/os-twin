@@ -371,10 +371,6 @@ $rolePrompt
 
 ---
 
-## Your Task
-
-$taskDesc
-
 ## Latest Instruction
 
 $latestBody

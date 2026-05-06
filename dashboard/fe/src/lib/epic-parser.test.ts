@@ -470,3 +470,304 @@ Roles: @engineer, ...
     expect(doc.epics[0].frontmatter.get('Roles')).toBe('engineer');
   });
 });
+
+// ─── Structural Mutation Tests ─────────────────────────────────────
+
+describe('Structural mutations', () => {
+  it('should add an AC section to an EPIC that did not have one', () => {
+    const md = `## EPIC-001 — Feature
+**Phase:** 1
+
+### Description
+Goal of the epic.
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+    
+    // Add a new Acceptance Criteria section
+    epic.sections.push({
+      heading: 'Acceptance Criteria',
+      headingLevel: 3,
+      sectionKey: 'acceptance_criteria',
+      type: 'checklist',
+      content: '',
+      items: [
+        { text: 'AC 1', checked: false, rawLine: '- [ ] AC 1', prefix: '- [ ] ' },
+        { text: 'AC 2', checked: false, rawLine: '- [ ] AC 2', prefix: '- [ ] ' },
+      ],
+      rawLines: [],
+      preamble: ['### Acceptance Criteria'],
+      postamble: [],
+    });
+    
+    const result = serializeEpicMarkdown(doc);
+    expect(result).toContain('### Acceptance Criteria');
+    expect(result).toContain('- [ ] AC 1');
+    expect(result).toContain('- [ ] AC 2');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal of the epic.');
+  });
+
+  it('should reorder tasks and produce correctly ordered markdown', () => {
+    const md = `## EPIC-001 — Feature
+### Tasks
+- [ ] TASK-001 — First Task
+  Body 1.
+- [ ] TASK-002 — Second Task
+  Body 2.
+- [ ] TASK-003 — Third Task
+  Body 3.
+`;
+    const doc = parseEpicMarkdown(md);
+    const tasksSection = doc.epics[0].sections.find(s => s.type === 'tasklist');
+    
+    // Reverse the order of tasks
+    expect(tasksSection?.tasks).toBeDefined();
+    if (tasksSection && tasksSection.tasks) {
+      tasksSection.tasks.reverse();
+    }
+    
+    const result = serializeEpicMarkdown(doc);
+    // Third Task should now appear first
+    expect(result.indexOf('Third Task')).toBeLessThan(result.indexOf('First Task'));
+    expect(result).toContain('- [ ] TASK-003 — Third Task');
+    expect(result).toContain('- [ ] TASK-001 — First Task');
+    expect(result).toContain('Body 3.');
+    expect(result).toContain('Body 1.');
+  });
+
+  it('should remove section heading when all items are deleted from a checklist section', () => {
+    const md = `## EPIC-001 — Feature
+### Definition of Done
+- [ ] Item 1
+- [ ] Item 2
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    const dodSection = doc.epics[0].sections.find(s => s.sectionKey === 'definition_of_done');
+    
+    // Remove all items
+    expect(dodSection?.items).toBeDefined();
+    if (dodSection && dodSection.items) {
+      dodSection.items = [];
+    }
+    
+    const result = serializeEpicMarkdown(doc);
+    // Section heading should not appear
+    expect(result).not.toContain('### Definition of Done');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal.');
+  });
+
+  it('should remove section heading when all tasks are deleted from a tasklist section', () => {
+    const md = `## EPIC-001 — Feature
+### Tasks
+- [ ] TASK-001 — Task 1
+- [ ] TASK-002 — Task 2
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    const tasksSection = doc.epics[0].sections.find(s => s.type === 'tasklist');
+    
+    // Remove all tasks
+    expect(tasksSection?.tasks).toBeDefined();
+    if (tasksSection && tasksSection.tasks) {
+      tasksSection.tasks = [];
+    }
+    
+    const result = serializeEpicMarkdown(doc);
+    // Section heading should not appear
+    expect(result).not.toContain('### Tasks');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal.');
+  });
+
+  it('should preserve depends_on position at end of EPIC after modifications', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+Goal.
+
+depends_on: [EPIC-000]
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+    
+    // Add a new section
+    epic.sections.push({
+      heading: 'Acceptance Criteria',
+      headingLevel: 3,
+      sectionKey: 'acceptance_criteria',
+      type: 'checklist',
+      content: '',
+      items: [{ text: 'AC 1', checked: false, rawLine: '- [ ] AC 1', prefix: '- [ ] ' }],
+      rawLines: [],
+      preamble: ['### Acceptance Criteria'],
+      postamble: [],
+    });
+    
+    const result = serializeEpicMarkdown(doc);
+    
+    // depends_on should be at the end
+    const lastDependsOnIndex = result.lastIndexOf('depends_on:');
+    const lastSectionIndex = Math.max(
+      result.lastIndexOf('### Acceptance Criteria'),
+      result.lastIndexOf('### Description')
+    );
+    
+    expect(lastDependsOnIndex).toBeGreaterThan(lastSectionIndex);
+    expect(result).toContain('depends_on: [EPIC-000]');
+  });
+});
+
+// ─── Description Heading Duplication Regression ───────────────────
+
+describe('Description heading duplication regression', () => {
+  it('should NOT duplicate ### Description when content is set without heading', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+Original description text.
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+    const section = epic.sections.find(s => s.heading === 'Description');
+
+    // Simulate commitDescription: set content to just body text (no heading)
+    // and preamble to just the heading line
+    if (section) {
+      section.content = 'Updated description text.';
+      section.preamble = ['### Description'];
+    }
+
+    const result = serializeEpicMarkdown(doc);
+
+    // Should contain exactly ONE ### Description heading
+    const headingCount = (result.match(/### Description/g) || []).length;
+    expect(headingCount).toBe(1);
+
+    // Should contain the updated text
+    expect(result).toContain('Updated description text.');
+    expect(result).not.toContain('Original description text.');
+  });
+
+  it('should NOT accumulate headings across multiple round-trips', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+First version.
+`;
+    let doc = parseEpicMarkdown(md);
+
+    // Simulate 3 consecutive saves (the pattern that caused the original bug)
+    for (let i = 0; i < 3; i++) {
+      const epic = doc.epics[0];
+      const section = epic.sections.find(s => s.heading === 'Description');
+      if (section) {
+        section.content = `Version ${i + 2}.`;
+        section.preamble = ['### Description'];
+      }
+      const serialized = serializeEpicMarkdown(doc);
+      doc = parseEpicMarkdown(serialized);
+    }
+
+    const finalResult = serializeEpicMarkdown(doc);
+
+    // Should still have exactly ONE ### Description heading
+    const headingCount = (finalResult.match(/### Description/g) || []).length;
+    expect(headingCount).toBe(1);
+
+    // Should contain only the last version
+    expect(finalResult).toContain('Version 4.');
+  });
+
+  it('should handle content that already contains the heading (legacy format)', () => {
+    const md = `## EPIC-001 — Feature
+### Description
+Some text here.
+`;
+    const doc = parseEpicMarkdown(md);
+    // After parsing, section.content includes the heading line — this is the legacy format
+    const section = doc.epics[0].sections.find(s => s.heading === 'Description');
+    expect(section).toBeDefined();
+
+    // Round-trip without modification should preserve exactly
+    const result = serializeEpicMarkdown(doc);
+    const headingCount = (result.match(/### Description/g) || []).length;
+    expect(headingCount).toBe(1);
+  });
+});
+
+// ─── Frontmatter Deletion Regression ──────────────────────────────
+
+describe('Frontmatter deletion', () => {
+  it('should remove metadata line from output when key is deleted', () => {
+    const md = `## EPIC-001 — Feature
+**Phase:** 1
+**Owner:** engineer
+**Priority:** P0
+
+### Description
+Goal of the epic.
+`;
+    const doc = parseEpicMarkdown(md);
+    const epic = doc.epics[0];
+
+    // Verify all 3 keys parsed
+    expect(epic.frontmatter.get('Phase')).toBe('1');
+    expect(epic.frontmatter.get('Owner')).toBe('engineer');
+    expect(epic.frontmatter.get('Priority')).toBe('P0');
+
+    // Delete the "Owner" key
+    epic.frontmatter.delete('Owner');
+
+    const result = serializeEpicMarkdown(doc);
+
+    // Owner line should be gone
+    expect(result).not.toContain('**Owner:**');
+    expect(result).not.toContain('engineer');
+
+    // Other keys should remain
+    expect(result).toContain('**Phase:** 1');
+    expect(result).toContain('**Priority:** P0');
+    expect(result).toContain('### Description');
+    expect(result).toContain('Goal of the epic.');
+  });
+
+  it('should survive a full round-trip after deletion', () => {
+    const md = `## EPIC-001 — Feature
+**Phase:** 1
+**Owner:** engineer
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    doc.epics[0].frontmatter.delete('Owner');
+
+    const serialized = serializeEpicMarkdown(doc);
+    const doc2 = parseEpicMarkdown(serialized);
+
+    // Owner should not be re-parsed
+    expect(doc2.epics[0].frontmatter.has('Owner')).toBe(false);
+    expect(doc2.epics[0].frontmatter.get('Phase')).toBe('1');
+  });
+
+  it('should remove plain-format metadata line (Key: value)', () => {
+    const md = `## EPIC-001 — Feature
+Roles: @engineer, @qa
+Working_dir: /path/to/project
+
+### Description
+Goal.
+`;
+    const doc = parseEpicMarkdown(md);
+    doc.epics[0].frontmatter.delete('Working_dir');
+
+    const result = serializeEpicMarkdown(doc);
+    expect(result).not.toContain('Working_dir');
+    expect(result).not.toContain('/path/to/project');
+    expect(result).toContain('Roles: @engineer, @qa');
+  });
+});

@@ -111,7 +111,16 @@
     "max_summary_bytes": 4096,
     "max_detail_bytes": 16384,
     "max_context_entries": 15,
-    "auto_publish_on_done": true
+    "auto_publish_on_done": true,
+    "llm_backend": "huggingface",
+    "llm_model": "LiquidAI/LFM2-1.2B-Extract",
+    "embedding_backend": "sentence-transformer",
+    "embedding_model": "microsoft/harrier-oss-v1-0.6b",
+    "vector_backend": "zvec",
+    "context_aware": true,
+    "auto_sync": true,
+    "auto_sync_interval": 60,
+    "ttl_days": 30
   },
   "channel": {
     "format": "jsonl",
@@ -137,8 +146,10 @@
     "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "gemini-3.1-flash-lite-preview",
-    "timeout_seconds": 300
+    "default_model": "google-vertex/zai-org/glm-5-maas",
+    "timeout_seconds": 300,
+    "max_retries": 3,
+    "instance_type": "worker"
   },
   "autonomy": {
     "idle_explore_enabled": true,
@@ -146,5 +157,45 @@
   },
   "runtime": {
     "max_concurrent_rooms": 9999
+  },
+  "ceo": {
+    "default_model": "google-vertex/zai-org/glm-5-maas",
+    "timeout_seconds": 7000,
+    "max_retries": 3,
+    "instance_type": "evaluator",
+    "skill_refs": [
+      "bmad-sprint-planning"
+    ],
+    "mcp_refs": [
+      "memory"
+    ]
+  },
+  "knowledge": {
+    "llm_model": "google-vertex/gemini-3-flash-preview",
+    "embedding_model": "intfloat/multilingual-e5-base",
+    "embedding_dimension": 768,
+    "llm_provider": "",
+    "embedding_backend": "",
+    "knowledge_llm_model": "google-vertex/gemini-3-flash-preview",
+    "knowledge_embedding_model": "intfloat/multilingual-e5-base",
+    "knowledge_embedding_dimension": 768
+  },
+  "providers": {
+    "openai": null,
+    "anthropic": null,
+    "google": {
+      "api_key_ref": null,
+      "base_url": null,
+      "org_id": null,
+      "enabled": true,
+      "default_model": null,
+      "deployment_mode": "vertex",
+      "project_id": "igot-studio",
+      "vertex_location": null,
+      "vertex_auth_mode": "oauth",
+      "enabled_models": []
+    },
+    "byteplus": null,
+    "custom": {}
   }
 }

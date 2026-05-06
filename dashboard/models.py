@@ -133,6 +133,7 @@ class Role(BaseModel):
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
+    instance_type: str = "worker" # 'worker' | 'evaluator'
     created_at: str
     updated_at: str
 
@@ -148,9 +149,10 @@ class CreateRoleRequest(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0)
     budget_tokens_max: int = Field(500000, ge=1000, le=10000000)
     max_retries: int = Field(3, ge=1, le=10)
-    timeout_seconds: int = Field(300, ge=60, le=3600)
+    timeout_seconds: int = Field(300, ge=60)
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
+    instance_type: str = "worker"
     system_prompt_override: Optional[str] = Field(None, max_length=2000)
 
 
@@ -258,13 +260,17 @@ class RoleSettings(BaseModel):
     system_prompt_override: Optional[str] = None
     skill_refs: List[str] = Field(default_factory=list)
     disabled_skills: List[str] = Field(default_factory=list)
+    instance_type: Optional[str] = None
 
 
 class RuntimeSettings(BaseModel):
     poll_interval: int = Field(default=5, ge=1, le=300)
-    max_concurrent_rooms: int = Field(default=10, ge=1, le=500)
+    max_concurrent_rooms: int = Field(default=10, ge=1, le=10000)
     auto_approve_tools: bool = False
     dynamic_pipelines: bool = True
+    # Master agent default model — format: "provider/model_id" or plain "model_id".
+    # Empty string means "use the hardcoded default from master_agent.py".
+    master_agent_model: str = ""
 
 
 class MemorySettings(BaseModel):
@@ -273,7 +279,7 @@ class MemorySettings(BaseModel):
     llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
     # -- Embedding --
     embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
-    embedding_model: str = "microsoft/harrier-oss-v1-0.6b"
+    embedding_model: str = "all-MiniLM-L6-v2"
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --
@@ -308,6 +314,31 @@ class ObservabilitySettings(BaseModel):
     otel_enabled: bool = False
 
 
+class KnowledgeSettings(BaseModel):
+    """Knowledge service runtime settings (ADR-15).
+
+    Overrides the env-var defaults baked into ``dashboard/knowledge/config.py``.
+    Resolution precedence is ``MasterSettings.knowledge`` > env var >
+    hardcoded default — see :class:`KnowledgeService.__init__`.
+
+    All fields are prefixed with ``knowledge_`` to explicitly declare the
+    settings namespace and avoid field-name collisions across namespaces.
+
+    Empty strings mean "no override; use the env-var / hardcoded default".
+    ``knowledge_embedding_dimension`` is informational and read-only on the
+    frontend (the actual dim is determined by the embedding model that gets
+    loaded).
+    """
+
+    # -- LLM --
+    knowledge_llm_backend: str = ""             # empty = use config.LLM_PROVIDER
+    knowledge_llm_model: str = ""               # empty = use config.LLM_MODEL
+    # -- Embedding --
+    knowledge_embedding_backend: str = ""       # empty = use config.EMBEDDING_PROVIDER
+    knowledge_embedding_model: str = ""         # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
+
+
 class MasterSettings(BaseModel):
     providers: ProvidersNamespace = Field(default_factory=ProvidersNamespace)
     roles: Dict[str, RoleSettings] = Field(default_factory=dict)
@@ -316,6 +347,7 @@ class MasterSettings(BaseModel):
     channels: ChannelsNamespace = Field(default_factory=ChannelsNamespace)
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
 
 
 class EffectiveResolution(BaseModel):

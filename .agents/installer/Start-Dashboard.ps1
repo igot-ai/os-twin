@@ -195,7 +195,6 @@ function Publish-Skills {
         return
     }
 
-    $syncScript = Join-Path $script:InstallDir ".agents\sync-skills.sh"
     $syncScriptPs1 = Join-Path $script:InstallDir ".agents\sync-skills.ps1"
 
     # Run skill sync in background to avoid blocking the installer (~15 min on CPU)
@@ -214,13 +213,8 @@ function Publish-Skills {
         Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$batFile`"" -WindowStyle Hidden
         Write-Ok "Skill sync started in background — log: $skillLogFile"
     }
-    elseif ((Test-Path $syncScript) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
-        $env:OSTWIN_HOME = $script:InstallDir
-        $env:DASHBOARD_PORT = $script:DashboardPort
-        & bash $syncScript --install-from (Join-Path $script:InstallDir ".agents")
-    }
     else {
-        Write-Warn "sync-skills script not found — skipping skill sync"
+        Write-Warn "sync-skills.ps1 not found — skipping skill sync"
     }
 }
 

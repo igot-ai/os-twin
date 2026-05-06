@@ -56,7 +56,7 @@ _ADC_DIR = Path.home() / ".config" / "gcloud"
 _ADC_FILE = _ADC_DIR / "application_default_credentials.json"
 
 
-# ── In-memory session store ───────────────────────────────────────────
+# ── OAuth Session Data Structure ──────────────────────────────────────
 
 @dataclass
 class OAuthSession:
@@ -66,8 +66,19 @@ class OAuthSession:
     project_id: str = ""
     created_at: float = field(default_factory=time.time)
 
-# One pending session at a time is sufficient for a local dashboard.
-_pending_session: Optional[OAuthSession] = None
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "state": self.state,
+            "code_verifier": self.code_verifier,
+            "redirect_uri": self.redirect_uri,
+            "project_id": self.project_id,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> OAuthSession:
+        return cls(**data)
+
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -75,8 +86,8 @@ _pending_session: Optional[OAuthSession] = None
 def start_oauth(
     redirect_uri: str,
     project_id: str = "",
-) -> Dict[str, str]:
-    """Generate an OAuth2 authorization URL.
+) -> Dict[str, Any]:
+    """Generate an OAuth2 authorization URL and session data.
 
     Parameters
     ----------
@@ -88,10 +99,8 @@ def start_oauth(
 
     Returns
     -------
-    dict with ``authorization_url`` and ``state``.
+    dict with ``authorization_url``, ``state``, and ``session`` (OAuthSession).
     """
-    global _pending_session
-
     state = secrets.token_urlsafe(32)
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = _s256(code_verifier)
@@ -110,18 +119,27 @@ def start_oauth(
 
     authorization_url = f"{_AUTH_URL}?{urlencode(params)}"
 
-    _pending_session = OAuthSession(
+    session = OAuthSession(
         state=state,
         code_verifier=code_verifier,
         redirect_uri=redirect_uri,
         project_id=project_id,
     )
 
-    logger.info("[GOOGLE_OAUTH] OAuth flow started (state=%s…)", state[:8])
-    return {"authorization_url": authorization_url, "state": state}
+    logger.info("[GOOGLE_OAUTH] OAuth flow generated (state=%s…)", state[:8])
+    return {
+        "authorization_url": authorization_url,
+        "state": state,
+        "session": session,
+    }
 
 
-def exchange_code(code: str, state: str) -> Dict[str, Any]:
+
+def exchange_code(
+    code: str, 
+    state: str, 
+    session: OAuthSession
+) -> Dict[str, Any]:
     """Exchange an authorization code for tokens and save as ADC.
 
     Parameters
@@ -129,7 +147,9 @@ def exchange_code(code: str, state: str) -> Dict[str, Any]:
     code : str
         The authorization code from Google's redirect.
     state : str
-        Must match the ``state`` from ``start_oauth()``.
+        Must match the ``state`` from the provided session.
+    session : OAuthSession
+        The session data recovered from external storage (e.g., cookie).
 
     Returns
     -------
@@ -142,21 +162,13 @@ def exchange_code(code: str, state: str) -> Dict[str, Any]:
     RuntimeError
         If token exchange fails.
     """
-    global _pending_session
-
-    if _pending_session is None:
-        raise ValueError("No pending OAuth session. Call start_oauth() first.")
-
-    if _pending_session.state != state:
+    if session.state != state:
         raise ValueError("State mismatch — possible CSRF attack.")
 
     # Session expires after 10 minutes
-    if time.time() - _pending_session.created_at > 600:
-        _pending_session = None
+    if time.time() - session.created_at > 600:
         raise ValueError("OAuth session expired. Please start again.")
 
-    session = _pending_session
-    _pending_session = None
 
     # Exchange code for tokens
     token_data = {
@@ -253,14 +265,8 @@ def get_oauth_status() -> Dict[str, Any]:
     return result
 
 
-def has_pending_session() -> bool:
-    """Check if there's a pending OAuth session waiting for callback."""
-    if _pending_session is None:
-        return False
-    # Expire after 10 minutes
-    if time.time() - _pending_session.created_at > 600:
-        return False
-    return True
+# has_pending_session() removed as it relied on global state
+
 
 
 # ── Internal helpers ──────────────────────────────────────────────────

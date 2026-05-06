@@ -27,8 +27,6 @@ import zvec
 from datetime import datetime
 import uuid_utils
 
-from dashboard.api_utils import read_text_utf8, read_json_utf8
-
 logger = logging.getLogger("zvec_store")
 
 EMBEDDING_DIM = 384  # Default, will be updated dynamically
@@ -63,9 +61,11 @@ def extract_timestamp_from_uuid7(uid: str) -> datetime:
 class OSTwinStore:
     """In-process vector store for OS Twin logs and metadata."""
 
-    def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None):
+    def __init__(self, warrooms_dir: Path, agents_dir: Path | None = None, embedder=None):
         self.warrooms_dir = warrooms_dir
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
+        self._embedder = embedder  # Optional KnowledgeEmbedder (lazy-created if None)
+        self._embedding_dim = EMBEDDING_DIM  # Per-instance; updated when model loads
         # Global zvec store at ~/.ostwin/.zvec — clean with: rm -rf ~/.ostwin/.zvec
         env_zvec_dir = os.environ.get("OSTWIN_ZVEC_DIR")
         if env_zvec_dir:
@@ -143,8 +143,11 @@ class OSTwinStore:
     def ensure_collections(self) -> None:
         """Create or open all collections."""
         zvec.init(log_level=zvec.LogLevel.WARN)
-        # Ensure model is loaded and dynamic EMBEDDING_DIM is set before opening
+        # Ensure model is loaded and _embedding_dim is set before opening
         self._get_embed_fn()
+        # Update module-level EMBEDDING_DIM for collection schemas
+        global EMBEDDING_DIM
+        EMBEDDING_DIM = self._embedding_dim
         # Check for migrations first
         self.migrate_collections()
         self._messages = self._open_or_create_messages()
@@ -184,6 +187,9 @@ class OSTwinStore:
                 schema = col.schema
                 has_time_id = any(f.name == "time_id" for f in schema.fields)
                 has_enabled = any(f.name == "enabled" for f in schema.fields)
+                has_instance_type = any(
+                    f.name == "instance_type" for f in schema.fields
+                )
 
                 # Check vector dimension mismatch (Harrier migration).
                 # zvec exposes `schema.vectors` as either a list of VectorSchema
@@ -204,7 +210,13 @@ class OSTwinStore:
                 col = None
 
                 needs_enabled = name == SKILLS_COLLECTION and not has_enabled
-                if not has_time_id or dim_mismatch or needs_enabled:
+                needs_instance_type = name == ROLES_COLLECTION and not has_instance_type
+                if (
+                    not has_time_id
+                    or dim_mismatch
+                    or needs_enabled
+                    or needs_instance_type
+                ):
                     reasons = []
                     if dim_mismatch:
                         reasons.append(f"dim {current_dim} → {EMBEDDING_DIM}")
@@ -212,6 +224,8 @@ class OSTwinStore:
                         reasons.append("missing time_id")
                     if needs_enabled:
                         reasons.append("missing enabled")
+                    if needs_instance_type:
+                        reasons.append("missing instance_type")
                     logger.info(
                         "Migrating collection %s (%s)", name, ", ".join(reasons)
                     )
@@ -650,6 +664,11 @@ class OSTwinStore:
                     zvec.FieldSchema(
                         "system_prompt_override", zvec.DataType.STRING, nullable=True
                     ),
+                    zvec.FieldSchema(
+                        "instance_type",
+                        zvec.DataType.STRING,
+                        index_param=zvec.InvertIndexParam(),
+                    ),
                     zvec.FieldSchema("created_at", zvec.DataType.STRING),
                     zvec.FieldSchema("updated_at", zvec.DataType.STRING),
                 ],
@@ -669,26 +688,56 @@ class OSTwinStore:
     # ── Embedding ──────────────────────────────────────────────────────
 
     def _get_embed_fn(self):
-        """Lazy-load embedding model on first use."""
+        """Lazy-load embedding via KnowledgeEmbedder.
+
+        Uses the same embedding stack as the knowledge graph
+        (dashboard/knowledge/embeddings.py), injected or lazy-created.
+        Returns an object with .encode() and .get_sentence_embedding_dimension().
+        """
         if self._embed_available is False:
             return None
         if self._embed_fn is not None:
             return self._embed_fn
         try:
-            model_name = OSTWIN_EMBED_MODEL
-            from sentence_transformers import SentenceTransformer
+            if self._embedder is None:
+                from dashboard.knowledge.embeddings import KnowledgeEmbedder
+                self._embedder = KnowledgeEmbedder(model_name=OSTWIN_EMBED_MODEL)
 
-            logger.info("Loading SentenceTransformer model: %s", model_name)
-            self._embed_fn = SentenceTransformer(
-                model_name, model_kwargs={"dtype": "auto"}
-            )
+            import numpy as np
 
-            # Dynamically adapt EMBEDDING_DIM
-            global EMBEDDING_DIM
-            EMBEDDING_DIM = self._embed_fn.get_sentence_embedding_dimension()
+            embedder = self._embedder
+            logger.info("Loading embedding model via KnowledgeEmbedder: %s", embedder.model_name)
+
+            class _EmbedProxy:
+                """Wraps KnowledgeEmbedder to match SentenceTransformer API."""
+
+                def __init__(self, ke):
+                    self._ke = ke
+                    self._dim = None
+
+                def encode(
+                    self, texts, convert_to_numpy=False, show_progress_bar=False
+                ):
+                    if isinstance(texts, str):
+                        texts = [texts]
+                    vecs = self._ke.embed(texts)
+                    if convert_to_numpy:
+                        return np.array(vecs)
+                    return vecs
+
+                def get_sentence_embedding_dimension(self):
+                    if self._dim is None:
+                        self._dim = self._ke.dimension()
+                    return self._dim
+
+            self._embed_fn = _EmbedProxy(embedder)
+
+            # Store dimension as instance attribute (not global) to prevent
+            # race conditions when multiple OSTwinStore instances exist.
+            self._embedding_dim = self._embed_fn.get_sentence_embedding_dimension()
 
             self._embed_available = True
-            logger.info("Embedding model loaded (dim=%d)", EMBEDDING_DIM)
+            logger.info("Embedding model loaded via KnowledgeEmbedder (dim=%d)", self._embedding_dim)
             return self._embed_fn
         except Exception as e:
             logger.warning("Embedding unavailable: %s. Vector search disabled.", e)
@@ -763,7 +812,7 @@ class OSTwinStore:
         """Load embedding cache from disk."""
         try:
             if self._embed_cache_path.exists():
-                with open(self._embed_cache_path, "r", encoding="utf-8") as f:
+                with open(self._embed_cache_path, "r") as f:
                     self._embed_cache = json.load(f)
                 logger.info(
                     "Loaded %d cached embeddings from %s",
@@ -777,7 +826,7 @@ class OSTwinStore:
     def _save_embed_cache(self):
         """Persist embedding cache to disk."""
         try:
-            with open(self._embed_cache_path, "w", encoding="utf-8") as f:
+            with open(self._embed_cache_path, "w") as f:
                 json.dump(self._embed_cache, f)
         except Exception as e:
             logger.debug("Failed to save embedding cache: %s", e)
@@ -1834,6 +1883,7 @@ class OSTwinStore:
         max_retries: int = 3,
         timeout_seconds: int = 300,
         skill_refs: list[str] | None = None,
+        instance_type: str = "worker",
         system_prompt_override: str | None = None,
         created_at: str = "",
         updated_at: str = "",
@@ -1845,8 +1895,11 @@ class OSTwinStore:
         skill_refs = skill_refs or []
         skill_refs_str = ",".join(skill_refs)
         desc_clean = self._sanitize_text(description)
+        inst_type_clean = self._sanitize_text(instance_type)
 
-        embed_text = f"{name} {provider} {desc_clean} {skill_refs_str}"
+        embed_text = (
+            f"{name} {provider} {desc_clean} {skill_refs_str} {inst_type_clean}"
+        )
         embedding = self._embed_text(embed_text, is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
@@ -1865,6 +1918,7 @@ class OSTwinStore:
                 "max_retries": str(max_retries),
                 "timeout_seconds": str(timeout_seconds),
                 "skill_refs": skill_refs_str,
+                "instance_type": inst_type_clean,
                 "system_prompt_override": system_prompt_override,
                 "created_at": created_at,
                 "updated_at": updated_at,
@@ -1924,6 +1978,7 @@ class OSTwinStore:
             "max_retries": max_retries,
             "timeout_seconds": timeout_seconds,
             "skill_refs": skill_refs,
+            "instance_type": doc.field("instance_type") or "worker",
             "system_prompt_override": doc.field("system_prompt_override"),
             "created_at": doc.field("created_at"),
             "updated_at": doc.field("updated_at"),
@@ -2050,7 +2105,7 @@ class OSTwinStore:
 
         if config_file.exists():
             try:
-                data = read_json_utf8(config_file)
+                data = json.loads(config_file.read_text())
                 for r in data:
                     role_id = r.get("id", "")
                     if role_id:
@@ -2059,7 +2114,7 @@ class OSTwinStore:
                 logger.warning("Failed to read roles config.json: %s", e)
         elif registry_file.exists():
             try:
-                data = read_json_utf8(registry_file)
+                data = json.loads(registry_file.read_text())
                 for r in data.get("roles", []):
                     role_name = r.get("name", "")
                     role_id = r.get("id", f"registry-{role_name}")
@@ -2221,7 +2276,7 @@ class OSTwinStore:
             channel_file = room_dir / "channel.jsonl"
             if channel_file.exists():
                 msgs = []
-                for line in read_text_utf8(channel_file).splitlines():
+                for line in channel_file.read_text().splitlines():
                     line = line.strip()
                     if not line:
                         continue
@@ -2237,7 +2292,7 @@ class OSTwinStore:
                 # Fallback: extract from TASKS.md
                 tasks_md = room_dir / "TASKS.md"
                 if tasks_md.exists():
-                    header = read_text_utf8(tasks_md).split("\n", 1)[0]
+                    header = tasks_md.read_text().split("\n", 1)[0]
                     m = re.search(r"(EPIC-\d+|TASK-\d+)", header)
                     if m:
                         task_ref = m.group(1)
@@ -2253,17 +2308,15 @@ class OSTwinStore:
             # Read description from brief.md or TASKS.md
             desc = None
             if (room_dir / "brief.md").exists():
-                desc = read_text_utf8(room_dir / "brief.md")
+                desc = (room_dir / "brief.md").read_text()
             elif (room_dir / "TASKS.md").exists():
-                desc = read_text_utf8(room_dir / "TASKS.md")
+                desc = (room_dir / "TASKS.md").read_text()
 
             channel_file = room_dir / "channel.jsonl"
             msg_count = 0
             last_activity = None
             if channel_file.exists():
-                lines = [
-                    l for l in read_text_utf8(channel_file).splitlines() if l.strip()
-                ]
+                lines = [l for l in channel_file.read_text().splitlines() if l.strip()]
                 msg_count = len(lines)
                 if lines:
                     try:
@@ -2331,7 +2384,7 @@ class OSTwinStore:
                 continue
 
             try:
-                content = read_text_utf8(plan_file)
+                content = plan_file.read_text()
             except FileNotFoundError:
                 continue
             if not content.strip():
@@ -2404,7 +2457,7 @@ class OSTwinStore:
         # Detect format
         has_epics_colon = bool(re.search(r"^#{2,3} Epic:", content, re.MULTILINE))
         has_epics_bare = bool(re.search(r"^#{2,3} EPIC-\d+", content, re.MULTILINE))
-        has_tasks = bool(re.search(r"^#{2,3} Task:", content, re.MULTILINE))
+        has_tasks = bool(re.search(r"^#{2,3} Tasks?:", content, re.MULTILINE))
 
         if has_epics_colon:
             # "## Epic: EPIC-001 — Title" format
@@ -2417,7 +2470,7 @@ class OSTwinStore:
             ref_pattern = r"(EPIC-\d+)\s*[—\-:]\s*(.*)"
             default_prefix = "EPIC"
         elif has_tasks:
-            split_pattern = r"^#{2,3} Task:\s*"
+            split_pattern = r"^#{2,3} Tasks?:\s*"
             ref_pattern = r"(TASK-\d+)\s*[—\-:]\s*(.*)"
             default_prefix = "TASK"
         else:
@@ -2441,13 +2494,22 @@ class OSTwinStore:
             item_body = "\n".join(lines[1:]).strip()
             room_id = f"room-{i:03d}"
 
+            depends_on = []
+            m_deps = re.search(r"depends_on:\s*\[(.*?)\]", item_body)
+            if m_deps:
+                deps_str = m_deps.group(1)
+                depends_on = [d.strip() for d in deps_str.split(",") if d.strip()]
+
             items.append(
                 {
                     "room_id": room_id,
                     "task_ref": item_ref,
+                    "epic_ref": item_ref,
                     "title": item_title,
                     "body": item_body,
                     "working_dir": working_dir,
+                    "depends_on": depends_on,
+                    "status": "pending",
                 }
             )
 
@@ -2490,6 +2552,6 @@ class OSTwinStore:
     @staticmethod
     def _read_file(path: Path) -> str | None:
         try:
-            return read_text_utf8(path).strip() if path.exists() else None
+            return path.read_text().strip() if path.exists() else None
         except Exception:
             return None

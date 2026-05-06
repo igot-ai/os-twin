@@ -7,8 +7,9 @@ import { DAG } from '@/types';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { getRoleColor, getRoleInitial } from '@/lib/role-utils';
 import { deriveDAGFromDocument, wouldCreateCycle } from '@/lib/dag-layout';
+import { computeEpicStats, EpicStats } from '@/lib/epic-stats';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { EpicDetailDrawer } from './EpicDetailDrawer';
+import { EpicEditorPanel } from './EpicEditorPanel';
 import StateNode from './StateNode';
 import DAGEdge from './DAGEdge';
 import { apiPost } from '@/lib/api-client';
@@ -21,8 +22,8 @@ type DragState =
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 
-const NODE_W = 180;
-const NODE_H = 80;
+const NODE_W = 200;
+const NODE_H = 95;
 const GAP_X = 80;  // horizontal gap between waves
 const GAP_Y = 24;  // vertical gap between nodes in same wave
 
@@ -43,7 +44,7 @@ function sortedWaveKeys(waves: Record<string, string[]>): string[] {
  * Derive positioned nodes + edges from the raw DAG API response.
  * Layout: each wave is a column; nodes within a wave are stacked vertically.
  */
-function layoutDAG(dag: DAG, statusMap: Map<string, string>) {
+function layoutDAG(dag: DAG, statusMap: Map<string, string>, epicStats: Map<string, EpicStats>, epicTitleMap?: Map<string, string>) {
   const waves = sortedWaveKeys(dag.waves);
   const criticalSet = new Set(dag.critical_path ?? []);
 
@@ -57,6 +58,7 @@ function layoutDAG(dag: DAG, statusMap: Map<string, string>) {
     roleColor: string;
     x: number;
     y: number;
+    epicStats: EpicStats | undefined;
   }[] = [];
   const nodePositions: Record<string, { x: number; y: number }> = {};
 
@@ -75,17 +77,19 @@ function layoutDAG(dag: DAG, statusMap: Map<string, string>) {
       const dagNode = dag.nodes[nodeId];
       const role = dagNode?.role || 'unknown';
       const status = statusMap.get(nodeId) || 'pending';
+      const stats = epicStats.get(nodeId);
 
       nodePositions[nodeId] = { x, y };
       positioned.push({
         id: nodeId,
-        label: nodeId,
+        label: epicTitleMap?.get(nodeId) || nodeId,
         status,
         role,
         roleInitial: getRoleInitial(role),
         roleColor: getRoleColor(role),
         x,
         y,
+        epicStats: stats,
       });
     }
   }
@@ -121,8 +125,8 @@ export interface DAGViewerProps {
 export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
   const { 
     planId, parsedPlan, updateParsedPlan, 
-    setSelectedEpicRef, setIsContextPanelOpen, setActiveTab,
-    undo, redo, canUndo, canRedo, savePlan, refreshProgress
+    selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen, setActiveTab,
+    undo, redo, canUndo, canRedo, savePlan, refreshProgress, setIsEditingEpic
   } = usePlanContext();
   const addToast = useNotificationStore(state => state.addToast);
   const { data: serverDag, error, isLoading: isServerLoading } = useSWR<DAG>(planId ? `/plans/${planId}/dag` : null);
@@ -143,10 +147,25 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
   const [dragState, setDragState] = useState<DragState>({ type: 'idle' });
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingEpicRef, setEditingEpicRef] = useState<string | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'dod' | 'ac' | 'tasks' | 'deps'>('overview');
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, ref: string } | null>(null);
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Keyboard shortcut: Delete key removes selected node (with confirmation)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' && selectedEpicRef && mode === 'authoring') {
+        // Don't trigger if user is typing in an input
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+        handleDeleteEpic(selectedEpicRef);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedEpicRef, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Build status lookup from progress.json
   const statusMap = useMemo(() => {
@@ -159,10 +178,15 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
     return map;
   }, [progress]);
 
+  // Build per-epic stats from parsedPlan
+  const epicStats = useMemo(() => computeEpicStats(parsedPlan), [parsedPlan]);
+
   const layout = useMemo(() => {
     if (!dag || !dag.nodes || !dag.waves) return null;
-    return layoutDAG(dag, statusMap);
-  }, [dag, statusMap]);
+    const titleMap = new Map<string, string>();
+    parsedPlan?.epics.forEach(e => titleMap.set(e.ref, e.title));
+    return layoutDAG(dag, statusMap, epicStats, titleMap);
+  }, [dag, statusMap, epicStats, parsedPlan]);
 
   const { nodePositions } = layout || {};
 
@@ -174,10 +198,24 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
   const handleNodeClick = (ref: string) => {
     if (mode === 'authoring') {
       setEditingEpicRef(ref);
+      setSelectedTab('overview');
       setIsDrawerOpen(true);
     } else {
       setSelectedEpicRef(ref);
       setIsContextPanelOpen(true);
+    }
+  };
+
+  const handleNodeDoubleClick = (ref: string, targetTab?: 'overview' | 'dod' | 'ac' | 'tasks' | 'deps') => {
+    const tab = targetTab || 'overview';
+    if (mode === 'authoring') {
+      setEditingEpicRef(ref);
+      setSelectedTab(tab);
+      setIsDrawerOpen(true);
+    } else {
+      setSelectedEpicRef(ref);
+      setIsContextPanelOpen(true);
+      setActiveTab(tab === 'dod' ? 'epics' : tab === 'tasks' ? 'epics' : 'epics');
     }
   };
 
@@ -368,6 +406,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
           {
             heading: 'Description',
             headingLevel: 3,
+            sectionKey: 'description',
             type: 'text' as const,
             content: 'Describe the high-level goal of this EPIC.',
             rawLines: ['Describe the high-level goal of this EPIC.'],
@@ -377,6 +416,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
           {
             heading: 'Definition of Done',
             headingLevel: 3,
+            sectionKey: 'definition_of_done',
             type: 'checklist' as const,
             content: '',
             items: [{ text: 'Placeholder item', checked: false, rawLine: '- [ ] Placeholder item', prefix: '- [ ] ' }],
@@ -387,6 +427,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
           {
             heading: 'Tasks',
             headingLevel: 3,
+            sectionKey: 'tasks',
             type: 'tasklist' as const,
             content: '',
             tasks: [{ 
@@ -412,6 +453,7 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
       
       doc.epics.push(newEpic);
       setEditingEpicRef(nextRef);
+      setSelectedTab('overview');
       setIsDrawerOpen(true);
       addToast({
         type: 'success',
@@ -576,11 +618,11 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
           className="min-w-full min-h-full"
         >
           <defs>
-            <marker id="arrowhead-critical" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-              <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb" />
+            <marker id="arrowhead-critical" markerWidth="3" markerHeight="2.1" refX="3" refY="1.05" orient="auto">
+              <polygon points="0 0, 3 1.05, 0 2.1" fill="#2563eb" />
             </marker>
-            <marker id="arrowhead-normal" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-              <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+            <marker id="arrowhead-normal" markerWidth="3" markerHeight="2.1" refX="3" refY="1.05" orient="auto">
+              <polygon points="0 0, 3 1.05, 0 2.1" fill="#94a3b8" />
             </marker>
           </defs>
           <g transform={`scale(${scale}) translate(${translate.x}, ${translate.y})`}>
@@ -645,7 +687,14 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
                 onEnterPort={handleEnterPort}
                 onLeavePort={handleLeavePort}
                 onClick={handleNodeClick}
+                onDoubleClick={handleNodeDoubleClick}
                 onContextMenu={handleContextMenu}
+                tasksDone={node.epicStats?.tasksDone ?? 0}
+                tasksTotal={node.epicStats?.tasksTotal ?? 0}
+                dodDone={node.epicStats?.dodDone ?? 0}
+                dodTotal={node.epicStats?.dodTotal ?? 0}
+                hasAC={node.epicStats?.hasAC ?? true}
+                description={node.epicStats?.description ?? ''}
               />
             ))}
           </g>
@@ -709,12 +758,19 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
                   <span className="material-symbols-outlined text-[16px]">info</span>
                   View Details
                 </button>
+                <button 
+                  onClick={() => { setSelectedEpicRef(contextMenu.ref); setIsContextPanelOpen(true); setIsEditingEpic(true); setContextMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[16px]">edit</span>
+                  Edit EPIC
+                </button>
               </>
             )}
             {mode === 'authoring' && (
               <>
                 <button 
-                  onClick={() => { setEditingEpicRef(contextMenu.ref); setIsDrawerOpen(true); setContextMenu(null); }}
+                  onClick={() => { setEditingEpicRef(contextMenu.ref); setSelectedTab('overview'); setIsDrawerOpen(true); setContextMenu(null); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-main hover:bg-surface-alt transition-colors"
                 >
                   <span className="material-symbols-outlined text-[16px]">edit</span>
@@ -748,10 +804,11 @@ export default function DAGViewer({ mode: modeProp }: DAGViewerProps) {
         </>
       )}
 
-      <EpicDetailDrawer
+      <EpicEditorPanel
         epic={editingEpic}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
+        initialTab={selectedTab}
       />
 
       {/* ── Critical Path Strip ── */}

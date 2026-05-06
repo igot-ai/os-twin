@@ -2,7 +2,7 @@
 name: document-project
 description: Document project architecture and features
 tags: [tech-writer, documentation, project]
-trust_level: core
+
 source: project
 ---
 

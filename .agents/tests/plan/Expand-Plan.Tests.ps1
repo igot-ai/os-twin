@@ -11,18 +11,8 @@ Describe "Expand-Plan.ps1" {
         $script:planFile = Join-Path $script:tempDir "PLAN.md"
         
         # Create a mock agent script that writes a predefined output
-        $script:mockAgent = Join-Path $script:tempDir "mock-agent.sh"
-        @"
-#!/bin/bash
-# Mock agent script
-PROMPT="`$*"
-
-if [[ "`$PROMPT" != *"Short desc."* ]]; then
-  echo "TEST FAILED: Prompt did not contain the epic text"
-  exit 1
-fi
-
-echo "## EPIC-001 - Expanded Title
+        $expandedOutput = @"
+## EPIC-001 - Expanded Title
 
 This is an expanded description.
 
@@ -45,9 +35,33 @@ complexity: XL
 - [ ] Test 2
 - [ ] Test 3
 - [ ] Test 4
-- [ ] Test 5"
+- [ ] Test 5
+"@
+        if ($IsWindows) {
+            $script:mockAgent = Join-Path $script:tempDir "mock-agent.ps1"
+            @"
+`$prompt = `$args -join ' '
+if (`$prompt -notlike '*Short desc.*') {
+    Write-Error 'TEST FAILED: Prompt did not contain the epic text'
+    exit 1
+}
+Write-Output @'
+$expandedOutput
+'@
 "@ | Out-File -FilePath $script:mockAgent -Encoding utf8 -NoNewline
-        chmod +x $script:mockAgent
+        } else {
+            $script:mockAgent = Join-Path $script:tempDir "mock-agent.sh"
+            @"
+#!/bin/bash
+PROMPT="`$*"
+if [[ "`$PROMPT" != *"Short desc."* ]]; then
+  echo "TEST FAILED: Prompt did not contain the epic text"
+  exit 1
+fi
+echo '$($expandedOutput -replace "'", "'\\''")' 
+"@ | Out-File -FilePath $script:mockAgent -Encoding utf8 -NoNewline
+            chmod +x $script:mockAgent
+        }
     }
 
     It "fails if plan file does not exist" {
@@ -344,8 +358,64 @@ Short desc.
         $content | Out-File -FilePath $script:planFile -Encoding utf8
 
         # Mock agent that returns per-EPIC expansion only
-        $depMockAgent = Join-Path $script:tempDir "dep-mock-agent.sh"
-        @'
+        if ($IsWindows) {
+            $depMockAgent = Join-Path $script:tempDir "dep-mock-agent.ps1"
+            @'
+$prompt = $args -join ' '
+if ($prompt -like '*## EPIC-002*') {
+    Write-Output @"
+## EPIC-002 - API Layer
+
+This builds REST APIs on top of the database.
+
+#### Definition of Done
+- [ ] REST endpoints implemented
+- [ ] Input validation
+- [ ] Error handling
+- [ ] API documentation
+- [ ] Integration tests
+
+#### Acceptance Criteria
+- [ ] GET /resources returns 200
+- [ ] POST /resources creates record
+- [ ] Invalid input returns 422
+- [ ] Auth required returns 401
+- [ ] Rate limiting works
+
+depends_on: []
+"@
+    exit 0
+}
+if ($prompt -like '*EPIC-001*') {
+    Write-Output @"
+## EPIC-001 - Database Schema
+
+This builds the database foundation.
+
+#### Definition of Done
+- [ ] Schema migrations created
+- [ ] Indexes optimized
+- [ ] Seed data scripts
+- [ ] Schema docs updated
+- [ ] Migration rollback tested
+
+#### Acceptance Criteria
+- [ ] Tables created successfully
+- [ ] Foreign keys enforced
+- [ ] Rollback works cleanly
+- [ ] Seed data loads
+- [ ] Performance baseline set
+
+depends_on: []
+"@
+    exit 0
+}
+Write-Error "UNEXPECTED PROMPT"
+exit 1
+'@ | Out-File -FilePath $depMockAgent -Encoding utf8 -NoNewline
+        } else {
+            $depMockAgent = Join-Path $script:tempDir "dep-mock-agent.sh"
+            @'
 #!/bin/bash
 PROMPT="$*"
 
@@ -398,7 +468,8 @@ fi
 echo "UNEXPECTED PROMPT"
 exit 1
 '@ | Out-File -FilePath $depMockAgent -Encoding utf8 -NoNewline
-        chmod +x $depMockAgent
+            chmod +x $depMockAgent
+        }
 
         $output = pwsh -NoProfile -Command "& '$script:ExpandPlan' -PlanFile '$script:planFile' -AgentCmd '$depMockAgent'" 2>&1
         $outputStr = $output -join "`n"

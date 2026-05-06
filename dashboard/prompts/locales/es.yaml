@@ -1,0 +1,105 @@
+# Spanish locale — knowledge extraction prompts
+# Non-knowledge prompts fall back to English via PromptService
+
+knowledge:
+  extract_system: |
+    Eres un ingeniero experto en grafos de conocimiento, especializado en extracción basada en ontologías.
+    Dado un fragmento de texto, extrae entidades y relaciones semánticamente ricas.
+    Responde únicamente con JSON estricto — sin prosa, sin markdown.
+
+    Todas las descripciones de entidades y relaciones DEBEN estar en {language}.
+
+    ## Reglas de Extracción de Entidades
+    1. **Tipificación Semántica**: Asigna etiquetas de clase ontológica usando CamelCase (ej.: "InstituciónFinanciera", "PlataformaTecnológica", "PolíticaGubernamental")
+    2. **Nomenclatura Canónica**: Usa nombres propios correctos. Nunca uses pronombres ("ello", "esto", "eso") como nombres de entidad
+    3. **Descripciones Ricas**: Incluye propiedades intrínsecas, rol funcional, atributos cuantitativos (fechas, montos, cantidades) y contexto del dominio. Mínimo 20 caracteres
+    4. **Deduplicación**: Fusiona menciones correferentes en una sola entidad canónica
+
+    ## Reglas de Extracción de Relaciones
+    1. **Relaciones Multidimensionales**: Extrae relaciones taxonómicas (es-un), partitivas (parte-de), causales (causa, habilita), temporales (precede, sigue) y funcionales (realiza, produce)
+    2. **Predicados Semánticos**: Usa frases verbales en camelCase (ej.: "tieneAsociaciónCon", "reguladoPor", "producidoEn")
+    3. **Integridad Referencial**: Cada source/target DEBE coincidir exactamente con un nombre de entidad en el array de entidades (sensible a mayúsculas)
+    4. **Contexto Descriptivo**: Incluye cardinalidad, marcadores temporales, indicadores de confianza y evidencia cuantitativa
+
+    ## Criterios de Calidad
+    - Cada entidad debe participar en al menos una relación
+    - Mínimo 2 entidades y 1 relación por fragmento de texto con contenido
+    - Eliminar entidades huérfanas y relaciones duplicadas
+    - Las descripciones deben ser sustantivas (no solo repetir el nombre)
+
+    Contexto del dominio (si aplica): {domain}
+
+    Esquema de salida:
+    {{
+      "entities": [
+        {{"name": "<nombre canónico>", "type": "<ClaseOntológica>", "description": "<descripción semántica rica en {language}>"}}
+      ],
+      "relationships": [
+        {{"source": "<nombre entidad>", "target": "<nombre entidad>", "relation": "<predicadoSemántico>", "description": "<descripción contextual en {language}>"}}
+      ]
+    }}
+
+  extract_user: |
+    Extrae todas las entidades y relaciones semánticamente significativas del siguiente texto.
+    Aplica tipificación ontológica, asegura la integridad referencial y proporciona descripciones ricas.
+
+    Texto:
+    {text}
+
+  plan_system: |
+    Eres un experto en planificación de consultas multi-hop. Descompón la pregunta del usuario en
+    una cadena precisa de sub-consultas dependientes ejecutables contra un grafo de conocimiento + almacén vectorial.
+
+    ## Conocimiento Disponible (resumen):
+    {knowledge_summary}
+
+    ## Estrategia de Planificación
+    1. **Identificar Brechas de Conocimiento**: Determina qué hechos fundamentales se necesitan primero
+    2. **Construir Dependencias**: Estructura consultas para que los pasos iniciales recuperen entidades, los intermedios exploren relaciones y los finales sinteticen
+    3. **Enriquecer Términos**: Cada término de consulta debe incluir nombres de entidad específicos, filtros de atributos y contexto del dominio — no palabras clave vagas
+
+    ## Tipos de Pasos
+    - **is_query=true**: Recupera datos del grafo de conocimiento (búsqueda de entidades, recorrido de relaciones, búsqueda vectorial)
+    - **is_query=false**: Sintetiza, razona o agrega resultados de pasos anteriores
+
+    Responde en {language}.
+
+    Responde con JSON estricto: una lista de objetos de paso. Cada paso tiene:
+      - "term": str — sub-consulta enriquecida y auto-contenida con entidades y restricciones específicas
+      - "is_query": bool — True para recuperación, False para síntesis/razonamiento
+      - "category_id": str (opcional) — categoría para acotar la recuperación
+
+    Restricciones:
+    - Máximo {max_steps} pasos en total
+    - El último paso debe ser una síntesis (is_query=false)
+    - Cada consulta debe ser atómica y enfocada en una unidad de recuperación
+    - Los términos deben ser auto-contenidos: incluir suficiente contexto para entenderse independientemente
+
+  plan_user: |
+    Pregunta del usuario: {query}
+
+    Devuelve solo JSON. Estructura un plan de razonamiento multi-hop con términos de consulta enriquecidos y específicos.
+
+  aggregate_system: |
+    Eres un analista de investigación senior. Sintetiza múltiples resúmenes de comunidades
+    del grafo de conocimiento en una respuesta única y autoritativa en {language}.
+
+    ## Reglas de Síntesis
+    1. **Basada en Evidencia**: Usa solo hechos que aparecen en los fragmentos proporcionados. Cita fuentes cuando sea apropiado
+    2. **Respuesta Estructurada**: Comienza con una respuesta directa, luego proporciona detalles de apoyo
+    3. **Resolución de Conflictos**: Cuando los fragmentos no coincidan, reconoce ambas perspectivas y señala la discrepancia
+    4. **Verificación de Completitud**: Si los fragmentos no responden completamente la pregunta, indica explícitamente qué información falta
+    5. **Concisión**: Mantén menos de 500 palabras a menos que la pregunta solicite expresamente detalle
+
+    ## Formato de Respuesta
+    - Comienza con una respuesta directa y concisa a la pregunta
+    - Sigue con evidencia estructurada de los resúmenes
+    - Termina con advertencias o lagunas en la información disponible
+
+  aggregate_user: |
+    Pregunta del usuario: {query}
+
+    Resúmenes de comunidades recuperados del grafo de conocimiento:
+    {summaries}
+
+    Sintetiza una respuesta comprehensiva basada en evidencia.

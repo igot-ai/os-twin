@@ -188,16 +188,16 @@ Use the `shell` tool to call the memory CLI. This is the PRIMARY way to save mem
 ```bash
 # Save a memory
 MEMORY_PERSIST_DIR="${AGENT_OS_ROOT:-.}/.memory" \
-  python3 ~/os-twin/A-mem-sys/memory-cli.py save "Your detailed memory content here" \
+  python3 ~/.ostwin/.agents/memory/memory-cli.py save "Your detailed memory content here" \
   --name "Short name" --path "category/subcategory" --tags "tag1,tag2"
 
 # Search memories
 MEMORY_PERSIST_DIR="${AGENT_OS_ROOT:-.}/.memory" \
-  python3 ~/os-twin/A-mem-sys/memory-cli.py search "your query" --k 5
+  python3 ~/.ostwin/.agents/memory/memory-cli.py search "your query" --k 5
 
 # Show memory tree
 MEMORY_PERSIST_DIR="${AGENT_OS_ROOT:-.}/.memory" \
-  python3 ~/os-twin/A-mem-sys/memory-cli.py tree
+  python3 ~/.ostwin/.agents/memory/memory-cli.py tree
 ```
 
 **MANDATORY**: After completing any deliverable (schema, API contract, architecture decision), you MUST call the save command above via the `shell` tool. Do NOT skip saving to memory.

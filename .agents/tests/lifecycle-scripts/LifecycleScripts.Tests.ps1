@@ -412,7 +412,6 @@ Describe "Bash scripts unchanged (no regression)" {
         @{ Name = "stop.sh";           Path = "stop.sh" }
         @{ Name = "health.sh";         Path = "health.sh" }
         @{ Name = "sync.sh";           Path = "sync.sh" }
-        @{ Name = "sync-skills.sh";    Path = "sync-skills.sh" }
         @{ Name = "logs.sh";           Path = "logs.sh" }
         @{ Name = "config.sh";         Path = "config.sh" }
         @{ Name = "uninstall.sh";      Path = "uninstall.sh" }

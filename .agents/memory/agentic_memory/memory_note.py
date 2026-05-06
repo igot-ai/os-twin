@@ -10,6 +10,7 @@ go through this class.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,7 @@ class MemoryNote:
         retrieval_count: Optional[int] = None,
         timestamp: Optional[str] = None,
         last_accessed: Optional[str] = None,
+        last_modified: Optional[str] = None,
         context: Optional[str] = None,
         tags: Optional[List[str]] = None,
         summary: Optional[str] = None,
@@ -59,6 +61,9 @@ class MemoryNote:
             retrieval_count: Number of times this memory has been accessed
             timestamp: Creation time in format YYYYMMDDHHMM
             last_accessed: Last access time in format YYYYMMDDHHMM
+            last_modified: Last content modification time in format YYYYMMDDHHMM.
+                Tracks when the note's content or metadata was last changed
+                (as opposed to last_accessed which tracks retrieval).
             context: The broader context or domain of the memory
             tags: Additional classification tags
             summary: Short summary for embedding when content exceeds token limit
@@ -85,6 +90,9 @@ class MemoryNote:
         current_time = datetime.now().strftime("%Y%m%d%H%M")
         self.timestamp = timestamp or current_time
         self.last_accessed = last_accessed or current_time
+        # last_modified defaults to timestamp for backwards compat with
+        # existing notes that don't have this field yet.
+        self.last_modified = last_modified or self.timestamp
 
         # Usage and evolution data
         self.retrieval_count = retrieval_count or 0
@@ -92,6 +100,44 @@ class MemoryNote:
 
         # Summary for long content embedding
         self.summary = summary
+
+        # Content hash for consistency checks.  Loaded from frontmatter
+        # when reading from disk; recomputed on save.
+        self._content_hash: Optional[str] = kwargs.get("content_hash")
+
+    # --- Hashing -------------------------------------------------------
+
+    def compute_hash(self) -> str:
+        """Compute a SHA-256 hash (16-char hex) of the fields that affect
+        the embedding: content, context, keywords, and tags.
+
+        This hash is used to:
+        - Detect whether a note has actually changed (merge conflict check)
+        - Verify vectordb consistency (hash in note vs hash stored in
+          vectordb metadata — mismatch means the vector is stale)
+        - Deduplicate filepath collisions (same hash = true duplicate)
+        """
+        parts = [
+            self.content or "",
+            self.context or "",
+            json.dumps(sorted(self.keywords), ensure_ascii=False),
+            json.dumps(sorted(self.tags), ensure_ascii=False),
+        ]
+        raw = "\n".join(parts).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()[:16]
+
+    @property
+    def content_hash(self) -> str:
+        """Return the cached hash, recomputing if needed."""
+        if self._content_hash is None:
+            self._content_hash = self.compute_hash()
+        return self._content_hash
+
+    def refresh_hash(self) -> str:
+        """Force-recompute and cache the hash.  Call after mutating
+        content, context, keywords, or tags."""
+        self._content_hash = self.compute_hash()
+        return self._content_hash
 
     @staticmethod
     def _slugify(text: str) -> str:
@@ -132,11 +178,13 @@ class MemoryNote:
             "id": self.id,
             "name": self.name,
             "path": self.path,
+            "content_hash": self.content_hash,
             "keywords": self.keywords,
             "links": self.links,
             "retrieval_count": self.retrieval_count,
             "timestamp": self.timestamp,
             "last_accessed": self.last_accessed,
+            "last_modified": self.last_modified,
             "context": self.context,
             "evolution_history": self.evolution_history,
             "category": self.category,
@@ -185,11 +233,13 @@ class MemoryNote:
             retrieval_count=metadata.get("retrieval_count"),
             timestamp=metadata.get("timestamp"),
             last_accessed=metadata.get("last_accessed"),
+            last_modified=metadata.get("last_modified"),
             context=metadata.get("context"),
             evolution_history=metadata.get("evolution_history"),
             category=metadata.get("category"),
             tags=metadata.get("tags"),
             summary=metadata.get("summary"),
+            content_hash=metadata.get("content_hash"),
         )
 
     @classmethod
@@ -198,3 +248,22 @@ class MemoryNote:
         from pathlib import Path
 
         return cls.from_markdown(Path(path).read_text(encoding="utf-8"))
+
+    def get_knowledge_links(self) -> list:
+        """Extract all knowledge:// links from this note's links.
+        
+        Returns:
+            List of KnowledgeLink objects for valid knowledge:// links.
+            Regular memory ID links are ignored.
+        """
+        from .knowledge_link import parse_knowledge_links
+        return parse_knowledge_links(self.links or [])
+    
+    def get_memory_links(self) -> List[str]:
+        """Get all non-knowledge links (regular memory IDs) from this note.
+        
+        Returns:
+            List of memory ID strings that are not knowledge:// links.
+        """
+        from .knowledge_link import is_knowledge_link
+        return [link for link in (self.links or []) if not is_knowledge_link(link)]

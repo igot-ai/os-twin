@@ -225,6 +225,12 @@ export function clearSession(userId: string | number, platform = 'telegram'): vo
   _schedulePersist();
 }
 
+export function clearChatHistory(userId: string | number, platform = 'telegram'): void {
+  const session = getSession(userId, platform);
+  session.chatHistory = [];
+  _schedulePersist();
+}
+
 export function setMode(userId: string | number, platform: string, mode: SessionMode): void {
   const session = getSession(userId, platform);
   session.mode = mode;

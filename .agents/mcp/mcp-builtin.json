@@ -21,12 +21,10 @@
       }
     },
     "memory": {
-      "type": "local",
-      "command": ["{env:OSTWIN_PYTHON}", "{env:AGENT_DIR}/.agents/memory/mcp_server.py"],
-      "environment": {
-        "AGENT_OS_ROOT": "{env:PROJECT_DIR}",
-        "MEMORY_PERSIST_DIR": "./.memory",
-        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}"
+      "type": "remote",
+      "url": "http://localhost:3366/api/memory-pool/mcp",
+      "headers": {
+        "Authorization": "Bearer {env:OSTWIN_API_KEY}"
       }
     },
     "chrome-devtools": {
@@ -49,6 +47,13 @@
       ],
       "environment": {
         "PATH": "{env:PATH}"
+      }
+    },
+    "knowledge": {
+      "type": "remote",
+      "url": "http://localhost:3366/api/knowledge/mcp/",
+      "headers": {
+        "Authorization": "Bearer {env:OSTWIN_API_KEY}"
       }
     }
   }

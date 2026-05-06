@@ -1,4 +1,3 @@
-import keyword
 from typing import List, Dict, Optional, Any, Tuple
 import uuid
 from datetime import datetime
@@ -7,11 +6,7 @@ from .retrievers import ChromaRetriever, ZvecRetriever
 from .memory_note import MemoryNote  # canonical definition lives here now
 import json
 import logging
-import numpy as np
 import os
-from abc import ABC, abstractmethod
-import pickle
-from pathlib import Path
 import time
 
 # Lazy imports for heavy ML libraries (torch, transformers, sentence-transformers, litellm)
@@ -87,6 +82,7 @@ class AgenticMemorySystem:
         max_links: Optional[int] = None,
         similarity_weight: float = 0.8,
         decay_half_life_days: float = 30.0,
+        conflict_resolution: str = "last_modified",
     ):
         """Initialize the memory system.
 
@@ -124,7 +120,12 @@ class AgenticMemorySystem:
         self.max_links = max_links
         self.similarity_weight = max(0.0, min(1.0, similarity_weight))
         self.decay_half_life_days = max(0.01, decay_half_life_days)
+        self.conflict_resolution = conflict_resolution
         self._initialize_evolution_prompt()
+
+        # Dirty flag: tracks whether in-memory state has changed since
+        # last sync, so sync_to_disk() can skip no-op merges (F12).
+        self._dirty = False
 
         # Set up subdirectories for persistence
         self._notes_dir = None
@@ -178,14 +179,153 @@ class AgenticMemorySystem:
 
     # --- Persistence helpers ---
 
-    def _save_note(self, note: MemoryNote):
-        """Save a single MemoryNote as a markdown file in its directory tree."""
+    def _save_note(self, note: MemoryNote, touch_modified: bool = True):
+        """Save a single MemoryNote as a markdown file in its directory tree.
+
+        Filepath collision handling:
+        - Same UUID → normal overwrite (update in place).
+        - Different UUID, same hash → true duplicate, skip the write.
+        - Different UUID, different hash → real conflict. Resolved by
+          ``last_modified`` (or LLM if configured). The loser's file
+          stays untouched; the winner is written.
+
+        Args:
+            note: The note to persist.
+            touch_modified: When True (default) update ``last_modified`` to now.
+                Pass False when writing a note whose timestamp should be
+                preserved (e.g. during merge when the disk version wins).
+        """
         if not self._notes_dir:
             return
+        if touch_modified:
+            from datetime import datetime
+
+            note.last_modified = datetime.now().strftime("%Y%m%d%H%M")
+
+        # Refresh the hash so it reflects current content/metadata
+        note.refresh_hash()
+
         filepath = os.path.join(self._notes_dir, note.filepath)
+
+        # Check for filepath collision with a different note
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as _f:
+                    existing = MemoryNote.from_markdown(_f.read())
+                if existing.id != note.id:
+                    if existing.content_hash == note.content_hash:
+                        # True duplicate — same content, skip write
+                        logger.info(
+                            "skip duplicate: note %s has same hash as %s at %s",
+                            note.id,
+                            existing.id,
+                            filepath,
+                        )
+                        return
+                    # Real conflict — different content at same filepath
+                    winner = self._resolve_conflict(note, existing)
+                    if winner.id != note.id:
+                        # Existing file wins, don't overwrite
+                        logger.info(
+                            "filepath conflict: existing note %s wins over %s at %s",
+                            existing.id,
+                            note.id,
+                            filepath,
+                        )
+                        return
+                    logger.info(
+                        "filepath conflict: new note %s wins over %s at %s",
+                        note.id,
+                        existing.id,
+                        filepath,
+                    )
+            except Exception:
+                pass  # Can't parse existing file — safe to overwrite
+
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(note.to_markdown())
+
+    def _resolve_conflict(self, note_a: MemoryNote, note_b: MemoryNote) -> MemoryNote:
+        """Pick the winner between two conflicting notes.
+
+        Strategy depends on ``self.conflict_resolution``:
+        - ``"last_modified"`` (default): newer ``last_modified`` wins.
+          Ties go to note_a (the incoming/newer write attempt).
+        - ``"llm"``: asks the LLM to merge both versions into one.
+          The merged note keeps note_a's ID. Falls back to
+          ``last_modified`` if the LLM call fails.
+        """
+        if self.conflict_resolution == "llm":
+            try:
+                return self._llm_resolve_conflict(note_a, note_b)
+            except Exception:
+                logger.exception(
+                    "LLM conflict resolution failed for %s vs %s, "
+                    "falling back to last_modified",
+                    note_a.id,
+                    note_b.id,
+                )
+
+        # last_modified strategy (also the fallback)
+        ts_a = note_a.last_modified or note_a.timestamp
+        ts_b = note_b.last_modified or note_b.timestamp
+
+        if ts_a >= ts_b:
+            return note_a
+        return note_b
+
+    def _llm_resolve_conflict(
+        self, note_a: MemoryNote, note_b: MemoryNote
+    ) -> MemoryNote:
+        """Use the LLM to merge two conflicting notes into one.
+
+        The merged note keeps note_a's ID and has its ``last_modified``
+        set to now.
+        """
+        from datetime import datetime
+
+        prompt = (
+            "Two versions of the same memory note exist with different content. "
+            "Merge them into a single, comprehensive version that preserves all "
+            "unique information from both. Return ONLY the merged content text, "
+            "no headers or metadata.\n\n"
+            f"--- Version A (modified: {note_a.last_modified}) ---\n"
+            f"{note_a.content}\n\n"
+            f"--- Version B (modified: {note_b.last_modified}) ---\n"
+            f"{note_b.content}\n"
+        )
+
+        response = self.llm_controller.llm.get_completion(prompt)
+        merged_content = response.strip() if response else None
+        if not merged_content:
+            raise ValueError("LLM returned empty merge result")
+
+        logger.info(
+            "LLM merged conflict for notes %s and %s (%d + %d → %d chars)",
+            note_a.id,
+            note_b.id,
+            len(note_a.content),
+            len(note_b.content),
+            len(merged_content),
+        )
+
+        # Build merged note: keep note_a's identity, combine metadata
+        merged = MemoryNote(
+            content=merged_content,
+            id=note_a.id,
+            name=note_a.name or note_b.name,
+            path=note_a.path or note_b.path,
+            keywords=list(set(note_a.keywords + note_b.keywords)),
+            links=list(set(note_a.links + note_b.links)),
+            tags=list(set(note_a.tags + note_b.tags)),
+            context=note_a.context if note_a.context != "General" else note_b.context,
+            timestamp=min(note_a.timestamp, note_b.timestamp),
+            last_modified=datetime.now().strftime("%Y%m%d%H%M"),
+            summary=None,  # will be regenerated on next LLM analysis
+        )
+        merged.refresh_hash()
+        return merged
 
     def _delete_note_file(self, memory_id: str):
         """Delete a MemoryNote's markdown file and clean up empty parent dirs."""
@@ -513,6 +653,7 @@ class AgenticMemorySystem:
         """Build a metadata dict suitable for the vector store."""
         return {
             "id": note.id,
+            "content_hash": note.content_hash,
             "content": note.content,
             "keywords": note.keywords,
             "links": note.links,
@@ -536,11 +677,16 @@ class AgenticMemorySystem:
 
         # Add to memories before evolution so add_link can find it
         self.memories[note.id] = note
+        self._dirty = True
         evo_label, note = self.process_memory(note)
         self._save_note(note)
 
         metadata = self._build_note_metadata(note)
         self.retriever.add_document(note.content, metadata, note.id)
+
+        # Flush any deferred GC from retriever operations
+        if hasattr(self.retriever, 'flush_gc'):
+            self.retriever.flush_gc()
 
         if evo_label is True:
             self.evo_cnt += 1
@@ -548,27 +694,136 @@ class AgenticMemorySystem:
                 self.consolidate_memories()
         return note.id
 
-    def sync_from_disk(self) -> Dict:
-        """Sync: read current persistent files → update in-memory state + vectordb.
+    # --- Import docs -------------------------------------------------------
 
-        Loads all markdown files from disk, detects added/modified/deleted notes
-        compared to current in-memory state, and rebuilds the vector index.
+    def import_docs(self, docs_dir: str) -> Dict:
+        """Import markdown files from a docs directory into the memory system.
 
-        Caveats:
-        - Notes that exist on disk but not in memory are ADDED.
-        - Notes that exist in memory but not on disk are REMOVED.
-        - Notes whose content differs on disk are UPDATED (disk wins).
-        - Vector index is fully rebuilt after sync.
-        - Backlinks are rebuilt from forward links.
+        Each ``.md`` file is imported as a MemoryNote:
+        - **name** is derived from the filename (slugified, minus extension).
+        - **path** mirrors the directory structure within ``docs_dir``.
+        - **content** is the raw file content.
+        - **keywords, context, tags, summary, links** are filled by LLM
+          analysis (same as ``save_memory``).
+
+        After import the docs directory is renamed to
+        ``.docs_imported_<YYYYMMDD_HHMMSS>`` so concurrent agents won't
+        re-process it.
+
+        Args:
+            docs_dir: Absolute path to the docs directory
+                      (typically ``<persist_dir>/docs``).
 
         Returns:
-            Dict with counts of added, updated, removed notes.
+            Dict with counts: imported, skipped, failed, renamed_to.
         """
-        if not self._notes_dir:
-            return {"error": "No persist_dir configured"}
+        from datetime import datetime as _dt
 
-        # Load all notes from disk
-        disk_notes = {}
+        if not os.path.isdir(docs_dir):
+            return {"error": f"docs_dir not found: {docs_dir}"}
+
+        # Rename immediately to claim ownership before processing.
+        ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        renamed = os.path.join(
+            os.path.dirname(docs_dir),
+            f".docs_imported_{ts}",
+        )
+        try:
+            os.rename(docs_dir, renamed)
+        except OSError as e:
+            # Another process already renamed it — nothing to do.
+            logger.info("import_docs: rename failed (already claimed?): %s", e)
+            return {"error": f"rename failed: {e}"}
+        logger.info("import_docs: claimed %s → %s", docs_dir, renamed)
+
+        imported = 0
+        skipped = 0
+        failed = 0
+
+        # Pre-build hash set for O(1) duplicate detection (F8)
+        _existing_hashes = {n.content_hash for n in self.memories.values()}
+
+        for dirpath, _dirnames, filenames in os.walk(renamed):
+            for filename in filenames:
+                if not filename.endswith(".md"):
+                    continue
+
+                filepath = os.path.join(dirpath, filename)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                except Exception as e:
+                    logger.warning("import_docs: failed to read %s: %s", filepath, e)
+                    failed += 1
+                    continue
+
+                if not content:
+                    skipped += 1
+                    continue
+
+                # Derive name from filename, path from directory structure
+                name = os.path.splitext(filename)[0]
+                rel_dir = os.path.relpath(dirpath, renamed)
+                path = rel_dir if rel_dir != "." else None
+
+                # Skip if a note with identical content already exists
+                # (prevents re-import if the user places the same docs again)
+                # Uses pre-built hash set instead of O(N) scan per file (F8).
+                candidate = MemoryNote(
+                    content=content,
+                    name=name,
+                    path=path,
+                    context="General",
+                )
+                if candidate.content_hash in _existing_hashes:
+                    logger.info(
+                        "import_docs: skipping duplicate %s",
+                        filepath,
+                    )
+                    skipped += 1
+                    continue
+
+                # Create note with derived name/path, LLM fills the rest
+                try:
+                    note_id = self.add_note(
+                        content=content,
+                        name=name,
+                        path=path,
+                    )
+                    # Update hash set for subsequent duplicate checks
+                    _existing_hashes.add(candidate.content_hash)
+                    logger.info(
+                        "import_docs: imported %s as %s",
+                        filepath,
+                        note_id,
+                    )
+                    imported += 1
+                except Exception as e:
+                    logger.exception(
+                        "import_docs: failed to import %s: %s", filepath, e
+                    )
+                    failed += 1
+
+        logger.info(
+            "import_docs: done — imported=%d skipped=%d failed=%d",
+            imported,
+            skipped,
+            failed,
+        )
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "failed": failed,
+            "renamed_to": renamed,
+        }
+
+    # --- Disk ↔ Memory helpers ---
+
+    def _load_disk_notes(self) -> Dict[str, MemoryNote]:
+        """Read every ``.md`` file under ``notes/`` and return {id: note}."""
+        disk_notes: Dict[str, MemoryNote] = {}
+        if not self._notes_dir:
+            return disk_notes
         for dirpath, _dirnames, filenames in os.walk(self._notes_dir):
             for filename in filenames:
                 if not filename.endswith(".md"):
@@ -580,68 +835,224 @@ class AgenticMemorySystem:
                     note = MemoryNote.from_markdown(text)
                     disk_notes[note.id] = note
                 except Exception as e:
-                    logger.warning(f"Could not load note {filepath}: {e}")
+                    logger.warning("Could not load note %s: %s", filepath, e)
+        return disk_notes
+
+    # --- Bidirectional merge ---
+
+    def merge_from_disk(self) -> Dict:
+        """Bidirectional merge between on-disk notes and in-memory state.
+
+        Reconciliation rules
+        --------------------
+        1. **On disk only** → add to ``self.memories`` + vectordb.
+        2. **In memory only** → keep (caller writes to disk afterwards).
+        3. **Both exist, same content** → skip (already consistent).
+        4. **Both exist, different content** → the version with the latest
+           ``last_modified`` wins. The loser is overwritten. Ties keep the
+           disk version (external edits are assumed intentional).
+
+        Unlike the old ``sync_from_disk``, this method **never deletes**
+        notes that exist only in memory (they were created by the current
+        process and just haven't been written yet). And it does **not** do
+        a full vectordb rebuild — only the notes that actually changed get
+        their embeddings updated.
+
+        Returns:
+            Dict with counts: added_from_disk, updated_from_disk,
+            updated_from_memory, unchanged, memory_only.
+        """
+        if not self._notes_dir:
+            return {"error": "No persist_dir configured"}
+
+        disk_notes = self._load_disk_notes()
+
+        added_from_disk = 0
+        updated_from_disk = 0  # disk won the conflict
+        updated_from_memory = 0  # memory won the conflict
+        unchanged = 0
+        memory_only = 0
+
+        disk_ids = set(disk_notes.keys())
+        mem_ids = set(self.memories.keys())
+
+        # 1. Notes on disk but not in memory → adopt from disk
+        for nid in disk_ids - mem_ids:
+            disk_note = disk_notes[nid]
+            self.memories[nid] = disk_note
+            metadata = self._build_note_metadata(disk_note)
+            self.retriever.add_document(disk_note.content, metadata, nid)
+            added_from_disk += 1
+
+        # 2. Notes in memory but not on disk → keep (no action needed here,
+        #    sync_to_disk will write them later)
+        memory_only = len(mem_ids - disk_ids)
+
+        # 3/4. Notes that exist in both — compare by hash, not raw content
+        for nid in disk_ids & mem_ids:
+            disk_note = disk_notes[nid]
+            mem_note = self.memories[nid]
+
+            if disk_note.content_hash == mem_note.content_hash:
+                unchanged += 1
+                continue
+
+            # Conflict: use _resolve_conflict (last_modified or LLM)
+            # disk_note is note_a so ties go to disk (external edits
+            # are assumed intentional)
+            winner = self._resolve_conflict(disk_note, mem_note)
+            if winner.id == mem_note.id and winner is mem_note:
+                # Memory wins — keep in-memory version, will be written
+                # to disk by sync_to_disk. No vectordb change needed.
+                updated_from_memory += 1
+            else:
+                # Disk wins — adopt disk version
+                self.memories[nid] = disk_note
+                # Update vectordb entry
+                self.retriever.delete_document(nid)
+                metadata = self._build_note_metadata(disk_note)
+                self.retriever.add_document(disk_note.content, metadata, nid)
+                updated_from_disk += 1
+
+        self._rebuild_backlinks()
+
+        # 5. Verify vectordb ↔ notes consistency using content_hash.
+        #    For each note, check if vectordb has the same hash. Three cases:
+        #    - Missing from vectordb entirely → embed and insert
+        #    - Hash mismatch (stale vector) → re-embed
+        #    - Hash matches → consistent, skip
+        all_mem_ids = list(self.memories.keys())
+        stored_hashes = self.retriever.get_stored_hashes(all_mem_ids)
+        vectors_repaired = 0
+        for nid in all_mem_ids:
+            note = self.memories[nid]
+            stored_hash = stored_hashes.get(nid)
+
+            if stored_hash == note.content_hash:
+                continue  # consistent
+
+            if stored_hash is None:
+                logger.warning("merge: note %s missing from vectordb, adding", nid)
+            else:
+                logger.warning(
+                    "merge: note %s has stale vector (hash %s vs %s), re-embedding",
+                    nid,
+                    stored_hash,
+                    note.content_hash,
+                )
+                self.retriever.delete_document(nid)
+
+            metadata = self._build_note_metadata(note)
+            self.retriever.add_document(note.content, metadata, nid)
+            vectors_repaired += 1
+
+        return {
+            "added_from_disk": added_from_disk,
+            "updated_from_disk": updated_from_disk,
+            "updated_from_memory": updated_from_memory,
+            "unchanged": unchanged,
+            "memory_only": memory_only,
+            "vectors_repaired": vectors_repaired,
+        }
+
+    # --- One-directional syncs (kept for backwards compat) ---
+
+    def sync_from_disk(self) -> Dict:
+        """Sync: read current persistent files → update in-memory state + vectordb.
+
+        Loads all markdown files from disk, detects added/modified/deleted notes
+        compared to current in-memory state, and updates the vector index
+        incrementally (only changed/new notes are re-embedded).
+
+        Caveats:
+        - Notes that exist on disk but not in memory are ADDED.
+        - Notes that exist in memory but not on disk are REMOVED.
+        - Notes whose content differs on disk are UPDATED (disk wins).
+        - Vector index entries are added/updated/removed incrementally.
+        - Backlinks are rebuilt from forward links.
+
+        Returns:
+            Dict with counts of added, updated, removed notes.
+        """
+        if not self._notes_dir:
+            return {"error": "No persist_dir configured"}
+
+        disk_notes = self._load_disk_notes()
 
         added = 0
         updated = 0
         removed = 0
 
-        # Detect added and updated
+        # Detect added and updated — update vectordb incrementally (F4)
         for nid, disk_note in disk_notes.items():
             if nid not in self.memories:
                 added += 1
-            elif disk_note.content != self.memories[nid].content:
+                self.memories[nid] = disk_note
+                metadata = self._build_note_metadata(disk_note)
+                self.retriever.add_document(disk_note.content, metadata, nid)
+            elif disk_note.content_hash != self.memories[nid].content_hash:
                 updated += 1
-            self.memories[nid] = disk_note
+                self.memories[nid] = disk_note
+                self.retriever.delete_document(nid)
+                metadata = self._build_note_metadata(disk_note)
+                self.retriever.add_document(disk_note.content, metadata, nid)
+            else:
+                # Content unchanged — just adopt disk note (metadata may differ)
+                self.memories[nid] = disk_note
 
         # Detect removed (in memory but not on disk)
         removed_ids = [nid for nid in self.memories if nid not in disk_notes]
         for nid in removed_ids:
+            self.retriever.delete_document(nid)
             del self.memories[nid]
             removed += 1
 
-        # Rebuild backlinks and vector index
+        # Rebuild backlinks from forward links
         self._rebuild_backlinks()
-        self.consolidate_memories()
 
+        # Flush any deferred GC from retriever operations
+        if hasattr(self.retriever, 'flush_gc'):
+            self.retriever.flush_gc()
+
+        self._dirty = False
         return {"added": added, "updated": updated, "removed": removed}
 
     def sync_to_disk(self) -> Dict:
-        """Sync: write current in-memory state → persistent files + vectordb.
+        """Sync: merge disk state, then write unified state to disk.
 
-        Saves all in-memory notes as markdown files, removes orphan files
-        that don't correspond to any in-memory note, and rebuilds the vector index.
+        1. Calls ``merge_from_disk()`` to reconcile disk ↔ memory
+           (skipped if nothing has changed since last sync — F12).
+        2. Writes all in-memory notes to disk.
+        3. Does **not** delete orphan files (they may belong to another
+           agent process running concurrently).
 
         Returns:
-            Dict with counts of written and cleaned files.
+            Dict with merge result and count of files written.
         """
         if not self._notes_dir:
             return {"error": "No persist_dir configured"}
 
-        # Collect all existing .md filepaths on disk
-        existing_files = set()
-        for dirpath, _dirnames, filenames in os.walk(self._notes_dir):
-            for filename in filenames:
-                if filename.endswith(".md"):
-                    existing_files.add(os.path.join(dirpath, filename))
+        # Skip merge if nothing changed locally (F12: dirty-flag optimization).
+        # We still merge if dirty because merge_from_disk also picks up
+        # external edits from other processes.
+        # Use getattr for backward compat (test fixtures may bypass __init__).
+        is_dirty = getattr(self, "_dirty", True)
+        if is_dirty:
+            merge_result = self.merge_from_disk()
+        else:
+            merge_result = {"skipped": True, "reason": "no local changes"}
 
-        # Write all in-memory notes to disk
-        written_files = set()
+        # Step 2: write all in-memory notes (now includes merged disk notes)
+        written = 0
         for note in self.memories.values():
-            filepath = os.path.join(self._notes_dir, note.filepath)
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(note.to_markdown())
-            written_files.add(filepath)
+            self._save_note(note, touch_modified=False)
+            written += 1
 
-        # Remove orphan files (on disk but not in memory)
-        orphans = existing_files - written_files
-        self._remove_orphan_files(orphans)
-
-        # Rebuild vector index from memory
-        self.consolidate_memories()
-
-        return {"written": len(written_files), "orphans_removed": len(orphans)}
+        self._dirty = False
+        return {
+            "merge": merge_result,
+            "written": written,
+        }
 
     def _remove_orphan_files(self, orphans: set) -> None:
         """Delete orphan markdown files and clean up empty parent directories."""
@@ -807,6 +1218,11 @@ class AgenticMemorySystem:
             document=note.content, metadata=metadata, doc_id=memory_id
         )
         self._save_note(note)
+        self._dirty = True
+
+        # Flush any deferred GC from retriever operations
+        if hasattr(self.retriever, 'flush_gc'):
+            self.retriever.flush_gc()
 
         return True
 
@@ -890,6 +1306,12 @@ class AgenticMemorySystem:
             self.retriever.delete_document(memory_id)
             # Delete from local storage
             del self.memories[memory_id]
+            self._dirty = True
+
+            # Flush any deferred GC from retriever operations
+            if hasattr(self.retriever, 'flush_gc'):
+                self.retriever.flush_gc()
+
             return True
         return False
 
@@ -912,9 +1334,7 @@ class AgenticMemorySystem:
             for doc_id, score in zip(results["ids"][0], results["distances"][0])
         ]
 
-    def _compute_time_decay_score(
-        self, similarity: float, last_accessed: str
-    ) -> float:
+    def _compute_time_decay_score(self, similarity: float, last_accessed: str) -> float:
         """Compute combined score using time-decay re-ranking.
 
         Formula: score = α * sim + (1 - α) * 0.5^(age_days / h)
@@ -988,70 +1408,10 @@ class AgenticMemorySystem:
 
         return memories[:k]
 
-    def _search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Search for memories using a hybrid retrieval approach.
-
-        This method combines results from both:
-        1. ChromaDB vector store (semantic similarity)
-        2. Embedding-based retrieval (dense vectors)
-
-        The results are deduplicated and ranked by relevance.
-
-        Args:
-            query (str): The search query text
-            k (int): Maximum number of results to return
-
-        Returns:
-            List[Dict[str, Any]]: List of search results, each containing:
-                - id: Memory ID
-                - content: Memory content
-                - context: Memory context
-                - keywords: Memory keywords
-                - tags: Memory tags
-                - score: Similarity score
-        """
-        # Get results from ChromaDB
-        chroma_results = self.retriever.search(query, k)
-        memories = []
-
-        # Process ChromaDB results
-        for i, doc_id in enumerate(chroma_results["ids"][0]):
-            memory = self.memories.get(doc_id)
-            if memory:
-                memories.append(
-                    {
-                        "id": doc_id,
-                        "content": memory.content,
-                        "context": memory.context,
-                        "keywords": memory.keywords,
-                        "tags": memory.tags,
-                        "score": chroma_results["distances"][0][i],
-                    }
-                )
-
-        # Get results from embedding retriever
-        embedding_results = self.retriever.search(query, k)
-
-        # Combine results with deduplication
-        seen_ids = {m["id"] for m in memories}
-        for result in embedding_results:
-            memory_id = result.get("id")
-            if memory_id and memory_id not in seen_ids:
-                memory = self.memories.get(memory_id)
-                if memory:
-                    memories.append(
-                        {
-                            "id": memory_id,
-                            "content": memory.content,
-                            "context": memory.context,
-                            "keywords": memory.keywords,
-                            "tags": memory.tags,
-                            "score": result.get("score", 0.0),
-                        }
-                    )
-                    seen_ids.add(memory_id)
-
-        return memories[:k]
+    # NOTE: _search() method removed (F7) — it performed two identical
+    # calls to self.retriever.search() pretending to combine "ChromaDB"
+    # and "embedding" results but they were the same backend. Use
+    # search() or search_agentic() instead.
 
     def search_agentic(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Search for memories using vector retrieval with link-following and time-decay."""

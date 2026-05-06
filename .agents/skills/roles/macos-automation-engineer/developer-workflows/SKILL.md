@@ -2,7 +2,7 @@
 name: developer-workflows
 description: Build Xcode projects, manage simulators, verify code signatures, access keychains, and manage Homebrew packages on macOS."
 tags: [macos-automation-engineer, automation, macos, xcode, developer, homebrew, codesign]
-trust_level: core
+
 platform: [macos]
 requires_permissions: []
 shell: bash

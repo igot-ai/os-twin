@@ -1,28 +1,11 @@
-<!-- MANAGER INSTRUCTION:
-When generating a plan, you MUST explicitly define a `Roles: ...` for EACH Epic.
-The `roles` MUST BE DYNAMICALLY DESIGNED based on the specific requirements of the Epic. 
-Not all tasks require an engineer or qa. For example, a research epic might only need a researcher and analyst, while a documentation epic might need a writer and editor.
-Whatever the roles, you must design a closed-loop workflow optimized for those specific autonomous agents, allowing them to operate without stalling.
-IMPORTANT: Lifecycle state names MUST use the ROLE AGENT NAMES (e.g., `@researcher`, `@analyst`, `@engineer`, `qa`), NOT generic action names (e.g., `research`, `review`, `drafting`). This is because the manager loop uses state names to determine which agent to invoke.
-Always map out the transition states, including what happens on failure.
-
-Example of a dynamic closed workflow for a generic task:
-```text
-pending → [primary-role] → [reviewer-role] ─┬─► passed → signoff
-                ▲                           │
-                └───── [primary-role] ◄─────┘ (on fail → fixing)
-```
--->
-
 # Plan: Example Feature
 
-> Created: 2026-03-17T00:00:00+00:00
+> Created: {{date_now}}
 > Status: draft
-> Project: /path/to/your/project
 
 ## Config
 
-working_dir: /path/to/your/project
+working_dir: /path/to/your/project/...
 
 ---
 
@@ -36,7 +19,7 @@ working_dir: <path>             (scope agents to a subdirectory)
 
 {{AVAILABLE_ROLES}}
 
-#### EPIC Lifecycle (Closed Loop)
+### EPIC Lifecycle (Closed Loop)
 
 Every Epic runs a dynamically designed closed lifecycle where the specific agents assigned to that epic iterate and correct each other's work until all quality gates pass.
 
@@ -91,31 +74,23 @@ Capability-to-stage mapping:
 ---
 
 ## Goal
+...
 
-A clear, concise description of what this plan aims to achieve and the problem it solves.
+## EPIC-001: ...
+...
 
-## EPIC-001 - Research & Strategy
-
-Roles: @researcher, @analyst
-Objective: Investigate market trends and synthesize a strategy document
-Lifecycle:
-```text
-pending → researcher → analyst ─┬─► passed → signoff
-              ▲                 │
-              └── researcher ◄──┘ (on fail → fixing)
-```
-
-Tasks: Gather data on competitor products. Analyze features and formulate a strategy document.
+Goals: ...
 
 ### Definition of Done
+- [ ] ...
+
+### Acceptance Criteria
 - [ ] ...
 
 ### Tasks
 - [ ] ...
 
-### Acceptance criteria:
-- [ ] ...
+depends_on: [EPIC-..., EPIC-...]
 
-depends_on: [EPIC-xxx]
-
-## EPIC-002 - ...
+## EPIC-002: ...
+...

@@ -2,7 +2,7 @@
 name: create-epics
 description: Break GDD into epics and actionable stories
 tags: [game-designer, planning, epics]
-trust_level: core
+
 source: project
 ---
 

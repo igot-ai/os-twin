@@ -7,6 +7,10 @@
 
 set -e
 
+# Raise open file descriptor limit to prevent FD exhaustion during
+# plan execution (many rooms × frequent status file polling).
+ulimit -n 4096 2>/dev/null || true
+
 PLAN_FILE=$1
 if [[ -z "$PLAN_FILE" ]]; then
   echo "Usage: $0 <plan_file>"

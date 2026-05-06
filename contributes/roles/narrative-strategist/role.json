@@ -1,0 +1,20 @@
+{
+  "name": "narrative-strategist",
+  "description": "Research competitor positioning and define the core messaging framework, value propositions, and structural narrative for the Agentic OS homepage.",
+  "capabilities": [
+    "market-research",
+    "copywriting",
+    "content-strategy"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [],
+  "skill_refs": [
+    "research",
+    "write-document",
+    "explain-concept"
+  ],
+  "cli": "agent",
+  "instance_type": "worker",
+  "model": "google-vertex/gemini-3-flash-preview",
+  "timeout": 600
+}

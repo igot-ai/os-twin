@@ -8,7 +8,7 @@ On every server startup this module:
    the user has API keys for.
 3. Reads ``~/.config/opencode/opencode.json`` for any custom providers.
 4. Filters the catalog to only include models from configured providers.
-5. Writes the result to ``~/.local/share/opencode/configured_models.json``
+5. Writes the result to ``~/.ostwin/.agents/configured_models.json``
    so it can be served without re-fetching.
 
 The ``get_configured_models()`` function returns the current in-memory
@@ -34,7 +34,7 @@ MODELS_DEV_LOGO_URL = "https://models.dev/logos/{provider}.svg"
 AUTH_JSON_PATH = Path.home() / ".local" / "share" / "opencode" / "auth.json"
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
 CONFIGURED_MODELS_PATH = (
-    Path.home() / ".local" / "share" / "opencode" / "configured_models.json"
+    Path.home() / ".ostwin" / ".agents" / "configured_models.json"
 )
 
 # In-memory cache
@@ -57,9 +57,12 @@ def load_models_on_startup() -> Dict[str, Any]:
         # Fallback: try reading from cached file
         raw_catalog = _read_cached_raw()
         if raw_catalog is None:
-            logger.warning("No models catalog available -- using empty catalog")
+            logger.warning("[MODELS] No models catalog available (network failed and no disk cache) -- using empty catalog")
             _cached_models = {"providers": {}, "loaded_at": _iso_now()}
             return _cached_models
+        logger.info("[MODELS] Network fetch failed, loaded raw catalog from disk cache")
+    else:
+        logger.info("[MODELS] Successfully fetched fresh catalog from models.dev")
 
     configured_providers = _read_configured_providers()
     configured = _build_configured_models(raw_catalog, configured_providers)
@@ -208,6 +211,7 @@ def invalidate_cache() -> None:
 
 def _fetch_models_dev() -> Optional[Dict[str, Any]]:
     """Fetch the full models catalog from models.dev."""
+    logger.info("[MODELS] Fetching catalog from %s", MODELS_DEV_URL)
     try:
         req = urllib.request.Request(
             MODELS_DEV_URL,

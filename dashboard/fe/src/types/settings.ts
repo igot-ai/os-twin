@@ -111,6 +111,8 @@ export interface RuntimeSettings {
   max_concurrent_rooms: number;
   auto_approve_tools: boolean;
   dynamic_pipelines: boolean;
+  /** Master agent default model — format: "provider/model_id". Empty = use server default. */
+  master_agent_model?: string;
 }
 
 export interface AutonomySettings {
@@ -119,7 +121,7 @@ export interface AutonomySettings {
 }
 
 export type MemoryLLMBackend = 'huggingface' | 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang';
-export type MemoryEmbeddingBackend = 'sentence-transformer' | 'gemini';
+export type MemoryEmbeddingBackend = 'sentence-transformer' | 'gemini' | 'ollama' | 'vertex';
 export type MemoryVectorBackend = 'zvec' | 'chroma';
 
 export interface MemorySettings {
@@ -159,6 +161,19 @@ export interface ObservabilitySettings {
   trace_enabled: boolean;
 }
 
+export interface KnowledgeSettings {
+  /** Empty string means "use server default". */
+  knowledge_llm_backend: string;
+  /** Empty string means "use server default (config.LLM_MODEL / env var)". */
+  knowledge_llm_model: string;
+  /** Empty string means "use server default". */
+  knowledge_embedding_backend: MemoryEmbeddingBackend | '';
+  /** Empty string means "use server default (config.EMBEDDING_MODEL / env var)". */
+  knowledge_embedding_model: string;
+  /** Read-only / informational. Always 768. */
+  knowledge_embedding_dimension: number;
+}
+
 export interface MasterSettings {
   providers: ProvidersNamespace;
   roles: Record<string, RoleSettings>;
@@ -167,6 +182,7 @@ export interface MasterSettings {
   memory: MemorySettings;
   channels: ChannelsNamespace;
   observability: ObservabilitySettings;
+  knowledge?: KnowledgeSettings;
 }
 
 export interface EffectiveResolution {
@@ -174,7 +190,7 @@ export interface EffectiveResolution {
   provenance: Record<string, string>;
 }
 
-export type SettingsNamespace = 'providers' | 'runtime' | 'memory';
+export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge' | 'channels';
 
 export interface VaultStatus {
   is_set: boolean;

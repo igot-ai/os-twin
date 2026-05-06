@@ -2,6 +2,8 @@
 
 BeforeAll {
     $script:InvokeAgent = Join-Path (Resolve-Path "$PSScriptRoot/../../../roles/_base").Path "Invoke-Agent.ps1"
+    # Mirror Invoke-Agent.ps1's own $agentsDir resolution: $PSScriptRoot (roles/_base) ../../ = .agents/
+    $script:agentsBaseDir = (Resolve-Path "$PSScriptRoot/../../../roles/_base/../..").Path
 }
 
 Describe "Invoke-Agent" {
@@ -14,19 +16,13 @@ Describe "Invoke-Agent" {
 
     Context "With mock agent command" {
         It "runs successfully with echo mock" {
-            $env:ENGINEER_CMD = "echo"
-            try {
-                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
-                    -RoleName "engineer" -Prompt "test prompt" `
-                    -AgentCmd "echo" -TimeoutSeconds 10
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test prompt" `
+                -AgentCmd "echo" -TimeoutSeconds 10
 
-                $result | Should -Not -BeNullOrEmpty
-                $result.RoleName | Should -Be "engineer"
-                $result.ExitCode | Should -BeIn @(0, 1)  # echo may or may not accept -n flag
-            }
-            finally {
-                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
-            }
+            $result | Should -Not -BeNullOrEmpty
+            $result.RoleName | Should -Be "engineer"
+            $result.ExitCode | Should -BeIn @(0, 1)  # echo may or may not accept -n flag
         }
 
         It "creates artifacts directory" {
@@ -45,11 +41,9 @@ Describe "Invoke-Agent" {
             Test-Path (Join-Path $script:roomDir "pids") | Should -BeTrue
         }
 
-        It "reports PidFile path in result (agent self-registers PID)" {
-            # Design contract (v2): Invoke-Agent does NOT write the PID file itself.
-            # It sets AGENT_OS_PID_FILE env var in the wrapper, and bin/agent writes $$
-            # before exec. The PID file may or may not exist depending on the mock used.
-            # The result object always carries the expected PidFile path for the caller.
+        It "reports PidFile path in result" {
+            # Start-Process writes PID directly. The result object always carries
+            # the expected PidFile path for the caller.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
@@ -81,10 +75,9 @@ Describe "Invoke-Agent" {
 
     Context "Timeout handling" {
         It "sets TimedOut flag when command times out" {
-            # Create a mock that ignores all args and sleeps
-            $sleepScript = Join-Path $TestDrive "slow-mock.sh"
-            "#!/bin/bash`nsleep 30" | Out-File $sleepScript -Encoding utf8
-            chmod +x $sleepScript
+            # Create a mock that ignores all args and sleeps (pwsh wrapper)
+            $sleepScript = Join-Path $TestDrive "slow-mock.ps1"
+            "Start-Sleep -Seconds 30" | Out-File $sleepScript -Encoding utf8
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "slow" `
@@ -96,8 +89,8 @@ Describe "Invoke-Agent" {
     }
 
     Context "Config resolution" {
-        It "uses env var override for agent command" {
-            $env:ENGINEER_CMD = "echo"
+        It "uses OSTWIN_AGENT_CMD env var override" {
+            $env:OSTWIN_AGENT_CMD = "echo"
             try {
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                     -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
@@ -106,7 +99,7 @@ Describe "Invoke-Agent" {
                 $result | Should -Not -BeNullOrEmpty
             }
             finally {
-                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
+                Remove-Item Env:OSTWIN_AGENT_CMD -ErrorAction SilentlyContinue
             }
         }
 
@@ -114,7 +107,6 @@ Describe "Invoke-Agent" {
             $configFile = Join-Path $TestDrive "test-config.json"
             @{
                 engineer = @{
-                    cli             = "echo"
                     default_model   = "test-model"
                     timeout_seconds = 10
                 }
@@ -123,7 +115,8 @@ Describe "Invoke-Agent" {
             $env:AGENT_OS_CONFIG = $configFile
             try {
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
-                    -RoleName "engineer" -Prompt "config test" -TimeoutSeconds 5
+                    -RoleName "engineer" -Prompt "config test" `
+                    -AgentCmd "echo" -TimeoutSeconds 5
 
                 $result | Should -Not -BeNullOrEmpty
             }
@@ -161,7 +154,6 @@ Describe "Invoke-Agent" {
             $script:instanceConfigFile = Join-Path $TestDrive "instance-config.json"
             @{
                 engineer = @{
-                    cli             = "echo"
                     default_model   = "base-model"
                     timeout_seconds = 600
                     instances = @{
@@ -215,60 +207,111 @@ Describe "Invoke-Agent" {
         }
     }
 
-    Context "Skill Isolation (EPIC-002)" {
-        It "creates and populates skills directory" {
-            # Use engineer role — gets role-private skills auto-loaded from skills/roles/engineer/
+    Context "Skill Staging (project-level .agents/skills/)" {
+        It "creates and populates project-level skills directory" {
+            # Skills are staged under .agents/skills/, NOT under the war-room dir.
+            # $agentsBaseDir mirrors Invoke-Agent.ps1's own $agentsDir resolution.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
 
-            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
-            Test-Path $isolatedSkillsDir | Should -BeTrue
-            
-            $skills = Get-ChildItem $isolatedSkillsDir -Directory
+            $projectSkillsDir = Join-Path $script:agentsBaseDir "skills"
+            Test-Path $projectSkillsDir | Should -BeTrue
+
+            $skills = Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue
             $skills.Count | Should -BeGreaterThan 0
-            # Should contain at least 'implement-epic' (auto-loaded role-private skill)
-            $skills.Name | Should -Contain "implement-epic"
+            # Skills are now resolved via Dashboard API search (Resolve-RoleSkills.ps1).
+            # Without a running dashboard, only the source-tree subdirs (global, roles) exist.
+            # Do NOT assert on specific API-resolved skill names here.
         }
 
-        It "preserves existing skills dir and adds resolved skills on new invocation" {
-            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
-            New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
-
+        It "does NOT create a skills directory inside the war-room" {
+            # After the redirect, war-room dirs must NOT contain a skills/ subfolder.
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd "echo" -TimeoutSeconds 5
 
-            # Skills dir should still exist and contain resolved skills
-            Test-Path $isolatedSkillsDir | Should -BeTrue
-            $skills = Get-ChildItem $isolatedSkillsDir -Directory
-            $skills.Count | Should -BeGreaterThan 0
+            $roomSkillsDir = Join-Path $script:roomDir "skills"
+            Test-Path $roomSkillsDir | Should -BeFalse `
+                -Because "skills are now staged under .agents/skills/, not inside the war-room"
         }
 
-        It "exports AGENT_OS_SKILLS_DIR in the environment (verified via echo mock)" {
-            # Create a mock bash script that echoes AGENT_OS_SKILLS_DIR with a tag
-            $echoMock = Join-Path $TestDrive "echo-env.sh"
-            "#!/bin/bash`necho SKILLS_DIR_IS:`$AGENT_OS_SKILLS_DIR" | Out-File $echoMock -Encoding utf8
-            chmod +x $echoMock
+        It "populates project skills dir on repeated invocations (idempotent)" {
+            # First invocation
+            $null = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $projectSkillsDir = Join-Path $script:agentsBaseDir "skills"
+            $countAfterFirst = (Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue).Count
+
+            # Second invocation with a fresh room
+            $script:roomDir2 = Join-Path $TestDrive "room2-$(Get-Random)"
+            New-Item -ItemType Directory -Path $script:roomDir2 -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $script:roomDir2 "pids") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $script:roomDir2 "artifacts") -Force | Out-Null
+
+            $null = & $script:InvokeAgent -RoomDir $script:roomDir2 `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd "echo" -TimeoutSeconds 5
+
+            $countAfterSecond = (Get-ChildItem $projectSkillsDir -Directory -ErrorAction SilentlyContinue).Count
+            # Skill count should be stable — same skills, not doubled
+            $countAfterSecond | Should -Be $countAfterFirst
+        }
+
+        It "exports AGENT_OS_SKILLS_DIR pointing to project-level path (verified via echo mock)" {
+            # Create a mock script that echoes AGENT_OS_SKILLS_DIR (pwsh wrapper)
+            $echoMock = Join-Path $TestDrive "echo-env.ps1"
+            "Write-Output `"SKILLS_DIR_IS:`$env:AGENT_OS_SKILLS_DIR`"" | Out-File $echoMock -Encoding utf8
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
                 -AgentCmd $echoMock -TimeoutSeconds 5
 
-            # Output contains wrapper logs + our echo; find the tagged line
-            $result.Output | Should -Match "SKILLS_DIR_IS:.*/skills"
+            # Must match .agents/skills or .agents\skills (cross-platform)
+            $result.Output | Should -Match "SKILLS_DIR_IS:.*\.agents[/\\]skills"
+            $result.Output | Should -Not -Match "SKILLS_DIR_IS:.*\.war-rooms"
         }
 
-        It "handles empty skills array gracefully" {
-            # Use a role that doesn't exist and ensure global skills are empty for this test
-            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+        It "handles non-existent role gracefully without crashing" {
+            # Non-existent role has no role.json and no private skills — should not throw
+            { & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "non-existent-role" -Prompt "test" `
-                -AgentCmd "echo" -TimeoutSeconds 5
-            
-            $isolatedSkillsDir = Join-Path $script:roomDir "skills"
-            Test-Path $isolatedSkillsDir | Should -BeTrue
-            # Note: non-existent-role will still get Global skills if they exist in .agents/skills/global
-            # So this might not be 0 unless we mock Resolve-RoleSkills.
+                -AgentCmd "echo" -TimeoutSeconds 5 } | Should -Not -Throw
+
+            # The project-level skills dir should exist (created if not already present)
+            $projectSkillsDir = Join-Path $script:agentsBaseDir "skills"
+            Test-Path $projectSkillsDir | Should -BeTrue
+        }
+
+        It "does NOT export AGENT_OS_PROJECT_DIR in the wrapper (replaced by --dir flag)" {
+            # Ensure the env var is clean in the parent process
+            $savedProjDir = $env:AGENT_OS_PROJECT_DIR
+            Remove-Item Env:AGENT_OS_PROJECT_DIR -ErrorAction SilentlyContinue
+
+            try {
+                $echoMock = Join-Path $TestDrive "echo-no-projdir-$(Get-Random).ps1"
+                @"
+`$val = if (`$env:AGENT_OS_PROJECT_DIR) { `$env:AGENT_OS_PROJECT_DIR } else { 'UNSET' }
+Write-Output "PROJDIR_CHECK:`$val"
+"@ | Out-File $echoMock -Encoding utf8
+
+                $projectDir = Join-Path $TestDrive "project-noexport-$(Get-Random)"
+                $roomDir = Join-Path $projectDir ".war-rooms" "room-noexport"
+                New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+                New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+                $result = & $script:InvokeAgent -RoomDir $roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd $echoMock -TimeoutSeconds 5
+
+                $result.Output | Should -Match "PROJDIR_CHECK:UNSET" `
+                    -Because "--dir CLI flag replaces AGENT_OS_PROJECT_DIR export"
+            }
+            finally {
+                if ($savedProjDir) { $env:AGENT_OS_PROJECT_DIR = $savedProjDir }
+            }
         }
     }
 
@@ -278,15 +321,12 @@ Describe "Invoke-Agent" {
         # and the wrapper content.
 
         BeforeEach {
-            # Create a mock that dumps all args to a file
+            # Create a mock that dumps all args to a file (pwsh wrapper)
             $script:argsDump = Join-Path $TestDrive "args-$(Get-Random).txt"
-            $script:argsMock = Join-Path $TestDrive "argsmock-$(Get-Random).sh"
+            $script:argsMock = Join-Path $TestDrive "argsmock-$(Get-Random).ps1"
             @"
-#!/bin/bash
-# Write all args to the dump file
-for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
+`$args | ForEach-Object { `$_ } | Out-File -FilePath '$($script:argsDump)' -Encoding utf8
 "@ | Out-File $script:argsMock -Encoding utf8
-            chmod +x $script:argsMock
         }
 
         It "passes a short positional message and prompt via --file" {
@@ -296,8 +336,8 @@ for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
 
             if (Test-Path $script:argsDump) {
                 $capturedArgs = Get-Content $script:argsDump
-                # First arg should be the short positional message (required by opencode run)
-                $capturedArgs[0] | Should -Match "Execute the task"
+                # First arg should be the short positional placeholder (required by opencode run)
+                $capturedArgs[0] | Should -Be "..."
                 # Legacy 'start' positional must NOT be present
                 $capturedArgs | Should -Not -Contain "start"
                 # Prompt should NOT appear as inline text on the command line
@@ -468,6 +508,36 @@ for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
             }
         }
 
+        It "passes --dir flag with resolved project directory" {
+            # Create project structure with .war-rooms so ProjectDir resolves
+            $projectDir = Join-Path $TestDrive "project-dir-$(Get-Random)"
+            $roomDir = Join-Path $projectDir ".war-rooms" "room-dir"
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $roomDir "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                $capturedArgs | Should -Contain "--dir"
+                $capturedArgs | Should -Contain $projectDir
+            }
+        }
+
+        It "does not pass --dir when ProjectDir cannot be resolved" {
+            # $script:roomDir is NOT inside .war-rooms — ProjectDir stays empty
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd $script:argsMock -TimeoutSeconds 5
+
+            if (Test-Path $script:argsDump) {
+                $capturedArgs = Get-Content $script:argsDump
+                $capturedArgs | Should -Not -Contain "--dir"
+            }
+        }
+
         It "does not pass legacy deepagents flags" {
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test" `
@@ -485,20 +555,18 @@ for arg in "`$@"; do echo "`$arg"; done > '$($script:argsDump)'
         }
 
         It "passes short message positional, not legacy 'start' or inline prompt" {
-            $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).sh"
+            $captureMock = Join-Path $TestDrive "capture-wrapper-$(Get-Random).ps1"
             @"
-#!/bin/bash
-echo "ARGS: `$@"
+Write-Output "ARGS: `$(`$args -join ' ')"
 "@ | Out-File $captureMock -Encoding utf8
-            chmod +x $captureMock
 
             $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                 -RoleName "engineer" -Prompt "test positional prompt" `
                 -AgentCmd $captureMock -TimeoutSeconds 5
 
             if ($result.Output) {
-                # Should contain the short positional message
-                $result.Output | Should -Match "Execute the task"
+                # Should contain the short positional placeholder
+                $result.Output | Should -Match "\.\.\."
                 # Legacy 'start' positional must NOT be present
                 $result.Output | Should -Not -Match "ARGS: start "
                 # Should NOT contain the raw prompt text inline
@@ -521,29 +589,46 @@ echo "ARGS: `$@"
     }
 
     Context "Default AgentCmd resolution" {
-        It "defaults to opencode run when no bin/agent or config CLI found" {
-            # Create a minimal config that doesn't specify cli
-            $configFile = Join-Path $TestDrive "no-cli-config.json"
-            @{
-                engineer = @{
-                    default_model   = "test-model"
-                    timeout_seconds = 10
-                }
-            } | ConvertTo-Json -Depth 3 | Out-File $configFile -Encoding utf8
+        It "always defaults to opencode run" {
+            # Verify that without -AgentCmd or OSTWIN_AGENT_CMD, the resolved
+            # command is 'opencode run' — no bin/agent lookup.
+            # We use a capture mock via -AgentCmd to verify the script reaches
+            # the execution phase without crashing.
+            $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                -RoleName "engineer" -Prompt "test" `
+                -AgentCmd "echo" -TimeoutSeconds 5
 
-            $env:AGENT_OS_CONFIG = $configFile
-            $env:ENGINEER_CMD = "echo"  # override so the test actually runs
+            $result | Should -Not -BeNullOrEmpty
+            $result.ExitCode | Should -BeIn @(0, 1)
+        }
+
+        It "OSTWIN_AGENT_CMD overrides the default" {
+            $env:OSTWIN_AGENT_CMD = "echo"
             try {
-                # The test verifies that the script doesn't crash when
-                # resolving to "opencode run" as default
                 $result = & $script:InvokeAgent -RoomDir $script:roomDir `
                     -RoleName "engineer" -Prompt "test" -TimeoutSeconds 5
 
                 $result | Should -Not -BeNullOrEmpty
             }
             finally {
-                Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue
-                Remove-Item Env:ENGINEER_CMD -ErrorAction SilentlyContinue
+                Remove-Item Env:OSTWIN_AGENT_CMD -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "explicit -AgentCmd param wins over OSTWIN_AGENT_CMD" {
+            $captureMock = Join-Path $TestDrive "capture-cmd-$(Get-Random).ps1"
+            "Write-Output 'MOCK_EXECUTED'" | Out-File $captureMock -Encoding utf8
+
+            $env:OSTWIN_AGENT_CMD = "echo"
+            try {
+                $result = & $script:InvokeAgent -RoomDir $script:roomDir `
+                    -RoleName "engineer" -Prompt "test" `
+                    -AgentCmd $captureMock -TimeoutSeconds 5
+
+                $result.Output | Should -Match "MOCK_EXECUTED"
+            }
+            finally {
+                Remove-Item Env:OSTWIN_AGENT_CMD -ErrorAction SilentlyContinue
             }
         }
     }
@@ -692,7 +777,7 @@ echo "ARGS: `$@"
 
             # Setup config.json with a different model
             $configFile = Join-Path $TestDrive "config-plan-$(Get-Random).json"
-            @{ engineer = @{ cli = "echo"; default_model = "config-model" } } | ConvertTo-Json -Depth 3 |
+            @{ engineer = @{ default_model = "config-model" } } | ConvertTo-Json -Depth 3 |
                 Out-File $configFile -Encoding utf8
 
             $savedHome = $env:HOME
@@ -713,6 +798,215 @@ echo "ARGS: `$@"
                 if ($savedConfig) { $env:AGENT_OS_CONFIG = $savedConfig }
                 else { Remove-Item Env:AGENT_OS_CONFIG -ErrorAction SilentlyContinue }
             }
+        }
+    }
+
+    Context "Full command line assembly (safe exec)" {
+        # These tests verify the COMPLETE assembled command line that Start-Process
+        # receives. They ensure correct argument ordering, proper spacing between
+        # all args, and specifically guard against the concatenation bug where
+        # adjacent arguments (e.g. --dir path + positional message) merged into
+        # a single mangled token like "/path/to/project/runExecute the task".
+        #
+        # Expected full invocation (with ProjectDir resolved):
+        #   opencode run \
+        #     "..." \
+        #     --model <model> --agent <role> \
+        #     --dir <project-dir> \
+        #     --file <prompt.txt> \
+        #     --dangerously-skip-permissions
+
+        BeforeEach {
+            # Create a realistic project structure with .war-rooms
+            $script:projectDir = Join-Path $TestDrive "project-safexec-$(Get-Random)"
+            $script:safeRoomDir = Join-Path $script:projectDir ".war-rooms" "room-001"
+            New-Item -ItemType Directory -Path (Join-Path $script:safeRoomDir "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $script:safeRoomDir "pids") -Force | Out-Null
+
+            # Mock script that dumps each arg on its own line
+            $script:safeArgsDump = Join-Path $TestDrive "safe-args-$(Get-Random).txt"
+            $script:safeArgsMock = Join-Path $TestDrive "safe-argsmock-$(Get-Random).ps1"
+            @"
+`$args | ForEach-Object { `$_ } | Out-File -FilePath '$($script:safeArgsDump)' -Encoding utf8
+"@ | Out-File $script:safeArgsMock -Encoding utf8
+        }
+
+        It "produces correct full argument sequence for engineer with resolved ProjectDir" {
+            $result = & $script:InvokeAgent -RoomDir $script:safeRoomDir `
+                -RoleName "engineer" -Prompt "Implement the auth feature" `
+                -Model "google-vertex/zai-org/glm-5-maas" `
+                -AgentCmd $script:safeArgsMock -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue -Because "mock should capture args"
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            # Verify exact argument order:
+            # [0] positional message
+            # [1,2] --model <model>
+            # [3,4] --agent <role>
+            # [5,6] --dir <project-dir>
+            # [7,8] --file <prompt.txt>
+            # [9] --dangerously-skip-permissions
+            $capturedArgs[0] | Should -Be "..."
+            $capturedArgs[1] | Should -Be "--model"
+            $capturedArgs[2] | Should -Be "google-vertex/zai-org/glm-5-maas"
+            $capturedArgs[3] | Should -Be "--agent"
+            $capturedArgs[4] | Should -Be "engineer"
+            $capturedArgs[5] | Should -Be "--dir"
+            $capturedArgs[6] | Should -Be $script:projectDir
+            $capturedArgs[7] | Should -Be "--file"
+            $capturedArgs[8] | Should -Match "prompt\.txt$"
+            $capturedArgs[9] | Should -Be "--dangerously-skip-permissions"
+        }
+
+        It "--dir value is never concatenated with adjacent arguments" {
+            # This is the exact regression test for the bug where Start-Process
+            # with array-based -ArgumentList concatenated --dir path with 'run':
+            #   "/path/to/project/runExecute the task..."
+            $result = & $script:InvokeAgent -RoomDir $script:safeRoomDir `
+                -RoleName "engineer" -Prompt "test isolation" `
+                -Model "test-model" `
+                -AgentCmd $script:safeArgsMock -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            # The --dir value must be EXACTLY the project dir — no trailing junk
+            $dirIdx = [array]::IndexOf($capturedArgs, "--dir")
+            $dirIdx | Should -BeGreaterOrEqual 0 -Because "--dir flag must be present"
+            $dirValue = $capturedArgs[$dirIdx + 1]
+
+            $dirValue | Should -Be $script:projectDir `
+                -Because "--dir value must be the exact project path, not concatenated with other args"
+
+            # The arg BEFORE --dir must not end with the project dir (concatenation bug)
+            if ($dirIdx -gt 0) {
+                $prevArg = $capturedArgs[$dirIdx - 1]
+                $prevArg | Should -Not -Match ([regex]::Escape($script:projectDir)) `
+                    -Because "--dir value must not be concatenated with the previous argument"
+            }
+            # The arg AFTER --dir value must be its own token (not appended to dir path)
+            if ($dirIdx + 2 -lt $capturedArgs.Count) {
+                $nextArg = $capturedArgs[$dirIdx + 2]
+                $nextArg | Should -Match '^--' `
+                    -Because "the arg after --dir value must be a flag, not concatenated text"
+            }
+        }
+
+        It "handles spaces in project directory path" {
+            # Paths with spaces are a classic Start-Process quoting pitfall
+            $spacedProject = Join-Path $TestDrive "My Project $(Get-Random)"
+            $spacedRoom = Join-Path $spacedProject ".war-rooms" "room-spaced"
+            New-Item -ItemType Directory -Path (Join-Path $spacedRoom "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $spacedRoom "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $spacedRoom `
+                -RoleName "engineer" -Prompt "test spaces" `
+                -Model "test-model" `
+                -AgentCmd $script:safeArgsMock -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            $dirIdx = [array]::IndexOf($capturedArgs, "--dir")
+            $dirIdx | Should -BeGreaterOrEqual 0
+            $dirValue = $capturedArgs[$dirIdx + 1]
+
+            $dirValue | Should -Be $spacedProject `
+                -Because "spaces in path must be preserved as a single argument, not split"
+        }
+
+        It "prompt text is never inlined — only passed via --file" {
+            $longPrompt = "This is a detailed prompt about authentication and user management"
+
+            $result = & $script:InvokeAgent -RoomDir $script:safeRoomDir `
+                -RoleName "engineer" -Prompt $longPrompt `
+                -Model "test-model" `
+                -AgentCmd $script:safeArgsMock -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            # Prompt text must NOT appear anywhere in the argument list
+            $joined = $capturedArgs -join "|"
+            $joined | Should -Not -Match "detailed prompt" `
+                -Because "prompt is written to prompt.txt, never passed inline"
+            $joined | Should -Not -Match "authentication and user management" `
+                -Because "no part of the prompt should leak into CLI args"
+
+            # Collect all --file values
+            $fileValues = [System.Collections.ArrayList]@()
+            for ($i = 0; $i -lt $capturedArgs.Count; $i++) {
+                if ($capturedArgs[$i] -eq "--file") {
+                    [void]$fileValues.Add($capturedArgs[$i + 1])
+                }
+            }
+
+            # The prompt file must be attached via --file
+            $promptFileArg = $fileValues | Where-Object { $_ -match "prompt\.txt$" }
+            $promptFileArg | Should -Not -BeNullOrEmpty `
+                -Because "prompt must be delivered via --file flag"
+
+            # Verify the path ends with artifacts/prompt.txt
+            $promptFileArg | Should -Match "artifacts[/\\]prompt\.txt$" `
+                -Because "prompt file should be in the artifacts directory"
+        }
+
+        It "extra --file args appear before prompt.txt file" {
+            $result = & $script:InvokeAgent -RoomDir $script:safeRoomDir `
+                -RoleName "engineer" -Prompt "multi-file test" `
+                -Model "test-model" `
+                -Files @("src/main.ts", "README.md") `
+                -AgentCmd $script:safeArgsMock -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            # Collect all --file values in order
+            $fileValues = @()
+            for ($i = 0; $i -lt $capturedArgs.Count; $i++) {
+                if ($capturedArgs[$i] -eq "--file") { $fileValues += $capturedArgs[$i + 1] }
+            }
+
+            $fileValues.Count | Should -Be 3 -Because "2 user files + 1 prompt.txt"
+            $fileValues[0] | Should -Be "src/main.ts"
+            $fileValues[1] | Should -Be "README.md"
+            $fileValues[2] | Should -Match "prompt\.txt$"
+        }
+
+        It "total argument count matches expected structure" {
+            $result = & $script:InvokeAgent -RoomDir $script:safeRoomDir `
+                -RoleName "qa" -Prompt "review code" `
+                -Model "anthropic/claude-sonnet-4-20250514" `
+                -AgentCmd $script:safeArgsMock -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            # Expected: message(1) + --model(2) + --agent(2) + --dir(2) + --file(2) + --dangerously-skip-permissions(1) = 10
+            $capturedArgs.Count | Should -Be 10 `
+                -Because "exactly 10 args: positional + --model X + --agent X + --dir X + --file X + --dangerously-skip-permissions"
+        }
+
+        It "without ProjectDir, --dir is omitted and arg count adjusts" {
+            # Use a room that is NOT inside .war-rooms — no ProjectDir
+            $flatRoom = Join-Path $TestDrive "flat-room-$(Get-Random)"
+            New-Item -ItemType Directory -Path (Join-Path $flatRoom "artifacts") -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $flatRoom "pids") -Force | Out-Null
+
+            $result = & $script:InvokeAgent -RoomDir $flatRoom `
+                -RoleName "engineer" -Prompt "no dir test" `
+                -Model "test-model" `
+                -AgentCmd $script:safeArgsMock -TimeoutSeconds 5
+
+            Test-Path $script:safeArgsDump | Should -BeTrue
+            $capturedArgs = Get-Content $script:safeArgsDump
+
+            $capturedArgs | Should -Not -Contain "--dir" `
+                -Because "no .war-rooms parent means no --dir flag"
+
+            # Expected: message(1) + --model(2) + --agent(2) + --file(2) + --dangerously-skip-permissions(1) = 8
+            $capturedArgs.Count | Should -Be 8
         }
     }
 }

@@ -1,0 +1,43 @@
+
+> fe@0.1.0 test
+> vitest run --reporter=list
+
+
+⎯⎯⎯⎯⎯⎯⎯ Startup Error ⎯⎯⎯⎯⎯⎯⎯⎯
+Error: Failed to load custom Reporter from list
+    at loadCustomReporterModule (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:11338:9)
+    at file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:11354:23
+    ... 3 lines matching cause stack trace ...
+    at _createServer (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/chunks/node.js:26145:84)
+    at createViteServer (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:8819:17)
+    at createVitest (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:14159:18)
+    at prepareVitest (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:14526:14)
+    at startVitest (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:14469:14) {
+  [cause]: Error: Failed to load url list (resolved id: list). Does the file exist?
+      at reviveInvokeError (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:538:14)
+      at Object.invoke (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:554:33)
+      at ServerModuleRunner.getModuleInformation (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:1183:7)
+      at ServerModuleRunner.import (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:1099:23)
+      at loadCustomReporterModule (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:11336:26)
+      at file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:11354:23
+      at async Promise.all (index 0)
+      at Vitest._setServer (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:13153:138)
+      at BasicMinimalPluginContext.handler (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:14125:5)
+      at _createServer (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/chunks/node.js:26145:84) {
+    code: 'ERR_LOAD_URL',
+    runnerError: Error: RunnerError
+        at reviveInvokeError (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:539:64)
+        at Object.invoke (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:554:33)
+        at ServerModuleRunner.getModuleInformation (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:1183:7)
+        at ServerModuleRunner.import (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/module-runner.js:1099:23)
+        at loadCustomReporterModule (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:11336:26)
+        at file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:11354:23
+        at async Promise.all (index 0)
+        at Vitest._setServer (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:13153:138)
+        at BasicMinimalPluginContext.handler (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:14125:5)
+        at _createServer (file:///Users/paulaan/PycharmProjects/agent-os/dashboard/fe/node_modules/.pnpm/vite@8.0.2_@types+node@20.19.37_jiti@2.6.1/node_modules/vite/dist/node/chunks/node.js:26145:84)
+  }
+}
+
+
+

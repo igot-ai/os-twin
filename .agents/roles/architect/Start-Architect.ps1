@@ -208,20 +208,25 @@ $result = & $invokeAgent -RoomDir $RoomDir -RoleName "architect" `
 $rawOutput = $result.Output
 
 # --- Strip tool-calling noise from agent output ---
-$cleanLines = ($rawOutput -split "`n") | Where-Object {
+$cleanLines = ($rawOutput -split "`r?\n") | Where-Object {
     $line = $_.Trim()
-    if (-not $line -or $line.Length -lt 4) { return $false }
-    -not ($line -match '^🔧' -or
-          $line -match '[Cc]alling tool:' -or
-          $line -match '^\w{0,5}\s*tool:' -or
-          $line -match '^Loading MCP' -or
-          $line -match '^Running task non-interactively' -or
-          $line -match '^Agent active' -or
-          $line -match '^Usage Stats' -or
-          $line -match '^\s*Reqs\s+InputTok' -or
-          $line -match '^\s*google-vertex/gemini-' -or
-          $line -match '^✓ Task completed' -or
-          $line -match '^System\.Management\.Automation')
+    # Preserve empty lines for formatting
+    if (-not $line) { return $true }
+
+    # Strip specific noise patterns
+    $isNoise = ($line -match '^🔧' -or
+                $line -match '[Cc]alling tool:' -or
+                $line -match '^\w{0,5}\s*tool:' -or
+                $line -match '^Loading MCP' -or
+                $line -match '^Running task non-interactively' -or
+                $line -match '^Agent active' -or
+                $line -match '^Usage Stats' -or
+                $line -match '^\s*Reqs\s+InputTok' -or
+                $line -match '^\s*google-vertex/gemini-' -or
+                $line -match '^✓ Task completed' -or
+                $line -match '^System\.Management\.Automation')
+    
+    return (-not $isNoise)
 }
 $output = ($cleanLines -join "`n").Trim()
 if (-not $output) {
