@@ -114,6 +114,9 @@ class OllamaController(BaseLLMController):
     def __init__(self, model: str = "llama2"):
         from ollama import chat
 
+        if "/" in model and not model.startswith("hf.co/"):
+            model = f"hf.co/{model}"
+            
         self.model = model
 
     def get_completion(
@@ -135,7 +138,15 @@ class OllamaController(BaseLLMController):
                 kwargs["response_format"] = response_format
             response = completion(**kwargs)
             return response.choices[0].message.content
-        except Exception:
+        except Exception as e:
+            # Bubbling up specific errors instead of silent failure
+            error_str = str(e).lower()
+            if "connection" in error_str or "refused" in error_str:
+                raise RuntimeError("Ollama server is unreachable. Please ensure 'ollama serve' is running.") from e
+            elif "not found" in error_str:
+                raise RuntimeError(f"Model 'ollama_chat/{self.model}' not found. Please pull it using 'ollama pull hf.co/{self.model}'.") from e
+            
+            # If it's another kind of error, fallback to returning empty response (legacy behavior)
             empty_response = self._generate_empty_response(response_format or {})
             return json.dumps(empty_response)
 

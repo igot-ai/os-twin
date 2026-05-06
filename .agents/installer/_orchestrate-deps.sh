@@ -115,6 +115,19 @@ else
   install_opencode
 fi
 
+# --- Ollama ---
+if check_ollama; then
+  OLLAMA_VER=$(ollama --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+  ok "Ollama $OLLAMA_VER"
+else
+  warn "Ollama not found (local LLM host — optional, needed for local models)"
+  if ask "Install Ollama? (recommended for running local LLMs)"; then
+    install_ollama
+  else
+    info "Skipping Ollama — install later from https://ollama.com"
+  fi
+fi
+
 # --- Node.js ---
 if check_node; then
   NODE_VERSION=$(node --version 2>&1 | head -1)
