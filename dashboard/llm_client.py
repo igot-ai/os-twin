@@ -306,7 +306,7 @@ class GoogleClient(LLMClient):
         api_key: str | None = None,
         base_url: str | None = None,
         config: LLMConfig | None = None,
-        vertexai: bool = False,
+        **kwargs: dict,
     ):
         super().__init__(model, config)
         import os as _os
@@ -316,14 +316,16 @@ class GoogleClient(LLMClient):
         # Support model strings like "models/gemini-3.1-pro-preview" or plain "gemini-3.1-pro-preview".
         # The genai SDK expects only the bare model ID (last segment after "/").
         self.model_id = model.split("/")[-1]
-
-        if vertexai:
+        _vertex = False
+        if 'vertex' in self.model_id:
+            _vertex = True
+        if _vertex:
             project = _os.environ.get("GOOGLE_CLOUD_PROJECT")
             location = _os.environ.get("VERTEX_LOCATION")
             self._client = Client(vertexai=True, project=project, location=location)
         else:
             self._client = Client(api_key=api_key)
-            
+
         self.base_url = base_url or self._GEMINI_OPENAI_BASE
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list:
