@@ -324,6 +324,21 @@ class TestRefMap:
         refs = [e["ref"] for e in elements]
         assert any(r.startswith("@e") for r in refs)
 
+    def test_build_elements_escapes_selector_names(self):
+        module = _load_obscura_server()
+        module._reset_ref_map()
+
+        tree = {
+            "role": "button",
+            "name": 'Save "Draft"',
+            "children": []
+        }
+
+        elements = []
+        module._build_elements_from_accessibility_tree(tree, elements)
+
+        assert elements[0]["selector"] == 'button:has-text("Save \\"Draft\\"")'
+
 
 class TestMCPTools:
     """Tests for MCP tool functions (no browser required)."""

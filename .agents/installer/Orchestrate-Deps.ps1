@@ -173,18 +173,5 @@ function Invoke-DependencyOrchestration {
                 Write-Warn "Skipping Node.js — dashboard UI will not be built"
             }
         }
-
-        # Obscura (headless browser for MCP)
-        $obscuraPath = Check-Obscura
-        if ($obscuraPath) {
-            $ver = Get-ObscuraVersionSafe -Path $obscuraPath
-            Write-Ok "obscura $ver ($obscuraPath)"
-        }
-        elseif ($script:SkipOptional) {
-            Write-Warn "obscura not found (skipped — SkipOptional)"
-        }
-        else {
-            Install-Obscura
-        }
     }
 }

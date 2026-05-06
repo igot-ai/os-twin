@@ -13,42 +13,13 @@ Environment:
     AGENT_OS_ROOT  Root of the agent-os repo (default: ".")
 """
 
+import fcntl
 import json
 import os
 import time
 import pathlib
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
-
-# Cross-platform file locking
-try:
-    import fcntl
-    _HAS_FCNTL = True
-except ImportError:
-    _HAS_FCNTL = False
-    try:
-        import msvcrt
-        _HAS_MSVCRT = True
-    except ImportError:
-        _HAS_MSVCRT = False
-
-
-def _lock_file(f):
-    """Acquire exclusive lock on file handle (cross-platform)."""
-    if _HAS_FCNTL:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-    elif _HAS_MSVCRT:
-        f.seek(0)
-        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
-
-
-def _unlock_file(f):
-    """Release file lock (cross-platform)."""
-    if _HAS_FCNTL:
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    elif _HAS_MSVCRT:
-        f.seek(0)
-        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
 
 # Monkey patch pathlib to bypass macOS SIP PermissionError on .env files
 original_is_file = pathlib.Path.is_file
@@ -132,11 +103,11 @@ def post_message(
     }
 
     with open(channel_file, "a") as f:
-        _lock_file(f)
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
             f.write(json.dumps(msg) + "\n")
         finally:
-            _unlock_file(f)
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     return f"posted:{msg_id}"
 

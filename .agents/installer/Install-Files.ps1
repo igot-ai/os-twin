@@ -64,15 +64,6 @@ function Install-Files {
             }
     }
 
-    # ─── Windows: Copy bin/ostwin → bin/ostwin.ps1 ──────────────────────────────
-    # The main CLI script is bin/ostwin (no extension, works on Unix).
-    # On Windows, ostwin.cmd calls ostwin.ps1, so we need to copy ostwin → ostwin.ps1.
-    $srcOstwin = Join-Path $agentsDir "bin" "ostwin"
-    $dstOstwinPs1 = Join-Path $agentsDir "bin" "ostwin.ps1"
-    if (Test-Path $srcOstwin) {
-        Copy-Item -Path $srcOstwin -Destination $dstOstwinPs1 -Force
-    }
-
     # Seed plans/ on first install — never overwrite
     $plansDir = Join-Path $agentsDir "plans"
     if (-not (Test-Path $plansDir)) {

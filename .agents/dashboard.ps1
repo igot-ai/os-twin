@@ -138,10 +138,6 @@ if ((Test-Path $feDir) -and (Test-Path (Join-Path $feDir "package.json"))) {
 
 $PidFile = Join-Path $AgentsDir "dashboard.pid"
 
-# Set UTF-8 environment for Python on Windows (prevents encoding errors with non-ASCII paths)
-$env:PYTHONUTF8 = "1"
-$env:PYTHONIOENCODING = "utf-8"
-
 if ($Background) {
     $dashLogDir = Join-Path $HomeDir ".ostwin" "dashboard"
     if (-not (Test-Path $dashLogDir)) { New-Item -ItemType Directory -Path $dashLogDir -Force | Out-Null }

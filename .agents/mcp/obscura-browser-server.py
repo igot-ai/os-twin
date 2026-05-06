@@ -20,16 +20,7 @@ import os
 import re
 import shutil
 import subprocess
-import pathlib
 from typing import Annotated, Any, Dict, List, Optional
-
-original_is_file = pathlib.Path.is_file
-def safe_is_file(self):
-    try:
-        return original_is_file(self)
-    except PermissionError:
-        return False
-pathlib.Path.is_file = safe_is_file
 
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
@@ -153,6 +144,11 @@ def _resolve_ref(ref_or_selector: str) -> str:
     return ref_or_selector
 
 
+def _quote_selector_value(value: str) -> str:
+    """Quote a selector text or attribute value for Playwright selectors."""
+    return json.dumps(value)
+
+
 def _build_elements_from_accessibility_tree(node: Any, elements: List[Dict], selector_prefix: str = "") -> None:
     """Flatten accessibility tree into element list with refs and selectors."""
     if not isinstance(node, dict):
@@ -163,13 +159,14 @@ def _build_elements_from_accessibility_tree(node: Any, elements: List[Dict], sel
 
     if role and name:
         ref = _build_ref()
-        selector = f'[aria-label="{name}"]' if name else f'[role="{role}"]'
+        quoted_name = _quote_selector_value(name)
+        selector = f'[aria-label={quoted_name}]' if name else f'[role="{role}"]'
         if role == "button":
-            selector = f'button:has-text("{name}")' if name else "button"
+            selector = f"button:has-text({quoted_name})" if name else "button"
         elif role == "link":
-            selector = f'a:has-text("{name}")' if name else "a"
+            selector = f"a:has-text({quoted_name})" if name else "a"
         elif role == "textbox":
-            selector = f'input[aria-label="{name}"]' if name else "input[type=text], textarea"
+            selector = f"input[aria-label={quoted_name}]" if name else "input[type=text], textarea"
         elif role == "heading":
             selector = f'h1, h2, h3, h4, h5, h6'
 

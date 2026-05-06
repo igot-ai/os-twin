@@ -102,10 +102,6 @@ function Start-Dashboard {
     # Set project dir env var so api_utils.py picks it up
     [System.Environment]::SetEnvironmentVariable("OSTWIN_PROJECT_DIR", $script:InstallDir, "Process")
 
-    # Set UTF-8 environment for Python on Windows (prevents encoding errors with non-ASCII paths)
-    [System.Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "Process")
-    [System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
-
     # Start dashboard via .cmd wrapper so the child process owns its own log pipes.
     # This avoids the lifetime issue where redirected streams are tied to the installer process.
     # Use UTF-8 without BOM to handle paths with non-ASCII characters.

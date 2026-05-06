@@ -93,29 +93,3 @@ Describe "Check-OpenCode" {
     }
 }
 
-Describe "Check-Obscura" {
-    It "Should define the function" {
-        Get-Command Check-Obscura | Should -Not -BeNullOrEmpty
-    }
-
-    It "Should return a string (path or empty)" {
-        $result = Check-Obscura
-        $result | Should -BeOfType [string]
-    }
-
-    It "Should detect obscura.exe in .agents\bin" {
-        $testDir = Join-Path $TestDrive "test-obscura-$(Get-Random)"
-        $binDir = Join-Path $testDir ".agents\bin"
-        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
-
-        # Create fake obscura.exe (empty file)
-        $fakeObscura = Join-Path $binDir "obscura.exe"
-        [System.IO.File]::WriteAllText($fakeObscura, "fake")
-
-        $script:InstallDir = $testDir
-        $result = Check-Obscura
-
-        $result | Should -Be $fakeObscura
-    }
-}
-

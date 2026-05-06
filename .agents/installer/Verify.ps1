@@ -90,16 +90,6 @@ function Verify-Components {
             Write-Host "    node:             ⚠️  not installed" -ForegroundColor Yellow
         }
 
-        # Obscura
-        $obscuraPath = Check-Obscura
-        if ($obscuraPath) {
-            $ver = Get-ObscuraVersionSafe -Path $obscuraPath
-            Write-Host "    obscura:          ✅ $ver ($obscuraPath)" -ForegroundColor Green
-        }
-        else {
-            Write-Host "    obscura:          ⚠️  not installed" -ForegroundColor Yellow
-        }
-
         # venv
         if (Test-Path $script:VenvDir) {
             Write-Host "    venv:             ✅ $($script:VenvDir)" -ForegroundColor Green
