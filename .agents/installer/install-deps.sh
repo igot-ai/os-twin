@@ -312,10 +312,10 @@ install_obscura() {
     return 0
   fi
 
-  local binary
-  binary=$(find "$tmp_dir" -type f -name obscura -perm -u+x 2>/dev/null | head -1)
+  local binary release_dir
+  binary=$(find "$tmp_dir" -type f -name obscura 2>/dev/null | head -1)
   if [[ -z "$binary" ]]; then
-    binary=$(find "$tmp_dir" -type f -name obscura 2>/dev/null | head -1)
+    binary=$(find "$tmp_dir" -type f -name obscura.exe 2>/dev/null | head -1)
   fi
   if [[ -z "$binary" ]]; then
     warn "Obscura binary not found in release archive"
@@ -323,8 +323,10 @@ install_obscura() {
     return 0
   fi
 
-  cp "$binary" "$bin_dir/obscura"
-  chmod +x "$bin_dir/obscura"
+  release_dir="$(dirname "$binary")"
+  find "$release_dir" -maxdepth 1 -type f \( -name 'obscura' -o -name 'obscura-worker' -o -name 'obscura.exe' -o -name 'obscura-worker.exe' \) \
+    -exec cp {} "$bin_dir/" \;
+  chmod +x "$bin_dir"/obscura* 2>/dev/null || true
   rm -rf "$tmp_dir"
   export PATH="$bin_dir:$PATH"
   ok "obscura installed to $bin_dir/obscura"

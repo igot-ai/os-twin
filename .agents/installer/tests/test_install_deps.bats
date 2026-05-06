@@ -49,6 +49,12 @@ setup() {
   [[ "$body" != *"--stealth"* ]]
 }
 
+@test "install_obscura preserves obscura-worker companion binary" {
+  local body
+  body=$(declare -f install_obscura)
+  [[ "$body" == *"obscura-worker"* ]]
+}
+
 @test "install_pester function is defined" {
   declare -f install_pester > /dev/null
 }

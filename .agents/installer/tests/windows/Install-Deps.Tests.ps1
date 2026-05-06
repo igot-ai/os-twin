@@ -100,4 +100,9 @@ Describe "Install-Obscura" {
         $content = Get-Content (Join-Path $script:InstallerModDir "Install-Deps.ps1") -Raw
         $content | Should -Not -Match '\$env:OBSCURA_ARGS'
     }
+
+    It "Should preserve obscura-worker when copying release binaries" {
+        $content = Get-Content (Join-Path $script:InstallerModDir "Install-Deps.ps1") -Raw
+        $content | Should -Match 'obscura-worker'
+    }
 }

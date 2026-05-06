@@ -376,14 +376,24 @@ function Install-Obscura {
             throw "Unsupported Obscura archive: $archive"
         }
 
-        $binary = Get-ChildItem -Path $tmpDir -Recurse -File |
+        $releaseBinaries = Get-ChildItem -Path $tmpDir -Recurse -File |
+            Where-Object {
+                $_.Name -ieq "obscura.exe" -or
+                $_.Name -ieq "obscura" -or
+                $_.Name -ieq "obscura-worker.exe" -or
+                $_.Name -ieq "obscura-worker"
+            }
+        $binary = $releaseBinaries |
             Where-Object { $_.Name -ieq "obscura.exe" -or $_.Name -ieq "obscura" } |
             Select-Object -First 1
         if (-not $binary) {
             throw "Obscura binary not found in release archive"
         }
 
-        Copy-Item -Path $binary.FullName -Destination $target -Force
+        foreach ($releaseBinary in $releaseBinaries) {
+            $destName = if ($releaseBinary.Name -ieq "obscura") { "obscura.exe" } else { $releaseBinary.Name }
+            Copy-Item -Path $releaseBinary.FullName -Destination (Join-Path $binDir $destName) -Force
+        }
         if ($env:PATH -notlike "*$binDir*") {
             $env:PATH = "$binDir;$env:PATH"
         }
