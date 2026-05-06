@@ -21,7 +21,7 @@ mutating: true
 ## Contract
 
 - Deterministic browser automation using refs like `@e1`, `@e2` from snapshots (not coordinates)
-- All artifacts saved inside project under `artifacts/browser-downloads/`
+- All screenshots, PDFs, and downloads saved inside project under `artifacts/browser-downloads/`
 - Exact artifact paths reported to user
 - Graceful fallback to Playwright MCP or obscura-browser MCP if CLI unavailable
 - No stealth or anti-bot bypass logic enabled by default
@@ -66,8 +66,10 @@ agent-browser --version
 ### 1. Navigate and Inspect
 
 ```bash
-# Create artifacts directory
-mkdir -p artifacts/browser-downloads
+# Create artifact/download directory before launching browser
+DOWNLOAD_DIR="$PWD/artifacts/browser-downloads"
+mkdir -p "$DOWNLOAD_DIR"
+export AGENT_BROWSER_DOWNLOAD_PATH="$DOWNLOAD_DIR"
 
 # Open URL
 agent-browser open "https://example.com"
@@ -115,6 +117,11 @@ agent-browser pdf artifacts/browser-downloads/page.pdf
 For download links, use marker-based verification to avoid moving old files:
 
 ```bash
+# Route browser downloads directly into the project artifact directory
+DOWNLOAD_DIR="$PWD/artifacts/browser-downloads"
+mkdir -p "$DOWNLOAD_DIR"
+export AGENT_BROWSER_DOWNLOAD_PATH="$DOWNLOAD_DIR"
+
 # Create marker timestamp BEFORE clicking download
 MARKER=$(date +%s)
 
@@ -125,9 +132,9 @@ agent-browser click @e3
 agent-browser wait --load networkidle
 sleep 2
 
-# Find PDFs newer than marker (Linux/macOS)
+# Find project-local PDFs newer than marker (Linux/macOS)
 DOWNLOADED=""
-for f in "$HOME/Downloads"/*.pdf; do
+for f in "$DOWNLOAD_DIR"/*.pdf; do
     if [ -f "$f" ] && [ -s "$f" ]; then
         # Get file mtime as seconds since epoch
         if [ "$(uname)" = "Darwin" ]; then
@@ -146,7 +153,6 @@ done
 
 if [ -n "$DOWNLOADED" ] && [ -s "$DOWNLOADED" ]; then
     FILENAME=$(basename "$DOWNLOADED")
-    mv "$DOWNLOADED" "artifacts/browser-downloads/$FILENAME"
     echo "Downloaded: artifacts/browser-downloads/$FILENAME"
 else
     echo "ERROR: No new PDF downloaded after marker"
@@ -157,7 +163,7 @@ fi
 - Create marker timestamp before clicking download
 - Only accept files newer than marker
 - Verify file exists and has non-zero size
-- Move exactly one newest matching file
+- Select exactly one newest matching file
 - Report exact relative path
 - Report explicit failure if no new file appears
 
@@ -171,7 +177,9 @@ agent-browser close
 
 ```bash
 # Setup
-mkdir -p artifacts/browser-downloads
+DOWNLOAD_DIR="$PWD/artifacts/browser-downloads"
+mkdir -p "$DOWNLOAD_DIR"
+export AGENT_BROWSER_DOWNLOAD_PATH="$DOWNLOAD_DIR"
 
 # Navigate to law library
 agent-browser open "https://thuvienphapluat.vn"
@@ -195,7 +203,7 @@ agent-browser click @e4
 sleep 3
 
 DOWNLOADED=""
-for f in "$HOME/Downloads"/*.pdf; do
+for f in "$DOWNLOAD_DIR"/*.pdf; do
     if [ -f "$f" ] && [ -s "$f" ]; then
         if [ "$(uname)" = "Darwin" ]; then
             MTIME=$(stat -f %m "$f")
@@ -213,7 +221,6 @@ done
 
 if [ -n "$DOWNLOADED" ]; then
     FILENAME=$(basename "$DOWNLOADED")
-    mv "$DOWNLOADED" "artifacts/browser-downloads/$FILENAME"
     echo "Downloaded: artifacts/browser-downloads/$FILENAME"
 else
     echo "ERROR: No new PDF downloaded"
@@ -248,23 +255,25 @@ Use the currently available Playwright MCP browser tools for navigation, snapsho
 ### Windows (PowerShell)
 
 ```powershell
-# Create directory
-New-Item -ItemType Directory -Path "artifacts/browser-downloads" -Force
+# Route browser downloads directly into the project artifact directory
+$downloadDir = Join-Path (Get-Location) "artifacts\browser-downloads"
+New-Item -ItemType Directory -Path $downloadDir -Force
+$env:AGENT_BROWSER_DOWNLOAD_PATH = $downloadDir
 
 # Create marker BEFORE clicking download
 $marker = Get-Date
 
 # ... click download link ...
 
-# Find PDFs newer than marker with non-zero size
-$downloaded = Get-ChildItem "$env:USERPROFILE\Downloads\*.pdf" -File -ErrorAction SilentlyContinue |
+# Find project-local PDFs newer than marker with non-zero size
+$downloaded = Get-ChildItem (Join-Path $downloadDir "*.pdf") -File -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -gt $marker -and $_.Length -gt 0 } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 
 if ($downloaded) {
-    Move-Item $downloaded.FullName "artifacts/browser-downloads\"
-    Write-Host "Downloaded: artifacts/browser-downloads\$($downloaded.Name)"
+    $relative = Join-Path "artifacts\browser-downloads" $downloaded.Name
+    Write-Host "Downloaded: $relative"
 }
 else {
     Write-Host "ERROR: No new PDF downloaded after marker"
@@ -274,8 +283,10 @@ else {
 ### Linux / macOS (Bash)
 
 ```bash
-# Create directory
-mkdir -p artifacts/browser-downloads
+# Route browser downloads directly into the project artifact directory
+DOWNLOAD_DIR="$PWD/artifacts/browser-downloads"
+mkdir -p "$DOWNLOAD_DIR"
+export AGENT_BROWSER_DOWNLOAD_PATH="$DOWNLOAD_DIR"
 
 # Create marker BEFORE clicking download
 MARKER=$(date +%s)
@@ -284,7 +295,7 @@ MARKER=$(date +%s)
 
 # Find PDFs newer than marker with non-zero size
 DOWNLOADED=""
-for f in "$HOME/Downloads"/*.pdf; do
+for f in "$DOWNLOAD_DIR"/*.pdf; do
     if [ -f "$f" ] && [ -s "$f" ]; then
         if [ "$(uname)" = "Darwin" ]; then
             MTIME=$(stat -f %m "$f")
@@ -302,7 +313,6 @@ done
 
 if [ -n "$DOWNLOADED" ]; then
     FILENAME=$(basename "$DOWNLOADED")
-    mv "$DOWNLOADED" "artifacts/browser-downloads/$FILENAME"
     echo "Downloaded: artifacts/browser-downloads/$FILENAME"
 else
     echo "ERROR: No new PDF downloaded after marker"
