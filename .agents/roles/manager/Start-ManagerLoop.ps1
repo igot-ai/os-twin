@@ -608,6 +608,9 @@ while (-not $script:shuttingDown) {
                                             Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
                                         } else {
                                             $crashCount.ToString() | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+                                            # Kill any lingering processes from the crashed agent before respawning
+                                            # (prevents orphan process pile-up that can exhaust system RAM)
+                                            Stop-RoomProcesses $roomDir
                                             Write-Log "DEBUG" "[$taskRef] No pending signal, no PID, no lock — will re-spawn '$stateRole' (crash $crashCount/$maxCrashRespawns)."
                                             $respawnTimeout = Resolve-RoleTimeout -RoleName $stateBaseRole -RoomDir $roomDir
                                             if (Test-Path $resolveRoleScript) {
@@ -821,6 +824,16 @@ while (-not $script:shuttingDown) {
         try { $failedOutput = Receive-Job $_ -ErrorAction SilentlyContinue 2>&1 } catch { }
         Write-Log "ERROR" "Worker job '$($_.Name)' failed: $failedOutput"
         Remove-Job $_ -Force -ErrorAction SilentlyContinue
+    }
+    # Detect and kill zombie jobs: Running state but child process is dead.
+    # These leak ~50MB per runspace and accumulate during long plans with retries.
+    $maxJobAge = $stateTimeout * 2
+    Get-Job -Name "ostwin-worker-*" -ErrorAction SilentlyContinue | Where-Object {
+        $_.State -eq 'Running' -and $_.PSBeginTime -and
+        ((Get-Date) - $_.PSBeginTime).TotalSeconds -gt $maxJobAge
+    } | ForEach-Object {
+        Write-Log "WARN" "Killing zombie job: $($_.Name) (running for $([int]((Get-Date) - $_.PSBeginTime).TotalSeconds)s, exceeds ${maxJobAge}s limit)"
+        Stop-Job $_ -PassThru -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
     }
 
     Start-Sleep -Seconds $pollInterval

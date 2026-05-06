@@ -20,10 +20,12 @@ import threading
 logger = logging.getLogger(__name__)
 
 # --- Lazy imports ---------------------------------------------------------
-# Populated on first use via _ensure_retriever_imports().  Individual classes
-# also lazy-import within _ensure_model() for extra safety.
+# Per-backend lazy loading to avoid importing all ML libraries when only
+# one backend is used.  Previously _ensure_retriever_imports() pulled in
+# PyTorch (~800MB) even when the configured backend was Ollama.
 
 _retriever_imports_done = False
+_tokenizer_imports_done = False
 _import_lock = threading.Lock()
 
 # Sentinel — the *module-level* names stay None until lazy-loaded.
@@ -35,32 +37,58 @@ np = None
 litellm = None
 
 
-def _ensure_retriever_imports():
-    """Import heavy ML libraries on first use (lazy pattern — F11)."""
-    global _retriever_imports_done, SentenceTransformer, BM25Okapi
-    global word_tokenize, cosine_similarity, np, litellm
+def _ensure_tokenizer_imports():
+    """Import lightweight tokenizer + numpy (no PyTorch / ML models)."""
+    global _tokenizer_imports_done, BM25Okapi, word_tokenize, cosine_similarity, np
+
+    if _tokenizer_imports_done:
+        return
+
+    with _import_lock:
+        if _tokenizer_imports_done:
+            return
+
+        from rank_bm25 import BM25Okapi as _BM
+        from nltk.tokenize import word_tokenize as _wt
+        from sklearn.metrics.pairwise import cosine_similarity as _cs
+        import numpy as _np
+
+        BM25Okapi = _BM
+        word_tokenize = _wt
+        cosine_similarity = _cs
+        np = _np
+        _tokenizer_imports_done = True
+
+
+def _ensure_sentence_transformer_imports():
+    """Import SentenceTransformer + litellm (heavy — loads PyTorch ~800MB)."""
+    global _retriever_imports_done, SentenceTransformer, litellm
 
     if _retriever_imports_done:
         return
+
+    _ensure_tokenizer_imports()
 
     with _import_lock:
         if _retriever_imports_done:
             return
 
         from sentence_transformers import SentenceTransformer as _ST
-        from rank_bm25 import BM25Okapi as _BM
-        from nltk.tokenize import word_tokenize as _wt
-        from sklearn.metrics.pairwise import cosine_similarity as _cs
-        import numpy as _np
         import litellm as _lt
 
         SentenceTransformer = _ST
-        BM25Okapi = _BM
-        word_tokenize = _wt
-        cosine_similarity = _cs
-        np = _np
         litellm = _lt
         _retriever_imports_done = True
+
+
+def _ensure_retriever_imports():
+    """Legacy compat shim — loads ALL heavy ML libraries.
+
+    Prefer the per-backend variants (_ensure_tokenizer_imports,
+    _ensure_sentence_transformer_imports) when you know which
+    backend is in use.
+    """
+    _ensure_sentence_transformer_imports()
 
 
 @runtime_checkable
@@ -75,7 +103,7 @@ Embeddings = List[List[float]]
 
 
 def simple_tokenize(text):
-    _ensure_retriever_imports()
+    _ensure_tokenizer_imports()
     return word_tokenize(text)
 
 
@@ -202,11 +230,19 @@ class SentenceTransformerEmbedding(EmbeddingFunction):
 SentenceTransformerEmbeddingFunction = SentenceTransformerEmbedding
 
 
+# Semaphore to limit concurrent Ollama embedding requests and prevent
+# thermal stress from sustained GPU/CPU load during parallel plan execution.
+_ollama_embed_semaphore = threading.Semaphore(2)
+
+
 class OllamaEmbeddingFunction(EmbeddingFunction):
     """Ollama embedding function via the native ``ollama`` Python SDK.
 
     Output is always truncated to ``EMBEDDING_DIMENSION`` (768) to ensure
     consistency across all backends.  No litellm dependency.
+
+    Concurrent calls are gated by a module-level semaphore to prevent
+    thermal stress on machines with limited cooling (e.g. MacBooks).
     """
 
     def __init__(
@@ -221,11 +257,12 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         import ollama as _ollama  # noqa: WPS433 — lazy import
 
         kwargs: Dict[str, Any] = {"model": self._model_name, "input": input}
-        if self._base_url:
-            client = _ollama.Client(host=self._base_url)
-            response = client.embed(**kwargs)
-        else:
-            response = _ollama.embed(**kwargs)
+        with _ollama_embed_semaphore:
+            if self._base_url:
+                client = _ollama.Client(host=self._base_url)
+                response = client.embed(**kwargs)
+            else:
+                response = _ollama.embed(**kwargs)
 
         result = response["embeddings"]
         return _truncate_to_dim(result)

@@ -65,6 +65,11 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
         "OSTWIN_PYTHON": ostwin_python,
     }
 
+    def _resolve_env_ref(m):
+        """Resolve {env:VAR} → known override → process env → leave as-is."""
+        var = m.group(1)
+        return _env_known.get(var, os.environ.get(var, m.group(0)))
+
     def _resolve_command(cmd):
         """Resolve bare python and {env:*} refs in command arrays."""
         if not isinstance(cmd, list) or not cmd:
@@ -72,11 +77,7 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
         resolved = []
         for i, c in enumerate(cmd):
             if isinstance(c, str):
-                # Resolve {env:VAR} references in command elements
-                def _repl(m):
-                    return _env_known.get(m.group(1), m.group(0))
-
-                c = _env_ref.sub(_repl, c)
+                c = _env_ref.sub(_resolve_env_ref, c)
                 # Resolve bare python to venv path
                 if i == 0 and c in ("python", "python3"):
                     c = ostwin_python
@@ -87,17 +88,18 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
         if "command" in _cfg:
             _cfg["command"] = _resolve_command(_cfg["command"])
 
-    # Reference-aware filtering: drop any environment entries that still contain
-    # unresolved {env:VAR} references so OpenCode never sees a literal placeholder
-    # as an env value. (Resolved values were already injected upstream from .env.)
+    # Resolve {env:*} in environment blocks via known overrides → process env,
+    # then drop any entries still containing unresolved placeholders.
     for _name, _cfg in validated_mcp.items():
         _envblock = _cfg.get("environment")
         if isinstance(_envblock, dict):
-            _cfg["environment"] = {
-                k: v
-                for k, v in _envblock.items()
-                if not (isinstance(v, str) and _env_ref.search(v))
-            }
+            resolved_env = {}
+            for k, v in _envblock.items():
+                if isinstance(v, str):
+                    v = _env_ref.sub(_resolve_env_ref, v)
+                if not (isinstance(v, str) and _env_ref.search(v)):
+                    resolved_env[k] = v
+            _cfg["environment"] = resolved_env
 
     # Resolve {env:*} in headers (for remote servers like knowledge)
     for _name, _cfg in validated_mcp.items():
@@ -106,12 +108,7 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
             resolved_hdrs = {}
             for k, v in _hdrs.items():
                 if isinstance(v, str):
-                    v = _env_ref.sub(
-                        lambda m: _env_known.get(
-                            m.group(1), os.environ.get(m.group(1), m.group(0))
-                        ),
-                        v,
-                    )
+                    v = _env_ref.sub(_resolve_env_ref, v)
                 if not (isinstance(v, str) and _env_ref.search(v)):
                     resolved_hdrs[k] = v
             _cfg["headers"] = resolved_hdrs
