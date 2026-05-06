@@ -392,9 +392,11 @@ class Ingestor:
         with self._stores_lock:
             store = self._stores.get(namespace)
             if store is None:
+                embedder = self._get_embedder()
                 store = _NamespaceStore(
                     namespace,
                     namespace_manager=self._nm,
+                    embedding_dimension=embedder.dimension(),
                     vector_store_factory=self._vs_factory,
                     kuzu_factory=self._kg_factory,
                 )

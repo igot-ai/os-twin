@@ -1,8 +1,6 @@
 ---
 name: question-library
 description: Use this skill to maintain and query a reusable library of proven risk questions organized by Risk Theme × Data Domain × Analytical Lens.
-tags: [audit, risk-officer, question-library, playbook, continuous-audit]
-
 ---
 
 # question-library

@@ -205,11 +205,11 @@ class KnowledgeService:
     # ---- Shared embedder / LLM (lazy) -----------------------------------
 
     @staticmethod
-    def _resolve_settings_overrides() -> tuple[str, str]:
+    def _resolve_settings_overrides() -> tuple[str, str, str, str]:
         """Resolve model overrides from MasterSettings.
 
         Returns:
-            tuple[str, str]: (knowledge_llm_model, knowledge_embedding_model)
+            tuple[str, str, str, str]: (llm_model, embed_model, llm_provider, embed_provider)
         """
         try:
             from dashboard.lib.settings import get_settings_resolver  # noqa: WPS433
@@ -217,14 +217,16 @@ class KnowledgeService:
             ms = get_settings_resolver().get_master_settings()
             ks = getattr(ms, "knowledge", None)
             if ks is None:
-                return "", ""
+                return "", "", "", ""
             return (
                 ks.knowledge_llm_model or "",
                 ks.knowledge_embedding_model or "",
+                getattr(ks, "knowledge_llm_backend", ""),
+                getattr(ks, "knowledge_embedding_backend", ""),
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("settings resolver unavailable: %s; using env defaults", exc)
-            return "", ""
+            return "", "", "", ""
 
     def _get_embedder(self) -> Any:
         """Lazily construct (or return the injected) embedder, shared service-wide.
@@ -241,9 +243,9 @@ class KnowledgeService:
             return self._embedder_override
         if self._embedder is not None:
             return self._embedder
-        settings_llm, settings_embed = self._resolve_settings_overrides()
+        settings_llm, settings_embed, settings_llm_prov, settings_embed_prov = self._resolve_settings_overrides()
         effective_model = settings_embed or _DEFAULT_EMBED
-        effective_provider = _DEFAULT_EMBED_PROV
+        effective_provider = settings_embed_prov or _DEFAULT_EMBED_PROV
         self._embedder = KnowledgeEmbedder(
             model_name=effective_model,
             provider=effective_provider,
@@ -261,9 +263,9 @@ class KnowledgeService:
             return self._llm_override
         if self._llm is not None:
             return self._llm
-        settings_llm, _ = self._resolve_settings_overrides()
+        settings_llm, _, settings_llm_prov, _ = self._resolve_settings_overrides()
         effective_model = settings_llm or _DEFAULT_LLM
-        effective_provider = _DEFAULT_LLM_PROV or None
+        effective_provider = settings_llm_prov or _DEFAULT_LLM_PROV or None
         self._llm = KnowledgeLLM(
             model=effective_model,
             provider=effective_provider,

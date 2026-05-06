@@ -47,14 +47,46 @@ class KnowledgeEmbedder:
     # Class-level cache: {(provider, model_name): model/client instance}
     _model_cache: dict[str, Any] = {}
     _cache_lock = threading.Lock()
+    
+    # Semaphore to limit concurrent Ollama embedding requests and prevent
+    # thermal stress from sustained GPU/CPU load during parallel plan execution.
+    _ollama_embed_semaphore = threading.Semaphore(2)
 
     def __init__(
         self,
         model_name: str | None = None,
         provider: str | None = None,
     ) -> None:
-        self.model_name: str = model_name or EMBEDDING_MODEL
-        self.provider: str = (provider or EMBEDDING_PROVIDER or "sentence-transformer").lower()
+        # Load from MasterSettings if not explicitly provided
+        from dashboard.lib.settings.resolver import get_settings_resolver
+
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        knowledge_cfg = master.knowledge if master.knowledge else None
+
+        if provider is None:
+            provider = (
+                knowledge_cfg.knowledge_embedding_backend
+                if knowledge_cfg and knowledge_cfg.knowledge_embedding_backend
+                else EMBEDDING_PROVIDER
+            )
+            
+        if model_name is None:
+            model_name = (
+                knowledge_cfg.knowledge_embedding_model
+                if knowledge_cfg and knowledge_cfg.knowledge_embedding_model
+                else EMBEDDING_MODEL
+            )
+            
+        dimension = (
+            knowledge_cfg.knowledge_embedding_dimension
+            if knowledge_cfg and getattr(knowledge_cfg, "knowledge_embedding_dimension", None)
+            else EMBEDDING_DIMENSION
+        )
+
+        self.model_name: str = model_name or "BAAI/bge-base-en-v1.5"
+        self.provider: str = (provider or "sentence-transformer").lower()
+        self._target_dimension: int = int(dimension)
         self._dimension: int | None = None  # populated on first use
 
     # -- Lazy loading ---------------------------------------------------
@@ -126,21 +158,38 @@ class KnowledgeEmbedder:
 
     # -- Public API -----------------------------------------------------
 
+    def _truncate_to_dim(self, embeddings: list[list[float]], dim: int = EMBEDDING_DIMENSION) -> list[list[float]]:
+        """Truncate (or zero-pad) each embedding vector to exactly *dim* floats.
+        
+        Truncation of MRL (Matryoshka Representation Learning) models is
+        dimension-preserving. Zero-padding is a lossy fallback for models whose
+        native dimension is smaller than the target.
+        """
+        out: list[list[float]] = []
+        for vec in embeddings:
+            if len(vec) >= dim:
+                out.append(vec[:dim])
+            else:
+                out.append(vec + [0.0] * (dim - len(vec)))
+        return out
+
     def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed a batch of texts. Returns a list of float lists."""
+        """Embed a batch of texts. Returns a list of float lists (normalized to dimension)."""
         if not texts:
             return []
 
         if self.provider in ("sentence-transformer", "huggingface"):
-            return self._embed_local(texts)
+            raw_embeddings = self._embed_local(texts)
         elif self.provider == "gemini":
-            return self._embed_gemini(texts)
+            raw_embeddings = self._embed_gemini(texts)
         elif self.provider == "ollama":
-            return self._embed_ollama(texts)
+            raw_embeddings = self._embed_ollama(texts)
         elif self.provider == "vertex":
-            return self._embed_vertex(texts)
+            raw_embeddings = self._embed_vertex(texts)
         else:
-            return self._embed_local(texts)
+            raw_embeddings = self._embed_local(texts)
+            
+        return self._truncate_to_dim(raw_embeddings, self.dimension())
 
     def embed_one(self, text: str) -> list[float]:
         """Embed a single text. Returns a list of floats."""
@@ -154,16 +203,8 @@ class KnowledgeEmbedder:
         if self._dimension is not None:
             return self._dimension
 
-        if self.provider in ("sentence-transformer", "huggingface"):
-            self._dimension = self._dimension_local()
-        elif self.provider == "gemini":
-            self._dimension = self._dimension_gemini()
-        elif self.provider == "ollama":
-            self._dimension = self._dimension_ollama()
-        elif self.provider == "vertex":
-            self._dimension = self._dimension_vertex()
-        else:
-            self._dimension = self._dimension_local()
+        # Always return the explicitly configured target dimension
+        self._dimension = self._target_dimension
 
         return self._dimension
 
@@ -176,18 +217,8 @@ class KnowledgeEmbedder:
         return [v.tolist() for v in vectors]
 
     def _dimension_local(self) -> int:
-        """Get dimension from local sentence-transformers model."""
-        try:
-            model = self._load_model()
-            sentence_dim = model.get_sentence_embedding_dimension()
-            return int(sentence_dim) if sentence_dim else EMBEDDING_DIMENSION
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Could not determine embedder dimension dynamically: %s; using default %d",
-                exc,
-                EMBEDDING_DIMENSION,
-            )
-            return EMBEDDING_DIMENSION
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
+        return EMBEDDING_DIMENSION
 
     # -- Gemini backend -------------------------------------------------
 
@@ -211,15 +242,7 @@ class KnowledgeEmbedder:
             return [[] for _ in texts]
 
     def _dimension_gemini(self) -> int:
-        """Determine embedding dimension from Gemini by embedding a probe text."""
-        try:
-            result = self.embed_one("dimension probe")
-            if result:
-                dim = len(result)
-                logger.info("Gemini embedding dimension detected: %d", dim)
-                return dim
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not probe Gemini dimension: %s", exc)
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
         return EMBEDDING_DIMENSION
 
     # -- Ollama backend --------------------------------------------------
@@ -234,31 +257,15 @@ class KnowledgeEmbedder:
         import ollama as _ollama  # noqa: WPS433
 
         try:
-            response = _ollama.embed(model=self.model_name, input=texts)
+            with self._ollama_embed_semaphore:
+                response = _ollama.embed(model=self.model_name, input=texts)
             return response["embeddings"]
         except Exception as exc:  # noqa: BLE001
             logger.error("Ollama embedding failed: %s", exc)
             return [[] for _ in texts]
 
     def _dimension_ollama(self) -> int:
-        """Determine embedding dimension from Ollama by probing."""
-        # Check known dimensions first
-        _known = {
-            "leoipulsar/harrier-0.6b": 1024,
-            "embeddinggemma": 768,
-            "qwen3-embedding:0.6b": 896,
-        }
-        dim = _known.get(self.model_name)
-        if dim is not None:
-            return dim
-        try:
-            result = self.embed_one("dimension probe")
-            if result:
-                dim = len(result)
-                logger.info("Ollama embedding dimension detected: %d", dim)
-                return dim
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not probe Ollama dimension: %s", exc)
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
         return EMBEDDING_DIMENSION
 
     # -- Vertex AI backend -----------------------------------------------
@@ -295,13 +302,5 @@ class KnowledgeEmbedder:
             return [[] for _ in texts]
 
     def _dimension_vertex(self) -> int:
-        """Determine embedding dimension from Vertex AI by probing."""
-        try:
-            result = self.embed_one("dimension probe")
-            if result:
-                dim = len(result)
-                logger.info("Vertex AI embedding dimension detected: %d", dim)
-                return dim
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not probe Vertex AI dimension: %s", exc)
+        """Always returns the global EMBEDDING_DIMENSION (768)."""
         return EMBEDDING_DIMENSION

@@ -174,10 +174,31 @@ class KnowledgeLLM:
         model: str | None = None,
         provider: str | None = None,
     ) -> None:
+        # Load from MasterSettings if not explicitly provided
+        from dashboard.lib.settings.resolver import get_settings_resolver
+
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        knowledge_cfg = master.knowledge if master.knowledge else None
+
+        if provider is None:
+            provider = (
+                knowledge_cfg.knowledge_llm_backend
+                if knowledge_cfg and knowledge_cfg.knowledge_llm_backend
+                else LLM_PROVIDER
+            )
+            
+        if model is None:
+            model = (
+                knowledge_cfg.knowledge_llm_model
+                if knowledge_cfg and knowledge_cfg.knowledge_llm_model
+                else LLM_MODEL
+            )
+
         # Resolve model: explicit > config (env / MasterSettings)
-        self.model: str = model or LLM_MODEL or ""
+        self.model: str = model or ""
         # Resolve provider: explicit > config env > auto-detect
-        self.provider: str | None = provider or LLM_PROVIDER or None
+        self.provider: str | None = provider or None
         # Resolve API key: explicit > resolved from master_agent
         self._explicit_key: str | None = api_key
         self._client: Any | None = None  # cached LLMClient instance

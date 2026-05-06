@@ -1,8 +1,6 @@
 ---
 name: analytical-lenses
-description: Use this skill to select the right analytical lens (Distribution, Deviation, Relationship, Temporality, Compounding) and formulate precise questions for the data analyst.
-tags: [audit, risk-officer, analytics, questioning, data-analyst-handoff]
-
+description: Use this skill to select the right analytical lens (Distribution, Deviation, Relationship, Temporality, Compounding) and formulate precise questions for the data analyst. 
 ---
 
 # analytical-lenses
