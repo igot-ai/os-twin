@@ -438,11 +438,11 @@ def _build_configured_models(
             companion_ids = companions_by_mode
 
         # ── 1) Ingest models.dev models ───────────────────────────
-        # When companion providers are active (e.g. google in vertex
-        # mode), skip base models — they have bare IDs and aren't
-        # routable via the companion API.  All models come from the
-        # companion catalog with properly prefixed IDs instead.
-        if raw_provider is not None and not companion_ids:
+        # Include base models regardless of deployment mode.
+        # This allows users to access BOTH consumer Gemini models AND Vertex models
+        # simultaneously if they have both configured. The routing is handled by
+        # the frontend provider_id (google vs google-vertex).
+        if raw_provider is not None:
             for model_id, model_data in raw_provider.get("models", {}).items():
                 provider_entry["models"][model_id] = {
                     "id": model_id,
