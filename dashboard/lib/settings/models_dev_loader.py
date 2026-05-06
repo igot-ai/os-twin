@@ -314,6 +314,11 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
     except Exception as exc:
         logger.debug("Vault provider discovery skipped: %s", exc)
 
+    # 5. Always inject Google deployment mode if Google is present.
+    # Because it dictates which companion catalogs to merge.
+    if "google" in providers:
+        providers["google"]["deployment_mode"] = _read_google_deployment_mode()
+
     return providers
 
 
