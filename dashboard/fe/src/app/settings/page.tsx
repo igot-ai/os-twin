@@ -192,6 +192,13 @@ function SettingsPageContent() {
 
 
   // Flat model IDs for backward-compat consumers (RolesPanel)
+  const providers = settings?.providers || {};
+  const defaultProvider = { enabled: true } as ProviderSettings;
+  const googleSettings   = (providers as Record<string, ProviderSettings>).google    ?? defaultProvider;
+  const anthropicSettings = (providers as Record<string, ProviderSettings>).anthropic ?? defaultProvider;
+  const openaiSettings   = (providers as Record<string, ProviderSettings>).openai    ?? defaultProvider;
+  const byteplusSettings = (providers as Record<string, ProviderSettings>).byteplus  ?? defaultProvider;
+
   const allModelIds = allModels.length > 0
     ? allModels.map((m) => m.id)
     : Object.values(modelRegistry).flat().map((m) => m.id);
@@ -215,21 +222,19 @@ function SettingsPageContent() {
   if (isError || !settings) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <span className="material-symbols-outlined text-6xl mb-4 block text-error">error</span>
-          <p className="text-sm text-error">Failed to load settings</p>
+        <div className="text-center text-error">
+          <span className="material-symbols-outlined text-4xl mb-2">error</span>
+          <p className="font-medium">Failed to load settings.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-error text-on-error rounded hover:bg-error/90 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
   }
-
-  // Build provider settings with defaults for the four known providers
-  const defaultProvider = { enabled: true } as ProviderSettings;
-  const providers = settings.providers || {};
-  const googleSettings   = (providers as Record<string, ProviderSettings>).google    ?? defaultProvider;
-  const anthropicSettings = (providers as Record<string, ProviderSettings>).anthropic ?? defaultProvider;
-  const openaiSettings   = (providers as Record<string, ProviderSettings>).openai    ?? defaultProvider;
-  const byteplusSettings = (providers as Record<string, ProviderSettings>).byteplus  ?? defaultProvider;
 
   const updateProvider = (name: string, current: ProviderSettings, updates: Partial<ProviderSettings>) =>
     updateNamespace('providers', { ...providers, [name]: { ...current, ...updates } });
