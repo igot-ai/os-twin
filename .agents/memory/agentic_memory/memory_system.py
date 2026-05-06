@@ -1345,6 +1345,24 @@ class AgenticMemorySystem:
             return True
         return False
 
+    def clear(self) -> Dict:
+        """Delete all memories, clear vector index, and remove note files.
+
+        Returns:
+            Dict with count of cleared notes.
+        """
+        import shutil
+
+        count = len(self.memories)
+        self.memories.clear()
+        self.retriever.clear()
+        if self._notes_dir and os.path.exists(self._notes_dir):
+            shutil.rmtree(self._notes_dir, ignore_errors=True)
+            os.makedirs(self._notes_dir, exist_ok=True)
+        self._dirty = True
+        logger.info("Cleared %d memories from %s", count, self.persist_dir)
+        return {"cleared": count}
+
     def _search_raw(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Internal search method that returns raw results from ChromaDB.
 

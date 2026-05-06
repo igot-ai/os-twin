@@ -273,6 +273,29 @@ def memory_tree() -> str:
 
 
 @mcp.tool()
+def delete_memory(memory_id: str) -> str:
+    """Delete a specific memory note by its ID.
+
+    Use search_memory or memory_tree first to find the ID of the note
+    you want to delete.
+
+    Args:
+        memory_id: The UUID of the memory note to delete.
+
+    Returns:
+        JSON with the deleted note's id and status.
+    """
+    mem = _get_memory_for_plan()
+    success = mem.delete(memory_id)
+    if success:
+        logger.info("delete_memory [HTTP]: deleted id=%s", memory_id)
+        return json.dumps({"id": memory_id, "status": "deleted"})
+    else:
+        logger.warning("delete_memory [HTTP]: not found id=%s", memory_id)
+        return json.dumps({"id": memory_id, "status": "not_found"})
+
+
+@mcp.tool()
 def grep_memory(pattern: str, flags: Optional[str] = None) -> str:
     """Search memory files using grep (full CLI grep).
 
