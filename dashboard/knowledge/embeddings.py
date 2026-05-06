@@ -50,6 +50,8 @@ class KnowledgeEmbedder:
     ) -> None:
         self.model_name: str = model_name or EMBEDDING_MODEL
         self.provider: str = (provider or EMBEDDING_PROVIDER or "ollama").lower()
+        if self.provider == "ollama" and "/" in self.model_name and not self.model_name.startswith("hf.co/"):
+            self.model_name = f"hf.co/{self.model_name}"
         self._dimension: int | None = None  # populated on first use
 
     # -- Lazy loading ---------------------------------------------------

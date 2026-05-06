@@ -141,9 +141,17 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
 
     def __call__(self, input: Documents) -> Embeddings:
         import ollama as _ollama  # noqa: WPS433 — lazy import
+        import httpx
 
         kwargs: Dict[str, Any] = {"model": self._model_name, "input": input}
-        response = _ollama.embed(**kwargs)
+        try:
+            response = _ollama.embed(**kwargs)
+        except httpx.ConnectError as e:
+            raise RuntimeError("Ollama server is unreachable. Please ensure 'ollama serve' is running.") from e
+        except _ollama.ResponseError as e:
+            if e.status_code == 404:
+                raise RuntimeError(f"Model '{self._model_name}' not found. Please pull it using 'ollama pull {self._model_name}'.") from e
+            raise e
 
         result = response["embeddings"]
         return _truncate_to_dim(result)
