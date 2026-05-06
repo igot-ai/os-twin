@@ -313,6 +313,45 @@ class TestLaunchArgs:
         assert "--stealth" in args
 
 
+class TestCdpEndpointValidation:
+    """Tests for CDP endpoint validation helpers."""
+
+    def test_detects_obscura_browser_field(self):
+        module = _load_obscura_server()
+        assert module._is_obscura_cdp_endpoint({"Browser": "Obscura/0.1.2"})
+
+    def test_detects_obscura_user_agent_field(self):
+        module = _load_obscura_server()
+        assert module._is_obscura_cdp_endpoint({"User-Agent": "Mozilla/5.0 Obscura"})
+
+    def test_rejects_plain_chrome_endpoint(self):
+        module = _load_obscura_server()
+        assert not module._is_obscura_cdp_endpoint({
+            "Browser": "Chrome/124.0.0.0",
+            "webSocketDebuggerUrl": "ws://localhost:9222/devtools/browser/abc",
+        })
+
+    def test_adapter_started_browser_alive(self, monkeypatch):
+        module = _load_obscura_server()
+
+        class FakeProcess:
+            def poll(self):
+                return None
+
+        monkeypatch.setattr(module, "_browser_process", FakeProcess())
+        assert module._adapter_started_browser_alive()
+
+    def test_adapter_started_browser_exited(self, monkeypatch):
+        module = _load_obscura_server()
+
+        class FakeProcess:
+            def poll(self):
+                return 1
+
+        monkeypatch.setattr(module, "_browser_process", FakeProcess())
+        assert not module._adapter_started_browser_alive()
+
+
 class TestRefMap:
     """Tests for element ref map helpers."""
 

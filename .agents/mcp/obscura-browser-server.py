@@ -272,6 +272,22 @@ _cdp_client: Any = None
 _page: Any = None
 
 
+def _is_obscura_cdp_endpoint(version_info: Dict[str, Any]) -> bool:
+    """Return true when /json/version identifies the endpoint as Obscura."""
+    fields = (
+        version_info.get("Browser"),
+        version_info.get("Product"),
+        version_info.get("User-Agent"),
+        version_info.get("userAgent"),
+    )
+    return any("obscura" in str(value).lower() for value in fields if value)
+
+
+def _adapter_started_browser_alive() -> bool:
+    """Return true when this adapter started the current browser process."""
+    return _browser_process is not None and _browser_process.poll() is None
+
+
 async def _ensure_browser() -> dict:
     """Ensure browser is running and connected. Returns status dict."""
     global _playwright, _cdp_client, _page
@@ -306,6 +322,12 @@ async def _ensure_browser() -> dict:
             resp = await client.get(f"http://localhost:{OBSCURA_PORT}/json/version")
             if resp.status_code == 200:
                 data = resp.json()
+                if not _is_obscura_cdp_endpoint(data) and not _adapter_started_browser_alive():
+                    return {
+                        "running": False,
+                        "port": OBSCURA_PORT,
+                        "error": "Existing CDP endpoint is not Obscura-managed",
+                    }
                 ws_url = data.get("webSocketDebuggerUrl")
                 if ws_url:
                     _playwright = await async_playwright().start()
