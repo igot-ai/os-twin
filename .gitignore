@@ -127,3 +127,4 @@ test_results.txt
 .war-rooms/
 .agents/*
 !.agents/memory/
+test-results/
