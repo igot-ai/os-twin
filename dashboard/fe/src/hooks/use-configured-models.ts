@@ -96,7 +96,7 @@ function toModelInfo(
       ? formatContextWindow(model.limit.context)
       : '',
     tier: classifyTier(model),
-    provider_id: providerId,
+    provider_id: model.companion_provider || providerId,
     family: model.family,
     cost: model.cost,
     logo_url: provider.logo_url,
