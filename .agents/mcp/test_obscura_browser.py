@@ -261,6 +261,17 @@ class TestResolveDownloadDir:
 class TestLaunchArgs:
     """Tests for launch arg helpers."""
 
+    def test_default_obscura_bin_uses_env_override(self, monkeypatch):
+        module = _load_obscura_server()
+        monkeypatch.setenv("OBSCURA_BIN", "/tmp/custom-obscura")
+        assert module._default_obscura_bin() == "/tmp/custom-obscura"
+
+    def test_default_obscura_bin_falls_back_to_command_name(self, monkeypatch):
+        module = _load_obscura_server()
+        monkeypatch.delenv("OBSCURA_BIN", raising=False)
+        result = module._default_obscura_bin()
+        assert result == "obscura" or result.endswith(("obscura", "obscura.exe"))
+
     def test_default_args_no_stealth(self):
         """Default launch args must NOT include --stealth."""
         module = _load_obscura_server()

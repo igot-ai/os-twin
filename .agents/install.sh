@@ -17,6 +17,7 @@
 #   - PowerShell 7+      (via brew / Microsoft repos)
 #   - uv                 (Python package/env manager)
 #   - opencode            (Agent execution engine)
+#   - Obscura            (built-in browser MCP runtime)
 #   - Pester 5+          (PowerShell test framework)
 #   - MCP dependencies   (fastapi, uvicorn, etc.)
 #

@@ -6,7 +6,7 @@ Controls Obscura browser through Chrome DevTools Protocol (CDP).
 Uses Playwright Python as the CDP client only; it launches Obscura, not Chrome.
 
 Environment:
-    OBSCURA_BIN           Path to obscura binary (default: "obscura")
+    OBSCURA_BIN           Path to obscura binary (default: installed .agents/bin copy, then PATH)
     OBSCURA_PORT          CDP port (default: 9222)
     OBSCURA_ARGS          Additional args for obscura serve (e.g., "--stealth")
     OSTWIN_BROWSER_DOWNLOAD_DIR  Preferred artifact directory for downloads/screenshots/PDFs
@@ -28,7 +28,23 @@ from pydantic import Field
 from mcp.server.fastmcp import FastMCP
 
 
-OBSCURA_BIN = os.environ.get("OBSCURA_BIN", "obscura")
+def _default_obscura_bin() -> str:
+    """Prefer the installer-managed binary, then fall back to PATH lookup."""
+    configured = os.environ.get("OBSCURA_BIN")
+    if configured:
+        return configured
+
+    bin_name = "obscura.exe" if os.name == "nt" else "obscura"
+    local_bin = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "bin", bin_name)
+    )
+    if os.path.isfile(local_bin):
+        return local_bin
+
+    return "obscura"
+
+
+OBSCURA_BIN = _default_obscura_bin()
 OBSCURA_PORT = int(os.environ.get("OBSCURA_PORT", "9222"))
 OBSCURA_ARGS = os.environ.get("OBSCURA_ARGS", "")
 INTERACTIVE_SELECTOR = (

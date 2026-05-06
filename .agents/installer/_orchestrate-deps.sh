@@ -115,6 +115,16 @@ else
   install_opencode
 fi
 
+# --- Obscura browser (backs built-in obscura-browser MCP) ---
+OBSCURA_PATH=$(check_obscura 2>/dev/null || true)
+if [[ -n "$OBSCURA_PATH" ]]; then
+  ok "obscura ($OBSCURA_PATH)"
+elif $SKIP_OPTIONAL; then
+  warn "obscura not found (skipped — --skip-optional)"
+else
+  install_obscura
+fi
+
 # --- Node.js ---
 if check_node; then
   NODE_VERSION=$(node --version 2>&1 | head -1)

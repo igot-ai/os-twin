@@ -3,10 +3,10 @@
 # install-deps.sh — Dependency installers
 #
 # Provides: install_brew, install_uv, install_python, install_pwsh,
-#           install_node, install_opencode, install_pester
+#           install_node, install_opencode, install_obscura, install_pester
 #
 # Requires: lib.sh, versions.conf, detect-os.sh (OS, ARCH, PKG_MGR),
-#           check-deps.sh (check_uv, check_brew, check_opencode)
+#           check-deps.sh (check_uv, check_brew, check_opencode, check_obscura)
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Guard against double-sourcing
@@ -262,6 +262,72 @@ install_opencode() {
     warn "opencode installed but not immediately available in PATH"
     info "Will be available after: source $shell_rc (or open a new terminal)"
   fi
+}
+
+# ─── Obscura browser binary ─────────────────────────────────────────────────
+
+install_obscura() {
+  local existing
+  existing=$(check_obscura 2>/dev/null || true)
+  if [[ -n "$existing" ]]; then
+    ok "obscura already installed ($existing)"
+    return 0
+  fi
+
+  local asset=""
+  case "${OS}:${ARCH}" in
+    linux:x86_64|linux:amd64)
+      asset="obscura-x86_64-linux.tar.gz"
+      ;;
+    macos:arm64|macos:aarch64)
+      asset="obscura-aarch64-macos.tar.gz"
+      ;;
+    macos:x86_64|macos:amd64)
+      asset="obscura-x86_64-macos.tar.gz"
+      ;;
+    *)
+      warn "No Obscura release asset configured for ${OS}/${ARCH}; obscura-browser MCP will require manual Obscura install"
+      return 0
+      ;;
+  esac
+
+  step "Installing Obscura browser..."
+  local bin_dir="$INSTALL_DIR/.agents/bin"
+  local tmp_dir
+  tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/ostwin-obscura.XXXXXX")
+  local archive="$tmp_dir/$asset"
+  local url="https://github.com/h4ckf0r0day/obscura/releases/latest/download/$asset"
+
+  mkdir -p "$bin_dir"
+  if ! curl -fsSL "$url" -o "$archive"; then
+    warn "Obscura download failed from $url"
+    warn "obscura-browser MCP will require manual Obscura install"
+    rm -rf "$tmp_dir"
+    return 0
+  fi
+
+  if ! tar -xzf "$archive" -C "$tmp_dir"; then
+    warn "Obscura archive extraction failed"
+    rm -rf "$tmp_dir"
+    return 0
+  fi
+
+  local binary
+  binary=$(find "$tmp_dir" -type f -name obscura -perm -u+x 2>/dev/null | head -1)
+  if [[ -z "$binary" ]]; then
+    binary=$(find "$tmp_dir" -type f -name obscura 2>/dev/null | head -1)
+  fi
+  if [[ -z "$binary" ]]; then
+    warn "Obscura binary not found in release archive"
+    rm -rf "$tmp_dir"
+    return 0
+  fi
+
+  cp "$binary" "$bin_dir/obscura"
+  chmod +x "$bin_dir/obscura"
+  rm -rf "$tmp_dir"
+  export PATH="$bin_dir:$PATH"
+  ok "obscura installed to $bin_dir/obscura"
 }
 
 # ─── Pester (PowerShell test framework) ──────────────────────────────────────

@@ -126,6 +126,19 @@ function Invoke-DependencyOrchestration {
             Install-OpenCode
         }
 
+        # Obscura backs the built-in obscura-browser MCP server. Install it
+        # before MCP config is seeded so fresh installs can start the server.
+        $obscuraPath = Check-Obscura
+        if ($obscuraPath) {
+            Write-Ok "obscura ($obscuraPath)"
+        }
+        elseif ($script:SkipOptional) {
+            Write-Warn "obscura not found (skipped — SkipOptional)"
+        }
+        else {
+            Install-Obscura
+        }
+
         # Node.js
         if (Check-Node) {
             $nodeVer = (& node --version 2>&1) | Select-Object -First 1
