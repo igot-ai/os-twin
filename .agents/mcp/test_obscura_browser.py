@@ -202,11 +202,20 @@ class TestResolveDownloadDir:
         module = _load_obscura_server()
         old_browser = os.environ.get("OSTWIN_BROWSER_DOWNLOAD_DIR")
         old_room = os.environ.get("AGENT_OS_ROOM_DIR")
+        old_project = os.environ.get("AGENT_OS_ROOT")
+        old_cwd = os.getcwd()
         try:
-            os.environ.pop("OSTWIN_BROWSER_DOWNLOAD_DIR", None)
-            os.environ.pop("AGENT_OS_ROOM_DIR", None)
-            result = module._resolve_download_dir()
-            assert result.endswith("downloads") or "downloads" in result
+            with tempfile.TemporaryDirectory() as tmpdir:
+                try:
+                    os.chdir(tmpdir)
+                    os.environ.pop("OSTWIN_BROWSER_DOWNLOAD_DIR", None)
+                    os.environ.pop("AGENT_OS_ROOM_DIR", None)
+                    os.environ.pop("AGENT_OS_ROOT", None)
+                    result = module._resolve_download_dir()
+                    expected = os.path.join(tmpdir, "artifacts", "browser-downloads")
+                    assert os.path.abspath(result) == os.path.abspath(expected)
+                finally:
+                    os.chdir(old_cwd)
         finally:
             if old_browser is not None:
                 os.environ["OSTWIN_BROWSER_DOWNLOAD_DIR"] = old_browser
@@ -216,6 +225,37 @@ class TestResolveDownloadDir:
                 os.environ["AGENT_OS_ROOM_DIR"] = old_room
             else:
                 os.environ.pop("AGENT_OS_ROOM_DIR", None)
+            if old_project is not None:
+                os.environ["AGENT_OS_ROOT"] = old_project
+            else:
+                os.environ.pop("AGENT_OS_ROOT", None)
+
+    def test_uses_agent_os_root_fallback(self):
+        module = _load_obscura_server()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_browser = os.environ.get("OSTWIN_BROWSER_DOWNLOAD_DIR")
+            old_room = os.environ.get("AGENT_OS_ROOM_DIR")
+            old_project = os.environ.get("AGENT_OS_ROOT")
+            try:
+                os.environ.pop("OSTWIN_BROWSER_DOWNLOAD_DIR", None)
+                os.environ.pop("AGENT_OS_ROOM_DIR", None)
+                os.environ["AGENT_OS_ROOT"] = tmpdir
+                result = module._resolve_download_dir()
+                expected = os.path.join(tmpdir, "artifacts", "browser-downloads")
+                assert os.path.abspath(result) == os.path.abspath(expected)
+            finally:
+                if old_browser is not None:
+                    os.environ["OSTWIN_BROWSER_DOWNLOAD_DIR"] = old_browser
+                else:
+                    os.environ.pop("OSTWIN_BROWSER_DOWNLOAD_DIR", None)
+                if old_room is not None:
+                    os.environ["AGENT_OS_ROOM_DIR"] = old_room
+                else:
+                    os.environ.pop("AGENT_OS_ROOM_DIR", None)
+                if old_project is not None:
+                    os.environ["AGENT_OS_ROOT"] = old_project
+                else:
+                    os.environ.pop("AGENT_OS_ROOT", None)
 
 
 class TestLaunchArgs:
@@ -242,6 +282,18 @@ class TestLaunchArgs:
         assert "9222" in args
         assert "--proxy" in args
         assert "http://localhost:8080" in args
+
+    def test_build_launch_args_preserves_quoted_values(self):
+        module = _load_obscura_server()
+        args = module._build_launch_args(9222, '--user-agent "Ostwin Browser"')
+        assert "--user-agent" in args
+        assert "Ostwin Browser" in args
+
+    def test_build_launch_args_rejects_malformed_quotes(self):
+        module = _load_obscura_server()
+        import pytest
+        with pytest.raises(ValueError):
+            module._build_launch_args(9222, '--user-agent "unterminated')
 
     def test_build_launch_args_with_stealth_explicit(self):
         """User can explicitly add --stealth via OBSCURA_ARGS."""
@@ -295,49 +347,37 @@ class TestRefMap:
         result = module._resolve_ref("button.submit")
         assert result == "button.submit"
 
-    def test_build_elements_from_tree(self):
+    def test_build_elements_from_dom_snapshot(self):
         module = _load_obscura_server()
         module._reset_ref_map()
 
-        tree = {
-            "role": "WebArea",
-            "name": "Page",
-            "children": [
-                {
-                    "role": "button",
-                    "name": "Submit",
-                    "children": []
-                },
-                {
-                    "role": "link",
-                    "name": "Learn More",
-                    "children": []
-                }
-            ]
-        }
+        raw_elements = [
+            {"role": "button", "name": "Submit", "selector": "button:nth-of-type(1)"},
+            {"role": "link", "name": "Learn More", "selector": "a:nth-of-type(1)"},
+        ]
 
-        elements = []
-        module._build_elements_from_accessibility_tree(tree, elements)
+        elements = module._build_elements_from_dom_snapshot(raw_elements)
 
-        assert len(elements) >= 2
+        assert len(elements) == 2
 
         refs = [e["ref"] for e in elements]
         assert any(r.startswith("@e") for r in refs)
+        assert module._resolve_ref("@e1") == "button:nth-of-type(1)"
 
-    def test_build_elements_escapes_selector_names(self):
+    def test_build_elements_skips_unusable_items(self):
         module = _load_obscura_server()
         module._reset_ref_map()
 
-        tree = {
-            "role": "button",
-            "name": 'Save "Draft"',
-            "children": []
-        }
+        raw_elements = [
+            {"role": "button", "name": "Submit", "selector": ""},
+            {"role": "", "name": "", "selector": "button:nth-of-type(1)"},
+            {"role": "link", "name": "Docs", "selector": "a:nth-of-type(1)"},
+        ]
 
-        elements = []
-        module._build_elements_from_accessibility_tree(tree, elements)
+        elements = module._build_elements_from_dom_snapshot(raw_elements)
 
-        assert elements[0]["selector"] == 'button:has-text("Save \\"Draft\\"")'
+        assert len(elements) == 1
+        assert elements[0]["name"] == "Docs"
 
 
 class TestMCPTools:

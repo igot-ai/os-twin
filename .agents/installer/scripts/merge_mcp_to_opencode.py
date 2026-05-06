@@ -48,7 +48,8 @@ def main(mcp_source: str, opencode_file: str, mcp_module_dir: str) -> None:
     # OSTWIN_VENV_DIR / OSTWIN_INSTALL_DIR are passed from patch-mcp.sh.
     venv_dir = os.environ.get("OSTWIN_VENV_DIR", "")
     install_dir = os.environ.get("OSTWIN_INSTALL_DIR", "")
-    # Windows uses Scripts/python.exe, Unix uses bin/python
+    # OSTWIN_PYTHON is later used inside MCP command arrays. Resolve it with
+    # the platform-specific venv layout before placeholders are expanded.
     if venv_dir:
         if sys.platform == "win32":
             ostwin_python = os.path.join(venv_dir, "Scripts", "python.exe")

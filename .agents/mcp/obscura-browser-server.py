@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Agent OS — MCP Obscura Browser Server
+Agent OS - MCP Obscura Browser Server
 
 Controls Obscura browser through Chrome DevTools Protocol (CDP).
-Uses Playwright Python as a CDP client only — does NOT require browser installation.
+Uses Playwright Python as the CDP client only; it does not install or launch Chrome.
 
 Environment:
     OBSCURA_BIN           Path to obscura binary (default: "obscura")
     OBSCURA_PORT          CDP port (default: 9222)
     OBSCURA_ARGS          Additional args for obscura serve (e.g., "--stealth")
-    OSTWIN_BROWSER_DOWNLOAD_DIR  Download directory (default: AGENT_OS_ROOM_DIR/artifacts/downloads)
-    AGENT_OS_ROOM_DIR     Fallback for download dir resolution
+    OSTWIN_BROWSER_DOWNLOAD_DIR  Preferred artifact directory for downloads/screenshots/PDFs
+    AGENT_OS_ROOM_DIR     Room fallback: <room>/artifacts/downloads
+    AGENT_OS_ROOT         Project fallback: <project>/artifacts/browser-downloads
 """
 
 import asyncio
@@ -18,6 +19,7 @@ import base64
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from typing import Annotated, Any, Dict, List, Optional
@@ -29,6 +31,84 @@ from mcp.server.fastmcp import FastMCP
 OBSCURA_BIN = os.environ.get("OBSCURA_BIN", "obscura")
 OBSCURA_PORT = int(os.environ.get("OBSCURA_PORT", "9222"))
 OBSCURA_ARGS = os.environ.get("OBSCURA_ARGS", "")
+INTERACTIVE_SELECTOR = (
+    "a, button, input, textarea, select, option, [role], [aria-label], "
+    "[title], [tabindex]:not([tabindex='-1'])"
+)
+DOM_SNAPSHOT_SCRIPT = r"""
+(elements) => {
+  const cssEscape = (value) => {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  };
+
+  const visible = (el) => {
+    const style = window.getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    return style && style.visibility !== "hidden" && style.display !== "none" &&
+      rect.width > 0 && rect.height > 0;
+  };
+
+  const roleFor = (el) => {
+    const explicit = el.getAttribute("role");
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button") return "button";
+    if (tag === "input" || tag === "textarea") return "textbox";
+    if (tag === "select") return "combobox";
+    return tag;
+  };
+
+  const nameFor = (el) => {
+    return (
+      el.getAttribute("aria-label") ||
+      el.getAttribute("title") ||
+      el.getAttribute("alt") ||
+      el.getAttribute("placeholder") ||
+      el.value ||
+      el.innerText ||
+      el.textContent ||
+      ""
+    ).trim().replace(/\s+/g, " ").slice(0, 160);
+  };
+
+  const selectorFor = (el) => {
+    if (el.id) return "#" + cssEscape(el.id);
+    const parts = [];
+    let current = el;
+    while (current && current.nodeType === Node.ELEMENT_NODE && parts.length < 6) {
+      let part = current.tagName.toLowerCase();
+      const classes = Array.from(current.classList || []).slice(0, 2);
+      if (classes.length) {
+        part += "." + classes.map(cssEscape).join(".");
+      }
+      let nth = 1;
+      let sibling = current.previousElementSibling;
+      while (sibling) {
+        if (sibling.tagName === current.tagName) nth += 1;
+        sibling = sibling.previousElementSibling;
+      }
+      part += `:nth-of-type(${nth})`;
+      parts.unshift(part);
+      current = current.parentElement;
+    }
+    return parts.join(" > ");
+  };
+
+  return elements
+    .filter(visible)
+    .slice(0, 200)
+    .map((el) => ({
+      role: roleFor(el),
+      name: nameFor(el),
+      selector: selectorFor(el)
+    }))
+    .filter((item) => item.selector && (item.role || item.name));
+}
+"""
 
 
 def _resolve_download_dir() -> str:
@@ -41,7 +121,11 @@ def _resolve_download_dir() -> str:
         if room_dir:
             path = os.path.join(room_dir, "artifacts", "downloads")
         else:
-            path = os.path.abspath("./downloads")
+            project_dir = os.environ.get("AGENT_OS_ROOT", "")
+            if project_dir:
+                path = os.path.join(project_dir, "artifacts", "browser-downloads")
+            else:
+                path = os.path.abspath(os.path.join("artifacts", "browser-downloads"))
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -89,7 +173,7 @@ def _is_safe_download_path(download_dir: str, target_path: str) -> bool:
 
 
 def _safe_download_path(download_dir: str, filename: str) -> str:
-    """Construct a safe download path, raising if traversal attempted."""
+    """Construct a sanitized download path and verify it stays inside download_dir."""
     sanitized = _sanitize_filename(filename)
     full_path = os.path.join(download_dir, sanitized)
     if not _is_safe_download_path(download_dir, full_path):
@@ -106,7 +190,7 @@ def _build_launch_args(port: int, extra_args: str = "") -> List[str]:
     """Build complete launch args, merging defaults with OBSCURA_ARGS."""
     args = _get_default_launch_args(port)
     if extra_args:
-        extra = extra_args.strip().split()
+        extra = shlex.split(extra_args)
         for arg in extra:
             if arg and arg not in args:
                 args.append(arg)
@@ -144,38 +228,24 @@ def _resolve_ref(ref_or_selector: str) -> str:
     return ref_or_selector
 
 
-def _quote_selector_value(value: str) -> str:
-    """Quote a selector text or attribute value for Playwright selectors."""
-    return json.dumps(value)
+def _build_elements_from_dom_snapshot(raw_elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach stable @eN refs to DOM snapshot items returned by browser JS."""
+    elements: List[Dict[str, Any]] = []
+    for item in raw_elements:
+        if not isinstance(item, dict):
+            continue
 
+        selector = str(item.get("selector") or "").strip()
+        role = str(item.get("role") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not selector or not (role or name):
+            continue
 
-def _build_elements_from_accessibility_tree(node: Any, elements: List[Dict], selector_prefix: str = "") -> None:
-    """Flatten accessibility tree into element list with refs and selectors."""
-    if not isinstance(node, dict):
-        return
-
-    role = node.get("role", "")
-    name = node.get("name", "")
-
-    if role and name:
         ref = _build_ref()
-        quoted_name = _quote_selector_value(name)
-        selector = f'[aria-label={quoted_name}]' if name else f'[role="{role}"]'
-        if role == "button":
-            selector = f"button:has-text({quoted_name})" if name else "button"
-        elif role == "link":
-            selector = f"a:has-text({quoted_name})" if name else "a"
-        elif role == "textbox":
-            selector = f"input[aria-label={quoted_name}]" if name else "input[type=text], textarea"
-        elif role == "heading":
-            selector = f'h1, h2, h3, h4, h5, h6'
-
         elem_data = {"ref": ref, "role": role, "name": name, "selector": selector}
         elements.append(elem_data)
         _store_element(ref, elem_data)
-
-    for child in node.get("children", []):
-        _build_elements_from_accessibility_tree(child, elements)
+    return elements
 
 
 mcp = FastMCP("ostwin-obscura-browser", log_level="CRITICAL")
@@ -193,13 +263,23 @@ async def _ensure_browser() -> dict:
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        return {"running": False, "error": "playwright not installed"}
+        return {"running": False, "port": OBSCURA_PORT, "error": "playwright not installed"}
 
     if _page is not None:
         try:
             await _page.evaluate("1")
             return {"running": True, "port": OBSCURA_PORT}
         except Exception:
+            if _cdp_client is not None:
+                try:
+                    await _cdp_client.close()
+                except Exception:
+                    pass
+            if _playwright is not None:
+                try:
+                    await _playwright.stop()
+                except Exception:
+                    pass
             _page = None
             _cdp_client = None
             _playwright = None
@@ -228,7 +308,7 @@ async def _ensure_browser() -> dict:
     return {"running": False, "port": OBSCURA_PORT}
 
 
-async def _start_browser(headless: bool = True) -> dict:
+async def _start_browser() -> dict:
     """Start Obscura browser process."""
     global _browser_process
 
@@ -237,15 +317,23 @@ async def _start_browser(headless: bool = True) -> dict:
         return status
 
     obscura_exe = shutil.which(OBSCURA_BIN) or OBSCURA_BIN
-    args = _build_launch_args(OBSCURA_PORT, OBSCURA_ARGS)
+    try:
+        args = _build_launch_args(OBSCURA_PORT, OBSCURA_ARGS)
+    except ValueError as e:
+        return {"running": False, "error": f"Invalid OBSCURA_ARGS: {e}"}
     full_cmd = [obscura_exe] + args
 
     try:
+        popen_kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+        if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         _browser_process = subprocess.Popen(
             full_cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
+            **popen_kwargs,
         )
     except FileNotFoundError:
         return {"running": False, "error": f"Obscura binary not found: {obscura_exe}"}
@@ -257,6 +345,17 @@ async def _start_browser(headless: bool = True) -> dict:
         status = await _ensure_browser()
         if status.get("running"):
             return status
+
+    if _browser_process is not None:
+        try:
+            _browser_process.terminate()
+            _browser_process.wait(timeout=5)
+        except Exception:
+            try:
+                _browser_process.kill()
+            except Exception:
+                pass
+        _browser_process = None
 
     return {"running": False, "error": "Browser failed to start within timeout"}
 
@@ -274,7 +373,6 @@ async def browser_health() -> str:
 @mcp.tool()
 async def browser_open(
     url: Annotated[str, Field(description="URL to navigate to")],
-    headless: Annotated[bool, Field(description="Run in headless mode (default: true)")] = True,
     wait_until: Annotated[str, Field(description="Wait condition: load | domcontentloaded | networkidle")] = "load",
 ) -> str:
     """Open URL in browser, starting browser if needed.
@@ -283,7 +381,7 @@ async def browser_open(
     """
     status = await _ensure_browser()
     if not status.get("running"):
-        start_result = await _start_browser(headless=headless)
+        start_result = await _start_browser()
         if not start_result.get("running"):
             return json.dumps(start_result)
 
@@ -299,7 +397,7 @@ async def browser_open(
 
 @mcp.tool()
 async def browser_snapshot() -> str:
-    """Capture accessibility snapshot of current page with deterministic element refs.
+    """Capture a DOM-based page snapshot with deterministic element refs.
 
     Returns JSON like:
     { "url": "...", "title": "...", "elements": [{ "ref": "@e1", "role": "...", "name": "...", "selector": "..." }] }
@@ -309,9 +407,11 @@ async def browser_snapshot() -> str:
 
     try:
         _reset_ref_map()
-        acc = await _page.accessibility.snapshot()
-        elements: List[Dict] = []
-        _build_elements_from_accessibility_tree(acc, elements)
+        raw_elements = await _page.eval_on_selector_all(
+            INTERACTIVE_SELECTOR,
+            DOM_SNAPSHOT_SCRIPT,
+        )
+        elements = _build_elements_from_dom_snapshot(raw_elements)
         return json.dumps({
             "url": _page.url,
             "title": await _page.title(),
