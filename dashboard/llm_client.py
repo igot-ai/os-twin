@@ -468,7 +468,7 @@ PROVIDER_API_KEYS = {
     "fireworks": "FIREWORKS_API_KEY",
     "xai": "XAI_API_KEY",
     "cohere": "CO_API_KEY",
-    "huggingface": "HF_TOKEN",
+    "openai-compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
 
 
@@ -504,18 +504,23 @@ def create_client(
     api_key: Optional[str] = None,
     config: Optional[LLMConfig] = None,
 ) -> LLMClient:
+    import os as _os
+
     if provider is None:
         provider = _detect_provider_from_model(model)
 
     if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
         base_url = _get_base_url(provider)
         if provider == "google-vertex" and base_url:
-            import os as _os
-
             region = _os.environ.get("VERTEX_LOCATION", "global")
             project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
             base_url = base_url.replace("{region}", region).replace("{project}", project)
         return GoogleClient(model=model, base_url=base_url, config=config)
+
+    if provider == "openai-compatible":
+        base_url = _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
+        api_key = api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+        return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
 
     base_url = _get_base_url(provider)
 
