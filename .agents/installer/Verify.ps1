@@ -149,23 +149,16 @@ function Print-CompletionBanner {
 
     # Display OSTWIN_API_KEY
     $apiKey = $env:OSTWIN_API_KEY
-    Write-Host "  Debug: OSTWIN_API_KEY from env: $([string]::IsNullOrEmpty($apiKey))" -ForegroundColor DarkGray
     if (-not $apiKey) {
         $envFile = Join-Path $script:InstallDir ".env"
-        Write-Host "  Debug: Reading from .env at: $envFile" -ForegroundColor DarkGray
         if (Test-Path $envFile) {
-            $envLines = Get-Content $envFile
-            Write-Host "  Debug: .env has $($envLines.Count) lines" -ForegroundColor DarkGray
+            $envLines = Get-Content -Path $envFile -Encoding UTF8
             foreach ($line in $envLines) {
                 if ($line -match '^OSTWIN_API_KEY=(.+)$') {
                     $apiKey = $Matches[1].Trim()
-                    Write-Host "  Debug: Found OSTWIN_API_KEY in .env" -ForegroundColor DarkGray
                     break
                 }
             }
-        }
-        else {
-            Write-Host "  Debug: .env file not found at $envFile" -ForegroundColor DarkGray
         }
     }
     if ($apiKey) {
@@ -176,12 +169,11 @@ function Print-CompletionBanner {
         Write-Host "    Use this key to authenticate with the dashboard frontend." -ForegroundColor DarkGray
         Write-Host "    The frontend will prompt you to enter this key on first visit." -ForegroundColor DarkGray
         Write-Host "    Stored in: $($script:InstallDir)\.env" -ForegroundColor DarkGray
-        Write-Host "    Also set as User environment variable (restart terminal to see it)." -ForegroundColor DarkGray
         Write-Host ""
     }
     else {
         Write-Host "  ⚠️  OSTWIN_API_KEY not found in environment or .env" -ForegroundColor Yellow
-        Write-Host "    Run: ostwin config --generate-api-key" -ForegroundColor DarkGray
+        Write-Host "    Add OSTWIN_API_KEY to $($script:InstallDir)\.env, then restart the dashboard." -ForegroundColor DarkGray
     }
 
     Write-Host "  AI Provider Keys:" -ForegroundColor White

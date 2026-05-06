@@ -42,44 +42,44 @@ _RESTART_DEBOUNCE_SECS = 2.0
 
 def ensure_bot_dependencies() -> bool:
     """Install bot dependencies if node_modules missing.
-
+    
     Returns True if dependencies are available (already installed or just installed).
     Returns False if installation failed.
     """
     node_modules = BOT_DIR / "node_modules"
-
+    
     if node_modules.exists():
         logger.debug("[BOT] node_modules already exists")
         return True
-
+    
     if not (BOT_DIR / "package.json").exists():
         logger.warning("[BOT] package.json not found in %s", BOT_DIR)
         return False
-
+    
     # Find package manager
     import subprocess
-
+    
     pkg_manager = None
     for pm in ["pnpm", "npm"]:
         if shutil.which(pm):
             pkg_manager = pm
             break
-
+    
     if not pkg_manager:
         logger.error("[BOT] No package manager found (pnpm or npm required)")
         return False
-
+    
     logger.info("[BOT] Installing dependencies with %s in %s", pkg_manager, BOT_DIR)
-
+    
     try:
         result = subprocess.run(
             [pkg_manager, "install"],
             cwd=str(BOT_DIR),
             capture_output=True,
             text=True,
-            timeout=300,  # 5 minute timeout
+            timeout=300  # 5 minute timeout
         )
-
+        
         if result.returncode == 0:
             logger.info("[BOT] Dependencies installed successfully")
             return True
@@ -135,9 +135,7 @@ class BotProcessManager:
 
         tsx_result = self._find_tsx()
         if tsx_result is None:
-            logger.error(
-                "[BOT] Cannot find tsx binary — is bot/node_modules installed?"
-            )
+            logger.error("[BOT] Cannot find tsx binary — is bot/node_modules installed?")
             return False
 
         tsx_exe, tsx_args = tsx_result
@@ -277,23 +275,15 @@ class BotProcessManager:
 
     def _find_tsx(self) -> Optional[tuple[str, list[str]]]:
         """Locate the tsx binary in the bot's node_modules.
-
+        
         Returns tuple of (executable, args) or None if not found.
         - Local tsx: (tsx_path, [])
         - Fallback npx: ('npx', ['tsx'])
         """
-        bin_dir = self.bot_dir / "node_modules" / ".bin"
-
-        if os.name == "nt":
-            tsx_candidates = ["tsx.CMD", "tsx.cmd", "tsx.ps1", "tsx"]
-        else:
-            tsx_candidates = ["tsx", "tsx.CMD", "tsx.cmd"]
-
-        for tsx_name in tsx_candidates:
-            tsx_path = bin_dir / tsx_name
-            if tsx_path.exists():
-                return (str(tsx_path), [])
-
+        local_tsx = self.bot_dir / "node_modules" / ".bin" / "tsx"
+        if local_tsx.exists():
+            return (str(local_tsx), [])
+        # Fallback: use npx tsx
         npx = shutil.which("npx")
         if npx:
             return (npx, ["tsx"])

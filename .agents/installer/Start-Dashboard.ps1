@@ -115,16 +115,9 @@ function Start-Dashboard {
     # Write with UTF-8 without BOM (handles non-ASCII paths correctly)
     [System.IO.File]::WriteAllText($batFile, $batContent, [System.Text.UTF8Encoding]::new($false))
 
-    # Pass OSTWIN_API_KEY explicitly to the child process
-    $startProcessParams = @{
-        FilePath     = "cmd.exe"
-        ArgumentList = "/c", "`"$batFile`""
-        WindowStyle  = "Hidden"
-    }
-    if ($env:OSTWIN_API_KEY) {
-        $startProcessParams["Environment"] = @{ OSTWIN_API_KEY = $env:OSTWIN_API_KEY }
-    }
-    Start-Process @startProcessParams
+    Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c", "`"$batFile`"" `
+        -WindowStyle Hidden
 
     # The PID will be resolved after health check succeeds (port is listening)
     $dashPid = $null

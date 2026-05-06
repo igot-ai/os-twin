@@ -156,18 +156,9 @@ def connect_channel(args):
                 f"Pairing code: {pairing_code} (share with your {platform.capitalize()} users)"
             )
 
-            # Check bot status
+            # Final status line
             print(f"Starting {platform} bot... ", end="", flush=True)
-            try:
-                bot_response = client.get("/api/bot/status")
-                bot_response.raise_for_status()
-                bot_status = bot_response.json()
-                if bot_status.get("running"):
-                    print(f"Bot running (pid {bot_status.get('pid')})")
-                else:
-                    print("Bot not running — start with: ostwin bot start")
-            except Exception:
-                print("Connected (bot status unavailable)")
+            print("Connected")
 
     except Exception as e:
         print(f"\nError: {e}")

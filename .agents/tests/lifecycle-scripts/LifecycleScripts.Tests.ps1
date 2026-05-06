@@ -243,7 +243,7 @@ Describe "uninstall.ps1" {
 
             $output = & pwsh -NoProfile -Command "& '$AgentsDir/uninstall.ps1' -Dir '$tmpDir' -Yes" 2>&1
             $outputStr = $output -join "`n"
-            
+
             $outputStr | Should -Match "Files removed"
             $outputStr | Should -Match "Uninstall complete"
             Test-Path $tmpDir | Should -Be $false
@@ -266,7 +266,7 @@ Describe "uninstall.ps1" {
 
             $output = & pwsh -NoProfile -Command "& '$AgentsDir/uninstall.ps1' -Dir '$tmpDir' -Yes" 2>&1
             $outputStr = $output -join "`n"
-            
+
             $outputStr | Should -Match "Files removed"
             Test-Path $tmpDir | Should -Be $false
         }

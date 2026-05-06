@@ -11,17 +11,6 @@ from typing import List, Optional, Any, Dict
 
 from dashboard.models import Skill
 
-
-def read_text_utf8(path: Path) -> str:
-    """Read file as UTF-8 text, safe on Windows where default encoding is cp1252."""
-    return path.read_text(encoding="utf-8")
-
-
-def read_json_utf8(path: Path) -> dict:
-    """Read JSON file as UTF-8, safe on Windows."""
-    return json.loads(read_text_utf8(path))
-
-
 # === Paths ===
 # Resolved relative to this file
 _dashboard_parent = Path(__file__).parent.parent
@@ -64,7 +53,6 @@ if os.environ.get("OSTWIN_PROJECT_DIR"):
     AGENTS_DIR = PROJECT_ROOT / ".agents"
     WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
-
 def resolve_plans_dir(
     project_root: Optional[Path] = None,
     agents_dir: Optional[Path] = None,
@@ -99,7 +87,6 @@ def find_plan_file(plan_id: str) -> Optional[Path]:
         if global_path.exists():
             return global_path
     return None
-
 
 # Global roles storage
 GLOBAL_ROLES_DIR = _ostwin_home / ".agents" / "roles"
@@ -144,23 +131,23 @@ def read_room(
 
     room_id = room_dir.name
     status_file = room_dir / "status"
-    status = read_text_utf8(status_file).strip() if status_file.exists() else "unknown"
+    status = status_file.read_text().strip() if status_file.exists() else "unknown"
 
     tr_file = room_dir / "task-ref"
-    task_ref = read_text_utf8(tr_file).strip() if tr_file.exists() else None
+    task_ref = tr_file.read_text().strip() if tr_file.exists() else None
 
     retries_file = room_dir / "retries"
-    retries_str = read_text_utf8(retries_file).strip() if retries_file.exists() else "0"
+    retries_str = retries_file.read_text().strip() if retries_file.exists() else "0"
     retries = int(retries_str) if retries_str.isdigit() else 0
 
     brief_file = room_dir / "brief.md"
-    task_md = read_text_utf8(brief_file) if brief_file.exists() else None
+    task_md = brief_file.read_text() if brief_file.exists() else None
 
     # Fallback: extract ref from TASKS.md header
     if not task_ref:
         tasks_file = room_dir / "TASKS.md"
         if tasks_file.exists():
-            header = read_text_utf8(tasks_file).split("\n", 1)[0]
+            header = tasks_file.read_text().split("\n", 1)[0]
             m = re.search(r"(EPIC-\d+|TASK-\d+)", header)
             if m:
                 task_ref = m.group(1)
@@ -172,13 +159,13 @@ def read_room(
     # Fallback: use TASKS.md as description
     tasks_file = room_dir / "TASKS.md"
     if not task_md and tasks_file.exists():
-        task_md = read_text_utf8(tasks_file)
+        task_md = tasks_file.read_text()
 
     # Parse TASKS.md for goal completion
     goal_total = 0
     goal_done = 0
     if tasks_file.exists():
-        tasks_content = read_text_utf8(tasks_file)
+        tasks_content = tasks_file.read_text()
         goal_total = len(re.findall(r"- \[[ xX]\]", tasks_content))
         goal_done = len(re.findall(r"- \[[xX]\]", tasks_content))
 
@@ -187,7 +174,7 @@ def read_room(
     last_activity = None
 
     if channel_file.exists():
-        raw_content = read_text_utf8(channel_file)
+        raw_content = channel_file.read_text()
         lines = [l.strip() for l in raw_content.splitlines() if l.strip()]
         message_count = len(lines)
         if lines:
@@ -215,7 +202,7 @@ def read_room(
         lifecycle_file = room_dir / "lifecycle.json"
         if lifecycle_file.exists():
             try:
-                result["lifecycle"] = read_json_utf8(lifecycle_file)
+                result["lifecycle"] = json.loads(lifecycle_file.read_text())
             except (json.JSONDecodeError, OSError):
                 result["lifecycle"] = {}
         else:
@@ -225,7 +212,7 @@ def read_room(
         config_file = room_dir / "config.json"
         if config_file.exists():
             try:
-                result["config"] = read_json_utf8(config_file)
+                result["config"] = json.loads(config_file.read_text())
             except (json.JSONDecodeError, OSError):
                 result["config"] = {}
         else:
@@ -234,7 +221,7 @@ def read_room(
         # state_changed_at — last state transition timestamp
         sca_file = room_dir / "state_changed_at"
         result["state_changed_at"] = (
-            read_text_utf8(sca_file).strip() if sca_file.exists() else None
+            sca_file.read_text().strip() if sca_file.exists() else None
         )
 
         # Role instance files (*_*.json except config.json)
@@ -243,7 +230,7 @@ def read_room(
             if f.name == "config.json":
                 continue
             try:
-                data = read_json_utf8(f)
+                data = json.loads(f.read_text())
                 if "role" in data and "instance_id" in data:
                     data["filename"] = f.name
                     roles.append(data)
@@ -264,7 +251,7 @@ def read_room(
         audit_file = room_dir / "audit.log"
         if audit_file.exists():
             try:
-                lines = read_text_utf8(audit_file).splitlines()
+                lines = audit_file.read_text().splitlines()
                 if len(lines) > 20:
                     result["audit_tail"] = lines[-20:]
                 else:
@@ -298,7 +285,7 @@ def read_channel(
     # Pre-compile regex for query if provided
     q_re = re.compile(re.escape(query), re.IGNORECASE) if query else None
 
-    for line in read_text_utf8(channel_file).splitlines():
+    for line in channel_file.read_text().splitlines():
         line = line.strip()
         if not line:
             continue
@@ -334,7 +321,7 @@ async def process_notification(event_type: str, data: dict):
     notifications_file.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).isoformat()
     log_entry = json.dumps({"ts": timestamp, "event": event_type, "data": data})
-    with open(notifications_file, "a", encoding="utf-8") as f:
+    with open(notifications_file, "a") as f:
         f.write(log_entry + "\n")
 
 
@@ -376,9 +363,7 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
             except Exception as e:
                 # Log but continue — invalid metadata shouldn't block skill indexing
                 logger = logging.getLogger("api_utils")
-                logger.debug(
-                    f"Skipping malformed YAML frontmatter in {skill_file}: {e}"
-                )
+                logger.debug(f"Skipping malformed YAML frontmatter in {skill_file}: {e}")
 
     # Determine source based on path
     source = "project"
@@ -501,7 +486,7 @@ def get_active_epics_using_skill(skill_name: str) -> int:
     roles_using_skill = set()
     if roles_config_file.exists():
         try:
-            roles_data = read_json_utf8(roles_config_file)
+            roles_data = json.loads(roles_config_file.read_text())
             for r in roles_data:
                 if skill_name in r.get("skill_refs", []):
                     roles_using_skill.add(r.get("name"))
@@ -518,9 +503,7 @@ def get_active_epics_using_skill(skill_name: str) -> int:
             # Check status
             status_file = room_dir / "status"
             status = (
-                read_text_utf8(status_file).strip()
-                if status_file.exists()
-                else "unknown"
+                status_file.read_text().strip() if status_file.exists() else "unknown"
             )
             if status in ["passed", "failed", "signoff", "failed-final"]:
                 continue
@@ -529,7 +512,7 @@ def get_active_epics_using_skill(skill_name: str) -> int:
             config_file = room_dir / "config.json"
             if config_file.exists():
                 try:
-                    config = read_json_utf8(config_file)
+                    config = json.loads(config_file.read_text())
                     candidates = config.get("assignment", {}).get("candidate_roles", [])
                     if any(role_name in roles_using_skill for role_name in candidates):
                         active_count += 1
@@ -542,7 +525,7 @@ def get_active_epics_using_skill(skill_name: str) -> int:
                 if f.name == "config.json":
                     continue
                 try:
-                    data = read_json_utf8(f)
+                    data = json.loads(f.read_text())
                     if data.get("role") in roles_using_skill:
                         active_count += 1
                         break
@@ -591,11 +574,7 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
         # Compare sanitized content to avoid unnecessary re-indexing
         content_bytes = data["content"].encode("ascii", errors="replace")
         content_ascii = content_bytes.decode("ascii")
-        if (
-            existing
-            and existing["content"] == content_ascii
-            and existing.get("enabled") == enabled
-        ):
+        if existing and existing["content"] == content_ascii and existing.get("enabled") == enabled:
             continue
 
         if store.index_skill(
@@ -673,39 +652,29 @@ def build_skills_list(
     if plans_dir.exists():
         for f in plans_dir.glob("*.roles.json"):
             try:
-                config = read_json_utf8(f)
+                config = json.loads(f.read_text())
                 attached = config.get("attached_skills", [])
                 for s_name in attached:
                     usage_counts[s_name] = usage_counts.get(s_name, 0) + 1
             except Exception:
                 pass
 
-    enriched_from_disk: set[str] = (
-        set()
-    )  # track which skills have been enriched to avoid duplicate overwrite
+    enriched_from_disk: set[str] = set() # track which skills have been enriched to avoid duplicate overwrite
     for sdir in SKILLS_DIRS:
         if not sdir.exists():
             continue
         try:
             for skill_md in sdir.rglob("SKILL.md"):
                 path = skill_md.parent
-                rel_parts = (
-                    path.relative_to(sdir).parts
-                    if path.is_relative_to(sdir)
-                    else path.parts
-                )
-                if any(
-                    p in ("references", ".versions") for p in rel_parts
-                ):  # skip reference/archive copies
+                rel_parts = path.relative_to(sdir).parts if path.is_relative_to(sdir) else path.parts
+                if any(p in ("references", ".versions") for p in rel_parts): # skip reference/archive copies
                     continue
                 skill_data = parse_skill_md(path)
                 if skill_data:
                     name = skill_data["name"]
                     skill_data["usage_count"] = usage_counts.get(name, 0)
                     if name in skills_map:
-                        if (
-                            name not in enriched_from_disk
-                        ):  # first-found wins; prevents stale duplicates from overwriting toggled state
+                        if name not in enriched_from_disk: # first-found wins; prevents stale duplicates from overwriting toggled state
                             enriched_from_disk.add(name)
                             existing = skills_map[name]
                             for k, v in skill_data.items():
@@ -778,7 +747,7 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
     plan_meta_file = PLANS_DIR / f"{plan_id}.meta.json"
     if plan_meta_file.exists():
         try:
-            meta = read_json_utf8(plan_meta_file)
+            meta = json.loads(plan_meta_file.read_text())
             working_dir = meta.get("working_dir")
             if working_dir:
                 wd = Path(working_dir)
@@ -790,7 +759,7 @@ def resolve_plan_warrooms_dir(plan_id: str) -> Path:
 
     plan_file = PLANS_DIR / f"{plan_id}.md"
     if plan_file.exists():
-        content = read_text_utf8(plan_file)
+        content = plan_file.read_text()
         m = re.search(r"working_dir:\s*(.+)", content)
         if m:
             working_dir = m.group(1).strip()
@@ -815,7 +784,7 @@ def resolve_runtime_plan_warrooms_dir(plan_id: str) -> Optional[Path]:
     plan_meta_file = PLANS_DIR / f"{plan_id}.meta.json"
     if plan_meta_file.exists():
         try:
-            meta = read_json_utf8(plan_meta_file)
+            meta = json.loads(plan_meta_file.read_text())
             warrooms_dir = meta.get("warrooms_dir")
             if warrooms_dir:
                 wd = Path(warrooms_dir)
@@ -837,7 +806,7 @@ def resolve_runtime_plan_warrooms_dir(plan_id: str) -> Optional[Path]:
 
     for room_config_file in WARROOMS_DIR.glob("room-*/config.json"):
         try:
-            room_config = read_json_utf8(room_config_file)
+            room_config = json.loads(room_config_file.read_text())
         except (json.JSONDecodeError, OSError):
             continue
         if room_config.get("plan_id") == plan_id:
@@ -851,12 +820,12 @@ def get_plan_roles_config(plan_id: str) -> dict:
     plan_roles_file = PLANS_DIR / f"{plan_id}.roles.json"
     if plan_roles_file.exists():
         try:
-            return read_json_utf8(plan_roles_file)
+            return json.loads(plan_roles_file.read_text())
         except json.JSONDecodeError:
             pass
     config_file = AGENTS_DIR / "config.json"
     if config_file.exists():
-        return read_json_utf8(config_file)
+        return json.loads(config_file.read_text())
     return {}
 
 
@@ -889,7 +858,7 @@ def build_roles_list(config: dict, include_skills: bool = False) -> list:
                 role_json_file = AGENTS_DIR / "roles" / name / "role.json"
             if role_json_file.exists():
                 try:
-                    rj = read_json_utf8(role_json_file)
+                    rj = json.loads(role_json_file.read_text())
                     plan_skill_refs = rj.get("skill_refs", rj.get("skills", []))
                 except (json.JSONDecodeError, OSError):
                     pass

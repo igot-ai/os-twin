@@ -9,51 +9,38 @@
 if ($script:_SetupEnvPs1Loaded) { return }
 $script:_SetupEnvPs1Loaded = $true
 
+function New-OstwinApiKey {
+    $randomBytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($randomBytes)
+    return "ostwin_" + [Convert]::ToBase64String($randomBytes).Replace("/", "").Replace("+", "").Replace("=", "").Substring(0, 32)
+}
+
 function Setup-Env {
     [CmdletBinding()]
     param()
 
     $envFile = Join-Path $script:InstallDir ".env"
-    
-    Write-Step "Setting up .env at $envFile..."
-    Write-Step "InstallDir: $($script:InstallDir)"
 
     if (Test-Path $envFile) {
         Write-Ok ".env already exists at $envFile"
-        
-        # Load OSTWIN_API_KEY from existing .env into current process
-        $envContent = Get-Content $envFile
-        $hasApiKey = $false
-        foreach ($line in $envContent) {
+
+        $apiKey = $null
+        foreach ($line in (Get-Content -Path $envFile -Encoding UTF8)) {
             if ($line -match '^OSTWIN_API_KEY=(.+)$') {
-                $env:OSTWIN_API_KEY = $Matches[1].Trim()
-                $script:OstwinApiKey = $Matches[1].Trim()
-                $hasApiKey = $true
-                Write-Ok "OSTWIN_API_KEY loaded from .env: $($Matches[1].Trim().Substring(0, [Math]::Min(10, $Matches[1].Trim().Length)))..."
+                $apiKey = $Matches[1].Trim()
                 break
             }
         }
-        
-        # If OSTWIN_API_KEY doesn't exist, generate and add it
-        if (-not $hasApiKey) {
+
+        if (-not $apiKey) {
             Write-Step "OSTWIN_API_KEY not found in .env — generating new key..."
-            $randomBytes = New-Object byte[] 32
-            [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($randomBytes)
-            $generatedApiKey = "ostwin_" + [Convert]::ToBase64String($randomBytes).Replace("/", "").Replace("+", "").Replace("=", "").Substring(0, 32)
-            
-            Add-Content -Path $envFile -Value "`n# ── Dashboard Authentication ────────────────────────────────────────────────`nOSTWIN_API_KEY=$generatedApiKey"
-            
-            $env:OSTWIN_API_KEY = $generatedApiKey
-            $script:OstwinApiKey = $generatedApiKey
-            
-            # Set as persistent User-level environment variable so child processes (dashboard) inherit it
-            [System.Environment]::SetEnvironmentVariable("OSTWIN_API_KEY", $generatedApiKey, "User")
-            Write-Ok "OSTWIN_API_KEY generated, added to .env, and set as User env var"
+            $apiKey = New-OstwinApiKey
+            Add-Content -Path $envFile -Encoding UTF8 -Value "`n# ── Dashboard Authentication ────────────────────────────────────────────────`nOSTWIN_API_KEY=$apiKey"
+            Write-Ok "OSTWIN_API_KEY generated and added to .env"
         }
-        else {
-            # Key exists in .env — also set as User env var to ensure it's available to child processes
-            [System.Environment]::SetEnvironmentVariable("OSTWIN_API_KEY", $env:OSTWIN_API_KEY, "User")
-        }
+
+        $env:OSTWIN_API_KEY = $apiKey
+        $script:OstwinApiKey = $apiKey
         return
     }
 
@@ -63,9 +50,7 @@ function Setup-Env {
     }
 
     # Generate a secure API key for dashboard auth
-    $randomBytes = New-Object byte[] 32
-    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($randomBytes)
-    $generatedApiKey = "ostwin_" + [Convert]::ToBase64String($randomBytes).Replace("/", "").Replace("+", "").Replace("=", "").Substring(0, 32)
+    $generatedApiKey = New-OstwinApiKey
 
     $envContent = @"
 # Ostwin — Environment Variables
@@ -138,17 +123,12 @@ MEMORY_AUTO_SYNC_INTERVAL=60
         Write-Fail ".env file was not created at $envFile"
         throw "Failed to create .env file"
     }
-    
+
     Write-Ok ".env created at $envFile"
-    Write-Step "OSTWIN_API_KEY: $generatedApiKey"
 
     # Export OSTWIN_API_KEY to current process and script scope
     $env:OSTWIN_API_KEY = $generatedApiKey
     $script:OstwinApiKey = $generatedApiKey
-
-    # Set as persistent User-level environment variable so child processes (dashboard) inherit it
-    [System.Environment]::SetEnvironmentVariable("OSTWIN_API_KEY", $generatedApiKey, "User")
-    Write-Ok "OSTWIN_API_KEY set as persistent User env var"
 
     # Create .env.ps1 hook for dynamic env logic
     Create-EnvPs1Hook

@@ -11,8 +11,6 @@ from dashboard.api_utils import (
     read_room,
     read_channel,
     process_notification,
-    read_json_utf8,
-    read_text_utf8,
 )
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
@@ -57,7 +55,7 @@ async def poll_war_rooms():
         if plans_dir.exists():
             for meta_file in plans_dir.glob("*.meta.json"):
                 try:
-                    meta = read_json_utf8(meta_file)
+                    meta = json.loads(meta_file.read_text())
                     wd = meta.get("working_dir") or meta.get("warrooms_dir")
                     if wd:
                         warrooms_path = Path(wd)
@@ -79,7 +77,7 @@ async def poll_war_rooms():
         resolved = warroom_dir.resolve()
         for meta_file in PLANS_DIR.glob("*.meta.json"):
             try:
-                meta = read_json_utf8(meta_file)
+                meta = json.loads(meta_file.read_text())
                 wd = meta.get("warrooms_dir") or meta.get("working_dir")
                 if wd:
                     wd_path = Path(wd)
@@ -231,7 +229,7 @@ async def poll_war_rooms():
                 curr_mtime = release_file.stat().st_mtime
                 if curr_mtime != last_snapshot.get("__release__", {}).get("mtime", 0):
                     await global_state.broadcaster.broadcast(
-                        "release", {"content": read_text_utf8(release_file)}
+                        "release", {"content": release_file.read_text()}
                     )
                     current["__release__"] = {"mtime": curr_mtime}
 
