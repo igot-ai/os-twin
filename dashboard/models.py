@@ -1,4 +1,5 @@
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -8,8 +9,8 @@ class Room(BaseModel):
     status: str
     retries: int
     message_count: int
-    last_activity: Optional[str] = None
-    task_description: Optional[str] = None
+    last_activity: str | None = None
+    task_description: str | None = None
     goal_total: int = 0
     goal_done: int = 0
 
@@ -39,7 +40,7 @@ class CommentRequest(BaseModel):
     entity_id: str
     user_id: str
     body: str
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
 
 
 class TelegramConfigRequest(BaseModel):
@@ -50,8 +51,8 @@ class TelegramConfigRequest(BaseModel):
 class CreatePlanRequest(BaseModel):
     path: str
     title: str = "Untitled"
-    content: Optional[str] = None
-    working_dir: Optional[str] = None
+    content: str | None = None
+    working_dir: str | None = None
 
 
 class SavePlanRequest(BaseModel):
@@ -67,8 +68,8 @@ class RefineRequest(BaseModel):
     model: str = ""
     chat_history: list = Field(default_factory=list)
     working_dir: str = ""  # Target project directory for this plan
-    asset_context: List[Dict[str, Any]] = Field(default_factory=list)
-    images: List[Dict[str, Any]] = Field(default_factory=list)  # [{url: "data:image/...;base64,...", name, contentType}]
+    asset_context: list[dict[str, Any]] = Field(default_factory=list)
+    images: list[dict[str, Any]] = Field(default_factory=list)  # [{url: "data:image/...;base64,...", name, contentType}]
 
 
 class UpdatePlanRoleConfigRequest(BaseModel):
@@ -76,8 +77,8 @@ class UpdatePlanRoleConfigRequest(BaseModel):
     temperature: float | None = None
     timeout_seconds: int | None = None
     cli: str | None = None
-    skill_refs: List[str] | None = None
-    disabled_skills: List[str] | None = None
+    skill_refs: list[str] | None = None
+    disabled_skills: list[str] | None = None
 
 
 class StrategyParameter(BaseModel):
@@ -92,28 +93,28 @@ class Strategy(BaseModel):
     name: str
     description: str
     status: str  # "active", "inactive"
-    parameters: List[StrategyParameter]
-    last_run: Optional[str] = None
+    parameters: list[StrategyParameter]
+    last_run: str | None = None
 
 
 class Skill(BaseModel):
     name: str
     description: str
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     trust_level: str = "experimental"
     source: str = "project"
     version: str = "0.1.0"
-    category: Optional[str] = None
-    score: Optional[float] = None
-    applicable_roles: List[str] = Field(default_factory=list)
+    category: str | None = None
+    score: float | None = None
+    applicable_roles: list[str] = Field(default_factory=list)
     content: str = ""
-    path: Optional[str] = None
-    relative_path: Optional[str] = None
-    params: List[Dict[str, Any]] = Field(default_factory=list)
-    changelog: List[Dict[str, Any]] = Field(default_factory=list)
-    author: Optional[str] = None
-    updated_at: Optional[str] = None
-    forked_from: Optional[str] = None
+    path: str | None = None
+    relative_path: str | None = None
+    params: list[dict[str, Any]] = Field(default_factory=list)
+    changelog: list[dict[str, Any]] = Field(default_factory=list)
+    author: str | None = None
+    updated_at: str | None = None
+    forked_from: str | None = None
     is_draft: bool = False
     enabled: bool = True
     active_epics_count: int = 0
@@ -130,9 +131,9 @@ class Role(BaseModel):
     budget_tokens_max: int = 500000
     max_retries: int = 3
     timeout_seconds: int = 300
-    skill_refs: List[str] = Field(default_factory=list)
-    mcp_refs: List[str] = Field(default_factory=list)
-    system_prompt_override: Optional[str] = None
+    skill_refs: list[str] = Field(default_factory=list)
+    mcp_refs: list[str] = Field(default_factory=list)
+    system_prompt_override: str | None = None
     instance_type: str = "worker" # 'worker' | 'evaluator'
     created_at: str
     updated_at: str
@@ -150,14 +151,14 @@ class CreateRoleRequest(BaseModel):
     budget_tokens_max: int = Field(500000, ge=1000, le=10000000)
     max_retries: int = Field(3, ge=1, le=10)
     timeout_seconds: int = Field(300, ge=60)
-    skill_refs: List[str] = Field(default_factory=list)
-    mcp_refs: List[str] = Field(default_factory=list)
+    skill_refs: list[str] = Field(default_factory=list)
+    mcp_refs: list[str] = Field(default_factory=list)
     instance_type: str = "worker"
-    system_prompt_override: Optional[str] = Field(None, max_length=2000)
+    system_prompt_override: str | None = Field(None, max_length=2000)
 
 
 class SkillSearchResponse(BaseModel):
-    skills: List[Skill]
+    skills: list[Skill]
     total: int
 
 
@@ -167,37 +168,37 @@ class SkillInstallRequest(BaseModel):
 
 class SkillSearchRequest(BaseModel):
     query: str
-    role: Optional[str] = None
-    tags: List[str] = []
+    role: str | None = None
+    tags: list[str] = []
 
 
 class SkillSyncResponse(BaseModel):
     synced_count: int
-    added: List[str]
-    updated: List[str]
-    removed: List[str]
+    added: list[str]
+    updated: list[str]
+    removed: list[str]
 
 
 class SkillCreateRequest(BaseModel):
     name: str = Field(..., min_length=3, max_length=60)
     description: str = Field(..., min_length=10, max_length=500)
     category: str
-    applicable_roles: List[str] = Field(default_factory=list)
-    tags: List[str] = Field(default_factory=list)
+    applicable_roles: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     content: str = Field(..., min_length=50)
     is_draft: bool = False
 
 
 class SkillUpdateRequest(BaseModel):
-    description: Optional[str] = Field(None, min_length=10, max_length=500)
-    category: Optional[str] = None
-    applicable_roles: Optional[List[str]] = None
-    tags: Optional[List[str]] = None
-    content: Optional[str] = None
-    is_draft: Optional[bool] = None
-    enabled: Optional[bool] = None
+    description: str | None = Field(None, min_length=10, max_length=500)
+    category: str | None = None
+    applicable_roles: list[str] | None = None
+    tags: list[str] | None = None
+    content: str | None = None
+    is_draft: bool | None = None
+    enabled: bool | None = None
     major_bump: bool = False
-    change_description: Optional[str] = None
+    change_description: str | None = None
 
 
 class SkillForkRequest(BaseModel):
@@ -210,9 +211,9 @@ class SkillValidateRequest(BaseModel):
 
 class SkillValidateResponse(BaseModel):
     valid: bool
-    errors: List[str] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
-    markers: List[Dict[str, Any]] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    markers: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SkillDuplicateCheckRequest(BaseModel):
@@ -221,46 +222,47 @@ class SkillDuplicateCheckRequest(BaseModel):
 
 class SkillDuplicateCheckResponse(BaseModel):
     is_duplicate: bool
-    similar_skills: List[str] = Field(default_factory=list)
+    similar_skills: list[str] = Field(default_factory=list)
 
 
 class ProviderSettings(BaseModel):
-    api_key_ref: Optional[str] = None
-    base_url: Optional[str] = None
-    org_id: Optional[str] = None
+    api_key_ref: str | None = None
+    base_url: str | None = None
+    org_id: str | None = None
     enabled: bool = True
-    default_model: Optional[str] = None
-    deployment_mode: Optional[str] = None   # 'gemini' | 'vertex' (Google only)
-    project_id: Optional[str] = None        # Vertex AI project ID (Google only)
-    vertex_location: Optional[str] = None   # Vertex AI region (Google only, default: global)
-    vertex_auth_mode: Optional[str] = None  # 'service_account' | 'oauth' (Vertex only, default: service_account)
-    enabled_models: List[str] = Field(
+    default_model: str | None = None
+    deployment_mode: str | None = None   # 'gemini' | 'vertex' (Google only)
+    project_id: str | None = None        # Vertex AI project ID (Google only)
+    vertex_location: str | None = None   # Vertex AI region (Google only, default: global)
+    vertex_auth_mode: str | None = None  # 'service_account' | 'oauth' (Vertex only, default: service_account)
+    enabled_models: list[str] = Field(
         default_factory=list,
         description=(
-            "Model IDs from the catalog that this provider exposes. "
-            "Empty list means ALL models for this provider are enabled."
+            "List of allowed model IDs. "
+            "If empty, all models from this provider are allowed."
         ),
     )
+    dismissed: bool | None = False
 
 
 class ProvidersNamespace(BaseModel):
-    openai: Optional[ProviderSettings] = None
-    anthropic: Optional[ProviderSettings] = None
-    google: Optional[ProviderSettings] = None
-    byteplus: Optional[ProviderSettings] = None
-    custom: Dict[str, ProviderSettings] = Field(default_factory=dict)
+    openai: ProviderSettings | None = None
+    anthropic: ProviderSettings | None = None
+    google: ProviderSettings | None = None
+    byteplus: ProviderSettings | None = None
+    custom: dict[str, ProviderSettings] = Field(default_factory=dict)
 
 
 class RoleSettings(BaseModel):
-    default_model: Optional[str] = None
-    temperature: Optional[float] = None
-    timeout_seconds: Optional[int] = None
-    max_retries: Optional[int] = None
-    budget_tokens_max: Optional[int] = None
-    system_prompt_override: Optional[str] = None
-    skill_refs: List[str] = Field(default_factory=list)
-    disabled_skills: List[str] = Field(default_factory=list)
-    instance_type: Optional[str] = None
+    default_model: str | None = None
+    temperature: float | None = None
+    timeout_seconds: int | None = None
+    max_retries: int | None = None
+    budget_tokens_max: int | None = None
+    system_prompt_override: str | None = None
+    skill_refs: list[str] = Field(default_factory=list)
+    disabled_skills: list[str] = Field(default_factory=list)
+    instance_type: str | None = None
 
 
 class RuntimeSettings(BaseModel):
@@ -275,11 +277,11 @@ class RuntimeSettings(BaseModel):
 
 class MemorySettings(BaseModel):
     # -- Processing LLM --
-    llm_backend: str = "huggingface"          # gemini | openai | huggingface | ollama | openrouter | sglang
-    llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
+    llm_backend: str = "ollama"           # gemini | openai | ollama | openrouter | sglang | openai-compatible
+    llm_model: str = "llama3.2"           # model name (provider-specific)
     # -- Embedding --
-    embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_backend: str = "ollama"     # gemini | ollama | openai-compatible
+    embedding_model: str = "leoipulsar/harrier-0.6b"
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --
@@ -293,14 +295,14 @@ class MemorySettings(BaseModel):
 
 class ChannelPlatformSettings(BaseModel):
     enabled: bool = True
-    config: Dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChannelsNamespace(BaseModel):
-    telegram: Optional[ChannelPlatformSettings] = None
-    slack: Optional[ChannelPlatformSettings] = None
-    discord: Optional[ChannelPlatformSettings] = None
-    custom: Dict[str, ChannelPlatformSettings] = Field(default_factory=dict)
+    telegram: ChannelPlatformSettings | None = None
+    slack: ChannelPlatformSettings | None = None
+    discord: ChannelPlatformSettings | None = None
+    custom: dict[str, ChannelPlatformSettings] = Field(default_factory=dict)
 
 
 class AutonomySettings(BaseModel):
@@ -333,15 +335,19 @@ class KnowledgeSettings(BaseModel):
     # -- LLM --
     knowledge_llm_backend: str = ""             # empty = use config.LLM_PROVIDER
     knowledge_llm_model: str = ""               # empty = use config.LLM_MODEL
+    knowledge_llm_compatible_url: str = ""
+    knowledge_llm_compatible_key: str = ""
     # -- Embedding --
     knowledge_embedding_backend: str = ""       # empty = use config.EMBEDDING_PROVIDER
     knowledge_embedding_model: str = ""         # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_compatible_url: str = ""
+    knowledge_embedding_compatible_key: str = ""
     knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
 
 
 class MasterSettings(BaseModel):
     providers: ProvidersNamespace = Field(default_factory=ProvidersNamespace)
-    roles: Dict[str, RoleSettings] = Field(default_factory=dict)
+    roles: dict[str, RoleSettings] = Field(default_factory=dict)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     channels: ChannelsNamespace = Field(default_factory=ChannelsNamespace)
@@ -351,5 +357,5 @@ class MasterSettings(BaseModel):
 
 
 class EffectiveResolution(BaseModel):
-    effective: Dict[str, Any]
-    provenance: Dict[str, str]
+    effective: dict[str, Any]
+    provenance: dict[str, str]

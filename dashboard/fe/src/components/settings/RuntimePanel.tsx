@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ProvenanceChip } from './ProvenanceChip';
 import { ModelSelect } from './ModelSelect';
 import type { RuntimeSettings, ModelInfo } from '@/types/settings';
@@ -13,6 +13,9 @@ export interface RuntimePanelProps {
 }
 
 export function RuntimePanel({ runtime, provenance = {}, onUpdate, allModels = [] }: RuntimePanelProps) {
+  const [pollIntervalInput, setPollIntervalInput] = useState(runtime.poll_interval);
+  const [maxRoomsInput, setMaxRoomsInput] = useState(runtime.max_concurrent_rooms);
+
   // Filter out embedding models from the master agent model picker
   const chatModels = useMemo(
     () => allModels.filter((m) => !m.id.toLowerCase().includes('embed')),
@@ -72,15 +75,17 @@ export function RuntimePanel({ runtime, provenance = {}, onUpdate, allModels = [
               type="range"
               min={1}
               max={300}
-              value={runtime.poll_interval}
-              onChange={(e) => onUpdate({ poll_interval: parseInt(e.target.value, 10) })}
+              value={pollIntervalInput}
+              onChange={(e) => setPollIntervalInput(parseInt(e.target.value, 10))}
+              onMouseUp={() => onUpdate({ poll_interval: pollIntervalInput })}
+              onTouchEnd={() => onUpdate({ poll_interval: pollIntervalInput })}
               className="w-full h-2 rounded-lg appearance-none cursor-pointer"
               style={{ background: '#f1f5f9' }}
             />
             <div className="flex justify-between text-[9px] mt-1 text-slate-500">
               <span>1s</span>
               <span className="font-mono font-bold" style={{ color: '#0f172a' }}>
-                {runtime.poll_interval}s
+                {pollIntervalInput}s
               </span>
               <span>300s</span>
             </div>
@@ -95,15 +100,17 @@ export function RuntimePanel({ runtime, provenance = {}, onUpdate, allModels = [
               type="range"
               min={1}
               max={10000}
-              value={runtime.max_concurrent_rooms}
-              onChange={(e) => onUpdate({ max_concurrent_rooms: parseInt(e.target.value, 10) })}
+              value={maxRoomsInput}
+              onChange={(e) => setMaxRoomsInput(parseInt(e.target.value, 10))}
+              onMouseUp={() => onUpdate({ max_concurrent_rooms: maxRoomsInput })}
+              onTouchEnd={() => onUpdate({ max_concurrent_rooms: maxRoomsInput })}
               className="w-full h-2 rounded-lg appearance-none cursor-pointer"
               style={{ background: '#f1f5f9' }}
             />
             <div className="flex justify-between text-[9px] mt-1 text-slate-500">
               <span>1</span>
               <span className="font-mono font-bold" style={{ color: '#0f172a' }}>
-                {runtime.max_concurrent_rooms}
+                {maxRoomsInput}
               </span>
               <span>10000</span>
             </div>

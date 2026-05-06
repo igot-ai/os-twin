@@ -14,9 +14,10 @@ import logging
 import mimetypes
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Literal, Optional
+from typing import Literal
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ class ToolCall:
     id: str
     name: str
     arguments: dict = field(default_factory=dict)
-    thought_signature: Optional[str] = None
+    thought_signature: str | None = None
 
     def __repr__(self) -> str:
         return f"ToolCall(id={self.id!r}, name={self.name!r})"
@@ -69,11 +70,11 @@ class ToolCall:
 @dataclass
 class ChatMessage:
     role: Role
-    content: Optional[str] = None
+    content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
-    tool_call_id: Optional[str] = None
-    name: Optional[str] = None
-    thought_signature: Optional[str] = None
+    tool_call_id: str | None = None
+    name: str | None = None
+    thought_signature: str | None = None
     images: list[str] = field(default_factory=list)
 
     def __repr__(self) -> str:
@@ -84,20 +85,20 @@ class ChatMessage:
 @dataclass
 class LLMConfig:
     max_tokens: int = 4096
-    temperature: Optional[float] = None
-    top_p: Optional[float] = None
-    stop: Optional[list[str]] = None
+    temperature: float | None = None
+    top_p: float | None = None
+    stop: list[str] | None = None
 
 
 class LLMError(Exception):
-    def __init__(self, message: str, provider: Optional[str] = None, original_error: Optional[Exception] = None):
+    def __init__(self, message: str, provider: str | None = None, original_error: Exception | None = None):
         super().__init__(message)
         self.provider = provider
         self.original_error = original_error
 
 
 class LLMClient(ABC):
-    def __init__(self, model: str, config: Optional[LLMConfig] = None):
+    def __init__(self, model: str, config: LLMConfig | None = None):
         self.model = model
         self.config = config or LLMConfig()
 
@@ -105,8 +106,8 @@ class LLMClient(ABC):
     async def chat(
         self,
         messages: list[ChatMessage],
-        tools: Optional[list[dict]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
     ) -> ChatMessage:
         pass
 
@@ -114,8 +115,8 @@ class LLMClient(ABC):
     async def chat_stream(
         self,
         messages: list[ChatMessage],
-        tools: Optional[list[dict]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
     ) -> AsyncIterator[str | ToolCall]:
         pass
 
@@ -133,7 +134,7 @@ class LLMClient(ABC):
         raise LLMError(f"LLM request failed after {MAX_RETRIES} retries", original_error=last_error)
 
 
-def _get_base_url(provider: str) -> Optional[str]:
+def _get_base_url(provider: str) -> str | None:
     if provider in PROVIDER_URLS:
         return PROVIDER_URLS[provider].get("base")
     return None
@@ -143,9 +144,9 @@ class OpenAIClient(LLMClient):
     def __init__(
         self,
         model: str,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        config: Optional[LLMConfig] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        config: LLMConfig | None = None,
     ):
         super().__init__(model, config)
         from openai import AsyncOpenAI
@@ -189,7 +190,7 @@ class OpenAIClient(LLMClient):
                 result.append({"role": msg.role, "content": msg.content})
         return result
 
-    def _convert_tools(self, tools: Optional[list[dict]]) -> Optional[list[dict]]:
+    def _convert_tools(self, tools: list[dict] | None) -> list[dict] | None:
         if not tools:
             return None
         return [{"type": "function", "function": t} for t in tools]
@@ -197,8 +198,8 @@ class OpenAIClient(LLMClient):
     async def chat(
         self,
         messages: list[ChatMessage],
-        tools: Optional[list[dict]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
     ) -> ChatMessage:
         async def _make_request():
             kwargs: dict = {
@@ -243,8 +244,8 @@ class OpenAIClient(LLMClient):
     async def chat_stream(
         self,
         messages: list[ChatMessage],
-        tools: Optional[list[dict]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
     ) -> AsyncIterator[str | ToolCall]:
         kwargs: dict = {
             "model": self.model,
@@ -302,18 +303,27 @@ class GoogleClient(LLMClient):
     def __init__(
         self,
         model: str,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        config: Optional[LLMConfig] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        config: LLMConfig | None = None,
+        vertexai: bool = False,
     ):
         super().__init__(model, config)
+        import os as _os
+
         from google.genai import Client
 
         # Support model strings like "models/gemini-3.1-pro-preview" or plain "gemini-3.1-pro-preview".
         # The genai SDK expects only the bare model ID (last segment after "/").
         self.model_id = model.split("/")[-1]
 
-        self._client = Client()
+        if vertexai:
+            project = _os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = _os.environ.get("VERTEX_LOCATION")
+            self._client = Client(vertexai=True, project=project, location=location)
+        else:
+            self._client = Client(api_key=api_key)
+            
         self.base_url = base_url or self._GEMINI_OPENAI_BASE
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list:
@@ -363,7 +373,7 @@ class GoogleClient(LLMClient):
                     result.append(types.Content(role=role, parts=parts))
         return result
 
-    def _convert_tools(self, tools: Optional[list[dict]]) -> Optional[list]:
+    def _convert_tools(self, tools: list[dict] | None) -> list | None:
         if not tools:
             return None
         from google.genai import types
@@ -382,8 +392,8 @@ class GoogleClient(LLMClient):
     async def chat(
         self,
         messages: list[ChatMessage],
-        tools: Optional[list[dict]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
     ) -> ChatMessage:
         async def _make_request():
             from google.genai import types
@@ -424,8 +434,8 @@ class GoogleClient(LLMClient):
     async def chat_stream(
         self,
         messages: list[ChatMessage],
-        tools: Optional[list[dict]] = None,
-        tool_choice: Optional[str] = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
     ) -> AsyncIterator[str | ToolCall]:
         from google.genai import types
 
@@ -468,7 +478,7 @@ PROVIDER_API_KEYS = {
     "fireworks": "FIREWORKS_API_KEY",
     "xai": "XAI_API_KEY",
     "cohere": "CO_API_KEY",
-    "huggingface": "HF_TOKEN",
+    "openai-compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
 
 
@@ -500,23 +510,31 @@ def _detect_provider_from_model(model: str) -> str:
 
 def create_client(
     model: str,
-    provider: Optional[str] = None,
-    api_key: Optional[str] = None,
-    config: Optional[LLMConfig] = None,
+    provider: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    config: LLMConfig | None = None,
 ) -> LLMClient:
+    import os as _os
+
     if provider is None:
         provider = _detect_provider_from_model(model)
 
     if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
-        base_url = _get_base_url(provider)
-        if provider == "google-vertex" and base_url:
-            import os as _os
-
+        effective_base_url = base_url or _get_base_url(provider)
+        is_vertex = provider == "google-vertex"
+        if is_vertex and effective_base_url:
             region = _os.environ.get("VERTEX_LOCATION", "global")
             project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-            base_url = base_url.replace("{region}", region).replace("{project}", project)
-        return GoogleClient(model=model, base_url=base_url, config=config)
+            effective_base_url = effective_base_url.replace("{region}", region).replace("{project}", project)
+        api_key = api_key or _os.environ.get("OSTWIN_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+        return GoogleClient(model=model, api_key=api_key, base_url=effective_base_url, config=config, vertexai=is_vertex)
 
-    base_url = _get_base_url(provider)
+    if provider == "openai-compatible":
+        effective_base_url = base_url or _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
+        api_key = api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+        return OpenAIClient(model=model, api_key=api_key, base_url=effective_base_url, config=config)
 
-    return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
+    effective_base_url = base_url or _get_base_url(provider)
+
+    return OpenAIClient(model=model, api_key=api_key, base_url=effective_base_url, config=config)

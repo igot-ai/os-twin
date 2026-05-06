@@ -29,14 +29,13 @@ EMBEDDING_DIMENSION: int = int(os.environ.get("OSTWIN_KNOWLEDGE_EMBED_DIM", "768
 # LLM_MODEL has no hardcoded default — user must configure via
 # MasterSettings.knowledge.llm_model or OSTWIN_KNOWLEDGE_LLM_MODEL env var.
 # When empty, KnowledgeLLM.is_available() returns False (graceful degradation).
-LLM_MODEL: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_MODEL", "gemini-3-flash-preview")
+LLM_MODEL: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_MODEL", "llama3.2")
 
 # Provider hints — auto-detected from model name when empty.
-# Valid values mirror MemorySettings: "gemini", "openai", "anthropic",
-# "huggingface", "sentence-transformer", etc.
-LLM_PROVIDER: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_PROVIDER", "google-vertex")
+# Valid values mirror MemorySettings: "ollama", "openai-compatible", etc.
+LLM_PROVIDER: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_PROVIDER", "ollama")
 EMBEDDING_PROVIDER: str = os.environ.get(
-    "OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "sentence-transformer"
+    "OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "ollama"
 )
 
 # --- Retrieval / graph tunables --------------------------------------------

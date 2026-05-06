@@ -20,10 +20,10 @@ import logging
 import os
 import re
 import time
-from typing import Any, Optional
+from typing import Any
 
-from dashboard.knowledge.config import LLM_MODEL, LLM_PROVIDER
 from dashboard.knowledge.audit import LLM_TIMEOUT  # noqa: WPS433
+from dashboard.knowledge.config import LLM_MODEL, LLM_PROVIDER
 from dashboard.knowledge.metrics import get_metrics_registry  # noqa: WPS433
 
 logger = logging.getLogger(__name__)
@@ -194,6 +194,18 @@ class KnowledgeLLM:
                 if knowledge_cfg and knowledge_cfg.knowledge_llm_model
                 else LLM_MODEL
             )
+            
+        self.openai_compatible_url = (
+            knowledge_cfg.knowledge_llm_compatible_url
+            if knowledge_cfg and getattr(knowledge_cfg, "knowledge_llm_compatible_url", "")
+            else ""
+        )
+        
+        self.openai_compatible_key = (
+            knowledge_cfg.knowledge_llm_compatible_key
+            if knowledge_cfg and getattr(knowledge_cfg, "knowledge_llm_compatible_key", "")
+            else ""
+        )
 
         # Resolve model: explicit > config (env / MasterSettings)
         self.model: str = model or ""
@@ -217,7 +229,7 @@ class KnowledgeLLM:
 
     # -- Internals ------------------------------------------------------
 
-    def _resolve_api_key(self) -> Optional[str]:
+    def _resolve_api_key(self) -> str | None:
         """Resolve an API key for the configured provider.
 
         Priority: explicit key > env var > Settings vault (providers) > master_agent vault.
@@ -227,6 +239,9 @@ class KnowledgeLLM:
 
         # Detect provider for key lookup
         provider = self._effective_provider()
+
+        if provider == "openai-compatible" and getattr(self, "openai_compatible_key", ""):
+            return self.openai_compatible_key
 
         # 1. Try standard env vars first (fast path, no imports)
         from dashboard.llm_client import PROVIDER_API_KEYS  # noqa: WPS433
@@ -271,10 +286,17 @@ class KnowledgeLLM:
 
         api_key = self._resolve_api_key()
         config = LLMConfig(max_tokens=4096)
+        
+        provider = self._effective_provider()
+        base_url = None
+        if provider == "openai-compatible" and getattr(self, "openai_compatible_url", ""):
+            base_url = self.openai_compatible_url
+            
         self._client = create_client(
             model=self.model,
-            provider=self._effective_provider(),
+            provider=provider,
             api_key=api_key,
+            base_url=base_url,
             config=config,
         )
         return self._client
@@ -311,7 +333,7 @@ class KnowledgeLLM:
         metrics.counter("llm_calls_total").inc()
         t0 = time.perf_counter()
 
-        from dashboard.llm_client import ChatMessage as CM, LLMConfig  # noqa: WPS433
+        from dashboard.llm_client import ChatMessage as CM  # noqa: WPS433
 
         client = self._get_client()
         # Override max_tokens for this call if different from default
@@ -334,7 +356,7 @@ class KnowledgeLLM:
             elapsed = time.perf_counter() - t0
             metrics.histogram("llm_latency_seconds").observe(elapsed)
             return result_text
-        except asyncio.TimeoutError:
+        except TimeoutError:
             metrics.counter("llm_errors_total").inc()
             logger.warning(
                 "llm_timeout: LLM call timed out after %ss (model=%s, provider=%s)",
