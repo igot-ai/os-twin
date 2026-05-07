@@ -237,10 +237,11 @@ class ProviderSettings(BaseModel):
     enabled_models: List[str] = Field(
         default_factory=list,
         description=(
-            "Model IDs from the catalog that this provider exposes. "
-            "Empty list means ALL models for this provider are enabled."
+            "List of allowed model IDs. "
+            "If empty, all models from this provider are allowed."
         ),
     )
+    dismissed: Optional[bool] = False
 
 
 class ProvidersNamespace(BaseModel):
@@ -275,11 +276,11 @@ class RuntimeSettings(BaseModel):
 
 class MemorySettings(BaseModel):
     # -- Processing LLM --
-    llm_backend: str = "huggingface"          # gemini | openai | huggingface | ollama | openrouter | sglang
-    llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
+    llm_backend: str = "ollama"           # gemini | openai | ollama | openrouter | sglang | openai-compatible
+    llm_model: str = "llama3.2"           # model name (provider-specific)
     # -- Embedding --
-    embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_backend: str = "ollama"     # gemini | ollama | openai-compatible
+    embedding_model: str = "leoipulsar/harrier-0.6b"
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --

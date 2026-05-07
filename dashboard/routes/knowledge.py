@@ -115,12 +115,7 @@ def _map_error(exc: Exception) -> HTTPException:
         ImportInProgressError,
         MaxNamespacesReachedError,
     )
-    from dashboard.knowledge.backup import (  # noqa: WPS433
-        BackupChecksumMismatchError,
-        BackupError,
-        InvalidBackupArchiveError,
-        NamespaceBackupNotFoundError,
-    )
+
 
     if isinstance(exc, InvalidNamespaceIdError):
         return HTTPException(
@@ -173,38 +168,6 @@ def _map_error(exc: Exception) -> HTTPException:
                 detail={"max_count": exc.max_count},
             ).model_dump(),
         )
-
-    # EPIC-004: Backup errors
-    if isinstance(exc, NamespaceBackupNotFoundError):
-        return HTTPException(
-            status_code=404,
-            detail=ErrorResponse(
-                error=str(exc),
-                code="NAMESPACE_NOT_FOUND",
-                detail={},
-            ).model_dump(),
-        )
-
-    if isinstance(exc, (InvalidBackupArchiveError, BackupChecksumMismatchError)):
-        return HTTPException(
-            status_code=400,
-            detail=ErrorResponse(
-                error=str(exc),
-                code="INVALID_BACKUP_ARCHIVE",
-                detail={},
-            ).model_dump(),
-        )
-
-    if isinstance(exc, BackupError):
-        return HTTPException(
-            status_code=500,
-            detail=ErrorResponse(
-                error=str(exc),
-                code="BACKUP_ERROR",
-                detail={},
-            ).model_dump(),
-        )
-
     if isinstance(exc, FileNotFoundError):
         return HTTPException(
             status_code=404,

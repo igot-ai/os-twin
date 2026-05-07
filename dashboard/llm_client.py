@@ -305,15 +305,23 @@ class GoogleClient(LLMClient):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         config: Optional[LLMConfig] = None,
+        vertexai: bool = False,
     ):
         super().__init__(model, config)
         from google.genai import Client
+        import os as _os
 
         # Support model strings like "models/gemini-3.1-pro-preview" or plain "gemini-3.1-pro-preview".
         # The genai SDK expects only the bare model ID (last segment after "/").
         self.model_id = model.split("/")[-1]
 
-        self._client = Client()
+        if vertexai:
+            project = _os.environ.get("GOOGLE_CLOUD_PROJECT")
+            location = _os.environ.get("VERTEX_LOCATION")
+            self._client = Client(vertexai=True, project=project, location=location)
+        else:
+            self._client = Client(api_key=api_key)
+            
         self.base_url = base_url or self._GEMINI_OPENAI_BASE
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list:
@@ -468,7 +476,7 @@ PROVIDER_API_KEYS = {
     "fireworks": "FIREWORKS_API_KEY",
     "xai": "XAI_API_KEY",
     "cohere": "CO_API_KEY",
-    "huggingface": "HF_TOKEN",
+    "openai-compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
 
 
@@ -504,18 +512,25 @@ def create_client(
     api_key: Optional[str] = None,
     config: Optional[LLMConfig] = None,
 ) -> LLMClient:
+    import os as _os
+
     if provider is None:
         provider = _detect_provider_from_model(model)
 
     if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
         base_url = _get_base_url(provider)
-        if provider == "google-vertex" and base_url:
-            import os as _os
-
+        is_vertex = provider == "google-vertex"
+        if is_vertex and base_url:
             region = _os.environ.get("VERTEX_LOCATION", "global")
             project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
             base_url = base_url.replace("{region}", region).replace("{project}", project)
-        return GoogleClient(model=model, base_url=base_url, config=config)
+        api_key = api_key or _os.environ.get("OSTWIN_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+        return GoogleClient(model=model, api_key=api_key, base_url=base_url, config=config, vertexai=is_vertex)
+
+    if provider == "openai-compatible":
+        base_url = _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
+        api_key = api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+        return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
 
     base_url = _get_base_url(provider)
 
