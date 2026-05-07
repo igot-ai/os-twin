@@ -1051,31 +1051,117 @@ switch ($Command) {
 
     # ── dashboard ────────────────────────────────────────────────────────────
     "dashboard" {
-        $dashPs1 = Join-Path $AgentsDir "dashboard.ps1"
+        $dashSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "help" }
+        $dashArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
+        $dashPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { "3366" }
+        $pidFile = Join-Path $OstwinHome "dashboard.pid"
+        $dashScript = Join-Path $AgentsDir "dashboard.sh"
+        $logFile = Join-Path $OstwinHome "dashboard" "stdout.log"
 
-        if (Test-Path $dashPs1) {
-            # Translate bash-style flags to PS params
-            $psArgs = [System.Collections.ArrayList]::new()
-            $hasProjectDir = $false
-            $di = 0
-            while ($di -lt $Arguments.Count) {
-                switch ($Arguments[$di]) {
-                    '--port' { $null = $psArgs.Add('-Port'); $di++; $null = $psArgs.Add($Arguments[$di]); $di++ }
-                    '--project-dir' { $hasProjectDir = $true; $null = $psArgs.Add('-ProjectDir'); $di++; $null = $psArgs.Add($Arguments[$di]); $di++ }
-                    '--background' { $null = $psArgs.Add('-Background'); $di++ }
-                    { $_ -in @('-h', '--help') } { $null = $psArgs.Add('-Help'); $di++ }
-                    default { $null = $psArgs.Add($Arguments[$di]); $di++ }
+        switch ($dashSub) {
+            "start" {
+                if (Test-Path $pidFile) {
+                    $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
+                    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
+                        Write-Host "Dashboard already running (PID $oldPid) on http://localhost:$dashPort" -ForegroundColor Yellow
+                        exit 0
+                    }
+                }
+                Write-Host "Starting dashboard on http://localhost:$dashPort..."
+                if (Get-Command bash -ErrorAction SilentlyContinue) {
+                    & bash $dashScript --port $dashPort --project-dir $OstwinHome --background --skip-build
+                } else {
+                    $dashPs1 = Join-Path $AgentsDir "dashboard.ps1"
+                    & pwsh -NoProfile -File $dashPs1 -Port $dashPort -ProjectDir $OstwinHome -Background
+                }
+                $ready = $false
+                for ($i = 0; $i -lt 15; $i++) {
+                    Start-Sleep -Seconds 1
+                    try {
+                        $null = Invoke-RestMethod -Uri "http://localhost:$dashPort/api/memory-pool/health" -TimeoutSec 2
+                        $ready = $true
+                        break
+                    } catch {}
+                }
+                if ($ready) {
+                    Write-Host "Dashboard running on http://localhost:$dashPort" -ForegroundColor Green
+                } else {
+                    Write-Host "Dashboard started but not yet responding. Check: ostwin dashboard logs" -ForegroundColor Yellow
                 }
             }
-            if (-not $hasProjectDir) {
-                $null = $psArgs.Insert(0, $OstwinHome)
-                $null = $psArgs.Insert(0, "-ProjectDir")
+            "stop" {
+                if (Test-Path $pidFile) {
+                    $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
+                    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
+                        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+                        Write-Host "Dashboard stopped (PID $oldPid)" -ForegroundColor Green
+                    } else {
+                        Write-Host "Dashboard not running (stale PID file)" -ForegroundColor Yellow
+                    }
+                    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+                } else {
+                    Write-Host "Dashboard not running" -ForegroundColor Yellow
+                }
             }
-            & pwsh -NoProfile -File $dashPs1 @psArgs
-        }
-        else {
-            Write-Error "[ERROR] dashboard.ps1 not found."
-            exit 1
+            "restart" {
+                Write-Host "Restarting dashboard..."
+                if (Test-Path $pidFile) {
+                    $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
+                    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
+                        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+                        Start-Sleep -Seconds 2
+                    }
+                    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+                }
+                & $PSCommandPath dashboard start @dashArgs
+            }
+            "status" {
+                $running = $false
+                $runPid = $null
+                if (Test-Path $pidFile) {
+                    $runPid = Get-Content $pidFile -ErrorAction SilentlyContinue
+                    if ($runPid -and (Get-Process -Id $runPid -ErrorAction SilentlyContinue)) {
+                        $running = $true
+                    }
+                }
+                if ($running) {
+                    Write-Host "Dashboard: running (PID $runPid)" -ForegroundColor Green
+                    Write-Host "  URL:  http://localhost:$dashPort"
+                    Write-Host "  Log:  $logFile"
+                    try {
+                        $health = Invoke-RestMethod -Uri "http://localhost:$dashPort/api/memory-pool/health" -TimeoutSec 3
+                        Write-Host "  Pool: $($health.active_slots) slot(s), ML $(if ($health.ml_ready) {'ready'} else {'loading'})"
+                    } catch {
+                        Write-Host "  Pool: not responding" -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "Dashboard: not running" -ForegroundColor Red
+                }
+            }
+            "logs" {
+                if (Test-Path $logFile) {
+                    if ($dashArgs -contains "-f" -or $dashArgs -contains "--follow") {
+                        & tail -f $logFile
+                    } else {
+                        Get-Content $logFile -Tail 50
+                    }
+                } else {
+                    Write-Host "No log file at $logFile" -ForegroundColor Yellow
+                }
+            }
+            default {
+                Write-Host ""
+                Write-Host "  ostwin dashboard — Manage the dashboard server" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "  Usage:"
+                Write-Host "    ostwin dashboard start       Start in background"
+                Write-Host "    ostwin dashboard stop        Stop the dashboard"
+                Write-Host "    ostwin dashboard restart     Stop + start"
+                Write-Host "    ostwin dashboard status      Show running state + pool health"
+                Write-Host "    ostwin dashboard logs        Show last 50 log lines"
+                Write-Host "    ostwin dashboard logs -f     Follow log output"
+                Write-Host ""
+            }
         }
     }
 
