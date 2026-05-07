@@ -48,7 +48,7 @@ def _detect_mime_type(url: str) -> str:
         if mime_end > 5:
             return url[5:mime_end]
         return "image/jpeg"
-    
+
     parsed = urlparse(url)
     path = parsed.path.lower()
     mime_type, _ = mimetypes.guess_type(path)
@@ -107,6 +107,7 @@ class LLMClient(ABC):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatMessage:
         pass
 
@@ -116,6 +117,7 @@ class LLMClient(ABC):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
         pass
 
@@ -127,8 +129,10 @@ class LLMClient(ABC):
             except Exception as e:
                 last_error = e
                 if attempt < MAX_RETRIES - 1:
-                    delay = RETRY_DELAY * (2 ** attempt)
-                    logger.warning(f"LLM request failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}. Retrying in {delay}s...")
+                    delay = RETRY_DELAY * (2**attempt)
+                    logger.warning(
+                        f"LLM request failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}. Retrying in {delay}s..."
+                    )
                     await asyncio.sleep(delay)
         raise LLMError(f"LLM request failed after {MAX_RETRIES} retries", original_error=last_error)
 
@@ -157,33 +161,34 @@ class OpenAIClient(LLMClient):
         result = []
         for msg in messages:
             if msg.role == "tool":
-                result.append({
-                    "role": "tool",
-                    "tool_call_id": msg.tool_call_id,
-                    "content": msg.content or "",
-                })
+                result.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": msg.tool_call_id,
+                        "content": msg.content or "",
+                    }
+                )
             elif msg.tool_calls:
-                result.append({
-                    "role": msg.role,
-                    "content": msg.content,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-                        }
-                        for tc in msg.tool_calls
-                    ],
-                })
+                result.append(
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                            }
+                            for tc in msg.tool_calls
+                        ],
+                    }
+                )
             elif msg.images:
                 content_parts = []
                 if msg.content:
                     content_parts.append({"type": "text", "text": msg.content})
                 for img_url in msg.images:
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": img_url}
-                    })
+                    content_parts.append({"type": "image_url", "image_url": {"url": img_url}})
                 result.append({"role": msg.role, "content": content_parts})
             else:
                 result.append({"role": msg.role, "content": msg.content})
@@ -199,6 +204,7 @@ class OpenAIClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatMessage:
         async def _make_request():
             kwargs: dict = {
@@ -210,6 +216,8 @@ class OpenAIClient(LLMClient):
                 kwargs["tools"] = self._convert_tools(tools)
             if tool_choice:
                 kwargs["tool_choice"] = tool_choice
+            if response_format:
+                kwargs["response_format"] = response_format
             if self.config.temperature is not None:
                 kwargs["temperature"] = self.config.temperature
 
@@ -245,6 +253,7 @@ class OpenAIClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
         kwargs: dict = {
             "model": self.model,
@@ -256,6 +265,8 @@ class OpenAIClient(LLMClient):
             kwargs["tools"] = self._convert_tools(tools)
         if tool_choice:
             kwargs["tool_choice"] = tool_choice
+        if response_format:
+            kwargs["response_format"] = response_format
         if self.config.temperature is not None:
             kwargs["temperature"] = self.config.temperature
 
@@ -321,7 +332,7 @@ class GoogleClient(LLMClient):
             self._client = Client(vertexai=True, project=project, location=location)
         else:
             self._client = Client(api_key=api_key)
-            
+
         self.base_url = base_url or self._GEMINI_OPENAI_BASE
 
     def _convert_messages(self, messages: list[ChatMessage]) -> list:
@@ -334,15 +345,11 @@ class GoogleClient(LLMClient):
             elif msg.role == "tool":
                 tool_name = msg.name or (msg.tool_call_id.replace("fc_", "") if msg.tool_call_id else "unknown_tool")
                 func_response = types.Part.from_function_response(
-                    name=tool_name,
-                    response={"result": msg.content or ""}
+                    name=tool_name, response={"result": msg.content or ""}
                 )
                 if msg.thought_signature:
                     func_response.thought_signature = msg.thought_signature
-                result.append(types.Content(
-                    role="tool",
-                    parts=[func_response]
-                ))
+                result.append(types.Content(role="tool", parts=[func_response]))
             else:
                 role = "user" if msg.role == "user" else "model"
                 parts = []
@@ -352,18 +359,12 @@ class GoogleClient(LLMClient):
                     mime_type = _detect_mime_type(img_url)
                     if img_url.startswith("data:"):
                         base64_data = img_url.split(",", 1)[-1] if "," in img_url else img_url
-                        parts.append(types.Part.from_bytes(
-                            data=base64.b64decode(base64_data),
-                            mime_type=mime_type
-                        ))
+                        parts.append(types.Part.from_bytes(data=base64.b64decode(base64_data), mime_type=mime_type))
                     else:
                         parts.append(types.Part.from_uri(file_uri=img_url, mime_type=mime_type))
                 if msg.tool_calls:
                     for tc in msg.tool_calls:
-                        func_call_part = types.Part.from_function_call(
-                            name=tc.name,
-                            args=tc.arguments
-                        )
+                        func_call_part = types.Part.from_function_call(name=tc.name, args=tc.arguments)
                         if tc.thought_signature:
                             func_call_part.thought_signature = tc.thought_signature
                         parts.append(func_call_part)
@@ -392,6 +393,7 @@ class GoogleClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatMessage:
         async def _make_request():
             from google.genai import types
@@ -399,8 +401,19 @@ class GoogleClient(LLMClient):
             converted = self._convert_messages(messages)
             kwargs: dict = {"model": self.model_id, "contents": converted}
             converted_tools = self._convert_tools(tools)
+
+            # Build GenerateContentConfig with tools and/or structured output
+            config_kwargs: dict = {}
             if converted_tools:
-                kwargs["config"] = types.GenerateContentConfig(tools=converted_tools)
+                config_kwargs["tools"] = converted_tools
+            if response_format:
+                # Convert OpenAI-style response_format to Gemini's native format
+                schema = response_format.get("json_schema", {}).get("schema", {})
+                config_kwargs["response_mime_type"] = "application/json"
+                if schema:
+                    config_kwargs["response_schema"] = schema
+            if config_kwargs:
+                kwargs["config"] = types.GenerateContentConfig(**config_kwargs)
 
             response = await self._client.aio.models.generate_content(**kwargs)
 
@@ -414,7 +427,7 @@ class GoogleClient(LLMClient):
                                 id=f"fc_{uuid.uuid4().hex[:8]}",
                                 name=part.function_call.name,
                                 arguments=dict(part.function_call.args) if part.function_call.args else {},
-                                thought_signature=getattr(part, 'thought_signature', None),
+                                thought_signature=getattr(part, "thought_signature", None),
                             )
                         )
                     elif part.text:
@@ -434,14 +447,24 @@ class GoogleClient(LLMClient):
         messages: list[ChatMessage],
         tools: Optional[list[dict]] = None,
         tool_choice: Optional[str] = None,
+        response_format: Optional[dict] = None,
     ) -> AsyncIterator[str | ToolCall]:
         from google.genai import types
 
         converted = self._convert_messages(messages)
         kwargs: dict = {"model": self.model_id, "contents": converted}
         converted_tools = self._convert_tools(tools)
+
+        config_kwargs: dict = {}
         if converted_tools:
-            kwargs["config"] = types.GenerateContentConfig(tools=converted_tools)
+            config_kwargs["tools"] = converted_tools
+        if response_format:
+            schema = response_format.get("json_schema", {}).get("schema", {})
+            config_kwargs["response_mime_type"] = "application/json"
+            if schema:
+                config_kwargs["response_schema"] = schema
+        if config_kwargs:
+            kwargs["config"] = types.GenerateContentConfig(**config_kwargs)
 
         try:
             async for chunk in await self._client.aio.models.generate_content_stream(**kwargs):
@@ -454,7 +477,7 @@ class GoogleClient(LLMClient):
                                 id=f"fc_{uuid.uuid4().hex[:8]}",
                                 name=part.function_call.name,
                                 arguments=dict(part.function_call.args) if part.function_call.args else {},
-                                thought_signature=getattr(part, 'thought_signature', None),
+                                thought_signature=getattr(part, "thought_signature", None),
                             )
         except Exception as e:
             raise LLMError(f"Google streaming error: {e}", provider="google", original_error=e)

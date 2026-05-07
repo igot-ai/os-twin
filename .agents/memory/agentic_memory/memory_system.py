@@ -154,8 +154,11 @@ class AgenticMemorySystem:
 
     @staticmethod
     def _resolve_completion_fn(
-        llm_backend: str, llm_model: str, api_key: Optional[str],
-        sglang_host: str, sglang_port: int,
+        llm_backend: str,
+        llm_model: str,
+        api_key: Optional[str],
+        sglang_host: str,
+        sglang_port: int,
     ) -> Callable[..., str]:
         """Resolve the completion function from the centralized AI gateway.
 
@@ -653,8 +656,8 @@ class AgenticMemorySystem:
                 },
             )
             return json.loads(response)
-        except Exception as e:
-            print(f"Error analyzing content: {e}")
+        except Exception:
+            logger.exception("Error analyzing content")
             return {"keywords": [], "context": "General", "tags": []}
 
     def _apply_llm_analysis(self, note: MemoryNote) -> None:
@@ -715,7 +718,7 @@ class AgenticMemorySystem:
         self.retriever.add_document(note.content, metadata, note.id)
 
         # Flush any deferred GC from retriever operations
-        if hasattr(self.retriever, 'flush_gc'):
+        if hasattr(self.retriever, "flush_gc"):
             self.retriever.flush_gc()
 
         if evo_label is True:
@@ -1041,7 +1044,7 @@ class AgenticMemorySystem:
         self._rebuild_backlinks()
 
         # Flush any deferred GC from retriever operations
-        if hasattr(self.retriever, 'flush_gc'):
+        if hasattr(self.retriever, "flush_gc"):
             self.retriever.flush_gc()
 
         self._dirty = False
@@ -1251,7 +1254,7 @@ class AgenticMemorySystem:
         self._dirty = True
 
         # Flush any deferred GC from retriever operations
-        if hasattr(self.retriever, 'flush_gc'):
+        if hasattr(self.retriever, "flush_gc"):
             self.retriever.flush_gc()
 
         return True
@@ -1339,7 +1342,7 @@ class AgenticMemorySystem:
             self._dirty = True
 
             # Flush any deferred GC from retriever operations
-            if hasattr(self.retriever, 'flush_gc'):
+            if hasattr(self.retriever, "flush_gc"):
                 self.retriever.flush_gc()
 
             return True
@@ -1651,11 +1654,11 @@ class AgenticMemorySystem:
 
             return should_evolve, note
 
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"Error in memory evolution: {str(e)}")
+        except (json.JSONDecodeError, KeyError):
+            logger.exception("Error in memory evolution (JSON parse/key)")
             return False, note
-        except Exception as e:
-            logger.error(f"Error in process_memory: {str(e)}")
+        except Exception:
+            logger.exception("Error in process_memory")
             return False, note
 
     def _get_evolution_decision(
