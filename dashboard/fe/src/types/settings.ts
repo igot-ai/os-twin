@@ -121,23 +121,17 @@ export interface AutonomySettings {
   interval: number;
 }
 
-export type MemoryLLMBackend = 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang' | 'openai-compatible';
-export type MemoryEmbeddingBackend = 'gemini' | 'ollama' | 'vertex' | 'openai-compatible';
+export type MemoryLLMBackend = 'huggingface' | 'gemini' | 'openai' | 'ollama' | 'openrouter' | 'sglang';
+export type MemoryEmbeddingBackend = 'sentence-transformer' | 'gemini' | 'ollama' | 'vertex';
 export type MemoryVectorBackend = 'zvec' | 'chroma';
 
 export interface MemorySettings {
   // Processing LLM
   llm_backend?: MemoryLLMBackend;
   llm_model?: string;
-  // OpenAI-compatible LLM config
-  llm_compatible_url?: string;
-  llm_compatible_key?: string;
   // Embedding
   embedding_backend?: MemoryEmbeddingBackend;
   embedding_model?: string;
-  // OpenAI-compatible embedding config
-  embedding_compatible_url?: string;
-  embedding_compatible_key?: string;
   // Vector store
   vector_backend?: MemoryVectorBackend;
   // Behaviour
@@ -173,16 +167,10 @@ export interface KnowledgeSettings {
   knowledge_llm_backend: string;
   /** Empty string means "use server default (config.LLM_MODEL / env var)". */
   knowledge_llm_model: string;
-  /** OpenAI-compatible LLM config */
-  knowledge_llm_compatible_url?: string;
-  knowledge_llm_compatible_key?: string;
   /** Empty string means "use server default". */
   knowledge_embedding_backend: MemoryEmbeddingBackend | '';
   /** Empty string means "use server default (config.EMBEDDING_MODEL / env var)". */
   knowledge_embedding_model: string;
-  /** OpenAI-compatible embedding config */
-  knowledge_embedding_compatible_url?: string;
-  knowledge_embedding_compatible_key?: string;
   /** Read-only / informational. Always 768. */
   knowledge_embedding_dimension: number;
 }
@@ -203,7 +191,7 @@ export interface EffectiveResolution {
   provenance: Record<string, string>;
 }
 
-export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge' | 'channels';
+export type SettingsNamespace = 'providers' | 'runtime' | 'memory' | 'knowledge' | 'channels' | 'ai-monitor';
 
 export interface VaultStatus {
   is_set: boolean;

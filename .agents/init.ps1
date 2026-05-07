@@ -246,24 +246,47 @@ if (Test-Path $GlobalOpencodeFile) {
 # ─── Bind plan_id to memory MCP URL ──────────────────────────────────────────
 # When -PlanId is provided, patch the memory-pool URL in .opencode/opencode.json
 # so all agents in this plan automatically scope memory to the correct namespace.
+# Also creates the centralized memory directory and a symlink from project/.memory.
 
 if ($PlanId -and (Test-Path $ProjectOpencodeFile)) {
-    # Two-pass: (1) strip any existing ?plan_id=... (2) append the new one
-    # Handle URL ending with: "  ",   or newline
-    $sedClean = 's|/api/memory-pool/mcp?plan_id=[^"[:space:]]*|/api/memory-pool/mcp|g'
-    $sedBind  = 's|/api/memory-pool/mcp\(["[:space:]]\)|/api/memory-pool/mcp?plan_id=' + $PlanId + '\1|g'
-    if (Get-Command sed -ErrorAction SilentlyContinue) {
-        & sed -i '' -e $sedClean -e $sedBind $ProjectOpencodeFile 2>$null
-        Write-Ok "Bound plan_id=$PlanId to memory MCP URL"
-    } else {
-        # Fallback: PowerShell string replacement with capture group
-        $ocContent = Get-Content $ProjectOpencodeFile -Raw
-        $ocContent = $ocContent -replace '/api/memory-pool/mcp\?plan_id=[^"\s]*', '/api/memory-pool/mcp'
-        $ocContent = $ocContent -replace '/api/memory-pool/mcp([""\s])', "/api/memory-pool/mcp?plan_id=$PlanId`$1"
-        $ocContent | Out-File -FilePath $ProjectOpencodeFile -Encoding utf8 -NoNewline
-        Write-Ok "Bound plan_id=$PlanId to memory MCP URL (PS fallback)"
+    # Strip any existing query params (?plan_id=... or ?persist_dir=...) then append plan_id.
+    # PowerShell string replacement (works on all platforms):
+    $ocContent = Get-Content $ProjectOpencodeFile -Raw
+    # Remove any query string from the memory-pool URL
+    $ocContent = $ocContent -replace '(/api/memory-pool/mcp)\?[^"]*', '$1'
+    # Append the plan_id
+    $ocContent = $ocContent -replace '(/api/memory-pool/mcp)"', "`$1?plan_id=$PlanId`""
+    $ocContent | Out-File -FilePath $ProjectOpencodeFile -Encoding utf8 -NoNewline
+    Write-Ok "Bound plan_id=$PlanId to memory MCP URL"
+
+    # Create centralized memory directory + symlink from project/.memory
+    $centralDir = Join-Path (Join-Path (Join-Path $env:HOME ".ostwin") "memory") $PlanId
+    $symlinkPath = Join-Path $TargetDir ".memory"
+
+    if (-not (Test-Path $centralDir)) {
+        New-Item -ItemType Directory -Path $centralDir -Force | Out-Null
+    }
+
+    # If .memory is a real directory (not a symlink), migrate its contents first
+    if ((Test-Path $symlinkPath) -and -not ((Get-Item $symlinkPath).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        if (Get-Command rsync -ErrorAction SilentlyContinue) {
+            & rsync -a "$symlinkPath/" "$centralDir/" 2>$null
+        } else {
+            Copy-Item "$symlinkPath/*" "$centralDir/" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item $symlinkPath -Recurse -Force
+    }
+
+    if (-not (Test-Path $symlinkPath)) {
+        if (Get-Command ln -ErrorAction SilentlyContinue) {
+            & ln -sfn $centralDir $symlinkPath
+        } else {
+            New-Item -ItemType SymbolicLink -Path $symlinkPath -Target $centralDir -Force | Out-Null
+        }
+        Write-Ok "Memory symlink: .memory -> $centralDir"
     }
 }
+
 # ─── Update .gitignore ────────────────────────────────────────────────────────
 
 $Gitignore = Join-Path $TargetDir ".gitignore"

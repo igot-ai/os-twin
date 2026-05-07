@@ -32,20 +32,20 @@ _CONFIG_DIR = Path(__file__).resolve().parent.parent
 
 @dataclass
 class LLMConfig:
-    backend: str = "ollama"
-    model: str = "llama3.2"
+    backend: str = "gemini"
+    model: str = "gemini-3-flash-preview"
 
 
 @dataclass
 class EmbeddingConfig:
     """Embedding configuration.
 
-    Valid backends: ``"ollama"``, ``"gemini"``, ``"openai-compatible"``,
+    Valid backends: ``"sentence-transformer"``, ``"gemini"``, ``"ollama"``,
     ``"vertex"``.
     """
 
-    backend: str = "ollama"
-    model: str = "leoipulsar/harrier-0.6b"
+    backend: str = "gemini"
+    model: str = "gemini-embedding-001"
 
 
 @dataclass
@@ -201,18 +201,18 @@ def load_config() -> MemoryConfig:
 
     config = MemoryConfig(
         llm=LLMConfig(
-            backend=_env_str("MEMORY_LLM_BACKEND", llm_d.get("backend", "ollama")),
+            backend=_env_str("MEMORY_LLM_BACKEND", llm_d.get("backend", "gemini")),
             model=_env_str(
-                "MEMORY_LLM_MODEL", llm_d.get("model", "llama3.2")
+                "MEMORY_LLM_MODEL", llm_d.get("model", "gemini-3-flash-preview")
             ),
         ),
         embedding=EmbeddingConfig(
             backend=_env_str(
-                "MEMORY_EMBEDDING_BACKEND", embedding_d.get("backend", "ollama")
+                "MEMORY_EMBEDDING_BACKEND", embedding_d.get("backend", "gemini")
             ),
             model=_env_str(
                 "MEMORY_EMBEDDING_MODEL",
-                embedding_d.get("model", "leoipulsar/harrier-0.6b"),
+                embedding_d.get("model", "gemini-embedding-001"),
             ),
         ),
         vector=VectorConfig(

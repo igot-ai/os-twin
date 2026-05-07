@@ -237,11 +237,10 @@ class ProviderSettings(BaseModel):
     enabled_models: List[str] = Field(
         default_factory=list,
         description=(
-            "List of allowed model IDs. "
-            "If empty, all models from this provider are allowed."
+            "Model IDs from the catalog that this provider exposes. "
+            "Empty list means ALL models for this provider are enabled."
         ),
     )
-    dismissed: Optional[bool] = False
 
 
 class ProvidersNamespace(BaseModel):
@@ -276,11 +275,11 @@ class RuntimeSettings(BaseModel):
 
 class MemorySettings(BaseModel):
     # -- Processing LLM --
-    llm_backend: str = "ollama"           # gemini | openai | ollama | openrouter | sglang | openai-compatible
-    llm_model: str = "llama3.2"           # model name (provider-specific)
+    llm_backend: str = "huggingface"          # gemini | openai | huggingface | ollama | openrouter | sglang
+    llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
     # -- Embedding --
-    embedding_backend: str = "ollama"     # gemini | ollama | openai-compatible
-    embedding_model: str = "leoipulsar/harrier-0.6b"
+    embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
+    embedding_model: str = "all-MiniLM-L6-v2"
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --
@@ -340,6 +339,22 @@ class KnowledgeSettings(BaseModel):
     knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
 
 
+class AISettings(BaseModel):
+    """AI gateway settings — per-purpose model overrides.
+
+    Read by ``dashboard/ai/config.py``.  Empty strings mean "use the
+    provider's default model".
+    """
+
+    completion_model: str = ""
+    knowledge_model: str = ""
+    memory_model: str = ""
+    cloud_embedding_model: str = ""
+    local_embedding_model: str = ""
+    timeout_seconds: int = 120
+    max_retries: int = 2
+
+
 class MasterSettings(BaseModel):
     providers: ProvidersNamespace = Field(default_factory=ProvidersNamespace)
     roles: Dict[str, RoleSettings] = Field(default_factory=dict)
@@ -349,6 +364,7 @@ class MasterSettings(BaseModel):
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
+    ai: AISettings = Field(default_factory=AISettings)
 
 
 class EffectiveResolution(BaseModel):
