@@ -122,3 +122,7 @@ test_extless.ps1
 *.tar.zst
 lint_output.txt
 test_results.txt
+
+docs/plan
+docs/plan/
+docs/plan/**

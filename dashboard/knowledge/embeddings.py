@@ -1,13 +1,9 @@
 """Multi-provider embedding wrapper with lazy model load.
 
-Supports two provider backends:
+Supports provider backends:
 
-- ``"sentence-transformer"`` (default) — local HuggingFace models via
-  `sentence-transformers`. The actual model is only loaded on first call.
-- ``"gemini"`` — Google Generative AI embeddings via ``google.genai``.
 - ``"ollama"`` — Local Ollama embedding server via the native ``ollama`` SDK.
-- ``"vertex"`` — Google Vertex AI embeddings via ``google.genai`` with
-  ``EmbedContentConfig`` for task-type hinting.
+- ``"openai-compatible"`` — Any OpenAI-compatible embedding API.
 
 The provider is controlled by ``OSTWIN_KNOWLEDGE_EMBED_PROVIDER`` env var
 or ``MasterSettings.knowledge.embedding_backend`` (via ``KnowledgeService``).
@@ -37,11 +33,10 @@ class KnowledgeEmbedder:
     Parameters
     ----------
     model_name:
-        The embedding model name. For ``sentence-transformer`` this is a
-        HuggingFace model ID. For ``gemini`` this is a Google model ID
-        (e.g. ``text-embedding-004``).
+        The embedding model name. For ``ollama`` this is the Ollama model ID.
+        For ``openai-compatible`` this is the model ID expected by your server.
     provider:
-        Embedding backend: ``"sentence-transformer"`` (default) or ``"gemini"``.
+        Embedding backend: ``"ollama"`` (default) or ``openai-compatible``.
     """
 
     # Class-level cache: {(provider, model_name): model/client instance}
@@ -54,7 +49,9 @@ class KnowledgeEmbedder:
         provider: str | None = None,
     ) -> None:
         self.model_name: str = model_name or EMBEDDING_MODEL
-        self.provider: str = (provider or EMBEDDING_PROVIDER or "sentence-transformer").lower()
+        self.provider: str = (provider or EMBEDDING_PROVIDER or "ollama").lower()
+        if self.provider == "ollama" and "/" in self.model_name and not self.model_name.startswith("hf.co/"):
+            self.model_name = f"hf.co/{self.model_name}"
         self._dimension: int | None = None  # populated on first use
 
     # -- Lazy loading ---------------------------------------------------
@@ -67,21 +64,17 @@ class KnowledgeEmbedder:
             if cached is not None:
                 return cached
 
-        if self.provider in ("sentence-transformer", "huggingface"):
-            model = self._load_sentence_transformer()
-        elif self.provider == "gemini":
-            model = self._load_gemini_client()
-        elif self.provider == "ollama":
+        if self.provider == "ollama":
             model = self._load_ollama_marker()
-        elif self.provider == "vertex":
-            model = self._load_vertex_client()
+        elif self.provider == "openai-compatible":
+            model = self._load_openai_compatible_marker()
         else:
-            # Fallback: treat as sentence-transformer
+            # Fallback: treat as ollama
             logger.warning(
-                "Unknown embedding provider %r; falling back to sentence-transformer",
+                "Unknown embedding provider %r; falling back to ollama",
                 self.provider,
             )
-            model = self._load_sentence_transformer()
+            model = self._load_ollama_marker()
 
         with KnowledgeEmbedder._cache_lock:
             KnowledgeEmbedder._model_cache[cache_key] = model
@@ -94,36 +87,6 @@ class KnowledgeEmbedder:
         logger.info("Loading embedding model (sentence-transformer): %s", self.model_name)
         return SentenceTransformer(self.model_name)
 
-    def _load_gemini_client(self) -> Any:
-        """Create a Google GenAI client for Gemini embeddings."""
-        from google import genai  # noqa: WPS433
-
-        api_key = self._resolve_api_key("gemini")
-        logger.info("Creating Gemini embedding client: model=%s", self.model_name)
-        return genai.Client(api_key=api_key)
-
-    def _resolve_api_key(self, provider: str) -> Optional[str]:
-        """Resolve API key for the embedding provider."""
-        from dashboard.llm_client import PROVIDER_API_KEYS  # noqa: WPS433
-
-        # Standard env var
-        env_name = PROVIDER_API_KEYS.get(provider) or PROVIDER_API_KEYS.get("google")
-        if env_name:
-            val = os.environ.get(env_name)
-            if val:
-                return val
-
-        # master_agent vault fallback
-        try:
-            from dashboard.master_agent import get_api_key  # noqa: WPS433
-            key = get_api_key(provider)
-            if key:
-                return key
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("master_agent.get_api_key(%s) failed: %s", provider, exc)
-
-        return None
-
     # -- Public API -----------------------------------------------------
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -131,16 +94,12 @@ class KnowledgeEmbedder:
         if not texts:
             return []
 
-        if self.provider in ("sentence-transformer", "huggingface"):
-            return self._embed_local(texts)
-        elif self.provider == "gemini":
-            return self._embed_gemini(texts)
-        elif self.provider == "ollama":
+        if self.provider == "ollama":
             return self._embed_ollama(texts)
-        elif self.provider == "vertex":
-            return self._embed_vertex(texts)
+        elif self.provider == "openai-compatible":
+            return self._embed_openai_compatible(texts)
         else:
-            return self._embed_local(texts)
+            return self._embed_ollama(texts)
 
     def embed_one(self, text: str) -> list[float]:
         """Embed a single text. Returns a list of floats."""
@@ -154,73 +113,14 @@ class KnowledgeEmbedder:
         if self._dimension is not None:
             return self._dimension
 
-        if self.provider in ("sentence-transformer", "huggingface"):
-            self._dimension = self._dimension_local()
-        elif self.provider == "gemini":
-            self._dimension = self._dimension_gemini()
-        elif self.provider == "ollama":
+        if self.provider == "ollama":
             self._dimension = self._dimension_ollama()
-        elif self.provider == "vertex":
-            self._dimension = self._dimension_vertex()
+        elif self.provider == "openai-compatible":
+            self._dimension = self._dimension_openai_compatible()
         else:
-            self._dimension = self._dimension_local()
+            self._dimension = self._dimension_ollama()
 
         return self._dimension
-
-    # -- sentence-transformer backend -----------------------------------
-
-    def _embed_local(self, texts: list[str]) -> list[list[float]]:
-        """Embed using local sentence-transformers model."""
-        model = self._load_model()
-        vectors = model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
-        return [v.tolist() for v in vectors]
-
-    def _dimension_local(self) -> int:
-        """Get dimension from local sentence-transformers model."""
-        try:
-            model = self._load_model()
-            sentence_dim = model.get_sentence_embedding_dimension()
-            return int(sentence_dim) if sentence_dim else EMBEDDING_DIMENSION
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Could not determine embedder dimension dynamically: %s; using default %d",
-                exc,
-                EMBEDDING_DIMENSION,
-            )
-            return EMBEDDING_DIMENSION
-
-    # -- Gemini backend -------------------------------------------------
-
-    def _embed_gemini(self, texts: list[str]) -> list[list[float]]:
-        """Embed using Google Gemini embedding API."""
-        client = self._load_model()
-
-        def _sync_embed():
-            """Run Gemini embedding (sync API)."""
-            result = client.models.embed_content(
-                model=self.model_name,
-                contents=texts,
-            )
-            # result.embeddings is a list of EmbedContentResponse.Embedding
-            return [list(e.values) for e in result.embeddings]
-
-        try:
-            return _sync_embed()
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Gemini embedding failed: %s", exc)
-            return [[] for _ in texts]
-
-    def _dimension_gemini(self) -> int:
-        """Determine embedding dimension from Gemini by embedding a probe text."""
-        try:
-            result = self.embed_one("dimension probe")
-            if result:
-                dim = len(result)
-                logger.info("Gemini embedding dimension detected: %d", dim)
-                return dim
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not probe Gemini dimension: %s", exc)
-        return EMBEDDING_DIMENSION
 
     # -- Ollama backend --------------------------------------------------
 
@@ -261,47 +161,44 @@ class KnowledgeEmbedder:
             logger.warning("Could not probe Ollama dimension: %s", exc)
         return EMBEDDING_DIMENSION
 
-    # -- Vertex AI backend -----------------------------------------------
+    # -- OpenAI-Compatible backend -----------------------------------------
 
-    def _load_vertex_client(self) -> Any:
-        """Create a Google GenAI client for Vertex AI embeddings."""
-        from google import genai  # noqa: WPS433
+    def _load_openai_compatible_marker(self) -> Any:
+        """Return a sentinel; OpenAI-compatible API is called directly per-embed."""
+        logger.info("OpenAI-compatible embedding provider: model=%s", self.model_name)
+        return True  # marker — stateless HTTP calls
 
-        api_key = self._resolve_api_key("google")
-        logger.info("Creating Vertex AI embedding client: model=%s", self.model_name)
-        return genai.Client(api_key=api_key) if api_key else genai.Client()
+    def _embed_openai_compatible(self, texts: list[str]) -> list[list[float]]:
+        """Embed using an OpenAI-compatible embedding API."""
+        import os as _os
+        import httpx
 
-    def _embed_vertex(self, texts: list[str]) -> list[list[float]]:
-        """Embed using Google Vertex AI via google.genai."""
-        from google.genai.types import EmbedContentConfig  # noqa: WPS433
-
-        client = self._load_model()
-
-        def _sync_embed():
-            """Run Vertex AI embedding (sync API)."""
-            result = client.models.embed_content(
-                model=self.model_name,
-                contents=texts,
-                config=EmbedContentConfig(
-                    task_type="RETRIEVAL_DOCUMENT",
-                ),
-            )
-            return [list(e.values) for e in result.embeddings]
+        base_url = _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
+        api_key = _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
 
         try:
-            return _sync_embed()
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Vertex AI embedding failed: %s", exc)
+            with httpx.Client() as client:
+                response = client.post(
+                    f"{base_url}/v1/embeddings",
+                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                    json={"model": self.model_name, "input": texts},
+                    timeout=60.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return [item["embedding"] for item in data["data"]]
+        except Exception as exc:
+            logger.error("OpenAI-compatible embedding failed: %s", exc)
             return [[] for _ in texts]
 
-    def _dimension_vertex(self) -> int:
-        """Determine embedding dimension from Vertex AI by probing."""
+    def _dimension_openai_compatible(self) -> int:
+        """Determine embedding dimension from OpenAI-compatible API by probing."""
         try:
             result = self.embed_one("dimension probe")
             if result:
                 dim = len(result)
-                logger.info("Vertex AI embedding dimension detected: %d", dim)
+                logger.info("OpenAI-compatible embedding dimension detected: %d", dim)
                 return dim
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not probe Vertex AI dimension: %s", exc)
+        except Exception as exc:
+            logger.warning("Could not probe OpenAI-compatible dimension: %s", exc)
         return EMBEDDING_DIMENSION
