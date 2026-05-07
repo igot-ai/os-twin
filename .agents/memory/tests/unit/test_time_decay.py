@@ -66,11 +66,11 @@ def _make_system(**overrides):
 
     tmpdir = tempfile.mkdtemp(prefix="decay-test-")
     defaults = dict(
-        model_name="gemini-embedding-001",
-        embedding_backend="gemini",
+        model_name="all-MiniLM-L6-v2",
+        embedding_backend="ollama",
         vector_backend="zvec",
-        llm_backend="gemini",
-        llm_model="gemini-3-flash-preview",
+        llm_backend="ollama",
+        llm_model="llama3.2",
         persist_dir=tmpdir,
         context_aware_analysis=False,
         similarity_weight=0.8,

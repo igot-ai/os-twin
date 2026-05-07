@@ -2,8 +2,8 @@ from agentic_memory.memory_system import AgenticMemorySystem
 
 memory_system = AgenticMemorySystem(
     model_name='all-MiniLM-L6-v2',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview'
+    llm_backend='ollama',
+    llm_model='llama3.2'
 )
 
 # === Note ngan (< 150 tu) => KHONG can summary ===

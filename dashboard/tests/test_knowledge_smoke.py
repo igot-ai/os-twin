@@ -280,8 +280,12 @@ def test_embedder_accepts_explicit_model_name() -> None:
     """KnowledgeEmbedder accepts a model_name override."""
     from dashboard.knowledge import KnowledgeEmbedder
 
-    embedder = KnowledgeEmbedder(model_name="custom/model")
+    embedder = KnowledgeEmbedder(model_name="custom/model", provider="openai-compatible")
     assert embedder.model_name == "custom/model"
+    
+    # For ollama provider, HF-style models get hf.co/ prefix
+    embedder_ollama = KnowledgeEmbedder(model_name="org/model", provider="ollama")
+    assert embedder_ollama.model_name == "hf.co/org/model"
 
 
 # ---------------------------------------------------------------------------

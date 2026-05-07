@@ -294,6 +294,115 @@ class OpenAIClient(LLMClient):
             raise LLMError(f"OpenAI streaming error: {e}", provider="openai", original_error=e)
 
 
+class OllamaClient(LLMClient):
+    """Ollama native API client using /api/generate endpoint."""
+    
+    _OLLAMA_BASE_URL = "http://localhost:11434"
+    
+    def __init__(
+        self,
+        model: str,
+        base_url: Optional[str] = None,
+        config: Optional[LLMConfig] = None,
+    ):
+        super().__init__(model, config)
+        self.base_url = base_url or self._OLLAMA_BASE_URL
+        # Ensure model has hf.co/ prefix and :latest suffix for HF models
+        if "/" in self.model and not self.model.startswith("hf.co/"):
+            self.model = f"hf.co/{self.model}"
+        if ":latest" not in self.model:
+            self.model = f"{self.model}:latest"
+
+    def _convert_messages_to_prompt(self, messages: list[ChatMessage]) -> str:
+        """Convert chat messages to a single prompt string."""
+        parts = []
+        for msg in messages:
+            if msg.role == "system":
+                parts.append(f"System: {msg.content}")
+            elif msg.role == "user":
+                parts.append(f"User: {msg.content}")
+            elif msg.role == "assistant":
+                parts.append(f"Assistant: {msg.content}")
+        return "\n\n".join(parts)
+
+    async def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: Optional[list[dict]] = None,
+        tool_choice: Optional[str] = None,
+    ) -> ChatMessage:
+        import httpx
+
+        prompt = self._convert_messages_to_prompt(messages)
+        
+        async def _make_request():
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "num_predict": self.config.max_tokens,
+                },
+            }
+            if self.config.temperature is not None:
+                payload["options"]["temperature"] = self.config.temperature
+
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return ChatMessage(
+                    role="assistant",
+                    content=data.get("response", ""),
+                )
+
+        try:
+            return await self._retry_with_backoff(_make_request)
+        except LLMError:
+            raise
+        except Exception as e:
+            raise LLMError(f"Ollama API error: {e}", provider="ollama", original_error=e)
+
+    async def chat_stream(
+        self,
+        messages: list[ChatMessage],
+        tools: Optional[list[dict]] = None,
+        tool_choice: Optional[str] = None,
+    ) -> AsyncIterator[str | ToolCall]:
+        import httpx
+
+        prompt = self._convert_messages_to_prompt(messages)
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,
+            "options": {
+                "num_predict": self.config.max_tokens,
+            },
+        }
+        if self.config.temperature is not None:
+            payload["options"]["temperature"] = self.config.temperature
+
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                async with client.stream("POST", f"{self.base_url}/api/generate", json=payload) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            if data.get("response"):
+                                yield data["response"]
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            raise LLMError(f"Ollama streaming error: {e}", provider="ollama", original_error=e)
+
+
 class GoogleClient(LLMClient):
     # Gemini AI (consumer) OpenAI-compatible endpoint.
     # Vertex AI uses a separate region-scoped URL resolved by create_client.
@@ -482,6 +591,9 @@ PROVIDER_API_KEYS = {
 
 def _detect_provider_from_model(model: str) -> str:
     model_lower = model.lower()
+    # Ollama models: hf.co/* or models with / in the name (HuggingFace style)
+    if model.startswith("hf.co/") or (model.count("/") >= 1 and not any(x in model_lower for x in ["gpt-", "claude", "gemini"])):
+        return "ollama"
     if any(x in model_lower for x in ["gpt-", "o1-", "o3-", "o4-", "chatgpt"]):
         return "openai"
     elif "claude" in model_lower:
@@ -511,11 +623,16 @@ def create_client(
     provider: Optional[str] = None,
     api_key: Optional[str] = None,
     config: Optional[LLMConfig] = None,
+    base_url: Optional[str] = None,
 ) -> LLMClient:
     import os as _os
 
     if provider is None:
         provider = _detect_provider_from_model(model)
+
+    if provider == "ollama":
+        ollama_url = base_url or _os.environ.get("OLLAMA_BASE_URL", OllamaClient._OLLAMA_BASE_URL)
+        return OllamaClient(model=model, base_url=ollama_url, config=config)
 
     if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
         base_url = _get_base_url(provider)

@@ -14,7 +14,14 @@ from dashboard.models import Skill
 # === Paths ===
 # Resolved relative to this file
 _dashboard_parent = Path(__file__).parent.parent
-if _dashboard_parent.name == ".agents":
+
+# Check for explicit CLI override first
+_explicit_root = os.environ.get("OSTWIN_PROJECT_DIR") or os.environ.get("AGENT_OS_ROOT")
+if _explicit_root:
+    PROJECT_ROOT = Path(_explicit_root)
+    AGENTS_DIR = PROJECT_ROOT / ".agents"
+    SYSTEM_MCP_DIR = AGENTS_DIR / "mcp"
+elif _dashboard_parent.name == ".agents":
     # Installed via ostwin init: .agents/dashboard/api_utils.py
     AGENTS_DIR = _dashboard_parent
     PROJECT_ROOT = AGENTS_DIR.parent

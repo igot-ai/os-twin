@@ -195,10 +195,22 @@ def save_memory(
     try:
         mem.add_note(content, **kwargs)
         logger.info("save_memory [HTTP]: completed id=%s", memory_id)
-    except Exception:
+    except Exception as e:
         logger.exception("save_memory [HTTP]: failed id=%s", memory_id)
         return json.dumps(
-            {"id": memory_id, "status": "error", "message": "Failed to save memory."},
+            {"id": memory_id, "status": "error", "message": f"Failed to save memory: {str(e)}"},
+            ensure_ascii=False,
+        )
+
+    # Check if LLM analysis actually succeeded
+    note = mem.read(memory_id)
+    if note and (not note.keywords or note.context == "General"):
+        return json.dumps(
+            {
+                "id": memory_id,
+                "status": "saved_with_warnings",
+                "message": "Memory saved, but LLM analysis/evolution failed (check dashboard logs). Semantic search will still work.",
+            },
             ensure_ascii=False,
         )
 

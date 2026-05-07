@@ -173,6 +173,8 @@ class KnowledgeLLM:
         api_key: str | None = None,
         model: str | None = None,
         provider: str | None = None,
+        compatible_url: str | None = None,
+        compatible_key: str | None = None,
     ) -> None:
         # Resolve model: explicit > config (env / MasterSettings)
         self.model: str = model or LLM_MODEL or ""
@@ -180,6 +182,8 @@ class KnowledgeLLM:
         self.provider: str | None = provider or LLM_PROVIDER or None
         # Resolve API key: explicit > resolved from master_agent
         self._explicit_key: str | None = api_key
+        self.compatible_url: str | None = compatible_url
+        self.compatible_key: str | None = compatible_key
         self._client: Any | None = None  # cached LLMClient instance
 
     # -- Capability -----------------------------------------------------
@@ -250,11 +254,21 @@ class KnowledgeLLM:
 
         api_key = self._resolve_api_key()
         config = LLMConfig(max_tokens=4096)
+        effective_provider = self._effective_provider()
+        
+        # For openai-compatible, use saved URL/key
+        base_url = None
+        if effective_provider == "openai-compatible":
+            base_url = self.compatible_url or os.environ.get("OPENAI_COMPATIBLE_BASE_URL")
+            if self.compatible_key:
+                api_key = self.compatible_key
+        
         self._client = create_client(
             model=self.model,
-            provider=self._effective_provider(),
+            provider=effective_provider,
             api_key=api_key,
             config=config,
+            base_url=base_url,
         )
         return self._client
 
@@ -345,6 +359,8 @@ class KnowledgeLLM:
 
         Returns ([entity_dict], [relationship_dict]). When unavailable: ([], []).
         """
+        if not self.is_available():
+            return [], []
         system = _get_prompt(
             _KEY_EXTRACT_SYSTEM, language, language=language, domain=domain or "general",
         ) or _EXTRACT_SYSTEM.format(language=language, domain=domain or "general")

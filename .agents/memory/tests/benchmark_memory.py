@@ -113,11 +113,11 @@ def main():
 
         # Create system then patch LLM
         memory = AgenticMemorySystem(
-            model_name="gemini-embedding-001",
-            embedding_backend="gemini",
+            model_name="all-MiniLM-L6-v2",
+            embedding_backend="ollama",
             vector_backend="zvec",
-            llm_backend="gemini",
-            llm_model="gemini-3-flash-preview",
+            llm_backend="ollama",
+            llm_model="llama3.2",
             persist_dir=persist_dir,
             context_aware_analysis=False,
         )
@@ -125,11 +125,11 @@ def main():
         memory.llm_controller.llm.get_completion = MagicMock(side_effect=[mock_analysis, mock_evolution] * (args.notes + 10))
     else:
         memory = AgenticMemorySystem(
-            model_name="gemini-embedding-001",
-            embedding_backend="gemini",
+            model_name="all-MiniLM-L6-v2",
+            embedding_backend="ollama",
             vector_backend="zvec",
-            llm_backend="gemini",
-            llm_model="gemini-3-flash-preview",
+            llm_backend="ollama",
+            llm_model="llama3.2",
             persist_dir=persist_dir,
             context_aware_analysis=True,
         )

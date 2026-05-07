@@ -21,11 +21,35 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from pool_config import PoolConfig, load_pool_config
 
 logger = logging.getLogger(__name__)
+
+# Sentinel file written by the dashboard when memory/knowledge settings change.
+# Mirrors the contract used by .agents/memory/mcp_server.py so a single dashboard
+# save invalidates both the stdio MCP and the HTTP pool.
+_CONFIG_DIRTY_FLAG = Path.home() / ".ostwin" / ".agents" / ".memory_config_dirty"
+
+
+def _compute_config_fingerprint(cfg: Any) -> str:
+    """Hashable summary of the config keys that affect AgenticMemorySystem.
+
+    Kept in sync with mcp_server.py's _config_fingerprint.
+    """
+    return (
+        f"{cfg.llm.backend}|{cfg.llm.model}|"
+        f"{cfg.llm.compatible_url}|{cfg.llm.compatible_key}|"
+        f"{cfg.embedding.backend}|{cfg.embedding.model}|"
+        f"{cfg.embedding.compatible_url}|{cfg.embedding.compatible_key}|"
+        f"{cfg.vector.backend}|"
+        f"{cfg.evolution.context_aware}|{cfg.evolution.context_aware_tree}|"
+        f"{cfg.evolution.max_links}|"
+        f"{cfg.search.similarity_weight}|{cfg.search.decay_half_life_days}|"
+        f"{cfg.sync.conflict_resolution}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +101,15 @@ class MemoryPool:
         # Track eviction/cleanup threads so kill_all() can join them (F5)
         self._cleanup_threads: list[threading.Thread] = []
         self._cleanup_threads_lock = threading.Lock()
+        # Last-known config fingerprint — used to evict stale slots when the
+        # dashboard writes the dirty-flag sentinel.
+        self._config_fingerprint: Optional[str] = None
+        self._dirty_check_lock = threading.Lock()
+        # Track the dirty-flag mtime per-process. Multiple consumers share
+        # this same file (this pool, the stdio mcp_server, etc.); deleting
+        # would race them. mtime tracking makes detection idempotent across
+        # all consumers.
+        self._last_dirty_mtime: float = 0.0
 
         # --- Tier 1: ML preload ---
         if self._config.ml_preload:
@@ -145,6 +178,7 @@ class MemoryPool:
         from agentic_memory.config import load_config
 
         cfg = load_config()
+        print("memory pool cfg loaded:", cfg)
         from agentic_memory.memory_system import AgenticMemorySystem
 
         return AgenticMemorySystem(
@@ -160,6 +194,8 @@ class MemoryPool:
             similarity_weight=cfg.search.similarity_weight,
             decay_half_life_days=cfg.search.decay_half_life_days,
             conflict_resolution=cfg.sync.conflict_resolution,
+            llm_compatible_url=cfg.llm.compatible_url or None,
+            llm_compatible_key=cfg.llm.compatible_key or None,
         )
 
     def _start_sync_thread(self, slot: MemorySlot) -> None:
@@ -234,6 +270,104 @@ class MemoryPool:
         logger.info("Evicted slot (%s): %s", policy, victim.persist_dir)
         return True
 
+    # -- Config hot-reload -----------------------------------------------------
+
+    def _check_and_handle_config_dirty(self) -> None:
+        """If the dashboard wrote the dirty-flag sentinel, evict stale slots.
+
+        Called at the top of every get_or_create() so config changes propagate
+        without restarting the dashboard process. Mirrors the behaviour of
+        ``mcp_server.get_memory()`` for the stdio MCP transport.
+
+        Uses the flag's mtime (not deletion) so multiple processes can each
+        consume the same flag exactly once without racing to ``unlink()``.
+        Eviction itself is gated on a fingerprint comparison: a no-op save
+        (no fields changed) leaves live slots intact.
+        """
+        try:
+            flag_mtime = _CONFIG_DIRTY_FLAG.stat().st_mtime
+        except FileNotFoundError:
+            return
+        except OSError:
+            logger.exception("Failed to stat memory config dirty flag")
+            return
+
+        if flag_mtime <= self._last_dirty_mtime:
+            return
+
+        # Single-flight: only one thread per pool process re-fingerprints.
+        with self._dirty_check_lock:
+            if flag_mtime <= self._last_dirty_mtime:
+                return
+            self._last_dirty_mtime = flag_mtime
+
+            try:
+                from agentic_memory.config import load_config
+
+                cfg = load_config()
+                print("memory pool cfg loaded from config dirty flag:", cfg)
+            except Exception:
+                logger.exception("Failed to reload memory config; keeping existing slots")
+                return
+
+            new_fp = _compute_config_fingerprint(cfg)
+            if self._config_fingerprint is None:
+                # First time seeing a config fingerprint. If slots exist from before
+                # fingerprint tracking started, evict them to ensure they use the new config.
+                with self._lock:
+                    existing_slots = list(self._slots.values())
+                    if existing_slots:
+                        logger.info(
+                            "First config fingerprint observed (%s) with %d existing slot(s); "
+                            "evicting to ensure config alignment",
+                            new_fp,
+                            len(existing_slots),
+                        )
+                        self._slots.clear()
+                        for slot in existing_slots:
+                            t = threading.Thread(
+                                target=self._cleanup_slot,
+                                args=(slot,),
+                                daemon=True,
+                                name=f"pool-config-evict-{os.path.basename(slot.persist_dir)}",
+                            )
+                            with self._cleanup_threads_lock:
+                                self._cleanup_threads = [
+                                    ct for ct in self._cleanup_threads if ct.is_alive()
+                                ]
+                                self._cleanup_threads.append(t)
+                            t.start()
+                self._config_fingerprint = new_fp
+                return
+            if new_fp == self._config_fingerprint:
+                logger.debug("Config-dirty flag fired but fingerprint unchanged")
+                return
+
+            logger.info(
+                "Memory config changed (fingerprint %s → %s); evicting all slots",
+                self._config_fingerprint,
+                new_fp,
+            )
+            self._config_fingerprint = new_fp
+
+            with self._lock:
+                stale_slots = list(self._slots.values())
+                self._slots.clear()
+
+            for slot in stale_slots:
+                t = threading.Thread(
+                    target=self._cleanup_slot,
+                    args=(slot,),
+                    daemon=True,
+                    name=f"pool-config-evict-{os.path.basename(slot.persist_dir)}",
+                )
+                with self._cleanup_threads_lock:
+                    self._cleanup_threads = [
+                        ct for ct in self._cleanup_threads if ct.is_alive()
+                    ]
+                    self._cleanup_threads.append(t)
+                t.start()
+
     # -- Public API ------------------------------------------------------------
 
     def get_or_create(self, persist_dir: str) -> MemorySlot:
@@ -248,6 +382,7 @@ class MemoryPool:
         RuntimeError
             If the pool is full and eviction policy is ``none``.
         """
+        self._check_and_handle_config_dirty()
         canonical = self._validate_persist_dir(persist_dir)
 
         with self._lock:
@@ -397,7 +532,19 @@ class MemoryPool:
             self._sweep_once(timeout)
 
     def _sweep_once(self, timeout: float) -> None:
-        """Single sweep pass — kill slots idle for longer than *timeout*."""
+        """Single sweep pass — kill slots idle for longer than *timeout*.
+
+        Also consumes the dashboard's dirty-flag sentinel: without this, the
+        per-slot auto-sync thread would keep using a stale embedding-function
+        binding (e.g. an old ollama model name) until an MCP tool call
+        happened to land. Running the check here means the pool's own
+        background loop notices settings changes within ``sweep_interval_s``.
+        """
+        # Consume any pending config-dirty signal first. If the fingerprint
+        # actually changed this evicts every slot; the per-slot cleanup
+        # threads then stop the auto-sync loops bound to the stale config.
+        self._check_and_handle_config_dirty()
+
         now = time.monotonic()
         to_kill: list[str] = []
         with self._lock:

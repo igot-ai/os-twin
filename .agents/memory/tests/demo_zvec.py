@@ -8,10 +8,10 @@ if os.path.exists(PERSIST_DIR):
     shutil.rmtree(PERSIST_DIR)
 
 ms = AgenticMemorySystem(
-    model_name='gemini-embedding-001',
-    embedding_backend='gemini',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
+    model_name='all-MiniLM-L6-v2',
+    embedding_backend='ollama',
+    llm_backend='ollama',
+    llm_model='llama3.2',
     persist_dir=PERSIST_DIR,
     context_aware_analysis=True,
     max_links=2,
@@ -95,10 +95,10 @@ print("PERSISTENCE (reload)")
 print("=" * 60)
 
 ms2 = AgenticMemorySystem(
-    model_name='gemini-embedding-001',
-    embedding_backend='gemini',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
+    model_name='all-MiniLM-L6-v2',
+    embedding_backend='ollama',
+    llm_backend='ollama',
+    llm_model='llama3.2',
     persist_dir=PERSIST_DIR,
     context_aware_analysis=True,
 )

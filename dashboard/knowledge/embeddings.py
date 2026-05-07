@@ -4,6 +4,7 @@ Supports provider backends:
 
 - ``"ollama"`` — Local Ollama embedding server via the native ``ollama`` SDK.
 - ``"openai-compatible"`` — Any OpenAI-compatible embedding API.
+- ``"gemini"`` — Google Gemini embedding via litellm.
 
 The provider is controlled by ``OSTWIN_KNOWLEDGE_EMBED_PROVIDER`` env var
 or ``MasterSettings.knowledge.embedding_backend`` (via ``KnowledgeService``).
@@ -47,11 +48,16 @@ class KnowledgeEmbedder:
         self,
         model_name: str | None = None,
         provider: str | None = None,
+        compatible_url: str | None = None,
+        compatible_key: str | None = None,
     ) -> None:
         self.model_name: str = model_name or EMBEDDING_MODEL
         self.provider: str = (provider or EMBEDDING_PROVIDER or "ollama").lower()
+        # Only add hf.co/ prefix for ollama provider with slash in model name
         if self.provider == "ollama" and "/" in self.model_name and not self.model_name.startswith("hf.co/"):
             self.model_name = f"hf.co/{self.model_name}"
+        self.compatible_url: str = compatible_url or ""
+        self.compatible_key: str = compatible_key or ""
         self._dimension: int | None = None  # populated on first use
 
     # -- Lazy loading ---------------------------------------------------
@@ -68,6 +74,8 @@ class KnowledgeEmbedder:
             model = self._load_ollama_marker()
         elif self.provider == "openai-compatible":
             model = self._load_openai_compatible_marker()
+        elif self.provider == "gemini":
+            model = self._load_gemini_marker()
         else:
             # Fallback: treat as ollama
             logger.warning(
@@ -98,6 +106,8 @@ class KnowledgeEmbedder:
             return self._embed_ollama(texts)
         elif self.provider == "openai-compatible":
             return self._embed_openai_compatible(texts)
+        elif self.provider == "gemini":
+            return self._embed_gemini(texts)
         else:
             return self._embed_ollama(texts)
 
@@ -117,6 +127,8 @@ class KnowledgeEmbedder:
             self._dimension = self._dimension_ollama()
         elif self.provider == "openai-compatible":
             self._dimension = self._dimension_openai_compatible()
+        elif self.provider == "gemini":
+            self._dimension = self._dimension_gemini()
         else:
             self._dimension = self._dimension_ollama()
 
@@ -130,13 +142,27 @@ class KnowledgeEmbedder:
         return True  # marker — ollama.embed() is stateless
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
-        """Embed using the native Ollama SDK."""
-        import ollama as _ollama  # noqa: WPS433
+        """Embed using Ollama /api/embed endpoint directly."""
+        import httpx as _httpx
+
+        model_ref = self.model_name
+        if not model_ref.startswith("hf.co/"):
+            model_ref = f"hf.co/{model_ref}"
+        if ":latest" not in model_ref:
+            model_ref = f"{model_ref}:latest"
+
+        ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
         try:
-            response = _ollama.embed(model=self.model_name, input=texts)
-            return response["embeddings"]
-        except Exception as exc:  # noqa: BLE001
+            resp = _httpx.post(
+                f"{ollama_url}/api/embed",
+                json={"model": model_ref, "input": texts},
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("embeddings", [[] for _ in texts])
+        except Exception as exc:
             logger.error("Ollama embedding failed: %s", exc)
             return [[] for _ in texts]
 
@@ -170,11 +196,10 @@ class KnowledgeEmbedder:
 
     def _embed_openai_compatible(self, texts: list[str]) -> list[list[float]]:
         """Embed using an OpenAI-compatible embedding API."""
-        import os as _os
         import httpx
 
-        base_url = _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
-        api_key = _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
+        base_url = self.compatible_url or os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
+        api_key = self.compatible_key or os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
 
         try:
             with httpx.Client() as client:
@@ -201,4 +226,43 @@ class KnowledgeEmbedder:
                 return dim
         except Exception as exc:
             logger.warning("Could not probe OpenAI-compatible dimension: %s", exc)
+        return EMBEDDING_DIMENSION
+
+    # -- Gemini backend --------------------------------------------------
+
+    def _gemini_model_ref(self) -> str:
+        """Return the litellm-compatible model name for Gemini."""
+        name = self.model_name
+        if name.startswith("gemini/"):
+            return name
+        if name.startswith("hf.co/"):
+            name = name[len("hf.co/"):]
+        return f"gemini/{name}"
+
+    def _load_gemini_marker(self) -> Any:
+        """Return a sentinel; litellm is called directly per-embed."""
+        logger.info("Gemini embedding provider: model=%s", self.model_name)
+        return True
+
+    def _embed_gemini(self, texts: list[str]) -> list[list[float]]:
+        """Embed using Gemini via litellm.embedding."""
+        try:
+            import litellm  # noqa: WPS433
+        except ImportError as exc:
+            logger.error("litellm not installed; cannot use gemini embeddings: %s", exc)
+            return [[] for _ in texts]
+
+        try:
+            response = litellm.embedding(
+                model=self._gemini_model_ref(),
+                input=texts,
+                dimensions=EMBEDDING_DIMENSION,
+            )
+            return [item["embedding"] for item in response.data]
+        except Exception as exc:
+            logger.error("Gemini embedding failed: %s", exc)
+            return [[] for _ in texts]
+
+    def _dimension_gemini(self) -> int:
+        """Gemini embeddings are produced at EMBEDDING_DIMENSION via litellm."""
         return EMBEDDING_DIMENSION

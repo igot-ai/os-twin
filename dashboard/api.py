@@ -45,6 +45,13 @@ if _root not in sys.path:
 if _dashboard_dir not in sys.path:
     sys.path.insert(0, _dashboard_dir)
 
+# Pre-parse sys.argv for --project-dir so api_utils resolves it correctly at import time
+_argv = sys.argv[:]
+if "--project-dir" in _argv:
+    _idx = _argv.index("--project-dir")
+    if _idx + 1 < len(_argv):
+        os.environ["OSTWIN_PROJECT_DIR"] = os.path.abspath(_argv[_idx + 1])
+
 from dashboard.api_utils import (
     PROJECT_ROOT,
     WARROOMS_DIR,

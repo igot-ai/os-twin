@@ -41,10 +41,6 @@ const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> 
     { model: 'llama3.2', label: 'Llama 3.2 (recommended)' },
     { model: 'mistral', label: 'Mistral' },
   ],
-  'openai-compatible': [
-    { model: 'gpt-4', label: 'GPT-4' },
-    { model: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  ],
 };
 
 const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
@@ -52,9 +48,6 @@ const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string
     { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
     { model: 'embeddinggemma', label: 'Embedding Gemma' },
     { model: 'qwen3-embedding:0.6b', label: 'Qwen3 Embedding 0.6B' },
-  ],
-  'openai-compatible': [
-    { model: 'default', label: 'Model configured on your server' },
   ],
 };
 
@@ -487,19 +480,21 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
               </div>
             )}
             {/* Custom model input */}
-            <div>
-              <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
-              <input
-                type="text"
-                value={llmModelInput}
-                onChange={(e) => setLlmModelInput(e.target.value)}
-                onBlur={commitLlmModelInput}
-                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                placeholder="e.g. llama3.2"
-                className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                style={inputStyle}
-              />
-            </div>
+            {draft.knowledge_llm_backend !== 'openai-compatible' && (
+              <div>
+                <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
+                <input
+                  type="text"
+                  value={llmModelInput}
+                  onChange={(e) => setLlmModelInput(e.target.value)}
+                  onBlur={commitLlmModelInput}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                  placeholder="e.g. llama3.2"
+                  className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                  style={inputStyle}
+                />
+              </div>
+            )}
 
             {/* Installed Ollama Models Dropdown */}
             {draft.knowledge_llm_backend === 'ollama' && ollamaModels.length > 0 && (
@@ -508,7 +503,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Or pick from installed Ollama models:
                 </label>
                 <select
-                  value={draft.knowledge_llm_model || ''}
+                  value={ollamaModels.some(m => m.display_name === draft.knowledge_llm_model) ? draft.knowledge_llm_model : ''}
                   onChange={(e) => {
                     const val = e.target.value;
                     setLlmModelInput(val);
@@ -524,51 +519,66 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
               </div>
             )}
 
-            {/* Model picker from configured providers */}
-            {draft.knowledge_llm_backend === 'openai-compatible' && chatModels.length > 0 && (
-              <div className="mt-3">
-                <label className="text-[9px] text-slate-500 mb-2 block">
-                  Pick from configured providers:
-                </label>
-                <ModelSelect
-                  value={draft.knowledge_llm_model || ''}
-                  onChange={(m) => handleLlmModelSelect(m)}
-                  models={chatModels}
-                  showTier={true}
-                  showContext={true}
-                  placeholder="— Select from providers —"
-                />
-              </div>
-            )}
-            
             {/* OpenAI-compatible specific fields */}
             {draft.knowledge_llm_backend === 'openai-compatible' && (
-              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
-                  <input
-                    type="text"
-                    value={llmCompatibleUrl}
-                    onChange={(e) => setLlmCompatibleUrl(e.target.value)}
-                    onBlur={() => updateDraft({ knowledge_llm_compatible_url: llmCompatibleUrl })}
-                    placeholder="http://localhost:8000/v1"
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
+              <>
+                <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <div>
+                    <label className="text-[9px] font-semibold text-slate-600 mb-1 block">Model ID</label>
+                    <input
+                      type="text"
+                      value={llmModelInput}
+                      onChange={(e) => setLlmModelInput(e.target.value)}
+                      onBlur={commitLlmModelInput}
+                      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                      placeholder="e.g. gpt-4o"
+                      className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
+                    <input
+                      type="text"
+                      value={llmCompatibleUrl}
+                      onChange={(e) => setLlmCompatibleUrl(e.target.value)}
+                      onBlur={() => updateDraft({ knowledge_llm_compatible_url: llmCompatibleUrl })}
+                      placeholder="http://localhost:8000/v1"
+                      className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
+                    <input
+                      type="password"
+                      value={llmCompatibleKey}
+                      onChange={(e) => setLlmCompatibleKey(e.target.value)}
+                      onBlur={() => updateDraft({ knowledge_llm_compatible_key: llmCompatibleKey })}
+                      placeholder="sk-..."
+                      className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                      style={inputStyle}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
-                  <input
-                    type="password"
-                    value={embeddingCompatibleKey}
-                    onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
-                    onBlur={() => updateDraft({ knowledge_embedding_compatible_key: embeddingCompatibleKey })}
-                    placeholder="sk-..."
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
+
+                {/* Model picker from configured providers */}
+                {chatModels.length > 0 && (
+                  <div className="mt-3">
+                    <label className="text-[9px] text-slate-500 mb-2 block">
+                      Pick from configured providers:
+                    </label>
+                    <ModelSelect
+                      value={draft.knowledge_llm_model || ''}
+                      onChange={(m) => handleLlmModelSelect(m)}
+                      models={chatModels}
+                      showTier={true}
+                      showContext={true}
+                      placeholder="— Select from providers —"
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -654,18 +664,20 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
               </div>
             )}
             {/* Custom model input */}
-            <div>
-              <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
-              <input
-                type="text"
-                value={embedModelInput}
-                onChange={(e) => setEmbedModelInput(e.target.value)}
-                onBlur={commitEmbedModelInput}
-                placeholder="e.g. leoipulsar/harrier-0.6b"
-                className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                style={inputStyle}
-              />
-            </div>
+            {draft.knowledge_embedding_backend !== 'openai-compatible' && (
+              <div>
+                <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
+                <input
+                  type="text"
+                  value={embedModelInput}
+                  onChange={(e) => setEmbedModelInput(e.target.value)}
+                  onBlur={commitEmbedModelInput}
+                  placeholder="e.g. leoipulsar/harrier-0.6b"
+                  className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                  style={inputStyle}
+                />
+              </div>
+            )}
 
             {/* Installed Ollama Models Dropdown */}
             {draft.knowledge_embedding_backend === 'ollama' && ollamaModels.length > 0 && (
@@ -674,7 +686,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Or pick from installed Ollama models:
                 </label>
                 <select
-                  value={draft.knowledge_embedding_model || ''}
+                  value={ollamaModels.some(m => m.display_name === draft.knowledge_embedding_model) ? draft.knowledge_embedding_model : ''}
                   onChange={(e) => {
                     const val = e.target.value;
                     setEmbedModelInput(val);
@@ -683,64 +695,73 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   className="w-full px-3 py-2 rounded-md text-xs font-mono bg-white border border-slate-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none"
                 >
                   <option value="" disabled>— Select installed model —</option>
-                  {ollamaModels.filter(m => m.is_embed).map(m => (
+                  {ollamaModels.map(m => (
                     <option key={m.raw_name} value={m.display_name}>{m.display_name}</option>
                   ))}
                 </select>
               </div>
             )}
 
-            {/* Model picker from configured providers */}
-            {draft.knowledge_embedding_backend === 'openai-compatible' && allModels.length > 0 && (
-              <div className="mt-3">
-                <label className="text-[9px] text-slate-500 mb-2 block">
-                  Pick from configured providers:
-                </label>
-                <ModelSelect
-                  value={draft.knowledge_embedding_model || ''}
-                  onChange={(m) => handleEmbedModelSelect(m)}
-                  models={allModels}
-                  showTier={true}
-                  showContext={false}
-                  placeholder="— Select from providers —"
-                />
-              </div>
-            )}
-
             {/* OpenAI-compatible specific fields */}
             {draft.knowledge_embedding_backend === 'openai-compatible' && (
-              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
-                  <input
-                    type="text"
-                    value={embeddingCompatibleUrl}
-                    onChange={(e) => setEmbeddingCompatibleUrl(e.target.value)}
-                    onBlur={() => save({ knowledge_embedding_compatible_url: embeddingCompatibleUrl })}
-                    placeholder="http://localhost:8000/v1"
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
+              <>
+                <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <div>
+                    <label className="text-[9px] font-semibold text-slate-600 mb-1 block">Model ID</label>
+                    <input
+                      type="text"
+                      value={embedModelInput}
+                      onChange={(e) => setEmbedModelInput(e.target.value)}
+                      onBlur={commitEmbedModelInput}
+                      placeholder="e.g. text-embedding-3-small"
+                      className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
+                    <input
+                      type="text"
+                      value={embeddingCompatibleUrl}
+                      onChange={(e) => setEmbeddingCompatibleUrl(e.target.value)}
+                      onBlur={() => updateDraft({ knowledge_embedding_compatible_url: embeddingCompatibleUrl })}
+                      placeholder="http://localhost:8000/v1"
+                      className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
+                    <input
+                      type="password"
+                      value={embeddingCompatibleKey}
+                      onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
+                      onBlur={() => updateDraft({ knowledge_embedding_compatible_key: embeddingCompatibleKey })}
+                      placeholder="sk-..."
+                      className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                      style={inputStyle}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
-                  <input
-                    type="password"
-                    value={embeddingCompatibleKey}
-                    onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
-                    onBlur={() => save({ knowledge_embedding_compatible_key: embeddingCompatibleKey })}
-                    placeholder="sk-..."
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
+
+                {/* Model picker from configured providers */}
+                {allModels.length > 0 && (
+                  <div className="mt-3">
+                    <label className="text-[9px] text-slate-500 mb-2 block">
+                      Pick from configured providers:
+                    </label>
+                    <ModelSelect
+                      value={draft.knowledge_embedding_model || ''}
+                      onChange={(m) => handleEmbedModelSelect(m)}
+                      models={allModels}
+                      showTier={true}
+                      showContext={false}
+                      placeholder="— Select from providers —"
+                    />
+                  </div>
+                )}
+              </>
             )}
-            
-            <p className="text-[10px] text-slate-400 mt-3">
-              All vectors are normalised to <strong>768 dimensions</strong>. Changing backend requires a{' '}
-              <strong>fresh namespace</strong>.
-            </p>
           </div>
         </div>
       </section>

@@ -1,5 +1,17 @@
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any, Literal
+from pydantic import BaseModel, Field, field_validator
+
+
+# Backends saveable through the API. Deliberately narrower than the runtime
+# capability set: the frontend only exposes ``ollama`` and
+# ``openai-compatible`` for memory, so those are the only values a user
+# can persist. The runtime (``llm_controller.py``) supports a wider set
+# for power-user env-var overrides; anything outside this Literal coming
+# from a stale config is normalised to ``""`` by ``_normalize_legacy_backend``
+# so the loader falls back to a documented default.
+MemoryLLMBackend = Literal["ollama", "openai-compatible", ""]
+MemoryEmbeddingBackend = Literal["ollama", "openai-compatible", ""]
+MemoryVectorBackend = Literal["zvec", "chroma", ""]
 
 
 class Room(BaseModel):
@@ -276,20 +288,52 @@ class RuntimeSettings(BaseModel):
 
 class MemorySettings(BaseModel):
     # -- Processing LLM --
-    llm_backend: str = "ollama"           # gemini | openai | ollama | openrouter | sglang | openai-compatible
+    # Backend strings are validated against the runtime's accepted set so a
+    # stale config or buggy frontend can't persist (e.g.) "huggingface" — the
+    # offending value would otherwise bubble all the way to LLMController and
+    # fail there with a less helpful trace.
+    llm_backend: MemoryLLMBackend = "ollama"
     llm_model: str = "llama3.2"           # model name (provider-specific)
+    llm_compatible_url: str = ""          # openai-compatible base URL
+    llm_compatible_key: str = ""          # openai-compatible API key
     # -- Embedding --
-    embedding_backend: str = "ollama"     # gemini | ollama | openai-compatible
+    embedding_backend: MemoryEmbeddingBackend = "ollama"
     embedding_model: str = "leoipulsar/harrier-0.6b"
+    embedding_compatible_url: str = ""    # openai-compatible embedding base URL
+    embedding_compatible_key: str = ""    # openai-compatible embedding API key
     # -- Vector store --
-    vector_backend: str = "zvec"              # zvec | chroma
+    vector_backend: MemoryVectorBackend = "zvec"
     # -- Behaviour --
     context_aware: bool = True                # include similar memories in LLM analysis
     auto_sync: bool = True                    # periodic disk sync
     auto_sync_interval: int = 60              # seconds between syncs
     ttl_days: int = 30                        # auto-delete entries older than N days
     # Legacy alias — readers should prefer vector_backend
-    vector_store: str = "zvec"
+    vector_store: MemoryVectorBackend = "zvec"
+
+    @field_validator("llm_backend", "embedding_backend", mode="before")
+    @classmethod
+    def _normalize_legacy_backend(cls, v):
+        """Coerce legacy / no-longer-exposed backend names to ``""`` so
+        callers fall back to documented defaults instead of breaking
+        at boot.
+
+        Two cohorts get coerced:
+          * **Removed**: ``huggingface``, ``sentence-transformer``,
+            ``vertex``, ``google-vertex``, ``gemini``, ``openai``, 
+            ``openrouter``, ``sglang`` — no runtime impl
+            on the current branch.
+        """
+        if not isinstance(v, str):
+            return v
+        normalized = v.strip().lower()
+        legacy = {
+            "huggingface", "sentence-transformer", "vertex", "google-vertex",
+            "gemini", "openai", "openrouter", "sglang",
+        }
+        if normalized in legacy:
+            return ""
+        return normalized
 
 
 class ChannelPlatformSettings(BaseModel):
@@ -334,9 +378,13 @@ class KnowledgeSettings(BaseModel):
     # -- LLM --
     knowledge_llm_backend: str = ""             # empty = use config.LLM_PROVIDER
     knowledge_llm_model: str = ""               # empty = use config.LLM_MODEL
+    knowledge_llm_compatible_url: str = ""      # openai-compatible base URL
+    knowledge_llm_compatible_key: str = ""      # openai-compatible API key
     # -- Embedding --
     knowledge_embedding_backend: str = ""       # empty = use config.EMBEDDING_PROVIDER
     knowledge_embedding_model: str = ""         # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_compatible_url: str = ""  # openai-compatible embedding base URL
+    knowledge_embedding_compatible_key: str = ""  # openai-compatible embedding API key
     knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
 
 

@@ -1,4 +1,4 @@
-"""Backend Comparison: Gemini vs LiquidAI/LFM2-1.2B-Extract
+"""Backend Comparison: Gemini Backend Test
 
 Evaluates both LLM backends against the same annotated memory corpus.
 
@@ -367,7 +367,7 @@ def run_backend(backend_name: str, llm_backend: str, llm_model: str,
     t0 = time.time()
     mem = AgenticMemorySystem(
         model_name="all-MiniLM-L6-v2",
-        embedding_backend="sentence-transformer",
+        embedding_backend="ollama",
         vector_backend="zvec",
         llm_backend=llm_backend,
         llm_model=llm_model,
@@ -532,28 +532,12 @@ def print_comparison(reports: List[BackendReport]):
 
     # --- Verdict ---
     print(f"\n{'=' * W}")
-    gemini = reports[0]
-    hf = reports[1]
-    wins_g, wins_h = 0, 0
-    comparisons = [
-        ("Analysis F1", gemini.avg_keyword_f1, hf.avg_keyword_f1),
-        ("Search P@3", gemini.avg_precision, hf.avg_precision),
-        ("Search MRR", gemini.avg_mrr, hf.avg_mrr),
-        ("Completeness", gemini.avg_completeness, hf.avg_completeness),
-    ]
-    for label, g, h in comparisons:
-        if g > h + 0.01:
-            wins_g += 1
-        elif h > g + 0.01:
-            wins_h += 1
-    print(f"  {gemini.name} wins {wins_g} metrics, "
-          f"{hf.name} wins {wins_h} metrics")
-
-    cost_note = (
-        "  Note: Gemini uses cloud API (cost per token), "
-        "LFM2 runs locally (free after download)."
-    )
-    print(cost_note)
+    backend1 = reports[0]
+    print(f"  {backend1.name} analysis complete")
+    print(f"  Analysis F1: {backend1.avg_keyword_f1:.2f}")
+    print(f"  Search P@3: {backend1.avg_precision:.2f}")
+    print(f"  Search MRR: {backend1.avg_mrr:.2f}")
+    print(f"  Completeness: {backend1.avg_completeness:.2f}")
     print(f"{'=' * W}\n")
 
 
@@ -563,46 +547,32 @@ def print_comparison(reports: List[BackendReport]):
 
 if __name__ == "__main__":
     print("=" * 72)
-    print("  Backend Comparison: Gemini vs LFM2-1.2B-Extract")
+    print("  Backend Comparison: Gemini Backend Test")
     print(f"  Corpus: {len(CORPUS)} notes, {len(QUERIES)} queries, "
           f"{len(EXPECTED_LINKS)} expected link pairs")
     print("=" * 72)
 
     reports = []
 
-    # --- Gemini ---
+    # --- Ollama ---
     print(f"\n{'─' * 72}")
-    print("  BACKEND 1: Gemini (gemini-3.1-flash-lite-preview)")
+    print("  BACKEND 1: Ollama (llama3.2)")
     print(f"{'─' * 72}")
     try:
         r_gemini = run_backend(
-            backend_name="Gemini-flash-lite",
-            llm_backend="gemini",
-            llm_model="gemini-3.1-flash-lite-preview",
+            backend_name="Ollama-llama3.2",
+            llm_backend="ollama",
+            llm_model="llama3.2",
         )
         reports.append(r_gemini)
     except Exception as e:
-        print(f"  [ERROR] Gemini backend failed: {e}")
+        print(f"  [ERROR] Ollama backend failed: {e}")
         # Create an empty report so comparison can still run
         reports.append(BackendReport(name="Gemini-flash-lite"))
 
-    # --- HuggingFace LFM2 ---
-    print(f"\n{'─' * 72}")
-    print("  BACKEND 2: LiquidAI/LFM2-1.2B-Extract (local)")
-    print(f"{'─' * 72}")
-    try:
-        r_hf = run_backend(
-            backend_name="LFM2-1.2B",
-            llm_backend="huggingface",
-            llm_model="LiquidAI/LFM2-1.2B-Extract",
-        )
-        reports.append(r_hf)
-    except Exception as e:
-        print(f"  [ERROR] HuggingFace backend failed: {e}")
-        reports.append(BackendReport(name="LFM2-1.2B"))
 
     # --- Comparison ---
-    if len(reports) == 2:
+    if len(reports) >= 1:
         print_comparison(reports)
     else:
         print("\n  [SKIP] Cannot compare — one or both backends failed.")

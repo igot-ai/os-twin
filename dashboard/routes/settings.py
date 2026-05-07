@@ -96,8 +96,25 @@ async def get_master_settings(
     Never dereferences vault refs.  Returns the raw config structure.
     """
     resolver = get_settings_resolver()
-    print("Resolver.get_master_settings():", resolver.get_master_settings())
-    return resolver.get_master_settings()
+    settings = resolver.get_master_settings()
+    
+    # Mask API keys if they exist in the vault
+    from dashboard.lib.settings.vault import get_vault
+    vault = get_vault()
+    
+    if settings.memory:
+        if vault.get("memory", "llm_compatible_key"):
+            settings.memory.llm_compatible_key = "********"
+        if vault.get("memory", "embedding_compatible_key"):
+            settings.memory.embedding_compatible_key = "********"
+            
+    if settings.knowledge:
+        if vault.get("knowledge", "knowledge_llm_compatible_key"):
+            settings.knowledge.knowledge_llm_compatible_key = "********"
+        if vault.get("knowledge", "knowledge_embedding_compatible_key"):
+            settings.knowledge.knowledge_embedding_compatible_key = "********"
+            
+    return settings
 
 
 @router.get("/effective", response_model=EffectiveResolution)
@@ -205,7 +222,18 @@ async def get_knowledge_settings(
     (callers should treat empty as "use the env-var / hardcoded default").
     """
     settings = get_settings_resolver().get_master_settings()
-    return settings.knowledge
+    k_settings = settings.knowledge
+    
+    # Mask API keys if they exist in the vault
+    from dashboard.lib.settings.vault import get_vault
+    vault = get_vault()
+    if k_settings:
+        if vault.get("knowledge", "knowledge_llm_compatible_key"):
+            k_settings.knowledge_llm_compatible_key = "********"
+        if vault.get("knowledge", "knowledge_embedding_compatible_key"):
+            k_settings.knowledge_embedding_compatible_key = "********"
+            
+    return k_settings
 
 
 @router.put("/knowledge", response_model=KnowledgeSettings)
@@ -221,8 +249,20 @@ async def put_knowledge_settings(
     the new settings take effect on the next LLM/embedding call without a
     dashboard restart.
     """
+    data = payload.model_dump(mode="json")
+    
+    # Intercept sensitive keys, store in vault, and remove from plaintext JSON
+    from dashboard.lib.settings.vault import get_vault
+    vault = get_vault()
+    for k in ("knowledge_llm_compatible_key", "knowledge_embedding_compatible_key"):
+        if k in data:
+            v = data[k]
+            if v and v != "********":
+                vault.set("knowledge", k, v)
+            data[k] = ""  # Never save to config.json
+
     resolver = get_settings_resolver()
-    resolver.patch_namespace("knowledge", payload.model_dump(mode="json"))
+    resolver.patch_namespace("knowledge", data)
 
     # Invalidate cached LLM / embedder so next call picks up new settings.
     # Best-effort: never let invalidation failure break the settings save.
@@ -238,6 +278,12 @@ async def put_knowledge_settings(
     # Flag config reload for the MCP memory server — knowledge embedding
     # settings affect the memory system's embedding pipeline.
     _flag_memory_config_reload()
+
+    # Spin up ollama models in background if backend is ollama
+    if payload.knowledge_llm_backend == "ollama" and payload.knowledge_llm_model:
+        _ollama_ensure_model_running(payload.knowledge_llm_model)
+    if payload.knowledge_embedding_backend == "ollama" and payload.knowledge_embedding_model:
+        _ollama_ensure_model_running(payload.knowledge_embedding_model)
 
     await broadcaster.broadcast(
         "settings_updated",
@@ -348,8 +394,6 @@ async def pull_ollama_model(
     
     async def stream_generator():
         model_name = request.model
-        if not model_name.startswith("hf.co/"):
-            model_name = f"hf.co/{model_name}"
 
         try:
             async with httpx.AsyncClient() as client:
@@ -387,6 +431,24 @@ async def patch_global_namespace(
             detail=f"Invalid namespace '{namespace}'. Must be one of: {sorted(_VALID_NAMESPACES)}",
         )
 
+    # Intercept sensitive keys, store in vault, and remove from plaintext JSON
+    from dashboard.lib.settings.vault import get_vault
+    vault = get_vault()
+    if namespace == "memory":
+        for k in ("llm_compatible_key", "embedding_compatible_key"):
+            if k in value:
+                v = value[k]
+                if v and v != "********":
+                    vault.set("memory", k, v)
+                value[k] = ""  # Never save to config.json
+    elif namespace == "knowledge":
+        for k in ("knowledge_llm_compatible_key", "knowledge_embedding_compatible_key"):
+            if k in value:
+                v = value[k]
+                if v and v != "********":
+                    vault.set("knowledge", k, v)
+                value[k] = ""  # Never save to config.json
+
     resolver = get_settings_resolver()
     resolver.patch_namespace(namespace, value)
 
@@ -402,6 +464,14 @@ async def patch_global_namespace(
     # Flag config reload for the MCP memory server when memory settings change.
     if namespace == "memory":
         _flag_memory_config_reload()
+        llm_backend = value.get("llm_backend", "")
+        llm_model = value.get("llm_model", "")
+        embed_backend = value.get("embedding_backend", "")
+        embed_model = value.get("embedding_model", "")
+        if llm_backend == "ollama" and llm_model:
+            _ollama_ensure_model_running(llm_model)
+        if embed_backend == "ollama" and embed_model:
+            _ollama_ensure_model_running(embed_model)
 
     await broadcaster.broadcast(
         "settings_updated",
@@ -845,16 +915,61 @@ def _notify_bot_restart() -> None:
         logger.debug("[SETTINGS] No bot_manager — skipping restart signal")
 
 
-_MEMORY_CONFIG_DIRTY_FLAG = FSPath.home() / ".ostwin" / ".agents" / ".memory_config_dirty"
+_MEMORY_CONFIG_DIRTY_FLAG = None
+if os.environ.get("OSTWIN_PROJECT_DIR"):
+    _MEMORY_CONFIG_DIRTY_FLAG = FSPath(os.environ["OSTWIN_PROJECT_DIR"]) / ".agents" / ".memory_config_dirty"
+elif os.environ.get("AGENT_OS_ROOT"):
+    _MEMORY_CONFIG_DIRTY_FLAG = FSPath(os.environ["AGENT_OS_ROOT"]) / ".agents" / ".memory_config_dirty"
+else:
+    _MEMORY_CONFIG_DIRTY_FLAG = FSPath.home() / ".ostwin" / ".agents" / ".memory_config_dirty"
+
+
+def _ollama_ensure_model_running(model: str) -> None:
+    """Run ``ollama run hf.co/{model}:latest`` in the background so the model
+    is loaded into memory for fast inference.
+
+    No-op if the model name is empty or backend is not ollama.
+    Best-effort: never let a spawn failure break the settings save.
+    """
+    if not model:
+        return
+
+    model_ref = model
+    if not model_ref.startswith("hf.co/"):
+        model_ref = f"hf.co/{model_ref}"
+    if ":latest" not in model_ref:
+        model_ref = f"{model_ref}:latest"
+
+    try:
+        subprocess.Popen(
+            ["ollama", "run", model_ref],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        logger.info("[SETTINGS] Spawned 'ollama run %s' in background", model_ref)
+    except FileNotFoundError:
+        logger.warning("[SETTINGS] 'ollama' CLI not found on PATH — skipping model run")
+    except Exception as exc:
+        logger.warning("[SETTINGS] Failed to spawn 'ollama run %s': %s", model_ref, exc)
 
 
 def _flag_memory_config_reload() -> None:
-    """Write a sentinel file that tells the MCP memory server to reload config.
+    """Write a sentinel file that tells the memory subsystem to reload config.
 
-    The MCP server checks for this flag (cheap ``stat()``) on every
-    ``get_memory()`` call instead of re-parsing the full config.json
-    every time.  When the flag is detected the server reloads config
-    and deletes the file.
+    Two consumers watch this flag:
+
+    - The stdio MCP server (``mcp_server.py``) checks it on every
+      ``get_memory()`` call and rebuilds its single AgenticMemorySystem.
+    - The HTTP-pool MemoryPool checks it at the top of ``get_or_create()``
+      (see ``memory_pool._check_and_handle_config_dirty``) and evicts
+      stale slots only if the config fingerprint actually changed.
+
+    We deliberately do **not** kill pool slots here. Doing so would race
+    with the pool's own fingerprint check: slots would be torn down before
+    the comparison runs, and a no-op save (e.g. clicking Save without
+    changes) would needlessly evict every active session.
     """
     try:
         _MEMORY_CONFIG_DIRTY_FLAG.parent.mkdir(parents=True, exist_ok=True)

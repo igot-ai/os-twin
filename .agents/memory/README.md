@@ -182,7 +182,7 @@ Tools can be selectively disabled via the `MEMORY_DISABLED_TOOLS` environment va
 
 ### Server Initialization
 
-The server uses **background initialization** to start fast. Heavy imports (sentence-transformers, vector DB) load in a background thread while the MCP handshake completes. The first tool call waits for initialization to finish (up to 60 seconds).
+The server uses **background initialization** to start fast. Heavy imports (vector DB) load in a background thread while the MCP handshake completes. The first tool call waits for initialization to finish (up to 60 seconds).
 
 It also includes a **self-healing interpreter check**: if the current Python interpreter lacks required dependencies, the server re-execs itself using the project's virtual environment.
 

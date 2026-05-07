@@ -205,26 +205,49 @@ class KnowledgeService:
     # ---- Shared embedder / LLM (lazy) -----------------------------------
 
     @staticmethod
-    def _resolve_settings_overrides() -> tuple[str, str]:
-        """Resolve model overrides from MasterSettings.
+    def _resolve_settings_overrides() -> dict:
+        """Resolve settings overrides from MasterSettings.
 
-        Returns:
-            tuple[str, str]: (knowledge_llm_model, knowledge_embedding_model)
+        Returns a dict with knowledge settings fields.
         """
         try:
             from dashboard.lib.settings import get_settings_resolver  # noqa: WPS433
+            from dashboard.lib.settings.vault import get_vault
 
             ms = get_settings_resolver().get_master_settings()
             ks = getattr(ms, "knowledge", None)
             if ks is None:
-                return "", ""
-            return (
-                ks.knowledge_llm_model or "",
-                ks.knowledge_embedding_model or "",
-            )
+                return {}
+                
+            vault = get_vault()
+            llm_key = vault.get("knowledge", "knowledge_llm_compatible_key") or getattr(ks, "knowledge_llm_compatible_key", "")
+            embed_key = vault.get("knowledge", "knowledge_embedding_compatible_key") or getattr(ks, "knowledge_embedding_compatible_key", "")
+            
+            return {
+                "llm_model": ks.knowledge_llm_model or "",
+                "embedding_model": ks.knowledge_embedding_model or "",
+                "llm_backend": ks.knowledge_llm_backend or "",
+                "embedding_backend": ks.knowledge_embedding_backend or "",
+                "llm_compatible_url": getattr(ks, "knowledge_llm_compatible_url", "") or "",
+                "llm_compatible_key": llm_key or "",
+                "embedding_compatible_url": getattr(ks, "knowledge_embedding_compatible_url", "") or "",
+                "embedding_compatible_key": embed_key or "",
+            }
+        except ImportError:
+            return {}
+            return {
+                "llm_model": ks.knowledge_llm_model or "",
+                "embedding_model": ks.knowledge_embedding_model or "",
+                "llm_backend": ks.knowledge_llm_backend or "",
+                "embedding_backend": ks.knowledge_embedding_backend or "",
+                "llm_compatible_url": getattr(ks, "knowledge_llm_compatible_url", "") or "",
+                "llm_compatible_key": getattr(ks, "knowledge_llm_compatible_key", "") or "",
+                "embedding_compatible_url": getattr(ks, "knowledge_embedding_compatible_url", "") or "",
+                "embedding_compatible_key": getattr(ks, "knowledge_embedding_compatible_key", "") or "",
+            }
         except Exception as exc:  # noqa: BLE001
             logger.debug("settings resolver unavailable: %s; using env defaults", exc)
-            return "", ""
+            return {}
 
     def _get_embedder(self) -> Any:
         """Lazily construct (or return the injected) embedder, shared service-wide.
@@ -241,12 +264,14 @@ class KnowledgeService:
             return self._embedder_override
         if self._embedder is not None:
             return self._embedder
-        settings_llm, settings_embed = self._resolve_settings_overrides()
-        effective_model = settings_embed or _DEFAULT_EMBED
-        effective_provider = _DEFAULT_EMBED_PROV
+        s = self._resolve_settings_overrides()
+        effective_model = s.get("embedding_model", "") or _DEFAULT_EMBED
+        effective_provider = s.get("embedding_backend", "") or _DEFAULT_EMBED_PROV
         self._embedder = KnowledgeEmbedder(
             model_name=effective_model,
             provider=effective_provider,
+            compatible_url=s.get("embedding_compatible_url", ""),
+            compatible_key=s.get("embedding_compatible_key", ""),
         )
         return self._embedder
 
@@ -261,12 +286,14 @@ class KnowledgeService:
             return self._llm_override
         if self._llm is not None:
             return self._llm
-        settings_llm, _ = self._resolve_settings_overrides()
-        effective_model = settings_llm or _DEFAULT_LLM
-        effective_provider = _DEFAULT_LLM_PROV or None
+        s = self._resolve_settings_overrides()
+        effective_model = s.get("llm_model", "") or _DEFAULT_LLM
+        effective_provider = s.get("llm_backend", "") or _DEFAULT_LLM_PROV or None
         self._llm = KnowledgeLLM(
             model=effective_model,
             provider=effective_provider,
+            compatible_url=s.get("llm_compatible_url", "") or None,
+            compatible_key=s.get("llm_compatible_key", "") or None,
         )
         return self._llm
 

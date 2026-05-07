@@ -14,10 +14,10 @@ print("PHASE 1: Creating memories")
 print("=" * 60)
 
 ms = AgenticMemorySystem(
-    model_name='gemini-embedding-001',
-    embedding_backend='gemini',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
+    model_name='all-MiniLM-L6-v2',
+    embedding_backend='ollama',
+    llm_backend='ollama',
+    llm_model='llama3.2',
     persist_dir=PERSIST_DIR,
     context_aware_analysis=True,
     max_links=2,
@@ -142,10 +142,10 @@ print("PHASE 3: Reload from disk and compare")
 print("=" * 60)
 
 ms2 = AgenticMemorySystem(
-    model_name='gemini-embedding-001',
-    embedding_backend='gemini',
-    llm_backend='gemini',
-    llm_model='gemini-3-flash-preview',
+    model_name='all-MiniLM-L6-v2',
+    embedding_backend='ollama',
+    llm_backend='ollama',
+    llm_model='llama3.2',
     persist_dir=PERSIST_DIR,
     context_aware_analysis=True,
 )

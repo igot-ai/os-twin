@@ -17,8 +17,8 @@ print("=" * 60)
 
 ms = AgenticMemorySystem(
     model_name="all-MiniLM-L6-v2",
-    llm_backend="gemini",
-    llm_model="gemini-3-flash-preview",
+    llm_backend="ollama",
+    llm_model="llama3.2",
     persist_dir=PERSIST_DIR,
 )
 
@@ -60,8 +60,8 @@ print("=" * 60)
 
 ms2 = AgenticMemorySystem(
     model_name="all-MiniLM-L6-v2",
-    llm_backend="gemini",
-    llm_model="gemini-3-flash-preview",
+    llm_backend="ollama",
+    llm_model="llama3.2",
     persist_dir=PERSIST_DIR,
 )
 
@@ -105,8 +105,8 @@ del ms2
 
 ms3 = AgenticMemorySystem(
     model_name="all-MiniLM-L6-v2",
-    llm_backend="gemini",
-    llm_model="gemini-3-flash-preview",
+    llm_backend="ollama",
+    llm_model="llama3.2",
     persist_dir=PERSIST_DIR,
 )
 

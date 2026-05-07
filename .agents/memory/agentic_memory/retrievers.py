@@ -1,7 +1,7 @@
 """Retriever backends for the Agentic Memory vector store.
 
 Provides ChromaDB and Zvec retriever implementations with pluggable
-embedding functions (Ollama, OpenAI-compatible).
+embedding functions (Ollama, OpenAI-compatible, Gemini).
 
 Memory-management design:
 - Heavy ML imports (nltk, sklearn, litellm) are lazy-loaded on first use, not at module level (F11).
@@ -54,6 +54,26 @@ def _ensure_tokenizer_imports():
         cosine_similarity = _cs
         np = _np
         _tokenizer_imports_done = True
+
+
+_litellm_imports_done = False
+
+
+def _ensure_litellm_imports():
+    """Import litellm on first use (used by Gemini embedding backend)."""
+    global _litellm_imports_done, litellm
+
+    if _litellm_imports_done:
+        return
+
+    with _import_lock:
+        if _litellm_imports_done:
+            return
+
+        import litellm as _lt
+
+        litellm = _lt
+        _litellm_imports_done = True
 
 
 @runtime_checkable
@@ -122,6 +142,9 @@ def _truncate_to_dim(embeddings: Embeddings, dim: int = EMBEDDING_DIMENSION) -> 
         else:
             out.append(vec + [0.0] * (dim - len(vec)))
     return out
+
+
+
 
 
 class OllamaEmbeddingFunction(EmbeddingFunction):
@@ -242,7 +265,12 @@ def _create_embedding_function(
     elif embedding_backend == "openai-compatible":
         fn = OpenAICompatibleEmbeddingFunction(model_name=model_name)
     else:
-        fn = OllamaEmbeddingFunction(model_name=model_name)
+        # Fail loudly. Silently falling back to Ollama hides misconfigurations
+        # and produces cryptic downstream errors (model 404s in Ollama, etc.).
+        raise ValueError(
+            f"Unknown embedding_backend {embedding_backend!r}. "
+            "Must be one of: 'ollama', 'openai-compatible'."
+        )
 
     if shared:
         with _embedding_cache_lock:
@@ -315,7 +343,7 @@ class ChromaRetriever:
         collection_name: str = "memories",
         model_name: str = "all-MiniLM-L6-v2",
         persist_dir: str = None,
-        embedding_backend: str = "sentence-transformer",
+        embedding_backend: str = "ollama",
     ):
         """Initialize ChromaDB retriever.
 
@@ -323,7 +351,7 @@ class ChromaRetriever:
             collection_name: Name of the ChromaDB collection
             model_name: Name of the embedding model
             persist_dir: Directory for persistent storage. If None, uses in-memory mode.
-            embedding_backend: "sentence-transformer" or "gemini"
+            embedding_backend: "ollama", "gemini", or "openai-compatible"
         """
         import chromadb
         from chromadb.config import Settings
@@ -474,7 +502,7 @@ class ZvecRetriever:
         collection_name: str = "memories",
         model_name: str = "all-MiniLM-L6-v2",
         persist_dir: str = None,
-        embedding_backend: str = "sentence-transformer",
+        embedding_backend: str = "ollama",
     ):
         import zvec as _zvec
 

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Scopes that the settings layer recognises.
 # If a cloud backend uses a different namespace model, override this
 # at the backend level -- SettingsVault enforces the logical API.
-VALID_SCOPES = frozenset({"providers", "channels", "tunnel", "auth"})
+VALID_SCOPES = frozenset({"providers", "channels", "tunnel", "auth", "memory", "knowledge"})
 
 
 class SettingsVault:

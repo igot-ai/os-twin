@@ -56,60 +56,6 @@ class BaseLLMController(ABC):
         return result
 
 
-class OpenAIController(BaseLLMController):
-    def __init__(self, model: str = "gpt-4", api_key: Optional[str] = None):
-        try:
-            from openai import OpenAI
-
-            self.model = model
-            if api_key is None:
-                api_key = os.getenv("OPENAI_API_KEY")
-            if api_key is None:
-                raise ValueError(
-                    "OpenAI API key not found. Set OPENAI_API_KEY environment variable."
-                )
-            self.client = OpenAI(api_key=api_key)
-        except ImportError:
-            raise ImportError(
-                "OpenAI package not found. Install it with: pip install openai"
-            )
-
-    def get_completion(
-        self,
-        prompt: str,
-        response_format: dict = None,
-        temperature: float = 1.0,
-        max_tokens: Optional[int] = None,
-    ) -> str:
-        # Build kwargs dynamically based on model type
-        kwargs = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": _SYSTEM_JSON_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": temperature,
-        }
-        if response_format is not None:
-            kwargs["response_format"] = response_format
-
-        # GPT-5 and newer reasoning models use max_completion_tokens
-        if max_tokens is not None:
-            if (
-                "gpt-5" in self.model.lower()
-                or "o1" in self.model.lower()
-                or "o3" in self.model.lower()
-            ):
-                kwargs["max_completion_tokens"] = max_tokens
-            else:
-                kwargs["max_tokens"] = max_tokens
-
-        response = self.client.chat.completions.create(**kwargs)
-        if not response.choices:
-            raise ValueError("LLM returned empty choices array")
-        return response.choices[0].message.content or ""
-
-
 class OllamaController(BaseLLMController):
     def __init__(self, model: str = "llama2"):
         from ollama import chat
@@ -146,148 +92,8 @@ class OllamaController(BaseLLMController):
             elif "not found" in error_str:
                 raise RuntimeError(f"Model 'ollama_chat/{self.model}' not found. Please pull it using 'ollama pull hf.co/{self.model}'.") from e
             
-            # If it's another kind of error, fallback to returning empty response (legacy behavior)
-            empty_response = self._generate_empty_response(response_format or {})
-            return json.dumps(empty_response)
-
-
-class SGLangController(BaseLLMController):
-    """LLM controller for SGLang server using HTTP requests.
-
-    SGLang provides fast local inference with RadixAttention for efficient KV cache reuse.
-    This controller communicates with a SGLang server via HTTP.
-
-    Args:
-        model: Model identifier (e.g., "meta-llama/Llama-3.1-8B-Instruct")
-        sglang_host: SGLang server host URL (default: "http://localhost")
-        sglang_port: SGLang server port (default: 30000)
-    """
-
-    def __init__(
-        self,
-        model: str = "llama2",
-        sglang_host: str = "http://localhost",
-        sglang_port: int = 30000,
-    ):
-        self.model = model
-        self.sglang_host = sglang_host
-        self.sglang_port = sglang_port
-        self.base_url = f"{sglang_host}:{sglang_port}"
-
-    def get_completion(
-        self, prompt: str, response_format: dict = None, temperature: float = 1.0
-    ) -> str:
-        fmt = response_format or {}
-        try:
-            json_schema = fmt.get("json_schema", {}).get("schema", {})
-            json_schema_str = json.dumps(json_schema)
-
-            payload = {
-                "text": prompt,
-                "sampling_params": {
-                    "temperature": temperature,
-                    "max_new_tokens": 1000,
-                    "json_schema": json_schema_str,
-                },
-            }
-
-            response = requests.post(
-                f"{self.base_url}/generate",
-                headers={"Content-Type": "application/json"},
-                json=payload,
-                timeout=60,
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                generated_text = result.get("text", "")
-                return generated_text
-
-            print(
-                f"SGLang server returned status {response.status_code}: {response.text}"
-            )
-            raise RuntimeError(f"SGLang server error: {response.status_code}")
-
-        except Exception as e:
-            print(f"SGLang completion error: {e}")
-            empty_response = self._generate_empty_response(fmt)
-            return json.dumps(empty_response)
-
-
-class OpenRouterController(BaseLLMController):
-    """LLM controller for OpenRouter API using litellm.
-
-    OpenRouter provides access to multiple LLM providers through a unified API.
-    This controller uses litellm to interface with OpenRouter, supporting any model
-    available on the OpenRouter platform.
-
-    Args:
-        model: Model identifier (e.g., "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet").
-               The "openrouter/" prefix is automatically added if not present.
-        api_key: OpenRouter API key. If None, reads from OPENROUTER_API_KEY env variable.
-
-    Raises:
-        ValueError: If API key is not provided and not found in environment.
-
-    Examples:
-        >>> controller = OpenRouterController("openai/gpt-4o-mini", api_key="your-key")
-        >>> controller = OpenRouterController("google/gemini-3.1-flash-lite-preview-001:free")
-    """
-
-    def __init__(
-        self, model: str = "openai/gpt-4o-mini", api_key: Optional[str] = None
-    ):
-        # For litellm, prepend "openrouter/" if not already present
-        if not model.startswith("openrouter/"):
-            self.model = f"openrouter/{model}"
-        else:
-            self.model = model
-
-        if api_key is None:
-            api_key = os.getenv("OPENROUTER_API_KEY")
-        if api_key is None:
-            raise ValueError(
-                "OpenRouter API key not found. Set OPENROUTER_API_KEY environment variable."
-            )
-
-        # Set the environment variable for litellm to use
-        os.environ["OPENROUTER_API_KEY"] = api_key
-        self.api_key = api_key
-
-    def get_completion(
-        self, prompt: str, response_format: dict = None, temperature: float = 1.0
-    ) -> str:
-        """Get completion from OpenRouter API.
-
-        Args:
-            prompt: The prompt to send to the LLM.
-            response_format: JSON schema specifying the expected response format.
-            temperature: Sampling temperature (0.0 to 1.0).
-
-        Returns:
-            JSON string containing the LLM response.
-        """
-        try:
-            _ensure_litellm()
-            kwargs = {
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": _SYSTEM_JSON_PROMPT,
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": temperature,
-            }
-            if response_format is not None:
-                kwargs["response_format"] = response_format
-            response = completion(**kwargs)
-            return response.choices[0].message.content
-        except Exception:
-            # Silently fall back to empty response on error
-            empty_response = self._generate_empty_response(response_format or {})
-            return json.dumps(empty_response)
+            # If it's another kind of error, re-raise it
+            raise RuntimeError(f"OllamaController completion error: {str(e)}") from e
 
 
 class OpenAICompatibleController(BaseLLMController):
@@ -297,15 +103,15 @@ class OpenAICompatibleController(BaseLLMController):
     Falls back to http://localhost:8000 if not set.
     """
 
-    def __init__(self, model: str = "default", api_key: Optional[str] = None):
+    def __init__(self, model: str = "default", api_key: Optional[str] = None, base_url: Optional[str] = None):
         try:
             from openai import OpenAI
 
             self.model = model
-            base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
+            self.base_url = base_url or os.getenv("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
             if api_key is None:
                 api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
-            self.client = OpenAI(api_key=api_key, base_url=base_url)
+            self.client = OpenAI(api_key=api_key, base_url=self.base_url)
         except ImportError:
             raise ImportError(
                 "OpenAI package not found. Install it with: pip install openai"
@@ -332,93 +138,43 @@ class OpenAICompatibleController(BaseLLMController):
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
 
-        response = self.client.chat.completions.create(**kwargs)
-        return response.choices[0].message.content
-
-
-class GeminiController(BaseLLMController):
-    """LLM controller for Google Gemini API using litellm.
-
-    Args:
-        model: Gemini model identifier (e.g., "gemini-3.1-flash-lite-preview", "gemini-1.5-pro").
-               The "gemini/" prefix is automatically added if not present.
-        api_key: Google API key. If None, reads from GOOGLE_API_KEY env variable.
-    """
-
-    def __init__(self, model: str = "gemini-3.1-flash-lite-preview", api_key: Optional[str] = None):
-        if not model.startswith("gemini/"):
-            self.model = f"gemini/{model}"
-        else:
-            self.model = model
-
-        if api_key is None:
-            api_key = os.getenv("GOOGLE_API_KEY")
-        if api_key is None:
-            raise ValueError(
-                "Google API key not found. Set GOOGLE_API_KEY environment variable."
-            )
-
-        os.environ["GEMINI_API_KEY"] = api_key
-        self.api_key = api_key
-
-    def get_completion(
-        self, prompt: str, response_format: dict = None, temperature: float = 1.0
-    ) -> str:
         try:
-            _ensure_litellm()
-            kwargs = {
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": _SYSTEM_JSON_PROMPT,
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": temperature,
-            }
-            if response_format is not None:
-                kwargs["response_format"] = response_format
-            response = completion(**kwargs)
-            return response.choices[0].message.content
-        except Exception:
-            empty_response = self._generate_empty_response(response_format or {})
-            return json.dumps(empty_response)
+            response = self.client.chat.completions.create(**kwargs)
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("LLM returned None content")
+            return content
+        except Exception as e:
+            # Re-raise the exception so it can be handled by the caller, rather than failing silently with an empty string
+            raise RuntimeError(f"OpenAICompatibleController completion error: {str(e)}") from e
 
 
 class LLMController:
     """LLM-based controller for memory metadata generation.
 
-    Supports multiple backends: OpenAI, Ollama, SGLang, OpenRouter, Gemini,
-    and OpenAI-compatible API servers.
+    Supports multiple backends: Ollama and OpenAI-compatible API servers.
     """
 
     def __init__(
         self,
         backend: Literal[
-            "openai", "ollama", "sglang", "openrouter", "gemini", "openai-compatible"
-        ] = "openai",
-        model: str = "gpt-4",
-        api_key: Optional[str] = None,
-        sglang_host: str = "http://localhost",
-        sglang_port: int = 30000,
+            "ollama", "openai-compatible"
+        ] = "ollama",
+        model: str = "llama3.2",
+        compatible_url: Optional[str] = None,
+        compatible_key: Optional[str] = None,
     ):
-        if backend == "openai":
-            self.llm = OpenAIController(model, api_key)
-        elif backend == "ollama":
+        if backend == "ollama":
             self.llm = OllamaController(model)
-        elif backend == "sglang":
-            self.llm = SGLangController(model, sglang_host, sglang_port)
-        elif backend == "openrouter":
-            self.llm = OpenRouterController(model, api_key)
-        elif backend == "gemini":
-            self.llm = GeminiController(model, api_key)
         elif backend == "openai-compatible":
-            self.llm = OpenAICompatibleController(model, api_key)
+            self.llm = OpenAICompatibleController(
+                model,
+                api_key=compatible_key,
+                base_url=compatible_url
+            )
         else:
             raise ValueError(
-                "Backend must be one of: 'openai', 'ollama', 'sglang', "
-                "'openrouter', 'gemini', 'openai-compatible'"
+                "Unknown backend '" + str(backend) + "'. Backend must be one of: 'ollama', 'openai-compatible'"
             )
 
     def get_completion(

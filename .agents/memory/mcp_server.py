@@ -220,7 +220,7 @@ _patch_mcp_exception_silence()
 from agentic_memory.config import load_config as _load_config
 
 _cfg = _load_config()
-
+print("mcp_server cfg loaded:", _cfg)
 # Module-level snapshots used for startup logging and tool registration.
 # These are NOT used by _init_memory — it reads fresh config each time.
 LLM_BACKEND = _cfg.llm.backend
@@ -291,6 +291,19 @@ _memory_ready = threading.Event()
 # Track the config fingerprint used to init the current _memory instance so
 # get_memory() can detect when the dashboard settings changed.
 _memory_config_fingerprint: Optional[str] = None
+# Sentinel file written by the dashboard when memory/knowledge settings change.
+# We track the file's mtime (not just existence) so multiple consumers
+# (this stdio server + the in-process MemoryPool inside the dashboard) can
+# each detect a change exactly once without racing to delete the flag.
+_CONFIG_DIRTY_FLAG = None
+if os.environ.get("OSTWIN_PROJECT_DIR"):
+    _CONFIG_DIRTY_FLAG = os.path.join(os.environ["OSTWIN_PROJECT_DIR"], ".agents", ".memory_config_dirty")
+elif os.environ.get("AGENT_OS_ROOT"):
+    _CONFIG_DIRTY_FLAG = os.path.join(os.environ["AGENT_OS_ROOT"], ".agents", ".memory_config_dirty")
+else:
+    _CONFIG_DIRTY_FLAG = os.path.join(os.path.expanduser("~"), ".ostwin", ".agents", ".memory_config_dirty")
+
+_last_dirty_mtime: float = 0.0
 
 
 def _config_fingerprint(cfg) -> str:
@@ -317,7 +330,7 @@ def _init_memory(cfg=None):
     try:
         if cfg is None:
             cfg = _load_config()
-
+        print("mcp_server init_memory cfg loaded:", cfg)
         logger.info("Background: importing agentic_memory...")
         from agentic_memory.memory_system import AgenticMemorySystem as _AMS
 
@@ -401,14 +414,26 @@ def get_memory():
             )
 
     # --- Hot-reload: check for dashboard config-dirty flag ---
-    _dirty_flag = os.path.join(
-        os.path.expanduser("~"), ".ostwin", ".agents", ".memory_config_dirty"
-    )
-    if os.path.exists(_dirty_flag):
+    #
+    # We use the flag file's mtime as a per-process "have I seen this change?"
+    # signal. Multiple processes share one flag (this stdio server, the
+    # dashboard's in-process MemoryPool, etc.); deleting it would race them.
+    # Tracking mtime makes detection idempotent across all consumers.
+    #
+    # NEVER use ``print()`` in this module — stdout is the MCP JSON-RPC
+    # channel and any stray write corrupts the protocol stream.
+    global _last_dirty_mtime
+    try:
+        flag_mtime = os.stat(_CONFIG_DIRTY_FLAG).st_mtime
+    except FileNotFoundError:
+        flag_mtime = 0.0
+
+    if flag_mtime > _last_dirty_mtime:
+        _last_dirty_mtime = flag_mtime
         try:
-            os.remove(_dirty_flag)
-            logger.info("Config-dirty flag detected, reloading config...")
+            logger.info("Config-dirty flag detected (mtime=%s), reloading config...", flag_mtime)
             fresh_cfg = _load_config()
+            print("mcp_server get_memory fresh_cfg loaded:", fresh_cfg)
             fresh_fp = _config_fingerprint(fresh_cfg)
             if fresh_fp != _memory_config_fingerprint:
                 logger.info(
@@ -721,13 +746,25 @@ def save_memory(
             )
         else:
             logger.warning("save_memory: note %s not found after add_note", memory_id)
-    except Exception:
+    except Exception as e:
         logger.exception("save_memory: failed for id=%s", memory_id)
         return json.dumps(
             {
                 "id": memory_id,
                 "status": "error",
-                "message": "Failed to save memory. See server log for details.",
+                "message": f"Failed to save memory: {str(e)}",
+            },
+            ensure_ascii=False,
+        )
+
+    # Check if LLM analysis actually succeeded
+    note = mem.read(memory_id)
+    if note and (not note.keywords or note.context == "General"):
+        return json.dumps(
+            {
+                "id": memory_id,
+                "status": "saved_with_warnings",
+                "message": "Memory saved, but LLM analysis/evolution failed. Semantic search will still work.",
             },
             ensure_ascii=False,
         )

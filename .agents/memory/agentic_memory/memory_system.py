@@ -68,14 +68,11 @@ class AgenticMemorySystem:
     def __init__(
         self,
         model_name: str = "all-MiniLM-L6-v2",
-        llm_backend: str = "openai",
-        llm_model: str = "gpt-4o-mini",
+        llm_backend: str = "ollama",
+        llm_model: str = "llama3.2",
         evo_threshold: int = 100,
-        api_key: Optional[str] = None,
-        sglang_host: str = "http://localhost",
-        sglang_port: int = 30000,
         persist_dir: Optional[str] = None,
-        embedding_backend: str = "sentence-transformer",
+        embedding_backend: str = "ollama",
         vector_backend: str = "zvec",
         context_aware_analysis: bool = False,
         context_aware_tree: bool = False,
@@ -83,19 +80,18 @@ class AgenticMemorySystem:
         similarity_weight: float = 0.8,
         decay_half_life_days: float = 30.0,
         conflict_resolution: str = "last_modified",
+        llm_compatible_url: Optional[str] = None,
+        llm_compatible_key: Optional[str] = None,
     ):
         """Initialize the memory system.
 
         Args:
             model_name: Name of the embedding model
-            llm_backend: LLM backend to use (openai/ollama/sglang/gemini)
+            llm_backend: LLM backend to use ("ollama" or "openai-compatible")
             llm_model: Name of the LLM model
             evo_threshold: Number of memories before triggering evolution
-            api_key: API key for the LLM service
-            sglang_host: Host URL for SGLang server (default: http://localhost)
-            sglang_port: Port for SGLang server (default: 30000)
             persist_dir: Directory for persistent storage. If None, uses in-memory mode.
-            embedding_backend: Embedding backend ("sentence-transformer" or "gemini")
+            embedding_backend: Embedding backend ("ollama" or "openai-compatible")
             vector_backend: Vector database backend ("chroma" or "zvec")
             context_aware_analysis: When True, analyze_content sees similar memories
                 and directory paths to keep naming/categorization consistent.
@@ -155,7 +151,10 @@ class AgenticMemorySystem:
 
         # Initialize LLM controller
         self.llm_controller = LLMController(
-            llm_backend, llm_model, api_key, sglang_host, sglang_port
+            backend=llm_backend, 
+            model=llm_model, 
+            compatible_url=llm_compatible_url, 
+            compatible_key=llm_compatible_key,
         )
         self.evo_cnt = 0
         self.evo_threshold = evo_threshold
@@ -624,8 +623,8 @@ class AgenticMemorySystem:
             )
             return json.loads(response)
         except Exception as e:
-            print(f"Error analyzing content: {e}")
-            return {"keywords": [], "context": "General", "tags": []}
+            logger.error(f"Error analyzing content: {str(e)}")
+            raise e
 
     def _apply_llm_analysis(self, note: MemoryNote) -> None:
         """Run LLM analysis on a note and fill in missing metadata."""

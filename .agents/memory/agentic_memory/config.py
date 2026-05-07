@@ -29,11 +29,50 @@ from typing import List
 
 _CONFIG_DIR = Path(__file__).resolve().parent.parent
 
+# Backends accepted by the runtime. Anything outside these sets means a
+# stale or hand-edited config file — load_config() coerces the offender
+# back to the documented default and emits a warning rather than letting
+# the bad value reach LLMController / _create_embedding_function and
+# explode at first use.
+_VALID_LLM_BACKENDS = frozenset(
+    {"ollama", "openai-compatible"}
+)
+_VALID_EMBEDDING_BACKENDS = frozenset({"ollama", "openai-compatible"})
+_VALID_VECTOR_BACKENDS = frozenset({"zvec", "chroma"})
+
+_DEFAULT_LLM_BACKEND = "ollama"
+_DEFAULT_LLM_MODEL = "llama3.2"
+_DEFAULT_EMBEDDING_BACKEND = "ollama"
+_DEFAULT_EMBEDDING_MODEL = "leoipulsar/harrier-0.6b"
+_DEFAULT_VECTOR_BACKEND = "zvec"
+
+
+def _coerce_backend(
+    raw: str,
+    valid: frozenset,
+    fallback: str,
+    field: str,
+) -> str:
+    """Return *raw* if it is a recognised backend, else raise ValueError.
+
+    Empty strings, whitespace, and unknown legacy values (e.g. ``huggingface``,
+    ``sentence-transformer``, ``vertex``) are not supported and will raise an error.
+    """
+    candidate = (raw or "").strip().lower()
+    if candidate in valid:
+        return candidate
+
+    raise ValueError(
+        f"Invalid {field} {raw!r}. Valid values: {', '.join(sorted(valid))}"
+    )
+
 
 @dataclass
 class LLMConfig:
     backend: str = "ollama"
     model: str = "llama3.2"
+    compatible_url: str = ""
+    compatible_key: str = ""
 
 
 @dataclass
@@ -46,6 +85,8 @@ class EmbeddingConfig:
 
     backend: str = "ollama"
     model: str = "leoipulsar/harrier-0.6b"
+    compatible_url: str = ""
+    compatible_key: str = ""
 
 
 @dataclass
@@ -118,18 +159,19 @@ def _load_system_settings() -> dict:
     """Load memory settings from the dashboard's system config.
 
     The dashboard writes user-configured memory settings (backend, model, etc.)
-    into ``~/.ostwin/.agents/config.json`` under the ``memory`` key using a
-    **flat** schema::
-
-        { "memory": { "llm_backend": "ollama", "llm_model": "...", ... } }
-
+    into config.json under the ``memory`` key using a flat schema.
+    
     This function reads that file fresh on every call so the MCP server always
     reflects the latest dashboard settings without a restart.
-
-    Returns a nested dict matching the shape of ``config.default.json`` so it
-    can be merged directly into the defaults dict.
     """
-    config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
+    # Allow overriding the project root for local development/testing
+    if os.environ.get("OSTWIN_PROJECT_DIR"):
+        config_path = Path(os.environ["OSTWIN_PROJECT_DIR"]) / ".agents" / "config.json"
+    elif os.environ.get("AGENT_OS_ROOT"):
+        config_path = Path(os.environ["AGENT_OS_ROOT"]) / ".agents" / "config.json"
+    else:
+        config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
+        
     if not config_path.exists():
         return {}
     try:
@@ -144,12 +186,32 @@ def _load_system_settings() -> dict:
 
     # Map the flat dashboard keys → nested config.default.json shape.
     result: dict = {}
+    
+    # Check Vault for sensitive keys
+    llm_compatible_key = flat.get("llm_compatible_key", "")
+    embedding_compatible_key = flat.get("embedding_compatible_key", "")
+    try:
+        from dashboard.lib.settings.vault import get_vault
+        vault = get_vault()
+        vault_llm_key = vault.get("memory", "llm_compatible_key")
+        if vault_llm_key:
+            llm_compatible_key = vault_llm_key
+        vault_embed_key = vault.get("memory", "embedding_compatible_key")
+        if vault_embed_key:
+            embedding_compatible_key = vault_embed_key
+    except ImportError:
+        pass
+
     if flat.get("llm_backend") or flat.get("llm_model"):
         result["llm"] = {}
         if flat.get("llm_backend"):
             result["llm"]["backend"] = flat["llm_backend"]
         if flat.get("llm_model"):
             result["llm"]["model"] = flat["llm_model"]
+        if flat.get("llm_compatible_url"):
+            result["llm"]["compatible_url"] = flat["llm_compatible_url"]
+        if llm_compatible_key:
+            result["llm"]["compatible_key"] = llm_compatible_key
 
     if flat.get("embedding_backend") or flat.get("embedding_model"):
         result["embedding"] = {}
@@ -157,6 +219,10 @@ def _load_system_settings() -> dict:
             result["embedding"]["backend"] = flat["embedding_backend"]
         if flat.get("embedding_model"):
             result["embedding"]["model"] = flat["embedding_model"]
+        if flat.get("embedding_compatible_url"):
+            result["embedding"]["compatible_url"] = flat["embedding_compatible_url"]
+        if embedding_compatible_key:
+            result["embedding"]["compatible_key"] = embedding_compatible_key
 
     if flat.get("vector_backend"):
         result["vector"] = {"backend": flat["vector_backend"]}
@@ -185,7 +251,6 @@ def load_config() -> MemoryConfig:
     reflects the latest dashboard configuration.
     """
     d = _load_json_defaults()
-
     # Layer 2: merge dashboard system settings on top of defaults
     sys_settings = _load_system_settings()
     for section_key in ("llm", "embedding", "vector", "search", "evolution", "sync"):
@@ -199,24 +264,60 @@ def load_config() -> MemoryConfig:
     evo_d = d.get("evolution", {})
     sync_d = d.get("sync", {})
 
+    raw_llm_backend = _env_str(
+        "MEMORY_LLM_BACKEND", llm_d.get("backend", _DEFAULT_LLM_BACKEND)
+    )
+    raw_embed_backend = _env_str(
+        "MEMORY_EMBEDDING_BACKEND",
+        embedding_d.get("backend", _DEFAULT_EMBEDDING_BACKEND),
+    )
+    raw_vector_backend = _env_str(
+        "MEMORY_VECTOR_BACKEND", vector_d.get("backend", _DEFAULT_VECTOR_BACKEND)
+    )
+    
     config = MemoryConfig(
         llm=LLMConfig(
-            backend=_env_str("MEMORY_LLM_BACKEND", llm_d.get("backend", "ollama")),
+            backend=_coerce_backend(
+                raw_llm_backend,
+                _VALID_LLM_BACKENDS,
+                _DEFAULT_LLM_BACKEND,
+                "llm.backend",
+            ),
             model=_env_str(
-                "MEMORY_LLM_MODEL", llm_d.get("model", "llama3.2")
+                "MEMORY_LLM_MODEL", llm_d.get("model", _DEFAULT_LLM_MODEL)
+            ),
+            compatible_url=_env_str(
+                "MEMORY_LLM_COMPATIBLE_URL", llm_d.get("compatible_url", "")
+            ),
+            compatible_key=_env_str(
+                "MEMORY_LLM_COMPATIBLE_KEY", llm_d.get("compatible_key", "")
             ),
         ),
         embedding=EmbeddingConfig(
-            backend=_env_str(
-                "MEMORY_EMBEDDING_BACKEND", embedding_d.get("backend", "ollama")
+            backend=_coerce_backend(
+                raw_embed_backend,
+                _VALID_EMBEDDING_BACKENDS,
+                _DEFAULT_EMBEDDING_BACKEND,
+                "embedding.backend",
             ),
             model=_env_str(
                 "MEMORY_EMBEDDING_MODEL",
-                embedding_d.get("model", "leoipulsar/harrier-0.6b"),
+                embedding_d.get("model", _DEFAULT_EMBEDDING_MODEL),
+            ),
+            compatible_url=_env_str(
+                "MEMORY_EMBED_COMPATIBLE_URL", embedding_d.get("compatible_url", "")
+            ),
+            compatible_key=_env_str(
+                "MEMORY_EMBED_COMPATIBLE_KEY", embedding_d.get("compatible_key", "")
             ),
         ),
         vector=VectorConfig(
-            backend=_env_str("MEMORY_VECTOR_BACKEND", vector_d.get("backend", "zvec")),
+            backend=_coerce_backend(
+                raw_vector_backend,
+                _VALID_VECTOR_BACKENDS,
+                _DEFAULT_VECTOR_BACKEND,
+                "vector.backend",
+            ),
         ),
         search=SearchConfig(
             similarity_weight=_env_float(
