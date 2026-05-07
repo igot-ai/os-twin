@@ -142,11 +142,7 @@ def _resolve_title(note_name: Optional[str], body: str, md_file: Path) -> str:
     title = (note_name or "").strip()
     if not title:
         h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
-        title = (
-            h1.group(1).strip()
-            if h1
-            else md_file.stem.replace("-", " ").replace("_", " ").title()
-        )
+        title = h1.group(1).strip() if h1 else md_file.stem.replace("-", " ").replace("_", " ").title()
     return title
 
 
@@ -174,9 +170,7 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
 
     body = (note.content or "").strip()
     title = _resolve_title(note.name, body, md_file)
-    category_val = (
-        note.category if note.category and note.category != "Uncategorized" else None
-    )
+    category_val = note.category if note.category and note.category != "Uncategorized" else None
 
     return {
         "id": note.id,
@@ -236,7 +230,8 @@ def _build_graph(notes: list) -> dict:
     note_ids = {n["id"] for n in notes}
 
     for note in notes:
-        path_parts = note["path"].split("/") if note["path"] != "." else ["unfiled"]
+        note_path = note.get("path") or "."
+        path_parts = note_path.split("/") if note_path != "." else ["unfiled"]
         group_key = path_parts[0] if path_parts else "unfiled"
 
         if group_key not in groups:
@@ -300,9 +295,7 @@ def _build_graph(notes: list) -> dict:
 
 
 @router.get("/api/amem/{plan_id}/graph", responses={404: {"description": "Not found"}})
-async def get_memory_graph(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-):
+async def get_memory_graph(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None):
     """Get the memory graph for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -367,9 +360,7 @@ def _render_graph_png(graph_data: dict) -> bytes:
 
     legend_handles = []
     for group in graph_data["groups"]:
-        legend_handles.append(
-            Patch(facecolor=group["color"], label=group["label"], alpha=0.9)
-        )
+        legend_handles.append(Patch(facecolor=group["color"], label=group["label"], alpha=0.9))
     if legend_handles:
         legend = ax.legend(
             handles=legend_handles,
@@ -402,9 +393,7 @@ def _render_graph_png(graph_data: dict) -> bytes:
     "/api/amem/{plan_id}/graph-image",
     responses={404: {"description": "Not found"}},
 )
-async def get_memory_graph_image(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-):
+async def get_memory_graph_image(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None):
     """Render the memory graph as a PNG image."""
     import asyncio
     import io
@@ -430,9 +419,7 @@ async def get_memory_graph_image(
 
 
 @router.get("/api/amem/{plan_id}/tree", responses={404: {"description": "Not found"}})
-async def get_memory_tree(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> dict:
+async def get_memory_tree(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get a tree-like directory structure of all memory notes."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -468,9 +455,7 @@ async def get_memory_tree(
 
 
 @router.get("/api/amem/{plan_id}/notes", responses={404: {"description": "Not found"}})
-async def list_memory_notes(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> list:
+async def list_memory_notes(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> list:
     """List all memory notes for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -480,12 +465,8 @@ async def list_memory_notes(
     return notes
 
 
-@router.get(
-    "/api/amem/{plan_id}/notes/{note_id}", responses={404: {"description": "Not found"}}
-)
-async def get_memory_note(
-    plan_id: str, note_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> dict:
+@router.get("/api/amem/{plan_id}/notes/{note_id}", responses={404: {"description": "Not found"}})
+async def get_memory_note(plan_id: str, note_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get a single memory note by ID."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -497,9 +478,7 @@ async def get_memory_note(
 
 
 @router.get("/api/amem/{plan_id}/stats", responses={404: {"description": "Not found"}})
-async def get_memory_stats(
-    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
-) -> dict:
+async def get_memory_stats(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get memory statistics for a plan's project."""
     mem_dir = _resolve_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
@@ -535,9 +514,7 @@ from datetime import datetime
 from fastapi.responses import StreamingResponse
 
 
-MEMORY_BASE_DIR = Path(
-    os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory"))
-)
+MEMORY_BASE_DIR = Path(os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory")))
 
 
 @router.get("/api/amem/namespaces")
@@ -559,9 +536,7 @@ async def list_namespaces(user: Annotated[dict, Depends(get_current_user)]):
         notes_count = len(list(notes_dir.rglob("*.md"))) if notes_dir.exists() else 0
 
         # Disk usage
-        disk_bytes = sum(
-            f.stat().st_size for f in entry.rglob("*") if f.is_file()
-        )
+        disk_bytes = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
 
         # Plan title from registry
         title = plan_id
@@ -576,10 +551,9 @@ async def list_namespaces(user: Annotated[dict, Depends(get_current_user)]):
             title = "(Global)"
 
         # Archived versions count
-        archived = len([
-            d for d in MEMORY_BASE_DIR.iterdir()
-            if d.is_dir() and d.name.startswith(f"{plan_id}.archive-")
-        ])
+        archived = len(
+            [d for d in MEMORY_BASE_DIR.iterdir() if d.is_dir() and d.name.startswith(f"{plan_id}.archive-")]
+        )
 
         # Timestamps
         created_at = None
@@ -591,15 +565,17 @@ async def list_namespaces(user: Annotated[dict, Depends(get_current_user)]):
                 created_at = datetime.fromtimestamp(min(times)).isoformat()
                 last_modified = datetime.fromtimestamp(max(times)).isoformat()
 
-        namespaces.append({
-            "plan_id": plan_id,
-            "title": title,
-            "notes_count": notes_count,
-            "disk_bytes": disk_bytes,
-            "created_at": created_at,
-            "last_modified": last_modified,
-            "archived_versions": archived,
-        })
+        namespaces.append(
+            {
+                "plan_id": plan_id,
+                "title": title,
+                "notes_count": notes_count,
+                "disk_bytes": disk_bytes,
+                "created_at": created_at,
+                "last_modified": last_modified,
+                "archived_versions": archived,
+            }
+        )
 
     return namespaces
 
@@ -621,6 +597,7 @@ async def clear_namespace(
     # Kill the pool slot if active (forces sync + cleanup)
     try:
         from dashboard.routes.memory_mcp import get_pool
+
         pool = get_pool()
         pool.kill_slot(str(ns_dir))
     except Exception:
@@ -688,6 +665,7 @@ async def archive_namespace(
     # Kill pool slot first
     try:
         from dashboard.routes.memory_mcp import get_pool
+
         pool = get_pool()
         pool.kill_slot(str(ns_dir))
     except Exception:
@@ -733,7 +711,5 @@ async def export_namespace(
     return StreamingResponse(
         buf,
         media_type="application/gzip",
-        headers={
-            "Content-Disposition": f'attachment; filename="memory-{plan_id}.tar.gz"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="memory-{plan_id}.tar.gz"'},
     )
