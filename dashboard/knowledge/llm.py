@@ -191,7 +191,6 @@ class KnowledgeLLM:
         self.provider: str | None = provider or master_provider or LLM_PROVIDER or None
         # Resolve API key: explicit > resolved from master_agent
         self._explicit_key: str | None = api_key
-        self._client: Any | None = None  # cached LLMClient instance
 
     # -- Capability -----------------------------------------------------
 
@@ -249,27 +248,26 @@ class KnowledgeLLM:
         return None
 
     def _effective_provider(self) -> str:
-        """Return the provider name (explicit or auto-detected from model)."""
-        if self.provider:
-            return self.provider
         from dashboard.llm_client import _detect_provider_from_model  # noqa: WPS433
         return _detect_provider_from_model(self.model)
 
     def _get_client(self) -> Any:
-        """Lazy-create the LLMClient via the unified factory."""
-        if self._client is not None:
-            return self._client
+        """Create the LLMClient via the unified factory.
+        
+        We do not cache this instance because it gets bound to the ephemeral event loop 
+        created by `_run_sync`. Reusing it across multiple `_run_sync` calls 
+        would result in 'Event loop is closed' errors.
+        """
         from dashboard.llm_client import LLMConfig, create_client  # noqa: WPS433
 
         api_key = self._resolve_api_key()
         config = LLMConfig(max_tokens=4096)
-        self._client = create_client(
+        return create_client(
             model=self.model,
             provider=self._effective_provider(),
             api_key=api_key,
             config=config,
         )
-        return self._client
 
     @staticmethod
     def _extract_json(text: str) -> Any:
@@ -389,8 +387,6 @@ class KnowledgeLLM:
         Returns [{term, is_query, category_id?}]. When unavailable, returns a
         single retrieval step with the verbatim query.
         """
-        if not self.is_available():
-            return [{"term": query, "is_query": True}]
         system = _get_prompt(
             _KEY_PLAN_SYSTEM, language,
             knowledge_summary=knowledge_summary or "(no summary provided)",
@@ -437,8 +433,6 @@ class KnowledgeLLM:
         When unavailable: returns "\\n\\n".join(community_summaries).
         """
         snippets = [s for s in community_summaries if isinstance(s, str) and s.strip()]
-        if not self.is_available():
-            return "\n\n".join(snippets)
         if not snippets:
             return ""
         system = _get_prompt(

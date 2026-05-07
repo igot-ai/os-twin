@@ -105,22 +105,88 @@ class GraphRAGQueryEngine(CustomQueryEngine):
 
     # -- Citation helpers -----------------------------------------------
 
-    def _create_citation(self, metadata: dict, uuid: str) -> str:
-        file_path = metadata.get("file_path", "")
-        file_name = metadata.get("filename", "")
-        page_range = metadata.get("page_range", "")
-        page_number = metadata.get("page_number", "")
+    def create_citation(self, metadata: dict) -> dict | None:
+        """Build a citation dict for a graph node that carries UUID references.
 
-        file_identifier = file_name or file_path
-        page_info = page_range or page_number
+        When ``metadata`` contains ``target_id`` / ``source_id`` pointing to
+        chunk nodes, this method resolves each UUID candidate against the
+        property graph store, extracts file-level metadata, and returns a dict
+        keyed by UUID whose value includes both the human-readable citation
+        Returns ``None`` when no resolvable UUID is found or metadata is empty.
+        """
+        if not metadata or not isinstance(metadata, dict):
+            return None
 
-        if not file_identifier:
-            return f"`{uuid}`"
+        candidates: list[str] = []
+        target_id = metadata.get("target_id", "")
+        source_id = metadata.get("source_id", "")
 
-        page_suffix = f"({page_info})" if page_info else ""
-        return f"[{file_identifier}{page_suffix}]{{uuid:{uuid}}}"
+        if target_id and self._is_uuid_node(target_id):
+            candidates.append(target_id)
+        if source_id and self._is_uuid_node(source_id) and source_id != target_id:
+            candidates.append(source_id)
 
-    # -- Graph snapshot -------------------------------------------------
+        if not candidates:
+            candidates = [
+                v for v in (metadata.get("id"), metadata.get("node_id"))
+                if v and self._is_uuid_node(v)
+            ]
+
+        if not candidates:
+            return None
+
+        result: dict[str, dict] = {}
+        for uuid_val in candidates:
+            resolved = self._resolve_chunk_metadata(uuid_val)
+            if resolved is None:
+                continue
+            file_identifier = resolved.get("filename", "") or resolved.get("file_path", "")
+            page_info = resolved.get("page_range", "") or resolved.get("page_number", "")
+            page_suffix = f"({page_info})" if page_info else ""
+            citation_str = f"[{file_identifier}{page_suffix}]" if file_identifier else f"`{uuid_val}`"
+            result[uuid_val] = {
+                "citation": citation_str,
+                "file_path": resolved.get("file_path", ""),
+                "filename": resolved.get("filename", ""),
+                "info": resolved.get("info", ""),
+                "entity_description": resolved.get("entity_description", ""),
+            }
+
+        return result if result else None
+
+    @staticmethod
+    def _is_uuid_node(value: str) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            import uuid as _uuid
+            obj = _uuid.UUID(value)
+            return str(obj) == value.lower()
+        except (ValueError, AttributeError):
+            return False
+
+    def _resolve_chunk_metadata(self, uuid_key: str) -> dict | None:
+        """Fetch a chunk node's properties from the property graph store."""
+        if not (hasattr(self, "index") and hasattr(self.index, "property_graph_store")):
+            return None
+        try:
+            nodes = self.index.property_graph_store.get(ids=[uuid_key])
+            for node in nodes:
+                props = node.properties or {}
+                if not any(k in props for k in FILE_METADATA_FIELDS):
+                    return None
+                return {
+                    "file_path": props.get("file_path", ""),
+                    "filename": props.get("filename", ""),
+                    "info": node.text,
+                    "page_number": props.get("page_number", ""),
+                    "entity_description": props.get("entity_description", ""),
+                }
+        except Exception as exc:
+            logger.error("Error resolving chunk metadata for %s: %s", uuid_key, exc)
+        return None
+
+# -- Graph snapshot -------------------------------------------------
 
     def graph_result(self):
         graph = self.tracking.graph
@@ -129,7 +195,10 @@ class GraphRAGQueryEngine(CustomQueryEngine):
             try:
                 score = node_data.get("score", 0.0)
                 properties = node_data.get("properties", {})
-                citation = self._create_citation(properties, node_id)
+                file_identifier = properties.get("filename", "") or properties.get("file_path", "")
+                page_info = properties.get("page_range", "") or properties.get("page_number", "")
+                page_suffix = f"({page_info})" if page_info else ""
+                citation = f"[{file_identifier}{page_suffix}]" if file_identifier else f"`{node_id}`"
                 nodes.append(
                     {
                         "id": node_id,
@@ -174,7 +243,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         return _run_async(self._acustom_query(query_str, **kwargs))
 
     async def _acustom_query(self, query_str: str, **kwargs) -> str:
-        context_query = kwargs.get("parameter", "")
+        context_query = kwargs.get("parameter", None)
         answer, _ = await self._query_plan(
             query_str, context=context_query, include_graph=self.include_graph, **kwargs
         )
@@ -218,6 +287,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         return await executor.execute_plans(
             plans,
             yaml.dump(knowledge, allow_unicode=True),
+            query=query,
             llm=self.llm,
             stream_handler=self.stream_handler,
             is_memory=is_memory,

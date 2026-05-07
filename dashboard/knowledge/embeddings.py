@@ -145,7 +145,7 @@ class KnowledgeEmbedder:
         import ollama as _ollama  # noqa: WPS433
 
         try:
-            response = _ollama.embed(model=self.model_name, input=texts)
+            response = _ollama.embed(model=self.model_name, input=texts, dimensions=self._dimension)
             return response["embeddings"]
         except Exception as exc:  # noqa: BLE001
             logger.error("Ollama embedding failed: %s", exc)
@@ -192,7 +192,7 @@ class KnowledgeEmbedder:
                 response = client.post(
                     f"{base_url}/v1/embeddings",
                     headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
-                    json={"model": self.model_name, "input": texts},
+                    json={"model": self.model_name, "input": texts, "dimensions": self._dimension},
                     timeout=60.0,
                 )
                 response.raise_for_status()

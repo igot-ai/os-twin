@@ -57,16 +57,20 @@ class QueryExecutor:
                 target_id = metadata.get("target_id", "")
                 source_id = metadata.get("source_id", "")
                 if target_id:
+                    meta_citation = self.engine.create_citation(metadata)
+                    if meta_citation:
+                        return meta_citation
                     candidates = []
                     if self._is_uuid_format(target_id):
                         candidates.append(target_id)
                     if self._is_uuid_format(source_id) and source_id != target_id:
                         candidates.append(source_id)
+                    result: dict[str, Any] = {}
                     for uuid_val in candidates:
                         meta = self._get_document_metadata_by_uuid(uuid_val)
                         if meta:
-                            return {uuid_val: meta}
-                    return {}
+                            result[uuid_val] = meta
+                    return result
                 return {}
             return filter_metadata_fields(metadata, METADATA_FIELDS)
         except Exception as exc:  # noqa: BLE001
@@ -139,7 +143,7 @@ class QueryExecutor:
             language=self.language,
         )
         if plans and not any(not p.get("is_query", True) for p in plans):
-            plans.append({"is_query": False, "term": f"Synthesize data for: {context}"})
+            plans.append({"is_query": False, "term": f"{query} {context}"})
         return plans, ""
 
     async def execute_plans(
@@ -147,6 +151,7 @@ class QueryExecutor:
         plans: list[dict],
         context,
         llm=None,
+        query=None,
         stream_handler=None,
         is_memory: bool = False,
         **kwargs,
@@ -156,7 +161,7 @@ class QueryExecutor:
         nodes_collected: list = []
         answer = ""
         community_answers = [context]
-        citation: list = []
+        citation: dict[str, Any] = {}
 
         for plan in plans:
             if plan.get("is_query", False):
@@ -168,8 +173,8 @@ class QueryExecutor:
                 for n in items:
                     try:
                         cit = self._filter_citation(n.node.metadata)
-                        if cit:
-                            citation.append(cit)
+                        if cit and isinstance(cit, dict):
+                            citation.update(cit)
                     except Exception as exc:  # noqa: BLE001
                         logger.error("Error processing node citation: %s", exc)
                         continue
@@ -179,10 +184,10 @@ class QueryExecutor:
                     stream_handler(f"FOUND: {len(items)}")
             else:
                 try:
-                    query = f"{plan.get('term')}. ({context})"
-                    com_answers = self.engine.graph_result()
+                    graph = self.engine.graph_result()
+                    context = f"{plan.get('term')}. {graph}. ({query})"
                     answer = await self.engine.aggregate_answers(
-                        com_answers, query, llm, citation=citation
+                        list(citation.values()), context, llm
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.error("Error in plan execution: %s", exc)
