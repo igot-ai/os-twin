@@ -112,11 +112,6 @@ class OpenAIController(BaseLLMController):
 
 class OllamaController(BaseLLMController):
     def __init__(self, model: str = "llama2"):
-        from ollama import chat
-
-        if "/" in model and not model.startswith("hf.co/"):
-            model = f"hf.co/{model}"
-            
         self.model = model
 
     def get_completion(

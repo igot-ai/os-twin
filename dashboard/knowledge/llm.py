@@ -174,10 +174,21 @@ class KnowledgeLLM:
         model: str | None = None,
         provider: str | None = None,
     ) -> None:
-        # Resolve model: explicit > config (env / MasterSettings)
-        self.model: str = model or LLM_MODEL or ""
-        # Resolve provider: explicit > config env > auto-detect
-        self.provider: str | None = provider or LLM_PROVIDER or None
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        try:
+            resolver = get_settings_resolver()
+            master = resolver.get_master_settings()
+            know_cfg = master.knowledge
+            master_model = know_cfg.knowledge_llm_model if know_cfg and know_cfg.knowledge_llm_model else ""
+            master_provider = know_cfg.knowledge_llm_backend if know_cfg and know_cfg.knowledge_llm_backend else ""
+        except Exception:
+            master_model = ""
+            master_provider = ""
+
+        # Resolve model: explicit > master settings > config env
+        self.model: str = model or master_model or LLM_MODEL or ""
+        # Resolve provider: explicit > master settings > config env > auto-detect
+        self.provider: str | None = provider or master_provider or LLM_PROVIDER or None
         # Resolve API key: explicit > resolved from master_agent
         self._explicit_key: str | None = api_key
         self._client: Any | None = None  # cached LLMClient instance
@@ -239,6 +250,8 @@ class KnowledgeLLM:
 
     def _effective_provider(self) -> str:
         """Return the provider name (explicit or auto-detected from model)."""
+        if self.provider:
+            return self.provider
         from dashboard.llm_client import _detect_provider_from_model  # noqa: WPS433
         return _detect_provider_from_model(self.model)
 

@@ -48,11 +48,22 @@ class KnowledgeEmbedder:
         model_name: str | None = None,
         provider: str | None = None,
     ) -> None:
-        self.model_name: str = model_name or EMBEDDING_MODEL
-        self.provider: str = (provider or EMBEDDING_PROVIDER or "ollama").lower()
-        if self.provider == "ollama" and "/" in self.model_name and not self.model_name.startswith("hf.co/"):
-            self.model_name = f"hf.co/{self.model_name}"
-        self._dimension: int | None = None  # populated on first use
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        try:
+            resolver = get_settings_resolver()
+            master = resolver.get_master_settings()
+            know_cfg = master.knowledge
+            master_model = know_cfg.knowledge_embedding_model if know_cfg and know_cfg.knowledge_embedding_model else ""
+            master_provider = know_cfg.knowledge_embedding_backend if know_cfg and know_cfg.knowledge_embedding_backend else ""
+            master_dim = know_cfg.knowledge_embedding_dimension if know_cfg and know_cfg.knowledge_embedding_dimension else 0
+        except Exception:
+            master_model = ""
+            master_provider = ""
+            master_dim = 0
+
+        self.model_name: str = model_name or master_model or EMBEDDING_MODEL
+        self.provider: str = (provider or master_provider or EMBEDDING_PROVIDER or "ollama").lower()
+        self._dimension: int | None = master_dim if master_dim > 0 else None  # populated on first use if None
 
     # -- Lazy loading ---------------------------------------------------
 
