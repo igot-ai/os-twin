@@ -30,9 +30,7 @@ import uuid_utils
 logger = logging.getLogger("zvec_store")
 
 EMBEDDING_DIM = 384  # Default, will be updated dynamically
-OSTWIN_EMBED_MODEL = os.environ.get(
-    "OSTWIN_EMBED_MODEL", "microsoft/harrier-oss-v1-0.6b"
-)
+OSTWIN_EMBED_MODEL = os.environ.get("OSTWIN_EMBED_MODEL", "microsoft/harrier-oss-v1-0.6b")
 MESSAGES_COLLECTION = "messages"
 METADATA_COLLECTION = "metadata"
 PLANS_COLLECTION = "plans_v2"
@@ -187,9 +185,7 @@ class OSTwinStore:
                 schema = col.schema
                 has_time_id = any(f.name == "time_id" for f in schema.fields)
                 has_enabled = any(f.name == "enabled" for f in schema.fields)
-                has_instance_type = any(
-                    f.name == "instance_type" for f in schema.fields
-                )
+                has_instance_type = any(f.name == "instance_type" for f in schema.fields)
 
                 # Check vector dimension mismatch (Harrier migration).
                 # zvec exposes `schema.vectors` as either a list of VectorSchema
@@ -211,12 +207,7 @@ class OSTwinStore:
 
                 needs_enabled = name == SKILLS_COLLECTION and not has_enabled
                 needs_instance_type = name == ROLES_COLLECTION and not has_instance_type
-                if (
-                    not has_time_id
-                    or dim_mismatch
-                    or needs_enabled
-                    or needs_instance_type
-                ):
+                if not has_time_id or dim_mismatch or needs_enabled or needs_instance_type:
                     reasons = []
                     if dim_mismatch:
                         reasons.append(f"dim {current_dim} → {EMBEDDING_DIM}")
@@ -226,9 +217,7 @@ class OSTwinStore:
                         reasons.append("missing enabled")
                     if needs_instance_type:
                         reasons.append("missing instance_type")
-                    logger.info(
-                        "Migrating collection %s (%s)", name, ", ".join(reasons)
-                    )
+                    logger.info("Migrating collection %s (%s)", name, ", ".join(reasons))
                     shutil.rmtree(str(path))
                     stats["migrated"].append(name)
                 else:
@@ -246,9 +235,7 @@ class OSTwinStore:
                     logger.info("Removed unreadable collection %s — will rebuild", name)
                     stats["migrated"].append(name)
                 except Exception as rm_err:
-                    logger.error(
-                        "Failed to remove unreadable collection %s: %s", name, rm_err
-                    )
+                    logger.error("Failed to remove unreadable collection %s: %s", name, rm_err)
 
         if stats["migrated"]:
             logger.info("Collections migrated: %s", ", ".join(stats["migrated"]))
@@ -288,12 +275,8 @@ class OSTwinStore:
                         zvec.DataType.STRING,
                         index_param=zvec.InvertIndexParam(),
                     ),
-                    zvec.FieldSchema(
-                        "ref", zvec.DataType.STRING, index_param=zvec.InvertIndexParam()
-                    ),
-                    zvec.FieldSchema(
-                        "ts", zvec.DataType.STRING, index_param=zvec.InvertIndexParam()
-                    ),
+                    zvec.FieldSchema("ref", zvec.DataType.STRING, index_param=zvec.InvertIndexParam()),
+                    zvec.FieldSchema("ts", zvec.DataType.STRING, index_param=zvec.InvertIndexParam()),
                     zvec.FieldSchema("body", zvec.DataType.STRING),
                 ],
                 vectors=zvec.VectorSchema(
@@ -334,12 +317,8 @@ class OSTwinStore:
                     ),
                     zvec.FieldSchema("retries", zvec.DataType.INT32),
                     zvec.FieldSchema("message_count", zvec.DataType.INT32),
-                    zvec.FieldSchema(
-                        "last_activity", zvec.DataType.STRING, nullable=True
-                    ),
-                    zvec.FieldSchema(
-                        "task_description", zvec.DataType.STRING, nullable=True
-                    ),
+                    zvec.FieldSchema("last_activity", zvec.DataType.STRING, nullable=True),
+                    zvec.FieldSchema("task_description", zvec.DataType.STRING, nullable=True),
                 ],
                 vectors=zvec.VectorSchema(
                     "embedding",
@@ -439,9 +418,7 @@ class OSTwinStore:
                         zvec.DataType.STRING,
                         index_param=zvec.InvertIndexParam(),
                     ),
-                    zvec.FieldSchema(
-                        "working_dir", zvec.DataType.STRING, nullable=True
-                    ),
+                    zvec.FieldSchema("working_dir", zvec.DataType.STRING, nullable=True),
                 ],
                 vectors=zvec.VectorSchema(
                     "embedding",
@@ -512,9 +489,7 @@ class OSTwinStore:
                     zvec.FieldSchema("params", zvec.DataType.STRING),
                     zvec.FieldSchema("changelog", zvec.DataType.STRING),
                     zvec.FieldSchema("author", zvec.DataType.STRING, nullable=True),
-                    zvec.FieldSchema(
-                        "forked_from", zvec.DataType.STRING, nullable=True
-                    ),
+                    zvec.FieldSchema("forked_from", zvec.DataType.STRING, nullable=True),
                     zvec.FieldSchema("is_draft", zvec.DataType.INT32),
                     zvec.FieldSchema("enabled", zvec.DataType.INT32),
                 ],
@@ -661,9 +636,7 @@ class OSTwinStore:
                     zvec.FieldSchema("max_retries", zvec.DataType.STRING),
                     zvec.FieldSchema("timeout_seconds", zvec.DataType.STRING),
                     zvec.FieldSchema("skill_refs", zvec.DataType.STRING),
-                    zvec.FieldSchema(
-                        "system_prompt_override", zvec.DataType.STRING, nullable=True
-                    ),
+                    zvec.FieldSchema("system_prompt_override", zvec.DataType.STRING, nullable=True),
                     zvec.FieldSchema(
                         "instance_type",
                         zvec.DataType.STRING,
@@ -701,6 +674,7 @@ class OSTwinStore:
         try:
             if self._embedder is None:
                 from dashboard.knowledge.embeddings import KnowledgeEmbedder
+
                 self._embedder = KnowledgeEmbedder(model_name=OSTWIN_EMBED_MODEL)
 
             import numpy as np
@@ -715,9 +689,7 @@ class OSTwinStore:
                     self._ke = ke
                     self._dim = None
 
-                def encode(
-                    self, texts, convert_to_numpy=False, show_progress_bar=False
-                ):
+                def encode(self, texts, convert_to_numpy=False, show_progress_bar=False):
                     if isinstance(texts, str):
                         texts = [texts]
                     vecs = self._ke.embed(texts)
@@ -795,9 +767,7 @@ class OSTwinStore:
                         len(uncached_texts),
                         len(texts) - len(uncached_texts),
                     )
-                    embeddings = fn.encode(
-                        uncached_texts, convert_to_numpy=True, show_progress_bar=False
-                    )
+                    embeddings = fn.encode(uncached_texts, convert_to_numpy=True, show_progress_bar=False)
                     for (idx, key), emb in zip(uncached_indices, embeddings):
                         vec = emb.tolist()
                         results[idx] = vec
@@ -1144,9 +1114,7 @@ class OSTwinStore:
         plans_dir = self._plans_dir()
         if not plans_dir.exists():
             return results
-        for f in sorted(
-            plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True
-        ):
+        for f in sorted(plans_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
             plan_id = f.stem
             plan = self.get_plan(plan_id)
             if plan:
@@ -1328,14 +1296,10 @@ class OSTwinStore:
         now = datetime.now(timezone.utc).isoformat()
 
         # Unique ID for the change event
-        event_id = hashlib.sha256(f"{plan_id}:{now}:{file_path}".encode()).hexdigest()[
-            :12
-        ]
+        event_id = hashlib.sha256(f"{plan_id}:{now}:{file_path}".encode()).hexdigest()[:12]
 
         # Embedding for change event
-        embedding = self._embed_text(
-            f"{change_type} {file_path} {diff_summary[:500]}", is_query=False
-        )
+        embedding = self._embed_text(f"{change_type} {file_path} {diff_summary[:500]}", is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
 
@@ -1425,9 +1389,7 @@ class OSTwinStore:
         except Exception:
             return None
 
-    def search_plans(
-        self, query: str, limit: int = 10, order_by_time: bool = False
-    ) -> list[dict]:
+    def search_plans(self, query: str, limit: int = 10, order_by_time: bool = False) -> list[dict]:
         """Semantic search across plans."""
         if self._plans is None:
             return []
@@ -1600,9 +1562,7 @@ class OSTwinStore:
         tags_str = doc.field("tags")
         tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
         roles_str = doc.field("applicable_roles")
-        roles = (
-            [r.strip() for r in roles_str.split(",") if r.strip()] if roles_str else []
-        )
+        roles = [r.strip() for r in roles_str.split(",") if r.strip()] if roles_str else []
         try:
             params = json.loads(doc.field("params"))
         except Exception:
@@ -1630,9 +1590,7 @@ class OSTwinStore:
             "author": doc.field("author"),
             "forked_from": doc.field("forked_from"),
             "is_draft": bool(doc.field("is_draft")),
-            "enabled": bool(doc.field("enabled"))
-            if doc.field("enabled") is not None
-            else True,
+            "enabled": bool(doc.field("enabled")) if doc.field("enabled") is not None else True,
         }
 
     def get_skill(self, name: str) -> dict | None:
@@ -1648,9 +1606,7 @@ class OSTwinStore:
         except Exception:
             return None
 
-    def get_all_skills(
-        self, limit: int = 100, order_by_time: bool = False
-    ) -> list[dict]:
+    def get_all_skills(self, limit: int = 100, order_by_time: bool = False) -> list[dict]:
         """Fetch all indexed skills. Returns list of dicts."""
         if self._skills is None:
             return []
@@ -1689,9 +1645,7 @@ class OSTwinStore:
             logger.error("get_all_skills failed: %s", e)
             return []
 
-    def search_skills(
-        self, query: str, limit: int = 20, order_by_time: bool = False
-    ) -> list[dict]:
+    def search_skills(self, query: str, limit: int = 20, order_by_time: bool = False) -> list[dict]:
         """Semantic search across indexed skills. Returns ranked results."""
         if self._skills is None:
             return []
@@ -1796,9 +1750,7 @@ class OSTwinStore:
                 desc_clean = self._sanitize_text(data["description"])
                 content_clean = self._sanitize_text(data["content"])
                 tags_str = ",".join(data.get("tags", []))
-                embed_texts.append(
-                    f"{data['name']} {desc_clean} {tags_str} {content_clean[:1000]}"
-                )
+                embed_texts.append(f"{data['name']} {desc_clean} {tags_str} {content_clean[:1000]}")
 
             logger.info("Batch-embedding %d skills...", len(embed_texts))
             embeddings = self._embed_texts_batch(embed_texts)
@@ -1897,9 +1849,7 @@ class OSTwinStore:
         desc_clean = self._sanitize_text(description)
         inst_type_clean = self._sanitize_text(instance_type)
 
-        embed_text = (
-            f"{name} {provider} {desc_clean} {skill_refs_str} {inst_type_clean}"
-        )
+        embed_text = f"{name} {provider} {desc_clean} {skill_refs_str} {inst_type_clean}"
         embedding = self._embed_text(embed_text, is_query=False)
         if embedding is None:
             embedding = [0.0] * EMBEDDING_DIM
@@ -1936,11 +1886,7 @@ class OSTwinStore:
     def _map_role_doc(self, doc: zvec.Doc) -> dict:
         """Helper to map a role zvec doc to a standard role dict."""
         skill_refs_str = doc.field("skill_refs")
-        skill_refs = (
-            [s.strip() for s in skill_refs_str.split(",") if s.strip()]
-            if skill_refs_str
-            else []
-        )
+        skill_refs = [s.strip() for s in skill_refs_str.split(",") if s.strip()] if skill_refs_str else []
 
         temp_str = doc.field("temperature")
         try:
@@ -1996,9 +1942,7 @@ class OSTwinStore:
         except Exception:
             return None
 
-    def get_all_roles(
-        self, limit: int = 100, order_by_time: bool = False
-    ) -> list[dict]:
+    def get_all_roles(self, limit: int = 100, order_by_time: bool = False) -> list[dict]:
         """Fetch all indexed roles. Returns list of dicts."""
         if self._roles is None:
             return []
@@ -2031,9 +1975,7 @@ class OSTwinStore:
             logger.error("get_all_roles failed: %s", e)
             return []
 
-    def search_roles(
-        self, query: str, limit: int = 20, order_by_time: bool = False
-    ) -> list[dict]:
+    def search_roles(self, query: str, limit: int = 20, order_by_time: bool = False) -> list[dict]:
         """Semantic search across indexed roles. Returns ranked results."""
         if self._roles is None:
             return []
@@ -2366,9 +2308,7 @@ class OSTwinStore:
         if self._changes:
             self._changes.flush()
 
-        logger.info(
-            "zvec sync complete: %d messages, %d plans indexed", total, plans_synced
-        )
+        logger.info("zvec sync complete: %d messages, %d plans indexed", total, plans_synced)
         return total
 
     def _sync_plans_from_disk(self) -> int:
@@ -2400,10 +2340,7 @@ class OSTwinStore:
             # Determine status from war-rooms (if rooms exist, it was launched)
             status = (
                 "launched"
-                if any(
-                    (self.warrooms_dir / f"room-{i + 1:03d}").exists()
-                    for i in range(len(epics))
-                )
+                if any((self.warrooms_dir / f"room-{i + 1:03d}").exists() for i in range(len(epics)))
                 else "stored"
             )
 
@@ -2537,7 +2474,10 @@ class OSTwinStore:
     # ── Helpers ─────────────────────────────────────────────────────────
 
     def _plans_dir(self) -> Path:
-        """Resolve the plans directory from agents_dir or fallback."""
+        """Always use the global plans store (~/.ostwin/.agents/plans/)."""
+        global_store = Path.home() / ".ostwin" / ".agents" / "plans"
+        if global_store.exists():
+            return global_store
         if self.agents_dir:
             return self.agents_dir / "plans"
         # Fallback: try common locations
