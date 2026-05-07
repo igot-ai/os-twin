@@ -145,7 +145,10 @@ class KnowledgeEmbedder:
         import ollama as _ollama  # noqa: WPS433
 
         try:
-            response = _ollama.embed(model=self.model_name, input=texts, dimensions=self._dimension)
+            kwargs: dict[str, Any] = {"model": self.model_name, "input": texts}
+            if self._dimension is not None:
+                kwargs["dimensions"] = self._dimension
+            response = _ollama.embed(**kwargs)
             return response["embeddings"]
         except Exception as exc:  # noqa: BLE001
             logger.error("Ollama embedding failed: %s", exc)
@@ -189,10 +192,13 @@ class KnowledgeEmbedder:
 
         try:
             with httpx.Client() as client:
+                payload: dict[str, Any] = {"model": self.model_name, "input": texts}
+                if self._dimension is not None:
+                    payload["dimensions"] = self._dimension
                 response = client.post(
                     f"{base_url}/v1/embeddings",
                     headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
-                    json={"model": self.model_name, "input": texts, "dimensions": self._dimension},
+                    json=payload,
                     timeout=60.0,
                 )
                 response.raise_for_status()

@@ -7,29 +7,33 @@ Refactor notes (EPIC-001):
 - The Vietnamese-locked legacy prompts in ``prompt.py`` are no longer used by
   this module — they remain in the file for back-compat with downstream
   consumers but the planner here goes through ``KnowledgeLLM.plan_query``.
+
+Shared citation utilities are now imported from
+:mod:`dashboard.knowledge.graph.core.citation` — the old names
+(``_is_uuid_format``, ``FILE_METADATA_FIELDS``, etc.) are re-exported here
+for backward compatibility.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
-from typing import Any
+from typing import Any, Optional
 
-from pydantic import BaseModel
-
+from dashboard.knowledge.graph.core.citation import (
+    FILE_METADATA_FIELDS,
+    build_citation_dict,
+    extract_file_metadata,
+    is_uuid,
+    resolve_chunk_metadata,
+)
 from dashboard.knowledge.graph.utils import filter_metadata_fields
 
 logger = logging.getLogger(__name__)
 
 METADATA_FIELDS = ["entity_description", "filename", "file_path", "page_range", "page_number"]
-FILE_METADATA_FIELDS = ["file_path", "filename", "page_range", "page_number"]
 
-
-class ChatMessage(BaseModel):
-    """Minimal chat-message model (replaces app.models.LLMChatMessage)."""
-
-    role: str
-    content: str
+# Backward-compat alias — existing code that imports this still works.
+_is_uuid_format = is_uuid
 
 
 class QueryExecutor:
@@ -44,26 +48,26 @@ class QueryExecutor:
         self.engine = engine
         self.llm = llm
         self.language = language
-        # Cache for citation metadata lookups.
         self._uuid_metadata_cache: dict[str, Any] = {}
 
     # -- Citation helpers ----------------------------------------------
 
-    def _filter_citation(self, metadata):
+    def _filter_citation(self, metadata) -> dict[str, Any]:
         try:
             if not metadata or not isinstance(metadata, dict):
                 return {}
             if "target_id" in metadata and "source_id" in metadata:
                 target_id = metadata.get("target_id", "")
-                source_id = metadata.get("source_id", "")
                 if target_id:
-                    meta_citation = self.engine.create_citation(metadata)
+                    index = getattr(self.engine, "index", None)
+                    meta_citation = build_citation_dict(metadata, index)
                     if meta_citation:
                         return meta_citation
                     candidates = []
-                    if self._is_uuid_format(target_id):
+                    if is_uuid(target_id):
                         candidates.append(target_id)
-                    if self._is_uuid_format(source_id) and source_id != target_id:
+                    source_id = metadata.get("source_id", "")
+                    if is_uuid(source_id) and source_id != target_id:
                         candidates.append(source_id)
                     result: dict[str, Any] = {}
                     for uuid_val in candidates:
@@ -79,54 +83,40 @@ class QueryExecutor:
 
     @staticmethod
     def _is_uuid_format(value) -> bool:
-        if not isinstance(value, str):
-            return False
-        try:
-            obj = uuid.UUID(value)
-        except ValueError:
-            return False
-        return str(obj) == value.lower()
+        """Backward-compat wrapper around :func:`is_uuid`."""
+        return is_uuid(value)
 
     @staticmethod
-    def _extract_file_metadata(properties):
-        if not properties or not any(key in properties for key in FILE_METADATA_FIELDS):
-            return None
-        return {
-            "file_path": properties.get("file_path", ""),
-            "filename": properties.get("filename", ""),
-            "page_range": properties.get("page_range", ""),
-            "page_number": properties.get("page_number", ""),
-            "entity_description": properties.get("entity_description", ""),
-        }
+    def _extract_file_metadata(properties) -> Optional[dict]:
+        """Backward-compat wrapper around :func:`extract_file_metadata`."""
+        return extract_file_metadata(properties)
 
-    def _get_document_metadata_by_uuid(self, key: str):
+    def _get_document_metadata_by_uuid(self, key: str) -> Optional[dict]:
         if key in self._uuid_metadata_cache:
             return self._uuid_metadata_cache[key]
         try:
-            result = self._get_metadata_from_property_graph(key)
-            self._uuid_metadata_cache[key] = result
+            index = getattr(self.engine, "index", None)
+            result = resolve_chunk_metadata(index, key)
+            if result is not None:
+                self._uuid_metadata_cache[key] = result
+            else:
+                self._uuid_metadata_cache[key] = None
             return result
         except Exception as exc:  # noqa: BLE001
             logger.error("Error looking up document metadata for %s: %s", key, exc)
             self._uuid_metadata_cache[key] = None
             return None
 
-    def _get_metadata_from_property_graph(self, key: str):
-        if not (hasattr(self.engine, "index") and hasattr(self.engine.index, "property_graph_store")):
-            return None
-        try:
-            nodes = self.engine.index.property_graph_store.get(ids=[key])
-            for node in nodes:
-                return self._extract_file_metadata(node.properties or {})
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Error getting node by ID %s: %s", key, exc)
-        return None
+    def _get_metadata_from_property_graph(self, key: str) -> Optional[dict]:
+        """Backward-compat wrapper around :func:`resolve_chunk_metadata`."""
+        index = getattr(self.engine, "index", None)
+        return resolve_chunk_metadata(index, key)
 
     # -- Planning + execution ------------------------------------------
 
     def generate_plans(
         self,
-        query,
+        query: str,
         max_queries: int = 5,
         instruction: str = "",
         knowledge=None,
@@ -143,7 +133,9 @@ class QueryExecutor:
             language=self.language,
         )
         if plans and not any(not p.get("is_query", True) for p in plans):
-            plans.append({"is_query": False, "term": f"{query} {context}"})
+            safe_query = query or ""
+            safe_context = context or ""
+            plans.append({"is_query": False, "term": f"Synthesize data for: {safe_query} {safe_context}"})
         return plans, ""
 
     async def execute_plans(
@@ -151,13 +143,14 @@ class QueryExecutor:
         plans: list[dict],
         context,
         llm=None,
-        query=None,
+        query: str | None = None,
         stream_handler=None,
         is_memory: bool = False,
         **kwargs,
     ):
         if llm is None:
             llm = self.llm
+        safe_query = query or ""
         nodes_collected: list = []
         answer = ""
         community_answers = [context]
@@ -185,9 +178,9 @@ class QueryExecutor:
             else:
                 try:
                     graph = self.engine.graph_result()
-                    context = f"{plan.get('term')}. {graph}. ({query})"
+                    synthesis_context = f"{plan.get('term')}. {graph}. ({safe_query})"
                     answer = await self.engine.aggregate_answers(
-                        list(citation.values()), context, llm
+                        list(citation.values()), synthesis_context, llm
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.error("Error in plan execution: %s", exc)

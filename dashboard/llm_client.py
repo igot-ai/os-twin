@@ -712,7 +712,7 @@ def create_client(
             region = _os.environ.get("VERTEX_LOCATION", "global")
             project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
             base_url = base_url.replace("{region}", region).replace("{project}", project)
-        api_key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+        api_key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("OSTWIN_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
         return GoogleClient(model=model, api_key=api_key, base_url=base_url, config=config, vertexai=is_vertex)
 
     if provider == "openai-compatible":

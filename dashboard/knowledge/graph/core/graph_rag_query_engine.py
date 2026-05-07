@@ -6,6 +6,11 @@ Refactor notes (EPIC-001):
 - Aggregation uses :meth:`KnowledgeLLM.aggregate_answers` directly.
 - Removed ``run_async_in_thread`` (was an `app.utils` helper); use a small
   inline event-loop runner.
+
+Shared citation utilities and the async runner are now imported from
+:mod:`dashboard.knowledge.graph.core.citation` — the old names
+(``_run_async``, ``_is_uuid_node``, ``_resolve_chunk_metadata``,
+``FILE_METADATA_FIELDS``) are re-exported here for backward compatibility.
 """
 
 from __future__ import annotations
@@ -24,6 +29,14 @@ from llama_index.core.query_engine.custom import STR_OR_RESPONSE_TYPE
 from llama_index.core.vector_stores.types import BasePydanticVectorStore
 
 from dashboard.knowledge.config import PAGERANK_SCORE_THRESHOLD
+from dashboard.knowledge.graph.core.citation import (
+    FILE_METADATA_FIELDS,  # backward-compat re-export
+    build_citation_dict,
+    format_citation,
+    is_uuid,
+    resolve_chunk_metadata,
+    run_async,
+)
 from dashboard.knowledge.graph.core.graph_rag_extractor import GraphRAGExtractor
 from dashboard.knowledge.graph.core.graph_rag_store import GraphRAGStore
 from dashboard.knowledge.graph.core.query_executioner import QueryExecutor
@@ -32,39 +45,8 @@ from dashboard.knowledge.llm import KnowledgeLLM
 
 logger = logging.getLogger(__name__)
 
-# Constants for file-metadata fields.
-FILE_METADATA_FIELDS = ["file_path", "filename", "page_range", "page_number"]
-
-
-def _run_async(coro):
-    """Run an awaitable from sync code without disturbing the caller's loop.
-
-    Uses ``asyncio.get_running_loop()`` (3.10+) to detect whether the caller is
-    already inside an event loop. If so, executes the coroutine on a fresh loop
-    in a worker thread. Otherwise drives a new loop via ``asyncio.run()``.
-
-    The previous implementation called ``asyncio.get_event_loop()`` which is
-    deprecated (DeprecationWarning in 3.12, removal scheduled for 3.14) and
-    has surprising behaviour when no loop is set.
-    """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop in this thread → simplest path.
-        return asyncio.run(coro)
-
-    # We're already inside a running loop → must use a worker thread.
-    import concurrent.futures
-
-    def runner():
-        new_loop = asyncio.new_event_loop()
-        try:
-            return new_loop.run_until_complete(coro)
-        finally:
-            new_loop.close()
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(runner).result()
+# Backward-compat aliases — existing imports still work.
+_run_async = run_async
 
 
 class GraphRAGQueryEngine(CustomQueryEngine):
@@ -91,8 +73,6 @@ class GraphRAGQueryEngine(CustomQueryEngine):
     @property
     def tracking(self):
         if self._tracking is None:
-            # Resolve embed_model: prefer the explicit field, fall back to
-            # the index's internal attribute for backward compatibility.
             _embed = self.embed_model or getattr(self.index, "_embed_model", None)
             self._tracking = TrackVectorRetriever(
                 engine=self,
@@ -108,85 +88,22 @@ class GraphRAGQueryEngine(CustomQueryEngine):
     def create_citation(self, metadata: dict) -> dict | None:
         """Build a citation dict for a graph node that carries UUID references.
 
-        When ``metadata`` contains ``target_id`` / ``source_id`` pointing to
-        chunk nodes, this method resolves each UUID candidate against the
-        property graph store, extracts file-level metadata, and returns a dict
-        keyed by UUID whose value includes both the human-readable citation
-        Returns ``None`` when no resolvable UUID is found or metadata is empty.
+        Delegates to :func:`build_citation_dict` from the shared citation
+        module.  Returns ``None`` when no resolvable UUID is found or
+        metadata is empty.
         """
-        if not metadata or not isinstance(metadata, dict):
-            return None
-
-        candidates: list[str] = []
-        target_id = metadata.get("target_id", "")
-        source_id = metadata.get("source_id", "")
-
-        if target_id and self._is_uuid_node(target_id):
-            candidates.append(target_id)
-        if source_id and self._is_uuid_node(source_id) and source_id != target_id:
-            candidates.append(source_id)
-
-        if not candidates:
-            candidates = [
-                v for v in (metadata.get("id"), metadata.get("node_id"))
-                if v and self._is_uuid_node(v)
-            ]
-
-        if not candidates:
-            return None
-
-        result: dict[str, dict] = {}
-        for uuid_val in candidates:
-            resolved = self._resolve_chunk_metadata(uuid_val)
-            if resolved is None:
-                continue
-            file_identifier = resolved.get("filename", "") or resolved.get("file_path", "")
-            page_info = resolved.get("page_range", "") or resolved.get("page_number", "")
-            page_suffix = f"({page_info})" if page_info else ""
-            citation_str = f"[{file_identifier}{page_suffix}]" if file_identifier else f"`{uuid_val}`"
-            result[uuid_val] = {
-                "citation": citation_str,
-                "file_path": resolved.get("file_path", ""),
-                "filename": resolved.get("filename", ""),
-                "info": resolved.get("info", ""),
-                "entity_description": resolved.get("entity_description", ""),
-            }
-
-        return result if result else None
+        return build_citation_dict(metadata, self.index)
 
     @staticmethod
     def _is_uuid_node(value: str) -> bool:
-        if not isinstance(value, str):
-            return False
-        try:
-            import uuid as _uuid
-            obj = _uuid.UUID(value)
-            return str(obj) == value.lower()
-        except (ValueError, AttributeError):
-            return False
+        """Backward-compat wrapper around :func:`is_uuid`."""
+        return is_uuid(value)
 
     def _resolve_chunk_metadata(self, uuid_key: str) -> dict | None:
-        """Fetch a chunk node's properties from the property graph store."""
-        if not (hasattr(self, "index") and hasattr(self.index, "property_graph_store")):
-            return None
-        try:
-            nodes = self.index.property_graph_store.get(ids=[uuid_key])
-            for node in nodes:
-                props = node.properties or {}
-                if not any(k in props for k in FILE_METADATA_FIELDS):
-                    return None
-                return {
-                    "file_path": props.get("file_path", ""),
-                    "filename": props.get("filename", ""),
-                    "info": node.text,
-                    "page_number": props.get("page_number", ""),
-                    "entity_description": props.get("entity_description", ""),
-                }
-        except Exception as exc:
-            logger.error("Error resolving chunk metadata for %s: %s", uuid_key, exc)
-        return None
+        """Backward-compat wrapper around :func:`resolve_chunk_metadata`."""
+        return resolve_chunk_metadata(self.index, uuid_key)
 
-# -- Graph snapshot -------------------------------------------------
+    # -- Graph snapshot -------------------------------------------------
 
     def graph_result(self):
         graph = self.tracking.graph
@@ -195,10 +112,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
             try:
                 score = node_data.get("score", 0.0)
                 properties = node_data.get("properties", {})
-                file_identifier = properties.get("filename", "") or properties.get("file_path", "")
-                page_info = properties.get("page_range", "") or properties.get("page_number", "")
-                page_suffix = f"({page_info})" if page_info else ""
-                citation = f"[{file_identifier}{page_suffix}]" if file_identifier else f"`{node_id}`"
+                citation = format_citation(properties, uuid_fallback=node_id)
                 nodes.append(
                     {
                         "id": node_id,
@@ -240,7 +154,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         return await self._acustom_query(query_str, **kwargs)
 
     def custom_query(self, query_str: str, **kwargs) -> str:
-        return _run_async(self._acustom_query(query_str, **kwargs))
+        return run_async(self._acustom_query(query_str, **kwargs))
 
     async def _acustom_query(self, query_str: str, **kwargs) -> str:
         context_query = kwargs.get("parameter", None)
@@ -254,7 +168,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         if include_graph:
             for node in self.graph_store.graph.get_all_nodes(
                 label_type="entity",
-                context=f"{context}. {query}. {self.data_instruction}",
+                context=f"{context or ''}. {query}. {self.data_instruction}",
                 category_id=kwargs.get("category_id"),
             ):
                 if node.label == "text_chunk":
@@ -320,7 +234,6 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         """
         active_llm: KnowledgeLLM = llm if llm is not None else self.llm
 
-        # Normalise community_answers into list[str].
         if isinstance(community_answers, str):
             snippets = [community_answers]
         elif isinstance(community_answers, (list, tuple)):

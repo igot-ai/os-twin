@@ -134,6 +134,11 @@ def _run_sync(coro):
 
     If an event loop is already running (e.g. called from asyncio.to_thread),
     we spin up a new loop in a thread. Otherwise we use asyncio.run().
+
+    NOTE: A shared version of this function lives in
+    ``dashboard.knowledge.graph.core.citation.run_async``. This copy is
+    retained here because this module has no dependency on the graph
+    sub-package and the function is trivial.
     """
     try:
         asyncio.get_running_loop()
@@ -387,6 +392,8 @@ class KnowledgeLLM:
         Returns [{term, is_query, category_id?}]. When unavailable, returns a
         single retrieval step with the verbatim query.
         """
+        if not self.is_available():
+            return [{"term": query, "is_query": True}]
         system = _get_prompt(
             _KEY_PLAN_SYSTEM, language,
             knowledge_summary=knowledge_summary or "(no summary provided)",
