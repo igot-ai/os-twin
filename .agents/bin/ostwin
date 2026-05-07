@@ -1054,18 +1054,28 @@ switch ($Command) {
         $dashSub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { "help" }
         $dashArgs = @(if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() })
         $dashPort = if ($env:DASHBOARD_PORT) { $env:DASHBOARD_PORT } else { "3366" }
-        $pidFile = Join-Path $OstwinHome "dashboard.pid"
         $dashScript = Join-Path $AgentsDir "dashboard.sh"
         $logFile = Join-Path $OstwinHome "dashboard" "stdout.log"
 
+        # Find running dashboard PID by port (reliable, ignores stale PID files)
+        function Get-DashboardPid {
+            $pids = & lsof -ti:$dashPort -sTCP:LISTEN 2>$null
+            if (-not $pids) { return $null }
+            foreach ($p in ($pids -split "`n")) {
+                $p = $p.Trim()
+                if (-not $p) { continue }
+                $comm = & ps -p $p -o comm= 2>$null
+                if ($comm -match 'python|uvicorn') { return $p }
+            }
+            return $null
+        }
+
         switch ($dashSub) {
             "start" {
-                if (Test-Path $pidFile) {
-                    $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
-                    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
-                        Write-Host "Dashboard already running (PID $oldPid) on http://localhost:$dashPort" -ForegroundColor Yellow
-                        exit 0
-                    }
+                $existingPid = Get-DashboardPid
+                if ($existingPid) {
+                    Write-Host "Dashboard already running (PID $existingPid) on http://localhost:$dashPort" -ForegroundColor Yellow
+                    exit 0
                 }
                 Write-Host "Starting dashboard on http://localhost:$dashPort..."
                 if (Get-Command bash -ErrorAction SilentlyContinue) {
@@ -1090,40 +1100,44 @@ switch ($Command) {
                 }
             }
             "stop" {
-                if (Test-Path $pidFile) {
-                    $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
-                    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
-                        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-                        Write-Host "Dashboard stopped (PID $oldPid)" -ForegroundColor Green
-                    } else {
-                        Write-Host "Dashboard not running (stale PID file)" -ForegroundColor Yellow
-                    }
-                    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+                $dashPid = Get-DashboardPid
+                if ($dashPid) {
+                    & kill $dashPid 2>$null
+                    Start-Sleep -Seconds 1
+                    & kill -0 $dashPid 2>$null
+                    if ($LASTEXITCODE -eq 0) { & kill -9 $dashPid 2>$null }
+                    Write-Host "Dashboard stopped (PID $dashPid)" -ForegroundColor Green
                 } else {
                     Write-Host "Dashboard not running" -ForegroundColor Yellow
                 }
             }
             "restart" {
                 Write-Host "Restarting dashboard..."
-                if (Test-Path $pidFile) {
-                    $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
-                    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
-                        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-                        Start-Sleep -Seconds 2
-                    }
-                    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+                # dashboard.sh handles stop+start internally, just call it
+                if (Get-Command bash -ErrorAction SilentlyContinue) {
+                    & bash $dashScript --port $dashPort --project-dir $OstwinHome --background --skip-build
+                } else {
+                    $dashPs1 = Join-Path $AgentsDir "dashboard.ps1"
+                    & pwsh -NoProfile -File $dashPs1 -Port $dashPort -ProjectDir $OstwinHome -Background
                 }
-                & $PSCommandPath dashboard start @dashArgs
+                $ready = $false
+                for ($i = 0; $i -lt 15; $i++) {
+                    Start-Sleep -Seconds 1
+                    try {
+                        $null = Invoke-RestMethod -Uri "http://localhost:$dashPort/api/memory-pool/health" -TimeoutSec 2
+                        $ready = $true
+                        break
+                    } catch {}
+                }
+                if ($ready) {
+                    Write-Host "Dashboard restarted on http://localhost:$dashPort" -ForegroundColor Green
+                } else {
+                    Write-Host "Dashboard started but not yet responding. Check: ostwin dashboard logs" -ForegroundColor Yellow
+                }
             }
             "status" {
-                $running = $false
-                $runPid = $null
-                if (Test-Path $pidFile) {
-                    $runPid = Get-Content $pidFile -ErrorAction SilentlyContinue
-                    if ($runPid -and (Get-Process -Id $runPid -ErrorAction SilentlyContinue)) {
-                        $running = $true
-                    }
-                }
+                $runPid = Get-DashboardPid
+                $running = [bool]$runPid
                 if ($running) {
                     Write-Host "Dashboard: running (PID $runPid)" -ForegroundColor Green
                     Write-Host "  URL:  http://localhost:$dashPort"
