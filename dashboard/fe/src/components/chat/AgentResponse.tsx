@@ -1,6 +1,7 @@
 
 import { MarkdownRenderer } from '@/lib/markdown-renderer';
 import { Button } from '@/components/ui/Button';
+import { ThinkingIcon } from './ThinkingIcon';
 
 interface AgentResponseProps {
   content: string;
@@ -9,10 +10,13 @@ interface AgentResponseProps {
 }
 
 export function AgentResponse({ content, isStreaming, onCreatePlan }: AgentResponseProps) {
+  // When streaming but no content yet, show the thinking animation
+  const isThinking = isStreaming && !content;
+
   return (
     <div className="flex flex-col gap-2 relative group max-w-full">
       <div 
-        className="rounded-xl px-4 py-3 text-sm"
+        className={`rounded-xl px-4 py-3 text-sm ${isThinking ? 'flex items-center justify-center min-h-[44px] min-w-[48px]' : ''}`}
         style={{
           background: 'var(--color-surface-hover)',
           color: 'var(--color-text-main)',
@@ -20,17 +24,21 @@ export function AgentResponse({ content, isStreaming, onCreatePlan }: AgentRespo
           borderBottomLeftRadius: '4px'
         }}
       >
-        <div className="prose prose-invert max-w-none text-sm
-          prose-p:leading-relaxed prose-pre:bg-[var(--color-surface)] prose-pre:border prose-pre:border-[var(--color-border)]
-          prose-a:text-[var(--color-primary)] hover:prose-a:text-[var(--color-primary-hover)]
-          prose-headings:text-[var(--color-text-main)] prose-strong:text-[var(--color-text-main)]
-          prose-code:text-[var(--color-primary-muted)] prose-code:bg-[var(--color-surface)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-        ">
-          <MarkdownRenderer content={content} />
-          {isStreaming && (
-            <span className="inline-block w-1.5 h-4 ml-1 bg-[var(--color-primary)] animate-pulse align-middle" />
-          )}
-        </div>
+        {isThinking ? (
+          <ThinkingIcon />
+        ) : (
+          <div className="prose prose-invert max-w-none text-sm
+            prose-p:leading-relaxed prose-pre:bg-[var(--color-surface)] prose-pre:border prose-pre:border-[var(--color-border)]
+            prose-a:text-[var(--color-primary)] hover:prose-a:text-[var(--color-primary-hover)]
+            prose-headings:text-[var(--color-text-main)] prose-strong:text-[var(--color-text-main)]
+            prose-code:text-[var(--color-primary-muted)] prose-code:bg-[var(--color-surface)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+          ">
+            <MarkdownRenderer content={content} />
+            {isStreaming && (
+              <span className="inline-block w-1.5 h-4 ml-1 bg-[var(--color-primary)] animate-pulse align-middle" />
+            )}
+          </div>
+        )}
       </div>
       
       {/* Inline action: create plan from this response */}
