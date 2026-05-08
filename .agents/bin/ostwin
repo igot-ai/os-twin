@@ -745,7 +745,15 @@ switch ($Command) {
                 }
 
                 $plansDir = Join-Path $OstwinHome ".agents/plans"
-                $zvecPlans = Join-Path $OstwinHome ".zvec/plans_v2"
+                
+                # Check for OSTWIN_ZVEC_DIR or use default ~/.config/ostwin/.zvec
+                $envZvec = [Environment]::GetEnvironmentVariable("OSTWIN_ZVEC_DIR")
+                if ($envZvec) {
+                    $zvecPlans = Join-Path $envZvec "plans_v2"
+                } else {
+                    $userProfile = [Environment]::GetFolderPath("UserProfile")
+                    $zvecPlans = Join-Path $userProfile ".config/ostwin/.zvec/plans_v2"
+                }
 
                 # Count files to remove
                 $fileCount = 0
