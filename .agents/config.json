@@ -112,18 +112,15 @@
     "max_detail_bytes": 16384,
     "max_context_entries": 15,
     "auto_publish_on_done": true,
-    "llm_backend": "openai-compatible",
-    "llm_model": "qwen/qwen3.6-flash",
-    "embedding_backend": "ollama",
-    "embedding_model": "embeddinggemma",
+    "llm_backend": "huggingface",
+    "llm_model": "LiquidAI/LFM2-1.2B-Extract",
+    "embedding_backend": "sentence-transformer",
+    "embedding_model": "microsoft/harrier-oss-v1-0.6b",
     "vector_backend": "zvec",
     "context_aware": true,
     "auto_sync": true,
     "auto_sync_interval": 60,
-    "ttl_days": 30,
-    "vector_store": "zvec",
-    "llm_compatible_key": "http://localhost:3366/settings",
-    "llm_compatible_url": "https://openrouter.ai/api/v1"
+    "ttl_days": 30
   },
   "channel": {
     "format": "jsonl",
