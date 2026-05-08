@@ -178,8 +178,104 @@ Describe "Resolve-RoleSkills" {
         }
     }
 
-    # === PHASE 2: TASK-AWARE API SEARCH ===
-    Context "Task-aware API search (Phase 2)" {
+    # === PHASE 2a: LOCAL TASK-AWARE DISCOVERY (no API needed) ===
+    Context "Local task-aware discovery (Phase 2a)" {
+        It "discovers local skills by matching TASKS.md keywords against SKILL.md frontmatter" {
+            $fm = "---`nname: write-tests`ndescription: Write unit and integration tests for quality gates`ntags: [engineer, testing, quality-assurance]`n---"
+            New-TestSkill -Name "write-tests" -Location "flat" -Frontmatter $fm
+            $roomDir = New-TestRoom -BriefContent "Implement authentication system" `
+                -TasksContent "- [ ] Write unit tests for login`n- [ ] Add integration tests for OAuth2"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            ($skills | Where-Object { $_.Name -eq "write-tests" }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "discovers skills by matching skill directory name to task content" {
+            $fm = "---`nname: code-review`ndescription: Review code for quality and correctness`n---"
+            New-TestSkill -Name "code-review" -Location "flat" -Frontmatter $fm
+            $roomDir = New-TestRoom -BriefContent "Complete the code review for the authentication module"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            ($skills | Where-Object { $_.Name -eq "code-review" }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "does not duplicate skills already in Phase 1 refs" {
+            $fm = "---`nname: brain-ops`ndescription: Dual-layer context system for team operations`n---"
+            New-TestSkill -Name "brain-ops" -Location "flat" -Frontmatter $fm
+            New-PlanRoles -PlanId "plan-dedup2a" -Roles @{ engineer = @{ skill_refs = @("brain-ops") } }
+            $roomDir = New-TestRoom -PlanId "plan-dedup2a" -BriefContent "Set up brain-ops and team context for the project"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            ($skills | Where-Object { $_.Name -eq "brain-ops" }).Count | Should -Be 1
+        }
+
+        It "skips skills with no keyword overlap to task content" {
+            $fm = "---`nname: overdrive`ndescription: Pushes interfaces past conventional limits with shaders and spring physics`n---"
+            New-TestSkill -Name "overdrive" -Location "flat" -Frontmatter $fm
+            $roomDir = New-TestRoom -BriefContent "Build a database migration system with schema versioning and rollback support"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            ($skills | Where-Object { $_.Name -eq "overdrive" }) | Should -BeNullOrEmpty
+        }
+
+        It "skips discovery when task content is too short" {
+            $fm = "---`nname: write-tests`ndescription: Write unit and integration tests`n---"
+            New-TestSkill -Name "write-tests" -Location "flat" -Frontmatter $fm
+            $roomDir = New-TestRoom -BriefContent "short"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            $skills.Count | Should -Be 0
+        }
+
+        It "respects enabled gate on locally discovered skills" {
+            $fm = "---`nname: disabled-review`nenabled: false`ndescription: Disabled code review skill for testing`n---"
+            New-TestSkill -Name "disabled-review" -Location "flat" -Frontmatter $fm
+            $roomDir = New-TestRoom -BriefContent "Run the disabled-review on the codebase for quality assurance"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            ($skills | Where-Object { $_.Name -eq "disabled-review" }) | Should -BeNullOrEmpty
+        }
+
+        It "discovers skills from global directory" {
+            $fm = "---`nname: brain-ops`ndescription: Dual-layer context system for team operations and knowledge`n---"
+            New-TestSkill -Name "brain-ops" -Location "global" -Frontmatter $fm
+            $roomDir = New-TestRoom -BriefContent "Set up team brain-ops context and knowledge system for operations"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            ($skills | Where-Object { $_.Name -eq "brain-ops" }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "limits discovery to 5 additional skills" {
+            $skillNames = @("auth-review", "auth-tests", "auth-security", "auth-audit", "auth-hardening", "auth-logging")
+            foreach ($sn in $skillNames) {
+                $fm2 = "---`nname: $sn`ndescription: Authentication $sn for security and quality`n---"
+                New-TestSkill -Name $sn -Location "flat" -Frontmatter $fm2
+            }
+            $roomDir = New-TestRoom -BriefContent "Review authentication security, write tests, audit, harden, and add logging for the auth system"
+
+            $skills = & $script:resolveScript -RoleName "engineer" -RolePath $script:testRolePath `
+                -SkillsBaseDir $script:baseDir -RoomDir $roomDir
+
+            $skills.Count | Should -BeLessOrEqual 5
+        }
+    }
+
+    # === PHASE 2b: TASK-AWARE API SEARCH ===
+    Context "Task-aware API search (Phase 2b — requires ApiKey)" {
         BeforeAll {
             Mock Invoke-RestMethod {
                 return @(
