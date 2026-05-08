@@ -176,7 +176,7 @@
     "embedding_dimension": 768,
     "llm_provider": "",
     "embedding_backend": "",
-    "knowledge_llm_model": "glm-5.1",
+    "knowledge_llm_model": "google-vertex/gemini-3.1-flash-lite-preview",
     "knowledge_embedding_model": "leoipulsar/harrier-0.6b",
     "knowledge_embedding_dimension": 768,
     "knowledge_llm_backend": "openai-compatible",
