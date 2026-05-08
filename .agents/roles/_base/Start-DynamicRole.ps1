@@ -86,10 +86,31 @@ $instanceSuffix = if ($assignedRole -match ':(.+)$') { $Matches[1] } else { '' }
 
 # --- Override detection (EPIC-006) ---
 $overrideDir = Join-Path $RoomDir (Join-Path "overrides" $baseRole)
+
+# Resolve role directory across all search paths
+$projectRoot = (Resolve-Path (Join-Path $AgentsDir "..") -ErrorAction SilentlyContinue).Path
+$_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+$_ostwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
+
+$foundRoleDir = $null
+foreach ($candidate in @(
+    (Join-Path $AgentsDir "roles" $baseRole),
+    (Join-Path $_ostwinHome ".agents" "roles" $baseRole)
+)) {
+    if (Test-Path $candidate) { $foundRoleDir = $candidate; break }
+}
+if (-not $foundRoleDir -and $projectRoot) {
+    $contributesDir = Join-Path $projectRoot "contributes" "roles" $baseRole
+    if (Test-Path $contributesDir) { $foundRoleDir = $contributesDir }
+}
+if (-not $foundRoleDir) {
+    $foundRoleDir = Join-Path $AgentsDir (Join-Path "roles" $baseRole)
+}
+
 $roleWorkingDir = if (Test-Path $overrideDir) {
-    if ((Test-Path (Join-Path $overrideDir "subcommands.json")) -or (Test-Path (Join-Path $overrideDir "role.json"))) { $overrideDir } 
-    else { Join-Path $AgentsDir (Join-Path "roles" $baseRole) }
-} else { Join-Path $AgentsDir (Join-Path "roles" $baseRole) }
+    if ((Test-Path (Join-Path $overrideDir "subcommands.json")) -or (Test-Path (Join-Path $overrideDir "role.json"))) { $overrideDir }
+    else { $foundRoleDir }
+} else { $foundRoleDir }
 
 $taskRef = if (Test-Path (Join-Path $RoomDir "task-ref")) {
     (Get-Content (Join-Path $RoomDir "task-ref") -Raw).Trim()
