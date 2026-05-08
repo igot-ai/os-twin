@@ -28,6 +28,7 @@ dependencies = [
     "networkx>=3.0",
     "zvec>=0.2.0",
     "ollama>=0.3.0",
+    "markitdown[all]>=0.1.5",
 ]
 
 [project.optional-dependencies]

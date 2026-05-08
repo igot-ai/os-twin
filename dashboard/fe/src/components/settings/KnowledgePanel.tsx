@@ -338,9 +338,10 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setLlmModelInput(model);
   };
 
-  const handleLlmModelSelect = (model: string) => {
-    updateDraft({ knowledge_llm_model: model });
-    setLlmModelInput(model);
+  const handleLlmModelSelect = (compositeId: string) => {
+    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+    updateDraft({ knowledge_llm_model: modelId });
+    setLlmModelInput(modelId);
   };
 
   const commitLlmModelInput = () => {
@@ -362,9 +363,10 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setEmbedModelInput(model);
   };
 
-  const handleEmbedModelSelect = (model: string) => {
-    updateDraft({ knowledge_embedding_model: model, knowledge_embedding_dimension: 768 });
-    setEmbedModelInput(model);
+  const handleEmbedModelSelect = (compositeId: string) => {
+    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+    updateDraft({ knowledge_embedding_model: modelId, knowledge_embedding_dimension: 768 });
+    setEmbedModelInput(modelId);
   };
 
   const commitEmbedModelInput = () => {
@@ -531,7 +533,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={draft.knowledge_llm_model || ''}
+                  value={chatModels.find(m => m.id.endsWith(`/${draft.knowledge_llm_model}`))?.id || draft.knowledge_llm_model || ''}
                   onChange={(m) => handleLlmModelSelect(m)}
                   models={chatModels}
                   showTier={true}
@@ -560,9 +562,9 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
                   <input
                     type="password"
-                    value={embeddingCompatibleKey}
-                    onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
-                    onBlur={() => updateDraft({ knowledge_embedding_compatible_key: embeddingCompatibleKey })}
+                    value={llmCompatibleKey}
+                    onChange={(e) => setLlmCompatibleKey(e.target.value)}
+                    onBlur={() => updateDraft({ knowledge_llm_compatible_key: llmCompatibleKey })}
                     placeholder="sk-..."
                     className="w-full px-3 py-2 rounded-md text-xs font-mono"
                     style={inputStyle}
@@ -697,7 +699,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={draft.knowledge_embedding_model || ''}
+                  value={allModels.find(m => m.id.endsWith(`/${draft.knowledge_embedding_model}`))?.id || draft.knowledge_embedding_model || ''}
                   onChange={(m) => handleEmbedModelSelect(m)}
                   models={allModels}
                   showTier={true}

@@ -40,12 +40,12 @@ import logging
 import os
 import threading
 import time
-import uuid
-from datetime import datetime, timezone
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from dashboard.knowledge.config import (
     EMBEDDING_DIMENSION,
@@ -97,7 +97,7 @@ class FileEntry(BaseModel):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _sha256(data: bytes) -> str:
@@ -161,10 +161,10 @@ class _NamespaceStore:
     def __init__(
         self,
         namespace: str,
-        namespace_manager: Optional[NamespaceManager] = None,
+        namespace_manager: NamespaceManager | None = None,
         embedding_dimension: int = EMBEDDING_DIMENSION,
-        vector_store_factory: Optional[Callable[[str], NamespaceVectorStore]] = None,
-        kuzu_factory: Optional[Callable[[str], Any]] = None,
+        vector_store_factory: Callable[[str], NamespaceVectorStore] | None = None,
+        kuzu_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self.namespace = namespace
         # Fall back to a default manager for back-compat with any external
@@ -174,7 +174,7 @@ class _NamespaceStore:
         self._dim = int(embedding_dimension)
         self._vs_factory = vector_store_factory
         self._kg_factory = kuzu_factory
-        self._vstore: Optional[NamespaceVectorStore] = None
+        self._vstore: NamespaceVectorStore | None = None
         self._graph: Any = None
         self._vstore_lock = threading.Lock()
         self._graph_lock = threading.Lock()
@@ -282,12 +282,12 @@ class Ingestor:
 
     def __init__(
         self,
-        namespace_manager: Optional[NamespaceManager] = None,
-        embedder: Optional[Any] = None,
-        llm: Optional[Any] = None,
-        vector_store_factory: Optional[Callable[[str], NamespaceVectorStore]] = None,
-        kuzu_factory: Optional[Callable[[str], Any]] = None,
-        graph_index_factory: Optional[Callable[[str], Any]] = None,
+        namespace_manager: NamespaceManager | None = None,
+        embedder: Any | None = None,
+        llm: Any | None = None,
+        vector_store_factory: Callable[[str], NamespaceVectorStore] | None = None,
+        kuzu_factory: Callable[[str], Any] | None = None,
+        graph_index_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self._nm = namespace_manager or NamespaceManager()
         # Embedder + llm are lazy-instantiated on first use to keep imports
@@ -425,7 +425,7 @@ class Ingestor:
             try:
                 stat = path.stat()
             except OSError as exc:
-                logger.debug("Could not stat %s: %s", path, exc)
+                logger.exception("Could not stat %s: %s", path, exc)
                 continue
             if stat.st_size > max_bytes:
                 logger.info(
@@ -484,21 +484,23 @@ class Ingestor:
                 # Dependency-resolution errors are environment problems, not
                 # transient failures.  Surface them loudly so the operator can
                 # ``pip install markitdown[all]`` (or the missing extra).
-                logger.warning(
+                logger.exception(
                     "MarkItDown dependency error on %s — %s. "
                     "Install missing extras: pip install 'markitdown[all]'",
                     path.name, exc,
                 )
                 raise  # Let the caller report as "Failed", not "Skipped"
-            logger.debug("MarkItDown failed on %s: %s", path, exc)
+            logger.error("debussing on %s: %s", path, exc)
             text = ""
 
         # --- 2) Fallback: plain-text read for text-ish files ----------
-        if not text and file_entry.extension in {".txt", ".md", ".json", ".csv", ".xml", ".yaml", ".yml", ".html", ".htm"}:
+        if not text and file_entry.extension in {
+            ".txt", ".md", ".json", ".csv", ".xml", ".yaml", ".yml", ".html", ".htm"
+        }:
             try:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError as exc:
-                logger.warning("Could not read %s as text: %s", path, exc)
+                logger.exception("Could not read %s as text: %s", path, exc)
                 return []
 
         # --- 3) Image-specific empty-content warning (ADR-14) -----------
@@ -553,7 +555,7 @@ class Ingestor:
             store = self._get_store(namespace)
             return store.has_file_hash(content_hash)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("is_already_indexed check failed: %s", exc)
+            logger.exception("is_already_indexed check failed: %s", exc)
             return False
 
     def _extract_and_embed(
@@ -610,7 +612,7 @@ class Ingestor:
         try:
             graph_index.insert_nodes(text_nodes)
         except Exception as exc:  # noqa: BLE001
-            logger.error(
+            logger.exception(
                 "PropertyGraphIndex.insert_nodes failed for %s: %s",
                 file_entry.path,
                 exc,
@@ -637,11 +639,12 @@ class Ingestor:
         try:
             store.add_chunks(store_chunks)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
+            logger.exception(
                 "Failed to persist chunks to namespace store for %s: %s",
                 file_entry.path,
                 exc,
             )
+            raise
 
         # Count entities and relations from node metadata (populated by
         # GraphRAGExtractor during the transformation step).
@@ -669,10 +672,10 @@ class Ingestor:
         self,
         namespace: str,
         folder_path: str,
-        options: Optional[IngestOptions] = None,
+        options: IngestOptions | None = None,
         *,
-        emit: Optional[Callable[[JobEvent], None]] = None,
-        cancel_check: Optional[Callable[[], bool]] = None,
+        emit: Callable[[JobEvent], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> dict:
         """Synchronously ingest ``folder_path`` into ``namespace``.
 
@@ -720,7 +723,7 @@ class Ingestor:
             try:
                 fe.content_hash = self._hash_file(Path(fe.path))
             except OSError as exc:
-                logger.warning("Could not hash %s: %s", fe.path, exc)
+                logger.exception("Could not hash %s: %s", fe.path, exc)
                 fe.content_hash = ""
         n = len(files)
         emit(
@@ -785,11 +788,11 @@ class Ingestor:
                         try:
                             old_chunk_count = store_for_force.count_by_file_hash(fe.content_hash)
                         except Exception as exc:  # noqa: BLE001
-                            logger.debug("count_by_file_hash failed for %s: %s", fe.path, exc)
+                            logger.exception("count_by_file_hash failed for %s: %s", fe.path, exc)
                         try:
                             store_for_force.delete_by_file_hash(fe.content_hash)
                         except Exception as exc:  # noqa: BLE001
-                            logger.warning("Force-delete failed for %s: %s", fe.path, exc)
+                            logger.exception("Force-delete failed for %s: %s", fe.path, exc)
                         # Roll back the previous run's contribution so the
                         # new add doesn't double-count. Negative deltas are
                         # supported by NamespaceManager.update_stats.
@@ -802,19 +805,20 @@ class Ingestor:
                                     vectors=-int(old_chunk_count),
                                 )
                             except Exception as exc:  # noqa: BLE001
-                                logger.warning(
+                                logger.exception(
                                     "Could not roll back stats before force re-ingest of %s: %s",
                                     fe.path,
                                     exc,
                                 )
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Force-reingest pre-cleanup failed for %s: %s", fe.path, exc)
+                    logger.exception("Force-reingest pre-cleanup failed for %s: %s", fe.path, exc)
 
             # 3c) Parse → chunk.
             try:
                 chunks = self._parse_file(fe, options)
             except Exception as exc:  # noqa: BLE001
                 files_failed += 1
+                logger.exception("Parse failed for %s", fe.path)
                 err = f"{fe.path}: parse failed: {exc}"
                 errors.append(err)
                 emit(
@@ -849,6 +853,7 @@ class Ingestor:
                 counts = self._extract_and_embed(namespace, fe, chunks, options)
             except Exception as exc:  # noqa: BLE001
                 files_failed += 1
+                logger.exception("embed/extract failed for %s", fe.path)
                 err = f"{fe.path}: embed/extract failed: {exc}"
                 errors.append(err)
                 emit(
@@ -898,7 +903,7 @@ class Ingestor:
                 vectors=total_chunks,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not update namespace stats: %s", exc)
+            logger.exception("Could not update namespace stats: %s", exc)
 
         try:
             self._nm.append_import(
@@ -913,7 +918,7 @@ class Ingestor:
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not append import record: %s", exc)
+            logger.exception("Could not append import record: %s", exc)
 
         elapsed = time.monotonic() - run_t0
         # Record ingestion latency

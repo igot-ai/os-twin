@@ -460,6 +460,183 @@ class GoogleClient(LLMClient):
             raise LLMError(f"Google streaming error: {e}", provider="google", original_error=e)
 
 
+
+
+class OllamaClient(LLMClient):
+    def __init__(
+        self,
+        model: str,
+        base_url: Optional[str] = None,
+        config: Optional[LLMConfig] = None,
+    ):
+        super().__init__(model, config)
+        from ollama import AsyncClient
+        
+        # Ollama supports host directly in AsyncClient
+        self._client = AsyncClient(host=base_url)
+        self.base_url = base_url
+
+    def _convert_messages(self, messages: list[ChatMessage]) -> list[dict]:
+        result = []
+        for msg in messages:
+            if msg.role == "tool":
+                # Ollama maps function responses using role="tool"
+                result.append({
+                    "role": "tool",
+                    "content": msg.content or "",
+                })
+            elif msg.tool_calls:
+                tool_calls = [
+                    {
+                        "function": {
+                            "name": tc.name,
+                            "arguments": tc.arguments
+                        }
+                    }
+                    for tc in msg.tool_calls
+                ]
+                result.append({
+                    "role": msg.role,
+                    "content": msg.content or "",
+                    "tool_calls": tool_calls,
+                })
+            elif msg.images:
+                images = []
+                for img_url in msg.images:
+                    if img_url.startswith("data:"):
+                        b64 = img_url.split(",", 1)[-1]
+                        images.append(b64)
+                    else:
+                        images.append(img_url)
+                
+                result.append({
+                    "role": msg.role,
+                    "content": msg.content or "",
+                    "images": images
+                })
+            else:
+                result.append({
+                    "role": msg.role,
+                    "content": msg.content or ""
+                })
+        return result
+
+    def _convert_tools(self, tools: Optional[list[dict]]) -> Optional[list[dict]]:
+        if not tools:
+            return None
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters", {}),
+                }
+            }
+            for t in tools
+        ]
+
+    async def chat(
+        self,
+        messages: list[ChatMessage],
+        tools: Optional[list[dict]] = None,
+        tool_choice: Optional[str] = None,
+    ) -> ChatMessage:
+        async def _make_request():
+            kwargs: dict = {
+                "model": self.model,
+                "messages": self._convert_messages(messages),
+            }
+            
+            options = {}
+            if self.config.temperature is not None:
+                options["temperature"] = self.config.temperature
+            if self.config.top_p is not None:
+                options["top_p"] = self.config.top_p
+            if self.config.stop is not None:
+                options["stop"] = self.config.stop
+                
+            if options:
+                kwargs["options"] = options
+
+            if tools:
+                kwargs["tools"] = self._convert_tools(tools)
+
+            response = await self._client.chat(**kwargs)
+            message = response.get("message", {})
+            
+            tool_calls = []
+            if "tool_calls" in message and message["tool_calls"]:
+                for tc in message["tool_calls"]:
+                    func = tc.get("function", {})
+                    if func:
+                        tool_calls.append(
+                            ToolCall(
+                                id=f"call_{uuid.uuid4().hex}",
+                                name=func.get("name", ""),
+                                arguments=func.get("arguments", {}),
+                            )
+                        )
+
+            return ChatMessage(
+                role=message.get("role", "assistant"),
+                content=message.get("content", ""),
+                tool_calls=tool_calls,
+            )
+
+        try:
+            return await self._retry_with_backoff(_make_request)
+        except LLMError:
+            raise
+        except Exception as e:
+            raise LLMError(f"Ollama API error: {e}", provider="ollama", original_error=e)
+
+    async def chat_stream(
+        self,
+        messages: list[ChatMessage],
+        tools: Optional[list[dict]] = None,
+        tool_choice: Optional[str] = None,
+    ) -> AsyncIterator[str | ToolCall]:
+        kwargs: dict = {
+            "model": self.model,
+            "messages": self._convert_messages(messages),
+            "stream": True,
+        }
+        
+        options = {}
+        if self.config.temperature is not None:
+            options["temperature"] = self.config.temperature
+        if self.config.top_p is not None:
+            options["top_p"] = self.config.top_p
+        if self.config.stop is not None:
+            options["stop"] = self.config.stop
+            
+        if options:
+            kwargs["options"] = options
+
+        if tools:
+            kwargs["tools"] = self._convert_tools(tools)
+
+        try:
+            async for chunk in await self._client.chat(**kwargs):
+                message = chunk.get("message", {})
+                
+                if "tool_calls" in message and message["tool_calls"]:
+                    for tc in message["tool_calls"]:
+                        func = tc.get("function", {})
+                        if func:
+                            yield ToolCall(
+                                id=f"call_{uuid.uuid4().hex}",
+                                name=func.get("name", ""),
+                                arguments=func.get("arguments", {}),
+                            )
+                
+                content = message.get("content", "")
+                if content:
+                    yield content
+        except Exception as e:
+            raise LLMError(f"Ollama streaming error: {e}", provider="ollama", original_error=e)
+
 PROVIDER_API_KEYS = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
@@ -486,7 +663,9 @@ def _detect_provider_from_model(model: str) -> str:
         return "openai"
     elif "claude" in model_lower:
         return "anthropic"
-    elif "gemini" in model_lower or "vertex" in model_lower:
+    elif "gemini" in model_lower or "google" in model_lower:
+        if "vertex" in model_lower:
+            return "google-vertex"
         return "google"
     elif "deepseek" in model_lower:
         return "deepseek"
@@ -517,6 +696,15 @@ def create_client(
     if provider is None:
         provider = _detect_provider_from_model(model)
 
+    # Resolve custom configurations from settings if available
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        resolver = get_settings_resolver()
+        master_settings = resolver.get_master_settings()
+        providers = master_settings.providers if master_settings else None
+    except Exception:
+        providers = None
+
     if provider in ("google", "google-genai", "google_gemini", "google-vertex"):
         base_url = _get_base_url(provider)
         is_vertex = provider == "google-vertex"
@@ -524,14 +712,19 @@ def create_client(
             region = _os.environ.get("VERTEX_LOCATION", "global")
             project = _os.environ.get("GOOGLE_CLOUD_PROJECT", "")
             base_url = base_url.replace("{region}", region).replace("{project}", project)
-        api_key = api_key or _os.environ.get("OSTWIN_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
+        api_key = api_key or _os.environ.get("GEMINI_API_KEY") or _os.environ.get("OSTWIN_API_KEY") or _os.environ.get("GOOGLE_API_KEY")
         return GoogleClient(model=model, api_key=api_key, base_url=base_url, config=config, vertexai=is_vertex)
 
     if provider == "openai-compatible":
-        base_url = _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000")
+        cfg = providers.openai_compatible if providers else None
+        base_url = (cfg.base_url if cfg and cfg.base_url else _os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"))
         api_key = api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
         return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
 
-    base_url = _get_base_url(provider)
+    if provider == "ollama":
+        cfg = providers.ollama if providers else None
+        base_url = (cfg.base_url if cfg and cfg.base_url else _os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+        return OllamaClient(model=model, base_url=base_url, config=config)
 
+    base_url = _get_base_url(provider)
     return OpenAIClient(model=model, api_key=api_key, base_url=base_url, config=config)
