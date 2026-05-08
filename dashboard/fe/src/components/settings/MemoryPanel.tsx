@@ -525,9 +525,8 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={chatModels.find(m => m.id.endsWith(`/${draft.llm_model}`))?.id || draft.llm_model || ''}
-                  onChange={(compositeId) => {
-                    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+                  value={draft.llm_model || ''}
+                  onChange={(modelId) => {
                     setLlmModelInput(modelId);
                     updateDraft({ llm_model: modelId });
                   }}
@@ -705,9 +704,8 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={allModels.find(m => m.id.endsWith(`/${draft.embedding_model}`))?.id || draft.embedding_model || ''}
-                  onChange={(compositeId) => {
-                    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+                  value={draft.embedding_model || ''}
+                  onChange={(modelId) => {
                     setEmbeddingModelInput(modelId);
                     updateDraft({ embedding_model: modelId });
                   }}
