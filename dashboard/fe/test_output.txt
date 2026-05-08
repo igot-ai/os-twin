@@ -1,0 +1,1948 @@
+
+> fe@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.1 /Users/paulaan/PycharmProjects/agent-os/dashboard/fe
+
+ ❯ src/__tests__/api-client.test.ts (14 tests | 1 failed) 49ms
+     ✓ unwraps {plans: [...], count: N} → Plan[] 24ms
+     ✓ unwraps {epics: [...], count: N} → Epic[] 1ms
+     ✓ returns plain array as-is (roles) 1ms
+     ✓ returns plain object as-is when no unwrap key matches (stats) 1ms
+     ✓ unwraps {notifications: []} → [] 1ms
+     × respects NEXT_PUBLIC_API_BASE_URL if set 16ms
+     ✓ throws ApiError for non-OK responses 1ms
+     ✓ handles 204 No Content gracefully 0ms
+     ✓ Plan with only required fields does not crash 0ms
+     ✓ Plan with all fields populated works correctly 0ms
+     ✓ [...plans] spread works when unwrapped correctly 0ms
+     ✓ critical_path.completed / critical_path.total safe with defaults 0ms
+     ✓ maps escalations_pending to escalations 0ms
+     ✓ preserves escalations if already present 0ms
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > renders when isOpen is true
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > fetches providers from /models/available when opened
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > excludes anthropic from the provider list (EXCLUDED_PROVIDER_IDS)
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > excludes byteplus from the provider list (EXCLUDED_PROVIDER_IDS)
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > includes non-excluded providers in the list
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows ADDED badge for already configured providers
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows model count for each provider
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > filters providers by search text
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows "No providers found" when search has no matches
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > transitions to configure step when provider is selected
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > transitions to configure step when provider is selected
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows back button in configure step
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows back button in configure step
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > returns to browse step when back button is clicked
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > returns to browse step when back button is clicked
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > returns to browse step when back button is clicked
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows API key input in configure step
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows API key input in configure step
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows env var hint for providers with env vars
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows env var hint for providers with env vars
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > calls onClose when close button is clicked
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > calls onClose when clicking backdrop (outer container)
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > saves API key when Add Provider is clicked
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > saves API key when Add Provider is clicked
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows error message when save fails
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows error message when save fails
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > disables Add Provider button when API key is empty
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > disables Add Provider button when API key is empty
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows saving state during save operation
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows saving state during save operation
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > shows provider count in footer
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+ ❯ src/__tests__/RoleEditorPanel.test.tsx (9 tests | 9 failed) 116ms
+     × renders all 6 configuration sections when open 35ms
+     × renders McpSelector component in MCP section 13ms
+     × initializes with empty mcp_refs for new role 7ms
+     × loads existing mcp_refs when editing a role 8ms
+     × includes mcp_refs in save payload when creating a new role 9ms
+     × does not render when panel is closed 5ms
+     × displays section 05 with number badge for MCP Binding 11ms
+     × provides a custom model ID input for non-registry models 13ms
+     × saves custom model ID when user types one 14ms
+ ❯ src/components/chat/ActivityFeed.test.tsx (2 tests | 2 failed) 61ms
+     × renders empty state initially 52ms
+     × renders events based on websocket messages 6ms
+ ❯ src/__tests__/CommandPrompt.test.tsx (11 tests | 1 failed) 240ms
+     ✓ renders the text input 29ms
+     ✓ renders the submit button 134ms
+     ✓ handles text input changes 14ms
+     ✓ calls onSubmit when form is submitted with text 8ms
+     ✓ does not submit when input is empty 7ms
+     ✓ clears internal prompt after submit (uncontrolled) 7ms
+     ✓ disables input when isLoading is true 7ms
+     ✓ supports controlled mode with value and onChange 4ms
+     × renders the "Plan" mode label 16ms
+     ✓ renders add image button 5ms
+     ✓ disables add image button when isLoading 5ms
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > sorts providers alphabetically
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+stderr | src/__tests__/AddProviderModal.test.tsx > AddProviderModal > cannot select already configured provider
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+ ✓ src/__tests__/AddProviderModal.test.tsx (24 tests) 557ms
+(node:98478) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ e2e/epic-authoring.spec.ts (0 test)
+ ❯ e2e/knowledge-tab.spec.ts (0 test)
+ ❯ e2e/template-flow.spec.ts (0 test)
+ ✓ src/__tests__/SettingsPage.test.tsx (12 tests) 1554ms
+       ✓ renders the settings page with sidebar  829ms
+ ✓ src/__tests__/ModelSelect.test.tsx (21 tests) 657ms
+ ✓ src/__tests__/DAGViewer.test.tsx (33 tests) 1290ms
+ ✓ src/__tests__/DraggableChecklistItem.test.tsx (23 tests) 359ms
+stderr | src/__tests__/KnowledgeTab.test.tsx > KnowledgeTab > renders the knowledge tab with sub-view tabs
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/__tests__/KnowledgeTab.test.tsx > KnowledgeTab > displays namespace list by default
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/__tests__/KnowledgeTab.test.tsx > KnowledgeTab > switches to Import tab when clicked
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/__tests__/KnowledgeTab.test.tsx > KnowledgeTab > switches to Query tab when clicked
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to MetricsStrip inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ ✓ src/__tests__/StructuredPlanView.test.tsx (14 tests) 505ms
+ ✓ src/__tests__/EpicEditorPanel.test.tsx (28 tests) 642ms
+ ✓ src/__tests__/SettingsSidebar.test.tsx (10 tests) 367ms
+ ✓ src/__tests__/EpicCardPreview.test.tsx (17 tests) 589ms
+stderr | src/__tests__/KnowledgePanel.test.tsx > KnowledgePanel > calls onUpdate when a model is selected from the LLM picker
+An update to KnowledgePanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to KnowledgePanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/__tests__/KnowledgePanel.test.tsx > KnowledgePanel > calls onUpdate with model + dimension when a suggested embedding is clicked
+An update to KnowledgePanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to KnowledgePanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/__tests__/KnowledgePanel.test.tsx > KnowledgePanel > calls onUpdate when the embedding input is changed and blurred with a custom id
+An update to KnowledgePanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to KnowledgePanel inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ ✓ src/__tests__/KnowledgePanel.test.tsx (10 tests) 754ms
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Basic Rendering > renders the EPIC id and label
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+The tag <foreignObject> is unrecognized in this browser. If you meant to render a React component, start its name with an uppercase letter.
+The tag <g> is unrecognized in this browser. If you meant to render a React component, start its name with an uppercase letter.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Basic Rendering > renders the status badge
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Basic Rendering > renders role badge when role info provided
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Progress Bars (EPIC-003) > renders task progress bar when tasksTotal > 0
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Progress Bars (EPIC-003) > renders DoD progress bar when dodTotal > 0
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Progress Bars (EPIC-003) > does not render progress section when no stats
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Progress Bars (EPIC-003) > renders 0% progress bar for no completed tasks
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Progress Bars (EPIC-003) > renders 100% progress bar for all completed tasks
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Progress Bars (EPIC-003) > renders partial progress bar for some completed tasks
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+ ✓ src/__tests__/DraggableTaskCard.test.tsx (33 tests) 566ms
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Progress Bars (EPIC-003) > renders both task and DoD bars together
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Warning Badge (EPIC-003) > shows warning badge when hasAC is false
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Warning Badge (EPIC-003) > does not show warning badge when hasAC is true
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Warning Badge (EPIC-003) > does not show warning badge by default (hasAC defaults to true)
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Hover Tooltip (EPIC-003) > shows tooltip with description on hover
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Hover Tooltip (EPIC-003) > does not show tooltip when no description and label equals id
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Click / Double-click (EPIC-003) > calls onClick on single click
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Click / Double-click (EPIC-003) > calls onDoubleClick on double click
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Click / Double-click (EPIC-003) > falls back to context panel when no onClick
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+stderr | src/__tests__/StateNode.test.tsx > StateNode > Node Dimensions > uses 200x95 foreignObject dimensions
+<foreignObject /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.
+
+ ✓ src/__tests__/StateNode.test.tsx (19 tests) 261ms
+ ✓ src/__tests__/KnowledgeTab.test.tsx (22 tests) 660ms
+ ✓ src/components/dashboard/TemplatePicker.test.tsx (11 tests) 426ms
+ ✓ src/__tests__/DynamicProviderCard.test.tsx (16 tests) 96ms
+ ✓ src/__tests__/BytedanceProviderCard.test.tsx (17 tests) 161ms
+ ✓ src/__tests__/SkillChipInput.test.tsx (8 tests) 480ms
+ ❯ src/__tests__/MemoryTab.test.tsx (26 tests | 3 failed) 4286ms
+       ✓ shows loading spinner while fetching  640ms
+       ✓ shows error message when API fails 49ms
+       ✓ shows helpful guidance on error 15ms
+       ✓ shows empty state when no memories exist 7ms
+       ✓ renders the memory tab header 113ms
+       ✓ shows note count badge 35ms
+       ✓ shows tag count badge 65ms
+       ✓ shows link count badge 17ms
+       ✓ renders note list with all notes 27ms
+       ✓ renders group legend 22ms
+       ✓ selects first node by default 30ms
+       × shows tags in detail panel 1010ms
+       × shows keywords in detail panel 1005ms
+       ✓ renders search input 17ms
+       ✓ filters notes by search query 25ms
+       ✓ filters by tags 26ms
+       ✓ selects note when clicked in list 23ms
+       ✓ calls API with correct plan_id 14ms
+       ✓ refresh button calls API again 26ms
+       ✓ renders SVG graph 18ms
+       ✓ renders correct number of circles (nodes) 18ms
+       ✓ renders link lines 15ms
+       ✓ renders node labels as text 19ms
+     ✓ auto-selects first node and shows detail 20ms
+     × shows connection count for selected note 1006ms
+     ✓ shows group name for selected note 20ms
+ ✓ src/__tests__/RolesTable.test.tsx (6 tests) 222ms
+ ✓ src/__tests__/McpSelector.test.tsx (13 tests) 381ms
+ ✓ src/components/ui/CommandPrompt.test.tsx (6 tests) 351ms
+ ✓ src/__tests__/TestConnectionButton.test.tsx (8 tests) 163ms
+stderr | src/__tests__/ProviderCard.test.tsx > ProviderCard > Primary variant - Google > shows OAuth login button when oauth auth mode selected
+An update to ProviderCard inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ ✓ src/__tests__/ProviderCard.test.tsx (27 tests) 316ms
+ ✓ src/__tests__/FileViewer.test.tsx (9 tests) 298ms
+ ✓ src/__tests__/GitChangePanel.test.tsx (10 tests) 318ms
+ ✓ src/__tests__/IdeaChat.test.tsx (3 tests) 93ms
+ ✓ src/__tests__/use-websocket.test.ts (7 tests) 84ms
+ ✓ src/__tests__/use-asset-staging.test.ts (11 tests) 122ms
+ ✓ src/components/chat/AgentResponse.test.tsx (2 tests) 87ms
+ ✓ src/__tests__/FileTree.test.tsx (7 tests) 94ms
+ ✓ src/__tests__/use-assets.test.ts (7 tests) 48ms
+ ✓ src/__tests__/use-planning-thread.test.ts (2 tests) 42ms
+ ✓ src/lib/epic-parser.test.ts (31 tests) 21ms
+ ✓ src/__tests__/image-utils.test.ts (11 tests) 15ms
+ ✓ src/__tests__/use-planning-threads.test.ts (1 test) 21ms
+ ✓ src/__tests__/role-utils.test.ts (36 tests) 6ms
+ ✓ src/__tests__/use-mcp.test.ts (5 tests) 5ms
+ ✓ src/__tests__/use-files.test.ts (5 tests) 6ms
+ ✓ src/__tests__/epic-stats.test.ts (12 tests) 4ms
+ ✓ src/__tests__/epic-parser.test.ts (3 tests) 6ms
+ ✓ src/lib/extract-plan.test.ts (20 tests) 4ms
+ ✓ src/lib/dag-layout.test.ts (2 tests) 3ms
+
+<--- Last few GCs --->
+
+[98536:0xab980c000]    25347 ms: Mark-Compact 4211.7 (4229.1) -> 4016.7 (4064.6) MB, pooled: 0.0 MB, 3409.16 / 0.00 ms (average mu = 0.260, current mu = 0.195) allocation failure; scavenge might not succeed
+[98536:0xab980c000]    27752 ms: Mark-Compact (reduce) 4017.0 (4064.6) -> 4016.9 (4019.3) MB, pooled: 0.0 MB, 1615.10 / 0.00 ms (+ 12.6 ms in 4 steps since start of marking, biggest step 5.0 ms, walltime since start of marking 1684 ms) (average mu = 0.285
+FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0x104a23518 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 2: 0x104d40194 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 3: 0x104d4014c v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 4: 0x104eeb80c v8::internal::Heap::ShouldOptimizeForLoadTime() const [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 5: 0x104eedd98 v8::internal::Heap::OldGenerationConsumedBytes() const [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 6: 0x104eedc40 v8::internal::Heap::RecomputeLimits(v8::internal::GarbageCollector, v8::base::TimeTicks) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 7: 0x104efb1f0 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags, v8::internal::PerformHeapLimitCheck)::$_1::operator()() const [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 8: 0x104efae94 void heap::base::Stack::SetMarkerAndCallbackImpl<v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags, v8::internal::PerformHeapLimitCheck)::$_1>(heap::base::Stack*, void*, void const*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+ 9: 0x105510114 PushAllRegistersAndIterateStack [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+10: 0x104ee9f8c v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags, v8::internal::PerformHeapLimitCheck) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+11: 0x104e79d54 v8::internal::StackGuard::HandleInterrupts(v8::internal::StackGuard::InterruptLevel) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+12: 0x1051d3e48 v8::internal::Runtime_StackGuard(int, unsigned long*, v8::internal::Isolate*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+13: 0x10483d734 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+14: 0x10482c0b8 Builtins_StringPrototypeReplace [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+15: 0x12df7b928 
+16: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+17: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+18: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+19: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+20: 0x1048b1230 Builtins_PromiseConstructor [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+21: 0x10479df90 Builtins_InterpreterPushArgsThenFastConstructFunction [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+22: 0x10492dc80 Builtins_ConstructHandler [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+23: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+24: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+25: 0x1048b1230 Builtins_PromiseConstructor [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+26: 0x10479df90 Builtins_InterpreterPushArgsThenFastConstructFunction [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+27: 0x10492dc80 Builtins_ConstructHandler [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+28: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+29: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+30: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+31: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+32: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+33: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+34: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+35: 0x10479d5ec Builtins_InterpreterEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+36: 0x1047db644 Builtins_AsyncFunctionAwaitResolveClosure [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+37: 0x1048b2bd8 Builtins_PromiseFulfillReactionJob [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+38: 0x1047caa80 Builtins_RunMicrotasks [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+39: 0x10479a850 Builtins_JSRunMicrotasksEntry [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+40: 0x104e56744 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+41: 0x104e56df4 v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+42: 0x104e56ee4 v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+43: 0x104e782d8 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+44: 0x104e780f4 v8::internal::MicrotaskQueue::PerformCheckpointInternal(v8::Isolate*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+45: 0x10479f298 Builtins_CallApiCallbackGeneric [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+46: 0x12df6e574 
+47: 0x10479a96c Builtins_JSEntryTrampoline [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+48: 0x10479a610 Builtins_JSEntry [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+49: 0x104e56774 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+50: 0x104e56158 v8::internal::Execution::Call(v8::internal::Isolate*, v8::internal::DirectHandle<v8::internal::Object>, v8::internal::DirectHandle<v8::internal::Object>, v8::base::Vector<v8::internal::DirectHandle<v8::internal::Object> const>) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+51: 0x105a65eec v8::Function::Call(v8::Isolate*, v8::Local<v8::Context>, v8::Local<v8::Value>, int, v8::Local<v8::Value>*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+52: 0x10497bebc node::InternalCallbackScope::Close() [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+53: 0x10497c134 node::InternalMakeCallback(node::Environment*, v8::Local<v8::Object>, v8::Local<v8::Object>, v8::Local<v8::Function>, int, v8::Local<v8::Value>*, node::async_context, v8::Local<v8::Value>) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+54: 0x10498b2a0 node::AsyncWrap::MakeCallback(v8::Local<v8::Function>, int, v8::Local<v8::Value>*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+55: 0x104af0adc node::StreamBase::CallJSOnreadMethod(long, v8::Local<v8::ArrayBuffer>, unsigned long, node::StreamBase::StreamBaseJSChecks) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+56: 0x104af1ebc node::EmitToJSStreamListener::OnStreamRead(long, uv_buf_t const&) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+57: 0x104af5204 node::LibuvStreamWrap::OnUvRead(long, uv_buf_t const*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+58: 0x104af55fc node::LibuvStreamWrap::ReadStart()::$_1::__invoke(uv_stream_s*, long, uv_buf_t const*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+59: 0x10073c660 uv__stream_io [/opt/homebrew/Cellar/libuv/1.52.1/lib/libuv.1.0.0.dylib]
+60: 0x1007411b0 uv__io_poll [/opt/homebrew/Cellar/libuv/1.52.1/lib/libuv.1.0.0.dylib]
+61: 0x100732b64 uv_run [/opt/homebrew/Cellar/libuv/1.52.1/lib/libuv.1.0.0.dylib]
+62: 0x10497ce64 node::SpinEventLoopInternal(node::Environment*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+63: 0x104a51ef4 node::NodeMainInstance::Run(node::ExitCode*, node::Environment*) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+64: 0x104a51c28 node::NodeMainInstance::Run() [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+65: 0x1049f5178 node::Start(int, char**) [/opt/homebrew/Cellar/node/25.9.0_1/lib/libnode.141.dylib]
+66: 0x188223da4 start [/usr/lib/dyld]
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  e2e/epic-authoring.spec.ts [ e2e/epic-authoring.spec.ts ]
+Error: Playwright Test did not expect test.describe() to be called here.
+Most common reasons include:
+- You are calling test.describe() in a configuration file.
+- You are calling test.describe() in a file that is imported by the configuration file.
+- You have two different versions of @playwright/test. This usually happens
+  when one of the dependencies in your package.json depends on @playwright/test.
+ ❯ TestTypeImpl._currentSuite node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/testType.js:75:13
+ ❯ TestTypeImpl._describe node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/testType.js:115:24
+ ❯ Function.describe node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/transform/transform.js:275:12
+ ❯ e2e/epic-authoring.spec.ts:127:6
+    125| }
+    126|
+    127| test.describe('EPIC Authoring System - Epic Design Mode', () => {
+       |      ^
+    128|   test.beforeEach(async ({ page }) => {
+    129|     await setupMocks(page);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/19]⎯
+
+ FAIL  e2e/knowledge-tab.spec.ts [ e2e/knowledge-tab.spec.ts ]
+Error: Playwright Test did not expect test.describe() to be called here.
+Most common reasons include:
+- You are calling test.describe() in a configuration file.
+- You are calling test.describe() in a file that is imported by the configuration file.
+- You have two different versions of @playwright/test. This usually happens
+  when one of the dependencies in your package.json depends on @playwright/test.
+ ❯ TestTypeImpl._currentSuite node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/testType.js:75:13
+ ❯ TestTypeImpl._describe node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/testType.js:115:24
+ ❯ Function.describe node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/transform/transform.js:275:12
+ ❯ e2e/knowledge-tab.spec.ts:8:6
+      6| import { test, expect, Page } from '@playwright/test';
+      7|
+      8| test.describe('Knowledge Tab & Pipeline', () => {
+       |      ^
+      9|   let page: Page;
+     10|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/19]⎯
+
+ FAIL  e2e/template-flow.spec.ts [ e2e/template-flow.spec.ts ]
+Error: Playwright Test did not expect test.describe() to be called here.
+Most common reasons include:
+- You are calling test.describe() in a configuration file.
+- You are calling test.describe() in a file that is imported by the configuration file.
+- You have two different versions of @playwright/test. This usually happens
+  when one of the dependencies in your package.json depends on @playwright/test.
+ ❯ TestTypeImpl._currentSuite node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/testType.js:75:13
+ ❯ TestTypeImpl._describe node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/common/testType.js:115:24
+ ❯ Function.describe node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/lib/transform/transform.js:275:12
+ ❯ e2e/template-flow.spec.ts:3:6
+      1| import { test, expect } from '@playwright/test';
+      2|
+      3| test.describe('Template Picker Flow', () => {
+       |      ^
+      4|   test.beforeEach(async ({ page }) => {
+      5|     await page.route('**/auth/me', (route) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/19]⎯
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 16 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/CommandPrompt.test.tsx > CommandPrompt Component > renders the "Plan" mode label
+TestingLibraryElementError: Unable to find an element with the text: Plan. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"w-full max-w-2xl mx-auto mt-8"[39m
+    [36m>[39m
+      [36m<form[39m
+        [33mclass[39m=[32m"relative flex items-center bg-surface/80 backdrop-blur-[12px] border border-border rounded-2xl shadow-card transition-all duration-300 focus-within:ring-4 focus-within:ring-primary-muted focus-within:border-primary hover:border-primary-light"[39m
+      [36m>[39m
+        [36m<input[39m
+          [33maccept[39m=[32m"image/jpeg,image/png,image/gif,image/webp"[39m
+          [33mclass[39m=[32m"hidden"[39m
+          [33mmultiple[39m=[32m""[39m
+          [33mtype[39m=[32m"file"[39m
+        [36m/>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Add image"[39m
+          [33mclass[39m=[32m"p-3 ml-2 text-text-muted hover:text-primary transition-colors active:scale-95 disabled:opacity-30 flex-shrink-0"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"material-symbols-outlined text-xl"[39m
+          [36m>[39m
+            [0madd_photo_alternate[0m
+          [36m</span>[39m
+        [36m</button>[39m
+        [36m<textarea[39m
+          [33maria-describedby[39m=[32m"command-prompt-hint"[39m
+          [33maria-label[39m=[32m"Prompt"[39m
+          [33mclass[39m=[32m"flex-1 bg-transparent border-none py-4 px-2 text-[16px] font-[var(--font-display)] text-[var(--color-text-main)] outline-none placeholder:text-[var(--color-text-faint)] transition-all disabled:opacity-50 resize-none"[39m
+          [33mplaceholder[39m=[32m"What do you want to build?"[39m
+          [33mrows[39m=[32m"1"[39m
+          [33mstyle[39m=[32m"max-height: 40vh; height: 0px;"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center pr-3 flex-shrink-0"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Send prompt (Ctrl or Cmd + Enter)"[39m
+            [33mclass[39m=[32m"p-2 bg-primary text-white rounded-full hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 flex items-center justify-center min-w-[36px] min-h-[36px]"[39m
+            [33mdisabled[39m=[32m""[39m
+            [33mtype[39m=[32m"submit"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-sm"[39m
+            [36m>[39m
+              [0marrow_upward[0m
+            [36m</span>[39m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</form>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mt-1.5 text-[11px] text-[var(--color-text-faint)] text-right pr-4 select-none"[39m
+        [33mid[39m=[32m"command-prompt-hint"[39m
+      [36m>[39m
+        [0mPress [0m
+        [36m<kbd[39m
+          [33mclass[39m=[32m"px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[10px] font-mono"[39m
+        [36m>[39m
+          [0mCtrl[0m
+        [36m</kbd>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"mx-0.5"[39m
+        [36m>[39m
+          [0m/[0m
+        [36m</span>[39m
+        [36m<kbd[39m
+          [33mclass[39m=[32m"px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[10px] font-mono"[39m
+        [36m>[39m
+          [0m⌘[0m
+        [36m</kbd>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"mx-1"[39m
+        [36m>[39m
+          [0m+[0m
+        [36m</span>[39m
+        [36m<kbd[39m
+          [33mclass[39m=[32m"px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[10px] font-mono"[39m
+        [36m>[39m
+          [0mEnter[0m
+        [36m</kbd>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"ml-1"[39m
+        [36m>[39m
+          [0mto send · Enter for new line[0m
+        [36m</span>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/__tests__/CommandPrompt.test.tsx:99:19
+     97|   it('renders the "Plan" mode label', () => {
+     98|     render(<CommandPrompt onSubmit={mockOnSubmit} />);
+     99|     expect(screen.getByText('Plan')).toBeInTheDocument();
+       |                   ^
+    100|   });
+    101|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/19]⎯
+
+ FAIL  src/__tests__/MemoryTab.test.tsx > MemoryTab > With data > shows tags in detail panel
+TestingLibraryElementError: Unable to find an element with the text: schema. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"h-full flex flex-col gap-4 p-4 overflow-hidden"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between gap-4 flex-shrink-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-3"[39m
+          [33mstyle[39m=[32m""[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"material-symbols-outlined text-[20px]"[39m
+            [33mstyle[39m=[32m"color: var(--color-primary);"[39m
+          [36m>[39m
+            [0mpsychology[0m
+          [36m</span>[39m
+          [36m<h2[39m
+            [33mclass[39m=[32m"text-base font-semibold"[39m
+            [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+          [36m>[39m
+            [0mAgent Memory[0m
+          [36m</h2>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex gap-2"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-primary-muted); color: var(--color-primary);"[39m
+            [36m>[39m
+              [0m3[0m
+              [0m notes[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0m4[0m
+              [0m tags[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0m1[0m
+              [0m links[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"relative"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[16px] absolute left-2.5 top-1/2 -translate-y-1/2"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0msearch[0m
+            [36m</span>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"pl-8 pr-3 py-1.5 text-xs rounded-lg border"[39m
+              [33mplaceholder[39m=[32m"Search memories..."[39m
+              [33mstyle[39m=[32m"background: var(--color-background); border-color: var(--color-border); color: var(--color-text-main); width: 200px;"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-surface-hover)]"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-border);"[39m
+            [33mtitle[39m=[32m"Refresh"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[16px]"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0mrefresh[0m
+            [36m</span>[39m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-1 flex overflow-hidden min-h-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-2"[39m
+          [33mstyle[39m=[32m"scrollbar-width: thin; width: 224px;"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"space-y-1 mb-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[11px] truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mArchitecture[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(250, 204, 21);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[11px] truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mMisc[0m
+              [36m</span>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-primary); background: var(--color-primary-muted);"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2 h-2 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-xs font-medium truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+              [36m>[39m
+                [0mVideo Platform: Database Schemas[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"text-[10px] mt-0.5 truncate ml-4"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0marchitecture/database[0m
+            [36m</p>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-border); background: transparent;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+        ...
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"h-full flex flex-col gap-4 p-4 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center justify-between gap-4 flex-shrink-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-3"[39m
+            [33mstyle[39m=[32m""[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[20px]"[39m
+              [33mstyle[39m=[32m"color: var(--color-primary);"[39m
+            [36m>[39m
+              [0mpsychology[0m
+            [36m</span>[39m
+            [36m<h2[39m
+              [33mclass[39m=[32m"text-base font-semibold"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+            [36m>[39m
+              [0mAgent Memory[0m
+            [36m</h2>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-primary-muted); color: var(--color-primary);"[39m
+              [36m>[39m
+                [0m3[0m
+                [0m notes[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0m4[0m
+                [0m tags[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0m1[0m
+                [0m links[0m
+              [36m</span>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"relative"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"material-symbols-outlined text-[16px] absolute left-2.5 top-1/2 -translate-y-1/2"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0msearch[0m
+              [36m</span>[39m
+              [36m<input[39m
+                [33mclass[39m=[32m"pl-8 pr-3 py-1.5 text-xs rounded-lg border"[39m
+                [33mplaceholder[39m=[32m"Search memories..."[39m
+                [33mstyle[39m=[32m"background: var(--color-background); border-color: var(--color-border); color: var(--color-text-main); width: 200px;"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</div>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-surface-hover)]"[39m
+              [33mstyle[39m=[32m"border-color: var(--color-border);"[39m
+              [33mtitle[39m=[32m"Refresh"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"material-symbols-outlined text-[16px]"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mrefresh[0m
+              [36m</span>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1 flex overflow-hidden min-h-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-2"[39m
+            [33mstyle[39m=[32m"scrollbar-width: thin; width: 224px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-1 mb-2"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-[11px] truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+                [36m>[39m
+                  [0mArchitecture[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(250, 204, 21);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-[11px] truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+                [36m>[39m
+                  [0mMisc[0m
+                [36m</span>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+              [33mstyle[39m=[32m"border-color: var(--color-primary); background: var(--color-primary-muted);"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2 h-2 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-xs font-medium truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+                [36m>[39m
+                  [0mVideo Platform: Database Schemas[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"text-[10px] mt-0.5 truncate ml-4"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0marchitecture/database[0m
+              [36m</p>[39m
+            [36m</button>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"w-full te...
+ ❯ Proxy.waitForWrapper node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ src/__tests__/MemoryTab.test.tsx:263:13
+    261|     it('shows tags in detail panel', async () => {
+    262|       render(<MemoryTab />);
+    263|       await waitFor(() => {
+       |             ^
+    264|         expect(screen.getByText('database')).toBeInTheDocument();
+    265|         expect(screen.getByText('schema')).toBeInTheDocument();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/19]⎯
+
+ FAIL  src/__tests__/MemoryTab.test.tsx > MemoryTab > With data > shows keywords in detail panel
+TestingLibraryElementError: Unable to find an element with the text: /users, videos, postgresql/. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"h-full flex flex-col gap-4 p-4 overflow-hidden"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between gap-4 flex-shrink-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-3"[39m
+          [33mstyle[39m=[32m""[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"material-symbols-outlined text-[20px]"[39m
+            [33mstyle[39m=[32m"color: var(--color-primary);"[39m
+          [36m>[39m
+            [0mpsychology[0m
+          [36m</span>[39m
+          [36m<h2[39m
+            [33mclass[39m=[32m"text-base font-semibold"[39m
+            [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+          [36m>[39m
+            [0mAgent Memory[0m
+          [36m</h2>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex gap-2"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-primary-muted); color: var(--color-primary);"[39m
+            [36m>[39m
+              [0m3[0m
+              [0m notes[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0m4[0m
+              [0m tags[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0m1[0m
+              [0m links[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"relative"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[16px] absolute left-2.5 top-1/2 -translate-y-1/2"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0msearch[0m
+            [36m</span>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"pl-8 pr-3 py-1.5 text-xs rounded-lg border"[39m
+              [33mplaceholder[39m=[32m"Search memories..."[39m
+              [33mstyle[39m=[32m"background: var(--color-background); border-color: var(--color-border); color: var(--color-text-main); width: 200px;"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-surface-hover)]"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-border);"[39m
+            [33mtitle[39m=[32m"Refresh"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[16px]"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0mrefresh[0m
+            [36m</span>[39m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-1 flex overflow-hidden min-h-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-2"[39m
+          [33mstyle[39m=[32m"scrollbar-width: thin; width: 224px;"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"space-y-1 mb-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[11px] truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mArchitecture[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(250, 204, 21);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[11px] truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mMisc[0m
+              [36m</span>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-primary); background: var(--color-primary-muted);"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2 h-2 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-xs font-medium truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+              [36m>[39m
+                [0mVideo Platform: Database Schemas[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"text-[10px] mt-0.5 truncate ml-4"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0marchitecture/database[0m
+            [36m</p>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-border); background: transparent;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+        ...
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"h-full flex flex-col gap-4 p-4 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center justify-between gap-4 flex-shrink-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-3"[39m
+            [33mstyle[39m=[32m""[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[20px]"[39m
+              [33mstyle[39m=[32m"color: var(--color-primary);"[39m
+            [36m>[39m
+              [0mpsychology[0m
+            [36m</span>[39m
+            [36m<h2[39m
+              [33mclass[39m=[32m"text-base font-semibold"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+            [36m>[39m
+              [0mAgent Memory[0m
+            [36m</h2>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-primary-muted); color: var(--color-primary);"[39m
+              [36m>[39m
+                [0m3[0m
+                [0m notes[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0m4[0m
+                [0m tags[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0m1[0m
+                [0m links[0m
+              [36m</span>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"relative"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"material-symbols-outlined text-[16px] absolute left-2.5 top-1/2 -translate-y-1/2"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0msearch[0m
+              [36m</span>[39m
+              [36m<input[39m
+                [33mclass[39m=[32m"pl-8 pr-3 py-1.5 text-xs rounded-lg border"[39m
+                [33mplaceholder[39m=[32m"Search memories..."[39m
+                [33mstyle[39m=[32m"background: var(--color-background); border-color: var(--color-border); color: var(--color-text-main); width: 200px;"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</div>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-surface-hover)]"[39m
+              [33mstyle[39m=[32m"border-color: var(--color-border);"[39m
+              [33mtitle[39m=[32m"Refresh"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"material-symbols-outlined text-[16px]"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mrefresh[0m
+              [36m</span>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1 flex overflow-hidden min-h-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-2"[39m
+            [33mstyle[39m=[32m"scrollbar-width: thin; width: 224px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-1 mb-2"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-[11px] truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+                [36m>[39m
+                  [0mArchitecture[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(250, 204, 21);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-[11px] truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+                [36m>[39m
+                  [0mMisc[0m
+                [36m</span>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+              [33mstyle[39m=[32m"border-color: var(--color-primary); background: var(--color-primary-muted);"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2 h-2 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-xs font-medium truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+                [36m>[39m
+                  [0mVideo Platform: Database Schemas[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"text-[10px] mt-0.5 truncate ml-4"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0marchitecture/database[0m
+              [36m</p>[39m
+            [36m</button>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"w-full te...
+ ❯ Proxy.waitForWrapper node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ src/__tests__/MemoryTab.test.tsx:271:13
+    269|     it('shows keywords in detail panel', async () => {
+    270|       render(<MemoryTab />);
+    271|       await waitFor(() => {
+       |             ^
+    272|         expect(screen.getByText(/users, videos, postgresql/)).toBeInTh…
+    273|       });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/19]⎯
+
+ FAIL  src/__tests__/MemoryTab.test.tsx > NoteDetail panel > shows connection count for selected note
+TestingLibraryElementError: Unable to find an element with the text: 2 connections. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"h-full flex flex-col gap-4 p-4 overflow-hidden"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between gap-4 flex-shrink-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-3"[39m
+          [33mstyle[39m=[32m""[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"material-symbols-outlined text-[20px]"[39m
+            [33mstyle[39m=[32m"color: var(--color-primary);"[39m
+          [36m>[39m
+            [0mpsychology[0m
+          [36m</span>[39m
+          [36m<h2[39m
+            [33mclass[39m=[32m"text-base font-semibold"[39m
+            [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+          [36m>[39m
+            [0mAgent Memory[0m
+          [36m</h2>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex gap-2"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-primary-muted); color: var(--color-primary);"[39m
+            [36m>[39m
+              [0m3[0m
+              [0m notes[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0m4[0m
+              [0m tags[0m
+            [36m</span>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+              [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0m1[0m
+              [0m links[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center gap-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"relative"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[16px] absolute left-2.5 top-1/2 -translate-y-1/2"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0msearch[0m
+            [36m</span>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"pl-8 pr-3 py-1.5 text-xs rounded-lg border"[39m
+              [33mplaceholder[39m=[32m"Search memories..."[39m
+              [33mstyle[39m=[32m"background: var(--color-background); border-color: var(--color-border); color: var(--color-text-main); width: 200px;"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-surface-hover)]"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-border);"[39m
+            [33mtitle[39m=[32m"Refresh"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[16px]"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0mrefresh[0m
+            [36m</span>[39m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-1 flex overflow-hidden min-h-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-2"[39m
+          [33mstyle[39m=[32m"scrollbar-width: thin; width: 224px;"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"space-y-1 mb-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[11px] truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mArchitecture[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(250, 204, 21);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-[11px] truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mMisc[0m
+              [36m</span>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-primary); background: var(--color-primary-muted);"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"w-2 h-2 rounded-full flex-shrink-0"[39m
+                [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+              [36m/>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-xs font-medium truncate"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+              [36m>[39m
+                [0mVideo Platform: Database Schemas[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"text-[10px] mt-0.5 truncate ml-4"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+            [36m>[39m
+              [0marchitecture/database[0m
+            [36m</p>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+            [33mstyle[39m=[32m"border-color: var(--color-border); background: transparent;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+        ...
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"h-full flex flex-col gap-4 p-4 overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center justify-between gap-4 flex-shrink-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-3"[39m
+            [33mstyle[39m=[32m""[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"material-symbols-outlined text-[20px]"[39m
+              [33mstyle[39m=[32m"color: var(--color-primary);"[39m
+            [36m>[39m
+              [0mpsychology[0m
+            [36m</span>[39m
+            [36m<h2[39m
+              [33mclass[39m=[32m"text-base font-semibold"[39m
+              [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+            [36m>[39m
+              [0mAgent Memory[0m
+            [36m</h2>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-primary-muted); color: var(--color-primary);"[39m
+              [36m>[39m
+                [0m3[0m
+                [0m notes[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0m4[0m
+                [0m tags[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"px-2 py-0.5 rounded-md text-[11px] font-medium"[39m
+                [33mstyle[39m=[32m"background: var(--color-surface-hover); color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0m1[0m
+                [0m links[0m
+              [36m</span>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-2"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"relative"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"material-symbols-outlined text-[16px] absolute left-2.5 top-1/2 -translate-y-1/2"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0msearch[0m
+              [36m</span>[39m
+              [36m<input[39m
+                [33mclass[39m=[32m"pl-8 pr-3 py-1.5 text-xs rounded-lg border"[39m
+                [33mplaceholder[39m=[32m"Search memories..."[39m
+                [33mstyle[39m=[32m"background: var(--color-background); border-color: var(--color-border); color: var(--color-text-main); width: 200px;"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+            [36m</div>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"p-1.5 rounded-lg border transition-colors hover:bg-[var(--color-surface-hover)]"[39m
+              [33mstyle[39m=[32m"border-color: var(--color-border);"[39m
+              [33mtitle[39m=[32m"Refresh"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"material-symbols-outlined text-[16px]"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0mrefresh[0m
+              [36m</span>[39m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-1 flex overflow-hidden min-h-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-2"[39m
+            [33mstyle[39m=[32m"scrollbar-width: thin; width: 224px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-1 mb-2"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-[11px] truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+                [36m>[39m
+                  [0mArchitecture[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2 px-2 py-1"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2.5 h-2.5 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(250, 204, 21);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-[11px] truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+                [36m>[39m
+                  [0mMisc[0m
+                [36m</span>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"w-full text-left px-3 py-2.5 rounded-xl border transition-all"[39m
+              [33mstyle[39m=[32m"border-color: var(--color-primary); background: var(--color-primary-muted);"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"flex items-center gap-2"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-2 h-2 rounded-full flex-shrink-0"[39m
+                  [33mstyle[39m=[32m"background: rgb(139, 92, 246);"[39m
+                [36m/>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"text-xs font-medium truncate"[39m
+                  [33mstyle[39m=[32m"color: var(--color-text-main);"[39m
+                [36m>[39m
+                  [0mVideo Platform: Database Schemas[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"text-[10px] mt-0.5 truncate ml-4"[39m
+                [33mstyle[39m=[32m"color: var(--color-text-muted);"[39m
+              [36m>[39m
+                [0marchitecture/database[0m
+              [36m</p>[39m
+            [36m</button>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"w-full te...
+ ❯ Proxy.waitForWrapper node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ src/__tests__/MemoryTab.test.tsx:436:11
+    434|   it('shows connection count for selected note', async () => {
+    435|     render(<MemoryTab />);
+    436|     await waitFor(() => {
+       |           ^
+    437|       expect(screen.getByText('2 connections')).toBeInTheDocument();
+    438|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/19]⎯
+
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > renders all 6 configuration sections when open
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > renders McpSelector component in MCP section
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > initializes with empty mcp_refs for new role
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > loads existing mcp_refs when editing a role
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > includes mcp_refs in save payload when creating a new role
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > displays section 05 with number badge for MCP Binding
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > provides a custom model ID input for non-registry models
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > saves custom model ID when user types one
+TypeError: models is not iterable
+ ❯ src/components/settings/ModelSelect.tsx:58:25
+     56|     }> = {};
+     57|
+     58|     for (const model of models) {
+       |                         ^
+     59|       const pid = model.provider_id || '_other';
+     60|       if (!groups[pid]) {
+ ❯ mountMemo node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:8777:23
+ ❯ Object.useMemo node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:26216:18
+ ❯ process.env.NODE_ENV.exports.useMemo node_modules/.pnpm/react@19.2.4/node_modules/react/cjs/react.development.js:1251:34
+ ❯ ModelSelect src/components/settings/ModelSelect.tsx:51:25
+ ❯ Object.react_stack_bottom_frame node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/19]⎯
+
+ FAIL  src/__tests__/RoleEditorPanel.test.tsx > RoleEditorPanel > does not render when panel is closed
+TypeError: Cannot read properties of undefined (reading 'some')
+ ❯ src/components/roles/RoleEditorPanel.tsx:61:43
+     59|   // Whether the current version is a known catalog model
+     60|   const isKnownModel = useMemo(
+     61|     () => !!formData.version && allModels.some(m => m.id === formData.…
+       |                                           ^
+     62|     [allModels, formData.version],
+     63|   );
+ ❯ updateMemo node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:8795:19
+ ❯ Object.useMemo node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:26484:18
+ ❯ process.env.NODE_ENV.exports.useMemo node_modules/.pnpm/react@19.2.4/node_modules/react/cjs/react.development.js:1251:34
+ ❯ RoleEditorPanel src/components/roles/RoleEditorPanel.tsx:60:24
+ ❯ Object.react_stack_bottom_frame node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/19]⎯
+
+ FAIL  src/__tests__/api-client.test.ts > api-client response unwrapping > respects NEXT_PUBLIC_API_BASE_URL if set
+AssertionError: expected "vi.fn()" to be called with arguments: [ StringContaining{…}, Anything ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   StringContaining "https://api.test.com/v1/plans",
+-   Anything,
++   "/api/plans",
++   {
++     "credentials": "include",
++     "headers": {
++       "Content-Type": "application/json",
++     },
++     "method": "GET",
++   },
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/__tests__/api-client.test.ts:115:19
+    113|     await fetcher('/plans');
+    114|
+    115|     expect(fetch).toHaveBeenCalledWith(
+       |                   ^
+    116|       expect.stringContaining('https://api.test.com/v1/plans'),
+    117|       expect.anything()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/19]⎯
+
+ FAIL  src/components/chat/ActivityFeed.test.tsx > ActivityFeed > renders empty state initially
+TestingLibraryElementError: Unable to find an element with the text: Activity Feed. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col h-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between p-3 border-b border-[var(--color-border)]"[39m
+      [36m>[39m
+        [36m<h3[39m
+          [33mclass[39m=[32m"text-xs font-semibold text-[var(--color-text-main)] uppercase tracking-wider"[39m
+        [36m>[39m
+          [0mRecent Ideas[0m
+        [36m</h3>[39m
+        [36m<a[39m
+          [33mclass[39m=[32m"text-xs text-[var(--color-primary)] hover:underline"[39m
+          [33mhref[39m=[32m"/ideas"[39m
+        [36m>[39m
+          [0mView all[0m
+        [36m</a>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-center py-6 text-xs text-[var(--color-text-muted)]"[39m
+        [36m>[39m
+          [0mNo ideas yet. Start brainstorming above![0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/chat/ActivityFeed.test.tsx:19:19
+     17|     mockUseWebSocket.mockReturnValue({ lastMessage: null });
+     18|     render(<ActivityFeed />);
+     19|     expect(screen.getByText('Activity Feed')).toBeInTheDocument();
+       |                   ^
+     20|     expect(screen.getByText('No recent activity.')).toBeInTheDocument(…
+     21|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/19]⎯
+
+ FAIL  src/components/chat/ActivityFeed.test.tsx > ActivityFeed > renders events based on websocket messages
+TestingLibraryElementError: Unable to find an element with the text: Agent error: Something went wrong. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col h-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between p-3 border-b border-[var(--color-border)]"[39m
+      [36m>[39m
+        [36m<h3[39m
+          [33mclass[39m=[32m"text-xs font-semibold text-[var(--color-text-main)] uppercase tracking-wider"[39m
+        [36m>[39m
+          [0mRecent Ideas[0m
+        [36m</h3>[39m
+        [36m<a[39m
+          [33mclass[39m=[32m"text-xs text-[var(--color-primary)] hover:underline"[39m
+          [33mhref[39m=[32m"/ideas"[39m
+        [36m>[39m
+          [0mView all[0m
+        [36m</a>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-center py-6 text-xs text-[var(--color-text-muted)]"[39m
+        [36m>[39m
+          [0mNo ideas yet. Start brainstorming above![0m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/chat/ActivityFeed.test.tsx:32:19
+     30|
+     31|     render(<ActivityFeed />);
+     32|     expect(screen.getByText('Agent error: Something went wrong')).toBe…
+       |                   ^
+     33|   });
+     34| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/19]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Worker forks emitted error.
+ ❯ EventEmitter.<anonymous> node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:3446:22
+ ❯ EventEmitter.emit node:events:509:20
+ ❯ ChildProcess.emitUnexpectedExit node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:3013:22
+ ❯ ChildProcess.emit node:events:509:20
+ ❯ Process.ChildProcess._handle.onexit node:internal/child_process:294:12
+
+Caused by: Error: Worker exited unexpectedly
+ ❯ ChildProcess.emitUnexpectedExit node_modules/.pnpm/vitest@4.1.1_@types+node@20.19.37_jsdom@29.0.2_vite@8.0.2_@types+node@20.19.37_jiti@2.6.1_/node_modules/vitest/dist/chunks/cli-api.BUXBO6jS.js:3012:33
+ ❯ ChildProcess.emit node:events:509:20
+ ❯ Process.ChildProcess._handle.onexit node:internal/child_process:294:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  8 failed | 41 passed (50)
+      Tests  16 failed | 608 passed (633)
+     Errors  1 error
+   Start at  13:33:35
+   Duration  36.28s (transform 3.85s, setup 3.64s, import 7.82s, tests 17.39s, environment 46.64s)
+
+[vitest-pool]: Timeout terminating forks worker for test files /Users/paulaan/PycharmProjects/agent-os/dashboard/fe/src/data/prompt-templates.test.ts.

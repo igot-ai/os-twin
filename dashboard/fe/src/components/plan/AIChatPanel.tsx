@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { extractPlan } from '@/lib/extract-plan';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -25,37 +26,12 @@ const QUICK_PROMPTS = [
   'Simplify the plan',
 ];
 
-function extractPlan(content: string): string {
-  const codeBlockMatch = content.match(/```(?:markdown)?\n([\s\S]*)```/);
-  if (codeBlockMatch) return codeBlockMatch[1].trim();
-
-  if (content.trim().startsWith('# Plan:')) return content.trim();
-
-  const planMatch = content.match(/(# Plan:[\s\S]*)/);
-  if (planMatch) return planMatch[1].trim();
-
-  return content;
-}
+import { ThinkingIcon } from '@/components/chat/ThinkingIcon';
 
 function ThinkingDots() {
   return (
-    <span className="inline-flex items-center gap-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="w-1.5 h-1.5 rounded-full bg-text-faint"
-          style={{
-            animation: 'thinking-bounce 1.4s infinite',
-            animationDelay: `${i * 0.2}s`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes thinking-bounce {
-          0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-          40% { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
+    <span className="inline-flex items-center justify-center min-h-[28px]">
+      <ThinkingIcon />
     </span>
   );
 }

@@ -19,6 +19,12 @@ function Install-Files {
     [CmdletBinding()]
     param()
 
+    # Suppress PowerShell progress bars (Remove-Item -Recurse shows file-delete progress on Windows)
+    $oldProgressPref = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+
+    try {
+
     Write-Step "Installing OS Twin to $script:InstallDir..."
 
     $agentsDir = Join-Path $script:InstallDir ".agents"
@@ -29,7 +35,7 @@ function Install-Files {
     # Ensure clean slate for core roles
     $rolesDir = Join-Path $agentsDir "roles"
     if (Test-Path $rolesDir) {
-        Remove-Item $rolesDir -Recurse -Force -ErrorAction SilentlyContinue
+        & cmd.exe /c "rd /s /q `"$rolesDir`"" 2>$null
     }
 
     # Sync ScriptDir contents using robocopy (preferred) or Copy-Item
@@ -39,7 +45,7 @@ function Install-Files {
     if (Get-Command robocopy -ErrorAction SilentlyContinue) {
         # robocopy: /E = recurse, /XD = exclude dirs, /XF = exclude files, /NFL /NDL /NJH /NJS = quiet
         $robocopyExclDirs = $excludeDirs + @('mcp')
-        & robocopy $script:ScriptDir $agentsDir /E /XD $robocopyExclDirs /XF $excludeFiles /NFL /NDL /NJH /NJS /R:1 /W:1 2>$null
+        & robocopy $script:ScriptDir $agentsDir /E /XD $robocopyExclDirs /XF $excludeFiles /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
         # robocopy returns non-zero on success (1 = files copied, 0 = no changes)
         # Only exit codes >= 8 are actual errors
     }
@@ -72,9 +78,6 @@ function Install-Files {
     # MCP: seed config on first install, never overwrite
     Seed-McpConfig
 
-    # A-mem-sys: copy agentic memory system
-    Sync-Amem
-
     # Symlink ~/.ostwin/mcp -> ~/.ostwin/.agents/mcp
     Setup-McpSymlink
 
@@ -89,6 +92,11 @@ function Install-Files {
 
     # Make scripts executable (Windows doesn't need chmod, but mark .ps1 files)
     Write-Ok "Files installed"
+
+    } finally {
+        # Restore progress preference even if an exception occurred
+        $ProgressPreference = $oldProgressPref
+    }
 }
 
 # ─── Internal helpers ────────────────────────────────────────────────────────
@@ -108,12 +116,15 @@ function Seed-McpConfig {
     if (Test-Path $srcConfigJson) { $seedSrc = $srcConfigJson }
     elseif (Test-Path $srcMcpConfigJson) { $seedSrc = $srcMcpConfigJson }
 
+    # Ensure mcp dir exists
+    if (-not (Test-Path $mcpDir)) {
+        New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
+    }
+
+    # Seed or update config.json
     if (-not (Test-Path $mcpConfig)) {
         if ($seedSrc) {
             Write-Step "Seeding mcp/config.json (first install)..."
-            if (-not (Test-Path $mcpDir)) {
-                New-Item -ItemType Directory -Path $mcpDir -Force | Out-Null
-            }
             Copy-Item -Path $seedSrc -Destination $mcpConfig
             Write-Ok "mcp/config.json seeded from $(Split-Path $seedSrc -Leaf)"
         }
@@ -155,41 +166,25 @@ function Seed-McpConfig {
                 }
             }
         }
+    }
 
-        # Sync MCP server scripts
-        $mcpSrcDir = Join-Path $script:ScriptDir "mcp"
+    # Always sync MCP server scripts (.py, .sh, requirements.txt)
+    # Only sync specific static JSON files - do NOT overwrite runtime state (config.json, extensions.json)
+    $mcpSrcDir = Join-Path $script:ScriptDir "mcp"
+    if (Test-Path $mcpSrcDir) {
+        # Sync scripts
         foreach ($ext in @("*.py", "*.sh", "requirements.txt")) {
             Get-ChildItem -Path $mcpSrcDir -Filter $ext -ErrorAction SilentlyContinue |
                 ForEach-Object { Copy-Item -Path $_.FullName -Destination $mcpDir -Force }
         }
-        Write-Ok "mcp/ preserved (scripts + catalog updated, new servers merged)"
-    }
-}
-
-function Sync-Amem {
-    [CmdletBinding()]
-    param()
-
-    $amemSrc = ""
-    $candidate1 = Join-Path $script:SourceDir "A-mem-sys"
-    $candidate2 = Join-Path (Split-Path $script:ScriptDir -Parent) "A-mem-sys"
-
-    if (Test-Path $candidate1) { $amemSrc = $candidate1 }
-    elseif (Test-Path $candidate2) { $amemSrc = $candidate2 }
-
-    if ($amemSrc) {
-        $amemDst = Join-Path $script:InstallDir "A-mem-sys"
-        Write-Step "Syncing A-mem-sys (agentic memory)..."
-        if (-not (Test-Path $amemDst)) {
-            New-Item -ItemType Directory -Path $amemDst -Force | Out-Null
+        # Sync only specific static JSON files (not config.json or extensions.json which are runtime state)
+        foreach ($jsonName in @("mcp-builtin.json", "mcp-catalog.json")) {
+            $src = Join-Path $mcpSrcDir $jsonName
+            if (Test-Path $src) {
+                Copy-Item -Path $src -Destination (Join-Path $mcpDir $jsonName) -Force
+            }
         }
-        if (Get-Command robocopy -ErrorAction SilentlyContinue) {
-            & robocopy $amemSrc $amemDst /E /XD '__pycache__' '.memory' /XF '*.pyc' /NFL /NDL /NJH /NJS /R:1 /W:1 2>$null
-        }
-        else {
-            Copy-Item -Path "$amemSrc\*" -Destination $amemDst -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        Write-Ok "A-mem-sys synced to $amemDst"
+        Write-Ok "mcp/ scripts synced"
     }
 }
 
@@ -285,12 +280,12 @@ function Sync-Dashboard {
         Write-Step "Syncing dashboard from $dashSrc (override)..."
         $dashDst = Join-Path $script:InstallDir "dashboard"
         if (Test-Path $dashDst) {
-            Remove-Item $dashDst -Recurse -Force
+            & cmd.exe /c "rd /s /q `"$dashDst`"" 2>$null
         }
         New-Item -ItemType Directory -Path $dashDst -Force | Out-Null
 
         if (Get-Command robocopy -ErrorAction SilentlyContinue) {
-            & robocopy $dashSrc $dashDst /E /XD '__pycache__' /XF '*.pyc' '.DS_Store' /NFL /NDL /NJH /NJS /R:1 /W:1 2>$null
+            & robocopy $dashSrc $dashDst /E /XD '__pycache__' 'node_modules' '.next' /XF '*.pyc' '.DS_Store' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 2>&1 | Out-Null
         }
         else {
             Copy-Item -Path "$dashSrc\*" -Destination $dashDst -Recurse -Force
@@ -398,5 +393,38 @@ function Compute-BuildHash {
     }
     catch {
         Write-Warn "Failed to compute build hash: $_"
+    }
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sync-Bot — copies the bot/ directory from source to install, excluding
+# node_modules. No-op if bot/ does not exist in source.
+# ──────────────────────────────────────────────────────────────────────────────
+function Sync-Bot {
+    [CmdletBinding()]
+    param()
+
+    $botSrc = Join-Path $script:SourceDir "bot"
+    if (-not (Test-Path $botSrc)) { return }
+    if (-not (Test-Path (Join-Path $botSrc "package.json"))) { return }
+
+    $botDst = Join-Path $script:InstallDir "bot"
+    if (Test-Path $botDst) { Remove-Item $botDst -Recurse -Force }
+
+    # Copy everything except node_modules
+    $items = Get-ChildItem -Path $botSrc -Recurse |
+        Where-Object { $_.FullName -notmatch '[/\\]node_modules[/\\]?' }
+    foreach ($item in $items) {
+        $relativePath = $item.FullName.Substring($botSrc.Length)
+        $destPath = Join-Path $botDst $relativePath
+        if ($item.PSIsContainer) {
+            New-Item -ItemType Directory -Path $destPath -Force | Out-Null
+        } else {
+            $destDir = Split-Path $destPath
+            if (-not (Test-Path $destDir)) {
+                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            }
+            Copy-Item -Path $item.FullName -Destination $destPath -Force
+        }
     }
 }

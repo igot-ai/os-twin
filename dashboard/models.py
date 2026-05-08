@@ -68,6 +68,7 @@ class RefineRequest(BaseModel):
     chat_history: list = Field(default_factory=list)
     working_dir: str = ""  # Target project directory for this plan
     asset_context: List[Dict[str, Any]] = Field(default_factory=list)
+    images: List[Dict[str, Any]] = Field(default_factory=list)  # [{url: "data:image/...;base64,...", name, contentType}]
 
 
 class UpdatePlanRoleConfigRequest(BaseModel):
@@ -132,6 +133,7 @@ class Role(BaseModel):
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
     system_prompt_override: Optional[str] = None
+    instance_type: str = "worker" # 'worker' | 'evaluator'
     created_at: str
     updated_at: str
 
@@ -147,9 +149,10 @@ class CreateRoleRequest(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0)
     budget_tokens_max: int = Field(500000, ge=1000, le=10000000)
     max_retries: int = Field(3, ge=1, le=10)
-    timeout_seconds: int = Field(300, ge=60, le=3600)
+    timeout_seconds: int = Field(300, ge=60)
     skill_refs: List[str] = Field(default_factory=list)
     mcp_refs: List[str] = Field(default_factory=list)
+    instance_type: str = "worker"
     system_prompt_override: Optional[str] = Field(None, max_length=2000)
 
 
@@ -234,10 +237,11 @@ class ProviderSettings(BaseModel):
     enabled_models: List[str] = Field(
         default_factory=list,
         description=(
-            "Model IDs from the catalog that this provider exposes. "
-            "Empty list means ALL models for this provider are enabled."
+            "List of allowed model IDs. "
+            "If empty, all models from this provider are allowed."
         ),
     )
+    dismissed: Optional[bool] = False
 
 
 class ProvidersNamespace(BaseModel):
@@ -245,6 +249,8 @@ class ProvidersNamespace(BaseModel):
     anthropic: Optional[ProviderSettings] = None
     google: Optional[ProviderSettings] = None
     byteplus: Optional[ProviderSettings] = None
+    openai_compatible: Optional[ProviderSettings] = None
+    ollama: Optional[ProviderSettings] = None
     custom: Dict[str, ProviderSettings] = Field(default_factory=dict)
 
 
@@ -257,22 +263,26 @@ class RoleSettings(BaseModel):
     system_prompt_override: Optional[str] = None
     skill_refs: List[str] = Field(default_factory=list)
     disabled_skills: List[str] = Field(default_factory=list)
+    instance_type: Optional[str] = None
 
 
 class RuntimeSettings(BaseModel):
     poll_interval: int = Field(default=5, ge=1, le=300)
-    max_concurrent_rooms: int = Field(default=10, ge=1, le=500)
+    max_concurrent_rooms: int = Field(default=10, ge=1, le=10000)
     auto_approve_tools: bool = False
     dynamic_pipelines: bool = True
+    # Master agent default model — format: "provider/model_id" or plain "model_id".
+    # Empty string means "use the hardcoded default from master_agent.py".
+    master_agent_model: str = ""
 
 
 class MemorySettings(BaseModel):
     # -- Processing LLM --
-    llm_backend: str = "huggingface"          # gemini | openai | huggingface | ollama | openrouter | sglang
-    llm_model: str = "LiquidAI/LFM2-1.2B-Extract"  # model name (provider-specific)
+    llm_backend: str = "ollama"           # gemini | openai | ollama | openrouter | sglang | openai-compatible
+    llm_model: str = "llama3.2"           # model name (provider-specific)
     # -- Embedding --
-    embedding_backend: str = "sentence-transformer"  # gemini | sentence-transformer
-    embedding_model: str = "microsoft/harrier-oss-v1-0.6b"
+    embedding_backend: str = "ollama"     # gemini | ollama | openai-compatible
+    embedding_model: str = "leoipulsar/harrier-0.6b"
     # -- Vector store --
     vector_backend: str = "zvec"              # zvec | chroma
     # -- Behaviour --
@@ -307,6 +317,31 @@ class ObservabilitySettings(BaseModel):
     otel_enabled: bool = False
 
 
+class KnowledgeSettings(BaseModel):
+    """Knowledge service runtime settings (ADR-15).
+
+    Overrides the env-var defaults baked into ``dashboard/knowledge/config.py``.
+    Resolution precedence is ``MasterSettings.knowledge`` > env var >
+    hardcoded default — see :class:`KnowledgeService.__init__`.
+
+    All fields are prefixed with ``knowledge_`` to explicitly declare the
+    settings namespace and avoid field-name collisions across namespaces.
+
+    Empty strings mean "no override; use the env-var / hardcoded default".
+    ``knowledge_embedding_dimension`` is informational and read-only on the
+    frontend (the actual dim is determined by the embedding model that gets
+    loaded).
+    """
+
+    # -- LLM --
+    knowledge_llm_backend: str = ""             # empty = use config.LLM_PROVIDER
+    knowledge_llm_model: str = ""               # empty = use config.LLM_MODEL
+    # -- Embedding --
+    knowledge_embedding_backend: str = ""       # empty = use config.EMBEDDING_PROVIDER
+    knowledge_embedding_model: str = ""         # empty = use config.EMBEDDING_MODEL
+    knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
+
+
 class MasterSettings(BaseModel):
     providers: ProvidersNamespace = Field(default_factory=ProvidersNamespace)
     roles: Dict[str, RoleSettings] = Field(default_factory=dict)
@@ -315,6 +350,7 @@ class MasterSettings(BaseModel):
     channels: ChannelsNamespace = Field(default_factory=ChannelsNamespace)
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
 
 
 class EffectiveResolution(BaseModel):

@@ -16,6 +16,7 @@ client = TestClient(app)
 def plan_setup(tmp_path, monkeypatch):
     # Mock PLANS_DIR to use tmp_path
     monkeypatch.setattr("dashboard.routes.plans.PLANS_DIR", tmp_path)
+    monkeypatch.setattr("dashboard.routes.plans.GLOBAL_PLANS_DIR", tmp_path)
     plan_id = "test-plan"
     plan_file = tmp_path / f"{plan_id}.md"
     plan_file.write_text(

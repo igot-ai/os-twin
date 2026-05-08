@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "project_name": "ostwin",
   "manager": {
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "poll_interval_seconds": 5,
     "max_concurrent_rooms": 50,
     "max_engineer_retries": 10,
@@ -21,7 +21,7 @@
     ]
   },
   "architect": {
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "cli": "agent",
     "shell_allow_list": "all",
     "auto_approve": true,
@@ -31,7 +31,7 @@
   },
   "engineer": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -40,7 +40,7 @@
     "instances": {
       "fe": {
         "display_name": "Frontend Engineer",
-        "default_model": "google-vertex/gemini-3.1-flash-preview",
+        "default_model": "google-vertex/gemini-3-flash-preview",
         "timeout_seconds": 2400,
         "working_dir": "dashboard",
         "skills": [
@@ -52,7 +52,7 @@
       },
       "be": {
         "display_name": "Backend Engineer",
-        "default_model": "google-vertex/gemini-3.1-flash-preview",
+        "default_model": "google-vertex/gemini-3-flash-preview",
         "timeout_seconds": 1200,
         "working_dir": "api",
         "skills": [
@@ -66,7 +66,7 @@
   },
   "technical-writer": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -75,7 +75,7 @@
   },
   "tech-artist": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -84,7 +84,7 @@
   },
   "editor": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 600,
@@ -93,7 +93,7 @@
   },
   "reporter": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "shell_allow_list": "all",
     "auto_approve": true,
     "timeout_seconds": 1200,
@@ -101,7 +101,7 @@
   },
   "qa": {
     "cli": "agent",
-    "default_model": "google-vertex/gemini-3.1-flash-preview",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "approval_mode": "auto-approve",
     "timeout_seconds": 600,
     "no_mcp": true
@@ -111,7 +111,16 @@
     "max_summary_bytes": 4096,
     "max_detail_bytes": 16384,
     "max_context_entries": 15,
-    "auto_publish_on_done": true
+    "auto_publish_on_done": true,
+    "llm_backend": "huggingface",
+    "llm_model": "LiquidAI/LFM2-1.2B-Extract",
+    "embedding_backend": "sentence-transformer",
+    "embedding_model": "microsoft/harrier-oss-v1-0.6b",
+    "vector_backend": "zvec",
+    "context_aware": true,
+    "auto_sync": true,
+    "auto_sync_interval": 60,
+    "ttl_days": 30
   },
   "channel": {
     "format": "jsonl",
@@ -126,19 +135,21 @@
     "auto_draft": true
   },
   "test-engineer": {
-    "default_model": "claude-3-5-sonnet-20241022",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "timeout_seconds": 600,
     "skill_refs": [
       "web-research"
     ]
   },
   "unique-role": {
-    "default_model": "gpt-4o",
+    "default_model": "google-vertex/gemini-3-flash-preview",
     "timeout_seconds": 300
   },
   "active-role": {
-    "default_model": "google-vertex/gemini-1.5-pro",
-    "timeout_seconds": 300
+    "default_model": "byteplus-code/glm-5.1",
+    "timeout_seconds": 300,
+    "max_retries": 3,
+    "instance_type": "worker"
   },
   "autonomy": {
     "idle_explore_enabled": true,
@@ -146,5 +157,49 @@
   },
   "runtime": {
     "max_concurrent_rooms": 9999
+  },
+  "ceo": {
+    "default_model": "google-vertex/zai-org/glm-5-maas",
+    "timeout_seconds": 7000,
+    "max_retries": 3,
+    "instance_type": "evaluator",
+    "skill_refs": [
+      "bmad-sprint-planning"
+    ],
+    "mcp_refs": [
+      "memory"
+    ]
+  },
+  "knowledge": {
+    "llm_model": "google-vertex/gemini-3-flash-preview",
+    "embedding_model": "intfloat/multilingual-e5-base",
+    "embedding_dimension": 768,
+    "llm_provider": "",
+    "embedding_backend": "",
+    "knowledge_llm_model": "google-vertex/gemini-3.1-flash-lite-preview",
+    "knowledge_embedding_model": "leoipulsar/harrier-0.6b",
+    "knowledge_embedding_dimension": 768,
+    "knowledge_llm_backend": "openai-compatible",
+    "knowledge_embedding_backend": "ollama"
+  },
+  "providers": {
+    "openai": null,
+    "anthropic": null,
+    "google": {
+      "api_key_ref": null,
+      "base_url": null,
+      "org_id": null,
+      "enabled": true,
+      "deployment_mode": "vertex",
+      "project_id": "igot-studio",
+      "vertex_location": null,
+      "vertex_auth_mode": "oauth",
+      "enabled_models": [],
+      "dismissed": false
+    },
+    "byteplus": null,
+    "custom": {},
+    "openai_compatible": null,
+    "ollama": null
   }
 }

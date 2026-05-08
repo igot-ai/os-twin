@@ -10,6 +10,7 @@
 #   ./install.sh --dir /path   # Install to custom location (default: ~/.ostwin)
 #   ./install.sh --channel        # Also install & start the channel connectors (Telegram + Discord + Slack)
 #   ./install.sh --dashboard-only  # Install dashboard API + frontend only
+#   ./install.sh --no-opencode-config  # Skip writing to ~/.config/opencode/opencode.json
 #   ./install.sh --help        # Show this help
 #
 # What gets installed:
@@ -31,7 +32,7 @@ INSTALL_DIR="${HOME}/.ostwin"
 SOURCE_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 # shellcheck disable=SC2034
 AUTO_YES=false; SKIP_OPTIONAL=false; DASHBOARD_ONLY=false
-START_CHANNEL=true; DASHBOARD_PORT=9000
+START_CHANNEL=false; DASHBOARD_PORT=3366; SKIP_OPENCODE_CONFIG=false
 # shellcheck disable=SC2034
 PYTHON_VERSION=""
 # shellcheck disable=SC2034
@@ -47,7 +48,8 @@ while [[ $# -gt 0 ]]; do
     --skip-optional)  SKIP_OPTIONAL=true; shift ;;
     --dashboard-only) DASHBOARD_ONLY=true; AUTO_YES=true; shift ;;
     --channel)        START_CHANNEL=true; shift ;;
-    --help|-h)        head -22 "$0" | tail -20; exit 0 ;;
+    --no-opencode-config) SKIP_OPENCODE_CONFIG=true; shift ;;
+    --help|-h)        head -23 "$0" | tail -21; exit 0 ;;
     *)  echo "[ERROR] Unknown option: $1" >&2
         echo "Run './install.sh --help' for usage." >&2; exit 1 ;;
   esac
@@ -55,14 +57,24 @@ done
 # shellcheck disable=SC2034
 VENV_DIR="$INSTALL_DIR/.venv"
 
+# Detect first-time install: venv doesn't exist yet
+FIRST_INSTALL=false
+if [[ ! -d "$VENV_DIR" ]]; then
+  FIRST_INSTALL=true
+fi
+
 # ─── Source all modules ──────────────────────────────────────────────────────
 for _mod in lib.sh versions.conf detect-os.sh check-deps.sh install-deps.sh \
-            install-files.sh setup-venv.sh setup-env.sh patch-mcp.sh \
+            install-files.sh setup-venv.sh setup-env.sh setup-models.sh patch-mcp.sh \
             build-frontend.sh setup-path.sh setup-opencode.sh sync-agents.sh \
             start-dashboard.sh start-channels.sh verify.sh; do
   # shellcheck disable=SC1090
   source "$INSTALLER_DIR/$_mod"
 done
+
+# Ensure brew/local paths are available BEFORE any dependency checks
+# This prevents "not in PATH" errors when tools are freshly installed
+ensure_brew_paths
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -114,9 +126,19 @@ header "5. Setting up Python environment"
 setup_venv
 header "5b. Setting up .env"
 setup_env
+header "5c. Initializing models catalog"
+if $FIRST_INSTALL; then
+  setup_models --force
+else
+  setup_models
+fi
 patch_mcp_config; sync_opencode_agents; compute_build_hash
-header "5c. OpenCode agent permissions"
-setup_opencode_permissions
+header "5d. OpenCode agent permissions"
+if $SKIP_OPENCODE_CONFIG; then
+  info "Skipping OpenCode config (--no-opencode-config)"
+else
+  setup_opencode_permissions
+fi
 
 if $DASHBOARD_ONLY; then
   header "6. PowerShell modules (skipped — dashboard-only)"; info "Skipping in dashboard-only mode"
@@ -136,10 +158,12 @@ fi
 header "8. Verification"
 verify_components
 header "9. Starting dashboard"
+section_9_start=$(get_now)
 start_dashboard; publish_skills
 header "9c. Installing channel dependencies (Telegram + Discord + Slack)"
 install_channels
-if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
-  header "9d. Starting channel connectors"; start_channels
-fi
+ok_time "Section 9 complete" "$(print_duration "$section_9_start")"
+# if $START_CHANNEL && [[ -n "${CHAN_DIR:-}" ]]; then
+#   header "9d. Starting channel connectors"; start_channels
+# fi
 print_completion_banner

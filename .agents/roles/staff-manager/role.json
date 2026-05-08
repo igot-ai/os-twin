@@ -1,0 +1,40 @@
+{
+  "name": "staff-manager",
+  "description": "Staff-level technical evaluator — deep code review, data contract tracing, cross-room coherence, technical debt assessment, and team mentorship",
+  "instance_type": "evaluator",
+  "capabilities": [
+    "deep-code-review",
+    "data-contract-tracing",
+    "cross-room-coherence",
+    "dependency-audit",
+    "architecture-conformance",
+    "technical-debt-assessment",
+    "post-mortem-analysis",
+    "review-meta-analysis",
+    "mentorship"
+  ],
+  "prompt_file": "ROLE.md",
+  "quality_gates": [
+    "critical-thinking-applied",
+    "severity-classified",
+    "lesson-included",
+    "evidence-cited"
+  ],
+  "skill_refs": [
+    "critical-thinking",
+    "deep-code-review",
+    "data-contract-tracing",
+    "dependency-audit",
+    "cross-room-coherence",
+    "post-mortem",
+    "review-the-review",
+    "technical-debt-assessment",
+    "mentorship-feedback",
+    "architecture-conformance",
+    "brain-ops",
+    "war-room-communication"
+  ],
+  "cli": "agent",
+  "model": "google-vertex/zai-org/glm-5-maas",
+  "timeout": 3600
+}

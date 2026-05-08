@@ -37,20 +37,48 @@ setup_venv() {
   # Always sync requirements — even if the venv was reused.
   # This ensures newly added packages are installed
   # when a user re-runs install.sh after an update.
-  #
-  # Performance: all requirements files are collected and installed in a
-  # single pip/uv call so the resolver runs once instead of N times.
-  # We also keep the default cache (no --no-cache) to skip re-downloads
-  # on repeated runs, and use CPU-only torch to avoid the ~2GB GPU download.
 
+  # ── Phase 1: Dashboard project (uv sync with lockfile) ─────────────────
+  # Uses pyproject.toml + uv.lock for reproducible, locked installs.
+  # This replaces the old dashboard/requirements.txt approach.
+  local dash_project="$INSTALL_DIR/dashboard"
+  if check_uv && [[ -f "$dash_project/pyproject.toml" ]]; then
+    step "Syncing dashboard dependencies (uv sync → uv.lock)..."
+    local uv_sync_args=(
+      sync
+      --project "$dash_project"
+      --no-install-project
+    )
+    # Use the lockfile as-is when present (--frozen skips the resolver entirely,
+    # giving fast, reproducible installs). Fall back to plain sync which re-resolves.
+    if [[ -f "$dash_project/uv.lock" ]]; then
+      uv_sync_args+=(--frozen)
+    fi
+    # Include dev extras (pytest, ruff, etc.) so tests work out of the box
+    uv_sync_args+=(--all-extras)
+    # CPU-only PyTorch to avoid the ~2GB GPU download
+    uv_sync_args+=(--extra-index-url https://download.pytorch.org/whl/cpu)
+    uv_sync_args+=(--index-strategy unsafe-best-match)
+
+    # UV_PROJECT_ENVIRONMENT tells uv sync to install into the shared venv
+    # instead of creating a project-local .venv inside dashboard/
+    TMPDIR=/tmp UV_PROJECT_ENVIRONMENT="$VENV_DIR" uv "${uv_sync_args[@]}" --quiet \
+      && ok "Dashboard deps synced from uv.lock" \
+      || {
+        warn "uv sync failed — falling back to uv pip install"
+        _setup_venv_pip_fallback "$dash_project/requirements.txt"
+      }
+  elif [[ -f "$dash_project/requirements.txt" ]]; then
+    # No pyproject.toml available (legacy layout or partial install)
+    _setup_venv_pip_fallback "$dash_project/requirements.txt"
+  fi
+
+  # ── Phase 2: Supplementary requirements (mcp, memory, roles) ───────────
+  # These aren't part of the dashboard project, so they stay as pip installs.
   local req_args=()
 
-  # Collect all requirements files that exist
   local requirements="$INSTALL_DIR/.agents/mcp/requirements.txt"
   [[ -f "$requirements" ]] && req_args+=(-r "$requirements")
-
-  local dash_reqs="$INSTALL_DIR/dashboard/requirements.txt"
-  [[ -f "$dash_reqs" ]] && req_args+=(-r "$dash_reqs")
 
   local memory_reqs="$INSTALL_DIR/.agents/memory/requirements.txt"
   [[ -f "$memory_reqs" ]] && req_args+=(-r "$memory_reqs")
@@ -64,22 +92,41 @@ setup_venv() {
     done
   fi
 
-  if [[ ${#req_args[@]} -eq 0 ]]; then
-    warn "No requirements files found — skipping dependency sync"
-  else
-    step "Syncing all Python dependencies (single resolver pass)..."
+  if [[ ${#req_args[@]} -gt 0 ]]; then
+    step "Installing supplementary Python dependencies (mcp, memory, roles)..."
     if check_uv; then
-      # Use CPU-only PyTorch index to avoid downloading ~2GB GPU builds.
-      # Packages that don't exist in the CPU index fall through to PyPI.
       TMPDIR=/tmp uv pip install --quiet --upgrade --prerelease=allow \
         --python "$VENV_DIR/bin/python" \
         --extra-index-url https://download.pytorch.org/whl/cpu \
+        --index-strategy unsafe-best-match \
         "${req_args[@]}"
     else
       "$VENV_DIR/bin/pip" install --quiet --upgrade \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         "${req_args[@]}"
     fi
-    ok "All Python dependencies up to date"
+    ok "Supplementary dependencies up to date"
   fi
+}
+
+# Fallback: install from requirements.txt when uv sync is unavailable
+_setup_venv_pip_fallback() {
+  local reqs_file="$1"
+  if [[ ! -f "$reqs_file" ]]; then
+    warn "No requirements file at $reqs_file — skipping dashboard deps"
+    return
+  fi
+  step "Installing dashboard deps via pip fallback ($reqs_file)..."
+  if check_uv; then
+    TMPDIR=/tmp uv pip install --quiet --upgrade --prerelease=allow \
+      --python "$VENV_DIR/bin/python" \
+      --extra-index-url https://download.pytorch.org/whl/cpu \
+      --index-strategy unsafe-best-match \
+      -r "$reqs_file"
+  else
+    "$VENV_DIR/bin/pip" install --quiet --upgrade \
+      --extra-index-url https://download.pytorch.org/whl/cpu \
+      -r "$reqs_file"
+  fi
+  ok "Dashboard deps installed (pip fallback)"
 }

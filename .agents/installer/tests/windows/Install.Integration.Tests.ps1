@@ -212,3 +212,96 @@ Describe "No WSL/Cygwin/Git Bash dependencies" {
     }
 }
 
+Describe "Start-Dashboard.ps1 regression tests" {
+    BeforeAll {
+        . "$PSScriptRoot/TestHelper.ps1"
+        $startDashboard = Join-Path $script:InstallerModDir "Start-Dashboard.ps1"
+        $script:StartDashboardContent = Get-Content $startDashboard -Raw
+    }
+
+    It "Health check should only accept status codes 200, 401, 403" {
+        # Regression: Previously accepted any status < 500, which could mask 500 errors
+        $script:StartDashboardContent | Should -Match '\$statusCode\s+-in\s+@\(200,\s*401,\s*403\)' -Because "Health check should only accept expected dashboard codes"
+    }
+
+    It "Should validate PID before killing stale dashboard process" {
+        # Regression: Previously killed any PID in file without validation
+        $script:StartDashboardContent | Should -Match 'Get-CimInstance.*Win32_Process|Get-NetTCPConnection.*DashboardPort' -Because "Should validate PID is actually dashboard before taskkill"
+    }
+
+    It "Should require python AND uvicorn/api:app in PID validation (tight match)" {
+        # Regression: Previously matched loose 'dashboard' keyword, risking false positives
+        # Must have BOTH: $cmdLine -match "python" AND ($cmdLine -match "uvicorn" -or $cmdLine -match "api:app")
+        $hasPythonCheck = $script:StartDashboardContent -match '\$cmdLine\s+-match\s+"python"'
+        $hasUvicornOrApiCheck = $script:StartDashboardContent -match '\$cmdLine\s+-match\s+"uvicorn".*-or.*\$cmdLine\s+-match\s+"api:app"'
+        $hasAndBetween = $script:StartDashboardContent -match '-and\s+\('
+        $hasPythonCheck -and $hasUvicornOrApiCheck -and $hasAndBetween | Should -Be $true -Because "PID validation must be tight: python AND (uvicorn OR api:app)"
+    }
+
+    It "Should not use -Encoding ASCII for .cmd launcher files" {
+        # Regression: -Encoding ASCII breaks paths with non-ASCII characters
+        $script:StartDashboardContent | Should -Not -Match 'Set-Content.*-Encoding\s+ASCII' -Because "Should use UTF-8 without BOM or [System.IO.File]::WriteAllText for .cmd files"
+    }
+
+    It "Should use UTF-8 without BOM for any .cmd file creation" {
+        $script:StartDashboardContent | Should -Match '\[System\.IO\.File\]::WriteAllText.*UTF8Encoding' -Because ".cmd files should use UTF-8 without BOM for path safety"
+    }
+
+    It "Should use .cmd wrapper for log redirection (not redirected streams owned by installer)" {
+        # Regression: Using RedirectStandardOutput/RedirectStandardError ties child's stdio to installer's lifetime
+        # The .cmd wrapper approach lets the child process own its own log pipes
+        $script:StartDashboardContent | Should -Match 'Start-Process.*cmd\.exe' -Because "Should launch via cmd.exe wrapper so child owns its logs"
+        $script:StartDashboardContent | Should -Not -Match 'RedirectStandardOutput\s*=\s*\$true' -Because "Redirected streams tie child to installer lifetime"
+    }
+}
+
+Describe "Start-Channels.ps1 regression tests" {
+    BeforeAll {
+        . "$PSScriptRoot/TestHelper.ps1"
+        $startChannels = Join-Path $script:InstallerModDir "Start-Channels.ps1"
+        $script:StartChannelsContent = Get-Content $startChannels -Raw
+    }
+
+    It "Should not use -Encoding ASCII for .cmd launcher files" {
+        # Regression: -Encoding ASCII breaks paths with non-ASCII characters
+        $script:StartChannelsContent | Should -Not -Match 'Set-Content.*-Encoding\s+ASCII' -Because "Should use UTF-8 without BOM for .cmd files"
+    }
+
+    It "Should use UTF-8 without BOM for .cmd file creation" {
+        $script:StartChannelsContent | Should -Match '\[System\.IO\.File\]::WriteAllText.*UTF8Encoding' -Because ".cmd files should use UTF-8 without BOM for path safety"
+    }
+}
+
+Describe "Setup-Venv.ps1 regression tests" {
+    BeforeAll {
+        . "$PSScriptRoot/TestHelper.ps1"
+        $setupVenv = Join-Path $script:InstallerModDir "Setup-Venv.ps1"
+        $script:SetupVenvContent = Get-Content $setupVenv -Raw
+    }
+
+    It "should not use -Encoding ASCII for .cmd launcher files" {
+        # Regression: -Encoding ASCII breaks paths with non-ASCII characters
+        $script:SetupVenvContent | Should -Not -Match 'Set-Content.*-Encoding\s+ASCII' -Because "Should use UTF-8 without BOM for .cmd files"
+    }
+
+    It "should use UTF-8 without BOM for .cmd file creation" {
+        $script:SetupVenvContent | Should -Match '\[System\.IO\.File\]::WriteAllText.*UTF8Encoding' -Because ".cmd files should use UTF-8 without BOM for path safety"
+    }
+
+    It "should use uv sync for dashboard deps (Phase 1)" {
+        # Regression: Previously used 'uv pip install -r requirements.txt' which bypassed
+        # pyproject.toml resolver constraints (requests>=2.31.0 pin for llama-index-core)
+        $script:SetupVenvContent | Should -Match 'uv sync' -Because "Dashboard deps should use uv sync with pyproject.toml"
+    }
+
+    It "should NOT include dashboard/requirements.txt in Phase 2 collection" {
+        # Regression: Old code collected dashboard/requirements.txt alongside mcp/memory reqs,
+        # causing version conflicts because requirements.txt lacked the requests>=2.31.0 pin
+        $script:SetupVenvContent | Should -Not -Match '\$dashReqs\s*=.*dashboard.*requirements\.txt.*\n.*\$reqPaths\s*\+=' -Because "Dashboard deps are handled in Phase 1, not Phase 2"
+    }
+
+    It "should set UV_PROJECT_ENVIRONMENT for shared venv" {
+        $script:SetupVenvContent | Should -Match 'UV_PROJECT_ENVIRONMENT' -Because "uv sync must target the shared venv, not create a new one in dashboard/"
+    }
+}
+

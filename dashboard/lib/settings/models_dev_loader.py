@@ -8,7 +8,7 @@ On every server startup this module:
    the user has API keys for.
 3. Reads ``~/.config/opencode/opencode.json`` for any custom providers.
 4. Filters the catalog to only include models from configured providers.
-5. Writes the result to ``~/.local/share/opencode/configured_models.json``
+5. Writes the result to ``~/.ostwin/.agents/configured_models.json``
    so it can be served without re-fetching.
 
 The ``get_configured_models()`` function returns the current in-memory
@@ -33,7 +33,9 @@ MODELS_DEV_LOGO_URL = "https://models.dev/logos/{provider}.svg"
 
 AUTH_JSON_PATH = Path.home() / ".local" / "share" / "opencode" / "auth.json"
 OPENCODE_CONFIG_PATH = Path.home() / ".config" / "opencode" / "opencode.json"
-CONFIGURED_MODELS_PATH = Path.home() / ".local" / "share" / "opencode" / "configured_models.json"
+CONFIGURED_MODELS_PATH = (
+    Path.home() / ".ostwin" / ".agents" / "configured_models.json"
+)
 
 # In-memory cache
 _cached_models: Optional[Dict[str, Any]] = None
@@ -55,9 +57,12 @@ def load_models_on_startup() -> Dict[str, Any]:
         # Fallback: try reading from cached file
         raw_catalog = _read_cached_raw()
         if raw_catalog is None:
-            logger.warning("No models catalog available -- using empty catalog")
+            logger.warning("[MODELS] No models catalog available (network failed and no disk cache) -- using empty catalog")
             _cached_models = {"providers": {}, "loaded_at": _iso_now()}
             return _cached_models
+        logger.info("[MODELS] Network fetch failed, loaded raw catalog from disk cache")
+    else:
+        logger.info("[MODELS] Successfully fetched fresh catalog from models.dev")
 
     configured_providers = _read_configured_providers()
     configured = _build_configured_models(raw_catalog, configured_providers)
@@ -70,10 +75,7 @@ def load_models_on_startup() -> Dict[str, Any]:
     logger.info(
         "Models catalog loaded: %d providers, %d total models",
         len(configured.get("providers", {})),
-        sum(
-            len(p.get("models", {}))
-            for p in configured.get("providers", {}).values()
-        ),
+        sum(len(p.get("models", {})) for p in configured.get("providers", {}).values()),
     )
     return configured
 
@@ -134,8 +136,10 @@ def get_model_registry_from_configured() -> Dict[str, List[dict]]:
 
             cost = model_data.get("cost", {})
 
+            registry_id = f"{provider_id}/{model_id}"
+
             model_entry = {
-                "id": model_id,
+                "id": registry_id,
                 "label": model_data.get("name", model_id),
                 "context_window": ctx_str,
                 "tier": _classify_tier(model_data),
@@ -169,19 +173,25 @@ def get_available_providers() -> List[Dict[str, Any]]:
 
     configured = set((_read_configured_providers() or {}).keys())
 
+    _HIDDEN_FROM_ADD = {"google", "google-vertex", "google-vertex-anthropic", "openai", "anthropic"}
+
     result: List[Dict[str, Any]] = []
     for pid, pdata in sorted(raw.items(), key=lambda kv: kv[1].get("name", kv[0])):
         if not isinstance(pdata, dict) or "models" not in pdata:
             continue
-        result.append({
-            "id": pid,
-            "name": pdata.get("name", pid),
-            "logo_url": get_provider_logo_url(pid),
-            "model_count": len(pdata.get("models", {})),
-            "doc": pdata.get("doc", ""),
-            "env": pdata.get("env", []),
-            "already_configured": pid in configured,
-        })
+        if pid in _HIDDEN_FROM_ADD:
+            continue
+        result.append(
+            {
+                "id": pid,
+                "name": pdata.get("name", pid),
+                "logo_url": get_provider_logo_url(pid),
+                "model_count": len(pdata.get("models", {})),
+                "doc": pdata.get("doc", ""),
+                "env": pdata.get("env", []),
+                "already_configured": pid in configured,
+            }
+        )
     return result
 
 
@@ -197,10 +207,14 @@ def invalidate_cache() -> None:
 
 def _fetch_models_dev() -> Optional[Dict[str, Any]]:
     """Fetch the full models catalog from models.dev."""
+    logger.info("[MODELS] Fetching catalog from %s", MODELS_DEV_URL)
     try:
         req = urllib.request.Request(
             MODELS_DEV_URL,
-            headers={"User-Agent": "ostwin-dashboard/1.0", "Accept": "application/json"},
+            headers={
+                "User-Agent": "ostwin-dashboard/1.0",
+                "Accept": "application/json",
+            },
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -228,7 +242,7 @@ def _read_cached_raw() -> Optional[Dict[str, Any]]:
 
 
 def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
-    """Read auth.json + opencode.json + env vars to discover configured providers.
+    """Read auth.json + opencode.json + env vars + vault to discover configured providers.
 
     Returns ``{provider_id: {type, source, has_key, ...}}``.
     """
@@ -257,9 +271,7 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
                     providers[provider_id] = {
                         "type": "custom",
                         "source": "opencode.json",
-                        "has_key": bool(
-                            entry.get("options", {}).get("apiKey")
-                        ),
+                        "has_key": bool(entry.get("options", {}).get("apiKey")),
                     }
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Failed to read opencode.json: %s", exc)
@@ -278,6 +290,31 @@ def _read_configured_providers() -> Dict[str, Dict[str, Any]]:
                 "deployment_mode": _read_google_deployment_mode(),
             }
 
+    # 4. Vault -- catch any provider key stored via AddProviderModal that
+    #    hasn't been synced to auth.json yet.  Keys like
+    #    ``google_service_account`` are internal vault entries, not providers.
+    _VAULT_SKIP = {"google_service_account"}
+    try:
+        from .vault import get_vault
+
+        vault = get_vault()
+        vault_keys = vault.list_keys("providers")
+        for vault_key in vault_keys:
+            if vault_key in providers or vault_key in _VAULT_SKIP:
+                continue
+            providers[vault_key] = {
+                "type": "api",
+                "source": "vault",
+                "has_key": True,
+            }
+    except Exception as exc:
+        logger.debug("Vault provider discovery skipped: %s", exc)
+
+    # 5. Always inject Google deployment mode if Google is present.
+    # Because it dictates which companion catalogs to merge.
+    if "google" in providers:
+        providers["google"]["deployment_mode"] = _read_google_deployment_mode()
+
     return providers
 
 
@@ -288,11 +325,14 @@ def _read_google_deployment_mode() -> str:
     """
     try:
         from dashboard.api_utils import AGENTS_DIR
+
         config_path = AGENTS_DIR / "config.json"
         if config_path.exists():
             config = json.loads(config_path.read_text())
-            return config.get("providers", {}).get("google", {}).get(
-                "deployment_mode", "vertex"
+            return (
+                config.get("providers", {})
+                .get("google", {})
+                .get("deployment_mode", "vertex")
             )
     except Exception:
         pass
@@ -384,7 +424,15 @@ def _build_configured_models(
                 "models": {},
             }
 
-        # ── 1) Ingest models.dev models ───────────────────────────
+        # Resolve companion providers.
+        mode = provider_cfg.get("deployment_mode", "")
+        companions_by_mode = _COMPANION_PROVIDERS.get(provider_id, {})
+        companion_ids = companions_by_mode.get(mode, []) if mode else []
+        if not companion_ids and isinstance(companions_by_mode, list):
+            companion_ids = companions_by_mode
+
+        # ── 1) Ingest models.dev base models ──────────────────────
+        # Always include base models regardless of deployment mode.
         if raw_provider is not None:
             for model_id, model_data in raw_provider.get("models", {}).items():
                 provider_entry["models"][model_id] = {
@@ -403,27 +451,29 @@ def _build_configured_models(
                     "source": "models.dev",
                 }
 
-        # ── 2) Ingest companion provider models ───────────────────
-        # Select companions based on deployment mode (e.g. vertex vs gemini)
-        mode = provider_cfg.get("deployment_mode", "")
-        companions_by_mode = _COMPANION_PROVIDERS.get(provider_id, {})
-        companion_ids = companions_by_mode.get(mode, []) if mode else []
-        # If no mode-specific entry, try a flat list fallback
-        if not companion_ids and isinstance(companions_by_mode, list):
-            companion_ids = companions_by_mode
-
+        # ── 2) Emit companion providers as SEPARATE top-level entries
+        # This ensures the UI groups them independently (e.g. "Google
+        # Vertex AI" vs "Google") rather than merging everything under
+        # one flat list.
         for companion_id in companion_ids:
-            companion = raw_catalog.get(companion_id)
-            if companion is None:
+            companion_raw = raw_catalog.get(companion_id)
+            if companion_raw is None:
                 continue
-            for model_id, model_data in companion.get("models", {}).items():
-                # Prefix model id with companion provider so it's
-                # unique and routable: "google-vertex/gemini-3-flash"
-                prefixed_id = f"{companion_id}/{model_id}"
-                if prefixed_id in provider_entry["models"]:
-                    continue
-                provider_entry["models"][prefixed_id] = {
-                    "id": prefixed_id,
+            companion_entry = {
+                "id": companion_id,
+                "name": companion_raw.get("name", companion_id),
+                "doc": companion_raw.get("doc", ""),
+                "api": companion_raw.get("api", ""),
+                "npm": companion_raw.get("npm", ""),
+                "env": companion_raw.get("env", []),
+                "logo_url": get_provider_logo_url(provider_id),
+                "source": "companion",
+                "parent_provider": provider_id,
+                "models": {},
+            }
+            for model_id, model_data in companion_raw.get("models", {}).items():
+                companion_entry["models"][model_id] = {
+                    "id": model_id,
                     "name": model_data.get("name", model_id),
                     "family": model_data.get("family", ""),
                     "reasoning": model_data.get("reasoning", False),
@@ -438,6 +488,8 @@ def _build_configured_models(
                     "source": "models.dev",
                     "companion_provider": companion_id,
                 }
+            if companion_entry["models"]:
+                result["providers"][companion_id] = companion_entry
 
         # ── 3) Merge custom models from opencode.json ─────────────
         if custom_block is not None:
@@ -514,6 +566,7 @@ def _classify_tier(model_data: dict) -> str:
 def _iso_now() -> str:
     """Return current UTC time as ISO string."""
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).isoformat()
 
 

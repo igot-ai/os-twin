@@ -1,53 +1,41 @@
 """
-Plan Agent — deepagents-powered plan refinement.
+Plan Agent — Multi-provider LLM-powered plan refinement.
 
-Uses create_deep_agent() to help users refine rough ideas into
-properly structured plans with Epics, acceptance criteria,
-and working directories.
+Uses llm_client.py for OpenAI, Anthropic, Google, and OpenAI-compatible providers.
 """
 
-import os
 import json
-import re
 import logging
+import os
+import re
 from pathlib import Path
-from typing import Optional, AsyncIterator, Dict, Any
+from typing import Any, AsyncIterator, Dict, Optional
 
-from deepagents import create_deep_agent
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from dashboard.llm_client import ChatMessage, ToolCall
+from dashboard.master_agent import get_master_client, create_client_for_model, get_master_config, is_master_model_explicit
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Dedicated file logger → ~/.ostwin/dashboard/plan.log
-# ---------------------------------------------------------------------------
 _plan_log_dir = Path.home() / ".ostwin" / "dashboard"
 _plan_log_dir.mkdir(parents=True, exist_ok=True)
 _plan_log_file = _plan_log_dir / "plan.log"
 
 plan_logger = logging.getLogger("plan_agent.trace")
-plan_logger.setLevel(logging.DEBUG)
-plan_logger.propagate = False  # don't duplicate to root
+plan_logger.setLevel(logging.INFO)
+plan_logger.propagate = False
 
 if not plan_logger.handlers:
     _fh = logging.FileHandler(_plan_log_file, encoding="utf-8")
-    _fh.setLevel(logging.DEBUG)
-    _fh.setFormatter(logging.Formatter(
-        "%(asctime)s | %(levelname)-5s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    _fh.setLevel(logging.INFO)
+    _fh.setFormatter(logging.Formatter("%(asctime)s | %(levelname)-5s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
     plan_logger.addHandler(_fh)
 
 
 def parse_structured_response(text: str) -> Dict[str, Any]:
-    """Parse the structured Markdown response from the Plan Architect."""
     sections = {"explanation": "", "actions": [], "plan": "", "full_response": text}
-
-    # Split by headers # EXPLANATION, # ACTIONS, # PLAN (case-insensitive, support multiple #)
     pattern = r"^#+\s+(EXPLANATION|ACTIONS|PLAN)\b"
     parts = re.split(pattern, text, flags=re.MULTILINE | re.IGNORECASE)
 
-    # Re-split returns [prefix, header1, content1, header2, content2, ...]
     for i in range(1, len(parts), 2):
         header = parts[i].upper()
         content = parts[i + 1].strip()
@@ -55,24 +43,14 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
         if header == "EXPLANATION":
             sections["explanation"] = (sections["explanation"] + "\n" + content).strip()
         elif header == "ACTIONS":
-            # Parse lines like "- ACTION: path/to/file"
             lines = content.splitlines()
             for line in lines:
-                # Support formats: "- CREATE: path", "UPDATE: path", "- [DELETE] path"
-                m = re.search(
-                    r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)",
-                    line.strip(),
-                    re.IGNORECASE,
-                )
+                m = re.search(r"(CREATE|UPDATE|DELETE)[:\s\-\]\[]+([^\s\]]+)", line.strip(), re.IGNORECASE)
                 if m:
-                    sections["actions"].append(
-                        {"action": m.group(1).upper(), "path": m.group(2).strip()}
-                    )
+                    sections["actions"].append({"action": m.group(1).upper(), "path": m.group(2).strip()})
         elif header == "PLAN":
             sections["plan"] = (sections["plan"] + "\n" + content).strip()
 
-    # Fallback: if we didn't find specific sections but have text,
-    # and it looks like a plan, put it in the 'plan' field for backward compatibility.
     if not sections["plan"] and not sections["explanation"] and text.strip():
         if "# Plan" in text or "## Epics" in text:
             sections["plan"] = text
@@ -81,17 +59,12 @@ def parse_structured_response(text: str) -> Dict[str, Any]:
 
 
 def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
-    """Read roles from registry.json and format them for the prompt."""
     if not agents_dir:
-        return (
-            "Available roles: engineer, qa, architect, or any custom role you define."
-        )
+        return "Available roles: engineer, qa, architect, or any custom role you define."
 
     registry_file = agents_dir / "roles" / "registry.json"
     if not registry_file.exists():
-        return (
-            "Available roles: engineer, qa, architect, or any custom role you define."
-        )
+        return "Available roles: engineer, qa, architect, or any custom role you define."
 
     try:
         registry = json.loads(registry_file.read_text())
@@ -111,30 +84,26 @@ def _load_available_roles(agents_dir: Optional[Path] = None) -> str:
         lines.append(
             "You MAY also define custom roles (e.g., `researcher`, `technical-writer`, `data-scientist`) when no registered role fits the epic's needs."
         )
-        lines.append(
-            "Custom roles will be dynamically resolved at runtime via the ephemeral agent system."
-        )
+        lines.append("Custom roles will be dynamically resolved at runtime via the ephemeral agent system.")
         return "\n".join(lines)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to read roles registry: {e}")
-        return (
-            "Available roles: engineer, qa, architect, or any custom role you define."
-        )
+        return "Available roles: engineer, qa, architect, or any custom role you define."
 
 
 def get_system_prompt(
-    plans_dir: Optional[Path] = None, agents_dir: Optional[Path] = None,
+    plans_dir: Optional[Path] = None,
+    agents_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
 ) -> str:
-    """Generate the system prompt dynamically based on the plan template."""
     plan_format_spec = "Error: Template not found."
     if plans_dir:
         template_path = plans_dir / "PLAN.template.md"
         if template_path.exists():
             plan_format_spec = template_path.read_text()
         else:
-            template_path = agents_dir / ".ostwin/plans/PLAN.template.md"
-            if template_path.exists():
+            template_path = agents_dir / ".ostwin/plans/PLAN.template.md" if agents_dir else None
+            if template_path and template_path.exists():
                 plan_format_spec = template_path.read_text()
             else:
                 logger.warning(f"Plan template not found at {template_path}")
@@ -143,25 +112,21 @@ def get_system_prompt(
         logger.warning("plans_dir not provided, cannot load PLAN.template.md")
         plan_format_spec = "Plans directory not configured."
 
-    # Resolve agents_dir from plans_dir if not provided
     if not agents_dir and plans_dir:
         agents_dir = plans_dir.parent
 
-    # Substitute {{AVAILABLE_ROLES}} placeholder with dynamic roles
     roles_text = _load_available_roles(agents_dir)
     plan_format_spec = plan_format_spec.replace("{{AVAILABLE_ROLES}}", roles_text)
 
-    # Resolve actual project working directory
     if working_dir:
         project_dir = working_dir
     else:
-        # OSTWIN_PROJECT_DIR is set by `ostwin dashboard --project-dir`
-        # This is the directory where the user ran `ostwin init`
         env_project = os.environ.get("OSTWIN_PROJECT_DIR")
         if env_project:
             project_dir = str(Path(env_project) / "projects")
         else:
             from dashboard.api_utils import PROJECT_ROOT
+
             project_dir = str(PROJECT_ROOT / "projects")
 
     return f"""\
@@ -222,151 +187,44 @@ Do NOT invent arbitrary paths — always use `{project_dir}/<short-name>`.
 1. If the user provides an existing plan, improve it while preserving their intent.
 2. If the user asks to modify a specific part, change only that part.
 3. Be concise, technical, and precise. Write like a senior engineering lead scoping work.
+
+## IMAGE AND DESIGN REFERENCE HANDLING
+
+When the user provides images or design mockups:
+1. **Analyze each image carefully** — describe what you see in the # EXPLANATION section.
+2. **Reference images in relevant epics** — add a `> Design Reference:` line under each epic that should use the image.
+3. **Include asset notes** — in the Config section, add `> Design Assets: <descriptive list of provided images>`.
+4. **Extract UI/layout details** — if images show UI designs, include specific component names, colors, layout structure in epic descriptions.
+5. **Mention the images explicitly** — the user expects you to use their visual references, so acknowledge them and describe how they influence the plan.
+```
 """
 
+def _resolve_model(model_str: str = "", has_images: bool = False) -> tuple[str, str]:
 
-# ── Auto-detect available AI provider ──────────────────────────────
-
-
-def detect_model() -> tuple[str, str]:
-    """Pick the best available model based on which API keys are set.
-
-    Returns:
-        A tuple of (model_name, provider) for langchain's init_chat_model.
-    """
-    if os.environ.get("GOOGLE_API_KEY"):
-        return ("gemini-3-flash-preview", "google_genai")
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return ("claude-sonnet-4-6", "anthropic")
-    if os.environ.get("OPENAI_API_KEY"):
-        return ("gpt-4o", "openai")
-    raise RuntimeError(
-        "No AI API key found. Set GOOGLE_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY in ~/.ostwin/.env"
-    )
-
-
-def _resolve_model(model_str: str = ""):
-    """Resolve a model string into an initialized ChatModel.
-
-    If model_str is empty, auto-detects from environment.
-    If model_str contains ':', splits as 'provider:model'.
-    Otherwise uses init_chat_model's auto-detection.
-    """
-    from langchain.chat_models import init_chat_model
-
-    if not model_str:
-        model_name, provider = detect_model()
-        return init_chat_model(model_name, model_provider=provider)
+    if "/" in model_str:
+        provider, model_name = model_str.split("/", 1)
+        return (model_name, provider)
 
     if ":" in model_str:
         provider, model_name = model_str.split(":", 1)
-        # Normalize provider names
-        provider_map = {
-            "google-genai": "google_genai",
-            "google-vertexai": "google_vertexai",
-        }
-        provider = provider_map.get(provider, provider)
-        return init_chat_model(model_name, model_provider=provider)
+        return (model_name, provider)
 
-    return init_chat_model(model_str)
-
-
-# ── Agent factory ──────────────────────────────────────────────────
-
-
-def create_plan_agent(
-    model: str = "",
-    plans_dir: Optional[Path] = None,
-    working_dir: Optional[str] = None,
-):
-    """Create a deepagent configured for plan refinement.
-
-    Args:
-        model: LLM model identifier. Supports formats:
-               - Empty string: auto-detect from env vars
-               - "provider:model" (e.g. "google-genai:gemini-2.5-flash")
-               - Plain model name (e.g. "claude-sonnet-4-6")
-        plans_dir: Path to the plans directory for the read_existing_plan tool.
-
-    Returns:
-        A compiled LangGraph agent.
-    """
-    from langchain_core.tools import tool as lc_tool
-
-    _plans_dir = plans_dir
-
-    @lc_tool
-    def read_existing_plan(plan_id: str) -> str:
-        """Read the current content of a plan file by its ID.
-
-        Use this when the user references an existing plan or asks to
-        review/modify a previously saved plan.
-
-        Args:
-            plan_id: The plan identifier (filename stem without .md).
-
-        Returns:
-            The full plan file content, or an error message.
-        """
-        if not _plans_dir:
-            return "Error: Plans directory not configured."
-        plan_file = _plans_dir / f"{plan_id}.md"
-        if not plan_file.exists():
-            return f"Error: Plan '{plan_id}' not found."
-        return plan_file.read_text()
-
-    chat_model = _resolve_model(model)
-    logger.info("Plan agent using model: %s", type(chat_model).__name__)
-
-    # Resolve agents_dir from plans_dir
-    agents_dir = plans_dir.parent if plans_dir else None
-
-    logger.info(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
-    print(f"System prompt,: {get_system_prompt(plans_dir, agents_dir=agents_dir)}")
-
-    agent = create_deep_agent(
-        model=chat_model,
-        tools=[read_existing_plan],
-        system_prompt=get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir),
-    )
-
-    return agent
-
-
-# ── Invoke helpers ─────────────────────────────────────────────────
-
-
-def _make_human_content(text: str, images: list[dict] | None = None) -> str | list:
-    """Build HumanMessage content — plain string or multimodal blocks."""
-    if not images:
-        return text
-    blocks: list[dict] = []
-    if text:
-        blocks.append({"type": "text", "text": text})
-    for img in images:
-        url = img.get("url", "")
-        if url:
-            blocks.append({"type": "image_url", "image_url": {"url": url}})
-    return blocks if blocks else text
-
+    model_lower = model_str.lower()
+    if any(x in model_lower for x in ["gpt", "o1", "o3", "o4"]):
+        return (model_str, "openai")
+    elif "claude" in model_lower:
+        return (model_str, "anthropic")
+    elif "gemini" in model_lower:
+        return (model_str, "google")
+    return (model_str, "openai")
 
 def build_messages(
     user_message: str,
     plan_content: str = "",
-    chat_history: list[dict] | None = None,
-    images: list[dict] | None = None,
-) -> list:
-    """Build the message list for the agent invocation.
-
-    Args:
-        user_message: The user's latest instruction.
-        plan_content: Current editor content to provide as context.
-        chat_history: Previous conversation turns [{role, content}, ...].
-        images: Optional images for the latest user message.
-
-    Returns:
-        List of LangChain message objects.
-    """
+    chat_history: Optional[list[dict]] = None,
+    images: Optional[list[dict]] = None,
+    system_prompt: Optional[str] = None,
+) -> list[ChatMessage]:
     plan_logger.debug("=" * 80)
     plan_logger.debug("BUILD_MESSAGES called")
     plan_logger.debug("  user_message length: %d chars", len(user_message))
@@ -376,85 +234,107 @@ def build_messages(
 
     messages = []
 
-    # Inject current plan as system context
+    if system_prompt:
+        messages.append(ChatMessage(role="system", content=system_prompt))
+
     if plan_content and plan_content.strip():
         messages.append(
-            SystemMessage(
-                content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```"
+            ChatMessage(
+                role="system", content=f"The user's current plan in the editor:\n\n```markdown\n{plan_content}\n```"
             )
         )
         plan_logger.debug("  + SystemMessage (plan_content): %d chars", len(plan_content))
 
-    # Add chat history
     if chat_history:
         for i, msg in enumerate(chat_history):
             role = msg.get("role", "user")
             content = msg.get("content", "")
+            msg_images = msg.get("images")
+            image_urls = [img.get("url", "") for img in msg_images if img.get("url")] if msg_images else None
             if role == "user":
-                hist_images = msg.get("images")
-                messages.append(HumanMessage(content=_make_human_content(content, hist_images)))
-                plan_logger.debug("  + History[%d] USER: %s...", i, content.replace('\n', ' '))
+                messages.append(ChatMessage(role="user", content=content, images=image_urls or []))
+                plan_logger.debug("  + History[%d] USER: %s... (images: %d)", i, content.replace("\n", " ")[:100], len(image_urls) if image_urls else 0)
             elif role == "assistant":
-                messages.append(AIMessage(content=content))
-                plan_logger.debug("  + History[%d] ASSISTANT: %s...", i, content.replace('\n', ' '))
+                messages.append(ChatMessage(role="assistant", content=content))
+                plan_logger.debug("  + History[%d] ASSISTANT: %s...", i, content.replace("\n", " ")[:100])
 
-    # Add the latest user message
-    messages.append(HumanMessage(content=_make_human_content(user_message, images)))
-    plan_logger.debug("  + Current USER message: %s...", user_message.replace('\n', ' '))
+    image_urls = [img.get("url", "") for img in images if img.get("url")] if images else []
+
+    messages.append(ChatMessage(role="user", content=user_message, images=image_urls))
+    plan_logger.debug("  + Current USER message: %s... (images: %d)", user_message.replace("\n", " ")[:100], len(image_urls))
     plan_logger.debug("  Total messages built: %d", len(messages))
 
     return messages
 
 
+def _execute_tool_call(tool_call: ToolCall, plans_dir: Optional[Path]) -> str:
+    if tool_call.name == "read_existing_plan":
+        if not plans_dir:
+            return "Error: Plans directory not configured."
+        plan_id = tool_call.arguments.get("plan_id", "")
+        plan_file = plans_dir / f"{plan_id}.md"
+        if not plan_file.exists():
+            return f"Error: Plan '{plan_id}' not found."
+        return plan_file.read_text()
+    return f"Error: Unknown tool '{tool_call.name}'"
+
+
 async def refine_plan(
     user_message: str,
     plan_content: str = "",
-    chat_history: list[dict] | None = None,
+    chat_history: Optional[list[dict]] = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
+    images: Optional[list[dict]] = None,
 ) -> Dict[str, Any]:
-    """Invoke the plan agent and return the refined plan structured data.
-
-    Args:
-        user_message: User's refinement instruction.
-        plan_content: Current editor content.
-        chat_history: Previous turns.
-        model: LLM model to use.
-        plans_dir: Path to plans directory.
-        working_dir: Target project directory for this plan.
-
-    Returns:
-        A dictionary with explanation, actions, and plan content.
-    """
     plan_logger.info("=" * 80)
     plan_logger.info("REFINE_PLAN called")
-    plan_logger.info("  user_message: %s", user_message[:200].replace('\n', '\\n'))
+    plan_logger.info("  user_message: %s", user_message[:200].replace("\n", "\\n"))
     plan_logger.info("  plan_content: %d chars", len(plan_content) if plan_content else 0)
     plan_logger.info("  chat_history: %d turns", len(chat_history) if chat_history else 0)
+    plan_logger.info("  images: %d", len(images) if images else 0)
 
-    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
-    messages = build_messages(user_message, plan_content, chat_history)
+    if model:
+        model_name, provider = _resolve_model(model, has_images=bool(images))
+        client = create_client_for_model(model_name, provider)
+    else:
+        client = get_master_client()
 
-    result = await agent.ainvoke({"messages": messages})
+    agents_dir = plans_dir.parent if plans_dir else None
+    system_prompt = get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir)
 
-    # Extract the last AI message
-    raw_content = ""
-    for msg in reversed(result.get("messages", [])):
-        if hasattr(msg, "content") and msg.content:
-            content = msg.content
-            if isinstance(content, list):
-                # Handle Gemini blocks
-                raw_content = "".join(
-                    [
-                        b["text"] if isinstance(b, dict) and "text" in b else str(b)
-                        for b in content
-                    ]
-                )
-            else:
-                raw_content = content
-            break
+    tools = [
+        {
+            "name": "read_existing_plan",
+            "description": "Read the current content of a plan file by its ID. Use this when the user references an existing plan or asks to review/modify a previously saved plan.",
+            "parameters": {
+                "type": "object",
+                "properties": {"plan_id": {"type": "string", "description": "The plan identifier (filename stem without .md)"}},
+                "required": ["plan_id"],
+            },
+        }
+    ]
 
+    messages = build_messages(user_message, plan_content, chat_history, images, system_prompt)
+
+    response = await client.chat(messages, tools=tools)
+
+    max_iterations = 5
+    iteration = 0
+    while response.tool_calls and iteration < max_iterations:
+        iteration += 1
+        plan_logger.info("  Tool call iteration %d: %s", iteration, [tc.name for tc in response.tool_calls])
+
+        messages.append(response)
+
+        for tc in response.tool_calls:
+            result = _execute_tool_call(tc, plans_dir)
+            messages.append(ChatMessage(role="tool", content=result, tool_call_id=tc.id, name=tc.name))
+
+        response = await client.chat(messages, tools=tools)
+
+    raw_content = response.content or ""
     if not raw_content:
         return {"error": "No response from plan agent."}
 
@@ -464,60 +344,47 @@ async def refine_plan(
 async def refine_plan_stream(
     user_message: str,
     plan_content: str = "",
-    chat_history: list[dict] | None = None,
+    chat_history: Optional[list[dict]] = None,
     model: str = "",
     plans_dir: Optional[Path] = None,
     working_dir: Optional[str] = None,
+    images: Optional[list[dict]] = None,
 ) -> AsyncIterator[str]:
-    """Stream the plan agent's response token-by-token.
+    if model:
+        model_name, provider = _resolve_model(model, has_images=bool(images))
+        client = create_client_for_model(model_name, provider)
+    else:
+        client = get_master_client()
 
-    Args:
-        user_message: User's refinement instruction.
-        plan_content: Current editor content.
-        chat_history: Previous turns.
-        model: LLM model to use.
-        plans_dir: Path to plans directory.
-        working_dir: Target project directory for this plan.
+    agents_dir = plans_dir.parent if plans_dir else None
+    system_prompt = get_system_prompt(plans_dir, agents_dir=agents_dir, working_dir=working_dir)
 
-    Returns:
-        AsyncIterator of string tokens.
-    """
-    agent = create_plan_agent(model=model, plans_dir=plans_dir, working_dir=working_dir)
-    messages = build_messages(user_message, plan_content, chat_history)
+    messages = build_messages(user_message, plan_content, chat_history, images, system_prompt)
 
     try:
-        async for event in agent.astream_events(
-            {"messages": messages},
-            config={"recursion_limit": 100},
-            version="v2",
-        ):
-            kind = event.get("event", "")
-            if kind == "on_chat_model_stream":
-                chunk = event.get("data", {}).get("chunk")
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    content = chunk.content
-                    # Gemini returns content as a list of blocks:
-                    #   [{"type": "text", "text": "..."}]
-                    # Other providers return a plain string.
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("text"):
-                                yield block["text"]
-                            elif isinstance(block, str):
-                                yield block
-                    elif isinstance(content, str):
-                        yield content
+        async for chunk in client.chat_stream(messages):
+            if isinstance(chunk, str):
+                yield chunk
+            elif isinstance(chunk, ToolCall):
+                if chunk.name == "read_existing_plan":
+                    result = _execute_tool_call(chunk, plans_dir)
+                    yield f"\n\n[Read plan: {result[:100]}...]\n\n"
     except Exception as e:
         logger.error("Plan agent streaming error: %s", e)
         yield f"\n\n[Error: {str(e)}]"
+
 
 async def summarize_plan(
     plan_content: str,
     model: str = "",
     plans_dir: Optional[Path] = None,
 ) -> str:
-    """Invoke the agent to summarize a drafted plan."""
-    llm = _resolve_model(model)
+    if model:
+        model_name, provider = _resolve_model(model)
+        client = create_client_for_model(model_name, provider)
+    else:
+        client = get_master_client()
+
     prompt = (
         "You are an AI assistant. Please provide a concise summary (3-5 bullet points) "
         "of the following software project plan. Highlight the main objective, "
@@ -525,12 +392,10 @@ async def summarize_plan(
         "Plan:\n"
         f"{plan_content}"
     )
-    from langchain_core.messages import HumanMessage
-    result = await llm.ainvoke([HumanMessage(content=prompt)])
-    content = result.content
-    if isinstance(content, list):
-        content = "".join([b["text"] if isinstance(b, dict) and "text" in b else str(b) for b in content])
-    return content.strip()
+
+    messages = [ChatMessage(role="user", content=prompt)]
+    response = await client.chat(messages)
+    return response.content.strip() if response.content else ""
 
 
 BRAINSTORM_SYSTEM_PROMPT = """\
@@ -571,96 +436,40 @@ When you see this format:
 Keep responses concise — 2-4 short paragraphs max. Prioritize the most important gaps first.
 """
 
-def create_brainstorm_agent(model: str = ""):
-    """Create a deepagent configured for pure brainstorming conversation.
-
-    Args:
-        model: LLM model identifier. Supports formats:
-               - Empty string: auto-detect from env vars
-               - "provider:model"
-               - Plain model name
-
-    Returns:
-        A compiled LangGraph agent without tools.
-    """
-    chat_model = _resolve_model(model)
-    model_name = type(chat_model).__name__
-    logger.info("Brainstorm agent using model: %s", model_name)
-    plan_logger.info("CREATE_BRAINSTORM_AGENT: model=%s", model_name)
-    plan_logger.debug("  System prompt (%d chars): %s...",
-                      len(BRAINSTORM_SYSTEM_PROMPT),
-                      BRAINSTORM_SYSTEM_PROMPT[:200].replace('\n', '\\n'))
-
-    agent = create_deep_agent(
-        model=chat_model,
-        tools=[],
-        system_prompt=BRAINSTORM_SYSTEM_PROMPT,
-    )
-
-    return agent
 
 async def brainstorm_stream(
     user_message: str,
-    chat_history: list[dict] | None = None,
+    chat_history: Optional[list[dict]] = None,
     model: str = "",
-    images: list[dict] | None = None,
+    images: Optional[list[dict]] = None,
 ) -> AsyncIterator[str]:
-    """Stream the brainstorm agent's response token-by-token.
-
-    Args:
-        user_message: User's next instruction/message.
-        chat_history: Previous conversation turns [{role, content}, ...].
-        model: LLM model to use.
-        images: Optional images for the current message.
-
-    Returns:
-        AsyncIterator of string tokens.
-    """
     plan_logger.info("=" * 80)
     plan_logger.info("BRAINSTORM_STREAM started")
-    plan_logger.info("  user_message: %s", user_message[:300].replace('\n', '\\n'))
+    plan_logger.info("  user_message: %s", user_message[:300].replace("\n", "\\n"))
     plan_logger.info("  chat_history turns: %d", len(chat_history) if chat_history else 0)
-    plan_logger.info("  model: %s", model or "(auto-detect)")
+    plan_logger.info("  model: %s", model or "(master)")
 
-    agent = create_brainstorm_agent(model=model)
-    messages = build_messages(user_message, plan_content="", chat_history=chat_history, images=images)
+    if model:
+        model_name, provider = _resolve_model(model)
+        client = create_client_for_model(model_name, provider)
+        plan_logger.info("BRAINSTORM_STREAM using model: %s (provider: %s)", model_name, provider)
+    else:
+        client = get_master_client()
+        plan_logger.info("BRAINSTORM_STREAM using master client")
 
-    plan_logger.info("BRAINSTORM_STREAM → sending %d messages to LLM", len(messages))
-    for i, m in enumerate(messages):
-        role = type(m).__name__
-        content_preview = m.content if isinstance(m.content, str) else str(m.content)[:200]
-        plan_logger.debug("  MSG[%d] %s: %s", i, role, content_preview[:200].replace('\n', '\\n'))
+    messages = build_messages(user_message, plan_content="", chat_history=chat_history, images=images, system_prompt=BRAINSTORM_SYSTEM_PROMPT)
 
     token_count = 0
     full_response = ""
     try:
-        async for event in agent.astream_events(
-            {"messages": messages},
-            config={"recursion_limit": 100},
-            version="v2",
-        ):
-            kind = event.get("event", "")
-            if kind == "on_chat_model_stream":
-                chunk = event.get("data", {}).get("chunk")
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    content = chunk.content
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("text"):
-                                token_count += 1
-                                full_response += block["text"]
-                                yield block["text"]
-                            elif isinstance(block, str):
-                                token_count += 1
-                                full_response += block
-                                yield block
-                    elif isinstance(content, str):
-                        token_count += 1
-                        full_response += content
-                        yield content
+        async for chunk in client.chat_stream(messages):
+            if isinstance(chunk, str):
+                token_count += 1
+                full_response += chunk
+                yield chunk
 
         plan_logger.info("BRAINSTORM_STREAM completed: %d tokens, %d chars", token_count, len(full_response))
-        plan_logger.debug("  Response preview: %s", full_response[:500].replace('\n', '\\n'))
+        plan_logger.debug("  Response preview: %s", full_response[:500].replace("\n", "\\n"))
     except Exception as e:
         plan_logger.error("BRAINSTORM_STREAM error: %s", e)
         logger.error("Brainstorm agent streaming error: %s", e)

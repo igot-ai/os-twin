@@ -7,7 +7,7 @@ import subprocess
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, AsyncIterator, Optional, Any, Dict
+from typing import List, Optional, Any, Dict
 
 from dashboard.models import Skill
 
@@ -338,27 +338,32 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
     body = content
     trust_level = "experimental"  # Model default fallback
 
-    # Check for YAML frontmatter
+    # ── YAML Frontmatter ──
+    # Extra restrictive: must start with --- and have a second --- before too many lines.
     meta_dict = {}
     if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
+        # Look for the closing --- within the first 2KB to avoid scanning large files
+        end_idx = content.find("---", 3)
+        if 3 < end_idx < 2048:
             try:
-                meta = yaml.safe_load(parts[1])
-                if isinstance(meta, dict):
-                    meta_dict = meta
-                    name = meta.get("name", name)
-                    description = meta.get("description", description)
-                    tags = meta.get("tags", tags)
-                    if isinstance(tags, str):
-                        tags = [t.strip() for t in tags.split(",")]
-                    elif not isinstance(tags, list):
-                        tags = []
-                    trust_level = meta.get("trust_level", trust_level)
-                    body = parts[2].strip()
+                frontmatter = content[3:end_idx].strip()
+                if frontmatter:
+                    meta = yaml.safe_load(frontmatter)
+                    if isinstance(meta, dict):
+                        meta_dict = meta
+                        name = meta.get("name", name)
+                        description = meta.get("description", description)
+                        tags = meta.get("tags", tags)
+                        if isinstance(tags, str):
+                            tags = [t.strip() for t in tags.split(",")]
+                        elif not isinstance(tags, list):
+                            tags = []
+                        trust_level = meta.get("trust_level", trust_level)
+                        body = content[end_idx + 3 :].strip()
             except Exception as e:
+                # Log but continue — invalid metadata shouldn't block skill indexing
                 logger = logging.getLogger("api_utils")
-                logger.warning(f"Failed to parse YAML frontmatter in {skill_file}: {e}")
+                logger.debug(f"Skipping malformed YAML frontmatter in {skill_file}: {e}")
 
     # Determine source based on path
     source = "project"
@@ -904,10 +909,82 @@ def add_comment(
     entity_id: str, user_id: str, body: str, parent_id: Optional[str] = None
 ):
     """Stub: Add a comment."""
-    from dashboard.models import CommentRequest  # Avoid circular
-
     ts = datetime.now(timezone.utc).isoformat()
     comment = {"id": "stub-1", "user_id": user_id, "body": body, "ts": ts}
 
     res = {"entity_id": entity_id, "stats": {"comments": 1}}
     return res, type("obj", (object,), {"model_dump": lambda: comment})()
+def generate_fallback_dag(epics: List[dict]) -> dict:
+    """Generate a fallback DAG shape matching the frontend's expected DAG interface."""
+    nodes = {}
+    edges = []
+    in_degree = {e["epic_ref"]: 0 for e in epics}
+    out_edges = {e["epic_ref"]: [] for e in epics}
+    
+    for epic in epics:
+        ref = epic["epic_ref"]
+        for dep in epic.get("depends_on", []):
+            edges.append({"source": dep, "target": ref})
+            if dep in out_edges:
+                out_edges[dep].append(ref)
+            if ref in in_degree:
+                in_degree[ref] += 1
+                
+    # compute dependents
+    for ref, outs in out_edges.items():
+        pass # we have outs
+
+    waves = {}
+    queue = [n for n, deg in in_degree.items() if deg == 0]
+    
+    wave_idx = 0
+    topological_order = []
+    depths = {n: 0 for n in in_degree}
+
+    while queue:
+        waves[str(wave_idx)] = list(queue)
+        next_queue = []
+        for n in queue:
+            topological_order.append(n)
+            for target in out_edges.get(n, []):
+                depths[target] = max(depths[target], depths[n] + 1)
+                if target in in_degree:
+                    in_degree[target] -= 1
+                    if in_degree[target] == 0:
+                        next_queue.append(target)
+        queue = next_queue
+        wave_idx += 1
+        
+    remaining = [n for n, deg in in_degree.items() if deg > 0]
+    if remaining:
+        # Cycle detected, log it
+        logger = logging.getLogger("api_utils")
+        logger.warning(f"Cycle detected or unresolvable dependencies in fallback DAG generation. Remaining nodes: {remaining}")
+        waves[str(wave_idx)] = remaining
+        topological_order.extend(remaining)
+        wave_idx += 1
+
+    for epic in epics:
+        ref = epic["epic_ref"]
+        nodes[ref] = {
+            "room_id": epic.get("room_id", ""),
+            "role": epic.get("role", "unknown"),
+            "candidate_roles": epic.get("candidate_roles", []),
+            "depends_on": epic.get("depends_on", []),
+            "dependents": out_edges.get(ref, []),
+            "depth": depths.get(ref, 0),
+            "on_critical_path": True, # conservative default
+        }
+        
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "total_nodes": len(nodes),
+        "nodes": nodes,
+        "edges": edges,
+        "critical_path": topological_order,
+        "critical_path_length": len(topological_order),
+        "waves": waves,
+        "topological_order": topological_order,
+        "max_depth": wave_idx,
+        "is_temp": True
+    }

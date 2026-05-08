@@ -1,20 +1,28 @@
 {
   "name": "manager",
-  "description": "Manager \u2014 orchestrates war-rooms, routes work, handles retries, skill discovery, and release",
+  "description": "Manager — orchestrates war-rooms, routes work, handles retries, skill discovery, release, and cross-project context",
   "capabilities": [
     "retry-management",
     "release-coordination",
     "deadlock-detection",
     "skill-search",
-    "skill-install"
+    "skill-install",
+    "global-memory-access",
+    "global-knowledge-access",
+    "cross-project-context"
   ],
   "prompt_file": "ROLE.md",
   "quality_gates": [],
   "skill_refs": [
     "risk-decision",
-    "war-room-communication"
+    "war-room-communication",
+    "global-context"
   ],
   "cli": "agent",
-  "model": "google-vertex/gemini-3.1-pro-preview",
-  "timeout": 900
+  "model": "google-vertex/zai-org/glm-5-maas",
+  "timeout": 900,
+  "mcp_refs": [
+    "global-memory",
+    "global-knowledge"
+  ]
 }

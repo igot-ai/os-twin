@@ -32,7 +32,6 @@ from typing import Any, Dict, List, Optional
 
 from .models_registry import (
     AUTH_JSON_PROVIDERS,
-    AuthJsonProviderDef,
     OPENCODE_PROVIDERS,
     OpenCodeProviderDef,
     build_opencode_models,
@@ -47,9 +46,11 @@ OPENCODE_SCHEMA = "https://opencode.ai/config.json"
 
 # ── Result types ──────────────────────────────────────────────────────
 
+
 @dataclass
 class TargetResult:
     """Outcome for a single target file."""
+
     synced: List[str] = field(default_factory=list)
     removed: List[str] = field(default_factory=list)
     skipped: List[str] = field(default_factory=list)
@@ -60,10 +61,11 @@ class TargetResult:
 @dataclass
 class SyncResult:
     """Outcome of the full sync (both targets combined)."""
+
     synced: List[str] = field(default_factory=list)
     removed: List[str] = field(default_factory=list)
     skipped: List[str] = field(default_factory=list)
-    path: str = ""                          # primary path (opencode.json)
+    path: str = ""  # primary path (opencode.json)
     error: Optional[str] = None
     # Per-target breakdown
     opencode_json: Optional[TargetResult] = None
@@ -71,6 +73,7 @@ class SyncResult:
 
 
 # ── Public API ────────────────────────────────────────────────────────
+
 
 def sync_opencode_config(
     *,
@@ -90,9 +93,11 @@ def sync_opencode_config(
     """
     if vault is None:
         from .vault import get_vault
+
         vault = get_vault()
     if settings is None:
         from .resolver import get_settings_resolver
+
         settings = get_settings_resolver().get_master_settings()
 
     oc = _sync_opencode_json(vault, settings, config_path or OPENCODE_CONFIG_PATH)
@@ -117,6 +122,7 @@ def sync_opencode_config(
 
 # ── opencode.json sync (OpenAI-compatible providers) ─────────────────
 
+
 def _sync_opencode_json(vault, settings, target: Path) -> TargetResult:
     synced: List[str] = []
     removed: List[str] = []
@@ -139,7 +145,9 @@ def _sync_opencode_json(vault, settings, target: Path) -> TargetResult:
         try:
             api_key = vault.get(pdef.vault_scope, pdef.vault_key)
         except Exception as exc:
-            logger.warning("Vault read failed for %s/%s: %s", pdef.vault_scope, pdef.vault_key, exc)
+            logger.warning(
+                "Vault read failed for %s/%s: %s", pdef.vault_scope, pdef.vault_key, exc
+            )
             skipped.append(name)
             continue
 
@@ -175,13 +183,17 @@ def _sync_opencode_json(vault, settings, target: Path) -> TargetResult:
     except Exception as exc:
         return TargetResult(
             skipped=list(OPENCODE_PROVIDERS),
-            path=str(target), error=str(exc),
+            path=str(target),
+            error=str(exc),
         )
 
-    return TargetResult(synced=synced, removed=removed, skipped=skipped, path=str(target))
+    return TargetResult(
+        synced=synced, removed=removed, skipped=skipped, path=str(target)
+    )
 
 
 # ── auth.json sync (native API-key providers) ────────────────────────
+
 
 def _sync_auth_json(vault, target: Path) -> TargetResult:
     synced: List[str] = []
@@ -190,11 +202,14 @@ def _sync_auth_json(vault, target: Path) -> TargetResult:
 
     existing = _load_json(target, skeleton={})
 
+    # 1) Sync providers with explicit registry definitions
     for name, adef in AUTH_JSON_PROVIDERS.items():
         try:
             api_key = vault.get(adef.vault_scope, adef.vault_key)
         except Exception as exc:
-            logger.warning("Vault read failed for %s/%s: %s", adef.vault_scope, adef.vault_key, exc)
+            logger.warning(
+                "Vault read failed for %s/%s: %s", adef.vault_scope, adef.vault_key, exc
+            )
             skipped.append(name)
             continue
 
@@ -212,18 +227,64 @@ def _sync_auth_json(vault, target: Path) -> TargetResult:
         }
         synced.append(name)
 
+    # 2) Sync any additional vault providers not in the registry.
+    #    This allows dynamically-added providers (via AddProviderModal)
+    #    to appear in auth.json without a hardcoded definition.
+    _SKIP_DYNAMIC = {
+        # Already handled above or via opencode.json provider block
+        *AUTH_JSON_PROVIDERS.keys(),
+        *OPENCODE_PROVIDERS.keys(),
+        # Providers that authenticate via env vars / service accounts,
+        # not auth.json API keys
+        "google",
+        "google_service_account",
+    }
+    try:
+        vault_keys = vault.list_keys("providers")
+    except Exception as exc:
+        logger.warning("Failed to list vault provider keys: %s", exc)
+        vault_keys = {}
+
+    for vault_key in vault_keys:
+        if vault_key in _SKIP_DYNAMIC:
+            continue
+        try:
+            api_key = vault.get("providers", vault_key)
+        except Exception as exc:
+            logger.warning("Vault read failed for providers/%s: %s", vault_key, exc)
+            skipped.append(vault_key)
+            continue
+
+        if not api_key:
+            if vault_key in existing:
+                del existing[vault_key]
+                removed.append(vault_key)
+            else:
+                skipped.append(vault_key)
+            continue
+
+        existing[vault_key] = {
+            "type": "api",
+            "key": api_key,
+        }
+        synced.append(vault_key)
+
     try:
         _write_json(target, existing)
     except Exception as exc:
         return TargetResult(
             skipped=list(AUTH_JSON_PROVIDERS),
-            path=str(target), error=str(exc),
+            path=str(target),
+            error=str(exc),
         )
 
-    return TargetResult(synced=synced, removed=removed, skipped=skipped, path=str(target))
+    return TargetResult(
+        synced=synced, removed=removed, skipped=skipped, path=str(target)
+    )
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
+
 
 def _should_sync_provider(
     name: str,

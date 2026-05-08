@@ -15,6 +15,12 @@ export default function RolesPage() {
   
   const [editingRole, setEditingRole] = useState<Role | undefined>(undefined);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredRoles = roles.filter(role => 
+    role.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    role.version.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const handleEdit = (role: Role) => {
     setEditingRole(role);
@@ -44,30 +50,47 @@ export default function RolesPage() {
               </p>
               <span className="w-1 h-1 rounded-full bg-slate-300" />
               <p className="text-[11px] font-bold" style={{ color: 'var(--color-text-muted)' }}>
-                {roles.length} active agent templates
+                {roles.length} active agent templates {searchQuery && `(${filteredRoles.length} matching)`}
               </p>
             </div>
           </div>
         </div>
-        
-        <button 
-          onClick={handleAdd}
-          className="flex items-center gap-2.5 px-6 py-3 rounded-xl text-white text-sm font-extrabold shadow-xl shadow-primary/25 hover:brightness-105 active:scale-[0.98] transition-all"
-          style={{ background: 'var(--color-primary)' }}
-        >
-          <span className="material-symbols-outlined text-xl">add_moderator</span>
-          Provision New Role
-        </button>
+
+        <div className="flex items-center gap-4">
+          <div className="relative group">
+            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">
+              search
+            </span>
+            <input
+              type="text"
+              placeholder="Search roles..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-11 pr-4 py-2.5 w-64 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
+              style={{ color: 'var(--color-text-main)' }}
+            />
+          </div>
+          
+          <button 
+            onClick={handleAdd}
+            className="flex items-center gap-2.5 px-6 py-3 rounded-xl text-white text-sm font-extrabold shadow-xl shadow-primary/25 hover:brightness-105 active:scale-[0.98] transition-all"
+            style={{ background: 'var(--color-primary)' }}
+          >
+            <span className="material-symbols-outlined text-xl">add_moderator</span>
+            Provision New Role
+          </button>
+        </div>
       </div>
 
       {/* Main Table View */}
       <RolesTable 
-        roles={roles} 
+        roles={filteredRoles} 
         skills={skills}
         mcpServers={mcpServers}
         onEdit={handleEdit} 
         onAdd={handleAdd}
         isLoading={rolesLoading}
+        totalRoles={roles.length}
       />
 
       {/* Bottom Drawer */}

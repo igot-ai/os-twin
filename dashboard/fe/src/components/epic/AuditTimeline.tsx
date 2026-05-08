@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { useAuditLog } from '@/hooks/use-war-room';
 import { AuditLogEntry } from '@/types';
 

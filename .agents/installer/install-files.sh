@@ -49,9 +49,6 @@ install_files() {
   # ── MCP: seed config on first install, never overwrite ─────────────────────
   _seed_mcp_config
 
-  # ── A-mem-sys: copy agentic memory system ─────────────────────────────────
-  _sync_amem
-
   # ── Symlink ~/.ostwin/mcp -> ~/.ostwin/.agents/mcp ────────────────────────
   _setup_mcp_symlink
 
@@ -60,6 +57,9 @@ install_files() {
 
   # ── Dashboard: always override from source repo ───────────────────────────
   _sync_dashboard
+
+  # ── Bot: sync channel connector bot ───────────────────────────────────────
+  _sync_bot
 
   # ── Contributed roles ─────────────────────────────────────────────────────
   _load_contributed_roles
@@ -76,24 +76,31 @@ install_files() {
 _seed_mcp_config() {
   # Source of truth file was renamed mcp-config.json → config.json during the
   # OpenCode migration (April 2026). Honor either name in the source repo.
+  # Both config.json and mcp-config.json are gitignored (they contain resolved
+  # env vars on the dev machine), so on a fresh clone only mcp-builtin.json
+  # (which IS tracked by git) is available as a seed.
   local seed_src=""
   if [[ -f "$SCRIPT_DIR/mcp/config.json" ]]; then
     seed_src="$SCRIPT_DIR/mcp/config.json"
   elif [[ -f "$SCRIPT_DIR/mcp/mcp-config.json" ]]; then
     seed_src="$SCRIPT_DIR/mcp/mcp-config.json"
+  elif [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
+    seed_src="$SCRIPT_DIR/mcp/mcp-builtin.json"
   fi
   if [[ ! -f "$INSTALL_DIR/.agents/mcp/config.json" ]]; then
     if [[ -n "$seed_src" ]]; then
       step "Seeding mcp/config.json (first install)..."
+      mkdir -p "$INSTALL_DIR/.agents/mcp"
       cp "$seed_src" "$INSTALL_DIR/.agents/mcp/config.json"
-      ok "mcp/config.json seeded from $(basename "$seed_src")"
+      ok "mcp/config.json seeded from mcp-builtin.json"
     else
-      warn "No source mcp config found in $SCRIPT_DIR/mcp/ — skipping seed"
+      warn "No mcp-builtin.json found in $SCRIPT_DIR/mcp/ — skipping seed"
     fi
   else
+    # Re-install - preserve existing config, merge new built-in servers
     # Always update the builtin template so new built-in servers are available
-    if [[ -f "$SCRIPT_DIR/mcp/mcp-builtin.json" ]]; then
-      cp "$SCRIPT_DIR/mcp/mcp-builtin.json" "$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
+    if [[ -f "$seed_src" ]]; then
+      cp "$seed_src" "$INSTALL_DIR/.agents/mcp/mcp-builtin.json"
     fi
     # Always update catalog so new packages are available
     if [[ -f "$SCRIPT_DIR/mcp/mcp-catalog.json" ]]; then
@@ -115,20 +122,6 @@ _seed_mcp_config() {
       [[ -f "$f" ]] && cp "$f" "$INSTALL_DIR/.agents/mcp/"
     done
     ok "mcp/ preserved (scripts + catalog updated, new servers merged)"
-  fi
-}
-
-_sync_amem() {
-  local amem_src="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}/A-mem-sys"
-  local amem_dst="$INSTALL_DIR/A-mem-sys"
-  if [[ -d "$amem_src" ]]; then
-    step "Syncing A-mem-sys (agentic memory)..."
-    mkdir -p "$amem_dst"
-    rsync -a --exclude='__pycache__/' --exclude='*.pyc' --exclude='.memory/' \
-      "$amem_src/" "$amem_dst/" 2>/dev/null || {
-      cp -r "$amem_src/"* "$amem_dst/" 2>/dev/null || true
-    }
-    ok "A-mem-sys synced to $amem_dst"
   fi
 }
 
@@ -181,15 +174,51 @@ _sync_dashboard() {
 
   if [[ -n "$dash_src" ]]; then
     step "Syncing dashboard from $dash_src (override)..."
-    rm -rf "$INSTALL_DIR/dashboard"
     mkdir -p "$INSTALL_DIR/dashboard"
-    rsync -a \
+    # Use incremental rsync with --delete instead of rm -rf + full copy.
+    # Exclude node_modules (588MB) and frontend source files — only the
+    # pre-built output in fe/out/ is needed at runtime.
+    rsync -a --delete \
+      --exclude='node_modules/' \
+      --exclude='fe/src/' \
+      --exclude='fe/.next/' \
+      --exclude='fe/.turbo/' \
       --exclude='__pycache__/' --exclude='*.pyc' --exclude='.DS_Store' \
       "$dash_src/" "$INSTALL_DIR/dashboard/"
     ok "Dashboard → $INSTALL_DIR/dashboard/"
   else
     warn "Dashboard source not found — dashboard/ not updated"
     info "Pass the repo root: ./install.sh --source-dir /path/to/agent-os"
+  fi
+}
+
+_sync_bot() {
+  local bot_src=""
+  for candidate in \
+    "${SOURCE_DIR}/bot" \
+    "${SCRIPT_DIR}/../bot" \
+    "${SCRIPT_DIR}/bot"; do
+    if [[ -n "$candidate" ]] && [[ -f "$candidate/package.json" ]]; then
+      bot_src="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+
+  if [[ -n "$bot_src" ]]; then
+    step "Syncing bot from $bot_src..."
+    mkdir -p "$INSTALL_DIR/bot"
+    # Exclude node_modules and build artifacts
+    rsync -a --delete \
+      --exclude='node_modules/' \
+      --exclude='dist/' \
+      --exclude='coverage/' \
+      --exclude='.pytest_cache/' \
+      --exclude='logs/' \
+      --exclude='__pycache__/' --exclude='*.pyc' --exclude='.DS_Store' \
+      "$bot_src/" "$INSTALL_DIR/bot/"
+    ok "Bot → $INSTALL_DIR/bot/"
+  else
+    info "Bot source not found — bot/ not synced (optional)"
   fi
 }
 
@@ -240,6 +269,9 @@ compute_build_hash() {
       ! -path "$INSTALL_DIR/.venv/*" \
       ! -path "*/.venv/*" \
       ! -path "$INSTALL_DIR/.zvec/*" \
+      ! -path "$INSTALL_DIR/.memory/*" \
+      ! -path "$INSTALL_DIR/.war-rooms/*" \
+      ! -path "$INSTALL_DIR/projects/*" \
       ! -path "$INSTALL_DIR/logs/*" \
       ! -path "$INSTALL_DIR/node_modules/*" \
       ! -path "*/node_modules/*" \

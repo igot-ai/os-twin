@@ -34,6 +34,99 @@ def _detect_provider(model_id: str) -> str:
     return "Gemini"
 
 
+
+def _resolve_model_id(version: str) -> str:
+    """Ensure a model ID is fully-qualified with a ``provider/model`` prefix.
+
+    Roles can store bare model names like ``gemini-3-flash-preview`` when they
+    were originally created from an opencode config that had stripped the
+    provider prefix.  The opencode CLI requires the full ``provider/model``
+    form, so we resolve the bare ID before invoking it.
+
+    Resolution order
+    ----------------
+    1. IDs that already contain ``/`` are returned unchanged:
+       e.g. ``google-vertex/gemini-3-flash-preview``, ``gemini/gemini-3-flash-preview``.
+    2. Static fallback catalog (``_FALLBACK_CATALOG``) — covers the four
+       legacy providers without touching any models.dev data.
+    3. Dynamic configured_models catalog (built from models.dev at startup) —
+       covers additional models from configured providers.  The raw models.dev
+       JSON is never modified; we only read it for lookup.
+    4. Native opencode providers (Anthropic, OpenAI, …) need no prefix;
+       unknown bare IDs are passed through unchanged.
+    """
+    if "/" in version:
+        return version  # already provider-qualified
+
+    # ── Step 1: static fallback catalog ──────────────────────────────────
+    try:
+        from dashboard.lib.settings.models_registry import _FALLBACK_CATALOG
+        for entries in _FALLBACK_CATALOG.values():
+            for entry in entries:
+                short = entry.id.split("/", 1)[-1] if "/" in entry.id else entry.id
+                if short == version and entry.id != version:
+                    logger.debug(
+                        "_resolve_model_id: %r → static catalog %r", version, entry.id
+                    )
+                    return entry.id
+    except Exception:
+        pass
+
+    # ── Step 2: dynamic configured_models (models.dev) ───────────────────
+    # Models.dev raw data is never modified — we only use it for ID lookup.
+    try:
+        from dashboard.lib.settings.models_dev_loader import (
+            get_configured_models,
+            _read_google_deployment_mode,
+        )
+        configured = get_configured_models()
+        for provider_id, pdata in configured.get("providers", {}).items():
+            for mid in pdata.get("models", {}):
+                # mid may already be qualified (companion provider prefix)
+                short = mid.split("/", 1)[-1] if "/" in mid else mid
+                if short != version and mid != version:
+                    continue
+
+                if "/" in mid:
+                    # Companion model: already fully qualified in the catalog.
+                    logger.debug(
+                        "_resolve_model_id: %r → dynamic catalog (companion) %r",
+                        version, mid,
+                    )
+                    return mid
+
+
+                if provider_id == "google":
+                    # opencode uses the custom 'gemini' provider block;
+                    # vertex companion models already have google-vertex/ prefix.
+                    mode = _read_google_deployment_mode()
+                    if mode == "gemini":
+                        qualified = f"gemini/{version}"
+                        logger.debug(
+                            "_resolve_model_id: %r → google/gemini mode %r",
+                            version, qualified,
+                        )
+                        return qualified
+                    # Vertex mode: bare google model IDs shouldn't appear here
+                    # (companions are already prefixed), but pass through.
+                    return version
+
+                # Any other custom provider (gemini, byteplus, …): use its
+                # provider_id as the opencode model prefix.
+                qualified = f"{provider_id}/{version}"
+                logger.debug(
+                    "_resolve_model_id: %r → custom provider %r",
+                    version, qualified,
+                )
+                return qualified
+    except Exception:
+        pass
+
+    # Unknown bare ID (e.g. native Claude/OpenAI not in catalog):
+    # pass through and let opencode decide.
+    return version
+
+
 def _read_role_json(role_name: str) -> dict:
     """Read individual role.json from disk (the engine's per-role definition)."""
     role_file = GLOBAL_ROLES_DIR / role_name / "role.json"
@@ -86,7 +179,9 @@ def load_roles() -> List[Role]:
                 role_json = _read_role_json(name)
                 engine_role = engine_config.get(name, {})
                 model = engine_role.get("default_model") or role_json.get("model") or r.get("default_model", "google-vertex/gemini-3-flash-preview")
-                timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
+                timeout = engine_role.get("timeout_seconds") or role_json.get("timeout_seconds") or role_json.get("timeout", r.get("timeout_seconds", 300))
+                retries = engine_role.get("max_retries") or role_json.get("max_retries", r.get("max_retries", 3))
+                instance_type = engine_role.get("instance_type") or role_json.get("instance_type") or r.get("instance_type", "worker")
                 skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
                 mcp_refs = role_json.get("mcp_refs", [])
                 description = role_json.get("description", r.get("description", ""))
@@ -109,10 +204,11 @@ def load_roles() -> List[Role]:
                     version=model,
                     temperature=0.7,
                     budget_tokens_max=500000,
-                    max_retries=3,
+                    max_retries=retries,
                     timeout_seconds=timeout,
                     skill_refs=skill_refs,
                     mcp_refs=mcp_refs,
+                    instance_type=instance_type,
                     system_prompt_override=None,
                     created_at=now,
                     updated_at=now
@@ -138,7 +234,9 @@ def load_roles() -> List[Role]:
                         role_json = _read_role_json(name)
                         engine_role = engine_config.get(name, {})
                         model = engine_role.get("default_model") or role_json.get("model") or "google-vertex/gemini-3-flash-preview"
-                        timeout = engine_role.get("timeout_seconds") or role_json.get("timeout", 300)
+                        timeout = engine_role.get("timeout_seconds") or role_json.get("timeout_seconds") or role_json.get("timeout", 300)
+                        retries = engine_role.get("max_retries") or role_json.get("max_retries", 3)
+                        instance_type = engine_role.get("instance_type") or role_json.get("instance_type") or "worker"
                         skill_refs = role_json.get("skill_refs", role_json.get("skills", []))
                         mcp_refs = role_json.get("mcp_refs", [])
                         description = role_json.get("description", "")
@@ -155,8 +253,8 @@ def load_roles() -> List[Role]:
                         role = Role(
                             id=str(uuid.uuid4()), name=name, description=description, instructions=instructions,
                             provider=_detect_provider(model).lower(), version=model, temperature=0.7,
-                            budget_tokens_max=500000, max_retries=3, timeout_seconds=timeout, skill_refs=skill_refs,
-                            mcp_refs=mcp_refs, system_prompt_override=None, created_at=now, updated_at=now
+                            budget_tokens_max=500000, max_retries=retries, timeout_seconds=timeout, skill_refs=skill_refs,
+                            mcp_refs=mcp_refs, instance_type=instance_type, system_prompt_override=None, created_at=now, updated_at=now
                         )
                         roles_list.append(role)
                         loaded_names.add(name)
@@ -185,6 +283,8 @@ def _sync_role_to_engine(role: Role):
         engine_config[role.name] = {}
     engine_config[role.name]["default_model"] = role.version
     engine_config[role.name]["timeout_seconds"] = role.timeout_seconds
+    engine_config[role.name]["max_retries"] = role.max_retries
+    engine_config[role.name]["instance_type"] = role.instance_type
     if role.skill_refs:
         engine_config[role.name]["skill_refs"] = role.skill_refs
     if role.mcp_refs:
@@ -202,7 +302,9 @@ def _sync_role_to_engine(role: Role):
     role_json["model"] = role.version
     role_json["skill_refs"] = role.skill_refs
     role_json["mcp_refs"] = role.mcp_refs
-    role_json["timeout"] = role.timeout_seconds
+    role_json["timeout_seconds"] = role.timeout_seconds
+    role_json["max_retries"] = role.max_retries
+    role_json["instance_type"] = role.instance_type
     role_json["description"] = role.description
     try:
         role_file.write_text(json.dumps(role_json, indent=2))
@@ -237,9 +339,17 @@ def sync_roles_from_disk() -> dict:
             role.version = disk_model
             role.provider = _detect_provider(disk_model)
             changed = True
-        disk_timeout = engine_role.get("timeout_seconds") or role_json.get("timeout")
+        disk_timeout = engine_role.get("timeout_seconds") or role_json.get("timeout_seconds") or role_json.get("timeout")
         if disk_timeout and disk_timeout != role.timeout_seconds:
             role.timeout_seconds = disk_timeout
+            changed = True
+        disk_retries = engine_role.get("max_retries") or role_json.get("max_retries")
+        if disk_retries and disk_retries != role.max_retries:
+            role.max_retries = disk_retries
+            changed = True
+        disk_instance_type = engine_role.get("instance_type") or role_json.get("instance_type")
+        if disk_instance_type and disk_instance_type != role.instance_type:
+            role.instance_type = disk_instance_type
             changed = True
         disk_description = role_json.get("description", "")
         if disk_description and disk_description != role.description:
@@ -270,6 +380,7 @@ def sync_roles_from_disk() -> dict:
                         version=role.version, temperature=role.temperature,
                         budget_tokens_max=role.budget_tokens_max, max_retries=role.max_retries,
                         timeout_seconds=role.timeout_seconds, skill_refs=role.skill_refs,
+                        instance_type=role.instance_type,
                         system_prompt_override=role.system_prompt_override,
                         created_at=role.created_at, updated_at=role.updated_at,
                     )
@@ -417,6 +528,7 @@ async def create_role(req: CreateRoleRequest, user: dict = Depends(get_current_u
             max_retries=new_role.max_retries,
             timeout_seconds=new_role.timeout_seconds,
             skill_refs=new_role.skill_refs,
+            instance_type=new_role.instance_type,
             system_prompt_override=new_role.system_prompt_override,
             created_at=new_role.created_at,
             updated_at=new_role.updated_at,
@@ -471,6 +583,7 @@ async def update_role(role_id: str, req: CreateRoleRequest, user: dict = Depends
                     max_retries=updated_role.max_retries,
                     timeout_seconds=updated_role.timeout_seconds,
                     skill_refs=updated_role.skill_refs,
+                    instance_type=updated_role.instance_type,
                     system_prompt_override=updated_role.system_prompt_override,
                     created_at=updated_role.created_at,
                     updated_at=updated_role.updated_at,
@@ -509,6 +622,21 @@ async def patch_role_by_name(
         role.provider = _detect_provider(model)
         changed = True
 
+    timeout = body.get("timeout_seconds") or body.get("timeout")
+    if timeout is not None and timeout != role.timeout_seconds:
+        role.timeout_seconds = int(timeout)
+        changed = True
+
+    retries = body.get("max_retries")
+    if retries is not None and retries != role.max_retries:
+        role.max_retries = int(retries)
+        changed = True
+
+    instance_type = body.get("instance_type")
+    if instance_type and instance_type != role.instance_type:
+        role.instance_type = instance_type
+        changed = True
+
     if not changed:
         return role
 
@@ -528,6 +656,7 @@ async def patch_role_by_name(
             version=role.version, temperature=role.temperature,
             budget_tokens_max=role.budget_tokens_max, max_retries=role.max_retries,
             timeout_seconds=role.timeout_seconds, skill_refs=role.skill_refs,
+            instance_type=role.instance_type,
             system_prompt_override=role.system_prompt_override,
             created_at=role.created_at, updated_at=role.updated_at,
         )
@@ -552,7 +681,7 @@ async def get_role_dependencies(role_id: str, user: dict = Depends(get_current_u
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     
-    from dashboard.api_utils import WARROOMS_DIR, AGENTS_DIR
+    from dashboard.api_utils import WARROOMS_DIR
     active_warrooms = []
     inactive_warrooms = []
     plans = []
@@ -645,18 +774,31 @@ async def delete_role(role_id: str, force: bool = False, user: dict = Depends(ge
 async def test_model_connection(version: str, user: dict = Depends(get_current_user)):
     """Test model connectivity by running: opencode run "just say YES" --model <version>.
 
-    This validates the real end-to-end path — the same CLI the agent runtime uses —
-    rather than constructing a fragile LangChain shim with manual key resolution.
+    Uses the original opencode subprocess — the same CLI the agent runtime uses.
+    Parses the raw output for known error signatures and returns structured
+    diagnostics so the UI can show actionable information instead of raw logs.
     """
+    import re
     import shutil
     import subprocess
     import time
 
     opencode = shutil.which("opencode")
     if not opencode:
-        return {"status": "fail", "error": "opencode CLI not found on PATH"}
+        return {
+            "status": "fail",
+            "category": "install",
+            "error": "opencode CLI not found on PATH",
+            "fix": "Run: npm install -g opencode",
+        }
 
-    cmd = [opencode, "run", "just say YES", "--model", version]
+    resolved_version = _resolve_model_id(version)
+    logger.info("test_model_connection: %r → resolved %r", version, resolved_version)
+
+    cmd = [opencode, "run", "just say YES", "--model", resolved_version, "--dir", "/tmp"]
+
+    def _strip_ansi(text: str) -> str:
+        return re.sub(r"\x1b\[[0-9;]*[mGKHF]", "", text)
 
     def _run() -> tuple[int, str, str]:
         result = subprocess.run(
@@ -666,33 +808,73 @@ async def test_model_connection(version: str, user: dict = Depends(get_current_u
             timeout=60,
             env={**__import__("os").environ},
         )
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
+        return (
+            result.returncode,
+            _strip_ansi(result.stdout.strip()),
+            _strip_ansi(result.stderr.strip()),
+        )
+
+    def _diagnose(returncode: int, stdout: str, stderr: str) -> dict:
+        """Parse opencode output and return structured diagnostic fields."""
+        combined = (stderr + "\n" + stdout).lower()
+        raw = (stderr + "\n" + stdout).strip()
+        raw_snippet = raw[-600:] if len(raw) > 600 else raw
+
+        if "generic_string_invalid_too_long" in combined:
+            return {
+                "category": "protocol",
+                "error": "A tool/skill description exceeds Gemini's 1,024-character limit (GENERIC_STRING_INVALID_TOO_LONG)",
+                "fix": "This is a known protocol error. The fix requires sanitising skill descriptions — check with the team for the latest patch.",
+                "raw_output": raw_snippet,
+            }
+        if any(k in combined for k in ("unauthenticated", "api key", "api_key", "401", "403", "invalid credentials")):
+            provider = resolved_version.split("/")[0] if "/" in resolved_version else "unknown"
+            fix = "Run: gcloud auth application-default login\nVerify GOOGLE_CLOUD_PROJECT is set." if "vertex" in resolved_version.lower() or "google" in resolved_version.lower() \
+                else f"Check Settings → Providers → {provider}: ensure your API key is saved and valid."
+            return {"category": "auth", "error": "Authentication failed", "fix": fix, "raw_output": raw_snippet}
+        if "not found" in combined and ("model" in combined or "404" in combined):
+            return {
+                "category": "model",
+                "error": f"Model not found: {resolved_version}",
+                "fix": "Check the model ID. Use Settings → Models to browse available models.",
+                "raw_output": raw_snippet,
+            }
+        if any(k in combined for k in ("quota", "rate limit", "429", "resource_exhausted")):
+            return {"category": "quota", "error": "Rate limit or quota exceeded", "fix": "Wait and retry, or check your provider quota dashboard.", "raw_output": raw_snippet}
+        if any(k in combined for k in ("connection refused", "econnrefused", "network", "timeout", "unreachable")):
+            return {"category": "network", "error": "Cannot reach the provider endpoint", "fix": "Check your internet connection, firewall, or VPN settings.", "raw_output": raw_snippet}
+        if "permission" in combined and ("denied" in combined or "iam" in combined):
+            return {"category": "auth", "error": "Permission denied", "fix": "Grant the 'Vertex AI User' IAM role in Google Cloud Console.", "raw_output": raw_snippet}
+
+        # Unknown — surface the raw output so the user can see the actual error
+        return {
+            "category": "unknown",
+            "error": raw_snippet or "opencode exited with no output",
+            "fix": f"Run manually for full output:\n  {' '.join(cmd)}",
+            "raw_output": raw_snippet,
+        }
 
     start = time.time()
     try:
-        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(
-            None, _run
-        )
+        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(None, _run)
         latency = int((time.time() - start) * 1000)
 
-        if returncode == 0:
-            output_snippet = stdout[-200:] if stdout else ""
-            # The model must actually respond with "YES" to confirm connectivity
-            if "YES" in (stdout or "").upper():
-                return {"status": "ok", "latency_ms": latency, "output": output_snippet}
-            else:
-                return {
-                    "status": "fail",
-                    "latency_ms": latency,
-                    "error": f"Model responded but did not confirm (expected YES): {stdout}",
-                }
-        else:
-            error_msg = stderr[-300:] if stderr else stdout[-300:] if stdout else "Unknown error"
-            return {"status": "fail", "latency_ms": latency, "error": error_msg}
+        if returncode == 0 and "YES" in (stdout or "").upper():
+            return {"status": "ok", "latency_ms": latency, "output": stdout[-200:], "resolved_model": resolved_version}
+
+        diag = _diagnose(returncode, stdout, stderr)
+        logger.warning(
+            "test_model_connection failed: version=%r resolved=%r rc=%d category=%s error=%r",
+            version, resolved_version, returncode, diag.get("category"), diag.get("error"),
+        )
+        return {"status": "fail", "latency_ms": latency, "resolved_model": resolved_version, **diag}
+
     except subprocess.TimeoutExpired:
         latency = int((time.time() - start) * 1000)
-        return {"status": "fail", "latency_ms": latency, "error": "Timed out after 60s"}
+        logger.warning("test_model_connection timed out: version=%r resolved=%r", version, resolved_version)
+        return {"status": "fail", "latency_ms": latency, "category": "timeout", "error": "opencode did not respond within 60s", "fix": "The provider may be slow or unreachable. Try again."}
     except Exception as exc:
         latency = int((time.time() - start) * 1000)
-        return {"status": "fail", "latency_ms": latency, "error": str(exc)}
+        logger.warning("test_model_connection error: version=%r resolved=%r error=%r", version, resolved_version, str(exc))
+        return {"status": "fail", "latency_ms": latency, "category": "unknown", "error": str(exc), "fix": "Check the dashboard server logs for the full stack trace."}
 

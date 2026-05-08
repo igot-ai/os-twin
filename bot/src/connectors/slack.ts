@@ -1,6 +1,7 @@
-import { App, SayFn, RespondFn, BlockAction, SlackAction, SlackActionMiddlewareArgs, SlashCommand } from '@slack/bolt';
+import { App, SayFn, RespondFn } from '@slack/bolt';
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS } from '../commands';
+import { routeCommand, routeCallback, BotResponse, COMMANDS_NO_ARGS, COMMANDS_WITH_ARGS } from '../commands';
+import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { chunk } from './utils';
 
@@ -48,7 +49,7 @@ export class SlackConnector implements Connector {
     });
 
     // ── Middleware: Authorization ─────────────────────────────────
-    this.app.use(async ({ body, context, next }) => {
+    this.app.use(async ({ body, context: _context, next }) => {
       // Body can be many things, try to extract user id
       const userId = (body as any).user_id || (body as any).user?.id;
       
@@ -166,14 +167,11 @@ export class SlackConnector implements Connector {
 
       const session = getSession(userId, 'slack');
       
-      // Only handle if in a stateful mode
-      if (session.mode === 'idle') return;
-
-      // If in a thread, use that thread. If not, use the message ts to start/continue a thread.
+      // Route all app mentions through askAgent
       const threadTs = (message as any).thread_ts || (message as any).ts;
       
-      const responses = await handleStatefulText(userId, 'slack', text);
-      await this.sendResponses(say, userId, responses, threadTs);
+      const result = await askAgent(text, { userId, platform: 'slack' });
+      await this.sendResponses(say, userId, [{ text: result.text }], threadTs);
     });
 
     await this.app.start();
@@ -237,14 +235,14 @@ export class SlackConnector implements Connector {
     return this.authorizedUsers.size === 0 || this.authorizedUsers.has(userId);
   }
 
-  private async sendUnauthorized(respond: RespondFn, userId: string) {
+  private async sendUnauthorized(respond: RespondFn, _userId: string) {
     await respond({
       text: `🔒 *Unauthorized.* This bot is private. Use \`/pair ${this.pairingCode}\` to authorize.`,
       response_type: 'ephemeral'
     });
   }
 
-  private async sendResponses(say: SayFn, userId: string, responses: BotResponse[], threadTs?: string) {
+  private async sendResponses(say: SayFn, _userId: string, responses: BotResponse[], threadTs?: string) {
     for (const resp of responses) {
       const messagePayload = this.translateResponse(resp);
       if (threadTs) {

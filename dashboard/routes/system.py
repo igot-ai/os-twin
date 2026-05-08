@@ -3,19 +3,17 @@ import json
 import signal
 import subprocess
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, Depends
 try:
     import notify
 except ImportError:
     notify = None
 
-from dashboard.models import TelegramConfigRequest, UpdatePlanRoleConfigRequest
+from dashboard.models import TelegramConfigRequest
 from dashboard.api_utils import (
     AGENTS_DIR, PROJECT_ROOT, 
-    build_roles_list, get_plan_roles_config,
     resolve_plan_warrooms_dir, read_channel
 )
-from dashboard.constants import ROLE_DEFAULTS
 from dashboard.auth import get_current_user
 
 # Resolve Python: ~/.ostwin/.venv → system fallback
@@ -72,7 +70,7 @@ def _serialize_env(entries: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 @router.get("/status")
-async def get_status(user: dict = Depends(get_current_user)):
+async def get_status():
     """Get current manager run status."""
     pid_file = AGENTS_DIR / "manager.pid"
     running = False
@@ -292,6 +290,29 @@ async def save_env(request: dict, user: dict = Depends(get_current_user)):
     return {"status": "saved", "path": str(_ENV_FILE)}
 
 
+@router.post("/env/reload")
+async def reload_env(user: dict = Depends(get_current_user)):
+    """Trigger an immediate reload of ~/.ostwin/.env into os.environ.
+
+    Useful after saving changes via POST /api/env — hot-reloads keys
+    without waiting for the background poller (3 s cycle).
+    """
+    from dashboard.env_watcher import reload_env_file
+    import dashboard.global_state as gs
+
+    result = reload_env_file()
+    all_changes = result["added"] + result["changed"] + result["removed"]
+    if all_changes:
+        await gs.broadcaster.broadcast(
+            "env_reloaded",
+            {
+                "added": result["added"],
+                "changed": result["changed"],
+                "removed": result["removed"],
+            },
+        )
+    return {"status": "reloaded", **result}
+
 # ── Bot Process Management ────────────────────────────────────────────
 
 @router.get("/bot/status")
@@ -352,7 +373,14 @@ async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_cu
     target = Path(path).expanduser().resolve()
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=400, detail="Not a valid directory")
+
+    SUPPORTED_EXTS = {
+        '.pdf', '.pptx', '.xlsx', '.csv', '.md', '.txt',
+        '.mp4', '.mov', '.docx', '.doc', '.json', '.html', '.xml',
+    }
+
     dirs = []
+    files = []
     try:
         for entry in sorted(target.iterdir()):
             if entry.name.startswith('.'):
@@ -364,7 +392,14 @@ async def browse_filesystem(path: str = Query(None), user: dict = Depends(get_cu
                 except PermissionError:
                     pass
                 dirs.append({"name": entry.name, "path": str(entry), "has_children": has_children})
+            elif entry.is_file() and entry.suffix.lower() in SUPPORTED_EXTS:
+                try:
+                    size = entry.stat().st_size
+                except OSError:
+                    size = 0
+                files.append({"name": entry.name, "path": str(entry), "size_bytes": size})
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
     parent = str(target.parent) if target != target.parent else None
-    return {"current": str(target), "parent": parent, "dirs": dirs}
+    return {"current": str(target), "parent": parent, "dirs": dirs, "files": files}
+

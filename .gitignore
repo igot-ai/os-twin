@@ -6,13 +6,12 @@ gold-mining/
 *pid
 .build-hash
 **/.war-rooms/
-.war-rooms/
 
 # ── Agents (runtime data, not source) ────────────────────────────────────────
 .agents/.venv/
 .agents/.venv.bak/
 .agents/.zvec/**
-.agents/memory/
+.agents/memory/.memory/
 .agents/plans/
 .agents/plans/**
 .agents/stats_history.json
@@ -20,7 +19,8 @@ gold-mining/
 .agents/RELEASE.md
 .agents/mcp/mcp-config.json
 .agents/mcp/config.json
-
+.agents/mcp/mcp-manifest.json
+.agents/conversations/plans/index.json
 # ── Build output ──────────────────────────────────────────────────────────────
 dist/
 # ── Dependencies ──────────────────────────────────────────────────────────────
@@ -51,6 +51,11 @@ dashboard/.agents/
 # ── Generated docs ────────────────────────────────────────────────────────────
 **/TODO.md
 **/release_note.md
+
+# ── Test fixtures (war-room data should not be committed) ──────────────────────
+.agents/tests/war-rooms/room-*/
+.agents/tests/temp-war-rooms/
+dashboard/fe/war-room-sample/
 
 # ── Dummy project ──────────────────────────────────────────────────────────────
 cypress/screenshots
@@ -98,3 +103,21 @@ test_ws.py
 tsc_output.txt
 tsc_output_final.txt
 docs/opencode-vertex-ai-partner-models.md
+
+A-mem-sys*/
+A-mem-sys*/**
+
+AGENTS.md
+image.png
+CLAUDE.md
+
+# ── Dev tooling / IDE config (auto-generated, never commit) ───────────────────
+**/.opencode/
+**/scratch/
+test_extless
+test_extless.ps1
+
+# ── Test artifacts & build output ─────────────────────────────────────────────
+*.tar.zst
+lint_output.txt
+test_results.txt

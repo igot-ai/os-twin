@@ -28,7 +28,7 @@
     Path to the agent-os source repository.
 
 .PARAMETER Port
-    Dashboard port (default: 9000).
+    Dashboard port (default: 3366).
 
 .PARAMETER DashboardOnly
     Install dashboard API + frontend only (implies -Yes).
@@ -64,7 +64,7 @@ param(
 
     [string]$SourceDir,
 
-    [int]$Port = 9000,
+    [int]$Port = 3366,
 
     [switch]$DashboardOnly,
 
@@ -99,6 +99,7 @@ $script:DashboardOnly = $DashboardOnly.IsPresent
 $script:StartChannel = $Channel.IsPresent -or $true  # default: true (mirrors bash)
 $script:DashboardPort = $Port
 $script:VenvDir = Join-Path $script:InstallDir ".venv"
+$script:FirstInstall = -not (Test-Path $script:VenvDir)
 $script:PythonVersion = ""
 $script:PwshCurrentVersion = ""
 $script:PythonCmd = ""
@@ -118,6 +119,7 @@ $modules = @(
     "Install-Files.ps1",
     "Setup-Venv.ps1",
     "Setup-Env.ps1",
+    "Setup-Models.ps1",
     "Patch-MCP.ps1",
     "Build-Frontend.ps1",
     "Setup-Path.ps1",
@@ -191,8 +193,14 @@ Compute-BuildHash
 
 Write-Header "5b. Setting up .env"
 Setup-Env
+Write-Header "5c. Initializing models catalog"
+if ($script:FirstInstall) {
+    Setup-Models -Force
+} else {
+    Setup-Models
+}
 
-Write-Header "5c. OpenCode agent permissions"
+Write-Header "5d. OpenCode agent permissions"
 Setup-OpenCodePermissions
 
 # Step 6: Pester
@@ -238,7 +246,12 @@ Install-Channels
 
 if ($script:StartChannel -and $script:ChanDir) {
     Write-Header "9d. Starting channel connectors"
-    Start-Channels
+    try {
+        Start-Channels
+    }
+    catch {
+        Write-Warn "Channel connectors failed to start (non-critical): $_"
+    }
 }
 
 # Final banner

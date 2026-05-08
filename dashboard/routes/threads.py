@@ -1,28 +1,22 @@
-import os
 import json
-import hashlib
 import asyncio
-import re
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Query, Depends, Request
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from dashboard.auth import get_current_user
 import dashboard.global_state as global_state
-from dashboard.plan_agent import brainstorm_stream, refine_plan, _resolve_model, plan_logger
-from dashboard.api_utils import PLANS_DIR, PROJECT_ROOT, AGENTS_DIR
+
+from dashboard.api_utils import PLANS_DIR
 from dashboard.routes.plans import create_plan_on_disk
 from dashboard.asset_store import persist_images_from_message, list_thread_assets
 
 router = APIRouter(tags=["threads"])
 logger = logging.getLogger(__name__)
-# Reuse the plan_logger for correlated tracing across route + agent
-tlog = plan_logger
+# Logging for threads route
 
 class ImageData(BaseModel):
     url: str
@@ -47,6 +41,8 @@ class PromoteRequest(BaseModel):
 async def create_thread(request: ThreadMessageRequest, user: dict = Depends(get_current_user)):
     if not request.message.strip():
         raise HTTPException(status_code=422, detail="Message cannot be empty")
+    
+    from dashboard.plan_agent import plan_logger as tlog
     
     store = global_state.planning_store
     if not store:
@@ -106,6 +102,7 @@ async def get_thread(thread_id: str, user: dict = Depends(get_current_user)):
     return {"thread": thread, "messages": messages}
 
 async def auto_generate_title(thread_id: str, first_message: str):
+    from dashboard.plan_agent import _resolve_model
     try:
         chat_model = _resolve_model()
         from langchain_core.messages import HumanMessage
@@ -125,6 +122,7 @@ async def auto_generate_title(thread_id: str, first_message: str):
 
 @router.post("/api/plans/threads/{thread_id}/messages/stream")
 async def stream_thread_message(thread_id: str, request: ThreadMessageRequest, user: dict = Depends(get_current_user)):
+    from dashboard.plan_agent import plan_logger as tlog
     if not request.message.strip():
         raise HTTPException(status_code=422, detail="Message cannot be empty")
 
@@ -174,6 +172,7 @@ async def stream_thread_message(thread_id: str, request: ThreadMessageRequest, u
     tlog.info("  chat_history: %d prior turns, current msg is turn %d", len(chat_history), len(db_messages))
     tlog.info("  → calling brainstorm_stream()")
 
+    from dashboard.plan_agent import brainstorm_stream
     async def event_generator():
         full_response = ""
         try:
@@ -208,6 +207,7 @@ async def stream_thread_message(thread_id: str, request: ThreadMessageRequest, u
 
 @router.post("/api/plans/threads/{thread_id}/promote")
 async def promote_thread(thread_id: str, request: PromoteRequest, user: dict = Depends(get_current_user)):
+    from dashboard.plan_agent import plan_logger as tlog
     store = global_state.planning_store
     if not store:
         raise HTTPException(status_code=500, detail="Planning store not initialized")
@@ -218,6 +218,8 @@ async def promote_thread(thread_id: str, request: PromoteRequest, user: dict = D
         
     if thread.status == "promoted":
         raise HTTPException(status_code=400, detail="Thread is already promoted")
+
+    from dashboard.plan_agent import plan_logger as tlog
 
     tlog.info("=" * 80)
     tlog.info("POST /api/plans/threads/%s/promote — PROMOTE_TO_PLAN", thread_id)
@@ -238,6 +240,8 @@ async def promote_thread(thread_id: str, request: PromoteRequest, user: dict = D
             tlog.info("  Assets found: %d files", len(assets))
 
         user_msg = f"Based on this brainstorming conversation, create a structured plan.{asset_context}"
+        from dashboard.plan_agent import refine_plan, plan_logger
+        tlog = plan_logger
         tlog.info("  → calling refine_plan() with %d history turns", len(chat_history))
         result = await refine_plan(
             user_message=user_msg, 

@@ -1,0 +1,102 @@
+knowledge:
+  extract_system: |
+    You are an expert knowledge-graph engineer specializing in ontology-driven extraction.
+    Given a chunk of text, extract semantically rich entities and relationships.
+    Respond with strict JSON only — no prose, no markdown fences.
+
+    All entity descriptions and relationship descriptions MUST be in {language}.
+
+    ## Entity Extraction Rules
+    1. **Semantic Typing**: Assign ontological class labels using CamelCase (e.g., "FinancialInstitution", "TechnologyPlatform", "GovernmentPolicy")
+    2. **Canonical Naming**: Use proper Title Case for named entities. Never use pronouns ("it", "this", "that") as entity names
+    3. **Rich Descriptions**: Include intrinsic properties, functional role, quantitative attributes (dates, amounts, counts), and domain context. Minimum 20 characters
+    4. **Deduplication**: Merge co-referent mentions into a single canonical entity
+
+    ## Relationship Extraction Rules
+    1. **Multi-dimensional Relations**: Extract taxonomic (is-a), partonomic (part-of), causal (causes, enables), temporal (precedes, follows), and functional (performs, produces) relations
+    2. **Semantic Predicates**: Use camelCase verb phrases (e.g., "hasPartnershipWith", "regulatedBy", "producedIn")
+    3. **Referential Integrity**: Every source/target MUST exactly match an entity name in the entities array (case-sensitive)
+    4. **Descriptive Context**: Include cardinality, temporal markers, confidence indicators, and quantitative evidence
+
+    ## Quality Criteria
+    - Each entity must participate in at least one relationship
+    - Minimum 2 entities and 1 relationship per non-trivial text chunk
+    - Eliminate orphaned entities and duplicate relationships
+    - Descriptions must be substantive (not just restating the name)
+
+    Domain context (if any): {domain}
+
+    Output schema:
+    {{
+      "entities": [
+        {{"name": "<canonical name>", "type": "<OntologicalClass>", "description": "<rich semantic description in {language}>"}}
+      ],
+      "relationships": [
+        {{"source": "<entity name>", "target": "<entity name>", "relation": "<semanticPredicate>", "description": "<contextual description in {language}>"}}
+      ]
+    }}
+
+  extract_user: |
+    Extract all semantically meaningful entities and relationships from the following text.
+    Apply ontological typing, ensure referential integrity, and provide rich descriptions.
+
+    Text:
+    {text}
+
+  plan_system: |
+    You are a multi-hop query planning expert. Decompose a user question into a precise
+    chain of dependent sub-queries that can be executed against a knowledge graph + vector store.
+
+    ## Available Knowledge (summary):
+    {knowledge_summary}
+
+    ## Planning Strategy
+    1. **Identify Knowledge Gaps**: Determine what foundational facts are needed first
+    2. **Build Dependencies**: Structure queries so early steps retrieve entities, middle steps explore relationships, and final steps synthesize
+    3. **Enrich Terms**: Each query term should include specific entity names, attribute filters, and domain context — not vague keywords
+
+    ## Step Types
+    - **is_query=true**: Retrieves data from the knowledge graph (entity lookup, relationship traversal, vector search)
+    - **is_query=false**: Synthesizes, reasons about, or aggregates results from previous steps
+
+    Reply in {language}.
+
+    Respond with strict JSON: a list of step objects. Each step has:
+      - "term": str — an enriched, self-contained sub-query with specific entities and constraints
+      - "is_query": bool — True for retrieval, False for synthesis/reasoning
+      - "category_id": str (optional) — category to scope the retrieval
+
+    Constraints:
+    - Maximum {max_steps} steps total
+    - Final step must be a synthesis (is_query=false)
+    - Each query must be atomic and focused on one retrieval unit
+    - Terms should be self-contained: include enough context to be understood independently
+
+  plan_user: |
+    User question: {query}
+
+    Return JSON only. Structure a multi-hop reasoning plan with enriched, specific query terms.
+
+  aggregate_system: |
+    You are a senior research analyst. Synthesize multiple knowledge-graph community summaries
+    into a single, authoritative answer in {language}.
+
+    ## Synthesis Rules
+    1. **Evidence-Based**: Only use facts that appear in the provided snippets. Cite snippet sources where appropriate
+    2. **Structured Response**: Lead with a direct answer, then provide supporting details
+    3. **Conflict Resolution**: When snippets disagree, acknowledge both perspectives and note the discrepancy
+    4. **Completeness Check**: If the snippets don't fully answer the question, explicitly state what information is missing
+    5. **Conciseness**: Keep under 500 words unless the question explicitly requests detail
+
+    ## Response Format
+    - Start with a direct, concise answer to the question
+    - Follow with structured evidence from the summaries
+    - End with any caveats or gaps in the available information
+
+  aggregate_user: |
+    User question: {query}
+
+    Community summaries retrieved from the knowledge graph:
+    {summaries}
+
+    Synthesize a comprehensive, evidence-based answer.

@@ -15,9 +15,10 @@ interface RolesTableProps {
   onEdit: (role: Role) => void;
   onAdd: () => void;
   isLoading?: boolean;
+  totalRoles?: number;
 }
 
-type SortKey = 'name' | 'provider' | 'temperature' | 'budget_tokens_max';
+type SortKey = 'name' | 'provider';
 type SortDir = 'asc' | 'desc';
 
 const providerBranding: Record<string, { color: string; label: string; icon: string }> = {
@@ -78,7 +79,7 @@ const RoleSVGs: Record<string, React.ReactNode> = {
   )
 };
 
-export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, isLoading }: RolesTableProps) {
+export default function RolesTable({ roles, skills, mcpServers: _mcpServers, onEdit, onAdd, isLoading, totalRoles = 0 }: RolesTableProps) {
   const { mutate } = useSWRConfig();
   const { registry } = useModelRegistry();
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' });
@@ -87,7 +88,7 @@ export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, i
     if (!registry) return {};
     const meta: Record<string, { tier: string; context_window: string }> = {};
     Object.values(registry).flat().forEach(m => {
-      meta[m.id] = { tier: m.tier, context_window: m.context_window };
+      meta[m.id] = { tier: m.tier ?? '', context_window: m.context_window ?? '' };
     });
     return meta;
   }, [registry]);
@@ -131,24 +132,34 @@ export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, i
   }
 
   if (roles.length === 0) {
+    const isSearching = totalRoles > 0;
+
     return (
       <div className="flex flex-col items-center justify-center p-20 text-center border-2 border-dashed rounded-2xl bg-surface-hover/30 border-border">
         <div className="w-16 h-16 rounded-2xl bg-surface shadow-sm mb-6 flex items-center justify-center">
-          <span className="material-symbols-outlined text-3xl text-text-faint" aria-hidden="true">smart_toy</span>
+          <span className="material-symbols-outlined text-3xl text-text-faint" aria-hidden="true">
+            {isSearching ? 'search_off' : 'smart_toy'}
+          </span>
         </div>
-        <h3 className="text-xl font-extrabold text-text-main mb-2">No Roles Configured</h3>
+        <h3 className="text-xl font-extrabold text-text-main mb-2">
+          {isSearching ? 'No Matching Roles' : 'No Roles Configured'}
+        </h3>
         <p className="text-sm text-text-muted max-w-[320px] mb-8">
-          Roles define how agents interact with LLMs and what skills they can utilize during plan execution.
+          {isSearching 
+            ? "We couldn't find any roles matching your current search criteria. Try a different query or clear the search."
+            : "Roles define how agents interact with LLMs and what skills they can utilize during plan execution."}
         </p>
-        <button 
-          onClick={onAdd}
-          className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-extrabold shadow-lg shadow-primary/20 hover:brightness-105 transition-all"
-          style={{ background: 'var(--color-primary)' }}
-          aria-label="Create First Role"
-        >
-          <span className="material-symbols-outlined text-xl" aria-hidden="true">add</span>
-          Create First Role
-        </button>
+        {!isSearching && (
+          <button 
+            onClick={onAdd}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-extrabold shadow-lg shadow-primary/20 hover:brightness-105 transition-all"
+            style={{ background: 'var(--color-primary)' }}
+            aria-label="Create First Role"
+          >
+            <span className="material-symbols-outlined text-xl" aria-hidden="true">add</span>
+            Create First Role
+          </button>
+        )}
       </div>
     );
   }
@@ -185,30 +196,6 @@ export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, i
               </th>
               <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-faint)' }}>Skills</th>
               <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-faint)' }}>MCPs</th>
-              <th 
-                className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest cursor-pointer hover:bg-slate-50 transition-colors group" 
-                onClick={() => toggleSort('temperature')}
-                style={{ color: 'var(--color-text-faint)' }}
-              >
-                <div className="flex items-center gap-1">
-                  Sampling
-                  <span className={`material-symbols-outlined text-sm transition-opacity ${sortConfig.key === 'temperature' ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
-                    {sortConfig.dir === 'asc' ? 'expand_less' : 'expand_more'}
-                  </span>
-                </div>
-              </th>
-              <th 
-                className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest cursor-pointer hover:bg-slate-50 transition-colors group text-right" 
-                onClick={() => toggleSort('budget_tokens_max')}
-                style={{ color: 'var(--color-text-faint)' }}
-              >
-                <div className="flex items-center gap-1 justify-end">
-                  Budget
-                  <span className={`material-symbols-outlined text-sm transition-opacity ${sortConfig.key === 'budget_tokens_max' ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
-                    {sortConfig.dir === 'asc' ? 'expand_less' : 'expand_more'}
-                  </span>
-                </div>
-              </th>
               <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-right" style={{ color: 'var(--color-text-faint)' }}>Actions</th>
             </tr>
           </thead>
@@ -232,7 +219,19 @@ export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, i
                         {RoleSVGs[role.name.toLowerCase()] || RoleSVGs.default}
                       </div>
                       <div>
-                        <div className="text-sm font-extrabold capitalize text-slate-800">{role.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-sm font-extrabold capitalize text-slate-800">{role.name}</div>
+                          <div 
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter shadow-sm border ${
+                              role.instance_type === 'evaluator' 
+                                ? 'bg-indigo-50 text-indigo-600 border-indigo-100' 
+                                : 'bg-amber-50 text-amber-600 border-amber-100'
+                            }`}
+                          >
+                            <span className="material-symbols-outlined text-[10px]">{role.instance_type === 'evaluator' ? 'fact_check' : 'engineering'}</span>
+                            {role.instance_type}
+                          </div>
+                        </div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{role.id}</div>
                       </div>
                     </div>
@@ -298,30 +297,9 @@ export default function RolesTable({ roles, skills, mcpServers, onEdit, onAdd, i
                       )}
                     </div>
                   </td>
+
                   <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1.5 w-24">
-                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
-                        <span>{role.temperature}</span>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden shadow-inner">
-                        <div 
-                          className="h-full transition-all duration-1000" 
-                          style={{ 
-                            width: `${(role.temperature / 2) * 100}%`, 
-                            background: role.temperature <= 0.4 ? 'var(--color-primary)' : role.temperature <= 0.8 ? 'var(--color-warning)' : 'var(--color-danger)' 
-                          }} 
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="text-sm font-mono font-bold text-slate-700">
-                      {(role.budget_tokens_max / 1000).toFixed(0)}k
-                    </div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tokens</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-end gap-1">
                       <TestConnectionButton version={role.version} />
                       <button 
                         onClick={() => onEdit(role)}

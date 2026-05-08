@@ -8,12 +8,14 @@
     manager's core logic without running the infinite while-loop.
 
     Functions exported:
-      Resolve-RoomSkills, Get-ActiveCount, Get-MsgCount, Get-LatestBody,
+      Get-UnixEpoch, Write-AtomicFile, Test-ValidRoomState,
+      Get-ActiveCount, Get-MsgCount, Get-LatestBody,
       Test-StateTimedOut, Stop-RoomProcesses, Write-RoomStatus,
       Find-LatestSignal, Invoke-SignalActions, Write-Log,
       Write-SpawnLock, Test-SpawnLock, Start-WorkerJob,
       Get-CachedDag, Set-BlockedDescendants, Invoke-ManagerTriage,
-      Write-TriageContext, Handle-PlanApproval
+      Write-TriageContext, Complete-PlanApproval,
+      Resolve-WorkerForState, Invoke-PlanReviewShortcut
 #>
 
 #region --- Module-level state (injected by Start-ManagerLoop.ps1 via Set-ManagerLoopContext) ---
@@ -26,93 +28,81 @@ function Set-ManagerLoopContext {
         Called once at startup (or from test BeforeAll) to bind all script-scope
         dependencies (paths, config, cache references).
     #>
+    [CmdletBinding()]
     param(
+        [Parameter(Mandatory)]
         [hashtable]$Context
     )
     $script:_ctx = $Context
 }
 
-function Get-ManagerLoopContext { return $script:_ctx }
+function Get-ManagerLoopContext {
+    [CmdletBinding()]
+    param()
+    return $script:_ctx
+}
 
 # Convenience accessors (short names used internally)
 function _ctx([string]$Key) { return $script:_ctx[$Key] }
 #endregion
 
 # ---------------------------------------------------------------------------
-# Resolve-RoomSkills
+# Get-UnixEpoch — culture-invariant epoch timestamp
+# Replaces fragile [int][double]::Parse((Get-Date -UFormat %s)) pattern
+# which breaks in non-en-US locales (comma decimal separator).
 # ---------------------------------------------------------------------------
-function Resolve-RoomSkills {
-    param([string]$RoomDir, [string]$TaskRef, [string]$AssignedRole)
+function Get-UnixEpoch {
+    [CmdletBinding()]
+    [OutputType([long])]
+    param()
+    [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+}
 
-    $agentsDir            = _ctx 'agentsDir'
-    $dashboardBaseUrl     = _ctx 'dashboardBaseUrl'
-
-    $roomConfigFile = Join-Path $RoomDir "config.json"
-    if (-not (Test-Path $roomConfigFile)) { return }
-    $rc = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
-
-    if ($rc.skill_refs -and $rc.skill_refs.Count -gt 0) { return }
-
-    $query = $TaskRef
-    $briefFile = Join-Path $RoomDir "brief.md"
-    if (Test-Path $briefFile) {
-        $briefContent = (Get-Content $briefFile -Raw -ErrorAction SilentlyContinue)
-        if ($briefContent) { $query = $briefContent }
-    }
-
+# ---------------------------------------------------------------------------
+# Write-AtomicFile — atomic file write via tmp+rename
+# Prevents partial reads during concurrent access to state files.
+# ---------------------------------------------------------------------------
+function Write-AtomicFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Content
+    )
+    $tmp = "$Path.tmp.$PID"
     try {
-        $encodedQuery = [System.Uri]::EscapeDataString($query)
-        $encodedRole  = [System.Uri]::EscapeDataString($AssignedRole)
-        $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
-
-        # Try with role filter first
-        $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&role=${encodedRole}&limit=5"
-        $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
-
-        # Retry without role filter when role-filtered call returns empty
-        if (-not $response -or $response.Count -eq 0) {
-            Write-Log "DEBUG" "[$TaskRef] Role-filtered skill search returned 0 results, retrying without role filter"
-            $url = "${dashboardBaseUrl}/api/skills/search?q=${encodedQuery}&limit=5"
-            $response = Invoke-RestMethod -Uri $url -Method GET -Headers $apiHeaders -TimeoutSec 5 -ErrorAction Stop
-        }
-
-        if ($response -and $response.Count -gt 0) {
-            $topSkills  = @($response | Select-Object -First 10)
-            $skillNames = @($topSkills | ForEach-Object { $_.name })
-
-            $rc | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue $skillNames -Force
-            $rc | ConvertTo-Json -Depth 10 | Out-File -FilePath $roomConfigFile -Encoding utf8 -Force
-
-            $roomSkillsDir = Join-Path $RoomDir "skills"
-            if (-not (Test-Path $roomSkillsDir)) {
-                New-Item -ItemType Directory -Path $roomSkillsDir -Force | Out-Null
-            }
-
-            foreach ($skill in $topSkills) {
-                $relPath = $skill.relative_path
-                if (-not $relPath) { continue }
-                $srcDir = Join-Path $agentsDir $relPath
-                if (-not (Test-Path $srcDir)) {
-                    $homeSrc = Join-Path (Join-Path $env:HOME ".ostwin") $relPath
-                    if (Test-Path $homeSrc) { $srcDir = $homeSrc } else { continue }
-                }
-                $destDir = Join-Path $roomSkillsDir $skill.name
-                if (Test-Path $destDir) { Remove-Item -Path $destDir -Recurse -Force -ErrorAction SilentlyContinue }
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-                Copy-Item -Path (Join-Path $srcDir "*") -Destination $destDir -Recurse -Force -ErrorAction SilentlyContinue
-            }
-            Write-Log "INFO" "[$TaskRef] Resolved $($skillNames.Count) skills for ${AssignedRole}: $($skillNames -join ', ')"
+        [System.IO.File]::WriteAllText($tmp, $Content, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::Move($tmp, $Path, $true)
+    } catch {
+        # Fallback for older .NET runtimes without Move(,,bool) overload
+        if (Test-Path $tmp) {
+            Copy-Item $tmp $Path -Force
+            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        } else {
+            $Content | Out-File -FilePath $Path -Encoding utf8 -NoNewline
         }
     }
-    catch {
-        Write-Log "WARN" "[$TaskRef] Skill resolution failed (dashboard may be offline): $_"
-    }
+}
+
+# ---------------------------------------------------------------------------
+# Test-ValidRoomState — validates state name against lifecycle definition
+# ---------------------------------------------------------------------------
+function Test-ValidRoomState {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$State,
+        [PSCustomObject]$Lifecycle
+    )
+    if (-not $Lifecycle -or -not $Lifecycle.states) { return $true }
+    return ($null -ne $Lifecycle.states.$State)
 }
 
 # ---------------------------------------------------------------------------
 # Get-ActiveCount
 # ---------------------------------------------------------------------------
 function Get-ActiveCount {
+    [CmdletBinding()]
+    param()
     $WarRoomsDir = _ctx 'WarRoomsDir'
     $count = 0
     Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue | ForEach-Object {
@@ -128,13 +118,16 @@ function Get-ActiveCount {
 # Get-MsgCount
 # ---------------------------------------------------------------------------
 function Get-MsgCount {
+    [CmdletBinding()]
     param([string]$RoomDir, [string]$MsgType)
     $readMessages = _ctx 'readMessages'
     try {
         $msgs = & $readMessages -RoomDir $RoomDir -FilterType $MsgType -AsObject
         if ($msgs) { return $msgs.Count }
     }
-    catch { }
+    catch {
+        Write-Log "DEBUG" "[Get-MsgCount] Error reading '$MsgType' from ${RoomDir}: $($_.Exception.Message)"
+    }
     return 0
 }
 
@@ -142,13 +135,16 @@ function Get-MsgCount {
 # Get-LatestBody
 # ---------------------------------------------------------------------------
 function Get-LatestBody {
+    [CmdletBinding()]
     param([string]$RoomDir, [string]$MsgType)
     $readMessages = _ctx 'readMessages'
     try {
         $msgs = & $readMessages -RoomDir $RoomDir -FilterType $MsgType -Last 1 -AsObject
         if ($msgs -and $msgs.Count -gt 0) { return $msgs[-1].body }
     }
-    catch { }
+    catch {
+        Write-Log "DEBUG" "[Get-LatestBody] Error reading '$MsgType' from ${RoomDir}: $($_.Exception.Message)"
+    }
     return ""
 }
 
@@ -156,26 +152,57 @@ function Get-LatestBody {
 # Test-StateTimedOut
 # ---------------------------------------------------------------------------
 function Test-StateTimedOut {
+    [CmdletBinding()]
     param([string]$RoomDir)
     $stateTimeout = _ctx 'stateTimeout'
     $changedFile = Join-Path $RoomDir "state_changed_at"
     if (-not (Test-Path $changedFile)) { return $false }
     $changedAt = [int](Get-Content $changedFile -Raw).Trim()
-    $now = [int][double]::Parse((Get-Date -UFormat %s))
+    $now = Get-UnixEpoch
     return (($now - $changedAt) -gt $stateTimeout)
 }
 
 # ---------------------------------------------------------------------------
 # Stop-RoomProcesses
+# Kills agent processes and their entire process trees (MCP servers, etc.).
+# On Unix: uses process-group kill (kill -- -PID) for reliable tree cleanup.
+# On Windows: uses taskkill /T /F for tree kill.
+# Falls back to Stop-Process if group/tree kill is unavailable.
 # ---------------------------------------------------------------------------
 function Stop-RoomProcesses {
+    [CmdletBinding()]
     param([string]$RoomDir)
     $pidDir = Join-Path $RoomDir "pids"
     if (-not (Test-Path $pidDir)) { return }
     Get-ChildItem $pidDir -Filter "*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
         $pidVal = (Get-Content $_.FullName -Raw).Trim()
         if ($pidVal -match '^\d+$') {
-            try { Stop-Process -Id ([int]$pidVal) -Force -ErrorAction SilentlyContinue } catch { }
+            $p = [int]$pidVal
+            # Verify the process is alive before attempting kill
+            $alive = $false
+            try { $null = Get-Process -Id $p -ErrorAction Stop; $alive = $true } catch {}
+            if ($alive) {
+                if ($IsWindows) {
+                    # Windows: tree kill via taskkill
+                    try { & taskkill /T /F /PID $p 2>&1 | Out-Null } catch {}
+                } elseif ($IsLinux -or $IsMacOS) {
+                    # Unix: attempt process-group kill first (covers child MCP servers).
+                    # This works when PID is a group leader (the exec pattern in Invoke-Agent).
+                    try { & /bin/kill -- -$p 2>&1 | Out-Null } catch {}
+                    Start-Sleep -Milliseconds 500
+                    # Check if process is still alive — if group kill didn't work
+                    # (PID wasn't a group leader), fall back to single-process kill.
+                    $stillAlive = $false
+                    try { $null = Get-Process -Id $p -ErrorAction Stop; $stillAlive = $true } catch {}
+                    if ($stillAlive) {
+                        # Fallback: direct SIGKILL to the process itself
+                        try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+                    }
+                } else {
+                    # Fallback: single-process kill
+                    try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+                }
+            }
         }
         Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
     }
@@ -188,6 +215,7 @@ function Stop-RoomProcesses {
 # Write-RoomStatus
 # ---------------------------------------------------------------------------
 function Write-RoomStatus {
+    [CmdletBinding()]
     param([string]$RoomDir, [string]$NewStatus)
     $oldStatus = if (Test-Path (Join-Path $RoomDir "status")) {
         (Get-Content (Join-Path $RoomDir "status") -Raw).Trim()
@@ -197,7 +225,7 @@ function Write-RoomStatus {
         Set-WarRoomStatus -RoomDir $RoomDir -NewStatus $NewStatus
     } else {
         $NewStatus | Out-File -FilePath (Join-Path $RoomDir "status") -Encoding utf8 -NoNewline
-        $epoch = [int][double]::Parse((Get-Date -UFormat %s))
+        $epoch = Get-UnixEpoch
         $epoch.ToString() | Out-File -FilePath (Join-Path $RoomDir "state_changed_at") -Encoding utf8 -NoNewline
         $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         "$ts STATUS $oldStatus -> $NewStatus" | Out-File -Append -FilePath (Join-Path $RoomDir "audit.log") -Encoding utf8
@@ -218,7 +246,9 @@ function Write-RoomStatus {
                     if ($lc.states -and $lc.states.$oldStatus -and $lc.states.$oldStatus.role) {
                         $oldRole = ($lc.states.$oldStatus.role -replace ':.*$', '')
                     }
-                } catch { }
+                } catch {
+                    Write-Log "DEBUG" "[Write-RoomStatus] Error reading lifecycle for PID cleanup: $($_.Exception.Message)"
+                }
             }
             if ($oldRole) {
                 Remove-Item (Join-Path $pidDir "$oldRole.pid")        -Force -ErrorAction SilentlyContinue
@@ -232,6 +262,7 @@ function Write-RoomStatus {
 # Find-LatestSignal
 # ---------------------------------------------------------------------------
 function Find-LatestSignal {
+    [CmdletBinding()]
     param(
         [string]$RoomDir,
         [Parameter(Mandatory)]$Lifecycle,
@@ -264,11 +295,13 @@ function Find-LatestSignal {
                 $msgTs = 0
                 if ($latest.ts) {
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     } elseif ("$($latest.ts)" -match '^\d+$') {
                         $msgTs = [int]"$($latest.ts)"
                     } else {
-                        try { $msgTs = [int][double]::Parse((Get-Date "$($latest.ts)" -UFormat %s)) } catch { }
+                        try { $msgTs = [long]([DateTimeOffset]::new([datetime]::Parse("$($latest.ts)").ToUniversalTime()).ToUnixTimeSeconds()) } catch {
+                            Write-Log "DEBUG" "[Find-LatestSignal] Failed to parse timestamp '$($latest.ts)': $($_.Exception.Message)"
+                        }
                     }
                 }
                 $bodyPreview = if ($latest.body.Length -gt 120) { $latest.body.Substring(0, 120) + '...' } else { $latest.body }
@@ -281,9 +314,24 @@ function Find-LatestSignal {
                     }
                 }
 
-                $accepted = ($msgTs -gt $changedAt)
+                # Accept signals posted at or after the state change.
+                # Using -ge (not -gt) because the worker's MCP tool may update
+                # state_changed_at and post a channel signal in the same epoch
+                # second — -gt would reject that signal as "stale".
+                $accepted = ($msgTs -ge $changedAt)
                 Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' from='$($latest.from)' msgTs=$msgTs changedAt=$changedAt accepted=$accepted body=[$bodyPreview]"
-                if ($accepted) { return $sigType }
+                if ($accepted) {
+                    # --- Output-grep cross-check (defense-in-depth) ---
+                    # The agent itself may have posted a different signal via
+                    # the channel_post_message MCP tool than what the worker
+                    # script parsed and re-posted. Prefer the agent's intent.
+                    $outputSignal = Get-OutputSignal -RoomDir $RoomDir -Role $expectedRole
+                    if ($outputSignal -and $outputSignal -ne $sigType -and $outputSignal -in $expectedSignals) {
+                        Write-Log "WARN" "[Find-LatestSignal][$roomId] OUTPUT OVERRIDE: channel='$sigType' but agent output shows msg_type='$outputSignal'. Using '$outputSignal'."
+                        return $outputSignal
+                    }
+                    return $sigType
+                }
             } else {
                 Write-Log "DEBUG" "[Find-LatestSignal][$roomId] signal='$sigType' — no messages found"
             }
@@ -296,9 +344,56 @@ function Find-LatestSignal {
 }
 
 # ---------------------------------------------------------------------------
+# Get-OutputSignal
+# Reads the role's raw output file and extracts the msg_type from the LAST
+# channel_post_message MCP tool call. This is the agent's direct intent,
+# uncontaminated by the worker script's verdict parsing.
+#
+# Format in output file:
+#   ⚙ channel_post_message {"msg_type":"pass",...}
+# ---------------------------------------------------------------------------
+function Get-OutputSignal {
+    [CmdletBinding()]
+    param(
+        [string]$RoomDir,
+        [string]$Role
+    )
+    $outputFile = Join-Path $RoomDir "artifacts" "$Role-output.txt"
+    if (-not (Test-Path $outputFile)) { return $null }
+
+    $lastMsgType = $null
+    try {
+        # Read the file and scan for channel_post_message lines from the end
+        $lines = Get-Content $outputFile -ErrorAction Stop
+        for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+            if ($lines[$i] -match 'channel_post_message\s+(\{.+\})') {
+                $jsonStr = $Matches[1]
+                try {
+                    $parsed = $jsonStr | ConvertFrom-Json
+                    if ($parsed.msg_type) {
+                        $lastMsgType = $parsed.msg_type.ToLower()
+                        break
+                    }
+                } catch {
+                    # JSON parse failed — try regex fallback
+                    if ($jsonStr -match '"msg_type"\s*:\s*"(pass|fail|done|error|escalate)"') {
+                        $lastMsgType = $Matches[1].ToLower()
+                        break
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Log "DEBUG" "[Get-OutputSignal] Error reading ${outputFile}: $($_.Exception.Message)"
+    }
+    return $lastMsgType
+}
+
+# ---------------------------------------------------------------------------
 # Invoke-SignalActions
 # ---------------------------------------------------------------------------
 function Invoke-SignalActions {
+    [CmdletBinding()]
     param([string]$RoomDir, [string[]]$Actions, [string]$TaskRef, [string]$BaseRole)
     $postMessage  = _ctx 'postMessage'
     $readMessages = _ctx 'readMessages'
@@ -338,6 +433,7 @@ function Invoke-SignalActions {
 # Write-Log
 # ---------------------------------------------------------------------------
 function Write-Log {
+    [CmdletBinding()]
     param([string]$Level, [string]$Message)
     if (Get-Command Write-OstwinLog -ErrorAction SilentlyContinue) {
         Write-OstwinLog -Level $Level -Message $Message
@@ -350,11 +446,12 @@ function Write-Log {
 # Write-SpawnLock
 # ---------------------------------------------------------------------------
 function Write-SpawnLock {
+    [CmdletBinding()]
     param([string]$RoomDir, [string]$Role)
     $pidDir = Join-Path $RoomDir "pids"
     if (-not (Test-Path $pidDir)) { New-Item -ItemType Directory -Path $pidDir -Force | Out-Null }
     $lockFile = Join-Path $pidDir "$Role.spawned_at"
-    $epoch = [int][double]::Parse((Get-Date -UFormat %s))
+    $epoch = Get-UnixEpoch
     $epoch.ToString() | Out-File -FilePath $lockFile -Encoding utf8 -NoNewline
 }
 
@@ -362,26 +459,92 @@ function Write-SpawnLock {
 # Test-SpawnLock
 # ---------------------------------------------------------------------------
 function Test-SpawnLock {
+    [CmdletBinding()]
     param([string]$RoomDir, [string]$Role, [int]$GracePeriodSeconds = 30)
     $lockFile = Join-Path $RoomDir "pids" "$Role.spawned_at"
     if (-not (Test-Path $lockFile)) { return $false }
     try {
         $spawnedAt = [int](Get-Content $lockFile -Raw).Trim()
-        $now = [int][double]::Parse((Get-Date -UFormat %s))
+        $now = Get-UnixEpoch
         return (($now - $spawnedAt) -lt $GracePeriodSeconds)
-    } catch { return $false }
+    } catch {
+        Write-Log "DEBUG" "[Test-SpawnLock] Error reading spawn lock for '$Role': $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Resolve-RoleTimeout
+# Resolves timeout_seconds for a role from plan roles config (highest priority)
+# then config.json (fallback). Returns 0 if neither has a value, which tells
+# the worker script to use its own default.
+#
+# Priority chain:
+#   1. Plan roles config (~/.ostwin/.agents/plans/{plan_id}.roles.json)
+#   2. Global config.json (.agents/config.json)
+#   3. 0 (worker script decides)
+# ---------------------------------------------------------------------------
+function Resolve-RoleTimeout {
+    [CmdletBinding()]
+    param(
+        [string]$RoleName,
+        [string]$RoomDir
+    )
+    $config = _ctx 'config'
+    $agentsDir = _ctx 'agentsDir'
+
+    # Resolve OSTWIN_HOME for plan roles path
+    $_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+    $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
+
+    $baseRole = $RoleName -replace ':.*$', ''
+
+    # --- Priority 1: Plan roles config ---
+    $roomConfigFile = Join-Path $RoomDir "config.json"
+    if (Test-Path $roomConfigFile) {
+        try {
+            $roomCfg = Get-Content $roomConfigFile -Raw | ConvertFrom-Json
+            $planId = $roomCfg.plan_id
+            if ($planId) {
+                $planRolesFile = Join-Path $OstwinHome ".agents" "plans" "$planId.roles.json"
+                if (Test-Path $planRolesFile) {
+                    $planRoles = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+                    if ($planRoles.$baseRole -and $planRoles.$baseRole.timeout_seconds) {
+                        $resolved = [int]$planRoles.$baseRole.timeout_seconds
+                        Write-Log "DEBUG" "[Resolve-RoleTimeout] role='$baseRole' resolved=$resolved from plan roles ($planId)"
+                        return $resolved
+                    }
+                }
+            }
+        } catch {
+            Write-Log "DEBUG" "[Resolve-RoleTimeout] Error reading plan roles config for '$RoleName': $($_.Exception.Message)"
+        }
+    }
+
+    # --- Priority 2: Global config.json ---
+    if ($config -and $config.$baseRole -and $config.$baseRole.timeout_seconds) {
+        $resolved = [int]$config.$baseRole.timeout_seconds
+        Write-Log "DEBUG" "[Resolve-RoleTimeout] role='$baseRole' resolved=$resolved from config.json"
+        return $resolved
+    }
+
+    # --- Fallback: let worker script decide ---
+    Write-Log "DEBUG" "[Resolve-RoleTimeout] role='$baseRole' no timeout configured — returning 0 (worker default)"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
 # Start-WorkerJob
 # ---------------------------------------------------------------------------
 function Start-WorkerJob {
+    [CmdletBinding()]
     param(
         [string]$RoomDir,
         [string]$Role,
         [string]$Script,
         [string]$TaskRef = '',
         [string]$RoleName = '',
+        [int]$TimeoutSeconds = 0,
         [switch]$SkipLockCheck
     )
     if (-not $SkipLockCheck) {
@@ -397,20 +560,32 @@ function Start-WorkerJob {
     }
     Write-SpawnLock -RoomDir $RoomDir -Role $Role
     $effectiveRoleName = if ($RoleName) { $RoleName } else { $Role }
-    # Detect whether the target script accepts -RoleName before passing it.
-    # Scripts with [CmdletBinding()] will throw a terminating error on unknown
-    # parameters, silently killing the Start-Job runspace with zero output.
+    # Detect whether the target script accepts -RoleName / -TimeoutSeconds
+    # before passing them. Scripts with [CmdletBinding()] will throw a
+    # terminating error on unknown parameters, silently killing the
+    # Start-Job runspace with zero output.
     $acceptsRoleName = $false
+    $acceptsTimeout = $false
     try {
         $scriptCmd = Get-Command $Script -ErrorAction SilentlyContinue
-        if ($scriptCmd -and $scriptCmd.Parameters.ContainsKey('RoleName')) {
-            $acceptsRoleName = $true
+        if ($scriptCmd) {
+            if ($scriptCmd.Parameters.ContainsKey('RoleName')) { $acceptsRoleName = $true }
+            if ($scriptCmd.Parameters.ContainsKey('TimeoutSeconds')) { $acceptsTimeout = $true }
         }
-    } catch { }
-    Start-Job -ScriptBlock {
-        param($s, $r, $rn, $passRn)
-        if ($passRn -and $rn) { & $s -RoomDir $r -RoleName $rn } else { & $s -RoomDir $r }
-    } -ArgumentList $Script, $RoomDir, $effectiveRoleName, $acceptsRoleName | Out-Null
+    } catch {
+        Write-Log "DEBUG" "[$TaskRef] Error inspecting script parameters for '$Script': $($_.Exception.Message)"
+    }
+    if ($TimeoutSeconds -gt 0) {
+        Write-Log "DEBUG" "[$TaskRef] Spawning '$Role' with TimeoutSeconds=$TimeoutSeconds (passTimeout=$acceptsTimeout)"
+    }
+    $roomId = Split-Path $RoomDir -Leaf
+    Start-Job -Name "ostwin-worker-$roomId-$Role" -ScriptBlock {
+        param($s, $r, $rn, $passRn, $ts, $passTs)
+        $splatArgs = @{ RoomDir = $r }
+        if ($passRn -and $rn) { $splatArgs['RoleName'] = $rn }
+        if ($passTs -and $ts -gt 0) { $splatArgs['TimeoutSeconds'] = $ts }
+        & $s @splatArgs
+    } -ArgumentList $Script, $RoomDir, $effectiveRoleName, $acceptsRoleName, $TimeoutSeconds, $acceptsTimeout | Out-Null
     return $true
 }
 
@@ -418,6 +593,8 @@ function Start-WorkerJob {
 # Get-CachedDag
 # ---------------------------------------------------------------------------
 function Get-CachedDag {
+    [CmdletBinding()]
+    param()
     $dagFile        = _ctx 'dagFile'
     $script:dagCache = (_ctx 'dagCache')
     $script:dagMtime = (_ctx 'dagMtime')
@@ -436,6 +613,7 @@ function Get-CachedDag {
 # Set-BlockedDescendants
 # ---------------------------------------------------------------------------
 function Set-BlockedDescendants {
+    [CmdletBinding()]
     param([string]$FailedTaskRef)
     $hasDag      = _ctx 'hasDag'
     $WarRoomsDir = _ctx 'WarRoomsDir'
@@ -476,6 +654,7 @@ function Set-BlockedDescendants {
 # Invoke-ManagerTriage
 # ---------------------------------------------------------------------------
 function Invoke-ManagerTriage {
+    [CmdletBinding()]
     param([string]$RoomDir, [string]$QaFeedback)
     $agentsDir    = _ctx 'agentsDir'
     $config       = _ctx 'config'
@@ -509,7 +688,9 @@ function Invoke-ManagerTriage {
                     if ($analysis.Confidence -ge 0.7 -and $analysis.SubcommandName) {
                         return "subcommand-failure:$($analysis.SubcommandName)"
                     }
-                } catch { }
+                } catch {
+                    Write-Log "DEBUG" "[Invoke-ManagerTriage] Subcommand analysis error: $($_.Exception.Message)"
+                }
             } else {
                 foreach ($sc in $subcommands.subcommands.PSObject.Properties) {
                     $scName  = $sc.Name
@@ -532,7 +713,9 @@ function Invoke-ManagerTriage {
                     $matched = $analysis.RequiredCapabilities | Where-Object { $_ -in $specialistCaps }
                     if ($matched -and $matched.Count -gt 0) { return 'design-issue' }
                 }
-            } catch { }
+            } catch {
+                Write-Log "DEBUG" "[Invoke-ManagerTriage] Capability analysis error: $($_.Exception.Message)"
+            }
         }
     }
 
@@ -554,7 +737,9 @@ function Invoke-ManagerTriage {
                     if ($similarity -ge 0.6) { return 'design-issue' }
                 }
             }
-        } catch { }
+        } catch {
+            Write-Log "DEBUG" "[Invoke-ManagerTriage] Similarity analysis error: $($_.Exception.Message)"
+        }
     }
     return 'implementation-bug'
 }
@@ -563,6 +748,7 @@ function Invoke-ManagerTriage {
 # Write-TriageContext
 # ---------------------------------------------------------------------------
 function Write-TriageContext {
+    [CmdletBinding()]
     param(
         [string]$RoomDir,
         [string]$Classification,
@@ -603,9 +789,10 @@ $actionLine
 }
 
 # ---------------------------------------------------------------------------
-# Handle-PlanApproval
+# Complete-PlanApproval (renamed from Handle-PlanApproval — P2 verb-noun fix)
 # ---------------------------------------------------------------------------
-function Handle-PlanApproval {
+function Complete-PlanApproval {
+    [CmdletBinding()]
     param([string]$TaskRef)
     $agentsDir   = _ctx 'agentsDir'
     $WarRoomsDir = _ctx 'WarRoomsDir'
@@ -621,4 +808,29 @@ function Handle-PlanApproval {
     }
 }
 
-Export-ModuleMember -Function *
+Export-ModuleMember -Function @(
+    'Get-UnixEpoch',
+    'Write-AtomicFile',
+    'Test-ValidRoomState',
+    'Set-ManagerLoopContext',
+    'Get-ManagerLoopContext',
+    'Get-ActiveCount',
+    'Get-MsgCount',
+    'Get-LatestBody',
+    'Test-StateTimedOut',
+    'Stop-RoomProcesses',
+    'Write-RoomStatus',
+    'Find-LatestSignal',
+    'Get-OutputSignal',
+    'Invoke-SignalActions',
+    'Write-Log',
+    'Write-SpawnLock',
+    'Test-SpawnLock',
+    'Resolve-RoleTimeout',
+    'Start-WorkerJob',
+    'Get-CachedDag',
+    'Set-BlockedDescendants',
+    'Invoke-ManagerTriage',
+    'Write-TriageContext',
+    'Complete-PlanApproval'
+)

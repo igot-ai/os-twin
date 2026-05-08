@@ -8,18 +8,6 @@ import { apiGet } from '@/lib/api-client';
 
 // ── Types ────────────────────────────────────────────────────────────
 
-interface MemoryNote {
-  id: string;
-  title: string;
-  path: string;
-  relativePath: string;
-  excerpt: string;
-  content?: string;
-  tags: string[];
-  keywords: string[];
-  links: string[];
-}
-
 interface GraphGroup {
   id: string;
   label: string;
@@ -42,7 +30,7 @@ interface GraphNode {
   /** Optional context blurb from frontmatter. */
   context?: string | null;
   category?: string | null;
-  /** A-mem-sys timestamp string YYYYMMDDHHMM. */
+  /** Timestamp string YYYYMMDDHHMM. */
   timestamp?: string | null;
   last_accessed?: string | null;
   retrieval_count?: number;
@@ -362,7 +350,7 @@ function MemoryGraph({
           background: 'var(--color-background)',
           color: 'var(--color-text-muted)',
         }}>
-        {nodes.length} nodes · {data.links.length} links · {Math.round(zoom * 100)}%
+        {(nodes?.length ?? 0)} nodes · {(data?.links?.length ?? 0)} links · {Math.round(zoom * 100)}%
       </div>
 
       <svg
@@ -420,7 +408,7 @@ function MemoryGraph({
             const isActive = node.id === activeId;
             const inNeighborhood = !activeId || neighborIds.has(node.id);
             const isSearchMatch = !query || searchMatches.has(node.id);
-            const r = 6 + node.weight * 3;
+            const r = 6 + (node.weight ?? 0) * 3;
             let opacity = 0.12;
             if (isSearchMatch) { opacity = inNeighborhood ? 1 : 0.35; }
             let labelOpacity = 0.1;
@@ -465,7 +453,7 @@ function MemoryGraph({
                   opacity={labelOpacity}
                   style={{ pointerEvents: 'none' }}
                 >
-                  {node.title.length > 26 ? node.title.slice(0, 24) + '...' : node.title}
+                  {(node.title ?? '').length > 26 ? node.title.slice(0, 24) + '...' : node.title}
                 </text>
               </g>
             );
@@ -476,7 +464,7 @@ function MemoryGraph({
   );
 }
 
-/** Format A-mem-sys timestamp ("202604081932") to "Apr 8, 2026 - 19:32" */
+/** Format timestamp ("202604081932") to "Apr 8, 2026 - 19:32" */
 function formatTimestamp(ts?: string | null): string | null {
   if (!ts || !/^\d{12}$/.test(ts)) return null;
   const y = ts.slice(0, 4);
@@ -607,7 +595,7 @@ function NoteDetail({ note }: Readonly<{ note: GraphNode | null }>) {
   }
 
   // All structured fields come straight from the backend (which uses the
-  // shared MemoryNote.from_markdown parser from A-mem-sys). No more
+  // shared MemoryNote.from_markdown parser from the memory system). No more
   // client-side frontmatter re-parsing.
   const tags = note.tags;
   const keywords = note.keywords;
@@ -849,7 +837,7 @@ function Splitter({
 // ── Main MemoryTab ───────────────────────────────────────────────────
 
 export default function MemoryTab() {
-  const { planId } = usePlanContext();
+  const { planId, highlightNoteId, setHighlightNoteId } = usePlanContext();
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -926,6 +914,20 @@ export default function MemoryTab() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // EPIC-007: Handle highlightNoteId from cross-tab navigation (e.g., from KnowledgeTab BacklinkBadge)
+  useEffect(() => {
+    if (highlightNoteId && graphData?.nodes) {
+      // Check if the note exists in the graph
+      const noteExists = graphData.nodes.some(n => n.id === highlightNoteId);
+      if (noteExists) {
+        // Select the highlighted note
+        setSelectedNodeId(highlightNoteId);
+        // Clear the highlightNoteId so it doesn't persist
+        setHighlightNoteId(null);
+      }
+    }
+  }, [highlightNoteId, graphData?.nodes, setHighlightNoteId]);
 
   const selectedNode = graphData?.nodes.find(n => n.id === selectedNodeId) || null;
 

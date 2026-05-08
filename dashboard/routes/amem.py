@@ -1,27 +1,26 @@
-"""Dashboard API routes for Agentic Memory (A-mem-sys).
+"""Dashboard API routes for Agentic Memory.
 
 Reads .memory/ directory from the plan's working_dir to serve
 graph snapshots, memory notes, and search results to the frontend.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pathlib import Path
 from typing import Annotated, Optional
 import json
-import os
 import re
 import sys
 
 from dashboard.api_utils import PLANS_DIR
 from dashboard.auth import get_current_user
 
-# Reuse the canonical note parser from A-mem-sys instead of duplicating the
+# Reuse the canonical note parser from .agents/memory instead of duplicating the
 # YAML/frontmatter logic in the dashboard. We import from `memory_note`
 # (not `memory_system`) to avoid pulling in the heavy retriever stack
 # (sentence_transformers, chromadb, nltk, litellm) at dashboard startup.
 _AMEM_PATH_CANDIDATES = [
-    Path.home() / ".ostwin" / "A-mem-sys",
-    Path(__file__).resolve().parent.parent.parent / "A-mem-sys",
+    Path.home() / ".ostwin" / ".agents" / "memory",
+    Path(__file__).resolve().parent.parent.parent / ".agents" / "memory",
 ]
 for _p in _AMEM_PATH_CANDIDATES:
     if _p.is_dir() and str(_p) not in sys.path:
@@ -74,7 +73,7 @@ def _parse_legacy_metadata(text: str) -> tuple[list[str], list[str], list[str]]:
         ]:
             if stripped.startswith(label):
                 value = stripped[len(label) :].strip()
-                items = [v.strip() for v in value.split(",") if v.strip()]
+                items = [v.strip().lstrip("#") for v in value.split(",") if v.strip()]
                 target.extend(items)
     return tags, keywords, links
 
@@ -88,12 +87,13 @@ def _stub_note_dict(
 ) -> dict:
     """Build a minimal note dict when frontmatter parsing is unavailable."""
     tags, keywords, links = _parse_legacy_metadata(raw)
+    title = _resolve_title(None, body, md_file)
     return {
         "id": md_file.stem,
         "filename": md_file.name,
         "path": rel_path,
         "relativePath": rel_file,
-        "title": md_file.stem.replace("-", " ").title(),
+        "title": title,
         "body": body,
         "content": raw,
         "excerpt": body[:280],
@@ -154,7 +154,7 @@ def _note_to_dict(md_file: Path, notes_dir: Path) -> Optional[dict]:
     """Read a single markdown file and convert it to the dashboard's wire shape.
 
     Delegates frontmatter parsing to ``MemoryNote.from_markdown`` so we share
-    one parser with the rest of A-mem-sys. Falls back to a minimal stub if
+    one parser with the memory system. Falls back to a minimal stub if
     the import is unavailable (shouldn't happen at runtime, but defensive).
     """
     try:
@@ -203,7 +203,7 @@ def _load_notes(notes_dir: Path) -> list:
     """Load all markdown notes from the notes directory.
 
     Each note's frontmatter is parsed by ``MemoryNote.from_markdown`` (the
-    same code path A-mem-sys uses to write the file), so the dashboard sees
+    same code path the memory system uses to write the file), so the dashboard sees
     exactly the structured fields the MCP server intended.
     """
     if not notes_dir.exists():
@@ -308,6 +308,163 @@ async def get_memory_graph(
     notes_dir = mem_dir / "notes"
     notes = _load_notes(notes_dir)
     return _build_graph(notes)
+
+
+def _render_graph_png(graph_data: dict) -> bytes:
+    """Render graph data as a PNG image. Runs in a thread (CPU-bound)."""
+    import io
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    from matplotlib.patches import Patch
+
+    G = nx.Graph()
+    node_colors = []
+    node_sizes = []
+    labels = {}
+
+    for node in graph_data["nodes"]:
+        G.add_node(node["id"])
+        node_colors.append(node.get("color", "#8b5cf6"))
+        node_sizes.append(300 + node.get("connections", 0) * 150)
+        title = node.get("title", node["id"])
+        labels[node["id"]] = title[:25] + "..." if len(title) > 28 else title
+
+    for link in graph_data["links"]:
+        if G.has_node(link["source"]) and G.has_node(link["target"]):
+            G.add_edge(link["source"], link["target"])
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8), facecolor="#0f0f0f")
+    ax.set_facecolor("#0f0f0f")
+
+    if len(G.nodes) > 1 and len(G.edges) > 0:
+        pos = nx.spring_layout(G, k=2.5, iterations=60, seed=42)
+    else:
+        pos = nx.spring_layout(G, k=3.0, seed=42)
+
+    nx.draw_networkx_edges(G, pos, ax=ax, edge_color="#444444", width=1.5, alpha=0.6)
+    nx.draw_networkx_nodes(
+        G,
+        pos,
+        ax=ax,
+        node_color=node_colors,
+        node_size=node_sizes,
+        edgecolors="#222222",
+        linewidths=1.5,
+        alpha=0.9,
+    )
+    nx.draw_networkx_labels(
+        G,
+        pos,
+        labels=labels,
+        ax=ax,
+        font_size=8,
+        font_color="white",
+        font_weight="bold",
+    )
+
+    legend_handles = []
+    for group in graph_data["groups"]:
+        legend_handles.append(
+            Patch(facecolor=group["color"], label=group["label"], alpha=0.9)
+        )
+    if legend_handles:
+        legend = ax.legend(
+            handles=legend_handles,
+            loc="upper left",
+            fontsize=8,
+            facecolor="#1a1a1a",
+            edgecolor="#333333",
+            labelcolor="white",
+        )
+        legend.get_frame().set_alpha(0.8)
+
+    stats = graph_data["stats"]
+    ax.set_title(
+        f"Memory Graph \u2014 {stats['total_memories']} notes, {stats['total_links']} links",
+        color="white",
+        fontsize=14,
+        fontweight="bold",
+        pad=15,
+    )
+    ax.axis("off")
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="#0f0f0f")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+@router.get(
+    "/api/amem/{plan_id}/graph-image",
+    responses={404: {"description": "Not found"}},
+)
+async def get_memory_graph_image(
+    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
+):
+    """Render the memory graph as a PNG image."""
+    import asyncio
+    import io
+    from fastapi.responses import StreamingResponse
+
+    mem_dir = _resolve_memory_dir(plan_id)
+    notes_dir = mem_dir / "notes"
+    notes = _load_notes(notes_dir)
+    graph_data = _build_graph(notes)
+
+    if not graph_data["nodes"]:
+        raise HTTPException(status_code=404, detail="No memories to graph")
+
+    loop = asyncio.get_event_loop()
+    try:
+        png_bytes = await loop.run_in_executor(None, _render_graph_png, graph_data)
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(io.BytesIO(png_bytes), media_type="image/png")
+
+
+@router.get("/api/amem/{plan_id}/tree", responses={404: {"description": "Not found"}})
+async def get_memory_tree(
+    plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None
+) -> dict:
+    """Get a tree-like directory structure of all memory notes."""
+    mem_dir = _resolve_memory_dir(plan_id)
+    notes_dir = mem_dir / "notes"
+    notes = _load_notes(notes_dir)
+
+    if not notes:
+        return {"tree": "(empty)", "total": 0}
+
+    # Build nested dict from note paths
+    root: dict = {}
+    for note in sorted(notes, key=lambda n: n.get("relativePath", "")):
+        rel = note.get("relativePath", note.get("path", "unfiled"))
+        parts = [p for p in rel.replace("\\", "/").split("/") if p]
+        node = root
+        for part in parts:
+            node = node.setdefault(part, {})
+
+    # Render as tree string
+    def _render(node: dict, prefix: str = "") -> list[str]:
+        lines = []
+        items = list(node.items())
+        for i, (name, children) in enumerate(items):
+            last = i == len(items) - 1
+            connector = "\u2514\u2500\u2500 " if last else "\u251c\u2500\u2500 "
+            lines.append(f"{prefix}{connector}{name}")
+            if children:
+                ext = "    " if last else "\u2502   "
+                lines.extend(_render(children, prefix + ext))
+        return lines
+
+    tree_str = "\n".join(_render(root))
+    return {"tree": tree_str, "total": len(notes)}
 
 
 @router.get("/api/amem/{plan_id}/notes", responses={404: {"description": "Not found"}})

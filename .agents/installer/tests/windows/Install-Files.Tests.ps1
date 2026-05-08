@@ -150,3 +150,86 @@ Describe "Load-ContributedRoles" {
     }
 }
 
+Describe "MCP file sync" {
+    BeforeEach {
+        $testDir = Join-Path $TestDrive "test-mcp-sync-$(Get-Random)"
+        $sourceDir = Join-Path $testDir "source"
+        $installDir = Join-Path $testDir "install"
+        $mcpSrcDir = Join-Path $sourceDir ".agents\mcp"
+        $mcpDstDir = Join-Path $installDir ".agents\mcp"
+
+        New-Item -ItemType Directory -Path $mcpSrcDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $mcpDstDir -Force | Out-Null
+
+        $script:InstallDir = $installDir
+        $script:SourceDir = $sourceDir
+        $script:ScriptDir = Join-Path $sourceDir ".agents"
+        $script:VenvDir = Join-Path $installDir ".venv"
+        $script:PythonCmd = "python"
+        $script:InstallerScriptsDir = Join-Path $PSScriptRoot ".."
+    }
+
+    It "Should not overwrite extensions.json (runtime state) when calling Seed-McpConfig" {
+        $extensionsDst = Join-Path $mcpDstDir "extensions.json"
+        Set-Content -Path $extensionsDst -Value '{"installed": ["my-extension"]}'
+
+        $extensionsSrc = Join-Path $mcpSrcDir "extensions.json"
+        Set-Content -Path $extensionsSrc -Value '{"installed": ["different-extension"]}'
+
+        Set-Content -Path (Join-Path $mcpSrcDir "server.py") -Value "# server"
+        Set-Content -Path (Join-Path $mcpSrcDir "mcp-builtin.json") -Value '{"builtin": true}'
+        Set-Content -Path (Join-Path $mcpSrcDir "mcp-catalog.json") -Value '{"catalog": true}'
+        Set-Content -Path (Join-Path $mcpDstDir "config.json") -Value '{"mcpServers": {}}'
+
+        Seed-McpConfig
+
+        $content = Get-Content $extensionsDst -Raw
+        $content | Should -Match '"my-extension"' -Because "extensions.json is runtime state and should not be overwritten by Seed-McpConfig"
+        Test-Path (Join-Path $mcpDstDir "mcp-builtin.json") | Should -Be $true -Because "mcp-builtin.json should be synced by Seed-McpConfig"
+        Test-Path (Join-Path $mcpDstDir "mcp-catalog.json") | Should -Be $true -Because "mcp-catalog.json should be synced by Seed-McpConfig"
+        Test-Path (Join-Path $mcpDstDir "server.py") | Should -Be $true -Because ".py files should be synced by Seed-McpConfig"
+    }
+}
+
+Describe "Sync-Bot" {
+    BeforeEach {
+        $testDir = Join-Path $TestDrive "test-bot-$(Get-Random)"
+        $installDir = Join-Path $testDir "install"
+        $sourceDir = Join-Path $testDir "source"
+        $botSrc = Join-Path $sourceDir "bot"
+        $botDst = Join-Path $installDir "bot"
+
+        New-Item -ItemType Directory -Path $botSrc -Force | Out-Null
+        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+
+        $script:InstallDir = $installDir
+        $script:SourceDir = $sourceDir
+        $script:ScriptDir = Join-Path $sourceDir ".agents"
+    }
+
+    It "Should sync bot directory when package.json exists" {
+        Set-Content -Path (Join-Path $botSrc "package.json") -Value '{"name": "test-bot"}'
+        New-Item -ItemType Directory -Path (Join-Path $botSrc "src") -Force | Out-Null
+        Set-Content -Path (Join-Path $botSrc "src" "index.ts") -Value "console.log('hello')"
+
+        Sync-Bot
+
+        Test-Path $botDst | Should -Be $true
+        Test-Path (Join-Path $botDst "package.json") | Should -Be $true
+    }
+
+    It "Should exclude node_modules from sync" {
+        Set-Content -Path (Join-Path $botSrc "package.json") -Value '{}'
+        New-Item -ItemType Directory -Path (Join-Path $botSrc "node_modules" "some-package") -Force | Out-Null
+        Set-Content -Path (Join-Path $botSrc "node_modules" "some-package" "index.js") -Value "module.exports = {}"
+
+        Sync-Bot
+
+        Test-Path (Join-Path $botDst "node_modules") | Should -Be $false
+    }
+
+    It "Should not fail when bot source not found" {
+        { Sync-Bot } | Should -Not -Throw
+    }
+}
+

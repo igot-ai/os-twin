@@ -11,13 +11,11 @@ Usage:
 
 import os
 import sys
-import json
 import httpx
 from fastapi.testclient import TestClient
 from dashboard.api import app
-import time
 
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:9000")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3366")
 
 PLAN_V1 = """# Plan: Version Test Plan
 

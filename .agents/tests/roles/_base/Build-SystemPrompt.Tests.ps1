@@ -105,31 +105,22 @@ Describe "Build-SystemPrompt" {
             $prompt | Should -Match "Build the auth module"
         }
 
-        It "includes goals from config.json" {
+        It "does NOT include a separate Goals section from config.json (brief.md has its own)" {
             $prompt = & $script:BuildPrompt -RolePath $script:rolePath -RoomDir $script:roomDir
-            $prompt | Should -Match "Definition of Done"
-            $prompt | Should -Match "JWT working"
-            $prompt | Should -Match "Tests pass"
+            # Build-SystemPrompt no longer reads config.json to build a separate "## Goals" section.
+            # Goals info in brief.md is still included (via Task Assignment), which is expected.
+            $prompt | Should -Not -Match "## Goals"
+            $prompt | Should -Not -Match "Quality Requirements"
         }
 
-        It "includes acceptance criteria" {
-            $prompt = & $script:BuildPrompt -RolePath $script:rolePath -RoomDir $script:roomDir
-            $prompt | Should -Match "Acceptance Criteria"
-            $prompt | Should -Match "POST /login returns 200"
-        }
-
-        It "includes quality requirements" {
-            $prompt = & $script:BuildPrompt -RolePath $script:rolePath -RoomDir $script:roomDir
-            $prompt | Should -Match "Quality Requirements"
-            $prompt | Should -Match "80"
-        }
-
-        It "includes QA feedback when available" {
+        It "does NOT include QA feedback (callers handle fix-cycle context)" {
             & $script:PostMessage -RoomDir $script:roomDir -From "qa" -To "manager" `
                 -Type "fail" -Ref "TASK-BP" -Body "Missing input validation"
 
             $prompt = & $script:BuildPrompt -RolePath $script:rolePath -RoomDir $script:roomDir
-            $prompt | Should -Match "Missing input validation"
+            $prompt | Should -Not -Match "Missing input validation"
+            $prompt | Should -Not -Match "Previous QA Feedback"
+            $prompt | Should -Not -Match "Fix Instructions"
         }
 
         It "includes TASKS.md for epics" {

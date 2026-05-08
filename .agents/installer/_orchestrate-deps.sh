@@ -86,20 +86,24 @@ else
   fi
 fi
 
-# --- PowerShell ---
+# --- PowerShell (REQUIRED — ostwin CLI delegates to ostwin.ps1) ---
 if check_pwsh; then
   ok "PowerShell $PWSH_VERSION"
 else
-  warn "PowerShell 7+ not found"
-  if ask "Install PowerShell? (required for PS modules)"; then
+  warn "PowerShell 7+ not found (REQUIRED for ostwin CLI)"
+  if ask "Install PowerShell? (REQUIRED — ostwin CLI will not work without it)"; then
     install_pwsh
     if check_pwsh; then
       ok "PowerShell $PWSH_VERSION installed"
     else
-      warn "PowerShell installation may need a shell restart"
+      fail "PowerShell installation failed — ostwin CLI requires pwsh"
+      echo "  Try: brew install powershell (macOS) or see https://aka.ms/install-powershell" >&2
+      exit 1
     fi
   else
-    warn "Skipping PowerShell — bash-only mode (some features unavailable)"
+    fail "PowerShell 7+ is required for the ostwin CLI"
+    echo "  Install manually: brew install powershell (macOS) or see https://aka.ms/install-powershell" >&2
+    exit 1
   fi
 fi
 
@@ -109,6 +113,19 @@ if check_opencode; then
   ok "opencode $OC_VERSION"
 else
   install_opencode
+fi
+
+# --- Ollama ---
+if check_ollama; then
+  OLLAMA_VER=$(ollama --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
+  ok "Ollama $OLLAMA_VER"
+else
+  warn "Ollama not found (local LLM host — optional, needed for local models)"
+  if ask "Install Ollama? (recommended for running local LLMs)"; then
+    install_ollama
+  else
+    info "Skipping Ollama — install later from https://ollama.com"
+  fi
 fi
 
 # --- Node.js ---

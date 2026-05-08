@@ -1,15 +1,13 @@
 import json
 import logging
-import re
 import shutil
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 from dashboard.api_utils import (
     AGENTS_DIR, SKILLS_DIRS, get_plan_roles_config,
     parse_skill_md
 )
 from dashboard.routes.plans import _resolve_room_dir
-from dashboard.constants import ROLE_DEFAULTS
 
 logger = logging.getLogger(__name__)
 

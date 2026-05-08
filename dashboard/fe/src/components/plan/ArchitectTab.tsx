@@ -8,6 +8,7 @@ import { AgentResponse } from '@/components/chat/AgentResponse';
 import { Button } from '@/components/ui/Button';
 import type { ImageAttachment } from '@/types';
 import { processImages, MAX_IMAGES, type ProcessedImage } from '@/lib/image-utils';
+import { extractPlan } from '@/lib/extract-plan';
 
 const IDEA_PROMPTS = [
   'What are the main risks?',
@@ -408,15 +409,6 @@ function RefineChat() {
   };
 
   const showEmpty = chatHistory.length === 0 && !isRefining;
-
-  function extractPlan(content: string): string {
-    const codeBlockMatch = content.match(/```(?:markdown)?\n([\s\S]*)```/);
-    if (codeBlockMatch) return codeBlockMatch[1].trim();
-    if (content.trim().startsWith('# Plan:')) return content.trim();
-    const planMatch = content.match(/(# Plan:[\s\S]*)/);
-    if (planMatch) return planMatch[1].trim();
-    return content;
-  }
 
   const handleApply = (content: string) => {
     setPlanContent(extractPlan(content));

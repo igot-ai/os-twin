@@ -1,15 +1,14 @@
 import WebSocket from 'ws';
 import { ConnectorRegistry } from './connectors/registry';
-import { Platform, ConnectorConfig } from './connectors/base';
-import { BotResponse } from './commands';
 
-export type NotificationEvent = 
-  | 'plan_started' 
-  | 'epic_passed' 
-  | 'epic_failed' 
-  | 'epic_retry' 
-  | 'plan_completed' 
-  | 'error' 
+
+export type NotificationEvent =
+  | 'plan_started'
+  | 'epic_passed'
+  | 'epic_failed'
+  | 'epic_retry'
+  | 'plan_completed'
+  | 'error'
   | 'feedback_needed';
 
 export class NotificationRouter {
@@ -18,7 +17,7 @@ export class NotificationRouter {
   private url: string;
   private reconnectTimer: NodeJS.Timeout | null = null;
 
-  constructor(registry: ConnectorRegistry, url: string = 'ws://localhost:9000/api/ws') {
+  constructor(registry: ConnectorRegistry, url: string = 'ws://localhost:3366/api/ws') {
     this.registry = registry;
     this.url = url;
   }
@@ -116,13 +115,13 @@ export class NotificationRouter {
 
   private async routeNotification(event: NotificationEvent, text: string) {
     const configs = this.registry.getAllConfigs();
-    
+
     for (const config of configs) {
       if (!config.enabled) continue;
-      
+
       const prefs = config.notification_preferences;
       if (!prefs.enabled) continue;
-      
+
       // If events list is empty, treat as "all enabled" or check specific mapping
       if (prefs.events.length > 0 && !prefs.events.includes(event)) {
         continue;

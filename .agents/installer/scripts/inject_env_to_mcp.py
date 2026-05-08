@@ -26,6 +26,9 @@ def inject_env(mcp_path: str, env_path: str) -> None:
                 continue
             key, _, val = line.partition("=")
             key = key.strip()
+            # Handle shell-style 'export VAR=...' lines
+            if key.startswith("export "):
+                key = key[len("export "):].strip()
             # Strip surrounding quotes
             val = val.strip().strip('"').strip("'")
             if key:
@@ -41,8 +44,14 @@ def inject_env(mcp_path: str, env_path: str) -> None:
     # Support both OpenCode 'mcp' and legacy 'mcpServers' keys
     servers = config.get("mcp", config.get("mcpServers", {}))
     for name, server in servers.items():
-        # Only inject environment into local servers (OpenCode spec)
+        # Remote servers: resolve {env:*} in headers, skip environment injection
         if server.get("type") == "remote":
+            hdrs = server.get("headers", {})
+            for k, v in list(hdrs.items()):
+                if isinstance(v, str) and "{env:" in v:
+                    for env_k, env_v in env_vars.items():
+                        v = v.replace("{env:" + env_k + "}", env_v)
+                    hdrs[k] = v
             continue
         # Support both 'environment' (OpenCode) and 'env' (legacy)
         env_key = (

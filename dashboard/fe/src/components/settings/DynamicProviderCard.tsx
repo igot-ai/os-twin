@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import type { ConfiguredProvider, ProviderSettings } from '@/types/settings';
 
 export interface DynamicProviderCardProps {
@@ -10,7 +9,6 @@ export interface DynamicProviderCardProps {
   vaultSet: boolean;
   onVaultClick: () => void;
   onToggle: (enabled: boolean) => void;
-  onTest: () => Promise<{ latency_ms: number }>;
   onRemove?: () => void;
 }
 
@@ -20,28 +18,10 @@ export function DynamicProviderCard({
   settings,
   vaultSet,
   onVaultClick,
-  onToggle,
-  onTest,
+  onToggle: _onToggle,
   onRemove,
 }: DynamicProviderCardProps) {
   const isEnabled = settings?.enabled ?? true;
-  const [testing, setTesting] = useState(false);
-  const [latency, setLatency] = useState<number | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
-
-  const handleTest = async () => {
-    setTesting(true);
-    setTestError(null);
-    try {
-      const result = await onTest();
-      setLatency(result.latency_ms);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Test failed';
-      setTestError(message);
-    } finally {
-      setTesting(false);
-    }
-  };
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
@@ -127,29 +107,11 @@ export function DynamicProviderCard({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 bg-slate-900 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {testing ? (
-            <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-          ) : latency !== null ? (
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          ) : (
-            <div className="w-2 h-2 rounded-full bg-slate-500" />
-          )}
-          <span className="text-[10px] font-mono text-slate-400">
-            {testing ? 'TESTING...' : latency !== null ? `LATENCY: ${latency}ms` : 'READY'}
-          </span>
-          {testError && (
-            <span className="text-[10px] font-mono text-red-400 truncate max-w-[200px]">{testError}</span>
-          )}
-        </div>
-        <button
-          onClick={handleTest}
-          disabled={testing || !isEnabled || !vaultSet}
-          className="text-[10px] font-mono text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-        >
-          [TEST]
-        </button>
+      <div className="px-5 py-3 bg-slate-900 flex items-center gap-2">
+        <div className={`w-2 h-2 rounded-full ${isEnabled && vaultSet ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+        <span className="text-[10px] font-mono text-slate-400">
+          {isEnabled && vaultSet ? 'READY' : 'INACTIVE'}
+        </span>
       </div>
     </div>
   );

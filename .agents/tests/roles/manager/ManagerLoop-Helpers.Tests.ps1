@@ -593,9 +593,9 @@ Describe "Write-TriageContext" {
 }
 
 # ===========================================================================
-# Handle-PlanApproval
+# Complete-PlanApproval
 # ===========================================================================
-Describe "Handle-PlanApproval" {
+Describe "Complete-PlanApproval" {
     BeforeEach {
         $script:wd = Join-Path $TestDrive "hpa-$(Get-Random)"
         New-Item -ItemType Directory -Path $script:wd -Force | Out-Null
@@ -603,28 +603,37 @@ Describe "Handle-PlanApproval" {
     }
 
     It "does nothing for non-PLAN-REVIEW tasks" {
-        { Handle-PlanApproval -TaskRef "EPIC-001" } | Should -Not -Throw
+        { Complete-PlanApproval -TaskRef "EPIC-001" } | Should -Not -Throw
     }
 
     It "calls Build-DependencyGraph.ps1 when present (PLAN-REVIEW)" {
-        # Create a stub Build-DependencyGraph.ps1
         $planDir = Join-Path $script:agentsDir "plan"
         $buildScript = Join-Path $planDir "Build-DependencyGraph.ps1"
+        $backupScript = Join-Path $TestDrive "Build-DependencyGraph.ps1.bak"
         $stubCalled = Join-Path $script:wd "dag-built.txt"
-        @"
+
+        # Back up the real file if it exists
+        if (Test-Path $buildScript) {
+            Copy-Item $buildScript $backupScript -Force
+        }
+        try {
+            # Write stub over the real path (Complete-PlanApproval looks here)
+            @"
 param([string]`$WarRoomsDir)
 "dag-built" | Out-File '$stubCalled' -Encoding utf8 -NoNewline
 "@ | Out-File $buildScript -Encoding utf8 -Force
-        Handle-PlanApproval -TaskRef "PLAN-REVIEW"
-        # Restore original (don't leave stub)
-        Remove-Item $buildScript -Force -ErrorAction SilentlyContinue
-        # If it ran, the stub created the file
-        # (may or may not exist depending on whether Build-DependencyGraph.ps1 was already there — just ensure no throw)
+            Complete-PlanApproval -TaskRef "PLAN-REVIEW"
+        } finally {
+            # Restore the original file
+            if (Test-Path $backupScript) {
+                Copy-Item $backupScript $buildScript -Force
+            }
+        }
     }
 
     It "does not throw when Build-DependencyGraph.ps1 absent" {
         # agentsDir's plan/Build-DependencyGraph.ps1 may not exist — handle gracefully
-        { Handle-PlanApproval -TaskRef "PLAN-REVIEW" } | Should -Not -Throw
+        { Complete-PlanApproval -TaskRef "PLAN-REVIEW" } | Should -Not -Throw
     }
 }
 
@@ -773,42 +782,6 @@ param(
             Remove-Item $noRoleNameScript -Force -ErrorAction SilentlyContinue
             Remove-Item (Join-Path $script:rd "sentinel.txt") -Force -ErrorAction SilentlyContinue
         }
-    }
-}
-
-# ===========================================================================
-# Resolve-RoomSkills
-# ===========================================================================
-Describe "Resolve-RoomSkills" {
-    BeforeEach {
-        $script:wd = Join-Path $TestDrive "rrs-$(Get-Random)"
-        New-Item -ItemType Directory -Path $script:wd -Force | Out-Null
-        Set-TestContext -RoomsDir $script:wd
-        $script:rd = New-TestRoom -Base $script:wd -Status "developing"
-    }
-
-    It "does nothing when config.json missing" {
-        $emptyDir = Join-Path $TestDrive "empty-$(Get-Random)"
-        New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
-        { Resolve-RoomSkills -RoomDir $emptyDir -TaskRef "T1" -AssignedRole "engineer" } | Should -Not -Throw
-    }
-
-    It "skips when skill_refs already populated" {
-        $cfgPath = Join-Path $script:rd "config.json"
-        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-        $cfg | Add-Member -NotePropertyName "skill_refs" -NotePropertyValue @("skill-a") -Force
-        $cfg | ConvertTo-Json | Out-File $cfgPath -Encoding utf8
-        { Resolve-RoomSkills -RoomDir $script:rd -TaskRef "T1" -AssignedRole "engineer" } | Should -Not -Throw
-    }
-
-    It "uses brief.md content as query when present" {
-        "# Brief`nBuild a login form with OAuth" | Out-File (Join-Path $script:rd "brief.md") -Encoding utf8
-        # Dashboard at :9999 is offline — should log WARN but not throw
-        { Resolve-RoomSkills -RoomDir $script:rd -TaskRef "T1" -AssignedRole "engineer" } | Should -Not -Throw
-    }
-
-    It "falls back to TaskRef when brief.md missing" {
-        { Resolve-RoomSkills -RoomDir $script:rd -TaskRef "TASK-001" -AssignedRole "engineer" } | Should -Not -Throw
     }
 }
 
@@ -1031,75 +1004,117 @@ Describe "Get-CachedDag — cache hit path" {
 }
 
 # ===========================================================================
-# Resolve-RoomSkills — success path via mocked Invoke-RestMethod
+# Get-UnixEpoch — P0#3 culture-invariant epoch
 # ===========================================================================
-Describe "Resolve-RoomSkills — success path" {
-    BeforeEach {
-        $script:wd = Join-Path $TestDrive "rrs2-$(Get-Random)"
-        New-Item -ItemType Directory -Path $script:wd -Force | Out-Null
-        Set-TestContext -RoomsDir $script:wd
-        $script:rd = New-TestRoom -Base $script:wd -Status "developing"
+Describe "Get-UnixEpoch" {
+    It "returns a positive integer (current epoch)" {
+        $epoch = Get-UnixEpoch
+        $epoch | Should -BeGreaterThan 1700000000  # sanity: after 2023
+        $epoch | Should -BeOfType [long]
     }
 
-    It "resolves and writes skill_refs to config.json when dashboard responds" {
-        $mockSkills = @(
-            [PSCustomObject]@{ name = "skill-auth"; relative_path = "skills/roles/engineer/auth" }
-        )
-        # Mock Invoke-RestMethod in module scope
-        InModuleScope ManagerLoop-Helpers {
-            Mock Invoke-RestMethod { return @([PSCustomObject]@{ name = "skill-test"; relative_path = "skills/x" }) }
-            $td = Join-Path ([System.IO.Path]::GetTempPath()) "test-room-skill-$(Get-Random)"
-            New-Item -ItemType Directory -Path $td -Force | Out-Null
-            @{ task_ref="T1"; assignment=@{assigned_role="engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
-            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "engineer"
-            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
-            $cfg.skill_refs | Should -Not -BeNull
-            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
-        }
+    It "returns consistent results within a 2-second window" {
+        $e1 = Get-UnixEpoch
+        Start-Sleep -Milliseconds 100
+        $e2 = Get-UnixEpoch
+        ($e2 - $e1) | Should -BeLessOrEqual 2
     }
 
-    It "retries without role filter when API returns 0 results with role filter" {
-        InModuleScope ManagerLoop-Helpers {
-            $script:callCount = 0
-            Mock Invoke-RestMethod {
-                $script:callCount++
-                # First call (with role filter) returns empty
-                if ($Uri -match 'role=') { return @() }
-                # Second call (without role filter) returns results
-                return @([PSCustomObject]@{ name = "skill-fallback"; relative_path = "skills/roles/engineer/fallback" })
+    It "matches [DateTimeOffset]::UtcNow within tolerance" {
+        $epoch = Get-UnixEpoch
+        $dotnet = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        [Math]::Abs($epoch - $dotnet) | Should -BeLessOrEqual 1
+    }
+}
+
+# ===========================================================================
+# Write-AtomicFile — P0#2 atomic file writes
+# ===========================================================================
+Describe "Write-AtomicFile" {
+    It "creates a new file with expected content" {
+        $path = Join-Path $TestDrive "atomic-new-$(Get-Random).txt"
+        Write-AtomicFile -Path $path -Content "hello-atomic"
+        Test-Path $path | Should -BeTrue
+        (Get-Content $path -Raw) | Should -Be "hello-atomic"
+    }
+
+    It "overwrites existing file atomically" {
+        $path = Join-Path $TestDrive "atomic-overwrite-$(Get-Random).txt"
+        "old-content" | Out-File $path -Encoding utf8 -NoNewline
+        Write-AtomicFile -Path $path -Content "new-content"
+        (Get-Content $path -Raw) | Should -Be "new-content"
+    }
+
+    It "does not leave temp files behind" {
+        $path = Join-Path $TestDrive "atomic-clean-$(Get-Random).txt"
+        Write-AtomicFile -Path $path -Content "clean"
+        $dir = Split-Path $path
+        $tmpFiles = Get-ChildItem $dir -Filter "*.tmp.*" -ErrorAction SilentlyContinue
+        $tmpFiles.Count | Should -Be 0
+    }
+}
+
+# ===========================================================================
+# Test-ValidRoomState — P2#14 state validation
+# ===========================================================================
+Describe "Test-ValidRoomState" {
+    It "returns true for valid state in lifecycle" {
+        $lc = @{
+            states = @{
+                developing = @{ type = "work" }
+                review     = @{ type = "review" }
+                passed     = @{ type = "terminal" }
             }
-            $td = Join-Path ([System.IO.Path]::GetTempPath()) "test-room-noprole-$(Get-Random)"
-            New-Item -ItemType Directory -Path $td -Force | Out-Null
-            @{ task_ref="T1"; assignment=@{assigned_role="game-engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
-            "Build a game UI" | Out-File (Join-Path $td "brief.md") -Encoding utf8
+        } | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+        Test-ValidRoomState -State "developing" -Lifecycle $lc | Should -BeTrue
+        Test-ValidRoomState -State "review" -Lifecycle $lc | Should -BeTrue
+        Test-ValidRoomState -State "passed" -Lifecycle $lc | Should -BeTrue
+    }
 
-            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "game-engineer"
+    It "returns false for invalid state in lifecycle" {
+        $lc = @{
+            states = @{
+                developing = @{ type = "work" }
+            }
+        } | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+        Test-ValidRoomState -State "devloping" -Lifecycle $lc | Should -BeFalse
+        Test-ValidRoomState -State "unknown" -Lifecycle $lc | Should -BeFalse
+    }
 
-            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
-            $cfg.skill_refs | Should -Not -BeNullOrEmpty
-            $cfg.skill_refs | Should -Contain "skill-fallback"
-            # Verify it was called twice — first with role filter, then without
-            $script:callCount | Should -Be 2
-            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
+    It "returns true when no lifecycle provided (graceful fallback)" {
+        Test-ValidRoomState -State "anything" -Lifecycle $null | Should -BeTrue
+    }
+
+    It "returns true when lifecycle has no states property" {
+        $lc = @{ version = 2 } | ConvertTo-Json | ConvertFrom-Json
+        Test-ValidRoomState -State "anything" -Lifecycle $lc | Should -BeTrue
+    }
+}
+
+# ===========================================================================
+# CmdletBinding compliance — P2#12 all exported functions must be advanced
+# ===========================================================================
+Describe "CmdletBinding compliance" {
+    It "all exported functions have [CmdletBinding()] attribute" {
+        $mod = Get-Module ManagerLoop-Helpers
+        $exportedFunctions = $mod.ExportedFunctions.Keys
+        $exportedFunctions.Count | Should -BeGreaterThan 0
+
+        foreach ($fnName in $exportedFunctions) {
+            $cmd = Get-Command $fnName -Module ManagerLoop-Helpers -ErrorAction SilentlyContinue
+            $cmd | Should -Not -BeNull -Because "function '$fnName' should exist"
+            $cmd.CmdletBinding | Should -BeTrue -Because "function '$fnName' should have [CmdletBinding()]"
         }
     }
 
-    It "uses results from role-filtered call when API returns matches" {
-        InModuleScope ManagerLoop-Helpers {
-            Mock Invoke-RestMethod {
-                # API returns results with role filter — should NOT retry
-                return @([PSCustomObject]@{ name = "role-matched-skill"; relative_path = "skills/roles/engineer/matched" })
-            }
-            $td = Join-Path ([System.IO.Path]::GetTempPath()) "test-room-roleok-$(Get-Random)"
-            New-Item -ItemType Directory -Path $td -Force | Out-Null
-            @{ task_ref="T1"; assignment=@{assigned_role="engineer"} } | ConvertTo-Json | Out-File (Join-Path $td "config.json") -Encoding utf8
+    It "does not export internal _ctx function" {
+        $mod = Get-Module ManagerLoop-Helpers
+        $mod.ExportedFunctions.Keys | Should -Not -Contain '_ctx'
+    }
 
-            Resolve-RoomSkills -RoomDir $td -TaskRef "T1" -AssignedRole "engineer"
-
-            $cfg = Get-Content (Join-Path $td "config.json") -Raw | ConvertFrom-Json
-            $cfg.skill_refs | Should -Contain "role-matched-skill"
-            Assert-MockCalled Invoke-RestMethod -Times 1 -Exactly
-            Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
-        }
+    It "does not export Handle-PlanApproval (renamed to Complete-PlanApproval)" {
+        $mod = Get-Module ManagerLoop-Helpers
+        $mod.ExportedFunctions.Keys | Should -Not -Contain 'Handle-PlanApproval'
+        $mod.ExportedFunctions.Keys | Should -Contain 'Complete-PlanApproval'
     }
 }

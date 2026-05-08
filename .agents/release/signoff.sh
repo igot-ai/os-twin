@@ -17,8 +17,10 @@ SIGNOFF_FILE="$AGENTS_DIR/release/signoffs.json"
 CHANNEL="$AGENTS_DIR/channel"
 
 MOCK_SIGNOFF="${MOCK_SIGNOFF:-false}"
-ENGINEER_CMD="${ENGINEER_CMD:-deepagents}"
-QA_CMD="${QA_CMD:-deepagents}"
+OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
+DEFAULT_AGENT_BIN="$OSTWIN_HOME/.agents/bin/agent"
+ENGINEER_CMD="${ENGINEER_CMD:-$DEFAULT_AGENT_BIN}"
+QA_CMD="${QA_CMD:-$DEFAULT_AGENT_BIN}"
 
 # Config
 CONFIG="$AGENTS_DIR/config.json"

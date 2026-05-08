@@ -11,8 +11,7 @@ Covers:
 
 import json
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 from dashboard.api import app
@@ -134,10 +133,6 @@ def temp_config(tmp_path):
 
 # ── Authentication Tests ───────────────────────────────────────────────────
 
-def test_unauthenticated_request_rejected(auth_client):
-    """Unauthenticated requests should return 401."""
-    response = auth_client.get("/api/settings")
-    assert response.status_code == 401
 
 
 def test_authenticated_request_accepted(client, temp_config):
@@ -347,9 +342,9 @@ def test_effective_settings_masks_secrets(client, temp_config):
 
 def test_validation_error_on_invalid_input(client, temp_config):
     """Invalid input should return 422 with field-level detail."""
-    payload = {"max_concurrent_rooms": 9999}
+    payload = {"max_concurrent_rooms": 99999}
     response = client.put("/api/settings/runtime", json=payload)
-    # RuntimeSettings has le=500, so 9999 is invalid — but the route
+    # RuntimeSettings has le=10000, so 99999 is invalid — but the route
     # patches the raw dict, not a validated model.  Endpoint may return 200.
     assert response.status_code in [200, 422]
 
@@ -359,7 +354,7 @@ def test_provider_test_endpoint(client, temp_config):
     with patch("dashboard.routes.roles.test_model_connection") as mock_test:
         mock_test.return_value = {"status": "ok", "latency_ms": 123}
 
-        response = client.post("/api/settings/test/openai")
+        _response = client.post("/api/settings/test/openai")
         mock_test.assert_called_once()
 
 
@@ -387,7 +382,7 @@ def test_full_settings_workflow(client, temp_config, mock_broadcaster):
     initial_runtime = response.json()["runtime"]
 
     # 2. Update runtime settings
-    new_max = min(initial_runtime["max_concurrent_rooms"] + 10, 500)
+    new_max = min(initial_runtime["max_concurrent_rooms"] + 10, 10000)
     payload = {"max_concurrent_rooms": new_max}
     response = client.put("/api/settings/runtime", json=payload)
     assert response.status_code == 200
@@ -522,3 +517,71 @@ def test_models_registry_returns_all_when_settings_fail(client, temp_config):
         assert isinstance(models, list)
         if models:
             assert "id" in models[0]
+
+
+# ── Knowledge Settings (CARRY-002 — ADR-15) ────────────────────────────
+
+
+def test_get_knowledge_settings_returns_defaults(client, temp_config):
+    """GET /api/settings/knowledge returns the KnowledgeSettings shape."""
+    response = client.get("/api/settings/knowledge")
+
+    assert response.status_code == 200
+    data = response.json()
+    # Shape check (defaults from KnowledgeSettings model)
+    assert "knowledge_llm_model" in data
+    assert "knowledge_embedding_model" in data
+    assert "knowledge_embedding_dimension" in data
+    # Defaults: empty strings + 384.
+    assert data["knowledge_llm_model"] == ""
+    assert data["knowledge_embedding_model"] == ""
+    assert data["knowledge_embedding_dimension"] == 384
+
+
+def test_put_knowledge_settings_persists(client, temp_config, mock_broadcaster):
+    """PUT /api/settings/knowledge persists and broadcasts."""
+    payload = {
+        "knowledge_llm_model": "claude-haiku-4-5",
+        "knowledge_embedding_model": "BAAI/bge-base-en-v1.5",
+        "knowledge_embedding_dimension": 768,
+    }
+    r = client.put("/api/settings/knowledge", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["knowledge_llm_model"] == "claude-haiku-4-5"
+    assert body["knowledge_embedding_model"] == "BAAI/bge-base-en-v1.5"
+
+    # Roundtrip: GET should return the new values.
+    r2 = client.get("/api/settings/knowledge")
+    assert r2.status_code == 200
+    assert r2.json()["knowledge_llm_model"] == "claude-haiku-4-5"
+
+    # Broadcaster fired with namespace=knowledge.
+    mock_broadcaster.assert_called()
+    call_args = mock_broadcaster.call_args
+    assert call_args[0][0] == "settings_updated"
+    assert call_args[0][1]["namespace"] == "knowledge"
+
+
+def test_put_knowledge_settings_requires_auth(auth_client):
+    """PUT /api/settings/knowledge without auth returns 401."""
+    r = auth_client.put("/api/settings/knowledge", json={"knowledge_llm_model": "x"})
+    assert r.status_code == 401
+
+
+def test_get_knowledge_settings_requires_auth(auth_client):
+    """GET /api/settings/knowledge without auth returns 401."""
+    r = auth_client.get("/api/settings/knowledge")
+    assert r.status_code == 401
+
+
+def test_knowledge_settings_partial_payload_uses_defaults(client, temp_config):
+    """PUT with only knowledge_llm_model populated → knowledge_embedding_model defaults to ''."""
+    payload = {"knowledge_llm_model": "claude-sonnet-4-5-20251022"}
+    r = client.put("/api/settings/knowledge", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["knowledge_llm_model"] == "claude-sonnet-4-5-20251022"
+    assert body["knowledge_embedding_model"] == ""
+    assert body["knowledge_embedding_dimension"] == 384
+

@@ -262,10 +262,10 @@ Describe "Start-ManagerLoop — V2 Lifecycle Unit Tests" {
             & $script:NewWarRoom -RoomId "room-040" -TaskRef "TASK-040" `
                                  -TaskDescription "Test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-040"
-            $oldEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10000
+            $oldEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10000
             $oldEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
-            $now = [int][double]::Parse((Get-Date -UFormat %s))
+            $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
             ($now - $changedAt) | Should -BeGreaterThan 900
         }
     }
@@ -606,7 +606,7 @@ Classified as implementation bug. Engineer should fix.
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Set state_changed_at to a past epoch (10 seconds ago)
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Post done message now (ts will be > pastEpoch)
@@ -619,7 +619,7 @@ Classified as implementation bug. Engineer should fix.
             # Parse the same way Find-LatestSignal does
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $msgTs | Should -BeGreaterOrEqual $pastEpoch
         }
@@ -635,7 +635,7 @@ Classified as implementation bug. Engineer should fix.
                                   -Type "done" -Ref "TASK-202" -Body "Old done"
 
             # Simulate state timeout reset: set state_changed_at to future
-            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 60
+            $futureEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 60
             $futureEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # The old done message should NOT be detected
@@ -643,14 +643,14 @@ Classified as implementation bug. Engineer should fix.
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             # msgTs should be LESS than the future state_changed_at
             $msgTs | Should -BeLessThan $futureEpoch
         }
     }
 
-    Context "Leak fix — Handle-PlanApproval one-shot flag" {
+    Context "Leak fix — Complete-PlanApproval one-shot flag" {
         It "creates .plan_approved flag file on first PLAN-REVIEW passed" {
             & $script:NewWarRoom -RoomId "room-210" -TaskRef "PLAN-REVIEW" `
                                  -TaskDescription "Approval gate" -WarRoomsDir $script:warRoomsDir
@@ -665,7 +665,7 @@ Classified as implementation bug. Engineer should fix.
             Test-Path $flagFile | Should -BeTrue
         }
 
-        It "flag file prevents second Handle-PlanApproval invocation" {
+        It "flag file prevents second Complete-PlanApproval invocation" {
             # Simulate the one-shot guard
             $warRoomsDir = $script:warRoomsDir
             $taskRef = "PLAN-REVIEW"
@@ -708,7 +708,7 @@ Classified as implementation bug. Engineer should fix.
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Set state_changed_at to past (so done signal is "newer")
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Engineer posts done and cleans up PID (simulating the crash window)
@@ -736,7 +736,7 @@ Classified as implementation bug. Engineer should fix.
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -902,7 +902,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # Set state_changed_at to past
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Engineer posted done (signal pending)
@@ -926,7 +926,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Strict timing: signal is after state_changed_at
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
             ($msgTs -gt $changedAt) | Should -BeTrue
@@ -991,7 +991,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Write a spawn lock (just now)
             $pidDir = Join-Path $roomDir "pids"
             New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
-            $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+            $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
             $nowEpoch.ToString() | Out-File -FilePath (Join-Path $pidDir "engineer.spawned_at") -NoNewline
 
             # Spawn lock should be active (within 30s grace)
@@ -1010,11 +1010,11 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Write an expired spawn lock (60 seconds ago)
             $pidDir = Join-Path $roomDir "pids"
             New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
-            $expiredEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 60
+            $expiredEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 60
             $expiredEpoch.ToString() | Out-File -FilePath (Join-Path $pidDir "engineer.spawned_at") -NoNewline
 
             # Spawn lock should be expired (> 30s)
-            $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+            $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
             $elapsed = $nowEpoch - $expiredEpoch
             $elapsed | Should -BeGreaterOrEqual 30
         }
@@ -1120,7 +1120,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             # Set state_changed_at to 10s in the past
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Post signal now (will be > pastEpoch)
@@ -1131,7 +1131,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
 
@@ -1149,14 +1149,14 @@ Context "PLAN-REVIEW Verdict Logic" {
                                   -Type "pass" -Ref "TASK-411" -Body "VERDICT: PASS"
 
             # Set state_changed_at to future (simulates state reset after the message)
-            $futureEpoch = [int][double]::Parse((Get-Date -UFormat %s)) + 60
+            $futureEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 60
             $futureEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             $msgs = & $script:ReadMessages -RoomDir $roomDir -FilterType "pass" -Last 1 -AsObject
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
 
@@ -1178,7 +1178,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             $latest = $msgs[0]
             $msgTs = 0
             if ($latest.ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             # Set state_changed_at = msgTs (same second)
             $msgTs.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
@@ -1199,7 +1199,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
             # State 'developing' has role='engineer' — post done from 'engineer'
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             & $script:PostMessage -RoomDir $roomDir -From "engineer" -To "manager" `
@@ -1235,7 +1235,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "game-designer"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Post 'done' from 'game-engineer' (WRONG sender for game-designer state)
@@ -1276,7 +1276,7 @@ Context "PLAN-REVIEW Verdict Logic" {
 
             # Start in developing state
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # game-engineer posts 'done'
@@ -1333,7 +1333,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "game-designer"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # game-designer posts done (CORRECT sender)
@@ -1353,7 +1353,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             # Timing also passes (message posted after state_changed_at)
             $msgTs = 0
             if ($msgs[0].ts -is [datetime]) {
-                $msgTs = [int][double]::Parse((Get-Date $msgs[0].ts -UFormat %s))
+                $msgTs = [long]([DateTimeOffset]::new($msgs[0].ts.ToUniversalTime()).ToUnixTimeSeconds())
             }
             $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
             ($msgTs -gt $changedAt) | Should -BeTrue
@@ -1375,7 +1375,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # game-engineer posts done — only this one signal exists
@@ -1425,7 +1425,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             # Set state_changed_at to past to ensure signal is "new"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Architect posts 'pass' signal
@@ -1449,7 +1449,7 @@ Context "PLAN-REVIEW Verdict Logic" {
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -1492,7 +1492,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Architect posts 'fail' signal
@@ -1516,7 +1516,7 @@ Context "PLAN-REVIEW Verdict Logic" {
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -1557,7 +1557,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             } | ConvertTo-Json -Depth 10 | Out-File (Join-Path $roomDir "lifecycle.json") -Encoding utf8
 
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Architect posted pass signal AND cleaned up its PID
@@ -1584,7 +1584,7 @@ Context "PLAN-REVIEW Verdict Logic" {
                     # Strict timing
                     $msgTs = 0
                     if ($latest.ts -is [datetime]) {
-                        $msgTs = [int][double]::Parse((Get-Date $latest.ts -UFormat %s))
+                        $msgTs = [long]([DateTimeOffset]::new($latest.ts.ToUniversalTime()).ToUnixTimeSeconds())
                     }
                     $changedAt = [int](Get-Content (Join-Path $roomDir "state_changed_at") -Raw).Trim()
                     if ($msgTs -gt $changedAt) {
@@ -1801,7 +1801,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
             # Set state_changed_at to past
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # QA agent crashes and posts error
@@ -1831,7 +1831,7 @@ Context "PLAN-REVIEW Verdict Logic" {
             Write-V2Lifecycle -RoomDir $roomDir
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "review"
 
-            $pastEpoch = [int][double]::Parse((Get-Date -UFormat %s)) - 10
+            $pastEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10
             $pastEpoch.ToString() | Out-File -FilePath (Join-Path $roomDir "state_changed_at") -NoNewline
 
             # Engineer posts error (wrong sender for review state)
@@ -1916,21 +1916,20 @@ Context "PLAN-REVIEW Verdict Logic" {
     }
 
     # ==========================================================================
-    # run-agent.sh role validation against sample/room-001/lifecycle.json
+    # run-agent.ps1 role validation against sample/room-001/lifecycle.json
     # ==========================================================================
-    # These tests verify the CONTRACT that run-agent.sh content (AGENT_OS_ROLE,
+    # These tests verify the CONTRACT that run-agent.ps1 content (AGENT_OS_ROLE,
     # the PID file path, and the --agent flag) MUST match the role defined in
     # lifecycle.json for the current war-room state.
     #
-    # run-agent.sh is generated by Invoke-Agent.ps1 inside each room's artifacts/
+    # run-agent.ps1 is generated by Invoke-Agent.ps1 inside each room's artifacts/
     # directory. The manager selects the role from lifecycle.json; these tests
     # ensure that selection propagates correctly into the generated wrapper script.
     #
-    # Tests are fully offline: they MOCK run-agent.sh rather than invoking
+    # Tests are fully offline: they MOCK run-agent.ps1 rather than invoking
     # Invoke-Agent.ps1 directly, keeping them fast and side-effect-free.
     # The mocked format mirrors exactly what Invoke-Agent.ps1 produces.
-    # ==========================================================================
-    Context "run-agent.sh reflects lifecycle role for war-room state" {
+    Context "run-agent.ps1 reflects lifecycle role for war-room state" {
 
         BeforeAll {
             # Load the real sample lifecycle once for all tests in this context
@@ -1939,13 +1938,13 @@ Context "PLAN-REVIEW Verdict Logic" {
                 $script:sampleLifecycle = Get-Content $script:sampleLifecyclePath -Raw | ConvertFrom-Json
             } else {
                 $script:sampleLifecycle = $null
-                Write-Warning "[run-agent.sh tests] sample/room-001/lifecycle.json not found — some tests may be skipped."
+                Write-Warning "[run-agent.ps1 tests] sample/room-001/lifecycle.json not found — some tests may be skipped."
             }
 
-            # Helper: write a minimal run-agent.sh that mirrors Invoke-Agent.ps1's output.
+            # Helper: write a minimal run-agent.ps1 that mirrors Invoke-Agent.ps1's output.
             # Only the fields we assert on need to be present.
             # Accepts an optional -Model parameter to simulate plan.roles.json model
-            # propagation through Invoke-Agent.ps1 → run-agent.sh.
+            # propagation through Invoke-Agent.ps1 → run-agent.ps1.
             function Write-MockRunAgentScript {
                 param(
                     [string]$RoomDir,
@@ -1954,24 +1953,23 @@ Context "PLAN-REVIEW Verdict Logic" {
                 )
                 $artifactsDir = Join-Path $RoomDir "artifacts"
                 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-                $pidFile = ($RoomDir -replace "'", "'\''") + "/pids/$Role.pid"
-                $promptFile = ($RoomDir -replace "'", "'\''") + "/artifacts/prompt.txt"
-                $outputFile = ($RoomDir -replace "'", "'\''") + "/artifacts/$Role-output.txt"
+                $pidFile = ($RoomDir -replace "'", "''") + "/pids/$Role.pid"
+                $promptFile = ($RoomDir -replace "'", "''") + "/artifacts/prompt.txt"
+                $outputFile = ($RoomDir -replace "'", "''") + "/artifacts/$Role-output.txt"
                 $content = @"
-#!/bin/bash
-export AGENT_OS_ROOM_DIR='$RoomDir'
-export AGENT_OS_ROLE='$Role'
-export AGENT_OS_PARENT_PID='12345'
-export AGENT_OS_SKILLS_DIR='$RoomDir/skills'
-export AGENT_OS_PID_FILE='$pidFile'
-export OSTWIN_HOME='/Users/test/.ostwin'
-export AGENT_OS_PROJECT_DIR='/Users/test/project'
-echo "`$`$" > '$pidFile'
-echo "[wrapper] PID=`$`$, CMD=deepagents, CWD=`$(pwd)" >> '$outputFile'
-exec deepagents -n "`$(cat '$promptFile')" --agent $Role --auto-approve --model $Model --quiet >> '$outputFile' 2>&1
-echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
+# --- run-agent.ps1 — Unified agent wrapper (all platforms) ---
+`$env:AGENT_OS_ROOM_DIR = '$RoomDir'
+`$env:AGENT_OS_ROLE = '$Role'
+`$env:AGENT_OS_PARENT_PID = '12345'
+`$env:AGENT_OS_SKILLS_DIR = '/path/to/project/.agents/skills'
+`$env:AGENT_OS_PID_FILE = '$pidFile'
+`$env:OSTWIN_HOME = '/Users/test/.ostwin'
+`$env:AGENT_OS_PROJECT_DIR = '/Users/test/project'
+`$PID | Out-File -FilePath '$pidFile' -Encoding ascii -NoNewline
+"[wrapper] PID=`$PID, CMD=agent" | Out-File -FilePath '$outputFile' -Encoding utf8 -Append
+& '$($OstwinHome)/.agents/bin/agent' -n (Get-Content '$promptFile' -Raw) --agent $Role --auto-approve --model $Model --quiet 2>&1 | Out-File -FilePath '$outputFile' -Encoding utf8 -Append
 "@
-                $scriptPath = Join-Path $artifactsDir "run-agent.sh"
+                $scriptPath = Join-Path $artifactsDir "run-agent.ps1"
                 $content | Out-File -FilePath $scriptPath -Encoding utf8 -NoNewline -Force
                 return $scriptPath
             }
@@ -1985,7 +1983,7 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             $lc.initial_state | Should -Be "developing"
         }
 
-        It "developing state: run-agent.sh carries game-engineer role" {
+        It "developing state: run-agent.ps1 carries game-engineer role" {
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
 
             # Assert the lifecycle definition
@@ -1998,17 +1996,17 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             $roomDir = Join-Path $script:warRoomsDir "room-ra-001"
             Set-WarRoomStatus -RoomDir $roomDir -NewStatus "developing"
 
-            # Generate mock run-agent.sh with the lifecycle-resolved role
+            # Generate mock run-agent.ps1 with the lifecycle-resolved role
             $scriptPath = Write-MockRunAgentScript -RoomDir $roomDir -Role $expectedRole
             $content = Get-Content $scriptPath -Raw
 
-            # Assert run-agent.sh carries the correct role
-            $content | Should -Match "AGENT_OS_ROLE='game-engineer'"
+            # Assert run-agent.ps1 carries the correct role
+            $content | Should -Match "AGENT_OS_ROLE.*=.*'game-engineer'"
             $content | Should -Match "\-\-agent game-engineer"
             $content | Should -Match "game-engineer\.pid"
         }
 
-        It "optimize state: run-agent.sh carries game-engineer role" {
+        It "optimize state: run-agent.ps1 carries game-engineer role" {
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
 
             $expectedRole = $script:sampleLifecycle.states.optimize.role
@@ -2022,12 +2020,12 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             $scriptPath = Write-MockRunAgentScript -RoomDir $roomDir -Role $expectedRole
             $content = Get-Content $scriptPath -Raw
 
-            $content | Should -Match "AGENT_OS_ROLE='game-engineer'"
+            $content | Should -Match "AGENT_OS_ROLE.*=.*'game-engineer'"
             $content | Should -Match "\-\-agent game-engineer"
             $content | Should -Match "game-engineer\.pid"
         }
 
-        It "review state: run-agent.sh carries game-qa role (not game-engineer)" {
+        It "review state: run-agent.ps1 carries game-qa role (not game-engineer)" {
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
 
             $expectedRole = $script:sampleLifecycle.states.review.role
@@ -2042,14 +2040,14 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             $content = Get-Content $scriptPath -Raw
 
             # review state MUST use game-qa, never game-engineer
-            $content | Should -Match "AGENT_OS_ROLE='game-qa'"
+            $content | Should -Match "AGENT_OS_ROLE.*=.*'game-qa'"
             $content | Should -Match "\-\-agent game-qa"
             $content | Should -Match "game-qa\.pid"
-            $content | Should -Not -Match "AGENT_OS_ROLE='game-engineer'"
+            $content | Should -Not -Match "AGENT_OS_ROLE.*=.*'game-engineer'"
             $content | Should -Not -Match "\-\-agent game-engineer"
         }
 
-        It "triage state: run-agent.sh carries manager role" {
+        It "triage state: run-agent.ps1 carries manager role" {
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
 
             $expectedRole = $script:sampleLifecycle.states.triage.role
@@ -2063,14 +2061,14 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             $scriptPath = Write-MockRunAgentScript -RoomDir $roomDir -Role $expectedRole
             $content = Get-Content $scriptPath -Raw
 
-            $content | Should -Match "AGENT_OS_ROLE='manager'"
+            $content | Should -Match "AGENT_OS_ROLE.*=.*'manager'"
             $content | Should -Match "\-\-agent manager"
             $content | Should -Match "manager\.pid"
         }
 
-        It "lifecycle roundtrip: AGENT_OS_ROLE in run-agent.sh matches lifecycle.states.<state>.role" {
+        It "lifecycle roundtrip: AGENT_OS_ROLE in run-agent.ps1 matches lifecycle.states.<state>.role" {
             # This is the master contract test: for every active state, the role
-            # baked into run-agent.sh must equal the role in lifecycle.json.
+            # baked into run-agent.ps1 must equal the role in lifecycle.json.
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
 
             $activeStateTypes = @('work', 'review', 'triage')
@@ -2100,16 +2098,16 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
                 $scriptPath = Write-MockRunAgentScript -RoomDir $roomDir -Role $roleForState
                 $content = Get-Content $scriptPath -Raw
 
-                # Extract AGENT_OS_ROLE from the script
-                $match = [regex]::Match($content, "AGENT_OS_ROLE='([^']+)'")
-                $match.Success | Should -BeTrue -Because "run-agent.sh for state '$stateName' must set AGENT_OS_ROLE"
+                # Extract AGENT_OS_ROLE from the script (PowerShell format: $env:AGENT_OS_ROLE = 'value')
+                $match = [regex]::Match($content, "AGENT_OS_ROLE.*=\s*'([^']+)'")
+                $match.Success | Should -BeTrue -Because "run-agent.ps1 for state '$stateName' must set AGENT_OS_ROLE"
                 $extractedRole = $match.Groups[1].Value
                 $extractedRole | Should -Be $roleForState `
-                    -Because "lifecycle.$stateName.role='$roleForState' must match AGENT_OS_ROLE in run-agent.sh"
+                    -Because "lifecycle.$stateName.role='$roleForState' must match AGENT_OS_ROLE in run-agent.ps1"
             }
         }
 
-        It "PID file path in run-agent.sh uses the role name (not a generic name)" {
+        It "PID file path in run-agent.ps1 uses the role name (not a generic name)" {
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
 
             # For review state, PID file should be game-qa.pid not game-engineer.pid
@@ -2135,7 +2133,7 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             }
         }
 
-        It "exec --agent flag in run-agent.sh matches AGENT_OS_ROLE" {
+        It "exec --agent flag in run-agent.ps1 matches AGENT_OS_ROLE" {
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
 
             # Test with both developing (game-engineer) and review (game-qa) states
@@ -2152,15 +2150,15 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
                 $scriptPath = Write-MockRunAgentScript -RoomDir $roomDir -Role $tc.ExpectedRole
                 $content = Get-Content $scriptPath -Raw
 
-                # Extract AGENT_OS_ROLE
-                $roleMatch = [regex]::Match($content, "AGENT_OS_ROLE='([^']+)'")
+                # Extract AGENT_OS_ROLE (PowerShell format)
+                $roleMatch = [regex]::Match($content, "AGENT_OS_ROLE.*=\s*'([^']+)'")
                 $agentOsRole = $roleMatch.Groups[1].Value
 
-                # Extract --agent flag value from exec line
+                # Extract --agent flag value from the command line
                 $agentFlagMatch = [regex]::Match($content, "--agent ([^\s]+)", 'Multiline')
                 $agentFlag = $agentFlagMatch.Groups[1].Value
 
-                # The --agent value must equal AGENT_OS_ROLE (the run-agent.sh is self-consistent)
+                # The --agent value must equal AGENT_OS_ROLE (the run-agent.ps1 is self-consistent)
                 $agentFlag | Should -Be $agentOsRole `
                     -Because "exec --agent flag must match AGENT_OS_ROLE for state '$($tc.State)'"
 
@@ -2170,7 +2168,7 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             }
         }
 
-        It "role bleed guard: review run-agent.sh does NOT contain game-engineer anywhere in role fields" {
+        It "role bleed guard: review run-agent.ps1 does NOT contain game-engineer anywhere in role fields" {
             # This guards against the original bug: manager was spawning game-engineer
             # during review state instead of transitioning to game-qa.
             if (-not $script:sampleLifecycle) { Set-ItResult -Skipped -Because "lifecycle fixture missing" }
@@ -2190,30 +2188,30 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             }
             foreach ($line in $roleLines) {
                 $line | Should -Not -Match "game-engineer" `
-                    -Because "review state: run-agent.sh role fields must reference '$reviewRole', not 'game-engineer'"
+                    -Because "review state: run-agent.ps1 role fields must reference '$reviewRole', not 'game-engineer'"
             }
         }
     }
 
     # ==========================================================================
-    # plan.roles.json model propagation to run-agent.sh
+    # plan.roles.json model propagation to run-agent.ps1
     #
     # These tests verify the CONTRACT that the model configured in
     # ~/.ostwin/.agents/plans/{plan_id}.roles.json propagates through:
-    #   plan.roles.json → Invoke-Agent.ps1 → run-agent.sh (--model flag)
+    #   plan.roles.json → Invoke-Agent.ps1 → run-agent.ps1 (--model flag)
     #
     # When a user customizes the model per role in plan.roles.json, the
-    # manager must ensure that model reaches the run-agent.sh wrapper via
+    # manager must ensure that model reaches the run-agent.ps1 wrapper via
     # Invoke-Agent.ps1's plan-roles resolution chain.
     #
-    # Tests are offline: they verify the contract by mocking run-agent.sh
+    # Tests are offline: they verify the contract by mocking run-agent.ps1
     # with the expected model and by static-analysis of Invoke-Agent.ps1.
     # ==========================================================================
-    Context "plan.roles.json model propagation to run-agent.sh" {
+    Context "plan.roles.json model propagation to run-agent.ps1" {
 
         BeforeAll {
             # Redefine Write-MockRunAgentScript for this Context scope.
-            # Mirrors Invoke-Agent.ps1's run-agent.sh output format.
+            # Mirrors Invoke-Agent.ps1's run-agent.ps1 output format.
             function Write-MockRunAgentScript {
                 param(
                     [string]$RoomDir,
@@ -2222,30 +2220,29 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
                 )
                 $artifactsDir = Join-Path $RoomDir "artifacts"
                 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-                $pidFile = ($RoomDir -replace "'", "'\''") + "/pids/$Role.pid"
-                $promptFile = ($RoomDir -replace "'", "'\''") + "/artifacts/prompt.txt"
-                $outputFile = ($RoomDir -replace "'", "'\''") + "/artifacts/$Role-output.txt"
+                $pidFile = ($RoomDir -replace "'", "''") + "/pids/$Role.pid"
+                $promptFile = ($RoomDir -replace "'", "''") + "/artifacts/prompt.txt"
+                $outputFile = ($RoomDir -replace "'", "''") + "/artifacts/$Role-output.txt"
                 $content = @"
-#!/bin/bash
-export AGENT_OS_ROOM_DIR='$RoomDir'
-export AGENT_OS_ROLE='$Role'
-export AGENT_OS_PARENT_PID='12345'
-export AGENT_OS_SKILLS_DIR='$RoomDir/skills'
-export AGENT_OS_PID_FILE='$pidFile'
-export OSTWIN_HOME='/Users/test/.ostwin'
-export AGENT_OS_PROJECT_DIR='/Users/test/project'
-echo "`$`$" > '$pidFile'
-echo "[wrapper] PID=`$`$, CMD=opencode, CWD=`$(pwd)" >> '$outputFile'
-exec opencode run 'Execute the task described in the attached prompt file.' --model $Model --agent $Role --file '$promptFile' >> '$outputFile' 2>&1
-echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
+# --- run-agent.ps1 — Unified agent wrapper (all platforms) ---
+`$env:AGENT_OS_ROOM_DIR = '$RoomDir'
+`$env:AGENT_OS_ROLE = '$Role'
+`$env:AGENT_OS_PARENT_PID = '12345'
+`$env:AGENT_OS_SKILLS_DIR = '/path/to/project/.agents/skills'
+`$env:AGENT_OS_PID_FILE = '$pidFile'
+`$env:OSTWIN_HOME = '/Users/test/.ostwin'
+`$env:AGENT_OS_PROJECT_DIR = '/Users/test/project'
+`$PID | Out-File -FilePath '$pidFile' -Encoding ascii -NoNewline
+"[wrapper] PID=`$PID, CMD=opencode" | Out-File -FilePath '$outputFile' -Encoding utf8 -Append
+& opencode run '...' --model $Model --agent $Role --file '$promptFile' 2>&1 | Out-File -FilePath '$outputFile' -Encoding utf8 -Append
 "@
-                $scriptPath = Join-Path $artifactsDir "run-agent.sh"
+                $scriptPath = Join-Path $artifactsDir "run-agent.ps1"
                 $content | Out-File -FilePath $scriptPath -Encoding utf8 -NoNewline -Force
                 return $scriptPath
             }
         }
 
-        It "run-agent.sh --model flag carries the plan-configured model" {
+        It "run-agent.ps1 --model flag carries the plan-configured model" {
             & $script:NewWarRoom -RoomId "room-model-001" -TaskRef "TASK-MODEL-001" `
                                  -TaskDescription "Model propagation test" -WarRoomsDir $script:warRoomsDir
             $roomDir = Join-Path $script:warRoomsDir "room-model-001"
@@ -2253,14 +2250,14 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             # Simulate: plan.roles.json sets engineer model to a custom value
             $planModel = "anthropic/claude-sonnet-4-20250514"
 
-            # Write mock run-agent.sh with the plan-configured model
+            # Write mock run-agent.ps1 with the plan-configured model
             # (mirrors what Invoke-Agent.ps1 produces when plan.roles.json is read)
             $scriptPath = Write-MockRunAgentScript -RoomDir $roomDir -Role "engineer" -Model $planModel
             $content = Get-Content $scriptPath -Raw
 
             # Assert --model flag carries the plan-configured model
             $content | Should -Match "--model $([regex]::Escape($planModel))" `
-                -Because "run-agent.sh must carry the model from plan.roles.json"
+                -Because "run-agent.ps1 must carry the model from plan.roles.json"
             # Assert it does NOT carry the hardcoded default
             $content | Should -Not -Match "--model google-vertex/zai-org/glm-5-maas" `
                 -Because "hardcoded default must not appear when plan.roles.json specifies a model"
@@ -2348,9 +2345,9 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$outputFile'
             $invokeAgentScript = Join-Path $script:agentsDir "roles" "_base" "Invoke-Agent.ps1"
             $content = Get-Content $invokeAgentScript -Raw
 
-            # The model must be injected into CLI args for run-agent.sh
+            # The model must be injected into CLI args for run-agent.ps1
             $content | Should -Match 'extraCliArgs.*"--model"' `
-                -Because "resolved model must be passed as --model to run-agent.sh"
+                -Because "resolved model must be passed as --model to run-agent.ps1"
         }
     }
 
@@ -2552,7 +2549,7 @@ Describe "Integration — ManagerLoop helpers against tests/sample/room-001" {
         Set-SampleContext -RoomsParent (Split-Path $rd -Parent)
 
         # Set state_changed_at to FAR future so all existing messages are stale
-        $future = [int][double]::Parse((Get-Date -UFormat %s)) + 99999
+        $future = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 99999
         $future.ToString() | Out-File (Join-Path $rd "state_changed_at") -Encoding utf8 -NoNewline
 
         $sig = Find-LatestSignal -RoomDir $rd -Lifecycle $lc -StateName "review"

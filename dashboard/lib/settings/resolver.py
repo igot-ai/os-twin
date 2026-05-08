@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import threading
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List
 from pathlib import Path
 from copy import deepcopy
 
@@ -17,8 +17,9 @@ from dashboard.models import (
     ObservabilitySettings,
     ProvidersNamespace,
     ChannelsNamespace,
+    KnowledgeSettings,
 )
-from dashboard.api_utils import AGENTS_DIR, PROJECT_ROOT
+from dashboard.api_utils import AGENTS_DIR
 from .vault import get_vault
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,7 @@ class SettingsResolver:
         channels = self._extract_channels(config)
         autonomy = self._extract_autonomy(config)
         observability = self._extract_observability(config)
+        knowledge = self._extract_knowledge(config)
         
         return MasterSettings(
             providers=providers,
@@ -90,6 +92,7 @@ class SettingsResolver:
             channels=channels,
             autonomy=autonomy,
             observability=observability,
+            knowledge=knowledge,
         )
     
     def resolve_role(
@@ -313,7 +316,7 @@ class SettingsResolver:
         for key, value in config.items():
             if isinstance(value, dict) and key not in [
                 "providers", "runtime", "memory", "channels", 
-                "autonomy", "observability", "version", "project_name"
+                "autonomy", "observability", "knowledge", "version", "project_name"
             ]:
                 # Check if it looks like a role config
                 if any(k in value for k in ["default_model", "temperature", "timeout_seconds"]):
@@ -362,6 +365,10 @@ class SettingsResolver:
     def _extract_observability(self, config: Dict[str, Any]) -> ObservabilitySettings:
         """Extract observability namespace from config."""
         return self._safe_model(ObservabilitySettings, config.get("observability", {}))
+
+    def _extract_knowledge(self, config: Dict[str, Any]) -> KnowledgeSettings:
+        """Extract knowledge namespace from config (ADR-15)."""
+        return self._safe_model(KnowledgeSettings, config.get("knowledge", {}))
     
     def _load_plan_config(self, plan_id: str) -> Dict[str, Any]:
         """Load per-plan role config from {plan_id}.roles.json in PLANS_DIR.

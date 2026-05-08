@@ -83,8 +83,13 @@ function toModelInfo(
   modelId: string,
   model: ConfiguredModel,
 ): ModelInfo {
+  // Companion providers are now separate top-level entries (e.g. "google-vertex"),
+  // so modelId is the short form and providerId is the companion id.
+  // Registry id is always "providerId/modelId" composite for routable lookup.
+  const registryId = `${providerId}/${modelId}`;
+
   return {
-    id: modelId,
+    id: registryId,
     label: model.name,
     context_window: model.limit?.context
       ? formatContextWindow(model.limit.context)

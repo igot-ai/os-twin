@@ -33,7 +33,64 @@ def test_list_channels(mock_httpx_client):
     
     mock_httpx_client.get.assert_called_with("/api/channels")
 
-def test_connect_channel_telegram(mock_httpx_client):
+
+# Tests for credential check logic
+
+def test_connect_channel_with_existing_credentials_user_accepts(mock_httpx_client):
+    """Test that when credentials exist and user accepts, we use them without prompting."""
+    # Mock channel status with existing credentials
+    mock_status_resp = MagicMock()
+    mock_status_resp.json.return_value = {
+        "platform": "telegram",
+        "status": "disconnected",
+        "config": {
+            "platform": "telegram",
+            "enabled": False,
+            "credentials": {"token": "existing-token-123"},
+            "settings": {},
+            "authorized_users": [],
+            "pairing_code": "old-code"
+        }
+    }
+    
+    # Mock connect
+    mock_connect_resp = MagicMock()
+    mock_connect_resp.json.return_value = {"status": "ok"}
+    
+    # Mock pairing
+    mock_pairing_resp = MagicMock()
+    mock_pairing_resp.json.return_value = {"pairing_code": "new-code"}
+    
+    mock_httpx_client.get.side_effect = [mock_status_resp, mock_pairing_resp]
+    mock_httpx_client.post.return_value = mock_connect_resp
+    
+    args = MagicMock()
+    args.platform = "telegram"
+    
+    with patch("builtins.input", return_value="y"):
+        channel_cmd.connect_channel(args)
+    
+    # Should NOT call setup endpoint, should connect without new credentials
+    mock_httpx_client.post.assert_called_with("/api/channels/telegram/connect", json={})
+
+
+def test_connect_channel_with_existing_credentials_user_declines(mock_httpx_client):
+    """Test that when credentials exist and user declines, we show full setup wizard."""
+    # Mock channel status with existing credentials
+    mock_status_resp = MagicMock()
+    mock_status_resp.json.return_value = {
+        "platform": "telegram",
+        "status": "disconnected",
+        "config": {
+            "platform": "telegram",
+            "enabled": False,
+            "credentials": {"token": "existing-token-123"},
+            "settings": {},
+            "authorized_users": [],
+            "pairing_code": "old-code"
+        }
+    }
+    
     # Mock setup steps
     mock_setup_resp = MagicMock()
     mock_setup_resp.json.return_value = [{"title": "Step 1", "description": "Desc", "instructions": "Inst"}]
@@ -46,7 +103,44 @@ def test_connect_channel_telegram(mock_httpx_client):
     mock_pairing_resp = MagicMock()
     mock_pairing_resp.json.return_value = {"pairing_code": "new-code"}
     
-    mock_httpx_client.get.side_effect = [mock_setup_resp, mock_pairing_resp]
+    mock_httpx_client.get.side_effect = [mock_status_resp, mock_setup_resp, mock_pairing_resp]
+    mock_httpx_client.post.return_value = mock_connect_resp
+    
+    args = MagicMock()
+    args.platform = "telegram"
+    
+    with patch("builtins.input", return_value="n"):
+        with patch("channel_cmd.getpass.getpass", return_value="new-token"):
+            channel_cmd.connect_channel(args)
+    
+    # Should call setup endpoint and connect with new credentials
+    mock_httpx_client.get.assert_any_call("/api/channels/telegram/setup")
+    mock_httpx_client.post.assert_called_with("/api/channels/telegram/connect", json={"credentials": {"token": "new-token"}})
+
+
+def test_connect_channel_no_existing_credentials(mock_httpx_client):
+    """Test that when no credentials exist, we show full setup wizard."""
+    # Mock channel status without credentials
+    mock_status_resp = MagicMock()
+    mock_status_resp.json.return_value = {
+        "platform": "telegram",
+        "status": "not_configured",
+        "config": None
+    }
+    
+    # Mock setup steps
+    mock_setup_resp = MagicMock()
+    mock_setup_resp.json.return_value = [{"title": "Step 1", "description": "Desc", "instructions": "Inst"}]
+    
+    # Mock connect
+    mock_connect_resp = MagicMock()
+    mock_connect_resp.json.return_value = {"status": "ok"}
+    
+    # Mock pairing
+    mock_pairing_resp = MagicMock()
+    mock_pairing_resp.json.return_value = {"pairing_code": "new-code"}
+    
+    mock_httpx_client.get.side_effect = [mock_status_resp, mock_setup_resp, mock_pairing_resp]
     mock_httpx_client.post.return_value = mock_connect_resp
     
     args = MagicMock()
@@ -55,8 +149,128 @@ def test_connect_channel_telegram(mock_httpx_client):
     with patch("channel_cmd.getpass.getpass", return_value="test-token"):
         channel_cmd.connect_channel(args)
     
+    # Should call setup endpoint and connect with new credentials
     mock_httpx_client.get.assert_any_call("/api/channels/telegram/setup")
     mock_httpx_client.post.assert_called_with("/api/channels/telegram/connect", json={"credentials": {"token": "test-token"}})
+
+
+def test_connect_channel_empty_credentials(mock_httpx_client):
+    """Test that when credentials dict is empty, we show full setup wizard."""
+    # Mock channel status with empty credentials
+    mock_status_resp = MagicMock()
+    mock_status_resp.json.return_value = {
+        "platform": "telegram",
+        "status": "needs_setup",
+        "config": {
+            "platform": "telegram",
+            "enabled": False,
+            "credentials": {},  # Empty credentials
+            "settings": {},
+            "authorized_users": [],
+            "pairing_code": ""
+        }
+    }
+    
+    # Mock setup steps
+    mock_setup_resp = MagicMock()
+    mock_setup_resp.json.return_value = [{"title": "Step 1", "description": "Desc", "instructions": "Inst"}]
+    
+    # Mock connect
+    mock_connect_resp = MagicMock()
+    mock_connect_resp.json.return_value = {"status": "ok"}
+    
+    # Mock pairing
+    mock_pairing_resp = MagicMock()
+    mock_pairing_resp.json.return_value = {"pairing_code": "new-code"}
+    
+    mock_httpx_client.get.side_effect = [mock_status_resp, mock_setup_resp, mock_pairing_resp]
+    mock_httpx_client.post.return_value = mock_connect_resp
+    
+    args = MagicMock()
+    args.platform = "telegram"
+    
+    with patch("channel_cmd.getpass.getpass", return_value="test-token"):
+        channel_cmd.connect_channel(args)
+    
+    # Should call setup endpoint and connect with new credentials
+    mock_httpx_client.get.assert_any_call("/api/channels/telegram/setup")
+    mock_httpx_client.post.assert_called_with("/api/channels/telegram/connect", json={"credentials": {"token": "test-token"}})
+
+
+def test_connect_channel_discord_with_existing_credentials(mock_httpx_client):
+    """Test Discord connector with existing credentials."""
+    # Mock channel status with existing credentials
+    mock_status_resp = MagicMock()
+    mock_status_resp.json.return_value = {
+        "platform": "discord",
+        "status": "disconnected",
+        "config": {
+            "platform": "discord",
+            "enabled": False,
+            "credentials": {"token": "existing-discord-token", "client_id": "123456789"},
+            "settings": {},
+            "authorized_users": [],
+            "pairing_code": "old-code"
+        }
+    }
+    
+    # Mock connect
+    mock_connect_resp = MagicMock()
+    mock_connect_resp.json.return_value = {"status": "ok"}
+    
+    # Mock pairing
+    mock_pairing_resp = MagicMock()
+    mock_pairing_resp.json.return_value = {"pairing_code": "new-code"}
+    
+    mock_httpx_client.get.side_effect = [mock_status_resp, mock_pairing_resp]
+    mock_httpx_client.post.return_value = mock_connect_resp
+    
+    args = MagicMock()
+    args.platform = "discord"
+    
+    with patch("builtins.input", return_value="y"):
+        channel_cmd.connect_channel(args)
+    
+    # Should connect without new credentials
+    mock_httpx_client.post.assert_called_with("/api/channels/discord/connect", json={})
+
+
+def test_connect_channel_slack_with_existing_credentials(mock_httpx_client):
+    """Test Slack connector with existing credentials."""
+    # Mock channel status with existing credentials
+    mock_status_resp = MagicMock()
+    mock_status_resp.json.return_value = {
+        "platform": "slack",
+        "status": "disconnected",
+        "config": {
+            "platform": "slack",
+            "enabled": False,
+            "credentials": {"bot_token": "xoxb-existing", "app_token": "xapp-existing"},
+            "settings": {},
+            "authorized_users": [],
+            "pairing_code": "old-code"
+        }
+    }
+    
+    # Mock connect
+    mock_connect_resp = MagicMock()
+    mock_connect_resp.json.return_value = {"status": "ok"}
+    
+    # Mock pairing
+    mock_pairing_resp = MagicMock()
+    mock_pairing_resp.json.return_value = {"pairing_code": "new-code"}
+    
+    mock_httpx_client.get.side_effect = [mock_status_resp, mock_pairing_resp]
+    mock_httpx_client.post.return_value = mock_connect_resp
+    
+    args = MagicMock()
+    args.platform = "slack"
+    
+    with patch("builtins.input", return_value="y"):
+        channel_cmd.connect_channel(args)
+    
+    # Should connect without new credentials
+    mock_httpx_client.post.assert_called_with("/api/channels/slack/connect", json={})
 
 def test_disconnect_channel(mock_httpx_client):
     mock_response = MagicMock()

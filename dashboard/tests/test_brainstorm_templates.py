@@ -10,7 +10,6 @@ Covers:
 - BRAINSTORM_SYSTEM_PROMPT contains template-aware instructions
 """
 
-import json
 import pytest
 from unittest.mock import patch, AsyncMock
 

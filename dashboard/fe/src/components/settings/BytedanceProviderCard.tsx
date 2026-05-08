@@ -1,13 +1,12 @@
 'use client';
 
-import { useState } from 'react';
 import type { ProviderSettings, ModelInfo } from '@/types/settings';
+import { ProviderIcon } from './ProviderIcon';
 
 export interface BytedanceProviderCardProps {
   provider: ProviderSettings;
   onSettingsChange: (updates: Partial<ProviderSettings>) => void;
   onVaultClick: () => void;
-  onTest: () => Promise<{ latency_ms: number }>;
   vaultSet: boolean;
   modelRegistry?: ModelInfo[];
 }
@@ -20,31 +19,12 @@ export function BytedanceProviderCard({
   provider,
   onSettingsChange,
   onVaultClick,
-  onTest,
   vaultSet,
-  modelRegistry = [],
+  modelRegistry: _modelRegistry = [],
 }: BytedanceProviderCardProps) {
   const safeProvider = provider ?? { enabled: false, default_model: null };
   const isEnabled = safeProvider.enabled ?? false;
   const selectedRegion = safeProvider.base_url || 'cn-beijing-1';
-
-  const [testing, setTesting] = useState(false);
-  const [latency, setLatency] = useState<number | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
-
-  const handleTest = async () => {
-    setTesting(true);
-    setTestError(null);
-    try {
-      const result = await onTest();
-      setLatency(result.latency_ms);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Test failed';
-      setTestError(message);
-    } finally {
-      setTesting(false);
-    }
-  };
 
   return (
     <section className="lg:col-span-12 bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col md:flex-row overflow-hidden">
@@ -52,7 +32,7 @@ export function BytedanceProviderCard({
       <div className="md:w-1/3 bg-slate-900 p-8 text-white flex flex-col justify-between">
         <div>
           <div className="flex items-center gap-3 mb-6">
-            <span className="material-symbols-outlined text-blue-400">rocket_launch</span>
+            <ProviderIcon provider="byteplus" size={22} className="brightness-0 invert" />
             <h3 className="text-sm font-bold uppercase tracking-widest">Bytedance (Ark)</h3>
           </div>
           <p className="text-sm text-slate-400 leading-relaxed mb-6">
@@ -82,30 +62,12 @@ export function BytedanceProviderCard({
 
         {/* Status bar */}
         <div className="mt-8 pt-6 border-t border-slate-800">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {testing ? (
-                <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-              ) : latency !== null ? (
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              ) : (
-                <div className="w-2 h-2 rounded-full bg-slate-500" />
-              )}
-              <span className="text-[10px] font-mono text-slate-400">
-                {testing ? 'TESTING...' : latency !== null ? `LATENCY: ${latency}ms` : isEnabled ? 'READY' : 'INACTIVE'}
-              </span>
-            </div>
-            <button
-              onClick={handleTest}
-              disabled={testing || !isEnabled}
-              className="text-[10px] font-mono text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-            >
-              [RUN TEST]
-            </button>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isEnabled ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+            <span className="text-[10px] font-mono text-slate-400">
+              {isEnabled ? 'READY' : 'INACTIVE'}
+            </span>
           </div>
-          {testError && (
-            <div className="mt-2 text-[10px] font-mono text-red-400 truncate">{testError}</div>
-          )}
         </div>
       </div>
 

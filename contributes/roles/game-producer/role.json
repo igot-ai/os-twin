@@ -17,7 +17,7 @@
     "team-unblocked"
   ],
   "cli": "agent",
-  "model": "google-vertex/gemini-3.1-pro-preview",
+  "model": "google-vertex/gemini-3-flash-preview",
   "timeout": 600,
   "skill_refs": [],
   "instance_type": "worker"

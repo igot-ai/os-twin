@@ -28,16 +28,28 @@ function Patch-McpConfig {
     # Windows venv Python path
     $venvPython = Join-Path $script:VenvDir "Scripts\python.exe"
 
-    # 1. Ensure OSTWIN_PYTHON is set in .env (used by {env:OSTWIN_PYTHON} in config)
-    if (Test-Path $envFile) {
-        $envContent = Get-Content $envFile -Raw
-        if ($envContent -notmatch '(?m)^OSTWIN_PYTHON=') {
-            Add-Content -Path $envFile -Value "OSTWIN_PYTHON=$venvPython"
-        }
+    # 1. Ensure critical path env vars are set in .env
+    # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} resolution
+    # NOTE: .env files use KEY=VALUE format (no 'export' prefix - that's for shell scripts)
+    $envEntries = @(
+        "AGENT_DIR=$($script:InstallDir)",
+        "OSTWIN_PYTHON=$venvPython"
+    )
+
+    # Read existing content
+    $existingContent = if (Test-Path $envFile) { Get-Content $envFile -Raw } else { "" }
+
+    # Remove old entries (with or without export) and add fresh ones
+    $cleanedContent = $existingContent
+    foreach ($key in @("AGENT_DIR", "OSTWIN_PYTHON")) {
+        $cleanedContent = $cleanedContent -replace "(?m)^export $key=.*\r?\n", ""
+        $cleanedContent = $cleanedContent -replace "(?m)^$key=.*\r?\n", ""
     }
-    else {
-        Set-Content -Path $envFile -Value "OSTWIN_PYTHON=$venvPython" -Encoding UTF8
-    }
+
+    # Append new entries
+    $newEntries = $envEntries -join "`n"
+    $finalContent = $cleanedContent.TrimEnd() + "`n" + $newEntries + "`n"
+    Set-Content -Path $envFile -Value $finalContent -Encoding UTF8
 
     # 2. Inject all .env variables into every MCP server's "environment" block
     if (Test-Path $envFile) {

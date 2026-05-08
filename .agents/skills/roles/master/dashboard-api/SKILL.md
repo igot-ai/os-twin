@@ -2,14 +2,14 @@
 name: dashboard-api
 description: Use this skill to query the Ostwin dashboard REST API for plan status, war-room state, semantic search, and aggregate stats. Essential for answering user questions about project progress.
 tags: [global, api, dashboard, context]
-trust_level: core
+
 ---
 
 # dashboard-api
 
 ## Overview
 
-The Ostwin dashboard exposes a REST API at `http://localhost:9000` (or `$DASHBOARD_URL`). All endpoints require an API key via the `X-API-Key` header (value from `$OSTWIN_API_KEY`).
+The Ostwin dashboard exposes a REST API at `http://localhost:3366` (or `$DASHBOARD_URL`). All endpoints require an API key via the `X-API-Key` header (value from `$OSTWIN_API_KEY`).
 
 This skill teaches agents how to query these endpoints to gather context about plans, war-rooms, and message history.
 
@@ -46,7 +46,7 @@ Returns all plans with status, epic count, and progress.
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $OSTWIN_API_KEY" http://localhost:9000/api/plans
+curl -H "X-API-Key: $OSTWIN_API_KEY" http://localhost:3366/api/plans
 ```
 
 ### 2. Get Plan Detail — `GET /api/plans/{plan_id}`
@@ -91,7 +91,7 @@ Vector search across all indexed messages.
 **Example:**
 ```bash
 curl -H "X-API-Key: $OSTWIN_API_KEY" \
-  "http://localhost:9000/api/search?q=authentication+module&limit=5"
+  "http://localhost:3366/api/search?q=authentication+module&limit=5"
 ```
 
 ### 7. Aggregate Stats — `GET /api/stats`

@@ -47,7 +47,9 @@ param(
 
     [switch]$SkipLoop,
 
-    [switch]$Unified
+    [switch]$Unified,
+
+    [switch]$NonInteractive
 )
 
 # --- Resolve paths ---
@@ -62,7 +64,14 @@ param(
 $installDir = $PSScriptRoot | Split-Path   # e.g. /Users/paulaan/.ostwin
 
 if ($env:OSTWIN_HOME -and (Test-Path $env:OSTWIN_HOME)) {
-    $agentsDir = $env:OSTWIN_HOME
+    # OSTWIN_HOME is the install root (e.g. ~/.ostwin).
+    # Scripts live under .agents/ (e.g. ~/.ostwin/.agents/war-rooms/New-WarRoom.ps1)
+    $candidate = Join-Path $env:OSTWIN_HOME ".agents"
+    if (Test-Path $candidate) {
+        $agentsDir = $candidate
+    } else {
+        $agentsDir = $env:OSTWIN_HOME
+    }
 } else {
     $agentsDir = Join-Path $ProjectDir ".agents"
     $sentinel  = Join-Path $agentsDir "war-rooms" "New-WarRoom.ps1"
@@ -341,7 +350,7 @@ depends_on: []
 
     # Sync to dashboard
     $resolvedPlanId = [IO.Path]::GetFileNameWithoutExtension($PlanFile) -replace '\.refined$', ''
-    $dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { 'http://localhost:9000' }
+    $dashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { 'http://localhost:3366' }
     $apiHeaders = if (Get-Command Get-OstwinApiHeaders -ErrorAction SilentlyContinue) { Get-OstwinApiHeaders } else { @{} }
     try {
         $saveBody = @{ content = $updatedPlan; change_source = 'epic_generation' } | ConvertTo-Json -Depth 5
@@ -704,6 +713,19 @@ function New-PlanWarRooms {
         if ($entry.DescBody) {
             $fullDesc = "$fullDesc`n`n$($entry.DescBody)"
         }
+        # Append all parsed Sections so the full EPIC body is passed to New-WarRoom.
+        # This handles plans where content lives under sub-headings (####/###) that
+        # $descPattern stops at — e.g. "#### Mục tiêu", "### Tasks", "### Definition of Done".
+        # Skip section[0] if it is the EPIC/TASK header itself (parser re-ingests it as a section).
+        if ($entry.Sections -and $entry.Sections.Count -gt 0) {
+            foreach ($sec in $entry.Sections) {
+                # Skip the EPIC/TASK title section re-captured by the parser
+                if ($sec.Heading -match "^(EPIC|TASK)-\d+") { continue }
+                $hashes = '#' * $sec.HeadingLevel
+                $fullDesc = "$fullDesc`n`n$hashes $($sec.Heading)`n`n$($sec.Content)"
+            }
+        }
+
 
         $candidateRoles = @(if ($entry.Roles -and $entry.Roles.Count -gt 0) { $entry.Roles } else { @("engineer", "qa") })
         $roomArgs = @{

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { usePlan } from '@/hooks/use-plans';
 import { useEpics, useDAG } from '@/hooks/use-epics';
@@ -9,12 +9,12 @@ import { usePlanRefine } from '@/hooks/use-plan-refine';
 import { useAssets } from '@/hooks/use-assets';
 import { apiPost } from '@/lib/api-client';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { Plan, Epic, EpicStatus, WarRoomProgress } from '@/types';
+import { Plan, Epic, EpicStatus, DAGNodeRaw, WarRoomProgress } from '@/types';
 import { parseEpicMarkdown, serializeEpicMarkdown, EpicDocument } from '@/lib/epic-parser';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
 import ContextPanel from './ContextPanel';
-import AIChatPanel from './AIChatPanel';
+
 import PlanBreadcrumb from './PlanBreadcrumb';
 import ProgressFooter from './ProgressFooter';
 
@@ -36,9 +36,11 @@ interface PlanContextType {
   planContent: string;
   setPlanContent: (content: string) => void;
   savePlan: () => Promise<void>;
+  launchPlan: () => Promise<void>;
   reloadFromDisk: () => Promise<void>;
   syncStatus: { in_sync: boolean; disk_mtime: number; zvec_mtime: number } | undefined;
   isSaving: boolean;
+  isLaunching: boolean;
   isAIChatOpen: boolean;
   setIsAIChatOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   isRefining: boolean;
@@ -51,6 +53,12 @@ interface PlanContextType {
   refreshProgress: () => void;
   uploadAssets: (files: FileList | File[], epicRef?: string) => Promise<unknown>;
   isUploadingAssets: boolean;
+  // EPIC-007: Memory-Knowledge Bridge - highlight note on cross-tab navigation
+  highlightNoteId: string | null;
+  setHighlightNoteId: (id: string | null) => void;
+  // Edit Epic Drawer — signal edit mode from context menu / card
+  isEditingEpic: boolean;
+  setIsEditingEpic: (editing: boolean) => void;
 }
 
 export const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -92,7 +100,11 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const [planContent, setPlanContent] = useState('');
   const [parsedPlan, setParsedPlan] = useState<EpicDocument | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  // EPIC-007: Memory-Knowledge Bridge - highlight note on cross-tab navigation
+  const [highlightNoteId, setHighlightNoteId] = useState<string | null>(null);
+  const [isEditingEpic, setIsEditingEpic] = useState(false);
 
   // Undo/Redo Stack
   const [undoStack, setUndoStack] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
@@ -208,13 +220,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const addToast = useNotificationStore((state) => state.addToast);
 
   const {
-    chatHistory,
     isRefining,
-    streamedResponse,
-    error: aiError,
-    refine,
-    cancelRefine,
-    clearHistory,
   } = usePlanRefine();
 
   useEffect(() => {
@@ -245,11 +251,32 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     }
   }, [planId, planContent, addToast]);
 
+  const launchPlan = useCallback(async () => {
+    setIsLaunching(true);
+    try {
+      await apiPost('/run', { plan: planContent, plan_id: planId });
+      addToast({
+        type: 'success',
+        title: 'Plan Launched',
+        message: 'Your plan has been launched successfully.',
+        autoDismiss: true,
+      });
+    } catch (err: unknown) {
+      addToast({
+        type: 'error',
+        title: 'Launch Failed',
+        message: err instanceof Error ? err.message : 'There was an error launching your plan. Please try again.',
+        autoDismiss: false,
+      });
+    } finally {
+      setIsLaunching(false);
+    }
+  }, [planId, planContent, addToast]);
+
   const handleApplyAI = useCallback((newContent: string) => {
     setPlanContent(newContent);
     setActiveTab('editor');
   }, []);
-
   // Synthesize epics from progress + DAG when the /epics API returns empty
   const epics = useMemo(() => {
     const result: Epic[] = [];
@@ -306,6 +333,29 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
       }
     }
 
+    // 3. Synthesize epics from DAG nodes alone (pending plans — no war-rooms or progress yet)
+    if (result.length === 0 && dag?.nodes && typeof dag.nodes === 'object' && !Array.isArray(dag.nodes)) {
+      for (const [ref, node] of Object.entries(dag.nodes)) {
+        if (!seenRefs.has(ref)) {
+          const dagNode = node as DAGNodeRaw;
+          const depsRaw = dagNode.depends_on;
+          result.push({
+            epic_ref: ref,
+            plan_id: planId,
+            title: ref,
+            lifecycle_state: 'pending',
+            status: 'pending' as EpicStatus,
+            role: dagNode.role || 'unknown',
+            room_id: dagNode.room_id || '',
+            depends_on: Array.isArray(depsRaw) ? depsRaw : depsRaw ? [depsRaw] : [],
+            dependents: dagNode.dependents || [],
+            tasks: [],
+          });
+          seenRefs.add(ref);
+        }
+      }
+    }
+
     return result.length > 0 ? result : apiEpics;
   }, [apiEpics, progress, dag, planId]);
 
@@ -327,9 +377,11 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     planContent,
     setPlanContent,
     savePlan,
+    launchPlan,
     reloadFromDisk,
     syncStatus,
     isSaving,
+    isLaunching,
     isAIChatOpen,
     setIsAIChatOpen,
     isRefining,
@@ -342,6 +394,12 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     refreshProgress: () => refreshProgress(),
     uploadAssets,
     isUploadingAssets,
+    // EPIC-007: Memory-Knowledge Bridge
+    highlightNoteId,
+    setHighlightNoteId,
+    // Edit Epic Drawer
+    isEditingEpic,
+    setIsEditingEpic,
   };
 
   if (planLoading && !plan) {

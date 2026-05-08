@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 
 BeforeAll {
-    Import-Module "$PSScriptRoot/../.agents/lib/Observability.psm1" -Force
+    Import-Module "$PSScriptRoot/../lib/Observability.psm1" -Force
 }
 
 Describe 'Observability Module' {

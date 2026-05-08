@@ -105,9 +105,7 @@ Write-Host "  State timeout: ${stateTimeout}s"
 Write-Host ""
 
 # --- Pre-flight checks ---
-# Resolve-RoomSkills: Before spawning a worker, search the dashboard API
-# for skills matching the epic's requirements and write them to the room config.
-$dashboardBaseUrl = if ($env:OSTWIN_DASHBOARD_URL) { $env:OSTWIN_DASHBOARD_URL } else { "http://localhost:9000" }
+$dashboardBaseUrl = if ($env:OSTWIN_DASHBOARD_URL) { $env:OSTWIN_DASHBOARD_URL } else { "http://localhost:3366" }
 
 # --- Inject runtime context into ManagerLoop-Helpers module ---
 # All helper functions are defined in ManagerLoop-Helpers.psm1 (imported above).
@@ -134,11 +132,12 @@ if (Get-Command Set-ManagerLoopContext -ErrorAction SilentlyContinue) {
 $iteration = 0
 $stallCycles = 0
 
+try {
 while (-not $script:shuttingDown) {
     $iteration++
 
     # --- Hot-reload: check for new roles every 30s ---
-    $nowEpochHR = [int][double]::Parse((Get-Date -UFormat %s))
+    $nowEpochHR = Get-UnixEpoch
     if (($nowEpochHR - $script:rolesCacheMtime) -ge 30) {
         $getAvailableRoles = Join-Path $agentsDir "roles" "_base" "Get-AvailableRoles.ps1"
         if (Test-Path $getAvailableRoles) {
@@ -300,8 +299,8 @@ while (-not $script:shuttingDown) {
                 }
 
                 if ((Get-ActiveCount) -lt $maxConcurrent) {
-                    # --- SKILL RESOLUTION: resolve skills from dashboard before spawning ---
-                    Resolve-RoomSkills -RoomDir $roomDir -TaskRef $taskRef -AssignedRole $assignedRole
+                    # Skills are resolved per-agent at spawn time by Invoke-Agent.ps1
+                    # via Resolve-RoleSkills.ps1 using config-driven skill_refs.
                     $nextState = if ($lifecycle -and $lifecycle.initial_state) { $lifecycle.initial_state } else { "developing" }
                     Write-Log "INFO" "[$taskRef] Dependencies met. Transitioning to $nextState in $roomId..."
                     Write-RoomStatus $roomDir $nextState
@@ -319,7 +318,8 @@ while (-not $script:shuttingDown) {
                             }
                         }
                     }
-                    Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                    $roleTimeout = Resolve-RoleTimeout -RoleName $baseRole -RoomDir $roomDir
+                    Start-WorkerJob -RoomDir $roomDir -Role $baseRole -Script $workerScript -TaskRef $taskRef -TimeoutSeconds $roleTimeout -SkipLockCheck
                 }
             }
 
@@ -339,10 +339,10 @@ while (-not $script:shuttingDown) {
                 switch ($v2StateDef.type) {
                     'terminal' {
                         if ($status -eq 'passed') {
-                            # Guard: only fire Handle-PlanApproval once per plan
+                            # Guard: only fire Complete-PlanApproval once per plan
                             $planApprovedFlag = Join-Path $WarRoomsDir ".plan_approved_$($taskRef -replace '[^a-zA-Z0-9-]','')" 
                             if ($taskRef -eq 'PLAN-REVIEW' -and -not (Test-Path $planApprovedFlag)) {
-                                Handle-PlanApproval -TaskRef $taskRef
+                                Complete-PlanApproval -TaskRef $taskRef
                                 "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline
                             }
                         } elseif ($status -eq 'failed-final') {
@@ -383,11 +383,12 @@ while (-not $script:shuttingDown) {
                             $retryStateDef = if ($lifecycle.states.$retryTarget) { $lifecycle.states.$retryTarget } else { $null }
                             if ($retryStateDef -and $retryStateDef.role -and $retryStateDef.type -in @('work', 'review')) {
                                 $retryRole = $retryStateDef.role -replace ':.*$', ''
+                                $retryTimeout = Resolve-RoleTimeout -RoleName $retryRole -RoomDir $roomDir
                                 if (Test-Path $resolveRoleScript) {
                                     $retryResolved = & $resolveRoleScript -RoleName $retryStateDef.role -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                    Start-WorkerJob -RoomDir $roomDir -Role $retryRole -Script $retryResolved.Runner -TaskRef $taskRef -SkipLockCheck
+                                    Start-WorkerJob -RoomDir $roomDir -Role $retryRole -Script $retryResolved.Runner -TaskRef $taskRef -TimeoutSeconds $retryTimeout -SkipLockCheck
                                 } else {
-                                    Start-WorkerJob -RoomDir $roomDir -Role $retryRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                                    Start-WorkerJob -RoomDir $roomDir -Role $retryRole -Script $workerScript -TaskRef $taskRef -TimeoutSeconds $retryTimeout -SkipLockCheck
                                 }
                             }
                         } else {
@@ -425,11 +426,12 @@ while (-not $script:shuttingDown) {
                                 $restartStateDef = $lifecycle.states.$restartState
                                 $restartRole = if ($restartStateDef -and $restartStateDef.role) { $restartStateDef.role } else { $baseRole }
                                 $restartBaseRole = $restartRole -replace ':.*$', ''
+                                $restartTimeout = Resolve-RoleTimeout -RoleName $restartBaseRole -RoomDir $roomDir
                                 if (Test-Path $resolveRoleScript) {
                                     $restartResolved = & $resolveRoleScript -RoleName $restartRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                    Start-WorkerJob -RoomDir $roomDir -Role $restartBaseRole -Script $restartResolved.Runner -TaskRef $taskRef -SkipLockCheck
+                                    Start-WorkerJob -RoomDir $roomDir -Role $restartBaseRole -Script $restartResolved.Runner -TaskRef $taskRef -TimeoutSeconds $restartTimeout -SkipLockCheck
                                 } else {
-                                    Start-WorkerJob -RoomDir $roomDir -Role $restartBaseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                                    Start-WorkerJob -RoomDir $roomDir -Role $restartBaseRole -Script $workerScript -TaskRef $taskRef -TimeoutSeconds $restartTimeout -SkipLockCheck
                                 }
                             } else {
                                 Write-RoomStatus $roomDir 'failed-final'
@@ -492,7 +494,7 @@ while (-not $script:shuttingDown) {
                                 Write-Log "INFO" "[$taskRef] Plan APPROVED. Transitioning to passed."
                                 Write-RoomStatus $roomDir 'passed'
                                 if (-not (Test-Path $planApprovedFlag)) {
-                                    Handle-PlanApproval -TaskRef $taskRef
+                                    Complete-PlanApproval -TaskRef $taskRef
                                     "1" | Out-File -FilePath $planApprovedFlag -Encoding utf8 -NoNewline
                                 }
                                 continue
@@ -522,6 +524,17 @@ while (-not $script:shuttingDown) {
                             $targetState = $transitionDef.target
                             $actions = @()
                             if ($transitionDef.actions) { $actions = @($transitionDef.actions) }
+
+                            # --- Retry exhaustion guard ---
+                            # Signals with increment_retries (e.g. review.fail → optimize) must
+                            # check against max_retries. Without this, the review→optimize loop
+                            # runs indefinitely because the 'failed' decision state is never reached.
+                            if ($actions -contains 'increment_retries' -and $retries -ge ($v2MaxRetries - 1)) {
+                                Write-Log "WARN" "[$taskRef] Signal '$matchedSignal' would exceed max retries ($($retries+1)/$v2MaxRetries). Redirecting to failed."
+                                Invoke-SignalActions -RoomDir $roomDir -Actions $actions -TaskRef $taskRef -BaseRole $baseRole
+                                Write-RoomStatus $roomDir "failed"
+                                continue
+                            }
 
                             Write-Log "INFO" "[$taskRef] V2 signal '$matchedSignal' in '$status' -> '$targetState'."
                             # Resolve the TARGET state's role so post_fix delivers to the fixer,
@@ -557,11 +570,12 @@ while (-not $script:shuttingDown) {
                             if ($targetDef -and $targetDef.role -and $targetDef.type -in @('work', 'review')) {
                                 $targetRole = $targetDef.role
                                 $targetBaseRole = $targetRole -replace ':.*$', ''
+                                $targetTimeout = Resolve-RoleTimeout -RoleName $targetBaseRole -RoomDir $roomDir
                                 if (Test-Path $resolveRoleScript) {
                                     $targetResolved = & $resolveRoleScript -RoleName $targetRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                                    Start-WorkerJob -RoomDir $roomDir -Role $targetBaseRole -Script $targetResolved.Runner -TaskRef $taskRef -SkipLockCheck
+                                    Start-WorkerJob -RoomDir $roomDir -Role $targetBaseRole -Script $targetResolved.Runner -TaskRef $taskRef -TimeoutSeconds $targetTimeout -SkipLockCheck
                                 } else {
-                                    Start-WorkerJob -RoomDir $roomDir -Role $targetBaseRole -Script $workerScript -TaskRef $taskRef -SkipLockCheck
+                                    Start-WorkerJob -RoomDir $roomDir -Role $targetBaseRole -Script $workerScript -TaskRef $taskRef -TimeoutSeconds $targetTimeout -SkipLockCheck
                                 }
                             }
                         }
@@ -594,13 +608,17 @@ while (-not $script:shuttingDown) {
                                             Remove-Item $crashFile -Force -ErrorAction SilentlyContinue
                                         } else {
                                             $crashCount.ToString() | Out-File -FilePath $crashFile -Encoding utf8 -NoNewline
+                                            # Kill any lingering processes from the crashed agent before respawning
+                                            # (prevents orphan process pile-up that can exhaust system RAM)
+                                            Stop-RoomProcesses $roomDir
                                             Write-Log "DEBUG" "[$taskRef] No pending signal, no PID, no lock — will re-spawn '$stateRole' (crash $crashCount/$maxCrashRespawns)."
+                                            $respawnTimeout = Resolve-RoleTimeout -RoleName $stateBaseRole -RoomDir $roomDir
                                             if (Test-Path $resolveRoleScript) {
                                                 $stateResolved = & $resolveRoleScript -RoleName $stateRole -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
                                                 Write-Log "INFO" "[$taskRef] Spawning '$stateRole' for '$status'."
-                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef
+                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $stateResolved.Runner -TaskRef $taskRef -TimeoutSeconds $respawnTimeout
                                             } else {
-                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef
+                                                Start-WorkerJob -RoomDir $roomDir -Role $stateBaseRole -Script $workerScript -TaskRef $taskRef -TimeoutSeconds $respawnTimeout
                                             }
                                         }
                                     }
@@ -694,10 +712,11 @@ while (-not $script:shuttingDown) {
                     Write-RoomStatus $rd $restartState
 
                     # Risk 2 fix: Spawn worker immediately (don't rely on next iteration's respawn branch)
+                    $dlTimeout = Resolve-RoleTimeout -RoleName $dlRestartRole -RoomDir $rd
                     $dlResolveRole = Join-Path $agentsDir "roles" "_base" "Resolve-Role.ps1"
                     if (Test-Path $dlResolveRole) {
                         $dlResolved = & $dlResolveRole -RoleName ($restartStateDef.role) -AgentsDir $agentsDir -WarRoomsDir $WarRoomsDir
-                        Start-WorkerJob -RoomDir $rd -Role $dlRestartRole -Script $dlResolved.Runner -TaskRef $lt -SkipLockCheck
+                        Start-WorkerJob -RoomDir $rd -Role $dlRestartRole -Script $dlResolved.Runner -TaskRef $lt -TimeoutSeconds $dlTimeout -SkipLockCheck
                     }
                 } else {
                     Write-Log "WARN" "[$lt] Deadlock recovery: state '$ls' not recoverable. Skipping."
@@ -776,7 +795,7 @@ while (-not $script:shuttingDown) {
     }
 
     # OPT-002: Time-based progress throttle (10s minimum interval)
-    $nowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+    $nowEpoch = Get-UnixEpoch
     if ($roomCount -gt 0 -and ($nowEpoch - $script:lastProgressUpdate) -ge 10) {
         $passedCount = 0
         $failedSummary = 0
@@ -799,18 +818,37 @@ while (-not $script:shuttingDown) {
     # Prune completed PowerShell background jobs to prevent memory accumulation.
     # Start-WorkerJob uses Start-Job which creates job objects that persist until
     # removed. Without cleanup, long-running plans accumulate hundreds of stale jobs.
-    Get-Job -State Completed -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
-    Get-Job -State Failed    -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+    Get-Job -Name "ostwin-worker-*" -ErrorAction SilentlyContinue | Where-Object State -eq 'Completed' | Remove-Job -Force -ErrorAction SilentlyContinue
+    Get-Job -Name "ostwin-worker-*" -ErrorAction SilentlyContinue | Where-Object State -eq 'Failed' | ForEach-Object {
+        $failedOutput = $null
+        try { $failedOutput = Receive-Job $_ -ErrorAction SilentlyContinue 2>&1 } catch { }
+        Write-Log "ERROR" "Worker job '$($_.Name)' failed: $failedOutput"
+        Remove-Job $_ -Force -ErrorAction SilentlyContinue
+    }
+    # Detect and kill zombie jobs: Running state but child process is dead.
+    # These leak ~50MB per runspace and accumulate during long plans with retries.
+    $maxJobAge = $stateTimeout * 2
+    Get-Job -Name "ostwin-worker-*" -ErrorAction SilentlyContinue | Where-Object {
+        $_.State -eq 'Running' -and $_.PSBeginTime -and
+        ((Get-Date) - $_.PSBeginTime).TotalSeconds -gt $maxJobAge
+    } | ForEach-Object {
+        Write-Log "WARN" "Killing zombie job: $($_.Name) (running for $([int]((Get-Date) - $_.PSBeginTime).TotalSeconds)s, exceeds ${maxJobAge}s limit)"
+        Stop-Job $_ -PassThru -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+    }
 
     Start-Sleep -Seconds $pollInterval
 }
-
-# --- Cleanup on exit ---
-if ($script:shuttingDown) {
+} # end try
+finally {
+    # --- Cleanup on exit (runs on graceful exit, Ctrl+C, and unhandled errors) ---
     Write-Log "INFO" "Shutting down all war-rooms..."
+    # Kill all agent processes in every room
     Get-ChildItem -Path $WarRoomsDir -Directory -Filter "room-*" -ErrorAction SilentlyContinue | ForEach-Object {
         Stop-RoomProcesses $_.FullName
     }
+    # Stop all PowerShell background jobs (Start-WorkerJob creates these)
+    Get-Job -ErrorAction SilentlyContinue | Stop-Job -PassThru -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+    # Clean up manager PID file
     Remove-Item $managerPidFile -Force -ErrorAction SilentlyContinue
     Write-Log "INFO" "Shutdown complete."
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, lazy } from 'react';
+import { Suspense, lazy } from 'react';
 import { usePlanContext } from './PlanWorkspace';
 
 // Lazy-load tab components
@@ -11,6 +11,7 @@ const PlanEditorTab = lazy(() => import('./PlanEditorTab'));
 const PlanHistoryTab = lazy(() => import('./PlanHistoryTab'));
 const ArchitectTab = lazy(() => import('./ArchitectTab'));
 const MemoryTab = lazy(() => import('./MemoryTab'));
+const PlanKnowledgeTab = lazy(() => import('./PlanKnowledgeTab'));
 const FileBrowser = lazy(() => import('./FileBrowser'));
 const AssetPanel = lazy(() => import('./AssetPanel'));
 
@@ -33,6 +34,8 @@ export default function WorkspaceTabs() {
         return <ArchitectTab />;
       case 'memory':
         return <MemoryTab />;
+      case 'knowledge':
+        return <PlanKnowledgeTab />;
       case 'files':
         return <FileBrowser planId={planId} />;
       case 'assets':

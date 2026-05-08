@@ -35,7 +35,7 @@ export interface AppConfig {
 }
 
 const config: AppConfig = {
-  DASHBOARD_URL: process.env.DASHBOARD_URL || 'http://localhost:9000',
+  DASHBOARD_URL: process.env.DASHBOARD_URL || 'http://localhost:3366',
   OSTWIN_API_KEY: process.env.OSTWIN_API_KEY || '',
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
   DISCORD_TOKEN: process.env.DISCORD_TOKEN || '',

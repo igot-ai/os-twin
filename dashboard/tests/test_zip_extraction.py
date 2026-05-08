@@ -18,6 +18,7 @@ from dashboard.routes.plans import (
 @pytest.fixture
 def temp_plan(tmp_path, monkeypatch):
     monkeypatch.setattr("dashboard.routes.plans.PLANS_DIR", tmp_path)
+    monkeypatch.setattr("dashboard.routes.plans.GLOBAL_PLANS_DIR", tmp_path)
     plan_id = "zip-test-plan"
     plan_file = tmp_path / f"{plan_id}.md"
     plan_file.write_text("# Plan: ZIP Test\n\n### EPIC-001 — Test\n")

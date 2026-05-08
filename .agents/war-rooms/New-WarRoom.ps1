@@ -181,7 +181,8 @@ if (Test-Path $configPath) {
 # --- Load plan-specific roles config (~/.ostwin/.agents/plans/{plan_id}.roles.json) ---
 $planRolesConfig = $null
 if ($PlanId) {
-    $planRolesFile = Join-Path $env:HOME ".ostwin" ".agents" "plans" "$PlanId.roles.json"
+    $_home = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+    $planRolesFile = Join-Path $_home ".ostwin" ".agents" "plans" "$PlanId.roles.json"
     if (Test-Path $planRolesFile) {
         $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
     }
@@ -211,7 +212,8 @@ if ($planRolesConfig -and $planRolesConfig.$baseRole) {
 }
 # Priority 1b: fallback to role.json skill_refs when plan roles.json is missing/empty
 if ($roleSkillRefs.Count -eq 0) {
-    $homeRoleJsonPath = Join-Path $env:HOME ".ostwin" "roles" $baseRole "role.json"
+    $homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+    $homeRoleJsonPath = Join-Path $homeDir ".ostwin" "roles" $baseRole "role.json"
     if (Test-Path $homeRoleJsonPath) {
         try {
             $homeRoleData = Get-Content $homeRoleJsonPath -Raw | ConvertFrom-Json
@@ -267,7 +269,28 @@ if ($roleSkillRefs.Count -gt 0) {
 $roleConfigFile = Join-Path $roomDir "${baseRole}_${instanceId}.json"
 $roleConfig | ConvertTo-Json -Depth 5 | Out-File -FilePath $roleConfigFile -Encoding utf8
 
-# --- Write assignment brief (includes DoD + AC for full context) ---
+# --- Extract Tasks block from TaskDescription (handles ##/###/#### Tasks headings) ---
+$briefDescription = $TaskDescription
+$extractedTasksBlock = ""
+$taskLineCount = 0
+$descCharsBefore = $TaskDescription.Length
+
+Write-Verbose "[$RoomId / $TaskRef] Scanning TaskDescription ($descCharsBefore chars) for Tasks block..."
+
+if ($TaskDescription -match '(?sm)(^#{2,4} Tasks\s*\n.*?)(?=^#{2,4} |\z)') {
+    $extractedTasksBlock = $Matches[1].Trim()
+    $taskLineCount = ($extractedTasksBlock -split '\n' | Where-Object { $_ -match '^\s*-\s+\[' }).Count
+    # Remove the Tasks block from the description used in brief.md
+    $briefDescription = ($TaskDescription -replace '(?sm)(^#{2,4} Tasks\s*\n.*?)(?=^#{2,4} |\z)', '').Trim()
+    $descCharsAfter = $briefDescription.Length
+    Write-Host "  [EXTRACT] $TaskRef → Tasks block found: $taskLineCount checklist item(s), $($descCharsBefore - $descCharsAfter) chars removed from brief" -ForegroundColor Cyan
+    Write-Verbose "[$RoomId / $TaskRef] brief.md body: $descCharsAfter chars | TASKS.md block: $($extractedTasksBlock.Length) chars"
+} else {
+    Write-Host "  [EXTRACT] $TaskRef → No Tasks block found (##/###/####) — brief.md will contain full description" -ForegroundColor DarkYellow
+    Write-Verbose "[$RoomId / $TaskRef] brief.md body: $descCharsBefore chars (unchanged)"
+}
+
+# --- Write assignment brief (includes DoD + AC, EXCLUDES Tasks block) ---
 $dodSection = ""
 if ($DefinitionOfDone -and $DefinitionOfDone.Count -gt 0) {
     $dodLines = ($DefinitionOfDone | ForEach-Object { "- [ ] $_" }) -join "`n"
@@ -293,7 +316,7 @@ $acLines
 $briefContent = @"
 # $TaskRef
 
-$TaskDescription
+$briefDescription
 $dodSection
 $acSection
 
@@ -304,18 +327,38 @@ $($config.working_dir)
 ## Created
 $ts
 "@
-$briefContent | Out-File -FilePath (Join-Path $roomDir "brief.md") -Encoding utf8
+$briefPath = Join-Path $roomDir "brief.md"
+$briefContent | Out-File -FilePath $briefPath -Encoding utf8
+$briefBytes = (Get-Item $briefPath).Length
+Write-Verbose "[$RoomId / $TaskRef] brief.md written: $briefBytes bytes | DoD: $($DefinitionOfDone.Count) item(s) | AC: $($AcceptanceCriteria.Count) item(s)"
 
-# --- Create skeleton TASKS.md for Epics ---
+# --- Create TASKS.md for Epics (from extracted block or fallback skeleton) ---
+$tasksMode = 'none'
 if ($assignmentType -eq 'epic') {
-    $tasksContent = @"
+    if ($extractedTasksBlock) {
+        # Use the actual ### Tasks block from the plan
+        $tasksMode = 'extracted'
+        $tasksContent = @"
+# Tasks for $TaskRef
+
+$assetManifest
+$extractedTasksBlock
+"@
+    } else {
+        # Fallback: no ### Tasks block found — create a minimal skeleton
+        $tasksMode = 'skeleton'
+        $tasksContent = @"
 # Tasks for $TaskRef
 
 $assetManifest
 - [ ] TASK-001 — Planning and context gathering
 - [ ] TASK-002 — Core implementation
 "@
-    $tasksContent | Out-File -FilePath (Join-Path $roomDir "TASKS.md") -Encoding utf8
+    }
+    $tasksPath = Join-Path $roomDir "TASKS.md"
+    $tasksContent | Out-File -FilePath $tasksPath -Encoding utf8
+    $tasksBytes = (Get-Item $tasksPath).Length
+    Write-Verbose "[$RoomId / $TaskRef] TASKS.md written ($tasksMode): $tasksBytes bytes"
 }
 
 # --- Generate per-room lifecycle (if Pipeline or Capabilities provided) ---
@@ -432,9 +475,25 @@ if (Test-Path $PostMessage) {
 }
 
 # --- Output ---
+Write-Output ""
 Write-Output "[CREATED] War-room '$RoomId' for $TaskRef"
-Write-Output "  Path: $roomDir"
-Write-Output "  Status: pending"
-Write-Output "  Role: $AssignedRole → ${baseRole}_${instanceId}.json (model: $roleModel)"
-Write-Output "  Goals: $($DefinitionOfDone.Count) definition(s) of done, $($AcceptanceCriteria.Count) acceptance criteria"
+Write-Output "  Path:      $roomDir"
+Write-Output "  Status:    pending"
+Write-Output "  Role:      $AssignedRole → ${baseRole}_${instanceId}.json (model: $roleModel)"
+Write-Output "  Goals:     $($DefinitionOfDone.Count) definition(s) of done, $($AcceptanceCriteria.Count) acceptance criteria"
+Write-Output ""
+Write-Output "  ┌─ File Extraction Log ─────────────────────────────────────────"
+Write-Output "  │  brief.md     → $([math]::Round($briefBytes/1KB, 1)) KB  (DoD: $($DefinitionOfDone.Count), AC: $($AcceptanceCriteria.Count), Tasks: excluded)"
+if ($assignmentType -eq 'epic') {
+    $tasksLabel = if ($tasksMode -eq 'extracted') {
+        "$taskLineCount task(s) extracted from plan"
+    } else {
+        "skeleton fallback (no ### Tasks block in description)"
+    }
+    Write-Output "  │  TASKS.md    → $([math]::Round($tasksBytes/1KB, 1)) KB  ($tasksLabel)"
+} else {
+    Write-Output "  │  TASKS.md    → not created (type: $assignmentType)"
+}
+Write-Output "  └───────────────────────────────────────────────────────────────"
+
 

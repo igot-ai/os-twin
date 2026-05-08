@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useContext } from 'react';
+import { useContext } from 'react';
 import { PlanContext } from './PlanWorkspace';
 import { StructuredPlanView } from './StructuredPlanView';
 import { MarkdownRenderer } from '@/lib/markdown-renderer';

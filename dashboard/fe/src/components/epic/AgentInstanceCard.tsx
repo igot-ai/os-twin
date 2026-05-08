@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { AgentInstance } from '@/types';
 
 interface AgentInstanceCardProps {

@@ -13,17 +13,15 @@ echo "Creating missing role: $ROLE_NAME..."
 
 MANAGER_PROMPT="We need a new agent role called '$ROLE_NAME'. Please use the create-role skill to scaffold it. You MUST also create the specific SKILLs this role needs (as .md files in $AGENTS_DIR/skills/), and you MUST create a custom PowerShell start script (Start-*.ps1) in its role directory to orchestrate its specific workflow. Ensure the role is registered in registry.json pointing to this new runner script. Explain your reasoning."
 
-if command -v deepagents >/dev/null 2>&1; then
-  DA_CMD="deepagents"
-elif [ -x "$HOME/.local/share/uv/tools/deepagents-cli/bin/deepagents" ]; then
-  DA_CMD="$HOME/.local/share/uv/tools/deepagents-cli/bin/deepagents"
-elif [ -x "$HOME/.local/bin/deepagents" ]; then
-  DA_CMD="$HOME/.local/bin/deepagents"
-else
-  echo "deepagents CLI not found."
+OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
+AGENT_BIN="${OSTWIN_AGENT_CMD:-$OSTWIN_HOME/.agents/bin/agent}"
+
+if [ ! -x "$AGENT_BIN" ]; then
+  echo "Agent binary not found at: $AGENT_BIN"
+  echo "Run the installer or set \$OSTWIN_AGENT_CMD."
   exit 1
 fi
 
 MCP_CONFIG="$AGENTS_DIR/mcp/config.json"
 
-"$DA_CMD" -a manager -n "$MANAGER_PROMPT" --auto-approve --trust-project-mcp --shell-allow-list all --mcp-config "$MCP_CONFIG"
+"$AGENT_BIN" -a manager -n "$MANAGER_PROMPT" --auto-approve --trust-project-mcp --shell-allow-list all --mcp-config "$MCP_CONFIG"

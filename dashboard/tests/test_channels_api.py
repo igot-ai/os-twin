@@ -3,7 +3,6 @@ os.environ["OSTWIN_API_KEY"] = "DEBUG"
 
 import pytest
 import json
-from pathlib import Path
 from fastapi.testclient import TestClient
 from dashboard.api import app
 

@@ -143,3 +143,52 @@ async def send_message(text: str, specific_chat_id: str = None) -> bool:
     except Exception as e:
         logger.error(f"Failed to send Telegram message: {e}")
         return False
+
+async def send_lark_message(message: str, title: str = "🚀 OS-Twin Notification") -> bool:
+    """Send a rich-text message to the configured Lark (Feishu) webhook using Post format."""
+    webhook_url = os.environ.get("LARK_WEBHOOK_URL")
+    if not webhook_url:
+        logger.warning("LARK_WEBHOOK_URL is not configured (os.environ). Skipping message.")
+        return False
+
+    # Process multi-line message into Lark Post segments
+    lines = message.split("\n")
+    content_segments = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Convert simple markdown **bold** to something cleaner for Lark text
+        clean_line = stripped.replace("**", "").replace("`", "")
+        content_segments.append([{"tag": "text", "text": clean_line}])
+
+    payload = {
+        "msg_type": "post",
+        "content": {
+            "post": {
+                "en_us": {
+                    "title": title,
+                    "content": content_segments
+                }
+            }
+        }
+    }
+
+    logger.info(f"Attempting to send Lark notification to {webhook_url[:30]}...")
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(webhook_url, json=payload, timeout=15.0)
+            if response.status_code != 200:
+                logger.error(f"Lark API returned error {response.status_code}: {response.text}")
+                return False
+            logger.info("Successfully sent rich-text message to Lark")
+            return True
+    except httpx.ConnectError:
+        logger.error("Failed to connect to Lark (DNS or Network issue)")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to send Lark message due to unexpected error: {e}")
+        return False
+
+
+

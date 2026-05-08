@@ -2,7 +2,7 @@
 name: input-capture
 description: Simulate mouse clicks, cursor movement, and keyboard input (text, key codes, combos, hold) on macOS via osascript System Events."
 tags: [macos-automation-engineer, automation, macos, input, keyboard, mouse]
-trust_level: core
+
 platform: [macos]
 requires_permissions: [Accessibility]
 shell: bash

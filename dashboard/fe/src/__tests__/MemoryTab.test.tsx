@@ -7,7 +7,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import React from 'react';
 
 // Polyfill ResizeObserver for jsdom
 class MockResizeObserver implements ResizeObserver {
@@ -73,6 +72,7 @@ const MOCK_GRAPH = {
       color: '#8b5cf6',
       weight: 1.6,
       connections: 2,
+      source_id: 'documents/architecture/database.md',
     },
     {
       id: 'api-contracts',
@@ -88,6 +88,7 @@ const MOCK_GRAPH = {
       color: '#8b5cf6',
       weight: 1.3,
       connections: 1,
+      source_id: 'documents/architecture/api.md',
     },
     {
       id: 'minimal-note',
@@ -103,6 +104,7 @@ const MOCK_GRAPH = {
       color: '#facc15',
       weight: 1,
       connections: 0,
+      source_id: 'documents/misc.md',
     },
   ],
   links: [
@@ -262,15 +264,17 @@ describe('MemoryTab', () => {
     it('shows tags in detail panel', async () => {
       render(<MemoryTab />);
       await waitFor(() => {
-        expect(screen.getByText('database')).toBeInTheDocument();
-        expect(screen.getByText('schema')).toBeInTheDocument();
+        expect(screen.getByText('#database')).toBeInTheDocument();
+        expect(screen.getByText('#schema')).toBeInTheDocument();
       });
     });
 
     it('shows keywords in detail panel', async () => {
       render(<MemoryTab />);
       await waitFor(() => {
-        expect(screen.getByText(/users, videos, postgresql/)).toBeInTheDocument();
+        expect(screen.getByText('users')).toBeInTheDocument();
+        expect(screen.getByText('videos')).toBeInTheDocument();
+        expect(screen.getByText('postgresql')).toBeInTheDocument();
       });
     });
   });
@@ -435,7 +439,7 @@ describe('NoteDetail panel', () => {
   it('shows connection count for selected note', async () => {
     render(<MemoryTab />);
     await waitFor(() => {
-      expect(screen.getByText('2 connections')).toBeInTheDocument();
+      expect(screen.getByText('2 links')).toBeInTheDocument();
     });
   });
 

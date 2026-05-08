@@ -18,6 +18,7 @@ from dashboard.routes.plans import (
 @pytest.fixture
 def temp_plan(tmp_path, monkeypatch):
     monkeypatch.setattr("dashboard.routes.plans.PLANS_DIR", tmp_path)
+    monkeypatch.setattr("dashboard.routes.plans.GLOBAL_PLANS_DIR", tmp_path)
     plan_id = "roundtrip-test"
     plan_file = tmp_path / f"{plan_id}.md"
     plan_file.write_text(
@@ -59,17 +60,17 @@ def test_write_epic_asset_sections(temp_plan):
     _update_epic_asset_sections(plan_id, meta["assets"], assets_dir)
 
     content = (tmp_path / f"{plan_id}.md").read_text()
-    # EPIC-001 should have spec.yaml
+    # EPIC-001 should have spec.yaml (now uses > Assets: format)
     epic1_pos = content.index("### EPIC-001")
     epic2_pos = content.index("### EPIC-002")
     epic1_section = content[epic1_pos:epic2_pos]
-    assert "#### Assets" in epic1_section
+    assert "> Assets:" in epic1_section
     assert "spec.yaml" in epic1_section
     assert "api-spec" in epic1_section
 
     # EPIC-002 should have design.png
     epic2_section = content[epic2_pos:]
-    assert "#### Assets" in epic2_section
+    assert "> Assets:" in epic2_section
     assert "design.png" in epic2_section
     assert "design-mockup" in epic2_section
 
@@ -156,7 +157,7 @@ def test_roundtrip_write_parse_write(temp_plan):
 
 
 def test_no_duplicate_asset_sections(temp_plan):
-    """Multiple writes should not duplicate #### Assets sections."""
+    """Multiple writes should not duplicate > Assets: lines."""
     plan_id, tmp_path, assets_dir = temp_plan
 
     (assets_dir / "file.txt").write_text("content")
@@ -175,12 +176,12 @@ def test_no_duplicate_asset_sections(temp_plan):
     _update_epic_asset_sections(plan_id, meta["assets"], assets_dir)
 
     content = (tmp_path / f"{plan_id}.md").read_text()
-    # Count #### Assets occurrences — should be exactly 1 per epic that has assets
-    assert content.count("#### Assets") == 1
+    # Count > Assets: occurrences — should be exactly 1 per epic that has assets
+    assert content.count("> Assets:") == 1
 
 
 def test_epic_with_no_assets_no_section(temp_plan):
-    """Epics without assets should not get #### Assets sections."""
+    """Epics without assets should not get > Assets: lines."""
     plan_id, tmp_path, assets_dir = temp_plan
 
     (assets_dir / "only-epic1.txt").write_text("content")
@@ -195,12 +196,12 @@ def test_epic_with_no_assets_no_section(temp_plan):
     _update_epic_asset_sections(plan_id, meta["assets"], assets_dir)
 
     content = (tmp_path / f"{plan_id}.md").read_text()
-    # EPIC-001 section should have #### Assets
+    # EPIC-001 section should have > Assets:
     epic1_pos = content.index("### EPIC-001")
     epic2_pos = content.index("### EPIC-002")
     epic1_section = content[epic1_pos:epic2_pos]
-    assert "#### Assets" in epic1_section
+    assert "> Assets:" in epic1_section
 
-    # EPIC-002 section should NOT have #### Assets
+    # EPIC-002 section should NOT have > Assets:
     epic2_section = content[epic2_pos:]
-    assert "#### Assets" not in epic2_section
+    assert "> Assets:" not in epic2_section

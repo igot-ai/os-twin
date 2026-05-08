@@ -208,12 +208,11 @@ Describe "Test-GoalCompletion" {
 
     Context "Error handling" {
         It "fails when config.json is missing" {
-            $ErrorActionPreference = 'Continue'
             $badRoom = Join-Path $TestDrive "no-config-room"
             New-Item -ItemType Directory -Path $badRoom -Force | Out-Null
 
-            $errOutput = & $script:TestGoalCompletion -RoomDir $badRoom 2>&1
-            ($errOutput | Out-String) | Should -Match "config.json"
+            { & $script:TestGoalCompletion -RoomDir $badRoom } |
+                Should -Throw "*config.json*"
         }
     }
 }

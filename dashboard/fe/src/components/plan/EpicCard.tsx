@@ -57,7 +57,7 @@ interface EpicCardProps {
 }
 
 export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCardProps) {
-  const { selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen, uploadAssets } = usePlanContext();
+  const { selectedEpicRef, setSelectedEpicRef, setIsContextPanelOpen, uploadAssets, setIsEditingEpic } = usePlanContext();
   const [isHoveringFile, setIsHoveringFile] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -108,6 +108,13 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
   const handleClick = () => {
     setSelectedEpicRef(epic.epic_ref);
     setIsContextPanelOpen(true);
+  };
+
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedEpicRef(epic.epic_ref);
+    setIsContextPanelOpen(true);
+    setIsEditingEpic(true);
   };
 
   const completedTasks = (epic.tasks || []).filter(t => t.completed).length;
@@ -179,12 +186,22 @@ export default function EpicCard({ epic, onCriticalPath, warRoomStatus }: EpicCa
             </span>
           )}
         </div>
-        <div
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase"
-          style={{ background: `${stateColor}15`, color: stateColor }}
-        >
-          <span className={`w-1 h-1 rounded-full ${(epic.lifecycle_state || 'pending') !== 'passed' && (epic.lifecycle_state || 'pending') !== 'signoff' ? 'animate-pulse' : ''}`} style={{ background: stateColor }} />
-          {(epic.lifecycle_state || 'pending').replace('-', ' ')}
+        <div className="flex items-center gap-1">
+          {/* Edit button (visible on hover) */}
+          <button
+            onClick={handleEditClick}
+            className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-primary/10 rounded text-text-faint hover:text-primary transition-all"
+            title="Edit EPIC"
+          >
+            <span className="material-symbols-outlined text-[14px]">edit</span>
+          </button>
+          <div
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase"
+            style={{ background: `${stateColor}15`, color: stateColor }}
+          >
+            <span className={`w-1 h-1 rounded-full ${(epic.lifecycle_state || 'pending') !== 'passed' && (epic.lifecycle_state || 'pending') !== 'signoff' ? 'animate-pulse' : ''}`} style={{ background: stateColor }} />
+            {(epic.lifecycle_state || 'pending').replace('-', ' ')}
+          </div>
         </div>
       </div>
 

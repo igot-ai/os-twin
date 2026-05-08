@@ -174,7 +174,7 @@ The frontend is substantially built across these files:
 
 
 
-4. **Build check** — `cd dashboard/fe && npm run build` must succeed with zero errors related to the new files.
+4. **Build check** — `cd dashboard/fe && pnpm run build` must succeed with zero errors related to the new files.
 
 
 
@@ -188,7 +188,7 @@ The frontend is substantially built across these files:
 
 - [ ] Assistant messages render markdown correctly (code blocks, lists, headers)
 
-- [ ] `cd dashboard/fe && npm run build` succeeds with zero errors
+- [ ] `cd dashboard/fe && pnpm run build` succeeds with zero errors
 
 - [ ] All untracked frontend files (hooks, components, pages) are consistent and import cleanly
 
@@ -278,7 +278,7 @@ pytest dashboard/tests/test_frontend_fallback.py -v
 
 ```bash
 
-cd dashboard/fe && npm run build  # zero errors
+cd dashboard/fe && pnpm run build  # zero errors
 
 python -c "from dashboard.api import app"  # no import errors
 

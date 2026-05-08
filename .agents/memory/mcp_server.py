@@ -110,7 +110,8 @@ def _find_project_root() -> str:
             return parent_cwd
         # Walk up parent chain (deepagents -> langgraph -> wrapper -> shell)
         for _ in range(5):
-            ppid_stat = open(f"/proc/{ppid}/stat").read()
+            with open(f"/proc/{ppid}/stat") as _f:
+                ppid_stat = _f.read()
             ppid = int(ppid_stat.split(")")[1].split()[1])  # 4th field = ppid
             if ppid <= 1:
                 break
@@ -212,28 +213,30 @@ def _patch_mcp_exception_silence() -> None:
 
 
 _patch_mcp_exception_silence()
-LLM_BACKEND = os.getenv("MEMORY_LLM_BACKEND", "gemini")
-LLM_MODEL = os.getenv("MEMORY_LLM_MODEL", "gemini-3-flash-preview")
-EMBEDDING_MODEL = os.getenv("MEMORY_EMBEDDING_MODEL", "gemini-embedding-001")
-EMBEDDING_BACKEND = os.getenv("MEMORY_EMBEDDING_BACKEND", "gemini")
-VECTOR_BACKEND = os.getenv("MEMORY_VECTOR_BACKEND", "zvec")
-CONTEXT_AWARE = os.getenv("MEMORY_CONTEXT_AWARE", "true").lower() == "true"
-CONTEXT_AWARE_TREE = os.getenv("MEMORY_CONTEXT_AWARE_TREE", "false").lower() == "true"
-MAX_LINKS = int(os.getenv("MEMORY_MAX_LINKS", "3"))
-AUTO_SYNC_ENABLED = os.getenv("MEMORY_AUTO_SYNC", "true").lower() == "true"
-AUTO_SYNC_INTERVAL = int(os.getenv("MEMORY_AUTO_SYNC_INTERVAL", "60"))  # seconds
+# --- Configuration ---
+# Defaults come from config.default.json, overridden by ~/.ostwin/.agents/config.json,
+# then MEMORY_* env vars.  Config is re-read on every get_memory() call so the MCP
+# server always reflects the latest dashboard settings.
+from agentic_memory.config import load_config as _load_config
 
-# Comma-separated list of tools to disable (hide from MCP clients).
-# Example: MEMORY_DISABLED_TOOLS="unlink_memories,sync_to_disk"
-# To re-enable all: MEMORY_DISABLED_TOOLS=""
-DISABLED_TOOLS = {
-    t.strip()
-    for t in os.getenv(
-        "MEMORY_DISABLED_TOOLS",
-        "read_memory,update_memory,delete_memory,link_memories,unlink_memories,memory_stats,sync_from_disk,sync_to_disk,graph_snapshot",
-    ).split(",")
-    if t.strip()
-}
+_cfg = _load_config()
+
+# Module-level snapshots used for startup logging and tool registration.
+# These are NOT used by _init_memory — it reads fresh config each time.
+LLM_BACKEND = _cfg.llm.backend
+LLM_MODEL = _cfg.llm.model
+EMBEDDING_MODEL = _cfg.embedding.model
+EMBEDDING_BACKEND = _cfg.embedding.backend
+VECTOR_BACKEND = _cfg.vector.backend
+CONTEXT_AWARE = _cfg.evolution.context_aware
+CONTEXT_AWARE_TREE = _cfg.evolution.context_aware_tree
+MAX_LINKS = _cfg.evolution.max_links
+AUTO_SYNC_ENABLED = _cfg.sync.auto_sync
+AUTO_SYNC_INTERVAL = _cfg.sync.auto_sync_interval
+CONFLICT_RESOLUTION = _cfg.sync.conflict_resolution
+SIMILARITY_WEIGHT = _cfg.search.similarity_weight
+DECAY_HALF_LIFE = _cfg.search.decay_half_life_days
+DISABLED_TOOLS = set(_cfg.disabled_tools)
 
 
 def tool_enabled(name: str) -> bool:
@@ -270,6 +273,11 @@ logger.info(
     VECTOR_BACKEND,
 )
 logger.info("auto_sync=%s  interval=%ds", AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL)
+logger.info(
+    "search: similarity_weight=%.2f  decay_half_life=%.1f days",
+    SIMILARITY_WEIGHT,
+    DECAY_HALF_LIFE,
+)
 
 # --- Background-initialized memory system ---
 # The memory system loads heavy deps (embeddings, vector DB) which takes ~9s.
@@ -280,33 +288,75 @@ _memory = None
 _memory_init_error: Optional[Exception] = None
 _memory_lock = threading.Lock()
 _memory_ready = threading.Event()
+# Track the config fingerprint used to init the current _memory instance so
+# get_memory() can detect when the dashboard settings changed.
+_memory_config_fingerprint: Optional[str] = None
 
 
-def _init_memory():
-    """Initialize the memory system (runs in background thread)."""
-    global _memory, _memory_init_error, AgenticMemorySystem
+def _config_fingerprint(cfg) -> str:
+    """Return a hashable string summarising the config keys that affect the
+    memory system instance (backends, models, vector store, etc.)."""
+    return (
+        f"{cfg.llm.backend}|{cfg.llm.model}|"
+        f"{cfg.embedding.backend}|{cfg.embedding.model}|"
+        f"{cfg.vector.backend}|"
+        f"{cfg.evolution.context_aware}|{cfg.evolution.context_aware_tree}|"
+        f"{cfg.evolution.max_links}|"
+        f"{cfg.search.similarity_weight}|{cfg.search.decay_half_life_days}|"
+        f"{cfg.sync.conflict_resolution}"
+    )
+
+
+def _init_memory(cfg=None):
+    """Initialize the memory system (runs in background thread).
+
+    If *cfg* is None, a fresh config is loaded from all layers
+    (defaults → dashboard → env vars).
+    """
+    global _memory, _memory_init_error, _memory_config_fingerprint, AgenticMemorySystem
     try:
+        if cfg is None:
+            cfg = _load_config()
+
         logger.info("Background: importing agentic_memory...")
         from agentic_memory.memory_system import AgenticMemorySystem as _AMS
 
         AgenticMemorySystem = _AMS
-        logger.info("Background: initializing memory system...")
+        logger.info(
+            "Background: initializing memory system "
+            "(llm=%s/%s  embedding=%s/%s  vector=%s)...",
+            cfg.llm.backend, cfg.llm.model,
+            cfg.embedding.backend, cfg.embedding.model,
+            cfg.vector.backend,
+        )
         with _memory_lock:
             _memory = AgenticMemorySystem(
-                model_name=EMBEDDING_MODEL,
-                embedding_backend=EMBEDDING_BACKEND,
-                vector_backend=VECTOR_BACKEND,
-                llm_backend=LLM_BACKEND,
-                llm_model=LLM_MODEL,
+                model_name=cfg.embedding.model,
+                embedding_backend=cfg.embedding.backend,
+                vector_backend=cfg.vector.backend,
+                llm_backend=cfg.llm.backend,
+                llm_model=cfg.llm.model,
                 persist_dir=PERSIST_DIR,
-                context_aware_analysis=CONTEXT_AWARE,
-                context_aware_tree=CONTEXT_AWARE_TREE,
-                max_links=MAX_LINKS,
+                context_aware_analysis=cfg.evolution.context_aware,
+                context_aware_tree=cfg.evolution.context_aware_tree,
+                max_links=cfg.evolution.max_links,
+                similarity_weight=cfg.search.similarity_weight,
+                decay_half_life_days=cfg.search.decay_half_life_days,
+                conflict_resolution=cfg.sync.conflict_resolution,
             )
+            _memory_config_fingerprint = _config_fingerprint(cfg)
         logger.info(
             "Background: memory system ready (%d memories loaded)",
             len(_memory.memories),
         )
+
+        # Import docs if .memory/docs/ exists
+        docs_dir = os.path.join(PERSIST_DIR, "docs")
+        if os.path.isdir(docs_dir):
+            logger.info("Background: docs/ folder detected, importing...")
+            import_result = _memory.import_docs(docs_dir)
+            logger.info("Background: import_docs result: %s", import_result)
+
     except Exception as exc:
         _memory_init_error = exc
         logger.exception("Background: failed to initialize memory system")
@@ -322,10 +372,17 @@ _init_thread.start()
 def get_memory():
     """Get the memory system, waiting for background init if needed.
 
+    When the dashboard saves memory/knowledge settings it writes a sentinel
+    file (``~/.ostwin/.agents/.memory_config_dirty``).  This function checks
+    for that flag on every call (cheap ``os.path.exists``) and only reloads
+    + reinitialises when the flag is present.
+
     Raises a RuntimeError that includes the original initialization exception
     (and python interpreter path) so MCP clients see actionable diagnostics
     instead of a generic failure.
     """
+    global _memory, _memory_init_error, _memory_config_fingerprint
+
     if _memory is None:
         logger.info("Waiting for memory system initialization...")
         _memory_ready.wait(timeout=60)
@@ -342,6 +399,32 @@ def get_memory():
                 "Memory system failed to initialize within 60s "
                 f"(python={_sys.executable}). See {os.path.join(LOG_DIR, 'mcp_server.log')}."
             )
+
+    # --- Hot-reload: check for dashboard config-dirty flag ---
+    _dirty_flag = os.path.join(
+        os.path.expanduser("~"), ".ostwin", ".agents", ".memory_config_dirty"
+    )
+    if os.path.exists(_dirty_flag):
+        try:
+            os.remove(_dirty_flag)
+            logger.info("Config-dirty flag detected, reloading config...")
+            fresh_cfg = _load_config()
+            fresh_fp = _config_fingerprint(fresh_cfg)
+            if fresh_fp != _memory_config_fingerprint:
+                logger.info(
+                    "Config change detected (old=%s new=%s), reinitializing memory system...",
+                    _memory_config_fingerprint,
+                    fresh_fp,
+                )
+                _memory_ready.clear()
+                _memory = None
+                _memory_init_error = None
+                _init_memory(cfg=fresh_cfg)
+            else:
+                logger.info("Config-dirty flag was set but config unchanged — skipping reinit")
+        except Exception:
+            logger.exception("Failed to reload config from dirty flag — using existing memory system")
+
     return _memory
 
 
@@ -425,7 +508,8 @@ def _collect_links(notes) -> tuple[list[dict[str, Any]], int]:
     links: list[dict[str, Any]] = []
     link_pairs: set[tuple[str, str]] = set()
     total_forward_links = 0
-    memories = get_memory().memories
+    mem = get_memory()
+    memories = mem.memories
 
     for note in notes:
         for target_id in note.links:
@@ -450,7 +534,11 @@ def _collect_links(notes) -> tuple[list[dict[str, Any]], int]:
 
 
 def _collect_nodes(notes, group_meta) -> list[dict[str, Any]]:
-    """Build node list with group colors and weights."""
+    """Build node list with group colors and weights.
+
+    Content and summary are excluded to reduce memory allocation (F14).
+    Clients that need full content should call read_memory() per-node.
+    """
     nodes: list[dict[str, Any]] = []
     for note in notes:
         group_id = _slugify(_note_group_key(note))
@@ -466,8 +554,6 @@ def _collect_nodes(notes, group_meta) -> list[dict[str, Any]]:
                 "path": note.filepath,
                 "pathLabel": note.path,
                 "excerpt": _note_excerpt(note),
-                "content": note.content,
-                "summary": note.summary,
                 "keywords": note.keywords,
                 "tags": note.tags,
                 "groupId": group_id,
@@ -675,11 +761,12 @@ def search_memory(query: str, k: int = 5) -> str:
         JSON array of matching memories with content, tags, path, and links.
     """
     logger.info("search_memory: query=%r k=%d", query, k)
-    results = get_memory().search(query, k=k)
+    mem = get_memory()
+    results = mem.search(query, k=k)
     logger.info("search_memory: returned %d results", len(results))
     output = []
     for r in results:
-        note = get_memory().read(r["id"])
+        note = mem.read(r["id"])
         entry = {
             "id": r["id"],
             "name": note.name if note else None,
@@ -1188,6 +1275,67 @@ def find_memory(args: Optional[str] = None) -> str:
         return "Error: find timed out after 30 seconds."
     except FileNotFoundError:
         return "Error: find command not found on this system."
+
+
+@optional_tool("find_notes_by_knowledge_link")
+def find_notes_by_knowledge_link(
+    namespace: str,
+    file_hash: str,
+    chunk_idx: Optional[int] = None,
+) -> str:
+    """Find memory notes that link to a specific knowledge chunk.
+
+    This is the reverse lookup for knowledge:// links. Given a namespace,
+    file_hash, and optionally a chunk index, returns all memory notes
+    that cite that knowledge chunk.
+
+    Args:
+        namespace: The knowledge namespace (e.g., "docs", "api")
+        file_hash: SHA256 hash of the source file (truncated)
+        chunk_idx: Optional chunk index. If None, matches any chunk in the file.
+
+    Returns:
+        JSON array of matching note IDs. Empty array if no matches.
+    """
+    logger.info(
+        "find_notes_by_knowledge_link: ns=%s hash=%s idx=%s",
+        namespace,
+        file_hash,
+        chunk_idx,
+    )
+
+    mem = get_memory()
+    matching_ids = []
+
+    # Build the link prefix to search for
+    if chunk_idx is not None:
+        target_prefix = f"knowledge://{namespace}/{file_hash}#{chunk_idx}"
+    else:
+        target_prefix = f"knowledge://{namespace}/{file_hash}#"
+
+    for note_id, note in mem.memories.items():
+        if not note.links:
+            continue
+        for link in note.links:
+            if not link.startswith("knowledge://"):
+                continue
+            if chunk_idx is not None:
+                # Exact match
+                if link == target_prefix:
+                    matching_ids.append(note_id)
+                    break
+            else:
+                # Prefix match (any chunk in this file)
+                if link.startswith(target_prefix):
+                    matching_ids.append(note_id)
+                    break
+
+    logger.info(
+        "find_notes_by_knowledge_link: found %d notes",
+        len(matching_ids),
+    )
+
+    return json.dumps(matching_ids, ensure_ascii=False)
 
 
 if __name__ == "__main__":

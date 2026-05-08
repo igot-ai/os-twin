@@ -42,7 +42,7 @@ setup_env() {
 # AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key-here
 
 # ── Dashboard settings ──────────────────────────────────────────────────────
-# DASHBOARD_PORT=9000
+# DASHBOARD_PORT=3366
 # DASHBOARD_HOST=0.0.0.0
 
 # ── Dashboard Authentication ────────────────────────────────────────────────
@@ -136,9 +136,9 @@ fi
 # while keeping the default local-first for offline/privacy-sensitive setups.
 if [ -n "${GOOGLE_API_KEY:-}" ] && [ "${MEMORY_LLM_BACKEND:-huggingface}" = "huggingface" ]; then
   export MEMORY_LLM_BACKEND=gemini
-  export MEMORY_LLM_MODEL="${MEMORY_LLM_MODEL:-gemini-3-flash-preview}"
+  export MEMORY_LLM_MODEL=gemini-3-flash-preview
   export MEMORY_EMBEDDING_BACKEND=gemini
-  export MEMORY_EMBEDDING_MODEL="${MEMORY_EMBEDDING_MODEL:-gemini-embedding-001}"
+  export MEMORY_EMBEDDING_MODEL=gemini-embedding-001
 fi
 ENVSHEOF
     chmod 600 "$env_sh"

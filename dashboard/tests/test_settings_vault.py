@@ -11,10 +11,8 @@ Covers:
 """
 
 import os
-import json
 import threading
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from dashboard.lib.settings.vault import SettingsVault, get_vault, reset_vault
@@ -228,7 +226,6 @@ def test_encrypted_file_health(tmp_path):
 
 
 def test_encrypted_file_permissions(tmp_path):
-    import stat as stat_mod
     path = tmp_path / "vault.enc"
     backend = EncryptedFileBackend(path=path)
     backend.set("providers", "k", "v")

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useArtifacts } from '@/hooks/use-war-room';
 
 interface ArtifactsViewerProps {

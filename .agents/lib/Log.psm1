@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # Agent OS — Structured Logging Module
 #
 # Import:

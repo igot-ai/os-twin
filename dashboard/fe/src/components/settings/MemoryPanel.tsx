@@ -1,12 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ProvenanceChip } from './ProvenanceChip';
+import { ProviderIcon } from './ProviderIcon';
+import { ModelSelect } from './ModelSelect';
+import { ModelConfigSample } from './ModelConfigSample';
 import type {
   MemorySettings,
   MemoryLLMBackend,
   MemoryEmbeddingBackend,
   MemoryVectorBackend,
+  ModelInfo,
 } from '@/types/settings';
 import { apiGet } from '@/lib/api-client';
 
@@ -14,6 +18,7 @@ export interface MemoryPanelProps {
   memory: MemorySettings;
   provenance?: Record<string, string>;
   onUpdate: (value: Partial<MemorySettings>) => void;
+  allModels?: ModelInfo[];
 }
 
 // ── Backend option definitions ──────────────────────────────────────────────
@@ -27,17 +32,13 @@ interface BackendOption {
 }
 
 const LLM_BACKENDS: BackendOption[] = [
-  { value: 'huggingface', label: 'HuggingFace (Local)', description: 'Local inference — no API key needed', icon: 'precision_manufacturing' },
-  { value: 'gemini',      label: 'Gemini',              description: 'Google Gemini API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
-  { value: 'openai',      label: 'OpenAI',              description: 'GPT models via OpenAI API', requiresKey: 'OPENAI_API_KEY', icon: 'smart_toy' },
-  { value: 'ollama',      label: 'Ollama (Local)',       description: 'Local Ollama server', icon: 'dns' },
-  { value: 'openrouter',  label: 'OpenRouter',           description: 'Multi-provider gateway', requiresKey: 'OPENROUTER_API_KEY', icon: 'hub' },
-  { value: 'sglang',      label: 'SGLang (Local)',       description: 'Local SGLang server', icon: 'terminal' },
+  { value: 'ollama',           label: 'Ollama (Local)',        description: 'Local Ollama server', icon: 'dns' },
+  { value: 'openai-compatible', label: 'OpenAI-Compatible',    description: 'Any OpenAI-compatible API server', icon: 'api' },
 ];
 
 const EMBEDDING_BACKENDS: BackendOption[] = [
-  { value: 'sentence-transformer', label: 'SentenceTransformer (Local)', description: 'Local embedding — no API key', icon: 'precision_manufacturing' },
-  { value: 'gemini',               label: 'Gemini Embedding',           description: 'Google Gemini embedding API', requiresKey: 'GOOGLE_API_KEY', icon: 'auto_awesome' },
+  { value: 'ollama',               label: 'Ollama (Local)',             description: 'Local Ollama embedding server', icon: 'dns' },
+  { value: 'openai-compatible',    label: 'OpenAI-Compatible',          description: 'Any OpenAI-compatible embedding API', icon: 'api' },
 ];
 
 const VECTOR_BACKENDS: BackendOption[] = [
@@ -48,38 +49,24 @@ const VECTOR_BACKENDS: BackendOption[] = [
 // ── Recommended models per backend ──────────────────────────────────────────
 
 const LLM_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
-  huggingface: [
-    { model: 'LiquidAI/LFM2-1.2B-Extract', label: 'LFM2 1.2B Extract (recommended)' },
-  ],
-  gemini: [
-    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (recommended)' },
-    { model: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash' },
-    { model: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-  ],
-  openai: [
-    { model: 'gpt-4o-mini', label: 'GPT-4o Mini (recommended)' },
-    { model: 'gpt-4o', label: 'GPT-4o' },
-  ],
   ollama: [
     { model: 'llama3.2', label: 'Llama 3.2 (recommended)' },
     { model: 'mistral', label: 'Mistral' },
   ],
-  openrouter: [
-    { model: 'openai/gpt-4o-mini', label: 'GPT-4o Mini via OpenRouter' },
-    { model: 'google/gemini-flash-1.5', label: 'Gemini Flash via OpenRouter' },
-  ],
-  sglang: [
-    { model: 'default', label: 'Default model on SGLang server' },
+  'openai-compatible': [
+    { model: 'gpt-4', label: 'GPT-4' },
+    { model: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
   ],
 };
 
 const EMBEDDING_MODEL_SUGGESTIONS: Record<string, { model: string; label: string }[]> = {
-  'sentence-transformer': [
-    { model: 'microsoft/harrier-oss-v1-0.6b', label: 'Harrier OSS 0.6B (recommended)' },
-    { model: 'all-MiniLM-L6-v2', label: 'MiniLM L6 v2 (lightweight)' },
+  ollama: [
+    { model: 'leoipulsar/harrier-0.6b', label: 'Harrier 0.6B (recommended)' },
+    { model: 'embeddinggemma', label: 'Embedding Gemma' },
+    { model: 'qwen3-embedding:0.6b', label: 'Qwen3 Embedding 0.6B' },
   ],
-  gemini: [
-    { model: 'gemini-embedding-001', label: 'Gemini Embedding 001 (recommended)' },
+  'openai-compatible': [
+    { model: 'default', label: 'Model configured on your server' },
   ],
 };
 
@@ -89,10 +76,10 @@ const DEFAULTS: Required<Pick<MemorySettings,
   'llm_backend' | 'llm_model' | 'embedding_backend' | 'embedding_model' |
   'vector_backend' | 'context_aware' | 'auto_sync' | 'auto_sync_interval' | 'ttl_days'
 >> = {
-  llm_backend: 'huggingface',
-  llm_model: 'LiquidAI/LFM2-1.2B-Extract',
-  embedding_backend: 'sentence-transformer',
-  embedding_model: 'microsoft/harrier-oss-v1-0.6b',
+  llm_backend: 'ollama',
+  llm_model: 'llama3.2',
+  embedding_backend: 'ollama',
+  embedding_model: 'leoipulsar/harrier-0.6b',
   vector_backend: 'zvec',
   context_aware: true,
   auto_sync: true,
@@ -102,26 +89,111 @@ const DEFAULTS: Required<Pick<MemorySettings,
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelProps) {
+export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] }: MemoryPanelProps) {
   const [availableProviders, setAvailableProviders] = useState<Set<string>>(new Set());
+  
+  // Merge with defaults
+  const effective = { ...DEFAULTS, ...memory };
+  
+  // Local state for all inputs - initialized from effective settings
+  const [draft, setDraft] = useState<MemorySettings>(effective);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Detect which API keys are available (for showing provider availability badges)
+  const [llmModelInput, setLlmModelInput] = useState(draft.llm_model ?? '');
+  const [embeddingModelInput, setEmbeddingModelInput] = useState(draft.embedding_model ?? '');
+  const [syncIntervalInput, setSyncIntervalInput] = useState(String(draft.auto_sync_interval ?? 60));
+  const [ttlDaysInput, setTtlDaysInput] = useState(String(draft.ttl_days ?? 30));
+  
+  // OpenAI-compatible specific fields
+  const [llmCompatibleUrl, setLlmCompatibleUrl] = useState(draft.llm_compatible_url ?? '');
+  const [llmCompatibleKey, setLlmCompatibleKey] = useState(draft.llm_compatible_key ?? '');
+  const [embeddingCompatibleUrl, setEmbeddingCompatibleUrl] = useState(draft.embedding_compatible_url ?? '');
+  const [embeddingCompatibleKey, setEmbeddingCompatibleKey] = useState(draft.embedding_compatible_key ?? '');
+
+  // Sync draft if external memory settings change (but don't overwrite if user is editing)
   useEffect(() => {
-    const detect = async () => {
+    if (!hasChanges) {
+      setDraft({ ...DEFAULTS, ...memory });
+      setLlmModelInput(memory.llm_model ?? '');
+      setEmbeddingModelInput(memory.embedding_model ?? '');
+      setSyncIntervalInput(String(memory.auto_sync_interval ?? 60));
+      setTtlDaysInput(String(memory.ttl_days ?? 30));
+      setLlmCompatibleUrl(memory.llm_compatible_url ?? '');
+      setLlmCompatibleKey(memory.llm_compatible_key ?? '');
+      setEmbeddingCompatibleUrl(memory.embedding_compatible_url ?? '');
+      setEmbeddingCompatibleKey(memory.embedding_compatible_key ?? '');
+    }
+  }, [memory, hasChanges]);
+
+  // Helper to update draft
+  const updateDraft = (updates: Partial<MemorySettings>) => {
+    setDraft((prev) => ({ ...prev, ...updates }));
+    setHasChanges(true);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onUpdate(draft);
+      setHasChanges(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const [ollamaHealth, setOllamaHealth] = useState<Record<string, { running: boolean; model_exists: boolean; pulling: boolean; progress?: string }>>({});
+  const [ollamaModels, setOllamaModels] = useState<{ raw_name: string; display_name: string; is_embed: boolean }[]>([]);
+
+  // Fetch all installed Ollama models
+  useEffect(() => {
+    const fetchModels = async () => {
       try {
-        const raw = await apiGet<Record<string, { is_set: boolean }>>('/settings/vault/providers');
-        const entries = (raw as { keys?: Record<string, { is_set: boolean }> }).keys ?? raw;
-        const providers = new Set<string>();
-        Object.entries(entries).forEach(([key, value]) => {
-          if (value?.is_set) providers.add(key);
-        });
-        setAvailableProviders(providers);
-      } catch {
-        setAvailableProviders(new Set());
+        const { apiGet } = await import('@/lib/api-client');
+        const data = await apiGet<{ models: { raw_name: string; display_name: string; is_embed: boolean }[] }>('/settings/ollama/models');
+        setOllamaModels(data.models || []);
+      } catch (err) {
+        setOllamaModels([]);
       }
     };
-    detect();
-  }, []);
+    
+    if (draft.llm_backend === 'ollama' || draft.embedding_backend === 'ollama') {
+      fetchModels();
+    }
+  }, [draft.llm_backend, draft.embedding_backend]);
+
+  // Check health when model changes
+  useEffect(() => {
+    const checkHealth = async (model: string) => {
+      if (!model) return;
+      try {
+        const { apiGet } = await import('@/lib/api-client');
+        const data = await apiGet<{ running: boolean; model_exists: boolean }>(`/settings/ollama/health?model=${model}`);
+        setOllamaHealth((prev) => ({
+          ...prev,
+          [model]: { ...prev[model], ...data, pulling: prev[model]?.pulling || false },
+        }));
+      } catch (err) {
+        setOllamaHealth((prev) => ({
+          ...prev,
+          [model]: { running: false, model_exists: false, pulling: false, progress: 'Could not connect to backend to check Ollama status.' },
+        }));
+      }
+    };
+
+    if (draft.llm_backend === 'ollama' && draft.llm_model) {
+      checkHealth(draft.llm_model);
+    }
+    if (draft.embedding_backend === 'ollama' && draft.embedding_model) {
+      checkHealth(draft.embedding_model);
+    }
+  }, [draft.llm_backend, draft.llm_model, draft.embedding_backend, draft.embedding_model]);
+
+  // Filter out embedding models from the model picker
+  const chatModels = useMemo(
+    () => allModels.filter((m) => !m.id.toLowerCase().includes('embed')),
+    [allModels],
+  );
 
   // Resolve a provider key to whether it's available
   const isKeyAvailable = (envKey?: string): boolean | null => {
@@ -135,21 +207,158 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
     return provider ? availableProviders.has(provider) : false;
   };
 
-  // Merge with defaults
-  const effective = { ...DEFAULTS, ...memory };
+  const pullModel = async (model: string) => {
+    setOllamaHealth((prev) => ({
+      ...prev,
+      [model]: { ...prev[model], pulling: true, progress: 'Starting pull...' },
+    }));
+
+    try {
+      const response = await fetch('/api/settings/ollama/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      });
+
+      if (!response.body) throw new Error('No body');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const lines = decoder.decode(value).split('\n').filter(Boolean);
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line);
+            if (data.error) throw new Error(data.error);
+            if (data.status) {
+              let msg = data.status;
+              if (data.total && data.completed) {
+                const percent = Math.round((data.completed / data.total) * 100);
+                msg += ` (${percent}%)`;
+              }
+              setOllamaHealth((prev) => ({
+                ...prev,
+                [model]: { ...prev[model], progress: msg },
+              }));
+            }
+          } catch (e) {
+            // parse error
+          }
+        }
+      }
+      
+      // Success! Re-check health
+      const { apiGet } = await import('@/lib/api-client');
+      const data = await apiGet<{ running: boolean; model_exists: boolean }>(`/settings/ollama/health?model=${model}`);
+      setOllamaHealth((prev) => ({
+        ...prev,
+        [model]: { ...data, pulling: false },
+      }));
+
+    } catch (e) {
+      setOllamaHealth((prev) => ({
+        ...prev,
+        [model]: { ...prev[model], pulling: false, progress: `Error: ${e}` },
+      }));
+    }
+  };
+
+  const renderOllamaBanner = () => {
+    const usesOllamaLlm = draft.llm_backend === 'ollama' && draft.llm_model;
+    const usesOllamaEmbed = draft.embedding_backend === 'ollama' && draft.embedding_model;
+
+    if (!usesOllamaLlm && !usesOllamaEmbed) return null;
+
+    const llmStatus = usesOllamaLlm && draft.llm_model ? ollamaHealth[draft.llm_model] : null;
+    const embedStatus = usesOllamaEmbed && draft.embedding_model ? ollamaHealth[draft.embedding_model] : null;
+
+    if ((usesOllamaLlm && !llmStatus) || (usesOllamaEmbed && !embedStatus)) return null;
+
+    const notRunning = (llmStatus && !llmStatus.running) || (embedStatus && !embedStatus.running);
+    const pullingLlm = llmStatus?.pulling;
+    const pullingEmbed = embedStatus?.pulling;
+    const missingLlm = llmStatus?.running && !llmStatus.model_exists && !pullingLlm;
+    const missingEmbed = embedStatus?.running && !embedStatus.model_exists && !pullingEmbed;
+
+    if (notRunning) {
+      return (
+        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+          <span className="material-symbols-outlined text-red-600 mt-0.5">error</span>
+          <div>
+            <h4 className="text-sm font-bold text-red-800">Ollama is not running</h4>
+            <p className="text-xs text-red-600 mt-1">You have selected Ollama as a backend, but the local Ollama server cannot be reached. Please start the Ollama application.</p>
+          </div>
+        </div>
+      );
+    }
+
+    const pullingModels = [];
+    if (pullingLlm) pullingModels.push({ model: draft.llm_model!, progress: llmStatus.progress });
+    if (pullingEmbed && draft.embedding_model !== draft.llm_model) {
+      pullingModels.push({ model: draft.embedding_model!, progress: embedStatus.progress });
+    }
+
+    if (pullingModels.length > 0) {
+      return (
+        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex flex-col gap-2">
+          {pullingModels.map(pm => (
+            <div key={pm.model} className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-blue-600 animate-spin">progress_activity</span>
+              <div className="text-sm text-blue-800 font-medium">
+                Downloading {pm.model}... <span className="text-xs font-normal text-blue-600 ml-2">{pm.progress}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    const missingModels = [];
+    if (missingLlm) missingModels.push(draft.llm_model!);
+    if (missingEmbed && !missingModels.includes(draft.embedding_model!)) missingModels.push(draft.embedding_model!);
+
+    if (missingModels.length > 0) {
+      return (
+        <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+          <span className="material-symbols-outlined text-amber-600 mt-0.5">warning</span>
+          <div className="flex-1">
+            <h4 className="text-sm font-bold text-amber-800">Missing Local Models</h4>
+            <p className="text-xs text-amber-700 mt-1 mb-3">The following models are required but not found in your local Ollama installation.</p>
+            <div className="flex flex-wrap gap-2">
+              {missingModels.map(model => (
+                <button
+                  key={model}
+                  onClick={() => pullModel(model)}
+                  className="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded hover:bg-amber-700 transition-colors shadow-sm"
+                >
+                  Download {model}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
 
   // When LLM backend changes, auto-set the recommended model
   const handleLLMBackendChange = (backend: MemoryLLMBackend) => {
     const suggestions = LLM_MODEL_SUGGESTIONS[backend];
     const recommendedModel = suggestions?.[0]?.model ?? '';
-    onUpdate({ llm_backend: backend, llm_model: recommendedModel });
+    updateDraft({ llm_backend: backend, llm_model: recommendedModel });
   };
 
   // When embedding backend changes, auto-set the recommended model
   const handleEmbeddingBackendChange = (backend: MemoryEmbeddingBackend) => {
     const suggestions = EMBEDDING_MODEL_SUGGESTIONS[backend];
     const recommendedModel = suggestions?.[0]?.model ?? '';
-    onUpdate({ embedding_backend: backend, embedding_model: recommendedModel });
+    updateDraft({ embedding_backend: backend, embedding_model: recommendedModel });
   };
 
   // Input field style constants
@@ -173,6 +382,8 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
           Configure the agentic memory system: processing model, embeddings, and vector storage.
           Settings map to <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">MEMORY_*</code> environment variables.
         </p>
+        
+        {renderOllamaBanner()}
       </div>
 
       {/* ── Section 1: Processing Model ────────────────────── */}
@@ -191,7 +402,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
             </label>
             <div className="space-y-1.5">
               {LLM_BACKENDS.map((opt) => {
-                const isSelected = effective.llm_backend === opt.value;
+                const isSelected = draft.llm_backend === opt.value;
                 const keyAvailable = isKeyAvailable(opt.requiresKey);
                 const isDisabled = keyAvailable === false;
                 return (
@@ -207,9 +418,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
                         : 'bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 cursor-pointer'
                     }`}
                   >
-                    <span className={`material-symbols-outlined text-base ${isSelected ? 'text-blue-600' : 'text-slate-400'}`}>
-                      {opt.icon}
-                    </span>
+                    <ProviderIcon provider={opt.value} size={16} className={isSelected ? '' : 'opacity-50'} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-700'}`}>
@@ -249,14 +458,14 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
               Model
             </label>
             {/* Suggested models for the selected backend */}
-            {(LLM_MODEL_SUGGESTIONS[effective.llm_backend] ?? []).length > 0 && (
+            {(draft.llm_backend && (LLM_MODEL_SUGGESTIONS[draft.llm_backend] ?? []).length > 0) && (
               <div className="space-y-1 mb-3">
-                {(LLM_MODEL_SUGGESTIONS[effective.llm_backend] ?? []).map((s) => {
-                  const isActive = effective.llm_model === s.model;
+                {(draft.llm_backend ? (LLM_MODEL_SUGGESTIONS[draft.llm_backend] ?? []) : []).map((s: { model: string; label: string }) => {
+                  const isActive = draft.llm_model === s.model;
                   return (
                     <button
                       key={s.model}
-                      onClick={() => onUpdate({ llm_model: s.model })}
+                      onClick={() => updateDraft({ llm_model: s.model })}
                       className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between ${
                         isActive
                           ? 'bg-blue-50 border border-blue-400 text-blue-700 font-semibold'
@@ -275,13 +484,90 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
               <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
               <input
                 type="text"
-                value={effective.llm_model}
-                onChange={(e) => onUpdate({ llm_model: e.target.value })}
-                placeholder="e.g. LiquidAI/LFM2-1.2B-Extract"
+                value={llmModelInput}
+                onChange={(e) => setLlmModelInput(e.target.value)}
+                onBlur={() => updateDraft({ llm_model: llmModelInput })}
+                placeholder="e.g. llama3.2"
                 className="w-full px-3 py-2 rounded-md text-xs font-mono"
                 style={inputStyle}
               />
             </div>
+            
+            {/* Installed Ollama Models Dropdown */}
+            {draft.llm_backend === 'ollama' && ollamaModels.length > 0 && (
+              <div className="mt-3">
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Or pick from installed Ollama models:
+                </label>
+                <select
+                  value={draft.llm_model || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLlmModelInput(val);
+                    updateDraft({ llm_model: val });
+                  }}
+                  className="w-full px-3 py-2 rounded-md text-xs font-mono bg-white border border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                >
+                  <option value="" disabled>— Select installed model —</option>
+                  {ollamaModels.filter(m => !m.is_embed).map(m => (
+                    <option key={m.raw_name} value={m.display_name}>{m.display_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
+            
+            {/* Model picker from configured providers */}
+            {draft.llm_backend === 'openai-compatible' && chatModels.length > 0 && (
+              <div className="mt-3">
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Pick from configured providers:
+                </label>
+                <ModelSelect
+                  value={draft.llm_model || ''}
+                  onChange={(modelId) => {
+                    setLlmModelInput(modelId);
+                    updateDraft({ llm_model: modelId });
+                  }}
+                  models={chatModels}
+                  showTier={true}
+                  showContext={true}
+                  placeholder="— Select from providers —"
+                />
+              </div>
+            )}
+
+            {/* OpenAI-compatible specific fields */}
+            {draft.llm_backend === 'openai-compatible' && (
+              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
+                  <input
+                    type="text"
+                    value={llmCompatibleUrl}
+                    onChange={(e) => setLlmCompatibleUrl(e.target.value)}
+                    onBlur={() => updateDraft({ llm_compatible_url: llmCompatibleUrl })}
+                    placeholder="http://localhost:8000/v1"
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
+                  <input
+                    type="password"
+                    value={llmCompatibleKey}
+                    onChange={(e) => setLlmCompatibleKey(e.target.value)}
+                    onBlur={() => updateDraft({ llm_compatible_key: llmCompatibleKey })}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            )}
+            
             {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
           </div>
         </div>
@@ -303,7 +589,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
             </label>
             <div className="space-y-1.5">
               {EMBEDDING_BACKENDS.map((opt) => {
-                const isSelected = effective.embedding_backend === opt.value;
+                const isSelected = draft.embedding_backend === opt.value;
                 const keyAvailable = isKeyAvailable(opt.requiresKey);
                 const isDisabled = keyAvailable === false;
                 return (
@@ -319,9 +605,7 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
                         : 'bg-white border border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 cursor-pointer'
                     }`}
                   >
-                    <span className={`material-symbols-outlined text-base ${isSelected ? 'text-purple-600' : 'text-slate-400'}`}>
-                      {opt.icon}
-                    </span>
+                    <ProviderIcon provider={opt.value} size={16} className={isSelected ? '' : 'opacity-50'} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className={`text-xs font-semibold ${isSelected ? 'text-purple-700' : 'text-slate-700'}`}>
@@ -354,14 +638,14 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
             <label className="text-[10px] font-semibold uppercase tracking-wider mb-2 block text-slate-500">
               Embedding Model
             </label>
-            {(EMBEDDING_MODEL_SUGGESTIONS[effective.embedding_backend] ?? []).length > 0 && (
+            {(draft.embedding_backend && (EMBEDDING_MODEL_SUGGESTIONS[draft.embedding_backend] ?? []).length > 0) && (
               <div className="space-y-1 mb-3">
-                {(EMBEDDING_MODEL_SUGGESTIONS[effective.embedding_backend] ?? []).map((s) => {
-                  const isActive = effective.embedding_model === s.model;
+                {(draft.embedding_backend ? (EMBEDDING_MODEL_SUGGESTIONS[draft.embedding_backend] ?? []) : []).map((s: { model: string; label: string }) => {
+                  const isActive = draft.embedding_model === s.model;
                   return (
                     <button
                       key={s.model}
-                      onClick={() => onUpdate({ embedding_model: s.model })}
+                      onClick={() => updateDraft({ embedding_model: s.model })}
                       className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center justify-between ${
                         isActive
                           ? 'bg-purple-50 border border-purple-400 text-purple-700 font-semibold'
@@ -379,14 +663,89 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
               <label className="text-[9px] text-slate-400 mb-1 block">Or enter a custom model ID:</label>
               <input
                 type="text"
-                value={effective.embedding_model}
-                onChange={(e) => onUpdate({ embedding_model: e.target.value })}
-                placeholder="e.g. microsoft/harrier-oss-v1-0.6b"
+                value={embeddingModelInput}
+                onChange={(e) => setEmbeddingModelInput(e.target.value)}
+                onBlur={() => updateDraft({ embedding_model: embeddingModelInput })}
+                placeholder="e.g. leoipulsar/harrier-0.6b"
                 className="w-full px-3 py-2 rounded-md text-xs font-mono"
                 style={inputStyle}
               />
             </div>
+
+            {/* Installed Ollama Models Dropdown */}
+            {draft.embedding_backend === 'ollama' && ollamaModels.length > 0 && (
+              <div className="mt-3">
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Or pick from installed Ollama models:
+                </label>
+                <select
+                  value={draft.embedding_model || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setEmbeddingModelInput(val);
+                    updateDraft({ embedding_model: val });
+                  }}
+                  className="w-full px-3 py-2 rounded-md text-xs font-mono bg-white border border-slate-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none"
+                >
+                  <option value="" disabled>— Select installed model —</option>
+                  {ollamaModels.filter(m => m.is_embed).map(m => (
+                    <option key={m.raw_name} value={m.display_name}>{m.display_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
             {provenance.embedding_model && <ProvenanceChip source={provenance.embedding_model} />}
+            
+            {/* Model picker from configured providers */}
+            {draft.embedding_backend === 'openai-compatible' && allModels.length > 0 && (
+              <div className="mt-3">
+                <label className="text-[9px] text-slate-500 mb-2 block">
+                  Pick from configured providers:
+                </label>
+                <ModelSelect
+                  value={draft.embedding_model || ''}
+                  onChange={(modelId) => {
+                    setEmbeddingModelInput(modelId);
+                    updateDraft({ embedding_model: modelId });
+                  }}
+                  models={allModels}
+                  showTier={true}
+                  showContext={false}
+                  placeholder="— Select from providers —"
+                />
+              </div>
+            )}
+
+            {/* OpenAI-compatible specific fields */}
+            {draft.embedding_backend === 'openai-compatible' && (
+              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
+                  <input
+                    type="text"
+                    value={embeddingCompatibleUrl}
+                    onChange={(e) => setEmbeddingCompatibleUrl(e.target.value)}
+                    onBlur={() => updateDraft({ embedding_compatible_url: embeddingCompatibleUrl })}
+                    placeholder="http://localhost:8000/v1"
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
+                  <input
+                    type="password"
+                    value={embeddingCompatibleKey}
+                    onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
+                    onBlur={() => updateDraft({ embedding_compatible_key: embeddingCompatibleKey })}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -401,11 +760,11 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {VECTOR_BACKENDS.map((opt) => {
-            const isSelected = effective.vector_backend === opt.value;
+            const isSelected = draft.vector_backend === opt.value;
             return (
               <button
                 key={opt.value}
-                onClick={() => onUpdate({ vector_backend: opt.value as MemoryVectorBackend, vector_store: opt.value })}
+                onClick={() => updateDraft({ vector_backend: opt.value as MemoryVectorBackend, vector_store: opt.value })}
                 className={`flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${
                   isSelected
                     ? 'bg-emerald-50 border-2 border-emerald-500 shadow-sm'
@@ -446,14 +805,14 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
                 Context Aware
               </label>
               <button
-                onClick={() => onUpdate({ context_aware: !effective.context_aware })}
+                onClick={() => updateDraft({ context_aware: !draft.context_aware })}
                 className={`relative w-9 h-5 rounded-full transition-colors ${
-                  effective.context_aware ? 'bg-blue-500' : 'bg-slate-300'
+                  draft.context_aware ? 'bg-blue-500' : 'bg-slate-300'
                 }`}
               >
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                    effective.context_aware ? 'translate-x-4' : ''
+                    draft.context_aware ? 'translate-x-4' : ''
                   }`}
                 />
               </button>
@@ -469,14 +828,14 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
                 Auto Sync
               </label>
               <button
-                onClick={() => onUpdate({ auto_sync: !effective.auto_sync })}
+                onClick={() => updateDraft({ auto_sync: !draft.auto_sync })}
                 className={`relative w-9 h-5 rounded-full transition-colors ${
-                  effective.auto_sync ? 'bg-blue-500' : 'bg-slate-300'
+                  draft.auto_sync ? 'bg-blue-500' : 'bg-slate-300'
                 }`}
               >
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                    effective.auto_sync ? 'translate-x-4' : ''
+                    draft.auto_sync ? 'translate-x-4' : ''
                   }`}
                 />
               </button>
@@ -493,11 +852,16 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
             <div className="flex items-baseline gap-1">
               <input
                 type="number"
-                value={effective.auto_sync_interval}
-                onChange={(e) => onUpdate({ auto_sync_interval: Math.max(10, parseInt(e.target.value, 10) || 60) })}
+                value={syncIntervalInput}
+                onChange={(e) => setSyncIntervalInput(e.target.value)}
+                onBlur={() => {
+                  const parsed = Math.max(10, parseInt(syncIntervalInput, 10) || 60);
+                  setSyncIntervalInput(String(parsed));
+                  updateDraft({ auto_sync_interval: parsed });
+                }}
                 min={10}
                 max={3600}
-                disabled={!effective.auto_sync}
+                disabled={!draft.auto_sync}
                 className="w-full px-2 py-1.5 rounded text-xs font-mono disabled:opacity-40"
                 style={inputStyle}
               />
@@ -514,8 +878,13 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
             <div className="flex items-baseline gap-1">
               <input
                 type="number"
-                value={effective.ttl_days}
-                onChange={(e) => onUpdate({ ttl_days: Math.max(1, parseInt(e.target.value, 10) || 30) })}
+                value={ttlDaysInput}
+                onChange={(e) => setTtlDaysInput(e.target.value)}
+                onBlur={() => {
+                  const parsed = Math.max(1, parseInt(ttlDaysInput, 10) || 30);
+                  setTtlDaysInput(String(parsed));
+                  updateDraft({ ttl_days: parsed });
+                }}
                 min={1}
                 max={365}
                 className="w-full px-2 py-1.5 rounded text-xs font-mono"
@@ -528,6 +897,47 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate }: MemoryPanelPr
           </div>
         </div>
       </section>
+
+      {/* ── Sample Configuration ──────────────────────────── */}
+      <ModelConfigSample
+        llmBackend={draft.llm_backend}
+        llmModel={draft.llm_model}
+        embeddingBackend={draft.embedding_backend}
+        embeddingModel={draft.embedding_model}
+        type="memory"
+      />
+
+      {/* ── Save Settings Button ──────────────────────────── */}
+      {hasChanges && (
+        <section className="sticky bottom-0 bg-surface-container-low border-t border-slate-200 py-4 mt-8 flex justify-end gap-3 z-10">
+          <button
+            onClick={() => {
+              setDraft({ ...DEFAULTS, ...memory });
+              setLlmModelInput(memory.llm_model ?? '');
+              setEmbeddingModelInput(memory.embedding_model ?? '');
+              setSyncIntervalInput(String(memory.auto_sync_interval ?? 60));
+              setTtlDaysInput(String(memory.ttl_days ?? 30));
+              setLlmCompatibleUrl(memory.llm_compatible_url ?? '');
+              setLlmCompatibleKey(memory.llm_compatible_key ?? '');
+              setEmbeddingCompatibleUrl(memory.embedding_compatible_url ?? '');
+              setEmbeddingCompatibleKey(memory.embedding_compatible_key ?? '');
+              setHasChanges(false);
+            }}
+            disabled={isSaving}
+            className="px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all disabled:opacity-75"
+          >
+            {isSaving && <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>}
+            {isSaving ? 'Saving...' : 'Save Memory Settings'}
+          </button>
+        </section>
+      )}
 
       {/* ── Env Mapping Reference ──────────────────────────── */}
       <section className="border-t border-slate-200 pt-4">

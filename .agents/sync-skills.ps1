@@ -11,18 +11,18 @@
     Copy skills from a project directory into ~/.ostwin/.agents/skills/ first.
 
 .PARAMETER Port
-    Dashboard port (default: 9000).
+    Dashboard port (default: 3366).
 
-.PARAMETER Home
+.PARAMETER HomePath
     Override OSTWIN_HOME (default: ~/.ostwin).
 #>
 [CmdletBinding()]
 param(
     [string]$InstallFrom,
 
-    [int]$Port = 9000,
+    [int]$Port = 3366,
 
-    [string]$Home
+    [string]$HomePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 $HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
-$OstwinHome = if ($Home) { $Home }
+$OstwinHome = if ($HomePath) { $HomePath }
               elseif ($env:OSTWIN_HOME) { $env:OSTWIN_HOME }
               else { Join-Path $HomeDir ".ostwin" }
 $DashboardPort = if ($env:DASHBOARD_PORT) { [int]$env:DASHBOARD_PORT } else { $Port }
@@ -76,9 +76,6 @@ function Get-SkillMeta {
         if ($yaml -match '(?m)^description:\s*[''"]?([^''"}\n]+)[''"]?') {
             $result.description = $Matches[1].Trim()
         }
-        if ($yaml -match '(?m)^tags:\s*(.+)') {
-            $result.tags = $Matches[1].Trim()
-        }
     }
     return $result
 }
@@ -117,7 +114,6 @@ function Install-FromDir {
         if ($isNested) { continue }
 
         $meta = Get-SkillMeta -SkillMdPath $skillMd.FullName
-        if ($meta.name) { $skillName = $meta.name }
 
         # Determine role and category from path
         $relPath = $skillDir.Substring($SourceDir.Length).TrimStart('\', '/')
@@ -131,17 +127,8 @@ function Install-FromDir {
             $destDir = Join-Path $destBase "global" $skillName
         }
         else {
-            # Fallback: infer from tags
-            $firstTag = ""
-            if ($meta.tags -match '^\[(.+)\]$') {
-                $firstTag = ($Matches[1] -split ',')[0].Trim().Trim('"', "'")
-            }
-            if ($firstTag) {
-                $destDir = Join-Path $destBase "roles" $firstTag $skillName
-            }
-            else {
-                $destDir = Join-Path $destBase "global" $skillName
-            }
+            # Default to global category
+            $destDir = Join-Path $destBase "global" $skillName
         }
 
         if (-not $destDir) {
@@ -212,8 +199,6 @@ function Sync-HomeSkills {
             $skillName = Split-Path $skillDir -Leaf
 
             $meta = Get-SkillMeta -SkillMdPath $skillMd.FullName
-            if ($meta.name) { $skillName = $meta.name }
-
             $total++
 
             # Install via API
@@ -221,7 +206,6 @@ function Sync-HomeSkills {
                 path        = $skillDir
                 name        = $meta.name
                 description = $meta.description
-                tags        = $meta.tags
             } | ConvertTo-Json -Compress
 
             try {

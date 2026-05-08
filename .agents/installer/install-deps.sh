@@ -219,14 +219,35 @@ install_node() {
 
 install_opencode() {
   step "Installing opencode..."
+  local brew_installed=false
+
+  # Ensure paths are available before install
+  ensure_brew_paths
 
   # Preferred: brew (macOS and Linux, always up to date)
   if command -v brew &>/dev/null; then
-    brew install anomalyco/tap/opencode 2>/dev/null || brew upgrade anomalyco/tap/opencode 2>/dev/null || true
-  else
-    # Fallback: official install script
-    curl -fsSL https://opencode.ai/install | bash
+    if brew install anomalyco/tap/opencode 2>&1; then
+      brew_installed=true
+    elif brew upgrade anomalyco/tap/opencode 2>&1; then
+      brew_installed=true
+    else
+      warn "brew install failed, falling back to official script"
+    fi
   fi
+
+  # Fallback: official install script
+  if ! $brew_installed; then
+    if curl -fsSL https://opencode.ai/install | bash; then
+      # Official script installs to ~/.local/bin
+      export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    else
+      fail "opencode installation failed"
+      return 1
+    fi
+  fi
+
+  # Refresh command hash and paths
+  ensure_brew_paths
 
   # Verify
   if check_opencode; then
@@ -234,14 +255,12 @@ install_opencode() {
     oc_ver=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "installed")
     ok "opencode $oc_ver installed"
   else
-    # PATH may need refreshing
-    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-    if check_opencode; then
-      ok "opencode installed (PATH updated)"
-    else
-      warn "opencode installed but not in PATH yet"
-      info "Run: source ~/.bashrc  (or open a new terminal)"
-    fi
+    # One more attempt with explicit paths
+    local shell_name
+    shell_name=$(basename "${SHELL:-/bin/bash}")
+    local shell_rc="$HOME/.${shell_name}rc"
+    warn "opencode installed but not immediately available in PATH"
+    info "Will be available after: source $shell_rc (or open a new terminal)"
   fi
 }
 
@@ -264,4 +283,32 @@ install_pester() {
       Write-Host "    [OK] Pester $ver installed"
     }
   ' 2>/dev/null || warn "Pester installation failed (non-critical)"
+}
+
+# ─── Ollama (local LLM host CLI) ─────────────────────────────────────────────
+
+install_ollama() {
+  step "Installing Ollama (local LLM host)..."
+  case "$OS" in
+    macos)
+      if check_brew; then
+        brew install ollama
+      else
+        curl -fsSL https://ollama.com/install.sh | sh
+      fi
+      ;;
+    linux)
+      curl -fsSL https://ollama.com/install.sh | sh
+      ;;
+    *)
+      fail "Cannot install Ollama on $(uname -s)"
+      return 1
+      ;;
+  esac
+  if check_ollama; then
+    ok "Ollama installed"
+  else
+    warn "Ollama install script ran but 'ollama' not found in PATH"
+    info "You may need to start a new terminal or install manually from https://ollama.com"
+  fi
 }

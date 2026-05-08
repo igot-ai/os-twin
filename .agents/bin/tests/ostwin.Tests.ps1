@@ -393,7 +393,7 @@ Describe "ostwin.ps1 — AGENTS_DIR Resolution" {
             Push-Location '$projectDir'
             try {
                 `$cwd = (Get-Location).Path
-                if ((Test-Path (Join-Path `$cwd '.agents\config.json'))) {
+                if ((Test-Path (Join-Path `$cwd '.agents/config.json'))) {
                     `$AgentsDir = (Resolve-Path (Join-Path `$cwd '.agents')).Path
                     Write-Output `$AgentsDir
                 } else {
@@ -449,5 +449,206 @@ Describe "ostwin.ps1 — Stop Command PID Management" {
             }
 "@
         $result | Should -Be "NOT_RUNNING"
+    }
+
+    It "Should validate PID exists before accepting it (not just numeric check)" {
+        # Verify ostwin.ps1 checks Get-Process before breaking out of fallback loop
+        $content = Get-Content $script:OstwinPs1 -Raw
+        $content | Should -Match 'Get-Process.*-Id.*candidatePid.*ErrorAction' -Because "Must verify PID exists before accepting it"
+    }
+
+    It "Should verify process is actually a channel process before accepting PID" {
+        # Regression: PID could be reused by Windows for a different process
+        $content = Get-Content $script:OstwinPs1 -Raw
+        # Must use structured runtime check with word boundaries, not bare substring match
+        # The code should assign to $hasRuntime which indicates proper validation with delimiters
+        $content | Should -Match '\$hasRuntime\s*=\s*\$cmdLine\s*-match' -Because "Must use structured runtime check with word boundary delimiters"
+        # Must also use $hasChannelPath for path validation (defense in depth)
+        $content | Should -Match '\$hasChannelPath\s*=' -Because "Must also verify channel path to prevent false positives"
+    }
+
+    It "Should require channel path in addition to runtime (tsx/node)" {
+        # Tight PID validation: runtime alone is not enough, must have channel path
+        $content = Get-Content $script:OstwinPs1 -Raw
+        # Must also match .agents/channel or channels?.ts - grouped to ensure proper precedence
+        $content | Should -Match 'cmdLine.*-match.*(\.agents.*channel|channels?\.)' -Because "Must verify channel-related path to prevent false positives"
+    }
+
+    It "Should accept bot runtime path src/index.ts in channel PID validation" {
+        # Windows installer starts channel with: tsx src/index.ts
+        $content = Get-Content $script:OstwinPs1 -Raw
+        $content | Should -Match 'hasChannelPath.*src\[/\\\\\]index\\\.ts' -Because "Must accept bot/src/index.ts channel runtime path"
+    }
+
+    It "Should preserve non-Windows force-stop path" {
+        # --force should still work on Linux/macOS and not rely only on taskkill
+        $content = Get-Content $script:OstwinPs1 -Raw
+        $content | Should -Match 'if \(\$IsWindows\)\s*\{' -Because "Must branch by OS for force-stop"
+        $content | Should -Match 'Stop-Process -Id \$PidToKill -Force' -Because "Must keep non-Windows force-stop behavior"
+    }
+
+    It "Should fallback to secondary PID file when primary is invalid" {
+        # Test the actual fallback behavior: loop through PID files, skip invalid, use valid one
+        # This simulates the production code path in ostwin.ps1 stop command
+        $primaryPidFile = Join-Path $script:TempDir "channels.pid"
+        $secondaryPidFile = Join-Path $script:TempDir ".agents/channel.pid"
+
+        # Create secondary directory
+        $secondaryDir = Split-Path $secondaryPidFile -Parent
+        New-Item -ItemType Directory -Path $secondaryDir -Force | Out-Null
+
+        # Primary: invalid (non-numeric garbage)
+        Set-Content -Path $primaryPidFile -Value "garbage"
+
+        # Secondary: valid-looking PID (we'll use current process PID as a valid candidate)
+        $myPid = $PID
+        Set-Content -Path $secondaryPidFile -Value $myPid
+
+        # Simulate the fallback loop logic from production
+        $result = & pwsh -NoProfile -Command @"
+            `$files = @('$primaryPidFile', '$secondaryPidFile')
+            `$selectedPid = `$null
+            `$selectedFile = `$null
+
+            foreach (`$f in `$files) {
+                if (-not (Test-Path `$f)) { continue }
+                `$candidatePid = (Get-Content `$f -Raw -ErrorAction SilentlyContinue).Trim()
+                if (-not (`$candidatePid -and `$candidatePid -match '^\d+$')) {
+                    Remove-Item `$f -Force -ErrorAction SilentlyContinue
+                    continue
+                }
+                try {
+                    `$null = Get-Process -Id `$candidatePid -ErrorAction Stop
+                    # Process exists — accept this PID
+                    `$selectedPid = `$candidatePid
+                    `$selectedFile = `$f
+                    break
+                } catch {
+                    Remove-Item `$f -Force -ErrorAction SilentlyContinue
+                    continue
+                }
+            }
+
+            Write-Output "SELECTED_PID=`$selectedPid"
+            Write-Output "SELECTED_FILE=`$selectedFile"
+            Write-Output "PRIMARY_EXISTS=`$(Test-Path '$primaryPidFile')"
+"@
+
+        # Verify fallback worked: secondary file was selected, primary was cleaned up
+        # Use -like instead of -match to avoid regex escaping issues with paths
+        $result[0] | Should -Be "SELECTED_PID=$myPid" -Because "Should select valid PID from secondary file"
+        $result[1] | Should -Be "SELECTED_FILE=$secondaryPidFile" -Because "Should use secondary file after primary is invalid"
+        $result[2] | Should -Be "PRIMARY_EXISTS=False" -Because "Invalid primary file should be cleaned up"
+    }
+
+    It "Should clean up stale PID files (non-existent process) during fallback" {
+        # Test: PID file with non-existent process should be deleted
+        $primaryPidFile = Join-Path $script:TempDir "stale-numeric.pid"
+
+        # Create with stale numeric PID (unlikely to exist)
+        Set-Content -Path $primaryPidFile -Value "999999998"
+
+        $result = & pwsh -NoProfile -Command @"
+            `$primaryPidFile = '$primaryPidFile'
+            `$candidatePid = (Get-Content `$primaryPidFile -Raw -ErrorAction SilentlyContinue).Trim()
+
+            if (`$candidatePid -and `$candidatePid -match '^\d+$') {
+                try {
+                    `$null = Get-Process -Id `$candidatePid -ErrorAction Stop
+                    Write-Output "FOUND"
+                } catch {
+                    # Process doesn't exist — clean up
+                    Remove-Item `$primaryPidFile -Force -ErrorAction SilentlyContinue
+                    Write-Output "STALE_CLEANED"
+                }
+            }
+
+            Write-Output "FILE_EXISTS=`$(Test-Path '$primaryPidFile')"
+"@
+        $result[0] | Should -Be "STALE_CLEANED"
+        $result[1] | Should -Be "FILE_EXISTS=False"
+    }
+
+    It "Should clean up empty PID files during fallback" {
+        $primaryPidFile = Join-Path $script:TempDir "empty.pid"
+
+        Set-Content -Path $primaryPidFile -Value "   "  # Whitespace only
+
+        $result = & pwsh -NoProfile -Command @"
+            `$primaryPidFile = '$primaryPidFile'
+            `$candidatePid = (Get-Content `$primaryPidFile -Raw -ErrorAction SilentlyContinue).Trim()
+
+            if (-not (`$candidatePid -and `$candidatePid -match '^\d+$')) {
+                # Invalid/empty — clean up
+                Remove-Item `$primaryPidFile -Force -ErrorAction SilentlyContinue
+                Write-Output "INVALID_CLEANED"
+            }
+
+            Write-Output "FILE_EXISTS=`$(Test-Path '$primaryPidFile')"
+"@
+        $result[0] | Should -Be "INVALID_CLEANED"
+        $result[1] | Should -Be "FILE_EXISTS=False"
+    }
+
+    It "Should clean up non-numeric garbage PID files during fallback" {
+        $primaryPidFile = Join-Path $script:TempDir "garbage.pid"
+
+        Set-Content -Path $primaryPidFile -Value "abc"
+
+        $result = & pwsh -NoProfile -Command @"
+            `$primaryPidFile = '$primaryPidFile'
+            `$candidatePid = (Get-Content `$primaryPidFile -Raw -ErrorAction SilentlyContinue).Trim()
+
+            if (-not (`$candidatePid -and `$candidatePid -match '^\d+$')) {
+                Remove-Item `$primaryPidFile -Force -ErrorAction SilentlyContinue
+                Write-Output "GARBAGE_CLEANED"
+            }
+
+            Write-Output "FILE_EXISTS=`$(Test-Path '$primaryPidFile')"
+"@
+        $result[0] | Should -Be "GARBAGE_CLEANED"
+        $result[1] | Should -Be "FILE_EXISTS=False"
+    }
+
+    It "Should accept valid PID on non-Windows without command-line validation" {
+        # Regression: Win32_Process is Windows-only, so non-Windows should accept PID if process exists
+        $content = Get-Content $script:OstwinPs1 -Raw
+
+        # Verify the code has OS-aware logic for Windows vs non-Windows
+        $content | Should -Match '\$IsWindows' -Because "Must check for Windows to conditionally use Win32_Process"
+        $content | Should -Match '\$isValidChannel\s*=\s*\$true' -Because "Must default to accepting PID, then optionally tighten on Windows"
+
+        # Verify the isValidChannel flag is used to decide whether to accept the PID
+        $content | Should -Match 'if\s*\(\$isValidChannel\)' -Because "Must check isValidChannel flag before accepting PID"
+    }
+
+    It "Should accept PID when process exists (simulated non-Windows behavior)" {
+        # Behavioral test: simulate non-Windows where Win32_Process is unavailable
+        # On non-Windows, PID should be accepted if process exists, regardless of command-line
+        $pidFile = Join-Path $script:TempDir "test-nonwin.pid"
+        $myPid = $PID
+
+        Set-Content -Path $pidFile -Value $myPid
+
+        # Simulate the non-Windows code path (no Win32_Process validation)
+        $result = & pwsh -NoProfile -Command @"
+            `$pidFile = '$pidFile'
+            `$candidatePid = (Get-Content `$pidFile -Raw -ErrorAction SilentlyContinue).Trim()
+            `$isValidChannel = `$true  # Default to true (non-Windows behavior)
+
+            if (`$candidatePid -and `$candidatePid -match '^\d+$') {
+                try {
+                    `$null = Get-Process -Id `$candidatePid -ErrorAction Stop
+                    # On non-Windows: no Win32_Process check, just accept if process exists
+                    if (`$isValidChannel) {
+                        Write-Output "ACCEPTED_PID=`$candidatePid"
+                    }
+                } catch {
+                    Write-Output "PROCESS_NOT_FOUND"
+                }
+            }
+"@
+
+        $result | Should -Be "ACCEPTED_PID=$myPid" -Because "Non-Windows should accept PID if process exists without command-line validation"
     }
 }

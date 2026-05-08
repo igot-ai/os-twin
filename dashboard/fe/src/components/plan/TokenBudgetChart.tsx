@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+
 import { Epic } from '@/types';
 
 interface TokenBudgetChartProps {

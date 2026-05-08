@@ -195,12 +195,12 @@ describe('audio-transcript', () => {
     it('runs full pipeline: transcribe → plan → launch', async () => {
       config.GOOGLE_API_KEY = 'test-key';
 
-      // Mock the Gemini transcription (stub the module-level function)
-      // Since transcribeAudio reads the file and calls Gemini, we stub at the API level
-      // We need to stub the GoogleGenerativeAI - let's stub fetch instead
+      // Mock the AI gateway response (transcription via /api/ai/complete)
       const fetchStub = sandbox.stub(global, 'fetch').resolves(
         new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Build a REST API with auth and database' }] } }],
+          text: 'Build a REST API with auth and database',
+          tool_calls: null,
+          model: 'vertex_ai/gemini-3-flash-preview',
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 
@@ -231,7 +231,7 @@ describe('audio-transcript', () => {
 
       sandbox.stub(global, 'fetch').resolves(
         new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Some discussion' }] } }],
+          text: 'Some discussion', tool_calls: null, model: 'test',
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 
@@ -248,7 +248,7 @@ describe('audio-transcript', () => {
 
       sandbox.stub(global, 'fetch').resolves(
         new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Discussion about features' }] } }],
+          text: 'Discussion about features', tool_calls: null, model: 'test',
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 
@@ -265,7 +265,7 @@ describe('audio-transcript', () => {
 
       sandbox.stub(global, 'fetch').resolves(
         new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Plan the backend' }] } }],
+          text: 'Plan the backend', tool_calls: null, model: 'test',
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 
@@ -284,7 +284,7 @@ describe('audio-transcript', () => {
 
       sandbox.stub(global, 'fetch').resolves(
         new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Some talk' }] } }],
+          text: 'Some talk', tool_calls: null, model: 'test',
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 
@@ -300,7 +300,7 @@ describe('audio-transcript', () => {
 
       sandbox.stub(global, 'fetch').resolves(
         new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Valid transcription' }] } }],
+          text: 'Valid transcription', tool_calls: null, model: 'test',
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 
@@ -335,7 +335,7 @@ describe('audio-transcript', () => {
 
       sandbox.stub(global, 'fetch').resolves(
         new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'Hello world' }] } }],
+          text: 'Hello world', tool_calls: null, model: 'test',
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       );
 

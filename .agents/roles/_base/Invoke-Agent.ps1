@@ -89,7 +89,8 @@ param(
 $agentsDir = (Resolve-Path (Join-Path $PSScriptRoot ".." "..") -ErrorAction SilentlyContinue).Path
 
 # Resolve OSTWIN_HOME: env var → ~/.ostwin
-$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $env:HOME ".ostwin" }
+$_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
 
 # Ensure RoomDir is absolute for bash wrapper consistency (EPIC-002)
 # Using GetUnresolvedProviderPathFromPSPath to handle non-existent paths (unlikely but safe)
@@ -118,9 +119,10 @@ if (Test-Path $roomConfigFile) {
 
 # --- Plan roles resolution (highest priority after explicit -Model) ---
 # Runs unconditionally — does NOT depend on .agents/config.json existing.
-# Schema: { "<role>": { "default_model": "...", "timeout_seconds": N,
+# Schema: { "<role>": { "default_model": "...", "timeout_seconds": N, "max_retries": N,
 #                       "instances": { "<id>": { "default_model": "...", "timeout_seconds": N } } } }
 $timeoutWasExplicit = $PSBoundParameters.ContainsKey('TimeoutSeconds')
+$maxProcessRetries = 3  # default — overridden by plan roles / config / role.json below
 
 if ($planRolesConfig -and $planRolesConfig.$RoleName) {
     $planRoleNode = $planRolesConfig.$RoleName
@@ -128,8 +130,8 @@ if ($planRolesConfig -and $planRolesConfig.$RoleName) {
     if (-not $Model) {
         # Priority 1a: plan-roles instance override
         if ($InstanceId -and $planRoleNode.instances `
-            -and $planRoleNode.instances.$InstanceId `
-            -and $planRoleNode.instances.$InstanceId.default_model) {
+                -and $planRoleNode.instances.$InstanceId `
+                -and $planRoleNode.instances.$InstanceId.default_model) {
             $Model = $planRoleNode.instances.$InstanceId.default_model
         }
         # Priority 1b: plan-roles role default
@@ -140,13 +142,18 @@ if ($planRolesConfig -and $planRolesConfig.$RoleName) {
 
     if (-not $timeoutWasExplicit) {
         if ($InstanceId -and $planRoleNode.instances `
-            -and $planRoleNode.instances.$InstanceId `
-            -and $planRoleNode.instances.$InstanceId.timeout_seconds) {
+                -and $planRoleNode.instances.$InstanceId `
+                -and $planRoleNode.instances.$InstanceId.timeout_seconds) {
             $TimeoutSeconds = [int]$planRoleNode.instances.$InstanceId.timeout_seconds
         }
         elseif ($planRoleNode.timeout_seconds) {
             $TimeoutSeconds = [int]$planRoleNode.timeout_seconds
         }
+    }
+
+    # max_retries from plan roles (highest priority)
+    if ($planRoleNode.max_retries) {
+        $maxProcessRetries = [int]$planRoleNode.max_retries
     }
 }
 
@@ -209,6 +216,16 @@ if (Test-Path $configPath) {
         }
     }
 
+    # max_retries fallback chain: plan roles (already applied) → instance → role config.json
+    if ($maxProcessRetries -eq 3) {
+        if ($instanceConfig -and $instanceConfig.max_retries) {
+            $maxProcessRetries = [int]$instanceConfig.max_retries
+        }
+        elseif ($config.$RoleName.max_retries) {
+            $maxProcessRetries = [int]$config.$RoleName.max_retries
+        }
+    }
+
     # WorkingDir: instance → parameter
     if (-not $WorkingDir -and $instanceConfig -and $instanceConfig.working_dir) {
         $WorkingDir = $instanceConfig.working_dir
@@ -243,45 +260,38 @@ if (Test-Path $configPath) {
     if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
     if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
 
-    # --- CLI resolution: env override → OSTWIN_HOME bin/agent → project-local → role config → opencode fallback ---
-    # Prefer $OSTWIN_AGENT_CMD env var (for dev/test overrides), then canonical
-    # install path, then project-local dev tree, then role config, then opencode.
+    # --- CLI resolution: (1) explicit -AgentCmd  →  (2) Role-specific env (e.g. ARCHITECT_CMD)  →  (3) OSTWIN_AGENT_CMD  →  (4) "opencode run" ---
+    # No bin/agent binary lookup — the full flow is managed by the bash/powershell wrapper.
     if (-not $AgentCmd) {
-        if ($env:OSTWIN_AGENT_CMD) {
-            $AgentCmd = $env:OSTWIN_AGENT_CMD
+        $roleEnvCmd = (Get-ChildItem Env: | Where-Object { $_.Name -eq "$($RoleName.ToUpper())_CMD" }).Value
+        if ($roleEnvCmd) {
+            $AgentCmd = $roleEnvCmd
         }
-        else {
-            $ostwinAgent = Join-Path $OstwinHome ".agents" "bin" "agent"
-            $localAgent = Join-Path $agentsDir "bin" "agent"
-            if (Test-Path $ostwinAgent) {
-                $AgentCmd = "'$ostwinAgent'"
-            }
-            elseif (Test-Path $localAgent) {
-                $AgentCmd = "'$localAgent'"
-            }
-            else {
-                $AgentCmd = $config.$RoleName.cli
-                if ($AgentCmd -eq "agent" -or $AgentCmd -eq "cli" -or $AgentCmd -eq "deepagents" -or (-not $AgentCmd)) { $AgentCmd = "opencode run" }
-            }
+        elseif ($env:OSTWIN_AGENT_CMD) {
+            $AgentCmd = $env:OSTWIN_AGENT_CMD
         }
     }
 }
 
 if (-not $AgentCmd) { $AgentCmd = "opencode run" }
 
-# --- Role.json model fallback (runs even when config.json is absent) ---
+# --- Role.json model + max_retries fallback (runs even when config.json is absent) ---
 # If no model was resolved from -Model param, plan.roles.json, or config.json,
 # try role.json as the last config-based source before the hardcoded default.
 # Search order: HOME-based (authoritative) → project-local (legacy).
-if (-not $Model) {
+if (-not $Model -or $maxProcessRetries -eq 3) {
     $homeRoleJson = Join-Path $OstwinHome ".agents" "roles" $RoleName "role.json"
     $localRoleJson = Join-Path $agentsDir "roles" $RoleName "role.json"
     $roleJsonPath = if (Test-Path $homeRoleJson) { $homeRoleJson } elseif (Test-Path $localRoleJson) { $localRoleJson } else { $null }
     if ($roleJsonPath) {
         try {
             $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
-            if ($roleJson.model) {
+            if (-not $Model -and $roleJson.model) {
                 $Model = $roleJson.model
+            }
+            # max_retries from role.json (lowest config priority, above hardcoded default)
+            if ($maxProcessRetries -eq 3 -and $roleJson.max_retries) {
+                $maxProcessRetries = [int]$roleJson.max_retries
             }
         }
         catch { }
@@ -289,14 +299,9 @@ if (-not $Model) {
 }
 if (-not $Model) { $Model = "google-vertex/zai-org/glm-5-maas" }
 
-# --- Env var overrides for testing ---
-$envCmdVar = "${RoleName}_CMD".ToUpper()
-$envCmd = [System.Environment]::GetEnvironmentVariable($envCmdVar)
-if ($envCmd) { $AgentCmd = $envCmd }
-
-# --- Log resolved model/timeout for debugging ---
-# This is the value that will actually drive opencode run.
-Write-Host "[Invoke-Agent] Resolved Role=$RoleName Instance=$InstanceId Model=$Model Timeout=${TimeoutSeconds}s"
+# --- Log resolved model/timeout/retries for debugging ---
+# These are the values that will actually drive opencode run.
+Write-Host "[Invoke-Agent] Resolved Role=$RoleName Instance=$InstanceId Model=$Model Timeout=${TimeoutSeconds}s MaxRetries=$maxProcessRetries"
 
 # --- Prepare output directory ---
 $artifactsDir = Join-Path $absRoomDir "artifacts"
@@ -304,10 +309,33 @@ $pidsDir = Join-Path $absRoomDir "pids"
 New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
 New-Item -ItemType Directory -Path $pidsDir -Force | Out-Null
 
-# --- Skill Isolation (EPIC-002) ---
-$isolatedSkillsDir = Join-Path $absRoomDir "skills"
+# --- Ensure ProjectDir is resolved (unconditional fallback) ---
+# The config block above computes $ProjectDir only when config.json exists.
+# Run the same walkup here so skill staging always uses the correct project dir,
+# even for rooms without a config.json (e.g. test rooms, clean invocations).
+if (-not $ProjectDir) {
+    $searchDir2 = $absRoomDir
+    for ($i = 0; $i -lt 6; $i++) {
+        $parentDir2 = Split-Path $searchDir2 -Parent
+        if (-not $parentDir2 -or $parentDir2 -eq $searchDir2) { break }
+        if ((Split-Path $searchDir2 -Leaf) -eq ".war-rooms") {
+            $ProjectDir = $parentDir2
+            break
+        }
+        $searchDir2 = $parentDir2
+    }
+    if (-not $ProjectDir -and $env:PROJECT_DIR) { $ProjectDir = $env:PROJECT_DIR }
+    if (-not $ProjectDir -and $WorkingDir) { $ProjectDir = $WorkingDir }
+}
 
-# Ensure isolated skills dir exists without wiping existing API-matched skills
+# --- Skill Staging: project-local .agents/skills/ (shared across rooms) ---
+# Use the *project's* .agents/skills/, not the ostwin install tree ($agentsDir).
+# This ensures skills appear at $project_dir/.agents/skills/ regardless of
+# where Invoke-Agent.ps1 is installed (~/.ostwin or project-local dev copy).
+$projectAgentsDir = if ($ProjectDir) { Join-Path $ProjectDir ".agents" } else { $agentsDir }
+$isolatedSkillsDir = Join-Path $projectAgentsDir "skills"
+
+# Ensure project-level skills dir exists
 if (-not (Test-Path $isolatedSkillsDir)) {
     New-Item -ItemType Directory -Path $isolatedSkillsDir -Force | Out-Null
 }
@@ -354,7 +382,7 @@ $pidFile = Join-Path $pidsDir "$RoleName.pid"
 
 
 # --- Execute with timeout and transient-error retry ---
-$maxProcessRetries = 3
+# $maxProcessRetries was resolved above from plan roles → config.json → role.json → default 3
 $exitCode = 0
 
 $stdinNull = if ($IsLinux -or $IsMacOS) { "/dev/null" }
@@ -373,7 +401,7 @@ $Prompt | Out-File -FilePath $debugPromptFile -Encoding utf8 -Force
 # Build non-prompt CLI args safely (opencode run flags)
 # Prompt is passed as --file <path> to avoid ARG_MAX limits with large prompts.
 # A short positional message is required by opencode run — the full prompt is in the file.
-$extraCliArgs = @("Execute the task described in the attached prompt file.")
+$extraCliArgs = @("...")
 if ($Model) { $extraCliArgs += "--model"; $extraCliArgs += $Model }
 if ($RoleName) { $extraCliArgs += "--agent"; $extraCliArgs += $RoleName }
 if ($Format) { $extraCliArgs += "--format"; $extraCliArgs += $Format }
@@ -385,6 +413,7 @@ if ($ShareSession) { $extraCliArgs += "--share" }
 if ($Command) { $extraCliArgs += "--command"; $extraCliArgs += $Command }
 if ($AttachUrl) { $extraCliArgs += "--attach"; $extraCliArgs += $AttachUrl }
 if ($Port -gt 0) { $extraCliArgs += "--port"; $extraCliArgs += $Port.ToString() }
+if ($ProjectDir) { $extraCliArgs += "--dir"; $extraCliArgs += $ProjectDir }
 foreach ($f in $Files) { $extraCliArgs += "--file"; $extraCliArgs += $f }
 # Attach prompt file — avoids inlining huge prompt text on the command line
 $extraCliArgs += "--file"; $extraCliArgs += $promptFileAbsolute
@@ -401,6 +430,7 @@ if (-not $NoMcp -and $ProjectDir) {
 }
 
 $extraCliArgs += $ExtraArgs
+$extraCliArgs += "--dangerously-skip-permissions"
 
 $argsLine = ($extraCliArgs | ForEach-Object {
         if ($_ -match '[\s"]') { "'$($_ -replace "'", "'\''")'" } else { $_ }
@@ -408,9 +438,16 @@ $argsLine = ($extraCliArgs | ForEach-Object {
 
 for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttempt++) {
     $exitCode = 0
+    $wrapperScript = $null  # Initialize before try block
     try {
-        # Write wrapper script
-        $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+        # Detect if running on Windows
+        # NOTE: Cannot use $isWindows because PowerShell is case-insensitive and
+        # $IsWindows is a read-only automatic variable. Using $runningOnWindows instead.
+        $runningOnWindows = $PSVersionTable.PSVersion.Major -ge 6 -and $IsWindows
+        $isUnix = $IsLinux -or $IsMacOS
+        Write-Host "[Invoke-Agent] OS detection: runningOnWindows=$runningOnWindows, isUnix=$isUnix, PSVersion=$($PSVersionTable.PSVersion)"
+
+        # Build paths with proper escaping for the target platform
         $safeOutput = $outputFile -replace "'", "'\''"
         $safePrompt = $promptFile -replace "'", "'\''"
         $safeCwd = if ($WorkingDir) { $WorkingDir -replace "'", "'\''" } else { "" }
@@ -421,15 +458,128 @@ for ($processAttempt = 1; $processAttempt -le $maxProcessRetries; $processAttemp
         $cwdLine = if ($safeCwd) { "cd '$safeCwd' 2>/dev/null || true" } else { "" }
         $safePidFile = $pidFile -replace "'", "'\''"
         $safeOstwinHome = $OstwinHome.Replace('\', '/').Replace("'", "'\''")
-        $safeProjectDir = if ($ProjectDir) { $ProjectDir.Replace('\', '/').Replace("'", "'\''") } else { "" }
         $opencodeConfigLine = ""
         if ($tempMcpConfig) {
             $safeOpencodeConfig = $tempMcpConfig.Replace('\', '/').Replace("'", "'\''")
             $opencodeConfigLine = "export OPENCODE_CONFIG='$safeOpencodeConfig'"
         }
+        
+        # Ensure critical env vars for MCP server resolution are exported
+        # These are required for {env:AGENT_DIR} and {env:OSTWIN_PYTHON} placeholders
+        # Use platform-specific venv Python path
+        $venvPythonUnix = Join-Path $OstwinHome ".venv" "bin" "python"
+        $venvPythonWin = Join-Path $OstwinHome ".venv" "Scripts" "python.exe"
+        $envExportLines = @"
+export AGENT_DIR='$safeOstwinHome'
+export OSTWIN_PYTHON='$venvPythonUnix'
+"@
+        
         # Log diagnostic info before exec
         Write-Host "[Invoke-Agent] Launching: CMD=$AgentCmd, PromptFile=$promptFile, ArgsLine=$argsLine"
-        $scriptContent = @"
+        Write-Host "[Invoke-Agent] About to enter if (runningOnWindows=$runningOnWindows) branch..."
+        
+        if ($runningOnWindows) {
+            Write-Host "[Invoke-Agent] Taking Windows branch..."
+            # Windows: Use PowerShell wrapper instead of bash
+            $winPidFile = $pidFile.Replace('/', '\')
+            $winOutput = $outputFile.Replace('/', '\')
+            $winPrompt = $promptFile.Replace('/', '\')
+            $winSkillsDir = $isolatedSkillsDir.Replace('/', '\')
+            $winOstwinHome = $OstwinHome.Replace('/', '\')
+            $winOpencodeConfig = if ($tempMcpConfig) { $tempMcpConfig.Replace('/', '\') } else { "" }
+            
+            # Tokenize AgentCmd and args for PowerShell execution
+            # $AgentCmd may be "opencode run", "'/path/to/agent'", or "/path/to/mock.ps1"
+            $cmdParts = $AgentCmd.Trim("'").Trim('"').Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+            $exe = $cmdParts[0]
+            $cmdArgs = if ($cmdParts.Length -gt 1) { $cmdParts[1..($cmdParts.Length - 1)] } else { @() }
+
+            # If the command is a .ps1 script (possibly wrapped in "pwsh -NoProfile -File script.ps1"),
+            # extract the script path and run it directly via call operator in the wrapper.
+            # This avoids nested pwsh invocations with broken argument passing.
+            if ($exe -match '\.ps1$') {
+                # exe is already the .ps1 file — cmdArgs are its parameters
+                $allArgs = $cmdArgs + $extraCliArgs
+            } elseif ($exe -eq 'pwsh' -or $exe -eq 'powershell') {
+                # Look for -File flag and extract the script path
+                $fileIdx = [Array]::FindIndex($cmdArgs, [Predicate[object]]{ param($a) $a -eq '-File' })
+                if ($fileIdx -ge 0 -and ($fileIdx + 1) -lt $cmdArgs.Length) {
+                    $exe = $cmdArgs[$fileIdx + 1].Trim('"').Trim("'")
+                    # Drop -NoProfile, -File, and the script path from cmdArgs; keep the rest
+                    $remaining = @()
+                    for ($i = 0; $i -lt $cmdArgs.Length; $i++) {
+                        if ($i -eq $fileIdx -or $i -eq ($fileIdx + 1)) { continue }
+                        if ($cmdArgs[$i] -eq '-NoProfile' -or $cmdArgs[$i] -eq '-ExecutionPolicy' -or
+                            ($i -gt 0 -and $cmdArgs[$i - 1] -eq '-ExecutionPolicy')) { continue }
+                        $remaining += $cmdArgs[$i]
+                    }
+                    $allArgs = $remaining + $extraCliArgs
+                } else {
+                    $allArgs = $cmdArgs + $extraCliArgs
+                }
+            } else {
+                $allArgs = $cmdArgs + $extraCliArgs
+            }
+            
+            # Serialize args array into the wrapper script as a PowerShell array literal
+            # Each arg must be properly escaped for PowerShell string handling
+            $escapedArgs = $allArgs | ForEach-Object {
+                $arg = $_
+                # Escape single quotes by doubling them, then wrap in single quotes
+                "'" + ($arg -replace "'", "''") + "'"
+            }
+            $argsArrayLiteral = "@(" + ($escapedArgs -join ',') + ")"
+
+            $psWrapperScript = Join-Path $artifactsDir "run-agent.ps1"
+            $psScriptContent = @"
+`$env:AGENT_OS_ROOM_DIR = '$safeRoomDir'
+`$env:AGENT_OS_ROLE = '$safeRole'
+`$env:AGENT_OS_PARENT_PID = $PID
+`$env:AGENT_OS_SKILLS_DIR = '$winSkillsDir'
+`$env:AGENT_OS_PID_FILE = '$winPidFile'
+`$env:OSTWIN_HOME = '$winOstwinHome'
+`$env:AGENT_DIR = '$winOstwinHome'
+`$env:OSTWIN_PYTHON = '$venvPythonWin'
+if ('$winOpencodeConfig') { `$env:OPENCODE_CONFIG = '$winOpencodeConfig' }
+
+# Source user-controlled pre-exec hook
+`$envSh = Join-Path `$env:USERPROFILE '.ostwin' '.env.sh'
+if (Test-Path `$envSh) { . `$envSh }
+
+# Write PID
+`$PID | Out-File -FilePath '$winPidFile' -Encoding ascii -NoNewline
+
+# Log diagnostics
+`$cmdArgs = $argsArrayLiteral
+"[$wrapper] PID=`$PID, CMD=$exe, ARGS=`$(`$cmdArgs -join ' ')" | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+
+# Execute using call operator with array
+& '$exe' @cmdArgs 2>&1 | Out-File -FilePath '$winOutput' -Encoding utf8 -Append
+"@
+            $psScriptContent | Out-File -FilePath $psWrapperScript -Encoding utf8 -Force
+            
+            # Launch PowerShell wrapper
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = "pwsh"
+            if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+                $psi.FileName = "powershell"
+            }
+            $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$psWrapperScript`""
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardInput = $true
+            $psi.CreateNoWindow = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $proc.StandardInput.Close()
+            
+            $wrapperScript = $psWrapperScript
+            Write-Host "[Invoke-Agent] Windows branch: wrapperScript=$wrapperScript"
+        }
+        else {
+            Write-Host "[Invoke-Agent] Taking Unix/Mac branch..."
+            # Unix: Use bash wrapper (existing logic)
+            $wrapperScript = Join-Path $artifactsDir "run-agent.sh"
+            Write-Host "[Invoke-Agent] Unix branch: wrapperScript=$wrapperScript"
+            $scriptContent = @"
 #!/bin/bash
 export AGENT_OS_ROOM_DIR='$safeRoomDir'
 export AGENT_OS_ROLE='$safeRole'
@@ -437,10 +587,8 @@ export AGENT_OS_PARENT_PID='$PID'
 export AGENT_OS_SKILLS_DIR='$safeSkillsDir'
 export AGENT_OS_PID_FILE='$safePidFile'
 export OSTWIN_HOME='$safeOstwinHome'
-export AGENT_OS_PROJECT_DIR='$safeProjectDir'
 $opencodeConfigLine
-# Source user-controlled pre-exec hook for dynamic env vars
-# (e.g. refreshing short-lived API tokens like VERTEX_API_KEY).
+$envExportLines
 # Static vars belong in `$safeOstwinHome`/.env; this file is for shell logic.
 if [ -f "`$HOME/.ostwin/.env.sh" ]; then . "`$HOME/.ostwin/.env.sh"; fi
 if [ -f '$safeOstwinHome/.env.sh' ]; then . '$safeOstwinHome/.env.sh'; fi
@@ -457,21 +605,23 @@ exec $AgentCmd $argsLine >> '$safeOutput' 2>&1
 # If exec fails, this line runs:
 echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
 "@
-        $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
-        chmod +x $wrapperScript 2>$null
+            $scriptContent | Out-File -FilePath $wrapperScript -Encoding utf8 -NoNewline -Force
+            chmod +x $wrapperScript 2>$null
 
-        # --- Launch bash via System.Diagnostics.Process ---
-        # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
-        # (no console to attach to in headless runspace). Direct Process API works.
-        $psi = [System.Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName = "bash"
-        $psi.Arguments = "`"$wrapperScript`""
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardInput = $true
-        $psi.CreateNoWindow = $true
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        $proc.StandardInput.Close()  # equivalent to /dev/null stdin
+            # --- Launch bash via System.Diagnostics.Process ---
+            # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
+            # (no console to attach to in headless runspace). Direct Process API works.
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = "bash"
+            $psi.Arguments = "`"$wrapperScript`""
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardInput = $true
+            $psi.CreateNoWindow = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $proc.StandardInput.Close()  # equivalent to /dev/null stdin
+        }
 
+        Write-Host "[Invoke-Agent] After if/else: wrapperScript='$wrapperScript'" -ForegroundColor Cyan
         Write-Warning "[Invoke-Agent] bash launched as PID $($proc.Id), HasExited=$($proc.HasExited), wrapper=$wrapperScript"
 
         # --- Wait for agent to self-register its PID (max 15s) ---
@@ -524,8 +674,15 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
             if ($confirmedPid -and $confirmedPid -ne $proc.Id) {
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             }
+            # Wait for process to fully exit so file handles are released
+            # (Windows doesn't release locks immediately after Stop-Process)
+            try { $proc.WaitForExit(3000) } catch {}
             $exitCode = 124
-            "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+            try {
+                "Agent timed out after ${TimeoutSeconds}s" | Out-File -FilePath $outputFile -Encoding utf8 -Append
+            } catch {
+                Write-Warning "[Invoke-Agent] Could not write timeout message to output file: $_"
+            }
         }
         else {
             $exitCode = $proc.ExitCode
@@ -541,7 +698,16 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
     }
     catch {
         $exitCode = 1
-        $_.Exception.Message | Out-File -FilePath $outputFile -Encoding utf8
+        $errorMsg = $_.Exception.Message
+        $errorType = $_.Exception.GetType().FullName
+        $stackTrace = $_.ScriptStackTrace
+        Write-Host "[Invoke-Agent] ERROR in try block (attempt $processAttempt): $errorType" -ForegroundColor Red
+        Write-Host "[Invoke-Agent] Message: $errorMsg" -ForegroundColor Red
+        Write-Host "[Invoke-Agent] StackTrace:`n$stackTrace" -ForegroundColor Red
+        Write-Host "[Invoke-Agent] wrapperScript at catch: '$wrapperScript'" -ForegroundColor Yellow
+        Write-Host "[Invoke-Agent] runningOnWindows: $runningOnWindows" -ForegroundColor Yellow
+        Write-Host "[Invoke-Agent] artifactsDir: $artifactsDir" -ForegroundColor Yellow
+        "$errorType : $errorMsg`nStackTrace:`n$stackTrace" | Out-File -FilePath $outputFile -Encoding utf8
     }
 
     # --- Retry on transient remote errors (ClosedResourceError, RemoteException) ---

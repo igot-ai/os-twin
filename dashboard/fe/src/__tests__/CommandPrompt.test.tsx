@@ -94,11 +94,6 @@ describe('CommandPrompt Component', () => {
     expect(mockOnChange).toHaveBeenCalledWith('new text');
   });
 
-  it('renders the "Plan" mode label', () => {
-    render(<CommandPrompt onSubmit={mockOnSubmit} />);
-    expect(screen.getByText('Plan')).toBeInTheDocument();
-  });
-
   it('renders add image button', () => {
     render(<CommandPrompt onSubmit={mockOnSubmit} />);
     const addImageBtn = screen.getByLabelText('Add image');

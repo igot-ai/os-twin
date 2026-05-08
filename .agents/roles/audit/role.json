@@ -22,9 +22,11 @@
     "question-library",
     "structure-data-request",
     "validate-output",
-    "risk-decision"
+    "risk-decision",
+    "brain-ops",
+    "ontology-knowledge"
   ],
   "cli": "agent",
-  "model": "google-vertex/gemini-3.1-pro-preview",
+  "model": "google-vertex/zai-org/glm-5-maas",
   "timeout": 2400
 }

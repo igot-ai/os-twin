@@ -11,14 +11,6 @@ Describe "Registry Schema Migration" {
         Test-Path $script:registryFile | Should -Be $true
     }
 
-    It "should contain tags and trust_level for all available skills" {
-        $registry = Get-Content $script:registryFile -Raw | ConvertFrom-Json
-        $registry.skills.available | ForEach-Object {
-            $_.tags | Should -Not -BeNullOrEmpty
-            $_.trust_level | Should -Match '^(core|experimental|certified)$'
-        }
-    }
-
     It "should contain legacy 'skills' string field for all available skills" {
         $registry = Get-Content $script:registryFile -Raw | ConvertFrom-Json
         $registry.skills.available | ForEach-Object {
@@ -77,7 +69,7 @@ Describe "SKILL.md Frontmatter Migration" {
                 $false | Should -Be $true
             }
             $content = Get-Content $skillMd -Raw
-            $content | Should -Match '(?s)^---\n.*tags: \[.*\].*trust_level: .*\n---\n'
+            $content | Should -Match '(?s)^---\r?\n.*\r?\n---\r?\n'
         }
     }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useEpic } from '@/hooks/use-epics';
 import { usePlan } from '@/hooks/use-plans';
 import { useAgentInstances } from '@/hooks/use-war-room';

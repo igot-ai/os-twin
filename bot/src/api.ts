@@ -158,7 +158,20 @@ function getHeaders(contentType: string | null = 'application/json'): Record<str
   return h;
 }
 
-async function fetchJSON(path: string, options: RequestInit = {}): Promise<any> {
+export async function fetchBinary(path: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(`${config.DASHBOARD_URL}${path}`, {
+      headers: getHeaders(null),
+    });
+    if (!res.ok) return null;
+    const arrayBuf = await res.arrayBuffer();
+    return Buffer.from(arrayBuf);
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchJSON(path: string, options: RequestInit = {}): Promise<any> {
   try {
     const { headers: customHeaders, ...restOptions } = options;
     const res = await fetch(`${config.DASHBOARD_URL}${path}`, {
@@ -229,6 +242,7 @@ export async function refinePlan(params: {
   chatHistory?: Array<{ role: string; content: string }>;
   workingDir?: string;
   assetContext?: PlanAsset[];
+  images?: Array<{ url: string; name?: string; contentType?: string }>;
 }): Promise<RefineResult> {
   return postJSON('/api/plans/refine', {
     message: params.message,
@@ -237,6 +251,7 @@ export async function refinePlan(params: {
     chat_history: params.chatHistory || [],
     working_dir: params.workingDir || '',
     asset_context: params.assetContext || [],
+    images: params.images || [],
   });
 }
 
@@ -541,6 +556,8 @@ const api = {
   shellCommand,
   postComment,
   getEngagement,
+  fetchJSON,
+  fetchBinary,
 };
 
 export default api;

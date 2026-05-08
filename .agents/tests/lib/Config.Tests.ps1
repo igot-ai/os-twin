@@ -15,7 +15,7 @@ BeforeAll {
             state_timeout_seconds = 900
         }
         engineer     = @{
-            cli              = "deepagents"
+            cli              = "agent"
             default_model    = "google-vertex/gemini-3-flash-preview"
             shell_allow_list = "all"
             auto_approve     = $true
@@ -23,7 +23,7 @@ BeforeAll {
             max_prompt_bytes = 102400
         }
         qa           = @{
-            cli             = "deepagents"
+            cli             = "agent"
             default_model   = "google-vertex/gemini-3-flash-preview"
             approval_mode   = "auto-approve"
             timeout_seconds = 300
@@ -60,7 +60,7 @@ Describe "Get-OstwinConfig" {
     It "reads nested values correctly" {
         $config = Get-OstwinConfig -ConfigPath $script:configFile
         $config.manager.poll_interval_seconds | Should -Be 5
-        $config.engineer.cli | Should -Be "deepagents"
+        $config.engineer.cli | Should -Be "agent"
         $config.channel.format | Should -Be "jsonl"
     }
 
@@ -166,7 +166,7 @@ Describe "New-RunConfig" {
                       -Overrides @{ "manager.max_concurrent_rooms" = 5 }
         $config = Get-Content $runConfig -Raw | ConvertFrom-Json
         $config.manager.poll_interval_seconds | Should -Be 5
-        $config.engineer.cli | Should -Be "deepagents"
+        $config.engineer.cli | Should -Be "agent"
     }
 
     It "throws when base config not found" {

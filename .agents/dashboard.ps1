@@ -6,7 +6,7 @@
     Starts the FastAPI web dashboard for monitoring war-rooms.
 
 .PARAMETER Port
-    Server port (default: 9000)
+    Server port (default: 3366)
 
 .PARAMETER ProjectDir
     Project to monitor (default: current directory)
@@ -19,7 +19,7 @@
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 9000,
+    [int]$Port = 3366,
 
     [string]$ProjectDir = (Get-Location).Path,
 
@@ -33,7 +33,7 @@ $ErrorActionPreference = "Stop"
 
 if ($Help) {
     Write-Host "Usage: dashboard.ps1 [-Port PORT] [-ProjectDir PATH] [-Background]"
-    Write-Host "  -Port PORT         Server port (default: 9000)"
+    Write-Host "  -Port PORT         Server port (default: 3366)"
     Write-Host "  -ProjectDir PATH   Project to monitor (default: current directory)"
     Write-Host "  -Background        Run in background (write PID to dashboard.pid)"
     exit 0

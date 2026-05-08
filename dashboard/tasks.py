@@ -2,21 +2,20 @@ import asyncio
 import os
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.api_utils import (
     WARROOMS_DIR,
     AGENTS_DIR,
     PLANS_DIR,
-    PROJECT_ROOT,
     read_room,
     read_channel,
     process_notification,
 )
 import dashboard.global_state as global_state
 from dashboard.epic_manager import EpicSkillsManager
-from dashboard.zvec_store import OSTwinStore
+# Heavy imports moved to background thread to prevent startup blocking
+
 # Telegram command handling is now in the Node.js bot (bot/src/telegram.ts).
 # Outbound notifications use notify.py (formerly telegram_bot.py).
 
@@ -27,8 +26,27 @@ async def poll_war_rooms():
     """Background task to poll war-room state and broadcast changes."""
     last_snapshot: dict[str, dict] = {}
 
+    _cached_warroom_dirs: list[Path] = []
+    _cached_warroom_dirs_time: float = 0
+    _WARROOM_CACHE_TTL = 10  # seconds
+
     def _discover_warroom_dirs() -> list[Path]:
-        """Discover all war-room directories: global + plan-specific."""
+        """Discover all war-room directories: global + plan-specific.
+
+        Results are cached for 10 seconds to avoid re-globbing and re-reading
+        .meta.json files on every 1-second poll cycle, which can exhaust the
+        OS file-descriptor limit (macOS default is often only 256).
+        """
+        nonlocal _cached_warroom_dirs, _cached_warroom_dirs_time
+        import time
+
+        now = time.monotonic()
+        if (
+            _cached_warroom_dirs
+            and (now - _cached_warroom_dirs_time) < _WARROOM_CACHE_TTL
+        ):
+            return _cached_warroom_dirs
+
         dirs = set()
         if WARROOMS_DIR.exists():
             dirs.add(WARROOMS_DIR)
@@ -47,7 +65,10 @@ async def poll_war_rooms():
                             dirs.add(warrooms_path)
                 except (json.JSONDecodeError, KeyError):
                     pass
-        return list(dirs)
+
+        _cached_warroom_dirs = list(dirs)
+        _cached_warroom_dirs_time = now
+        return _cached_warroom_dirs
 
     def _find_plan_id_for_warroom_dir(warroom_dir: Path) -> str | None:
         """Find the plan_id whose warrooms_dir matches."""
@@ -130,9 +151,15 @@ async def poll_war_rooms():
                             epic_ref = room.get("task_ref", "")
                             if epic_ref:
                                 try:
-                                    EpicSkillsManager.inject_room_assets(room_parent / room_id, plan_id, epic_ref)
+                                    EpicSkillsManager.inject_room_assets(
+                                        room_parent / room_id, plan_id, epic_ref
+                                    )
                                 except Exception as e:
-                                    logger.warning("Failed to inject assets for room %s: %s", room_id, e)
+                                    logger.warning(
+                                        "Failed to inject assets for room %s: %s",
+                                        room_id,
+                                        e,
+                                    )
 
                     if room_parent and room["message_count"] > 0:
                         messages = read_channel(room_parent / room_id)
@@ -239,28 +266,66 @@ async def startup_all():
     """Initialize state."""
     asyncio.create_task(poll_war_rooms())
 
-    # ── Load model catalog from models.dev ────────────────────────────
-    try:
-        from dashboard.lib.settings.models_dev_loader import load_models_on_startup
+    # ── Push Deployment Notification to Lark ──────────────────────────
+    # Only trigger at runtime on Cloud Run (excludes Docker build phase)
+    if os.environ.get("K_SERVICE"):
+        async def _notify_lark_delayed():
+            try:
+                # Small delay to ensure networking is fully up and stable
+                await asyncio.sleep(5)
+                
+                from dashboard.notify import send_lark_message
+                env_path = Path.home() / ".ostwin" / ".env"
+                if env_path.exists():
+                    from dotenv import load_dotenv
+                    load_dotenv(env_path)
 
-        load_models_on_startup()
+                api_key = os.environ.get("OSTWIN_API_KEY")
+                if api_key:
+                    app_url = os.environ.get("BASE_URL")
+                    msg_lines = [
+                        f"🔑 **OSTWIN_API_KEY**: {api_key}",
+                        f"📦 **Revision**: {os.environ.get('K_REVISION', 'unknown')}",
+                    ]
+                    if app_url:
+                        msg_lines.append(f"🌐 **Dashboard**: {app_url}")
+                    else:
+                        msg_lines.append("🌐 **Service**: Cloud Run (URL not set)")
+
+                    msg = "\n".join(msg_lines)
+                    await send_lark_message(msg, title="🚀 OS-Twin Deployed Successfully")
+            except Exception as e:
+                logger.error(f"Lark notification background task failed: {e}")
+
+        asyncio.create_task(_notify_lark_delayed())
+
+
+
+    # ── Hot-reload ~/.ostwin/.env on file changes ─────────────────────
+
+    try:
+        from dashboard.env_watcher import watch_env_file
+
+        asyncio.create_task(watch_env_file())
     except Exception as e:
-        logger.error("Models catalog load failed: %s", e)
+        logger.error("env_watcher failed to start: %s", e)
+
+    # Models catalog and heavy syncs move to the background thread
 
     # Telegram polling removed — handled by the Node.js bot (bot/src/telegram.ts)
-    # Planning thread store (independent of zvec)
+    # Planning thread store (initialized early/sync to avoid race conditions with first requests)
     try:
         from dashboard.planning_thread_store import PlanningThreadStore
 
         global_state.planning_store = PlanningThreadStore()
-        logger.info("Planning thread store initialized")
+        logger.info("Planning thread store initialized (Sync)")
     except Exception as e:
         logger.error(f"Planning store init failed: {e}")
 
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-        # Initialize store in global state
-        global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
+        # Initialize store in the background thread to prevent slow imports
+        # (torch, sentence_transformers) from blocking the main loop.
 
         # Force re-index if requested via CLI flag
         if os.environ.get("OSTWIN_REINDEX") == "true":
@@ -273,13 +338,45 @@ async def startup_all():
 
         global_state.store.ensure_collections()
 
-        # Run the heavy embedding sync in a background thread so uvicorn
-        # can start accepting connections immediately.  The sync generates
-        # embeddings for every skill/role/message which takes ~5 min on
-        # first run (57 skills * ~5s each).  Blocking the event loop here
-        # causes the install-script health-check to time out.
         def _background_sync():
+            from dashboard.routes import skills as skills_routes
+
+            skills_routes._sync_in_progress = True
             try:
+                # ── Grace Period ──
+                # Give the browser 5 seconds to load HTML/JS/CSS before we
+                # start hogging the CPU with Torch and YAML parsing.
+                import time
+
+                time.sleep(5)
+
+                # Lazy import of heavy vector store
+                from dashboard.zvec_store import OSTwinStore
+
+                global_state.store = OSTwinStore(WARROOMS_DIR, agents_dir=AGENTS_DIR)
+
+                # ── Load model catalog from models.dev ────────────────────────────
+                try:
+                    from dashboard.lib.settings.models_dev_loader import (
+                        load_models_on_startup,
+                    )
+
+                    load_models_on_startup()
+                except Exception as e:
+                    logger.error("Models catalog load failed: %s", e)
+
+                # ── Initialize master agent client ────────────────────────────
+                try:
+                    from dashboard.master_agent import get_master_client
+                    client = get_master_client()
+                    logger.info("Master agent client initialized")
+                except Exception as e:
+                    logger.warning("Master agent init failed (will retry on first use): %s", e)
+                
+                # Initialization (slow — loads 600MB model)
+                global_state.store.ensure_collections()
+
+                # Syncing
                 global_state.store.sync_from_disk()
                 from dashboard.api_utils import SKILLS_DIRS
 
@@ -297,6 +394,8 @@ async def startup_all():
                 logger.info("Background zvec sync complete")
             except Exception as e:
                 logger.error("Background zvec sync failed: %s", e)
+            finally:
+                skills_routes._sync_in_progress = False
 
         import threading
 
@@ -309,21 +408,17 @@ async def startup_all():
         logger.error(f"zvec init failed: {e}")
         global_state.store = None
 
-    # Auto-start the bot process if bot/ directory exists
+    # Initialize bot manager but don't auto-start — use POST /api/bot/start instead
     try:
         from dashboard.bot_manager import BotProcessManager, BOT_DIR
 
         if BOT_DIR.exists():
             global_state.bot_manager = BotProcessManager()
-            started = await global_state.bot_manager.start()
-            if started:
-                logger.info("Bot process started successfully")
-            else:
-                logger.warning("Bot process failed to start (missing tsx or entry point)")
+            logger.info("Bot manager initialized — start via POST /api/bot/start")
         else:
-            logger.info("Bot directory not found — skipping bot auto-start")
+            logger.info("Bot directory not found — bot manager disabled")
     except Exception as e:
-        logger.error("Bot auto-start failed: %s", e)
+        logger.error("Bot manager init failed: %s", e)
 
     # Auto-start ngrok tunnel if NGROK_AUTHTOKEN is set
     auth_token = os.environ.get("NGROK_AUTHTOKEN")
@@ -331,7 +426,7 @@ async def startup_all():
         try:
             from dashboard.tunnel import start_tunnel
 
-            port = int(os.environ.get("DASHBOARD_PORT", "9000"))
+            port = int(os.environ.get("DASHBOARD_PORT", "3366"))
             domain = os.environ.get("NGROK_DOMAIN")
             url = await start_tunnel(port, auth_token, domain)
             global_state.tunnel_url = url

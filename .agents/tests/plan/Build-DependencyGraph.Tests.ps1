@@ -20,7 +20,6 @@ Describe "Build-DependencyGraph" {
         It "returns empty array for empty input" {
             $result = & $script:builder -Nodes @()
             $result.Count | Should -Be 0
-            
         }
 
         It "throws on node without Id" {

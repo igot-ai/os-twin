@@ -2,7 +2,7 @@
 name: generate-project-context
 description: Generate project-context.md for codebase understanding
 tags: [architect, context, documentation]
-trust_level: core
+
 source: project
 ---
 

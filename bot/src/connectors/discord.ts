@@ -19,7 +19,7 @@ import path from 'path';
 import { EOL } from 'os';
 
 import { Platform, Connector, ConnectorConfig, ConnectorStatus, HealthCheckResult, SetupStep, ValidationResult } from './base';
-import { routeCommand, routeCallback, handleStatefulText, BotResponse, Button, COMMAND_REGISTRY, DEFERRED_COMMANDS } from '../commands';
+import { routeCommand, routeCallback, BotResponse, Button, COMMAND_REGISTRY, DEFERRED_COMMANDS } from '../commands';
 import { askAgent } from '../agent-bridge';
 import { getSession } from '../sessions';
 import { transcribeAndLaunch } from '../audio-transcript';
@@ -46,6 +46,7 @@ interface LogEntry {
   username: string;
   content: string;
   timestamp: string;
+  referencedMessageId?: string;
 }
 
 const DISCORD_MSG_LIMIT = 2000;
@@ -175,6 +176,7 @@ export class DiscordConnector implements Connector {
         username: message.author.username,
         content: message.content,
         timestamp: message.createdAt.toISOString(),
+        referencedMessageId: message.reference?.messageId,
       };
 
       const logFile = path.join(LOGS_DIR, `${entry.channelName}-${entry.channelId}.jsonl`);
@@ -193,12 +195,11 @@ export class DiscordConnector implements Connector {
       const botUserId = this.client?.user?.id;
       const isMention = !!(botUserId && message.mentions.has(botUserId));
       const attachments = message.attachments ? Array.from(message.attachments.values()) : [];
-      const isStateful = ['drafting', 'editing', 'awaiting_idea'].includes(session.mode);
+      
 
       // ── Handle attachments: save immediately or stage for later ──
       const hasAttachments = attachments.length > 0;
-      const canSaveNow = session.activePlanId && session.activePlanId !== 'new'
-        && ['drafting', 'editing'].includes(session.mode);
+      const canSaveNow = session.activePlanId && session.activePlanId !== 'new';
 
       if (hasAttachments) {
         if (canSaveNow) {
@@ -217,10 +218,12 @@ export class DiscordConnector implements Connector {
         } else {
           // No plan yet → download from CDN and stage in session buffer
           const epicRef = detectEpicRef(message.content) || session.activeEpicRef;
+          console.log(`[DISCORD] Staging ${attachments.length} attachment(s) for user ${userId}`);
           const stageResult = await stageAttachments(userId, 'discord',
             attachments.map(a => ({ url: a.url, name: a.name || 'attachment', contentType: a.contentType })),
             epicRef,
           );
+          console.log(`[DISCORD] Stage result:`, { staged: stageResult.staged, failed: stageResult.failed, rejected: stageResult.rejected });
 
           if (stageResult.rejected) {
             await this.sendToChannel(message.channel as TextChannel, [{
@@ -248,23 +251,57 @@ export class DiscordConnector implements Connector {
 
         if (!question && attachments.length === 0) return;
 
-        // If user is editing a plan, treat @mention text as a plan instruction
-        if (isStateful && question) {
-          const textResponses = await handleStatefulText(userId, 'discord', question);
-          if (textResponses.length > 0) {
-            await this.sendToChannel(message.channel as TextChannel, textResponses);
-          }
-          return;
-        }
+        // All @mentions go through askAgent() — the AI decides whether to
+        // refine a plan, check status, or take other actions via tool-calling.
 
         // Otherwise: AI agent with tool-calling (can create plans, check status, etc.)
-        if (question) {
+        // Trigger if there's text OR attachments (attachment-only = user wants assets processed)
+        if (question || hasAttachments) {
           (message.channel as TextChannel).sendTyping().catch(() => {});
-          console.log(`🤖 [AGENT] ${entry.username} asked: ${question}`);
+
+          // Build the prompt — if no text but files attached, describe what was sent
+          const agentQuestion = question
+            || `I've attached ${attachments.length} file(s): ${attachments.map(a => a.name || 'file').join(', ')}. Please use them to create a plan.`;
+
+          console.log(`🤖 [AGENT] ${entry.username} asked: ${agentQuestion}`);
+
+          // Fetch referenced message content if this is a reply
+          let referencedMessageContent: string | undefined;
+          if (message.reference?.messageId) {
+            try {
+              const referencedMsg = await (message.channel as TextChannel).messages.fetch(message.reference.messageId);
+              referencedMessageContent = referencedMsg.content;
+              console.log(`[DISCORD] Reply context: "${referencedMessageContent?.slice(0, 100)}..."`);
+            } catch (err) {
+              console.warn(`[DISCORD] Failed to fetch referenced message: ${err}`);
+            }
+          }
+
+          // Build attachment metadata so the agent knows files are staged
+          const attachmentMeta = hasAttachments
+            ? attachments.map(a => ({ name: a.name || 'attachment', contentType: a.contentType, sizeBytes: a.size }))
+            : undefined;
 
           try {
-            const answer = await askAgent(question, { userId, platform: 'discord' });
-            await message.reply(answer);
+            const result = await askAgent(agentQuestion, { 
+              userId, 
+              platform: 'discord',
+              referencedMessageContent,
+              attachments: attachmentMeta,
+            });
+
+            // Build reply with optional file attachments (e.g. memory graph)
+            const discordText = result.text.length > 1900
+              ? result.text.slice(0, 1900) + '\n\n*…(truncated)*'
+              : result.text;
+            const replyOptions: any = { content: discordText };
+            if (result.attachments?.length) {
+              const { AttachmentBuilder } = await import('discord.js');
+              replyOptions.files = result.attachments.map(
+                (a) => new AttachmentBuilder(a.buffer, { name: a.name })
+              );
+            }
+            await message.reply(replyOptions);
           } catch (err: any) {
             console.error('❌ [AGENT] Bridge error:', err);
             await message.reply('⚠️ Sorry, I couldn\'t reach the ostwin backend.').catch(() => {});
@@ -276,24 +313,8 @@ export class DiscordConnector implements Connector {
         return;
       }
 
-      // ── Stateful text: refine/draft plan ──
-      if (isStateful) {
-        const msgText = message.content.trim();
-        const responses: BotResponse[] = [];
-
-        if (msgText && !msgText.startsWith('/')) {
-          const textResponses = await handleStatefulText(userId, 'discord', msgText);
-          responses.push(...textResponses);
-        }
-
-        // After draft/refine, the plan may now exist — flush staged attachments
-        const flushResponses = await this.flushStagedIfReady(userId);
-        responses.push(...flushResponses);
-
-        if (responses.length > 0) {
-          await this.sendToChannel(message.channel as TextChannel, responses);
-        }
-      }
+      // Non-mention messages in Discord are not routed to the AI.
+      // Users must @mention the bot to interact.
     });
 
     // Register commands

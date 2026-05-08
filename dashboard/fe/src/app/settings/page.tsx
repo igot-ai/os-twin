@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSettings } from '@/hooks/use-settings';
 import { useConfiguredModels } from '@/hooks/use-configured-models';
 import { LiveStatusBadge } from '@/components/settings/LiveStatusBadge';
@@ -12,14 +13,17 @@ import { AddProviderModal } from '@/components/settings/AddProviderModal';
 import { VaultSecretModal } from '@/components/settings/VaultSecretModal';
 import { RuntimePanel } from '@/components/settings/RuntimePanel';
 import { MemoryPanel } from '@/components/settings/MemoryPanel';
+import { KnowledgePanel } from '@/components/settings/KnowledgePanel';
+import { ChannelsPanel } from '@/components/settings/ChannelsPanel';
 import type { SettingsNamespace, ProviderSettings, ModelInfo } from '@/types/settings';
-import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
+import { apiGet, apiPost, apiDelete, apiPut } from '@/lib/api-client';
 
 // Providers that have dedicated cards at the top of the settings page.
-// These are hidden from the Additional Providers section.
-// NOTE: 'gemini' is included because opencode.json syncs Google under
-// the 'gemini' provider ID, which would otherwise leak as a dynamic card.
-const LEGACY_PRIMARY_PROVIDERS = new Set(['google', 'gemini', 'byteplus', 'anthropic', 'openai']);
+// These are hidden from the Additional Providers section to avoid duplicates.
+const LEGACY_PRIMARY_PROVIDERS = new Set([
+  'anthropic',
+  'byteplus',
+]);
 
 // Map internal provider names to registry keys (for legacy fallback)
 const PROVIDER_REGISTRY_KEY: Record<string, string> = {
@@ -30,6 +34,22 @@ const PROVIDER_REGISTRY_KEY: Record<string, string> = {
 };
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center text-on-surface-variant">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4 mx-auto" />
+          <p className="text-sm font-body">Loading settings...</p>
+        </div>
+      </div>
+    }>
+      <SettingsPageContent />
+    </Suspense>
+  );
+}
+
+function SettingsPageContent() {
+  const searchParams = useSearchParams();
   const [activeNamespace, setActiveNamespace] = useState<SettingsNamespace>('providers');
   const [vaultModalOpen, setVaultModalOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
@@ -37,9 +57,19 @@ export default function SettingsPage() {
   const [vaultKey, setVaultKey] = useState('');
   const [vaultStatus, setVaultStatus] = useState<Record<string, boolean>>({});
   const [modelRegistry, setModelRegistry] = useState<Record<string, ModelInfo[]>>({});
+  const [isReloading, setIsReloading] = useState(false);
 
-  const { settings, isLoading, isError, updateNamespace, testProvider, updateVault } = useSettings();
-  const { configured, providers: configuredProviders, allModels, registry: dynamicRegistry, reload: reloadModels } = useConfiguredModels();
+  const { settings, isLoading, isError, updateNamespace, updateVault } = useSettings();
+  const { configured, providers: configuredProviders, allModels, reload: reloadModels } = useConfiguredModels();
+
+  // Sync ?tab= query param to activeNamespace
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const validTabs: SettingsNamespace[] = ['providers', 'runtime', 'memory', 'knowledge', 'channels'];
+    if (tab && validTabs.includes(tab as SettingsNamespace)) {
+      setActiveNamespace(tab as SettingsNamespace);
+    }
+  }, [searchParams]);
 
   // Fetch model registry (backward compat + dynamic)
   useEffect(() => {
@@ -96,23 +126,43 @@ export default function SettingsPage() {
 
   const handleRemoveProvider = async (providerId: string) => {
     try {
-      await apiDelete(`/settings/vault/providers/${providerId}`);
-      await apiPost('/models/reload');
-      // Refresh vault status
-      const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
-      const entries = raw.keys ?? raw;
-      const status: Record<string, boolean> = {};
-      Object.entries(entries).forEach(([key, value]) => {
-        if (value && typeof value === 'object' && 'is_set' in value) {
-          status[key] = value.is_set;
-        }
-      });
-      setVaultStatus(status);
-      reloadModels();
+      const isSet = vaultStatus[providerId];
+      
+      if (isSet) {
+        // First click: remove key
+        await apiDelete(`/settings/vault/providers/${providerId}`);
+        await apiPost('/models/reload');
+        
+        // Refresh vault status
+        const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
+        const entries = raw.keys ?? raw;
+        const status: Record<string, boolean> = {};
+        Object.entries(entries).forEach(([key, value]) => {
+          if (value && typeof value === 'object' && 'is_set' in value) {
+            status[key] = value.is_set;
+          }
+        });
+        setVaultStatus(status);
+        reloadModels();
+      } else {
+        // Second click (or no key existed): dismiss from UI
+        const provSettings = (providers as Record<string, ProviderSettings>)[providerId] || { enabled: false };
+        updateProvider(providerId, provSettings, { dismissed: true });
+        
+        await apiDelete(`/settings/vault/providers/${providerId}`).catch(() => {});
+        await apiPost('/models/reload');
+        reloadModels();
+      }
     } catch { /* ignore */ }
   };
 
-  const handleProviderAdded = async (_providerId: string) => {
+  const handleProviderAdded = async (providerId: string) => {
+    // If the provider was previously dismissed, un-dismiss it
+    const provSettings = (providers as Record<string, ProviderSettings>)[providerId];
+    if (provSettings?.dismissed) {
+      updateProvider(providerId, provSettings, { dismissed: false });
+    }
+
     // Refresh vault status + model catalog
     try {
       const raw = await apiGet<{ keys?: Record<string, { is_set: boolean }> } & Record<string, { is_set: boolean }>>('/settings/vault/providers');
@@ -139,35 +189,23 @@ export default function SettingsPage() {
     return key ? (modelRegistry[key] || []) : [];
   };
 
-  // Get models for a specific provider from dynamic catalog
-  const getModelsForProvider = (providerId: string): ModelInfo[] => {
-    const provider = configuredProviders[providerId];
-    if (!provider) return [];
-    return Object.entries(provider.models).map(([modelId, model]) => ({
-      id: modelId,
-      label: model.name,
-      context_window: model.limit?.context
-        ? formatCtx(model.limit.context)
-        : '',
-      tier: classifyTier(model),
-      provider_id: providerId,
-      family: model.family,
-      cost: model.cost,
-      logo_url: provider.logo_url,
-      reasoning: model.reasoning,
-      tool_call: model.tool_call,
-      attachment: model.attachment,
-    }));
-  };
+
 
   // Flat model IDs for backward-compat consumers (RolesPanel)
+  const providers = settings?.providers || {};
+  const defaultProvider = { enabled: true } as ProviderSettings;
+  const googleSettings   = (providers as Record<string, ProviderSettings>).google    ?? defaultProvider;
+  const anthropicSettings = (providers as Record<string, ProviderSettings>).anthropic ?? defaultProvider;
+  const openaiSettings   = (providers as Record<string, ProviderSettings>).openai    ?? defaultProvider;
+  const byteplusSettings = (providers as Record<string, ProviderSettings>).byteplus  ?? defaultProvider;
+
   const allModelIds = allModels.length > 0
     ? allModels.map((m) => m.id)
     : Object.values(modelRegistry).flat().map((m) => m.id);
 
-  // Dynamic providers: those configured in auth.json but NOT legacy primary
+  // Dynamic providers: those configured in auth.json but NOT legacy primary, and NOT dismissed
   const dynamicProviderIds = Object.keys(configuredProviders).filter(
-    (pid) => !LEGACY_PRIMARY_PROVIDERS.has(pid),
+    (pid) => !LEGACY_PRIMARY_PROVIDERS.has(pid) && !(providers as Record<string, ProviderSettings>)[pid]?.dismissed,
   );
 
   if (isLoading) {
@@ -184,21 +222,19 @@ export default function SettingsPage() {
   if (isError || !settings) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <span className="material-symbols-outlined text-6xl mb-4 block text-error">error</span>
-          <p className="text-sm text-error">Failed to load settings</p>
+        <div className="text-center text-error">
+          <span className="material-symbols-outlined text-4xl mb-2">error</span>
+          <p className="font-medium">Failed to load settings.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-error text-on-error rounded hover:bg-error/90 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
   }
-
-  // Build provider settings with defaults for the four known providers
-  const defaultProvider = { enabled: true } as ProviderSettings;
-  const providers = settings.providers || {};
-  const googleSettings   = (providers as Record<string, ProviderSettings>).google    ?? defaultProvider;
-  const anthropicSettings = (providers as Record<string, ProviderSettings>).anthropic ?? defaultProvider;
-  const openaiSettings   = (providers as Record<string, ProviderSettings>).openai    ?? defaultProvider;
-  const byteplusSettings = (providers as Record<string, ProviderSettings>).byteplus  ?? defaultProvider;
 
   const updateProvider = (name: string, current: ProviderSettings, updates: Partial<ProviderSettings>) =>
     updateNamespace('providers', { ...providers, [name]: { ...current, ...updates } });
@@ -232,12 +268,22 @@ export default function SettingsPage() {
                 Global Model Provisioning
               </h2>
               <button
-                onClick={reloadModels}
-                className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-bold uppercase bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition-colors"
+                onClick={async () => {
+                  setIsReloading(true);
+                  try {
+                    await reloadModels();
+                  } finally {
+                    setIsReloading(false);
+                  }
+                }}
+                disabled={isReloading}
+                className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-bold uppercase bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition-colors disabled:opacity-50"
                 title="Re-fetch models from models.dev"
               >
-                <span className="material-symbols-outlined text-sm">refresh</span>
-                Reload Models
+                <span className={`material-symbols-outlined text-sm ${isReloading ? 'animate-spin' : ''}`}>
+                  {isReloading ? 'progress_activity' : 'refresh'}
+                </span>
+                {isReloading ? 'Reloading...' : 'Reload Models'}
               </button>
             </div>
             <p className="text-sm text-on-surface-variant mb-2">
@@ -265,7 +311,6 @@ export default function SettingsPage() {
                   onToggle={(enabled) => updateProvider('google', googleSettings, { enabled })}
                   onModelChange={(model) => updateProvider('google', googleSettings, { default_model: model })}
                   onSettingsChange={(updates) => updateProvider('google', googleSettings, updates)}
-                  onTest={() => testProvider('google')}
                   onVaultClick={() => handleVaultClick('google')}
                   onServiceAccountUpload={handleServiceAccountUpload}
                   vaultSet={vaultStatus['google'] || false}
@@ -283,7 +328,6 @@ export default function SettingsPage() {
                   variant="compact"
                   onToggle={(enabled) => updateProvider('anthropic', anthropicSettings, { enabled })}
                   onModelChange={(model) => updateProvider('anthropic', anthropicSettings, { default_model: model })}
-                  onTest={() => testProvider('anthropic')}
                   onVaultClick={() => handleVaultClick('anthropic')}
                   vaultSet={vaultStatus['anthropic'] || false}
                   modelRegistry={getRegistryForProvider('anthropic')}
@@ -295,7 +339,6 @@ export default function SettingsPage() {
                   variant="compact"
                   onToggle={(enabled) => updateProvider('openai', openaiSettings, { enabled })}
                   onModelChange={(model) => updateProvider('openai', openaiSettings, { default_model: model })}
-                  onTest={() => testProvider('openai')}
                   onVaultClick={() => handleVaultClick('openai')}
                   vaultSet={vaultStatus['openai'] || false}
                   modelRegistry={getRegistryForProvider('openai')}
@@ -308,7 +351,6 @@ export default function SettingsPage() {
                 provider={byteplusSettings}
                 onSettingsChange={(updates) => updateProvider('byteplus', byteplusSettings, updates)}
                 onVaultClick={() => handleVaultClick('byteplus')}
-                onTest={() => testProvider('byteplus')}
                 vaultSet={vaultStatus['byteplus'] || false}
                 modelRegistry={getRegistryForProvider('byteplus')}
               />
@@ -363,7 +405,6 @@ export default function SettingsPage() {
                         vaultSet={vaultStatus[pid] || false}
                         onVaultClick={() => handleVaultClick(pid)}
                         onToggle={(enabled) => updateProvider(pid, provSettings, { enabled })}
-                        onTest={() => testProvider(pid)}
                         onRemove={() => handleRemoveProvider(pid)}
                       />
                     );
@@ -377,10 +418,34 @@ export default function SettingsPage() {
       case 'runtime':
         return (
           <div>
-            <h2 className="text-lg font-bold text-on-surface mb-4">Runtime</h2>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-mono text-primary bg-primary-container px-2 py-0.5 rounded">
+                SYSTEM_ADMIN
+              </span>
+              <span className="text-xs text-on-surface-variant">/ configuration / runtime</span>
+            </div>
+            <h2 className="text-2xl font-extrabold tracking-tight text-on-surface mb-1">
+              Runtime Configuration
+            </h2>
+            <p className="text-sm text-on-surface-variant mb-6">
+              Configure the master agent model and operational parameters.
+            </p>
             <RuntimePanel
               runtime={settings.runtime}
-              onUpdate={(value) => updateNamespace('runtime', { ...settings.runtime, ...value })}
+              allModels={allModels}
+              onUpdate={async (value) => {
+                // If master_agent_model changed, also update the master agent singleton
+                if (value.master_agent_model !== undefined) {
+                  try {
+                    await apiPut('/settings/master-model', {
+                      model: value.master_agent_model,
+                    });
+                  } catch (e) {
+                    console.error('Failed to update master model:', e);
+                  }
+                }
+                updateNamespace('runtime', { ...settings.runtime, ...value });
+              }}
             />
           </div>
         );
@@ -390,8 +455,26 @@ export default function SettingsPage() {
           <MemoryPanel
             memory={settings.memory || {}}
             onUpdate={(value) => updateNamespace('memory', { ...settings.memory, ...value })}
+            allModels={allModels}
           />
         );
+
+      case 'knowledge': {
+        const knowledgeDefaults = { knowledge_llm_backend: '', knowledge_llm_model: '', knowledge_embedding_backend: '' as const, knowledge_embedding_model: '', knowledge_embedding_dimension: 768 };
+        const knowledgeCurrent = settings.knowledge ?? knowledgeDefaults;
+        return (
+          <KnowledgePanel
+            knowledge={knowledgeCurrent}
+            onUpdate={(value) =>
+              updateNamespace('knowledge', { ...knowledgeCurrent, ...value })
+            }
+            allModels={allModels}
+          />
+        );
+      }
+
+      case 'channels':
+        return <ChannelsPanel />;
 
       default:
         return null;

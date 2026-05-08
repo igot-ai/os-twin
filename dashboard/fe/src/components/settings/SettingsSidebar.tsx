@@ -12,6 +12,8 @@ const NAMESPACE_ITEMS: { id: SettingsNamespace; icon: string; label: string }[] 
   { id: 'providers',     icon: 'memory',               label: 'Provider Config' },
   { id: 'runtime',       icon: 'settings',             label: 'Runtime' },
   { id: 'memory',        icon: 'storage',              label: 'Memory' },
+  { id: 'knowledge',     icon: 'school',               label: 'Knowledge' },
+  { id: 'channels',      icon: 'hub',                  label: 'Channels' },
 ];
 
 export function SettingsSidebar({

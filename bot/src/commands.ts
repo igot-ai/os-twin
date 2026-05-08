@@ -9,7 +9,8 @@
 
 import api, { PlanAsset, ClawhubSkill, RoleInfo } from './api';
 import { registry } from './connectors/registry';
-import { getSession, clearSession, setMode, setPlan, setWorkingDir } from './sessions';
+import { getSession, clearSession, clearChatHistory, setPlan, setWorkingDir, persistAfterMessage } from './sessions';
+import { askAgent } from './agent-bridge';
 import { listRecordings, transcribeAudio } from './audio-transcript';
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -61,20 +62,21 @@ export const COMMAND_REGISTRY: CommandDef[] = [
   { name: 'transcribe',      description: 'Transcribe a voice recording and draft a plan',       deferReply: true },
   { name: 'setdir',          description: 'Set target project directory for new plans',          arg: 'path',     argDescription: 'Absolute path to project directory' },
   { name: 'cancel',          description: 'Exit current editing session' },
+  { name: 'clear',           description: 'Clear conversation history with the AI' },
   { name: 'feedback',        description: 'Send feedback to the dashboard',                      arg: 'text',     argDescription: 'Your feedback message',   argRequired: true, deferReply: true },
 
   // ── Monitoring ──────────────────────────────────────────────────
-  { name: 'dashboard',       description: 'Real-time War-Room progress',                         telegramMenu: '📊 Real-time War-Room progress' },
-  { name: 'status',          description: 'List running War-Rooms',                              telegramMenu: '💻 List running War-Rooms' },
-  { name: 'compact',         description: 'Latest messages from agents' },
-  { name: 'errors',          description: 'Error summary with root causes' },
+  { name: 'dashboard',       description: 'Real-time War-Room progress',                         deferReply: true, telegramMenu: '📊 Real-time War-Room progress' },
+  { name: 'status',          description: 'List running War-Rooms',                              deferReply: true, telegramMenu: '💻 List running War-Rooms' },
+  { name: 'compact',         description: 'Latest messages from agents',                         deferReply: true },
+  { name: 'errors',          description: 'Error summary with root causes',                      deferReply: true },
   { name: 'logs',            description: 'View war-room channel messages',                      arg: 'room_id',  argDescription: 'War-room ID (e.g. room-001)',          deferReply: true, telegramMenu: '📜 View war-room logs' },
   { name: 'health',          description: 'System health check',                                 deferReply: true, telegramMenu: '🏥 System health check' },
   { name: 'progress',        description: 'Plan progress bars',                                  deferReply: true },
-  { name: 'plans',           description: 'List all project Plans' },
+  { name: 'plans',           description: 'List all project Plans',                             deferReply: true },
 
   // ── Skills & Roles ──────────────────────────────────────────────
-  { name: 'skills',          description: 'View installed AI skills',                             telegramMenu: '🧠 List AI skills' },
+  { name: 'skills',          description: 'View installed AI skills',                            deferReply: true, telegramMenu: '🧠 List AI skills' },
   { name: 'skillsearch',     description: 'Search ClawHub skill marketplace',                    arg: 'query',    argDescription: 'Search query',                         argRequired: true, deferReply: true },
   { name: 'skillinstall',    description: 'Install a skill from ClawHub',                        arg: 'slug',     argDescription: 'Skill slug (e.g. steipete/web-search)', argRequired: true, deferReply: true },
   { name: 'skillremove',     description: 'Remove an installed skill',                           arg: 'name',     argDescription: 'Skill name to remove',                  argRequired: true, deferReply: true },
@@ -83,7 +85,7 @@ export const COMMAND_REGISTRY: CommandDef[] = [
   { name: 'clonerole',       description: 'Clone a role for project-local override',             arg: 'role',     argDescription: 'Role name to clone',                    argRequired: true, deferReply: true },
 
   // ── System ──────────────────────────────────────────────────────
-  { name: 'usage',           description: 'Stats report' },
+  { name: 'usage',           description: 'Stats report',                                        deferReply: true },
   { name: 'config',          description: 'View system configuration',                           arg: 'key',      argDescription: 'Config key in dot notation (e.g. manager.poll_interval_seconds)', deferReply: true },
   { name: 'triage',          description: 'Triage a failed war-room',                            arg: 'room_id',  argDescription: 'War-room ID to triage',                 deferReply: true },
   { name: 'clearplans',      description: 'Wipe all plan data',                                  deferReply: true },
@@ -184,7 +186,7 @@ function cmdSubmenuSystem(): BotResponse {
 // ── Monitoring commands ───────────────────────────────────────────
 
 async function cmdDashboard(): Promise<BotResponse> {
-  const [{ rooms, summary }, baseUrl] = await Promise.all([
+  const [{ summary }, baseUrl] = await Promise.all([
     api.getRooms(),
     api.getBaseUrl(),
   ]);
@@ -477,6 +479,7 @@ async function cmdTriage(args: string): Promise<BotResponse> {
 async function cmdCloneRole(args: string): Promise<BotResponse> {
   const role = args.trim();
   if (!role) return text('⚠️ Usage: `/clonerole <role>`\nExample: `/clonerole engineer`');
+  if (!/^[a-zA-Z0-9_-]+$/.test(role)) return text('⚠️ Invalid role name. Use only letters, numbers, hyphens, and underscores.');
 
   const result = await api.shellCommand(`ostwin clone-role ${role}`);
   if (result?._error) return text(`❌ Failed to clone role \`${role}\`: ${result._error}`);
@@ -778,7 +781,6 @@ async function cmdAssetsMenu(userId: string, platform: string): Promise<BotRespo
   if (
     session.activePlanId
     && session.activePlanId !== 'new'
-    && ['editing', 'drafting'].includes(session.mode)
   ) {
     return cmdAssets(session.activePlanId);
   }
@@ -800,8 +802,7 @@ async function cmdViewPlan(planId: string): Promise<BotResponse> {
 
 function cmdStartEditing(userId: string, platform: string, planId: string): BotResponse {
   setPlan(userId, platform, planId);
-  setMode(userId, platform, 'editing');
-  return text(`✏️ *Editing Mode Active for \`${planId}\`*\n\nSend instructions to the AI to refine this plan. Type /cancel to stop editing.`);
+  return text(`✏️ *Active plan set to \`${planId}\`*\n\n@mention me with instructions to refine this plan, or ask about its status.\nType /cancel to deselect.`);
 }
 
 function cmdPromptLaunch(planId: string): BotResponse {
@@ -822,137 +823,8 @@ async function cmdLaunchPlan(planId: string): Promise<BotResponse[]> {
 
 // ── AI draft / refine ─────────────────────────────────────────────
 
-async function processDraft(userId: string, platform: string, idea: string): Promise<BotResponse[]> {
-  setPlan(userId, platform, 'new');
-  setMode(userId, platform, 'drafting');
-
-  const session = getSession(userId, platform);
-  const workingDir = session.workingDir
-    || registry.getConfig(platform as any)?.settings?.working_dir
-    || '';
-  const dirLabel = workingDir ? `\nDir: \`${workingDir}\`` : '';
-  const responses: BotResponse[] = [text(`⏳ *Drafting Plan...*\nIdea: \`${idea}\`${dirLabel}\nPlease wait while the AI generates the initial plan.`)];
-
-  try {
-    const result = await api.refinePlan({ message: `Draft a new plan for: ${idea}`, workingDir });
-
-    if (result?._error) {
-      clearSession(userId, platform);
-      responses.push(text(`❌ Failed to draft plan: ${result._error}`));
-      return responses;
-    }
-
-    const planText = result.plan || result.refined_plan || result.raw_result?.full_response || '';
-    const planId = result.raw_result?.plan_id || _generateSlug(idea);
-
-    const created = await api.createPlan({ title: idea, content: planText, workingDir: workingDir || '.' });
-
-    setMode(userId, platform, 'editing');
-    setPlan(userId, platform, created?.plan_id || planId);
-
-    responses.push(text(`✅ *Plan Drafted:* \`${created?.plan_id || planId}\`\n\nYou are now in editing mode. Send further instructions to refine it, or /cancel to exit.`));
-
-    if (planText && planText.length < 3500) {
-      responses.push(text(`📄 *Plan Content:*\n\`\`\`markdown\n${planText}\n\`\`\``));
-    }
-
-    if (result.explanation) {
-      responses.push(text(`📝 *Plan Summary:*\n\n${result.explanation}`));
-    }
-
-    // EPIC-003: Asset collection prompt
-    const epicMatches = planText.match(/EPIC-\d+/g) || [];
-    const epicCount = new Set(epicMatches).size;
-    if (epicCount > 0) {
-      responses.push(text(
-        `📎 This plan has ${epicCount} epic(s). **Do you have any files to attach?**\n` +
-        `Upload documents, images, or other assets now — they'll be linked to the plan.\n` +
-        `💡 **Tip:** Include the epic reference (e.g. EPIC-001) in the caption to auto-bind.`
-      ));
-    } else {
-      responses.push(text(`**Do you have any files to attach?** You can upload documents or images now.`));
-    }
-  } catch (err: any) {
-    clearSession(userId, platform);
-    responses.push(text(`❌ Failed to draft plan: ${err.message}`));
-  }
-
-  return responses;
-}
-
-export async function handleStatefulText(userId: string, platform: string, userText: string): Promise<BotResponse[]> {
-  const session = getSession(userId, platform);
-
-  if (session.mode === 'awaiting_idea') {
-    return processDraft(userId, platform, userText);
-  }
-
-  const planId = session.activePlanId;
-  if (!planId) {
-    clearSession(userId, platform);
-    return [];
-  }
-
-  const responses: BotResponse[] = [text(`⏳ *Refining \`${planId}\`...*`)];
-
-  try {
-    session.chatHistory.push({ role: 'user', content: userText });
-    let assetContext: PlanAsset[] = [];
-    if (planId !== 'new') {
-      const assetResult = await api.getPlanAssets(planId);
-      if (!assetResult.error) {
-        assetContext = assetResult.assets;
-      }
-    }
-
-    const result = await api.refinePlan({
-      message: userText,
-      planId,
-      chatHistory: session.chatHistory.slice(0, -1),
-      workingDir: session.workingDir || registry.getConfig(platform as any)?.settings?.working_dir,
-      assetContext,
-    });
-
-    if (result?._error) {
-      responses.push(text(`❌ Failed to refine plan: ${result._error}`));
-      return responses;
-    }
-
-    const planText = result.plan || result.refined_plan || '';
-
-    if (planText) {
-      await api.savePlan(planId, planText);
-    }
-
-    session.chatHistory.push({ role: 'assistant', content: 'I have updated the plan as requested.' });
-
-    responses.push(text(`✅ *Plan Updated:* \`${planId}\``));
-
-    if (planText && planText.length < 3500) {
-      responses.push(text(`📄 *Updated Plan:*\n\`\`\`markdown\n${planText}\n\`\`\``));
-    }
-
-    if (result.explanation) {
-      responses.push(text(`📝 *Changes:*\n\n${result.explanation}\n\n_(Send more instructions to keep editing, or /cancel to exit)_`));
-    }
-
-    // EPIC-003: Asset collection prompt (only if plan content was changed and has epics)
-    if (planText) {
-      const epicMatches = planText.match(/EPIC-\d+/g) || [];
-      const epicCount = new Set(epicMatches).size;
-      if (epicCount > 0) {
-        responses.push(text(
-          `📎 The plan now has ${epicCount} epic(s). **Do you have any files to attach?**\n` +
-          `Include the epic reference (e.g. EPIC-001) in the caption to auto-bind.`
-        ));
-      }
-    }
-  } catch (err: any) {
-    responses.push(text(`❌ Failed to refine plan: ${err.message}`));
-  }
-
-  return responses;
-}
+// processDraft and handleStatefulText removed — all plan creation
+// and refinement now goes through askAgent() with create_plan / refine_plan tools.
 
 // ── EPIC-003: File attachment handling during plan conversations ──
 
@@ -964,8 +836,8 @@ export async function handleFileAttachments(
   const session = getSession(userId, platform);
   const planId = session.activePlanId;
 
-  if (!planId || planId === 'new' || !['editing', 'drafting'].includes(session.mode)) {
-    return [text('No active plan. Use /draft or /edit first, then upload files.')];
+  if (!planId || planId === 'new') {
+    return [text('No active plan. Use `/draft <idea>` or `/edit` first, then upload files.')];
   }
 
   // FIX-4: Forward epic/type metadata from the first file (all files in a batch share context)
@@ -1050,7 +922,8 @@ async function cmdTranscribePlan(userId: string, platform: string): Promise<BotR
   }
 
   const idea = `Plan based on voice discussion:\n\n${session.lastTranscription}`;
-  return processDraft(userId, platform, idea);
+  const result = await askAgent(`Create a plan for: ${idea}`, { userId, platform });
+  return [text(result.text)];
 }
 
 function _generateSlug(idea: string): string {
@@ -1082,7 +955,7 @@ async function cmdFeedback(userId: string, platform: string, args: string): Prom
   }
 }
 
-async function cmdPreferences(userId: string, platform: string): Promise<BotResponse[]> {
+async function cmdPreferences(_userId: string, platform: string): Promise<BotResponse[]> {
   const config = registry.getConfig(platform as any);
   if (!config) return [text('❌ Connector configuration not found.')];
 
@@ -1101,7 +974,7 @@ async function cmdPreferences(userId: string, platform: string): Promise<BotResp
   return [menu(`⚙️ *Notification Preferences*\n\nStatus: ${status}\n\nYou can toggle global notifications or subscribe to specific events.`, buttons)];
 }
 
-async function cmdSubscriptions(userId: string, platform: string): Promise<BotResponse[]> {
+async function cmdSubscriptions(_userId: string, platform: string): Promise<BotResponse[]> {
   const config = registry.getConfig(platform as any);
   if (!config) return [text('❌ Connector configuration not found.')];
 
@@ -1192,7 +1065,10 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'restart':     return [await cmdRestart()];
     case 'cancel':
       clearSession(userId, platform);
-      return [text('🛑 Action cancelled. Session cleared.')];
+      return [text('🛑 Session cleared. Active plan deselected.')];
+    case 'clear':
+      clearChatHistory(userId, platform);
+      return [text('🧹 Conversation history cleared. The AI will start fresh.')];
     case 'setdir': {
       const dir = args.trim();
       if (!dir) {
@@ -1210,11 +1086,12 @@ export async function routeCommand(userId: string, platform: string, command: st
     case 'draft': {
       const idea = args.trim();
       if (!idea) {
-        setPlan(userId, platform, 'new');
-        setMode(userId, platform, 'awaiting_idea');
-        return [text('✨ What\'s your idea? Send me a message describing what you want to build:')];
+        return [text('✨ Usage: `/draft <your idea>`\nExample: `/draft build a todo app with authentication`\n\nOr just `@os-twin build me a todo app` — the AI will handle it.')];
       }
-      return processDraft(userId, platform, idea);
+      // Route through askAgent — Gemini will call create_plan tool
+      // which sets activePlanId via setPlan() inside executeTool()
+      const result = await askAgent(`Create a plan for: ${idea}`, { userId, platform });
+      return [text(result.text)];
     }
     case 'transcribe':  return cmdTranscribe(userId, platform);
     case 'transcribe_plan': return cmdTranscribePlan(userId, platform);

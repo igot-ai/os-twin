@@ -6,10 +6,6 @@ from unittest.mock import MagicMock
 
 os.environ["OSTWIN_API_KEY"] = "DEBUG"
 
-# Stub deepagents before dashboard.api imports plan_agent which imports it
-if "deepagents" not in sys.modules:
-    sys.modules["deepagents"] = MagicMock()
-
 import pytest
 from fastapi.testclient import TestClient
 

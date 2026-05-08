@@ -34,6 +34,20 @@ warn()    { echo -e "    ${YELLOW}[WARN]${NC} $1"; }
 fail()    { echo -e "    ${RED}[FAIL]${NC} $1"; }
 info()    { echo -e "    ${DIM}$1${NC}"; }
 step()    { echo -e "  ${CYAN}→${NC} $1"; }
+ok_time() { echo -e "    ${GREEN}[OK]${NC} $1 ${DIM}($2)${NC}"; }
+
+# ─── Timing helpers ──────────────────────────────────────────────────────────
+
+get_now() {
+  date +%s
+}
+
+print_duration() {
+  local start=$1
+  local end
+  end=$(get_now)
+  echo "$((end - start))s"
+}
 
 # ─── Interactive prompt ──────────────────────────────────────────────────────
 # Returns 0 (yes) if AUTO_YES is true or user answers Y/y.
@@ -57,4 +71,24 @@ ask() {
 version_gte() {
   # Returns 0 if $1 >= $2
   printf '%s\n%s' "$2" "$1" | sort -V | head -n1 | grep -qF "$2"
+}
+
+# ─── PATH helpers ────────────────────────────────────────────────────────────
+
+# Ensure brew paths are in current session PATH (call before any brew installs)
+ensure_brew_paths() {
+  if command -v brew &>/dev/null; then
+    local brew_prefix
+    brew_prefix=$(brew --prefix 2>/dev/null || echo "/opt/homebrew")
+    # Add to PATH if not already present
+    if [[ ":$PATH:" != *":${brew_prefix}/bin:"* ]]; then
+      export PATH="${brew_prefix}/bin:${brew_prefix}/sbin:$PATH"
+    fi
+  fi
+  # Also ensure ~/.local/bin is in PATH (for opencode official install)
+  if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+  # Refresh command hash
+  hash -r 2>/dev/null || rehash 2>/dev/null || true
 }
