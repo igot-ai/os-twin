@@ -249,6 +249,8 @@ class ProvidersNamespace(BaseModel):
     anthropic: Optional[ProviderSettings] = None
     google: Optional[ProviderSettings] = None
     byteplus: Optional[ProviderSettings] = None
+    openai_compatible: Optional[ProviderSettings] = None
+    ollama: Optional[ProviderSettings] = None
     custom: Dict[str, ProviderSettings] = Field(default_factory=dict)
 
 

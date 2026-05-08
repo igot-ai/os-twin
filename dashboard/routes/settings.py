@@ -265,29 +265,30 @@ async def get_ollama_health(
     user: dict = Depends(get_current_user),
 ):
     """Check if Ollama is running and if the requested model is pulled."""
+    from ollama import AsyncClient, ResponseError
     import httpx
+
+    resolver = get_settings_resolver()
+    master = resolver.get_master_settings()
+    cfg = master.providers.ollama if master.providers else None
+    base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip('/')
     
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get("http://localhost:11434/api/tags", timeout=2.0)
-            if response.status_code != 200:
-                return OllamaHealthResponse(running=True, model_exists=False)
-            
-            data = response.json()
-            models = [m.get("name", "") for m in data.get("models", [])]
-            
-            # Ollama models often have ":latest" suffix. 
-            # If the user asks for "llama3.2", check if it exists (also considering hf.co/ prefix)
-            model_exists = any(
-                m == model or 
-                m == f"{model}:latest" or 
-                m == f"hf.co/{model}" or 
-                m == f"hf.co/{model}:latest" 
-                for m in models
-            )
-            
-            return OllamaHealthResponse(running=True, model_exists=model_exists)
-    except httpx.RequestError:
+        client = AsyncClient(host=base_url)
+        response = await client.list()
+        
+        models = [m.model for m in response.models] if hasattr(response, 'models') else []
+        
+        # Ollama models often have ":latest" suffix. 
+        # If the user asks for "llama3.2", check if it exists
+        model_exists = any(
+            m == model or 
+            m == f"{model}:latest"
+            for m in models
+        )
+        
+        return OllamaHealthResponse(running=True, model_exists=model_exists)
+    except (ResponseError, httpx.RequestError, ConnectionError):
         return OllamaHealthResponse(running=False, model_exists=False)
 
 @router.get("/ollama/models")
@@ -295,46 +296,48 @@ async def list_ollama_models(
     user: dict = Depends(get_current_user),
 ):
     """List all installed Ollama models."""
+    from ollama import AsyncClient, ResponseError
     import httpx
+
+    resolver = get_settings_resolver()
+    master = resolver.get_master_settings()
+    cfg = master.providers.ollama if master.providers else None
+    base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip('/')
     
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get("http://localhost:11434/api/tags", timeout=2.0)
-            if response.status_code != 200:
-                return {"models": []}
+        client = AsyncClient(host=base_url)
+        response = await client.list()
+        
+        models = []
+        for m in response.models:
+            raw_name = m.model
+            if not raw_name:
+                continue
             
-            data = response.json()
-            models = []
-            for m in data.get("models", []):
-                raw_name = m.get("name", "")
-                if not raw_name:
-                    continue
-                
-                display_name = raw_name
-                if display_name.startswith("hf.co/"):
-                    display_name = display_name[len("hf.co/"):]
-                if display_name.endswith(":latest"):
-                    display_name = display_name[:-len(":latest")]
-                
-                details = m.get("details", {})
-                families = details.get("families", []) or []
-                
-                is_embed = (
-                    "bert" in families or
-                    "nomic-bert" in families or
-                    "embed" in display_name.lower() or
-                    "e5" in display_name.lower() or
-                    "bge" in display_name.lower()
-                )
-                
-                models.append({
-                    "raw_name": raw_name,
-                    "display_name": display_name,
-                    "is_embed": is_embed
-                })
-                
-            return {"models": models}
-    except httpx.RequestError:
+            display_name = raw_name
+            if display_name.endswith(":latest"):
+                display_name = display_name[:-len(":latest")]
+            
+            # Use details attribute to determine if embed model
+            details = getattr(m, "details", None)
+            families = details.families if details and hasattr(details, "families") else []
+            
+            is_embed = (
+                "bert" in families or
+                "nomic-bert" in families or
+                "embed" in display_name.lower() or
+                "e5" in display_name.lower() or
+                "bge" in display_name.lower()
+            )
+            
+            models.append({
+                "raw_name": raw_name,
+                "display_name": display_name,
+                "is_embed": is_embed
+            })
+            
+        return {"models": models}
+    except (ResponseError, httpx.RequestError, ConnectionError):
         return {"models": []}
 
 @router.post("/ollama/pull")
@@ -343,32 +346,26 @@ async def pull_ollama_model(
     user: dict = Depends(get_current_user),
 ):
     """Stream model pull progress from Ollama."""
-    import httpx
+    from ollama import AsyncClient, ResponseError
     from fastapi.responses import StreamingResponse
     import json
+    import httpx
     
     async def stream_generator():
         model_name = request.model
-        if not model_name.startswith("hf.co/"):
-            model_name = f"hf.co/{model_name}"
 
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        cfg = master.providers.ollama if master.providers else None
+        base_url = (cfg.base_url if cfg and cfg.base_url else os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip('/')
+        
+        client = AsyncClient(host=base_url)
         try:
-            async with httpx.AsyncClient() as client:
-                async with client.stream(
-                    "POST", 
-                    "http://localhost:11434/api/pull", 
-                    json={"name": model_name},
-                    timeout=None # Pulling can take a long time
-                ) as r:
-                    if r.status_code != 200:
-                        yield json.dumps({"error": f"Ollama returned status {r.status_code}"}) + "\n"
-                        return
-                    
-                    async for chunk in r.aiter_lines():
-                        if chunk:
-                            yield chunk + "\n"
-        except httpx.ConnectError:
-            yield json.dumps({"error": "Ollama server is unreachable."}) + "\n"
+            async for progress in await client.pull(model_name, stream=True):
+                # The python client returns a dict with status, digest, total, completed
+                yield json.dumps(progress) + "\n"
+        except (ResponseError, httpx.ConnectError, ConnectionError) as e:
+            yield json.dumps({"error": f"Ollama connection error: {str(e)}"}) + "\n"
         except Exception as e:
             yield json.dumps({"error": f"An error occurred: {str(e)}"}) + "\n"
 
@@ -904,6 +901,7 @@ _PROVIDER_ENV_MAP: Dict[str, str] = {
     "google": "GOOGLE_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "openai_compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
 
 
