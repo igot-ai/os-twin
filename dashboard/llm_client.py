@@ -307,9 +307,6 @@ class OllamaClient(LLMClient):
     ):
         super().__init__(model, config)
         self.base_url = base_url or self._OLLAMA_BASE_URL
-        # Ensure model has hf.co/ prefix and :latest suffix for HF models
-        if "/" in self.model and not self.model.startswith("hf.co/"):
-            self.model = f"hf.co/{self.model}"
         if ":latest" not in self.model:
             self.model = f"{self.model}:latest"
 
@@ -591,8 +588,8 @@ PROVIDER_API_KEYS = {
 
 def _detect_provider_from_model(model: str) -> str:
     model_lower = model.lower()
-    # Ollama models: hf.co/* or models with / in the name (HuggingFace style)
-    if model.startswith("hf.co/") or (model.count("/") >= 1 and not any(x in model_lower for x in ["gpt-", "claude", "gemini"])):
+    # Ollama models: models with / in the name
+    if model.count("/") >= 1 and not any(x in model_lower for x in ["gpt-", "claude", "gemini"]):
         return "ollama"
     if any(x in model_lower for x in ["gpt-", "o1-", "o3-", "o4-", "chatgpt"]):
         return "openai"

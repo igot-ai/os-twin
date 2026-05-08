@@ -53,9 +53,6 @@ class KnowledgeEmbedder:
     ) -> None:
         self.model_name: str = model_name or EMBEDDING_MODEL
         self.provider: str = (provider or EMBEDDING_PROVIDER or "ollama").lower()
-        # Only add hf.co/ prefix for ollama provider with slash in model name
-        if self.provider == "ollama" and "/" in self.model_name and not self.model_name.startswith("hf.co/"):
-            self.model_name = f"hf.co/{self.model_name}"
         self.compatible_url: str = compatible_url or ""
         self.compatible_key: str = compatible_key or ""
         self._dimension: int | None = None  # populated on first use
@@ -74,8 +71,6 @@ class KnowledgeEmbedder:
             model = self._load_ollama_marker()
         elif self.provider == "openai-compatible":
             model = self._load_openai_compatible_marker()
-        elif self.provider == "gemini":
-            model = self._load_gemini_marker()
         else:
             # Fallback: treat as ollama
             logger.warning(
@@ -106,8 +101,6 @@ class KnowledgeEmbedder:
             return self._embed_ollama(texts)
         elif self.provider == "openai-compatible":
             return self._embed_openai_compatible(texts)
-        elif self.provider == "gemini":
-            return self._embed_gemini(texts)
         else:
             return self._embed_ollama(texts)
 
@@ -127,8 +120,6 @@ class KnowledgeEmbedder:
             self._dimension = self._dimension_ollama()
         elif self.provider == "openai-compatible":
             self._dimension = self._dimension_openai_compatible()
-        elif self.provider == "gemini":
-            self._dimension = self._dimension_gemini()
         else:
             self._dimension = self._dimension_ollama()
 
@@ -146,8 +137,6 @@ class KnowledgeEmbedder:
         import httpx as _httpx
 
         model_ref = self.model_name
-        if not model_ref.startswith("hf.co/"):
-            model_ref = f"hf.co/{model_ref}"
         if ":latest" not in model_ref:
             model_ref = f"{model_ref}:latest"
 
@@ -228,41 +217,4 @@ class KnowledgeEmbedder:
             logger.warning("Could not probe OpenAI-compatible dimension: %s", exc)
         return EMBEDDING_DIMENSION
 
-    # -- Gemini backend --------------------------------------------------
 
-    def _gemini_model_ref(self) -> str:
-        """Return the litellm-compatible model name for Gemini."""
-        name = self.model_name
-        if name.startswith("gemini/"):
-            return name
-        if name.startswith("hf.co/"):
-            name = name[len("hf.co/"):]
-        return f"gemini/{name}"
-
-    def _load_gemini_marker(self) -> Any:
-        """Return a sentinel; litellm is called directly per-embed."""
-        logger.info("Gemini embedding provider: model=%s", self.model_name)
-        return True
-
-    def _embed_gemini(self, texts: list[str]) -> list[list[float]]:
-        """Embed using Gemini via litellm.embedding."""
-        try:
-            import litellm  # noqa: WPS433
-        except ImportError as exc:
-            logger.error("litellm not installed; cannot use gemini embeddings: %s", exc)
-            return [[] for _ in texts]
-
-        try:
-            response = litellm.embedding(
-                model=self._gemini_model_ref(),
-                input=texts,
-                dimensions=EMBEDDING_DIMENSION,
-            )
-            return [item["embedding"] for item in response.data]
-        except Exception as exc:
-            logger.error("Gemini embedding failed: %s", exc)
-            return [[] for _ in texts]
-
-    def _dimension_gemini(self) -> int:
-        """Gemini embeddings are produced at EMBEDDING_DIMENSION via litellm."""
-        return EMBEDDING_DIMENSION

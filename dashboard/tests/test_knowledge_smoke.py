@@ -283,9 +283,9 @@ def test_embedder_accepts_explicit_model_name() -> None:
     embedder = KnowledgeEmbedder(model_name="custom/model", provider="openai-compatible")
     assert embedder.model_name == "custom/model"
     
-    # For ollama provider, HF-style models get hf.co/ prefix
+    # For ollama provider, model names are kept as-is
     embedder_ollama = KnowledgeEmbedder(model_name="org/model", provider="ollama")
-    assert embedder_ollama.model_name == "hf.co/org/model"
+    assert embedder_ollama.model_name == "org/model"
 
 
 # ---------------------------------------------------------------------------

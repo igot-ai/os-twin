@@ -322,12 +322,10 @@ async def get_ollama_health(
             models = [m.get("name", "") for m in data.get("models", [])]
             
             # Ollama models often have ":latest" suffix. 
-            # If the user asks for "llama3.2", check if it exists (also considering hf.co/ prefix)
+            # If the user asks for "llama3.2", check if it exists
             model_exists = any(
                 m == model or 
-                m == f"{model}:latest" or 
-                m == f"hf.co/{model}" or 
-                m == f"hf.co/{model}:latest" 
+                m == f"{model}:latest"
                 for m in models
             )
             
@@ -356,8 +354,6 @@ async def list_ollama_models(
                     continue
                 
                 display_name = raw_name
-                if display_name.startswith("hf.co/"):
-                    display_name = display_name[len("hf.co/"):]
                 if display_name.endswith(":latest"):
                     display_name = display_name[:-len(":latest")]
                 
@@ -925,7 +921,7 @@ else:
 
 
 def _ollama_ensure_model_running(model: str) -> None:
-    """Run ``ollama run hf.co/{model}:latest`` in the background so the model
+    """Run ``ollama run {model}:latest`` in the background so the model
     is loaded into memory for fast inference.
 
     No-op if the model name is empty or backend is not ollama.
@@ -935,8 +931,6 @@ def _ollama_ensure_model_running(model: str) -> None:
         return
 
     model_ref = model
-    if not model_ref.startswith("hf.co/"):
-        model_ref = f"hf.co/{model_ref}"
     if ":latest" not in model_ref:
         model_ref = f"{model_ref}:latest"
 
