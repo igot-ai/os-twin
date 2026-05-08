@@ -560,9 +560,18 @@ if (Test-Path `$envSh) { . `$envSh }
             
             # Launch PowerShell wrapper
             $psi = [System.Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName = "pwsh"
-            if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
-                $psi.FileName = "powershell"
+            # Resolve absolute path for shell executable to avoid PATH issues
+            $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+            if ($pwshPath) {
+                $psi.FileName = $pwshPath
+            } else {
+                $psPath = (Get-Command powershell -ErrorAction SilentlyContinue).Source
+                if ($psPath) {
+                    $psi.FileName = $psPath
+                } else {
+                    # Fallback to default paths
+                    $psi.FileName = if ($runningOnWindows) { "powershell.exe" } else { "pwsh" }
+                }
             }
             $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$psWrapperScript`""
             $psi.UseShellExecute = $false
@@ -612,7 +621,14 @@ echo "[wrapper] EXEC FAILED: exit=`$?" >> '$safeOutput'
             # Start-Process -NoNewWindow is unreliable inside Start-Job on macOS
             # (no console to attach to in headless runspace). Direct Process API works.
             $psi = [System.Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName = "bash"
+            # Resolve absolute path for bash to avoid PATH issues in headless processes
+            $bashPath = (Get-Command bash -ErrorAction SilentlyContinue).Source
+            if ($bashPath) {
+                $psi.FileName = $bashPath
+            } else {
+                # Fallback to standard default
+                $psi.FileName = "/bin/bash"
+            }
             $psi.Arguments = "`"$wrapperScript`""
             $psi.UseShellExecute = $false
             $psi.RedirectStandardInput = $true
