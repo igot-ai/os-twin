@@ -535,7 +535,7 @@ if ($Resume) {
             $statusFile = Join-Path $rd.FullName "status"
             if (Test-Path $statusFile) {
                 $status = (Get-Content $statusFile -Raw).Trim()
-                if ($status -eq "failed-final" -or $status -eq "blocked") {
+                if ($status -in @("failed", "failed-final", "blocked")) {
                     Write-Host "  → Resetting $($rd.Name) to pending (was: $status)" -ForegroundColor Yellow
                     "pending" | Out-File -FilePath $statusFile -Encoding utf8 -NoNewline
                     

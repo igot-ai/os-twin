@@ -253,8 +253,7 @@ class KnowledgeLLM:
         return None
 
     def _effective_provider(self) -> str:
-        from dashboard.llm_client import _detect_provider_from_model  # noqa: WPS433
-        return _detect_provider_from_model(self.model)
+        return self.provider
 
     def _get_client(self) -> Any:
         """Create the LLMClient via the unified factory.

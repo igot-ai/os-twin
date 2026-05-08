@@ -9,9 +9,15 @@
       3. Local role.json:    roles/{RoleName}/role.json → skill_refs
       First non-empty wins (no merging across sources).
 
-    Phase 2 — TASK-AWARE API SEARCH (discover extra skills for this task):
+    Phase 2a — LOCAL TASK-AWARE DISCOVERY (find skills by matching TASKS.md content):
+      Reads brief.md + TASKS.md from RoomDir, extracts keywords from task text,
+      then scans ALL local SKILL.md frontmatter (name, description, tags) for matches.
+      Merges up to 5 additional skill refs not already in Phase 1.
+      Runs whenever RoomDir exists and task content is meaningful — no API needed.
+
+    Phase 2b — REMOTE TASK-AWARE API SEARCH (discover extra skills via dashboard):
       Reads brief.md + TASKS.md from RoomDir, searches the Dashboard API,
-      and merges up to 5 additional skill refs not already in Phase 1.
+      and merges up to 5 additional skill refs not already in Phase 1 + 2a.
       Runs only when ApiKey is available and task content is meaningful.
 
     Phase 3 — LOCAL RESOLUTION (stage each ref to disk):
@@ -180,10 +186,10 @@ if ($allRefs.Count -eq 0) {
 }
 
 # =======================================================================
-# PHASE 2: TASK-AWARE API SEARCH (additive — supplements Phase 1 refs)
+# PHASE 2a: LOCAL TASK-AWARE DISCOVERY (keyword matching against SKILL.md frontmatter)
 # =======================================================================
-if ($RoomDir -and (Test-Path $RoomDir) -and $ApiKey) {
-    $taskContext = ""
+$taskContext = ""
+if ($RoomDir -and (Test-Path $RoomDir)) {
     $briefFile = Join-Path $RoomDir "brief.md"
     $tasksFile = Join-Path $RoomDir "TASKS.md"
 
@@ -193,34 +199,169 @@ if ($RoomDir -and (Test-Path $RoomDir) -and $ApiKey) {
     if (Test-Path $tasksFile) {
         $taskContext += "`n" + (Get-Content $tasksFile -Raw -ErrorAction SilentlyContinue)
     }
+}
 
-    # Only search with meaningful content (>50 chars avoids noise from empty briefs)
-    if ($taskContext.Length -gt 50) {
-        try {
-            $query = $taskContext.Substring(0, [Math]::Min($taskContext.Length, 500))
-            $headers = @{ "X-API-Key" = $ApiKey }
-            $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($query))&role=$([uri]::EscapeDataString($baseRole))"
-            $searchResults = @(Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop)
+if ($taskContext.Length -gt 50) {
+    $existingNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($r in $allRefs) { $existingNames.Add($r) | Out-Null }
 
-            if ($searchResults.Count -gt 0 -and $null -ne $searchResults[0]) {
-                $existingNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-                foreach ($r in $allRefs) { $existingNames.Add($r) | Out-Null }
+    $stopWords = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    @(
+        'the','a','an','and','or','but','in','on','at','to','for','of','with','by',
+        'from','is','it','that','this','was','are','be','has','had','have','will',
+        'would','could','should','may','can','do','does','did','not','no','if',
+        'then','than','so','as','up','out','into','over','after','before','between',
+        'about','through','during','without','within','along','across','behind',
+        'below','above','under','each','every','all','both','few','more','most',
+        'other','some','such','only','own','same','also','just','very','even',
+        'still','already','yet','ever','never','always','often','here','there',
+        'when','where','which','who','whom','how','what','why','while','until',
+        'since','because','although','though','unless','whether','however',
+        'therefore','thus','hence','moreover','furthermore','nevertheless',
+        'need','needs','needed','use','uses','used','using','make','makes',
+        'made','making','get','gets','got','getting','set','sets','setting',
+        'put','puts','putting','add','adds','added','adding','run','runs',
+        'running','create','creates','created','creating','ensure','ensures',
+        'ensuring','include','includes','including','provide','provides',
+        'provided','providing','implement','implements','implemented',
+        'implementing','update','updates','updated','updating','check',
+        'checks','checked','checking','write','writes','writing','written',
+        'read','reads','reading','written','following','follow','follows',
+        'followed','must','shall','etc','via','per','like','new','old','one',
+        'two','first','second','next','last','based','work','working','worked',
+        'want','wanted','allow','allows','allowed','allowing','require',
+        'requires','required','requiring','support','supports','supported',
+        'supporting','handle','handles','handled','handling','build','builds',
+        'built','building','test','tests','tested','testing','code','file',
+        'files','data','value','values','function','functions','method',
+        'methods','object','objects','class','classes','type','types','item',
+        'items','task','tasks','step','steps','part','parts','section',
+        'sections','case','cases','way','ways','thing','things','point',
+        'points','end','ends','system','systems','process','processes',
+        'feature','features','component','components','element','elements',
+        'page','pages','screen','screens','app','application','applications',
+        'project','projects','product','products','service','services',
+        'user','users','name','names','list','lists','field','fields',
+        'config','configuration','error','errors','result','results',
+        'output','outputs','input','inputs','content','contents'
+    ) | ForEach-Object { $stopWords.Add($_) | Out-Null }
 
-                $addedCount = 0
-                foreach ($result in $searchResults) {
-                    if ($addedCount -ge 5) { break }
-                    if ($result.name -and -not $existingNames.Contains($result.name)) {
-                        $allRefs += $result.name
-                        $existingNames.Add($result.name) | Out-Null
-                        $addedCount++
-                        Write-Verbose "Phase 2 discovered skill: $($result.name)"
-                    }
+    $taskLower = $taskContext.ToLowerInvariant()
+    $taskWords = @($taskLower -split '[^a-z0-9\-]+' | Where-Object {
+        $_.Length -gt 2 -and -not $stopWords.Contains($_)
+    } | Select-Object -Unique)
+
+    $taskWordSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($w in $taskWords) { $taskWordSet.Add($w) | Out-Null }
+
+    $localSearchPaths = @(
+        @{ Base = $SkillsBaseDir; ExcludeDirs = @("global", "roles") }
+        @{ Base = (Join-Path $SkillsBaseDir "global"); ExcludeDirs = @() }
+    )
+    $rolesDir = Join-Path $SkillsBaseDir "roles"
+    if (Test-Path $rolesDir) {
+        Get-ChildItem -Path $rolesDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $localSearchPaths += @{ Base = $_.FullName; ExcludeDirs = @() }
+        }
+    }
+
+    $skillScores = @{}
+
+    foreach ($searchDef in $localSearchPaths) {
+        if (-not (Test-Path $searchDef.Base)) { continue }
+        Get-ChildItem -Path $searchDef.Base -Filter "SKILL.md" -Recurse -Depth 1 -ErrorAction SilentlyContinue | ForEach-Object {
+            $skillMd = $_.FullName
+            $skillDirName = $_.Directory.Name
+
+            if ($searchDef.ExcludeDirs -contains $skillDirName) { return }
+
+            if ($existingNames.Contains($skillDirName)) { return }
+            if ($skillScores.ContainsKey($skillDirName)) { return }
+
+            if (-not (Test-SkillPlatform -SkillMdPath $skillMd)) { return }
+            if (-not (Test-SkillEnabled -SkillMdPath $skillMd)) { return }
+
+            $content = Get-Content $skillMd -Raw -ErrorAction SilentlyContinue
+            if (-not $content) { return }
+
+            $nameMatch = ""
+            $descMatch = ""
+            $tagsMatch = ""
+            if ($content -match '(?m)^name:\s*(.+)$') { $nameMatch = $Matches[1].Trim().Trim('"').Trim("'") }
+            if ($content -match '(?m)^description:\s*(.+)$') { $descMatch = $Matches[1].Trim().Trim('"').Trim("'") }
+            if ($content -match '(?m)^tags:\s*\[([^\]]+)\]') { $tagsMatch = $Matches[1] }
+
+            $matchText = @($skillDirName, $nameMatch, $descMatch, $tagsMatch) -join " "
+            $matchLower = $matchText.ToLowerInvariant()
+            $matchWords = $matchLower -split '[^a-z0-9\-]+' | Where-Object { $_.Length -gt 2 }
+
+            $score = 0
+            foreach ($mw in $matchWords) {
+                if ($taskWordSet.Contains($mw)) { $score++ }
+            }
+
+            if ($skillDirName -match '-' -and $taskLower.Contains($skillDirName)) { $score += 10 }
+
+            $taskNgrams = @()
+            for ($i = 0; $i -lt $taskWords.Count - 1; $i++) {
+                $taskNgrams += "$($taskWords[$i])-$($taskWords[$i+1])"
+            }
+            foreach ($ng in $taskNgrams) {
+                if ($skillDirName -eq $ng -or $nameMatch -eq $ng) { $score += 10 }
+                if ($matchLower.Contains($ng)) { $score += 3 }
+            }
+
+            if ($score -gt 0) {
+                $skillScores[$skillDirName] = [PSCustomObject]@{
+                    Name  = $skillDirName
+                    Path  = $skillMd
+                    Score = $score
                 }
             }
         }
-        catch {
-            Write-Verbose "Task-aware skill search failed (non-fatal): $_"
+    }
+
+    $ranked = @($skillScores.Values | Sort-Object -Property Score -Descending)
+    $phase2aAdded = 0
+    foreach ($entry in $ranked) {
+        if ($phase2aAdded -ge 5) { break }
+        if (-not $existingNames.Contains($entry.Name)) {
+            $allRefs += $entry.Name
+            $existingNames.Add($entry.Name) | Out-Null
+            $phase2aAdded++
+            Write-Verbose "Phase 2a local task-discovered skill: $($entry.Name) (score: $($entry.Score))"
         }
+    }
+}
+
+# =======================================================================
+# PHASE 2b: REMOTE TASK-AWARE API SEARCH (additive — supplements Phase 1 + 2a)
+# =======================================================================
+if ($RoomDir -and (Test-Path $RoomDir) -and $ApiKey -and $taskContext.Length -gt 50) {
+    try {
+        $query = $taskContext.Substring(0, [Math]::Min($taskContext.Length, 500))
+        $headers = @{ "X-API-Key" = $ApiKey }
+        $searchUrl = "$DashboardUrl/api/skills/search?q=$([uri]::EscapeDataString($query))&role=$([uri]::EscapeDataString($baseRole))"
+        $searchResults = @(Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop)
+
+        if ($searchResults.Count -gt 0 -and $null -ne $searchResults[0]) {
+            $existingNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($r in $allRefs) { $existingNames.Add($r) | Out-Null }
+
+            $addedCount = 0
+            foreach ($result in $searchResults) {
+                if ($addedCount -ge 5) { break }
+                if ($result.name -and -not $existingNames.Contains($result.name)) {
+                    $allRefs += $result.name
+                    $existingNames.Add($result.name) | Out-Null
+                    $addedCount++
+                    Write-Verbose "Phase 2b API-discovered skill: $($result.name)"
+                }
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Task-aware API skill search failed (non-fatal): $_"
     }
 }
 

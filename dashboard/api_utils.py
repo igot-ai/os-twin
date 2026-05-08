@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import re
+import shutil
 import yaml
 import subprocess
 import logging
@@ -39,6 +40,11 @@ if (DEMO_DIR / ".war-rooms").exists():
     if any((DEMO_DIR / ".war-rooms").glob("room-*")):
         WARROOMS_DIR = DEMO_DIR / ".war-rooms"
 _ostwin_home = Path(os.environ.get("OSTWIN_HOME", str(Path.home() / ".ostwin")))
+if os.environ.get("OSTWIN_PROJECT_DIR"):
+    PROJECT_ROOT = Path(os.environ.get("OSTWIN_PROJECT_DIR"))
+    AGENTS_DIR = PROJECT_ROOT / ".agents"
+    WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
+
 SKILLS_DIRS = [
     Path("~/.ostwin/.agents/skills").expanduser(),
     Path("~/.ostwin/skills/global").expanduser(),
@@ -48,10 +54,6 @@ SKILLS_DIRS = [
     PROJECT_ROOT / ".deepagents" / "skills",
     Path("~/.deepagents/agent/skills").expanduser(),
 ]
-if os.environ.get("OSTWIN_PROJECT_DIR"):
-    PROJECT_ROOT = Path(os.environ.get("OSTWIN_PROJECT_DIR"))
-    AGENTS_DIR = PROJECT_ROOT / ".agents"
-    WARROOMS_DIR = PROJECT_ROOT / ".war-rooms"
 
 
 def resolve_plans_dir(
@@ -139,28 +141,29 @@ def read_room(
     task_md = brief_file.read_text() if brief_file.exists() else None
 
     # Fallback: extract ref from TASKS.md header
-    if not task_ref:
-        tasks_file = room_dir / "TASKS.md"
-        if tasks_file.exists():
-            header = tasks_file.read_text().split("\n", 1)[0]
-            m = re.search(r"(EPIC-\d+|TASK-\d+)", header)
-            if m:
-                task_ref = m.group(1)
+    tasks_file = room_dir / "TASKS.md"
+    tasks_content = None
+    if tasks_file.exists():
+        tasks_content = tasks_file.read_text()
+
+    if not task_ref and tasks_content:
+        header = tasks_content.split("\n", 1)[0]
+        m = re.search(r"(EPIC-\d+|TASK-\d+)", header)
+        if m:
+            task_ref = m.group(1)
     # Fallback: derive from room-id
     if not task_ref:
         m = re.match(r"room-(\d+)", room_id)
         task_ref = f"EPIC-{m.group(1)}" if m else "UNKNOWN"
 
     # Fallback: use TASKS.md as description
-    tasks_file = room_dir / "TASKS.md"
-    if not task_md and tasks_file.exists():
-        task_md = tasks_file.read_text()
+    if not task_md and tasks_content:
+        task_md = tasks_content
 
     # Parse TASKS.md for goal completion
     goal_total = 0
     goal_done = 0
-    if tasks_file.exists():
-        tasks_content = tasks_file.read_text()
+    if tasks_content:
         goal_total = len(re.findall(r"- \[[ xX]\]", tasks_content))
         goal_done = len(re.findall(r"- \[[xX]\]", tasks_content))
 
@@ -362,7 +365,7 @@ def parse_skill_md(path: Path, filename: str = "SKILL.md") -> Optional[Dict[str,
     in_deepagents = str(PROJECT_ROOT / ".deepagents") in str(path)
     if in_agents or in_deepagents:
         source = "project"
-    elif str(Path("~").expanduser()) in str(path):
+    elif path.is_relative_to(Path.home()):
         source = "user"
     else:
         source = "local"
@@ -433,8 +436,6 @@ def save_skill_md(skill_data: Dict[str, Any], path: Optional[Path] = None) -> Pa
                 snapshot_file = versions_dir / f"v{old_version}.md"
                 # Only copy if it doesn't already exist to avoid overwriting snapshots
                 if not snapshot_file.exists():
-                    import shutil
-
                     shutil.copy2(skill_file, snapshot_file)
         except Exception as e:
             logger = logging.getLogger("api_utils")
@@ -559,8 +560,10 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
         # Compare sanitized content to avoid unnecessary re-indexing
         content_bytes = data["content"].encode("ascii", errors="replace")
         content_ascii = content_bytes.decode("ascii")
-        if existing and existing["content"] == content_ascii and existing.get("enabled") == enabled:
-            continue
+        if existing:
+            existing_ascii = existing["content"].encode("ascii", errors="replace").decode("ascii")
+            if existing_ascii == content_ascii and existing.get("enabled") == enabled:
+                continue
 
         if store.index_skill(
             name=data["name"],
@@ -605,12 +608,14 @@ def sync_skills_from_disk(store: Any, skills_dirs: List[Path]) -> Dict[str, Any]
 def build_skills_list(
     query: Optional[str] = None,
     role: Optional[str] = None,
-    tags: List[str] = [],
+    tags: Optional[List[str]] = None,
     limit: int = 1000,
     include_drafts: bool = False,
     include_disabled: bool = False,
 ) -> List[Skill]:
     """Helper to build and filter skills list from zvec and disk."""
+    if tags is None:
+        tags = []
     from dashboard import global_state
 
     store = getattr(global_state, "store", None)

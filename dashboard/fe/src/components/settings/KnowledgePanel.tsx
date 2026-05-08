@@ -338,8 +338,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setLlmModelInput(model);
   };
 
-  const handleLlmModelSelect = (compositeId: string) => {
-    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+  const handleLlmModelSelect = (modelId: string) => {
     updateDraft({ knowledge_llm_model: modelId });
     setLlmModelInput(modelId);
   };
@@ -363,8 +362,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     setEmbedModelInput(model);
   };
 
-  const handleEmbedModelSelect = (compositeId: string) => {
-    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+  const handleEmbedModelSelect = (modelId: string) => {
     updateDraft({ knowledge_embedding_model: modelId, knowledge_embedding_dimension: 768 });
     setEmbedModelInput(modelId);
   };
@@ -533,7 +531,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={chatModels.find(m => m.id.endsWith(`/${draft.knowledge_llm_model}`))?.id || draft.knowledge_llm_model || ''}
+                  value={draft.knowledge_llm_model || ''}
                   onChange={(m) => handleLlmModelSelect(m)}
                   models={chatModels}
                   showTier={true}
@@ -699,7 +697,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={allModels.find(m => m.id.endsWith(`/${draft.knowledge_embedding_model}`))?.id || draft.knowledge_embedding_model || ''}
+                  value={draft.knowledge_embedding_model || ''}
                   onChange={(m) => handleEmbedModelSelect(m)}
                   models={allModels}
                   showTier={true}

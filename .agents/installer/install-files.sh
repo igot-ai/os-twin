@@ -20,23 +20,47 @@ install_files() {
   step "Installing OS Twin to $INSTALL_DIR..."
   mkdir -p "$INSTALL_DIR/.agents"
 
-  # Ensure clean slate for core roles (remove old core roles before syncing)
-  rm -rf "$INSTALL_DIR/.agents/roles"
-
   # Sync SCRIPT_DIR contents (agents, scripts, config) — skip runtime state
   # NOTE: MCP config files are excluded to preserve user's installed extensions and config
   # User plans live in $INSTALL_DIR/.agents/plans/ — do NOT overwrite them
   # with whatever happens to be in the source repo's plans/ directory.
   # PLAN.template.md is seeded separately below if missing.
-  rsync -a \
-    --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid' \
-    --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc' \
-    --exclude='mcp/config.json' --exclude='mcp/.env.mcp' \
-    --exclude='plans/' \
+  # NEVER sync: docs/, node_modules/
+  # Skip if already exists (don't override): config.json, models_dev_raw.json, roles/config.json
+  local _rsync_excludes=(
+    --exclude='.venv/' --exclude='*.pid' --exclude='dashboard.pid'
+    --exclude='logs/' --exclude='__pycache__/' --exclude='*.pyc'
+    --exclude='mcp/config.json' --exclude='mcp/.env.mcp'
+    --exclude='plans/'
+    --exclude='docs/'
+    --exclude='node_modules/'
+  )
+  local _find_excludes=(-not -name 'mcp' -not -name 'plans' -not -name 'docs' -not -name 'node_modules' -not -name '.')
+  
+  if [[ -f "$INSTALL_DIR/.agents/config.json" ]]; then
+    _rsync_excludes+=(--exclude='/config.json')
+    _find_excludes+=(-not -name 'config.json')
+  fi
+  if [[ -f "$INSTALL_DIR/.agents/models_dev_raw.json" ]]; then
+    _rsync_excludes+=(--exclude='/models_dev_raw.json')
+    _find_excludes+=(-not -name 'models_dev_raw.json')
+  fi
+  if [[ -f "$INSTALL_DIR/.agents/roles/config.json" ]]; then
+    _rsync_excludes+=(--exclude='/roles/config.json')
+    _find_excludes+=(-not -path '*/roles/config.json')
+  fi
+  
+  rsync -a "${_rsync_excludes[@]}" \
     "$SCRIPT_DIR/" "$INSTALL_DIR/.agents/" 2>/dev/null || {
       # rsync fallback to cp (exclude mcp/ and plans/ manually)
-      find "$SCRIPT_DIR" -maxdepth 1 -not -name 'mcp' -not -name 'plans' -not -name '.' \
+      if [[ -f "$INSTALL_DIR/.agents/roles/config.json" ]]; then
+        cp "$INSTALL_DIR/.agents/roles/config.json" "/tmp/ostwin_roles_config_backup.json"
+      fi
+      find "$SCRIPT_DIR" -maxdepth 1 "${_find_excludes[@]}" \
         -exec cp -r {} "$INSTALL_DIR/.agents/" \; 2>/dev/null || true
+      if [[ -f "/tmp/ostwin_roles_config_backup.json" ]]; then
+        mv "/tmp/ostwin_roles_config_backup.json" "$INSTALL_DIR/.agents/roles/config.json"
+      fi
     }
 
   # Seed plans/ on first install (or if PLAN.template.md is missing) — never overwrite

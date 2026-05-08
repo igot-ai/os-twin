@@ -3,14 +3,16 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
 import * as React from 'react';
 
+const mockSettings = {
+  providers: {},
+  runtime: {},
+  memory: {},
+  knowledge: { llm_model: '', embedding_model: '', embedding_dimension: 384 },
+};
+
 vi.mock('@/hooks/use-settings', () => ({
   useSettings: () => ({
-    settings: {
-      providers: {},
-      runtime: {},
-      memory: {},
-      knowledge: { llm_model: '', embedding_model: '', embedding_dimension: 384 },
-    },
+    settings: mockSettings,
     isLoading: false,
     isError: false,
     updateNamespace: vi.fn(),
@@ -117,7 +119,7 @@ describe('Settings Page Integration', () => {
       fireEvent.click(knowledgeButtons[0]);
 
       await waitFor(() => {
-        expect(screen.getByText(/^LLM Model$/i)).toBeInTheDocument();
+        expect(screen.getAllByText(/Processing Model/i).length).toBeGreaterThan(0);
       });
     });
 
@@ -136,7 +138,7 @@ describe('Settings Page Integration', () => {
       fireEvent.click(knowledgeButtons[0]);
 
       await waitFor(() => {
-        expect(screen.getByText(/^Embedding Model$/i)).toBeInTheDocument();
+        expect(screen.getByText(/Embedding Dimension/i)).toBeInTheDocument();
       });
     });
 
@@ -154,12 +156,20 @@ describe('Settings Page Integration', () => {
       const knowledgeButtons = screen.getAllByText('Knowledge');
       fireEvent.click(knowledgeButtons[0]);
 
+      // Change backend to OpenAI-Compatible to show the ModelSelect
       await waitFor(() => {
-        expect(screen.getAllByText(/Use server default/i).length).toBeGreaterThan(0);
+        const backendBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('OpenAI-Compatible'));
+        if (backendBtns.length > 0) {
+           fireEvent.click(backendBtns[0]);
+        }
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/— Select from providers —/i).length).toBeGreaterThan(0);
       });
 
       const triggers = screen.getAllByRole('button').filter((b) =>
-        b.textContent?.includes('server default')
+        b.textContent?.includes('Select from providers')
       );
       if (triggers.length > 0) {
         fireEvent.click(triggers[0]);

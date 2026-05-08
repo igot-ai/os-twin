@@ -1,8 +1,10 @@
 """Dashboard API routes for Agentic Memory.
 
-Reads .memory/ directory from the plan's working_dir to serve
-graph snapshots, memory notes, and search results to the frontend.
+Reads memory data from the centralized ~/.ostwin/memory/memory-{plan_id}/
+directory to serve graph snapshots, memory notes, and search results to the frontend.
 """
+
+import os
 
 from fastapi import APIRouter, HTTPException, Depends
 from pathlib import Path
@@ -11,8 +13,12 @@ import json
 import re
 import sys
 
-from dashboard.api_utils import PLANS_DIR
+from dashboard.api_utils import PLANS_DIR, GLOBAL_PLANS_DIR, find_plan_file
 from dashboard.auth import get_current_user
+
+MEMORY_BASE_DIR = Path(
+    os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory"))
+)
 
 # Reuse the canonical note parser from .agents/memory instead of duplicating the
 # YAML/frontmatter logic in the dashboard. We import from `memory_note`
@@ -34,29 +40,26 @@ except ImportError:
 router = APIRouter(tags=["amem"])
 
 
-def _resolve_memory_dir(plan_id: str) -> Path:
-    """Resolve .memory/ directory from a plan's working_dir."""
-    meta_file = PLANS_DIR / f"{plan_id}.meta.json"
-    if meta_file.exists():
-        meta = json.loads(meta_file.read_text())
-        working_dir = meta.get("working_dir", "")
-        if working_dir:
-            mem_dir = Path(working_dir) / ".memory"
-            if mem_dir.exists():
-                return mem_dir
+def _resolve_memory_dir(plan_id: str) -> Optional[Path]:
+    """Resolve the centralized memory directory for a plan.
 
-    # Fallback: try to parse working_dir from the plan .md file
-    plan_file = PLANS_DIR / f"{plan_id}.md"
-    if plan_file.exists():
-        content = plan_file.read_text()
-        match = re.search(r"working_dir:\s*(.+)", content)
-        if match:
-            working_dir = match.group(1).strip()
-            mem_dir = Path(working_dir) / ".memory"
-            if mem_dir.exists():
-                return mem_dir
+    Resolution order:
+    1. ~/.ostwin/memory/memory-{plan_id}/  (centralized store, mirrors memory_mcp.py)
+    2. None — callers should raise HTTPException themselves if needed.
+    """
+    namespace = f"memory-{plan_id}"
+    centralized = MEMORY_BASE_DIR / namespace
+    if centralized.exists():
+        return centralized
+    return None
 
-    raise HTTPException(status_code=404, detail=f"No .memory/ found for plan {plan_id}")
+
+def _require_memory_dir(plan_id: str) -> Path:
+    """Resolve memory dir or raise 404."""
+    mem_dir = _resolve_memory_dir(plan_id)
+    if mem_dir is None:
+        raise HTTPException(status_code=404, detail=f"No memory found for plan {plan_id}")
+    return mem_dir
 
 
 def _parse_legacy_metadata(text: str) -> tuple[list[str], list[str], list[str]]:
@@ -297,7 +300,7 @@ def _build_graph(notes: list) -> dict:
 @router.get("/api/amem/{plan_id}/graph", responses={404: {"description": "Not found"}})
 async def get_memory_graph(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None):
     """Get the memory graph for a plan's project."""
-    mem_dir = _resolve_memory_dir(plan_id)
+    mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
     notes = _load_notes(notes_dir)
     return _build_graph(notes)
@@ -399,7 +402,7 @@ async def get_memory_graph_image(plan_id: str, user: Annotated[dict, Depends(get
     import io
     from fastapi.responses import StreamingResponse
 
-    mem_dir = _resolve_memory_dir(plan_id)
+    mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
     notes = _load_notes(notes_dir)
     graph_data = _build_graph(notes)
@@ -421,7 +424,7 @@ async def get_memory_graph_image(plan_id: str, user: Annotated[dict, Depends(get
 @router.get("/api/amem/{plan_id}/tree", responses={404: {"description": "Not found"}})
 async def get_memory_tree(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get a tree-like directory structure of all memory notes."""
-    mem_dir = _resolve_memory_dir(plan_id)
+    mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
     notes = _load_notes(notes_dir)
 
@@ -457,7 +460,7 @@ async def get_memory_tree(plan_id: str, user: Annotated[dict, Depends(get_curren
 @router.get("/api/amem/{plan_id}/notes", responses={404: {"description": "Not found"}})
 async def list_memory_notes(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> list:
     """List all memory notes for a plan's project."""
-    mem_dir = _resolve_memory_dir(plan_id)
+    mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
     notes = _load_notes(notes_dir)
     for n in notes:
@@ -468,7 +471,7 @@ async def list_memory_notes(plan_id: str, user: Annotated[dict, Depends(get_curr
 @router.get("/api/amem/{plan_id}/notes/{note_id}", responses={404: {"description": "Not found"}})
 async def get_memory_note(plan_id: str, note_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get a single memory note by ID."""
-    mem_dir = _resolve_memory_dir(plan_id)
+    mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
     notes = _load_notes(notes_dir)
     for note in notes:
@@ -480,7 +483,7 @@ async def get_memory_note(plan_id: str, note_id: str, user: Annotated[dict, Depe
 @router.get("/api/amem/{plan_id}/stats", responses={404: {"description": "Not found"}})
 async def get_memory_stats(plan_id: str, user: Annotated[dict, Depends(get_current_user)] = None) -> dict:
     """Get memory statistics for a plan's project."""
-    mem_dir = _resolve_memory_dir(plan_id)
+    mem_dir = _require_memory_dir(plan_id)
     notes_dir = mem_dir / "notes"
     notes = _load_notes(notes_dir)
 
