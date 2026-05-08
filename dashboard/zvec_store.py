@@ -66,12 +66,12 @@ class OSTwinStore:
         self.agents_dir = agents_dir  # .agents/ directory (for plans etc.)
         self._embedder = embedder  # Optional KnowledgeEmbedder (lazy-created if None)
         self._embedding_dim = EMBEDDING_DIM  # Per-instance; updated when model loads
-        # Global zvec store at ~/.ostwin/.zvec — clean with: rm -rf ~/.ostwin/.zvec
+        # Global zvec store at ~/.config/ostwin/.zvec
         env_zvec_dir = os.environ.get("OSTWIN_ZVEC_DIR")
         if env_zvec_dir:
             zvec_real_dir = Path(env_zvec_dir)
         else:
-            zvec_real_dir = Path.home() / ".ostwin" / ".zvec"
+            zvec_real_dir = Path.home() / ".config" / "ostwin" / ".zvec"
         zvec_real_dir.mkdir(parents=True, exist_ok=True)
 
         # Handle paths with spaces (zvec library regex limitation)
@@ -768,7 +768,7 @@ class OSTwinStore:
     def _embed_texts_batch(self, texts: list[str]) -> list[list[float] | None]:
         """Embed multiple texts in a single model call, with disk cache.
 
-        Cached embeddings are loaded from ~/.ostwin/.zvec/embedding_cache.json
+        Cached embeddings are loaded from ~/.config/ostwin/.zvec/embedding_cache.json
         so they survive zvec collection rebuilds. Only uncached texts hit the model.
         """
         results: list[list[float] | None] = [None] * len(texts)

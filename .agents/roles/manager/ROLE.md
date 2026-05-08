@@ -170,6 +170,16 @@ Before starting new work, query for relevant context from past projects:
    global_knowledge_list_namespaces()
    ```
 
+5. **For design new roles**: support user to design new roles by leveraging existing roles design patterns and structure and also available skills and tools
+```
+---
+name: <rolename>
+description: detail about the role
+---
+... compose the description about the role in generic to copmlete this task ...
+```
+Base on the rolename, write the file ROLE.md to ~/.ostwin/contributes/roles/<rolename>/ROLE.md
+
 ### Important Notes
 
 - These are **READ-ONLY** tools — use project-specific memory tools to save
