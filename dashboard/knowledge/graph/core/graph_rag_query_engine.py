@@ -6,6 +6,11 @@ Refactor notes (EPIC-001):
 - Aggregation uses :meth:`KnowledgeLLM.aggregate_answers` directly.
 - Removed ``run_async_in_thread`` (was an `app.utils` helper); use a small
   inline event-loop runner.
+
+Shared citation utilities and the async runner are now imported from
+:mod:`dashboard.knowledge.graph.core.citation` — the old names
+(``_run_async``, ``_is_uuid_node``, ``_resolve_chunk_metadata``,
+``FILE_METADATA_FIELDS``) are re-exported here for backward compatibility.
 """
 
 from __future__ import annotations
@@ -24,6 +29,14 @@ from llama_index.core.query_engine.custom import STR_OR_RESPONSE_TYPE
 from llama_index.core.vector_stores.types import BasePydanticVectorStore
 
 from dashboard.knowledge.config import PAGERANK_SCORE_THRESHOLD
+from dashboard.knowledge.graph.core.citation import (
+    FILE_METADATA_FIELDS,  # backward-compat re-export
+    build_citation_dict,
+    format_citation,
+    is_uuid,
+    resolve_chunk_metadata,
+    run_async,
+)
 from dashboard.knowledge.graph.core.graph_rag_extractor import GraphRAGExtractor
 from dashboard.knowledge.graph.core.graph_rag_store import GraphRAGStore
 from dashboard.knowledge.graph.core.query_executioner import QueryExecutor
@@ -32,39 +45,8 @@ from dashboard.knowledge.llm import KnowledgeLLM
 
 logger = logging.getLogger(__name__)
 
-# Constants for file-metadata fields.
-FILE_METADATA_FIELDS = ["file_path", "filename", "page_range", "page_number"]
-
-
-def _run_async(coro):
-    """Run an awaitable from sync code without disturbing the caller's loop.
-
-    Uses ``asyncio.get_running_loop()`` (3.10+) to detect whether the caller is
-    already inside an event loop. If so, executes the coroutine on a fresh loop
-    in a worker thread. Otherwise drives a new loop via ``asyncio.run()``.
-
-    The previous implementation called ``asyncio.get_event_loop()`` which is
-    deprecated (DeprecationWarning in 3.12, removal scheduled for 3.14) and
-    has surprising behaviour when no loop is set.
-    """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop in this thread → simplest path.
-        return asyncio.run(coro)
-
-    # We're already inside a running loop → must use a worker thread.
-    import concurrent.futures
-
-    def runner():
-        new_loop = asyncio.new_event_loop()
-        try:
-            return new_loop.run_until_complete(coro)
-        finally:
-            new_loop.close()
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(runner).result()
+# Backward-compat aliases — existing imports still work.
+_run_async = run_async
 
 
 class GraphRAGQueryEngine(CustomQueryEngine):
@@ -91,8 +73,6 @@ class GraphRAGQueryEngine(CustomQueryEngine):
     @property
     def tracking(self):
         if self._tracking is None:
-            # Resolve embed_model: prefer the explicit field, fall back to
-            # the index's internal attribute for backward compatibility.
             _embed = self.embed_model or getattr(self.index, "_embed_model", None)
             self._tracking = TrackVectorRetriever(
                 engine=self,
@@ -105,20 +85,23 @@ class GraphRAGQueryEngine(CustomQueryEngine):
 
     # -- Citation helpers -----------------------------------------------
 
-    def _create_citation(self, metadata: dict, uuid: str) -> str:
-        file_path = metadata.get("file_path", "")
-        file_name = metadata.get("filename", "")
-        page_range = metadata.get("page_range", "")
-        page_number = metadata.get("page_number", "")
+    def create_citation(self, metadata: dict) -> dict | None:
+        """Build a citation dict for a graph node that carries UUID references.
 
-        file_identifier = file_name or file_path
-        page_info = page_range or page_number
+        Delegates to :func:`build_citation_dict` from the shared citation
+        module.  Returns ``None`` when no resolvable UUID is found or
+        metadata is empty.
+        """
+        return build_citation_dict(metadata, self.index)
 
-        if not file_identifier:
-            return f"`{uuid}`"
+    @staticmethod
+    def _is_uuid_node(value: str) -> bool:
+        """Backward-compat wrapper around :func:`is_uuid`."""
+        return is_uuid(value)
 
-        page_suffix = f"({page_info})" if page_info else ""
-        return f"[{file_identifier}{page_suffix}]{{uuid:{uuid}}}"
+    def _resolve_chunk_metadata(self, uuid_key: str) -> dict | None:
+        """Backward-compat wrapper around :func:`resolve_chunk_metadata`."""
+        return resolve_chunk_metadata(self.index, uuid_key)
 
     # -- Graph snapshot -------------------------------------------------
 
@@ -129,7 +112,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
             try:
                 score = node_data.get("score", 0.0)
                 properties = node_data.get("properties", {})
-                citation = self._create_citation(properties, node_id)
+                citation = format_citation(properties, uuid_fallback=node_id)
                 nodes.append(
                     {
                         "id": node_id,
@@ -171,10 +154,10 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         return await self._acustom_query(query_str, **kwargs)
 
     def custom_query(self, query_str: str, **kwargs) -> str:
-        return _run_async(self._acustom_query(query_str, **kwargs))
+        return run_async(self._acustom_query(query_str, **kwargs))
 
     async def _acustom_query(self, query_str: str, **kwargs) -> str:
-        context_query = kwargs.get("parameter", "")
+        context_query = kwargs.get("parameter", None)
         answer, _ = await self._query_plan(
             query_str, context=context_query, include_graph=self.include_graph, **kwargs
         )
@@ -185,7 +168,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         if include_graph:
             for node in self.graph_store.graph.get_all_nodes(
                 label_type="entity",
-                context=f"{context}. {query}. {self.data_instruction}",
+                context=f"{context or ''}. {query}. {self.data_instruction}",
                 category_id=kwargs.get("category_id"),
             ):
                 if node.label == "text_chunk":
@@ -218,6 +201,7 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         return await executor.execute_plans(
             plans,
             yaml.dump(knowledge, allow_unicode=True),
+            query=query,
             llm=self.llm,
             stream_handler=self.stream_handler,
             is_memory=is_memory,
@@ -250,7 +234,6 @@ class GraphRAGQueryEngine(CustomQueryEngine):
         """
         active_llm: KnowledgeLLM = llm if llm is not None else self.llm
 
-        # Normalise community_answers into list[str].
         if isinstance(community_answers, str):
             snippets = [community_answers]
         elif isinstance(community_answers, (list, tuple)):

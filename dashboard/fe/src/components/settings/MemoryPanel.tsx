@@ -518,38 +518,6 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
             
             {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
             
-            {/* OpenAI-compatible specific fields */}
-            {draft.embedding_backend === 'openai-compatible' && (
-              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
-                  <input
-                    type="text"
-                    value={embeddingCompatibleUrl}
-                    onChange={(e) => setEmbeddingCompatibleUrl(e.target.value)}
-                    onBlur={() => updateDraft({ embedding_compatible_url: embeddingCompatibleUrl })}
-                    placeholder="http://localhost:8000/v1"
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
-                  <input
-                    type="password"
-                    value={embeddingCompatibleKey}
-                    onChange={(e) => setEmbeddingCompatibleKey(e.target.value)}
-                    onBlur={() => updateDraft({ embedding_compatible_key: embeddingCompatibleKey })}
-                    placeholder="sk-..."
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-            )}
-            
-            {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
-            
             {/* Model picker from configured providers */}
             {draft.llm_backend === 'openai-compatible' && chatModels.length > 0 && (
               <div className="mt-3">
@@ -557,8 +525,12 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={draft.llm_model || ''}
-                  onChange={(model) => { setLlmModelInput(model); updateDraft({ llm_model: model }); }}
+                  value={chatModels.find(m => m.id.endsWith(`/${draft.llm_model}`))?.id || draft.llm_model || ''}
+                  onChange={(compositeId) => {
+                    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+                    setLlmModelInput(modelId);
+                    updateDraft({ llm_model: modelId });
+                  }}
                   models={chatModels}
                   showTier={true}
                   showContext={true}
@@ -598,36 +570,6 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
             )}
             
             {provenance.llm_model && <ProvenanceChip source={provenance.llm_model} />}
-            
-            {/* OpenAI-compatible specific fields */}
-            {effective.llm_backend === 'openai-compatible' && (
-              <div className="mt-4 space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Endpoint URL</label>
-                  <input
-                    type="text"
-                    value={llmCompatibleUrl}
-                    onChange={(e) => setLlmCompatibleUrl(e.target.value)}
-                    onBlur={() => updateDraft({ llm_compatible_url: llmCompatibleUrl })}
-                    placeholder="http://localhost:8000/v1"
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] font-semibold text-slate-600 mb-1 block">API Key (optional)</label>
-                  <input
-                    type="password"
-                    value={llmCompatibleKey}
-                    onChange={(e) => setLlmCompatibleKey(e.target.value)}
-                    onBlur={() => updateDraft({ llm_compatible_key: llmCompatibleKey })}
-                    placeholder="sk-..."
-                    className="w-full px-3 py-2 rounded-md text-xs font-mono"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </section>
@@ -763,8 +705,12 @@ export function MemoryPanel({ memory, provenance = {}, onUpdate, allModels = [] 
                   Pick from configured providers:
                 </label>
                 <ModelSelect
-                  value={draft.embedding_model || ''}
-                  onChange={(model) => { setEmbeddingModelInput(model); updateDraft({ embedding_model: model }); }}
+                  value={allModels.find(m => m.id.endsWith(`/${draft.embedding_model}`))?.id || draft.embedding_model || ''}
+                  onChange={(compositeId) => {
+                    const modelId = compositeId.includes('/') ? compositeId.split('/').slice(1).join('/') : compositeId;
+                    setEmbeddingModelInput(modelId);
+                    updateDraft({ embedding_model: modelId });
+                  }}
                   models={allModels}
                   showTier={true}
                   showContext={false}

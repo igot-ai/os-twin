@@ -263,10 +263,8 @@ class KnowledgeService:
             return self._llm
         settings_llm, _ = self._resolve_settings_overrides()
         effective_model = settings_llm or _DEFAULT_LLM
-        effective_provider = _DEFAULT_LLM_PROV or None
         self._llm = KnowledgeLLM(
             model=effective_model,
-            provider=effective_provider,
         )
         return self._llm
 
