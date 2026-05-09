@@ -154,7 +154,7 @@ function Print-CompletionBanner {
         if (Test-Path $envFile) {
             $envLines = Get-Content -Path $envFile -Encoding UTF8
             foreach ($line in $envLines) {
-                if ($line -match '^OSTWIN_API_KEY=(.+)$') {
+                if ($line -match '^\s*OSTWIN_API_KEY\s*=\s*(.+?)\s*$') {
                     $apiKey = $Matches[1].Trim()
                     break
                 }

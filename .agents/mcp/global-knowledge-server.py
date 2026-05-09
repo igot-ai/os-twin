@@ -33,11 +33,18 @@ from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
 
+
+def _ostwin_home() -> Path:
+    configured = os.environ.get("OSTWIN_HOME")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".ostwin"
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 KNOWLEDGE_BASE_DIR: Path = Path(
-    os.environ.get("OSTWIN_KNOWLEDGE_DIR", str(Path.home() / ".ostwin" / "knowledge"))
+    os.environ.get("OSTWIN_KNOWLEDGE_DIR", str(_ostwin_home() / "knowledge"))
 )
 
 # ---------------------------------------------------------------------------

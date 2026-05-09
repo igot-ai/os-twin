@@ -42,6 +42,19 @@ if ($Help) {
 
 $ScriptDir = Split-Path $PSCommandPath -Parent
 $TargetAgents = Join-Path $TargetDir ".agents"
+$HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $HomeDir ".ostwin" }
+$env:OSTWIN_HOME = $OstwinHome
+$env:AGENT_DIR = $ScriptDir
+
+$OstwinPython = if ($IsWindows) {
+    Join-Path $OstwinHome ".venv\Scripts\python.exe"
+} else {
+    Join-Path $OstwinHome ".venv/bin/python"
+}
+if (-not $env:OSTWIN_PYTHON) {
+    $env:OSTWIN_PYTHON = if (Test-Path $OstwinPython) { $OstwinPython } else { "python" }
+}
 
 # ─── Helper functions ─────────────────────────────────────────────────────────
 
@@ -163,8 +176,7 @@ Write-Info "Config: $ProjectMcpConfig"
 
 # ─── Global MCP config ───────────────────────────────────────────────────────
 
-$HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
-$GlobalMcpDir = Join-Path $HomeDir ".ostwin" ".agents" "mcp"
+$GlobalMcpDir = Join-Path $OstwinHome ".agents" "mcp"
 $GlobalMcpConfig = Join-Path $GlobalMcpDir "config.json"
 
 if (-not (Test-Path $GlobalMcpDir)) { New-Item -ItemType Directory -Path $GlobalMcpDir -Force | Out-Null }
@@ -186,7 +198,7 @@ else {
 # ─── Compile opencode.json ────────────────────────────────────────────────────
 
 $McpExtensionScript = Join-Path $ScriptDir "mcp" "mcp-extension.sh"
-if ((Test-Path $McpExtensionScript) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
+if ((-not $IsWindows) -and (Test-Path $McpExtensionScript) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
     Write-Step "Compiling project-level MCP config..."
     try {
         & bash $McpExtensionScript --project-dir $TargetDir compile
@@ -207,12 +219,17 @@ if (Test-Path $ResolveScript) {
     Write-Step "Syncing MCP config (ostwin mcp sync)..."
 
     # Find python: prefer venv, fall back to system
-    $pythonCmd = "python3"
-    $globalVenvPython = Join-Path $HOME ".ostwin" "venv" "bin" "python"
-    if (Test-Path $globalVenvPython) { $pythonCmd = $globalVenvPython }
+    $pythonCmd = if (Test-Path $OstwinPython) { $OstwinPython } else { $env:OSTWIN_PYTHON }
 
     # Collect optional flags
-    $syncArgs = @($ResolveScript, "sync")
+    $GlobalOpencodeFile = Join-Path $GlobalOpencodeDir "opencode.json"
+    $syncArgs = @(
+        $ResolveScript,
+        "sync",
+        "--config", $GlobalMcpConfig,
+        "--roles-dir", (Join-Path $OstwinHome ".agents\roles"),
+        "--output", $GlobalOpencodeFile
+    )
 
     # Pass env file if available
     $projectEnv = Join-Path $TargetDir ".env"

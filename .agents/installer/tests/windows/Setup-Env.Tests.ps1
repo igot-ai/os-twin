@@ -71,6 +71,28 @@ Describe "Setup-Env" {
         $content | Should -Match "EXISTING=true"
     }
 
+    It "Should create .env.ps1 when .env already exists" {
+        $envFile = Join-Path $testDir ".env"
+        Set-Content -Path $envFile -Encoding UTF8 -Value "OSTWIN_API_KEY=ostwin_existing"
+        $envPs1 = Join-Path $testDir ".env.ps1"
+
+        Setup-Env
+
+        Test-Path $envPs1 | Should -Be $true
+        $env:OSTWIN_API_KEY | Should -Be "ostwin_existing"
+    }
+
+    It "Should read OSTWIN_API_KEY with whitespace around assignment" {
+        $envFile = Join-Path $testDir ".env"
+        Set-Content -Path $envFile -Encoding UTF8 -Value "OSTWIN_API_KEY = ostwin_spaced"
+
+        Setup-Env
+
+        $env:OSTWIN_API_KEY | Should -Be "ostwin_spaced"
+        $content = Get-Content $envFile -Raw
+        ([regex]::Matches($content, '(?m)^\s*OSTWIN_API_KEY\s*=')).Count | Should -Be 1
+    }
+
     It "Should generate unique API keys" {
         $testDir1 = Join-Path $TestDrive "env1-$(Get-Random)"
         $testDir2 = Join-Path $TestDrive "env2-$(Get-Random)"
@@ -156,4 +178,3 @@ Describe "Migrate-EnvKeys" {
         }
     }
 }
-

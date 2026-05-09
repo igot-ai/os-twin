@@ -34,7 +34,7 @@ $OstwinHome = if ($HomePath) { $HomePath }
               elseif ($env:OSTWIN_HOME) { $env:OSTWIN_HOME }
               else { Join-Path $HomeDir ".ostwin" }
 $DashboardPort = if ($env:DASHBOARD_PORT) { [int]$env:DASHBOARD_PORT } else { $Port }
-$DashboardUrl = "http://localhost:${DashboardPort}"
+$DashboardUrl = if ($env:DASHBOARD_URL) { $env:DASHBOARD_URL } else { "http://127.0.0.1:${DashboardPort}" }
 $OstwinApiKey = $env:OSTWIN_API_KEY
 
 # Load .env

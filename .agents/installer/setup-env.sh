@@ -16,6 +16,19 @@ setup_env() {
 
   if [[ -f "$env_file" ]]; then
     ok ".env already exists at $env_file"
+    if ! grep -Eq '^[[:space:]]*OSTWIN_API_KEY[[:space:]]*=' "$env_file"; then
+      step "OSTWIN_API_KEY not found in .env — generating new key..."
+      local generated_api_key
+      generated_api_key="$(_generate_ostwin_api_key)"
+      cat >> "$env_file" << ENVEOF
+
+# ── Dashboard Authentication ────────────────────────────────────────────────
+OSTWIN_API_KEY=${generated_api_key}
+ENVEOF
+      chmod 600 "$env_file"
+      ok "OSTWIN_API_KEY generated and added to .env"
+    fi
+    _create_env_sh_hook
     return
   fi
 
@@ -24,7 +37,7 @@ setup_env() {
 
   # Generate a secure API key for dashboard auth
   local generated_api_key
-  generated_api_key="ostwin_$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
+  generated_api_key="$(_generate_ostwin_api_key)"
 
   cat > "$env_file" << ENVEOF
 # Ostwin — Environment Variables
@@ -112,6 +125,23 @@ ENVEOF
 }
 
 # ─── Internal helpers ────────────────────────────────────────────────────────
+
+_generate_ostwin_api_key() {
+  local key_material=""
+  if command -v openssl >/dev/null 2>&1; then
+    key_material="$(openssl rand -hex 16)"
+  elif command -v python3 >/dev/null 2>&1; then
+    key_material="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+  elif command -v python >/dev/null 2>&1; then
+    key_material="$(python -c 'import secrets; print(secrets.token_hex(16))')"
+  elif [[ -r /dev/urandom ]] && command -v od >/dev/null 2>&1; then
+    key_material="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+  else
+    fail "Could not generate OSTWIN_API_KEY — install openssl or python"
+    return 1
+  fi
+  printf 'ostwin_%s' "$key_material"
+}
 
 _create_env_sh_hook() {
   local env_sh="$INSTALL_DIR/.env.sh"

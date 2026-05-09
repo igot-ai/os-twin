@@ -15,16 +15,23 @@ from dashboard.api_utils import (
     resolve_plan_warrooms_dir, read_channel
 )
 from dashboard.auth import get_current_user
+from dashboard.paths import ostwin_home
 
 # Resolve Python: ~/.ostwin/.venv → system fallback
-_VENV_PYTHON = Path.home() / ".ostwin" / ".venv" / "bin" / "python"
-PYTHON = str(_VENV_PYTHON) if _VENV_PYTHON.is_file() else "python3"
+_venv_base = ostwin_home() / ".venv"
+if os.name == "nt":
+    _VENV_PYTHON = _venv_base / "Scripts" / "python.exe"
+    _FALLBACK_PYTHON = "python"
+else:
+    _VENV_PYTHON = _venv_base / "bin" / "python"
+    _FALLBACK_PYTHON = "python3"
+PYTHON = str(_VENV_PYTHON) if _VENV_PYTHON.is_file() else _FALLBACK_PYTHON
 
 router = APIRouter(prefix="/api", tags=["system"])
 
 # ── .env settings ─────────────────────────────────────────────────────
 
-_OSTWIN_DIR = Path.home() / ".ostwin"
+_OSTWIN_DIR = ostwin_home()
 _ENV_FILE = _OSTWIN_DIR / ".env"
 
 def _parse_env(text: str) -> list[dict]:

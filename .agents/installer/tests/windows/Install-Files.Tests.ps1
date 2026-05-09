@@ -107,6 +107,58 @@ Describe "Seed-McpConfig" {
     }
 }
 
+Describe "Install-Files framework config" {
+    BeforeEach {
+        $testDir = Join-Path $TestDrive "test-agent-config-$(Get-Random)"
+        $sourceRoot = Join-Path $testDir "source"
+        $sourceAgents = Join-Path $sourceRoot ".agents"
+        $installDir = Join-Path $testDir "install"
+
+        New-Item -ItemType Directory -Path $sourceAgents -Force | Out-Null
+        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+
+        $script:InstallDir = $installDir
+        $script:SourceDir = $sourceRoot
+        $script:ScriptDir = $sourceAgents
+        $script:VenvDir = Join-Path $installDir ".venv"
+        $script:PythonCmd = "python"
+        $script:InstallerScriptsDir = Join-Path $sourceAgents "installer\scripts"
+    }
+
+    AfterEach {
+        $mcpLink = Join-Path $installDir "mcp"
+        if (Test-Path -LiteralPath $mcpLink) {
+            $item = Get-Item -LiteralPath $mcpLink -Force
+            if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                & cmd.exe /c "rmdir `"$mcpLink`"" 2>$null
+            }
+        }
+    }
+
+    It "Should seed framework config.json on first install" {
+        Set-Content -Path (Join-Path $sourceAgents "config.json") -Value '{"version":"test"}'
+
+        Install-Files
+
+        $installedConfig = Join-Path $installDir ".agents\config.json"
+        Test-Path $installedConfig | Should -Be $true
+        (Get-Content $installedConfig -Raw) | Should -Match '"version":"test"'
+    }
+
+    It "Should not overwrite existing framework config.json" {
+        Set-Content -Path (Join-Path $sourceAgents "config.json") -Value '{"version":"source"}'
+        $installedAgents = Join-Path $installDir ".agents"
+        New-Item -ItemType Directory -Path $installedAgents -Force | Out-Null
+        Set-Content -Path (Join-Path $installedAgents "config.json") -Value '{"version":"existing"}'
+
+        Install-Files
+
+        $content = Get-Content (Join-Path $installedAgents "config.json") -Raw
+        $content | Should -Match '"existing"'
+        $content | Should -Not -Match '"source"'
+    }
+}
+
 Describe "Load-ContributedRoles" {
     BeforeEach {
         $testDir = Join-Path $TestDrive "test-roles-$(Get-Random)"
@@ -232,4 +284,3 @@ Describe "Sync-Bot" {
         { Sync-Bot } | Should -Not -Throw
     }
 }
-

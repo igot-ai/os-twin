@@ -111,7 +111,7 @@ print_completion_banner() {
   local api_key="${OSTWIN_API_KEY:-}"
   if [[ -z "$api_key" ]]; then
     # Try reading from .env
-    api_key=$(grep -E '^OSTWIN_API_KEY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d'=' -f2-)
+    api_key=$(grep -E '^[[:space:]]*OSTWIN_API_KEY[[:space:]]*=' "${INSTALL_DIR}/.env" 2>/dev/null | head -1 | sed -E 's/^[[:space:]]*OSTWIN_API_KEY[[:space:]]*=[[:space:]]*//')
   fi
   if [[ -n "$api_key" ]]; then
     echo -e "  ${BOLD}🔑 Dashboard Authentication Key:${NC}"

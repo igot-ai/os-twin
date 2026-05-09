@@ -23,6 +23,57 @@ $ErrorActionPreference = "Stop"
 
 $HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
 $InstallDir = if ($Dir) { $Dir } else { Join-Path $HomeDir ".ostwin" }
+$InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
+
+function Stop-InstallProcesses {
+    $stopScript = Join-Path $InstallDir ".agents\stop.ps1"
+    if (Test-Path $stopScript) {
+        Write-Host "  Stopping running Ostwin services..."
+        $oldOstwinHome = $env:OSTWIN_HOME
+        try {
+            $env:OSTWIN_HOME = $InstallDir
+            if (Get-Command pwsh -ErrorAction SilentlyContinue) {
+                & pwsh -NoProfile -ExecutionPolicy Bypass -File $stopScript -Force -Dir $InstallDir 2>$null
+            }
+            else {
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $stopScript -Force -Dir $InstallDir 2>$null
+            }
+        }
+        catch {
+            Write-Warning "  Could not stop all Ostwin services cleanly: $_"
+        }
+        finally {
+            $env:OSTWIN_HOME = $oldOstwinHome
+        }
+    }
+
+    if ($IsWindows -or ($env:OS -eq "Windows_NT")) {
+        try {
+            $needle = $InstallDir.ToLowerInvariant()
+            $helpers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+                $cmdLine = if ($_.CommandLine) { $_.CommandLine } else { "" }
+                $cmd = $cmdLine.ToLowerInvariant()
+                $cmd.Contains($needle) -and (
+                    $cmd.Contains("sync-skills.ps1") -or
+                    $cmd.Contains("dashboard/api.py") -or
+                    $cmd.Contains("dashboard\api.py") -or
+                    $cmd.Contains("bot/src/index.ts") -or
+                    $cmd.Contains("bot\src\index.ts")
+                )
+            }
+            foreach ($proc in $helpers) {
+                try {
+                    Write-Host "  Stopping helper process PID $($proc.ProcessId)..."
+                    Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+                }
+                catch { }
+            }
+        }
+        catch {
+            Write-Warning "  Could not scan helper processes: $_"
+        }
+    }
+}
 
 Write-Host ""
 Write-Host "  Ostwin -- Uninstaller"
@@ -57,6 +108,10 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
 if (Get-Command pwsh -ErrorAction SilentlyContinue) {
     Write-Host "  Note: Pester module left in place (shared PowerShell module)"
 }
+
+# ─── Stop running services before deleting files ────────────────────────────
+
+Stop-InstallProcesses
 
 # ─── Remove installation directory ──────────────────────────────────────────
 

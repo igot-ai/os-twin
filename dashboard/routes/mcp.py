@@ -6,6 +6,7 @@ Delegates to mcp-extension.sh for actual operations.
 """
 
 import json
+import shlex
 import asyncio
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
@@ -18,6 +19,7 @@ from mcp.client.sse import sse_client
 
 from dashboard.api_utils import AGENTS_DIR
 from dashboard.auth import get_current_user
+from dashboard.paths import ostwin_home, ostwin_path, bash_path
 
 # Try to import vault and config_resolver from .agents/mcp
 import sys
@@ -40,12 +42,12 @@ MCP_DIR = AGENTS_DIR / "mcp"
 EXTENSIONS_FILE = MCP_DIR / "extensions.json"
 CATALOG_FILE = MCP_DIR / "mcp-catalog.json"
 BUILTIN_CONFIG_FILE = MCP_DIR / "mcp-builtin.json"
-HOME_CONFIG_FILE = Path.home() / ".ostwin" / ".agents" / "mcp" / "config.json"
+HOME_CONFIG_FILE = ostwin_path(".agents", "mcp", "config.json")
 if not HOME_CONFIG_FILE.exists():
-    _legacy = Path.home() / ".ostwin" / ".agents" / "mcp" / "mcp-config.json"
+    _legacy = ostwin_path(".agents", "mcp", "mcp-config.json")
     if _legacy.exists():
         HOME_CONFIG_FILE = _legacy
-DEPLOY_CONFIG_FILE = Path.home() / ".ostwin" / ".agents" / "mcp" / "mcp-config.json"
+DEPLOY_CONFIG_FILE = ostwin_path(".agents", "mcp", "mcp-config.json")
 SCRIPT = MCP_DIR / "mcp-extension.sh"
 
 
@@ -100,11 +102,62 @@ class CredentialUpdate(BaseModel):
     value: str
 
 
+def _mcp_project_dir() -> Path:
+    """Resolve the project directory for MCP script execution.
+
+    Priority:
+    1. PROJECT_DIR environment variable
+    2. OSTWIN_PROJECT_DIR environment variable
+    3. PROJECT_ROOT from api_utils (current project)
+    """
+    from dashboard.api_utils import PROJECT_ROOT
+
+    if "PROJECT_DIR" in os.environ:
+        return Path(os.environ["PROJECT_DIR"])
+    if "OSTWIN_PROJECT_DIR" in os.environ:
+        return Path(os.environ["OSTWIN_PROJECT_DIR"])
+    return PROJECT_ROOT
+
+
+def _build_script_command(args: list[str]) -> tuple[list[str], dict[str, str]]:
+    """Build a bash command to run mcp-extension.sh with explicit env exports.
+
+    On Windows, MCP scripts run via Git Bash/WSL and need paths converted.
+    Environment variables are exported inside the bash command rather than
+    relying on subprocess env inheritance (which doesn't work cross-shell).
+
+    Returns:
+        (cmd, env) where cmd is ["bash", "-c", "<exports> exec <script> <args>"]
+        and env contains converted paths for subprocess environment.
+    """
+    script_path = bash_path(SCRIPT)
+    home = ostwin_home()
+
+    agent_dir = bash_path(home / ".agents")
+    project_dir = bash_path(_mcp_project_dir())
+    ostwin_home_str = bash_path(home)
+
+    quoted_ostwin_home = shlex.quote(ostwin_home_str)
+    quoted_agent_dir = shlex.quote(agent_dir)
+    quoted_project_dir = shlex.quote(project_dir)
+    quoted_script = shlex.quote(script_path)
+    quoted_args = " ".join(shlex.quote(a) for a in args)
+
+    bash_cmd = (
+        f"export OSTWIN_HOME={quoted_ostwin_home} && "
+        f"export AGENT_DIR={quoted_agent_dir} && "
+        f"export PROJECT_DIR={quoted_project_dir} && "
+        f"exec {quoted_script} {quoted_args}"
+    )
+
+    return ["bash", "-c", bash_cmd], {"PROJECT_DIR": project_dir}
+
+
 def _read_json(path: Path) -> dict:
     """Read a JSON file, return empty dict if missing."""
     if not path.exists():
         return {}
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _get_servers(data: dict) -> dict:
@@ -114,12 +167,14 @@ def _get_servers(data: dict) -> dict:
 
 async def _run_script(args: list[str], timeout: int = 120) -> dict:
     """Run mcp-extension.sh with given args and return stdout/stderr/code."""
-    cmd = ["bash", str(SCRIPT)] + args
+    cmd, extra_env = _build_script_command(args)
+    env = {**os.environ, **extra_env}
     try:
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         stdout, stderr = await asyncio.wait_for(
             process.communicate(), timeout=timeout
@@ -246,7 +301,7 @@ async def add_mcp_server(server: McpServerConfig, user: dict = Depends(get_curre
     
     # Ensure directory exists
     HOME_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2))
+    HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     return {"status": "success", "name": server.name}
 
@@ -257,7 +312,7 @@ async def remove_mcp_server(name: str, user: dict = Depends(get_current_user)):
     data = _read_json(HOME_CONFIG_FILE)
     if "mcp" in data and name in data["mcp"]:
         del data["mcp"][name]
-        HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2))
+        HOME_CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return {"status": "success"}
 
     raise HTTPException(status_code=404, detail=f"Server {name} not found in home config")
@@ -454,12 +509,13 @@ def _compile_test_config() -> dict:
     if not merged:
         return {"$schema": "https://opencode.ai/config.json", "mcp": {}}
 
-    install_dir = str(Path.home() / ".ostwin" / ".agents")
+    _home = ostwin_home()
+    install_dir = str(_home / ".agents")
     env_lookup = {
         **os.environ,
         "AGENT_DIR": install_dir,
         "HOME": str(Path.home()),
-        "PROJECT_DIR": str(Path.home() / ".ostwin"),
+        "PROJECT_DIR": str(_mcp_project_dir()),
     }
 
     env_ref_pattern = re.compile(r'\{env:(\w+)\}')
@@ -590,7 +646,7 @@ async def test_all_mcp_servers(user: dict = Depends(get_current_user)):
     ``opencode mcp list``.  The temp dir is always cleaned up afterward."""
     import shutil as _shutil
 
-    test_dir = Path.home() / ".ostwin" / ".agents" / "mcp" / "test"
+    test_dir = ostwin_path(".agents", "mcp", "test")
     opencode_dir = test_dir / ".opencode"
     opencode_file = opencode_dir / "opencode.json"
 
@@ -602,7 +658,7 @@ async def test_all_mcp_servers(user: dict = Depends(get_current_user)):
 
         # 2. Write to temp directory
         opencode_dir.mkdir(parents=True, exist_ok=True)
-        opencode_file.write_text(json.dumps(config, indent=2))
+        opencode_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
         # 3. Run opencode mcp list in the temp directory
         process = await asyncio.create_subprocess_exec(

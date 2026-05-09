@@ -42,17 +42,21 @@ if ($Help) {
 $ScriptDir = Split-Path $PSCommandPath -Parent
 $AgentsDir = $ScriptDir
 
+# ─── Resolve Ostwin home directory ────────────────────────────────────────────
+
+$HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+$OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $HomeDir ".ostwin" }
+
 # ─── Resolve Python ──────────────────────────────────────────────────────────
 
 $PythonCmd = $null
-$HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
 
 # Local .venv
 $localVenvPy = Join-Path $AgentsDir ".venv" "Scripts" "python.exe"
 $localVenvPyUnix = Join-Path $AgentsDir ".venv" "bin" "python"
-# Global ostwin venv
-$globalVenvPy = Join-Path $HomeDir ".ostwin" ".venv" "Scripts" "python.exe"
-$globalVenvPyUnix = Join-Path $HomeDir ".ostwin" ".venv" "bin" "python"
+# Global ostwin venv (respects OSTWIN_HOME)
+$globalVenvPy = Join-Path $OstwinHome ".venv" "Scripts" "python.exe"
+$globalVenvPyUnix = Join-Path $OstwinHome ".venv" "bin" "python"
 
 if (Test-Path $localVenvPy) { $PythonCmd = $localVenvPy }
 elseif (Test-Path $localVenvPyUnix) { $PythonCmd = $localVenvPyUnix }
@@ -139,7 +143,7 @@ if ((Test-Path $feDir) -and (Test-Path (Join-Path $feDir "package.json"))) {
 $PidFile = Join-Path $AgentsDir "dashboard.pid"
 
 if ($Background) {
-    $dashLogDir = Join-Path $HomeDir ".ostwin" "dashboard"
+    $dashLogDir = Join-Path $OstwinHome "dashboard"
     if (-not (Test-Path $dashLogDir)) { New-Item -ItemType Directory -Path $dashLogDir -Force | Out-Null }
 
     Write-Host "[DASHBOARD] Starting in background on http://localhost:${Port}"
@@ -147,12 +151,22 @@ if ($Background) {
 
     $stdoutLog = Join-Path $dashLogDir "stdout.log"
 
+    # Build environment for child process
+    $procEnv = @{
+        OSTWIN_HOME = $OstwinHome
+        DASHBOARD_PORT = $Port
+        DASHBOARD_URL = "http://localhost:${Port}"
+    }
+    if ($env:OSTWIN_PROJECT_DIR) { $procEnv.OSTWIN_PROJECT_DIR = $env:OSTWIN_PROJECT_DIR }
+    if ($env:PROJECT_DIR) { $procEnv.PROJECT_DIR = $env:PROJECT_DIR }
+
     $proc = Start-Process -FilePath $PythonCmd `
         -ArgumentList "api.py", "--port", $Port, "--project-dir", $ProjectDir `
         -WorkingDirectory $DashboardDir `
         -NoNewWindow -PassThru `
         -RedirectStandardOutput $stdoutLog `
-        -RedirectStandardError (Join-Path $dashLogDir "stderr.log")
+        -RedirectStandardError (Join-Path $dashLogDir "stderr.log") `
+        -Environment $procEnv
 
     $proc.Id | Set-Content -Path $PidFile
     Write-Host "  PID: $($proc.Id)"

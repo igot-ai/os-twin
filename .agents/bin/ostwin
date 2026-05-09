@@ -66,6 +66,130 @@ function Import-EnvFile {
     }
 }
 
+function ConvertTo-BashPath {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not ($IsWindows -or $env:OS -eq "Windows_NT")) {
+        return $Path
+    }
+    if ($Path -match '^/mnt/[a-zA-Z]/' -or $Path -match '^/[a-zA-Z]/') {
+        return ($Path -replace '\\', '/')
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if ($fullPath -notmatch '^([A-Za-z]):\\(.*)$') {
+        return ($fullPath -replace '\\', '/')
+    }
+
+    $drive = $Matches[1].ToLowerInvariant()
+    $rest = $Matches[2] -replace '\\', '/'
+    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    $bashSource = if ($bash) { [string]$bash.Source } else { "" }
+    if ($bashSource -match '\\System32\\bash\.exe$') {
+        return "/mnt/$drive/$rest"
+    }
+    return "/$drive/$rest"
+}
+
+function ConvertTo-BashEnvValue {
+    param([string]$Value)
+
+    if (-not $Value) { return "" }
+    if (($Value -notmatch '[\\/]') -and ($Value -notmatch '^[A-Za-z]:')) {
+        return $Value
+    }
+    return (ConvertTo-BashPath $Value)
+}
+
+function ConvertTo-BashScriptArgs {
+    param([string[]]$Args = @())
+
+    if (-not ($IsWindows -or $env:OS -eq "Windows_NT")) {
+        return $Args
+    }
+
+    $pathValueFlags = @(
+        "--project-dir",
+        "--working-dir",
+        "--env",
+        "--config",
+        "--roles-dir",
+        "--output"
+    )
+    $converted = [System.Collections.Generic.List[string]]::new()
+
+    for ($i = 0; $i -lt $Args.Count; $i++) {
+        $arg = [string]$Args[$i]
+        $handled = $false
+
+        foreach ($flag in $pathValueFlags) {
+            if ($arg -eq $flag) {
+                $converted.Add($arg)
+                if ($i + 1 -lt $Args.Count) {
+                    $i++
+                    $converted.Add((ConvertTo-BashPath ([string]$Args[$i])))
+                }
+                $handled = $true
+                break
+            }
+            elseif ($arg.StartsWith("$flag=")) {
+                $value = $arg.Substring($flag.Length + 1)
+                $converted.Add("$flag=$(ConvertTo-BashPath $value)")
+                $handled = $true
+                break
+            }
+        }
+
+        if (-not $handled) {
+            $converted.Add($arg)
+        }
+    }
+
+    return $converted.ToArray()
+}
+
+function Quote-BashValue {
+    param([string]$Value)
+
+    if ($null -eq $Value) { $Value = "" }
+    $singleQuote = [string][char]39
+    $doubleQuote = [string][char]34
+    $escapedSingleQuote = "$singleQuote$doubleQuote$singleQuote$doubleQuote$singleQuote"
+    return "$singleQuote$($Value.Replace($singleQuote, $escapedSingleQuote))$singleQuote"
+}
+
+function Invoke-BashScript {
+    param(
+        [Parameter(Mandatory)][string]$ScriptPath,
+        [string[]]$ScriptArgs = @(),
+        [string]$ProjectDir = (Get-Location).Path
+    )
+
+    $bashOstwinHome = ConvertTo-BashPath $OstwinHome
+    $bashAgentDir = ConvertTo-BashPath (Join-Path $OstwinHome ".agents")
+    $bashProjectDir = ConvertTo-BashPath $ProjectDir
+    $pythonForBash = ConvertTo-BashEnvValue $env:OSTWIN_PYTHON
+
+    $commands = [System.Collections.Generic.List[string]]::new()
+    $commands.Add("export OSTWIN_HOME=$(Quote-BashValue $bashOstwinHome)")
+    $commands.Add("export AGENT_DIR=$(Quote-BashValue $bashAgentDir)")
+    $commands.Add("export PROJECT_DIR=$(Quote-BashValue $bashProjectDir)")
+    if ($pythonForBash) {
+        $commands.Add("export OSTWIN_PYTHON=$(Quote-BashValue $pythonForBash)")
+    }
+
+    $execParts = [System.Collections.Generic.List[string]]::new()
+    $execParts.Add("exec")
+    $execParts.Add((Quote-BashValue (ConvertTo-BashPath $ScriptPath)))
+    $scriptArgsForBash = ConvertTo-BashScriptArgs -Args $ScriptArgs
+    foreach ($arg in $scriptArgsForBash) {
+        $execParts.Add((Quote-BashValue $arg))
+    }
+    $commands.Add(($execParts -join " "))
+
+    & bash -c ($commands -join "; ")
+}
+
 $globalEnv = Join-Path $OstwinHome ".env"
 Import-EnvFile -Path $globalEnv
 
@@ -105,7 +229,12 @@ if (-not $AgentsDir) {
     if ($PSCommandPath) {
         $scriptDir = Split-Path $PSCommandPath -Parent
         $AgentsDir = (Resolve-Path (Join-Path $scriptDir "..")).Path
-    } else {
+    }
+    elseif ($env:OSTWIN_CLI) {
+        $scriptDir = Split-Path $env:OSTWIN_CLI -Parent
+        $AgentsDir = (Resolve-Path (Join-Path $scriptDir "..")).Path
+    }
+    else {
         $AgentsDir = Join-Path $OstwinHome ".agents"
     }
 }
@@ -114,6 +243,17 @@ if (-not $AgentsDir) {
 $PythonCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" }
 elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" }
 else { "python" }
+
+$env:OSTWIN_HOME = $OstwinHome
+$env:AGENT_DIR = $AgentsDir
+if (-not $env:OSTWIN_PYTHON) {
+    $venvPython = if ($IsWindows) {
+        Join-Path $OstwinHome ".venv\Scripts\python.exe"
+    } else {
+        Join-Path $OstwinHome ".venv/bin/python"
+    }
+    $env:OSTWIN_PYTHON = if (Test-Path $venvPython) { $venvPython } else { $PythonCmd }
+}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. Load project .env (from AGENTS_DIR/.env)
@@ -393,6 +533,12 @@ switch ($Command) {
             }
             else {
                 $null = $runArgs.Add($a)
+            }
+        }
+
+        for ($ri = 0; $ri -lt $runArgs.Count; $ri++) {
+            if (($runArgs[$ri] -eq '--working-dir') -and ($ri + 1 -lt $runArgs.Count)) {
+                $resolvedWorkingDir = [string]$runArgs[$ri + 1]
             }
         }
 
@@ -1443,15 +1589,15 @@ switch ($Command) {
         else {
             # ── All other MCP subcommands → mcp-extension.sh ──
             # (install, list, catalog, remove, credentials, test, etc.)
-            $mcpSh = Join-Path $AgentsDir "mcp" "mcp-extension.sh"
+            $mcpSh = Join-Path $OstwinHome ".agents" "mcp" "mcp-extension.sh"
 
-            # Also check the global install location
+            # Fall back to the project/source tree for development checkouts.
             if (-not (Test-Path $mcpSh)) {
-                $mcpSh = Join-Path $OstwinHome ".agents" "mcp" "mcp-extension.sh"
+                $mcpSh = Join-Path $AgentsDir "mcp" "mcp-extension.sh"
             }
 
             if (Test-Path $mcpSh) {
-                & bash $mcpSh @Arguments
+                Invoke-BashScript -ScriptPath $mcpSh -ScriptArgs $Arguments -ProjectDir $cwd
             }
             else {
                 Write-Error "[ERROR] mcp-extension.sh not found."

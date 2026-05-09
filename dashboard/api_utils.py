@@ -10,6 +10,15 @@ from datetime import datetime, timezone
 from typing import List, Optional, Any, Dict
 
 from dashboard.models import Skill
+from dashboard.paths import ostwin_home, ostwin_path
+
+# === Encoding ===
+# Use UTF-8 explicitly for cross-platform file reads.
+# For display text (markdown/logs), use errors="replace" to avoid crashes.
+# For JSON/config, use errors="strict" (default) to detect corruption.
+ENCODING = "utf-8"
+ENCODING_REPLACE = {"encoding": ENCODING, "errors": "replace"}
+ENCODING_STRICT = {"encoding": ENCODING}
 
 # === Paths ===
 # Resolved relative to this file
@@ -38,11 +47,11 @@ if (DEMO_DIR / ".war-rooms").exists():
     # If DEMO_DIR has room-* subdirs, prefer it
     if any((DEMO_DIR / ".war-rooms").glob("room-*")):
         WARROOMS_DIR = DEMO_DIR / ".war-rooms"
-_ostwin_home = Path(os.environ.get("OSTWIN_HOME", str(Path.home() / ".ostwin")))
+_ostwin_home = ostwin_home()
 SKILLS_DIRS = [
-    Path("~/.ostwin/.agents/skills").expanduser(),
-    Path("~/.ostwin/skills/global").expanduser(),
-    Path("~/.ostwin/skills/roles").expanduser(),
+    ostwin_path(".agents", "skills"),
+    ostwin_path("skills", "global"),
+    ostwin_path("skills", "roles"),
     AGENTS_DIR / "skills",
     PROJECT_ROOT / ".agents" / "skills",
     PROJECT_ROOT / ".deepagents" / "skills",
@@ -63,7 +72,7 @@ def resolve_plans_dir(
     project_plans_dir = resolved_agents_dir / "plans"
     if project_plans_dir.exists():
         return project_plans_dir
-    return Path.home() / ".ostwin" / ".agents" / "plans"
+    return ostwin_path(".agents", "plans")
 
 
 PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
@@ -71,7 +80,7 @@ PLANS_DIR = resolve_plans_dir(PROJECT_ROOT, AGENTS_DIR)
 # Global plans store (always ~/.ostwin/.agents/plans) — plans created via the
 # installed dashboard or bot land here.  Used as a fallback when a plan file
 # is not found in the project-local PLANS_DIR.
-GLOBAL_PLANS_DIR = Path.home() / ".ostwin" / ".agents" / "plans"
+GLOBAL_PLANS_DIR = ostwin_path(".agents", "plans")
 
 
 def find_plan_file(plan_id: str) -> Optional[Path]:
@@ -131,23 +140,23 @@ def read_room(
 
     room_id = room_dir.name
     status_file = room_dir / "status"
-    status = status_file.read_text().strip() if status_file.exists() else "unknown"
+    status = status_file.read_text(**ENCODING_REPLACE).strip() if status_file.exists() else "unknown"
 
     tr_file = room_dir / "task-ref"
-    task_ref = tr_file.read_text().strip() if tr_file.exists() else None
+    task_ref = tr_file.read_text(**ENCODING_REPLACE).strip() if tr_file.exists() else None
 
     retries_file = room_dir / "retries"
-    retries_str = retries_file.read_text().strip() if retries_file.exists() else "0"
+    retries_str = retries_file.read_text(**ENCODING_REPLACE).strip() if retries_file.exists() else "0"
     retries = int(retries_str) if retries_str.isdigit() else 0
 
     brief_file = room_dir / "brief.md"
-    task_md = brief_file.read_text() if brief_file.exists() else None
+    task_md = brief_file.read_text(**ENCODING_REPLACE) if brief_file.exists() else None
 
     # Fallback: extract ref from TASKS.md header
     if not task_ref:
         tasks_file = room_dir / "TASKS.md"
         if tasks_file.exists():
-            header = tasks_file.read_text().split("\n", 1)[0]
+            header = tasks_file.read_text(**ENCODING_REPLACE).split("\n", 1)[0]
             m = re.search(r"(EPIC-\d+|TASK-\d+)", header)
             if m:
                 task_ref = m.group(1)
@@ -159,13 +168,13 @@ def read_room(
     # Fallback: use TASKS.md as description
     tasks_file = room_dir / "TASKS.md"
     if not task_md and tasks_file.exists():
-        task_md = tasks_file.read_text()
+        task_md = tasks_file.read_text(**ENCODING_REPLACE)
 
     # Parse TASKS.md for goal completion
     goal_total = 0
     goal_done = 0
     if tasks_file.exists():
-        tasks_content = tasks_file.read_text()
+        tasks_content = tasks_file.read_text(**ENCODING_REPLACE)
         goal_total = len(re.findall(r"- \[[ xX]\]", tasks_content))
         goal_done = len(re.findall(r"- \[[xX]\]", tasks_content))
 
@@ -174,7 +183,7 @@ def read_room(
     last_activity = None
 
     if channel_file.exists():
-        raw_content = channel_file.read_text()
+        raw_content = channel_file.read_text(**ENCODING_REPLACE)
         lines = [l.strip() for l in raw_content.splitlines() if l.strip()]
         message_count = len(lines)
         if lines:
@@ -202,7 +211,7 @@ def read_room(
         lifecycle_file = room_dir / "lifecycle.json"
         if lifecycle_file.exists():
             try:
-                result["lifecycle"] = json.loads(lifecycle_file.read_text())
+                result["lifecycle"] = json.loads(lifecycle_file.read_text(**ENCODING_STRICT))
             except (json.JSONDecodeError, OSError):
                 result["lifecycle"] = {}
         else:
@@ -212,7 +221,7 @@ def read_room(
         config_file = room_dir / "config.json"
         if config_file.exists():
             try:
-                result["config"] = json.loads(config_file.read_text())
+                result["config"] = json.loads(config_file.read_text(**ENCODING_STRICT))
             except (json.JSONDecodeError, OSError):
                 result["config"] = {}
         else:
@@ -221,7 +230,7 @@ def read_room(
         # state_changed_at — last state transition timestamp
         sca_file = room_dir / "state_changed_at"
         result["state_changed_at"] = (
-            sca_file.read_text().strip() if sca_file.exists() else None
+            sca_file.read_text(**ENCODING_REPLACE).strip() if sca_file.exists() else None
         )
 
         # Role instance files (*_*.json except config.json)
@@ -230,7 +239,7 @@ def read_room(
             if f.name == "config.json":
                 continue
             try:
-                data = json.loads(f.read_text())
+                data = json.loads(f.read_text(**ENCODING_STRICT))
                 if "role" in data and "instance_id" in data:
                     data["filename"] = f.name
                     roles.append(data)
@@ -251,7 +260,7 @@ def read_room(
         audit_file = room_dir / "audit.log"
         if audit_file.exists():
             try:
-                lines = audit_file.read_text().splitlines()
+                lines = audit_file.read_text(**ENCODING_REPLACE).splitlines()
                 if len(lines) > 20:
                     result["audit_tail"] = lines[-20:]
                 else:
@@ -285,7 +294,7 @@ def read_channel(
     # Pre-compile regex for query if provided
     q_re = re.compile(re.escape(query), re.IGNORECASE) if query else None
 
-    for line in channel_file.read_text().splitlines():
+    for line in channel_file.read_text(**ENCODING_REPLACE).splitlines():
         line = line.strip()
         if not line:
             continue

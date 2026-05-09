@@ -33,11 +33,18 @@ from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
 
+
+def _ostwin_home() -> Path:
+    configured = os.environ.get("OSTWIN_HOME")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".ostwin"
+
 # ---------------------------------------------------------------------------
 # sys.path setup for memory module
 # ---------------------------------------------------------------------------
 _MEMORY_PATH_CANDIDATES = [
-    Path.home() / ".ostwin" / ".agents" / "memory",
+    _ostwin_home() / ".agents" / "memory",
     Path(__file__).resolve().parent.parent / "memory",
 ]
 for _p in _MEMORY_PATH_CANDIDATES:
@@ -48,7 +55,7 @@ for _p in _MEMORY_PATH_CANDIDATES:
 # Global memory base directory
 # ---------------------------------------------------------------------------
 MEMORY_BASE_DIR: Path = Path(
-    os.environ.get("OSTWIN_MEMORY_DIR", str(Path.home() / ".ostwin" / "memory"))
+    os.environ.get("OSTWIN_MEMORY_DIR", str(_ostwin_home() / "memory"))
 )
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
 # Extensions can be installed by name (from mcp-catalog.json) or by git URL.
 #
 # MCP config is per-project only: $PROJECT/.agents/mcp/config.json
-# Catalog + builtins come from global ~/.ostwin/mcp/
+# Catalog + builtins come from global $OSTWIN_HOME/.agents/mcp/
 #
 # Usage:
 #   mcp-extension.sh install <name|git-url> [--name NAME] [--branch BRANCH]
@@ -21,17 +21,20 @@ set -euo pipefail
 # ─── Resolve paths ───────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OSTWIN_HOME="${OSTWIN_HOME:-$HOME/.ostwin}"
 
-# Find INSTALL_DIR: prefer ~/.ostwin if it exists, otherwise use SCRIPT_DIR parent
-if [[ -d "$HOME/.ostwin/mcp" ]]; then
-  INSTALL_DIR="$HOME/.ostwin"
+# Find INSTALL_DIR: prefer configured global install, otherwise use SCRIPT_DIR parent
+if [[ -d "$OSTWIN_HOME/.agents/mcp" ]]; then
+  INSTALL_DIR="$OSTWIN_HOME/.agents"
+elif [[ -d "$OSTWIN_HOME/mcp" ]]; then
+  INSTALL_DIR="$OSTWIN_HOME"
 else
   INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
 # Catalog + builtins always come from global install
-CATALOG_FILE="$HOME/.ostwin/.agents/mcp/mcp-catalog.json"
-BUILTIN_FILE="$HOME/.ostwin/.agents/mcp/mcp-builtin.json"
+CATALOG_FILE="$OSTWIN_HOME/.agents/mcp/mcp-catalog.json"
+BUILTIN_FILE="$OSTWIN_HOME/.agents/mcp/mcp-builtin.json"
 # Dev mode fallbacks
 [[ ! -f "$CATALOG_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-catalog.json" ]] && CATALOG_FILE="$SCRIPT_DIR/mcp-catalog.json"
 [[ ! -f "$BUILTIN_FILE" ]] && [[ -f "$SCRIPT_DIR/mcp-builtin.json" ]] && BUILTIN_FILE="$SCRIPT_DIR/mcp-builtin.json"
@@ -40,8 +43,8 @@ BUILTIN_FILE="$HOME/.ostwin/.agents/mcp/mcp-builtin.json"
 MCP_DIR=""
 EXTENSIONS_DIR=""
 EXTENSIONS_FILE=""
-CONFIG_FILE="$HOME/.ostwin/.agents/mcp/config.json"
-PROJECT_DIR=""
+CONFIG_FILE="$OSTWIN_HOME/.agents/mcp/config.json"
+PROJECT_DIR="${PROJECT_DIR:-}"
 
 # Python: use activated venv (ostwin sources activate), fallback to system
 PYTHON="$(command -v python 2>/dev/null || echo python3)"
@@ -80,8 +83,8 @@ apply_project_dir() {
   PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")"
   MCP_DIR="$PROJECT_DIR/.agents/mcp"
   EXTENSIONS_DIR="$MCP_DIR/extensions"
-  EXTENSIONS_FILE="$HOME/.ostwin/mcp/extensions.json"
-  # CONFIG_FILE is global: $HOME/.ostwin/.agents/mcp/config.json
+  EXTENSIONS_FILE="$OSTWIN_HOME/mcp/extensions.json"
+  # CONFIG_FILE is global: $OSTWIN_HOME/.agents/mcp/config.json
 }
 
 ensure_dirs() {
@@ -607,7 +610,7 @@ cmd_sync_quiet() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
 
   # validate_mcp.py lives in the global install, not project-local
-  local mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  local mcp_module_dir="$OSTWIN_HOME/.agents/mcp"
   [[ -f "$mcp_module_dir/validate_mcp.py" ]] || mcp_module_dir="$SCRIPT_DIR"
 
   "$PYTHON" -c "
@@ -658,6 +661,7 @@ import json, os, re
 config_file = '$CONFIG_FILE'
 env_mcp_file = '$env_mcp_file'
 project_dir = '$abs_project_dir'
+ostwin_home = os.environ.get('OSTWIN_HOME') or os.path.join(os.path.expanduser('~'), '.ostwin')
 
 # Resolve {env:AGENT_DIR} and {env:PROJECT_DIR} in config.json
 with open(config_file) as f:
@@ -736,7 +740,7 @@ parent_dir = os.path.dirname(project_dir.rstrip('/'))
 # falls back to the default 'build' agent. Generating agent definitions here
 # avoids the "agent X not found" warning and lets each role have its own model.
 agents = {}
-ostwin_config_path = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'config.json')
+ostwin_config_path = os.path.join(ostwin_home, '.agents', 'config.json')
 if os.path.exists(ostwin_config_path):
     try:
         with open(ostwin_config_path) as f:
@@ -759,9 +763,9 @@ if os.path.exists(ostwin_config_path):
     except (json.JSONDecodeError, OSError):
         pass
 
-# Also pull in roles from ~/.ostwin/.agents/roles/<name>/role.json (covers
+# Also pull in roles from $OSTWIN_HOME/.agents/roles/<name>/role.json (covers
 # dynamically-created roles like database-architect that aren't in config.json)
-roles_dir = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'roles')
+roles_dir = os.path.join(ostwin_home, '.agents', 'roles')
 if os.path.isdir(roles_dir):
     for role_name in os.listdir(roles_dir):
         if role_name.startswith('_') or role_name in agents:
@@ -790,8 +794,8 @@ opencode_config = {
         "external_directory": {
             f"{parent_dir}/*": "allow",
             f"{parent_dir}/**": "allow",
-            f"{os.path.expanduser('~')}/.ostwin/*": "allow",
-            f"{os.path.expanduser('~')}/.ostwin/**": "allow",
+            f"{ostwin_home}/*": "allow",
+            f"{ostwin_home}/**": "allow",
         },
     },
 }
@@ -1103,7 +1107,7 @@ cmd_compile() {
   export _BUILTIN_FILE="$BUILTIN_FILE"
   export _PROJECT_DIR="$project_dir"
   # validate_mcp.py lives in the global install, not project-local
-  local _mcp_module_dir="$HOME/.ostwin/.agents/mcp"
+  local _mcp_module_dir="$OSTWIN_HOME/.agents/mcp"
   [[ -f "$_mcp_module_dir/validate_mcp.py" ]] || _mcp_module_dir="$SCRIPT_DIR"
   export _MCP_MODULE_DIR="$_mcp_module_dir"
 
@@ -1198,6 +1202,7 @@ import json, os, re
 project_dir = '$abs_project_dir'
 config_file = os.path.join(project_dir, '.agents', 'mcp', 'config.json')
 env_mcp_file = '$env_mcp_file'
+ostwin_home = os.environ.get('OSTWIN_HOME') or os.path.join(os.path.expanduser('~'), '.ostwin')
 
 # Load .env.mcp (vault-derived secrets) into a lookup dict
 env_extra = {}
@@ -1283,7 +1288,7 @@ parent_dir = os.path.dirname(project_dir.rstrip('/'))
 
 # Inject opencode agent definitions for every ostwin role.
 agents = {}
-ostwin_config_path = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'config.json')
+ostwin_config_path = os.path.join(ostwin_home, '.agents', 'config.json')
 if os.path.exists(ostwin_config_path):
     try:
         with open(ostwin_config_path) as f:
@@ -1306,7 +1311,7 @@ if os.path.exists(ostwin_config_path):
     except (json.JSONDecodeError, OSError):
         pass
 
-roles_dir = os.path.join(os.path.expanduser('~'), '.ostwin', '.agents', 'roles')
+roles_dir = os.path.join(ostwin_home, '.agents', 'roles')
 if os.path.isdir(roles_dir):
     for role_name in os.listdir(roles_dir):
         if role_name.startswith('_') or role_name in agents:
@@ -1335,8 +1340,8 @@ opencode_config = {
         "external_directory": {
             f"{parent_dir}/*": "allow",
             f"{parent_dir}/**": "allow",
-            f"{os.path.expanduser('~')}/.ostwin/*": "allow",
-            f"{os.path.expanduser('~')}/.ostwin/**": "allow",
+            f"{ostwin_home}/*": "allow",
+            f"{ostwin_home}/**": "allow",
         },
     },
 }
@@ -1423,7 +1428,7 @@ if [[ -z "$PROJECT_DIR" ]]; then
     PROJECT_DIR="$(pwd)"
   else
     # Fallback to a default if not in a project
-    PROJECT_DIR="$HOME/.ostwin"
+    PROJECT_DIR="$OSTWIN_HOME"
   fi
 fi
 apply_project_dir

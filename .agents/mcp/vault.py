@@ -169,7 +169,8 @@ def get_vault() -> VaultStore:
     if sys.platform == "darwin":
         return MacOSKeychainVault()
     
-    vault_path = Path.home() / ".ostwin" / "mcp" / ".vault.enc"
+    ostwin_home = Path(os.environ.get("OSTWIN_HOME", str(Path.home() / ".ostwin"))).expanduser()
+    vault_path = ostwin_home / "mcp" / ".vault.enc"
     return EncryptedFileVault(vault_path)
 
 if __name__ == "__main__":

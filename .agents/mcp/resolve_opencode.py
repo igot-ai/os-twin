@@ -33,6 +33,12 @@ import shutil
 import sys
 
 
+def get_ostwin_home():
+    """Return the configured Ostwin install dir."""
+    home = os.environ.get('HOME') or os.path.expanduser('~')
+    return os.environ.get('OSTWIN_HOME') or os.path.join(home, '.ostwin')
+
+
 # ─── Env file loading ────────────────────────────────────────────────────────
 
 def load_env_file(env_path):
@@ -390,8 +396,7 @@ def sync(config_path, output_path, roles_dir, env_file=None, strict=False,
         servers = config.get('mcp', config.get('mcpServers', {}))
     else:
         # Fallback: load builtin config
-        home = os.environ.get('HOME') or os.path.expanduser('~')
-        builtin_path = os.path.join(home, '.ostwin', '.agents', 'mcp',
+        builtin_path = os.path.join(get_ostwin_home(), '.agents', 'mcp',
                                     'mcp-builtin.json')
         if os.path.isfile(builtin_path):
             with open(builtin_path) as f:
@@ -500,10 +505,11 @@ def _main_sync(argv):
                     'permissions from role.json mcp_refs',
     )
     home = os.environ.get('HOME') or os.path.expanduser('~')
-    default_config = os.path.join(home, '.ostwin', '.agents', 'mcp',
+    ostwin_home = get_ostwin_home()
+    default_config = os.path.join(ostwin_home, '.agents', 'mcp',
                                   'mcp-builtin.json')
     default_output = os.path.join(home, '.config', 'opencode', 'opencode.json')
-    default_roles = os.path.join(home, '.ostwin', '.agents', 'roles')
+    default_roles = os.path.join(ostwin_home, '.agents', 'roles')
 
     parser.add_argument(
         '--config', default=default_config,
@@ -575,4 +581,3 @@ def _main_legacy(argv):
 
 if __name__ == '__main__':
     main()
-

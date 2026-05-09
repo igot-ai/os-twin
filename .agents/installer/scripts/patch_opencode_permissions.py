@@ -15,58 +15,42 @@ import os
 def patch_permissions(config_path: str) -> None:
     # Load existing config or start fresh
     if os.path.isfile(config_path):
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
     else:
         config = {"$schema": "https://opencode.ai/config.json"}
 
-    # Ensure "permission" key exists as a dict
-    read_perm = {
-        "*": "allow",
-        "*.env": "allow",
-        "*.env.*": "allow",
-        "*.env.example": "allow",
-    }
     perm = config.get("permission")
     if perm is None:
-        config["permission"] = {}
-        config["permission"] = read_perm
-    if isinstance(perm, str):
+        perm = {}
+        config["permission"] = perm
+    elif isinstance(perm, str):
         # e.g. "allow" — convert to dict, preserving intent
-        config["permission"] = {"*": perm}
+        config["permission"] = {"read": {"*": perm}}
         perm = config["permission"]
     elif not isinstance(perm, dict):
-        config["permission"] = {}
-        perm = config["permission"]
+        perm = {}
+        config["permission"] = perm
 
     # Ensure "read" sub-key is a dict with .env allowed
-    read_perm = perm.get("read") if isinstance(perm, dict) else None
-    if isinstance(perm, dict):
-        if isinstance(read_perm, str):
-            perm["read"] = {
-                "*": read_perm,
-                "*.env": "allow",
-                "*.env.*": "allow",
-                "*.env.example": "allow",
-            }
-        elif isinstance(read_perm, dict):
-            read_perm.setdefault("*", "allow")
-            read_perm["*.env"] = "allow"
-            read_perm["*.env.*"] = "allow"
-            read_perm["*.env.example"] = "allow"
-        else:
-            perm["read"] = {
-                "*": "allow",
-                "*.env": "allow",
-                "*.env.*": "allow",
-                "*.env.example": "allow",
-            }
+    read_perm = perm.get("read")
+    if isinstance(read_perm, str):
+        perm["read"] = {"*": read_perm}
+        read_perm = perm["read"]
+    elif not isinstance(read_perm, dict):
+        read_perm = {}
+        perm["read"] = read_perm
 
-    with open(config_path, "w") as f:
+    read_perm.setdefault("*", "allow")
+    read_perm["*.env"] = "allow"
+    read_perm["*.env.*"] = "allow"
+    read_perm["*.env.example"] = "allow"
+
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
         f.write("\n")
 
-    print("    Permissions: read *.env → allow")
+    print("    Permissions: read *.env -> allow")
 
 
 if __name__ == "__main__":

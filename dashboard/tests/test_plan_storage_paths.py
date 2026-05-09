@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import dashboard.api_utils as api_utils
+from dashboard.paths import ostwin_path
 
 
 def test_resolve_plans_dir_prefers_project_agents_plans(tmp_path):
@@ -18,7 +19,7 @@ def test_resolve_plans_dir_falls_back_to_global_store_when_project_plans_missing
     agents_dir.mkdir(parents=True)
 
     assert api_utils.resolve_plans_dir(project_root=project_root, agents_dir=agents_dir) == (
-        Path.home() / ".ostwin" / ".agents" / "plans"
+        ostwin_path(".agents", "plans")
     )
 
 

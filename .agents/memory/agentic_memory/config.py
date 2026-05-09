@@ -30,6 +30,13 @@ from typing import List
 _CONFIG_DIR = Path(__file__).resolve().parent.parent
 
 
+def _ostwin_home() -> Path:
+    configured = os.environ.get("OSTWIN_HOME")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".ostwin"
+
+
 @dataclass
 class LLMConfig:
     backend: str = "ollama"
@@ -129,7 +136,7 @@ def _load_system_settings() -> dict:
     Returns a nested dict matching the shape of ``config.default.json`` so it
     can be merged directly into the defaults dict.
     """
-    config_path = Path.home() / ".ostwin" / ".agents" / "config.json"
+    config_path = _ostwin_home() / ".agents" / "config.json"
     if not config_path.exists():
         return {}
     try:

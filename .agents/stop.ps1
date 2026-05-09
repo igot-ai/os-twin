@@ -10,50 +10,89 @@
 #>
 [CmdletBinding()]
 param(
-    [switch]$Force
+    [switch]$Force,
+
+    [string]$Dir
 )
 
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path $PSCommandPath -Parent
-$AgentsDir = $ScriptDir
+$HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+$InstallDir = if ($Dir) {
+    [System.IO.Path]::GetFullPath($Dir)
+}
+elseif ($env:OSTWIN_HOME) {
+    [System.IO.Path]::GetFullPath($env:OSTWIN_HOME)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $ScriptDir ".."))
+}
+$AgentsDir = if (Test-Path (Join-Path $InstallDir ".agents")) {
+    Join-Path $InstallDir ".agents"
+}
+else {
+    $ScriptDir
+}
 $ManagerPidFile = Join-Path $AgentsDir "manager.pid"
-$DashboardPidFile = Join-Path $AgentsDir "dashboard.pid"
+$DashboardPidFiles = @(
+    (Join-Path $InstallDir "dashboard.pid"),
+    (Join-Path $AgentsDir "dashboard.pid")
+) | Select-Object -Unique
+$ChannelPidFiles = @(
+    (Join-Path $InstallDir "channels.pid"),
+    (Join-Path $AgentsDir "channel.pid")
+) | Select-Object -Unique
 $WarroomsDir = if ($env:WARROOMS_DIR) { $env:WARROOMS_DIR } else { Join-Path $AgentsDir "war-rooms" }
 
-# ─── Stop Dashboard ──────────────────────────────────────────────────────────
+# ─── Stop helpers ────────────────────────────────────────────────────────────
+
+function Stop-PidFiles {
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$PidFiles,
+
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+
+    foreach ($pidFile in $PidFiles) {
+        if (-not (Test-Path $pidFile)) { continue }
+
+        $pidValue = (Get-Content $pidFile -Raw).Trim()
+        try {
+            $null = Get-Process -Id $pidValue -ErrorAction Stop
+            Write-Host "[STOP] Stopping $Name (PID $pidValue)..."
+
+            Stop-Process -Id $pidValue -ErrorAction SilentlyContinue
+
+            for ($i = 0; $i -lt 5; $i++) {
+                try { $null = Get-Process -Id $pidValue -ErrorAction Stop; Start-Sleep -Seconds 1 }
+                catch { break }
+            }
+
+            try {
+                $null = Get-Process -Id $pidValue -ErrorAction Stop
+                Write-Host "[STOP] $Name still alive, force-killing..."
+                Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue
+            }
+            catch { }
+
+            Write-Host "[STOP] $Name stopped."
+        }
+        catch {
+            # Process not running
+        }
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+    }
+}
 
 function Stop-Dashboard {
-    if (-not (Test-Path $DashboardPidFile)) { return }
+    Stop-PidFiles -PidFiles $DashboardPidFiles -Name "dashboard"
+}
 
-    $dashPid = (Get-Content $DashboardPidFile -Raw).Trim()
-    try {
-        $proc = Get-Process -Id $dashPid -ErrorAction Stop
-        Write-Host "[STOP] Stopping dashboard (PID $dashPid)..."
-
-        # Graceful stop attempt
-        Stop-Process -Id $dashPid -ErrorAction SilentlyContinue
-
-        # Wait up to 5s for graceful shutdown (tunnel cleanup needs time)
-        for ($i = 0; $i -lt 5; $i++) {
-            try { $null = Get-Process -Id $dashPid -ErrorAction Stop; Start-Sleep -Seconds 1 }
-            catch { break }
-        }
-
-        # Force kill if still alive
-        try {
-            $null = Get-Process -Id $dashPid -ErrorAction Stop
-            Write-Host "[STOP] Dashboard still alive, force-killing..."
-            Stop-Process -Id $dashPid -Force -ErrorAction SilentlyContinue
-        }
-        catch { }
-
-        Write-Host "[STOP] Dashboard stopped."
-    }
-    catch {
-        # Process not running
-    }
-    Remove-Item $DashboardPidFile -Force -ErrorAction SilentlyContinue
+function Stop-Channels {
+    Stop-PidFiles -PidFiles $ChannelPidFiles -Name "channels"
 }
 
 # Register cleanup — always stop dashboard on exit
@@ -63,6 +102,7 @@ try {
     if (-not (Test-Path $ManagerPidFile)) {
         Write-Host "[STOP] No manager running (no PID file)."
         Stop-Dashboard
+        Stop-Channels
         exit 0
     }
 
@@ -80,6 +120,7 @@ try {
         Write-Host "[STOP] Manager PID $managerPid not running. Cleaning up PID file."
         Remove-Item $ManagerPidFile -Force -ErrorAction SilentlyContinue
         Stop-Dashboard
+        Stop-Channels
         exit 0
     }
 
@@ -98,6 +139,7 @@ try {
             Write-Host "[STOP] Manager stopped gracefully."
             Remove-Item $ManagerPidFile -Force -ErrorAction SilentlyContinue
             Stop-Dashboard
+            Stop-Channels
             exit 0
         }
     }
@@ -131,6 +173,7 @@ try {
     }
 }
 finally {
-    # Dashboard is always stopped on exit
+    # Dashboard and channels are always stopped on exit
     Stop-Dashboard
+    Stop-Channels
 }

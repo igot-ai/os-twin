@@ -45,16 +45,18 @@ function Setup-OpenCodePermissions {
     $patchScript = Join-Path $script:OpenCodeScriptsDir "patch_opencode_permissions.py"
     if (Test-Path $patchScript) {
         try {
-            & $pyCmd $patchScript $ocConfig 2>$null
+            $patchOutput = & $pyCmd $patchScript $ocConfig 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Write-Ok "OpenCode permissions patched at $ocConfig"
+                if ($patchOutput) { Write-Info ($patchOutput -join "`n") }
             }
             else {
-                throw "Script returned exit code $LASTEXITCODE"
+                throw "Script returned exit code $LASTEXITCODE`n$($patchOutput -join "`n")"
             }
         }
         catch {
             Write-Warn "Failed to patch OpenCode permissions — agents may not be able to read .env files"
+            Write-Info "$_"
             Write-Info "Manually add to ${ocConfig}:"
             Write-Info '  "permission": { "read": { "*": "allow", "*.env": "allow", "*.env.*": "allow" } }'
         }

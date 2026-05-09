@@ -12,7 +12,8 @@ $script:_SetupEnvPs1Loaded = $true
 function New-OstwinApiKey {
     $randomBytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($randomBytes)
-    return "ostwin_" + [Convert]::ToBase64String($randomBytes).Replace("/", "").Replace("+", "").Replace("=", "").Substring(0, 32)
+    $hex = ($randomBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+    return "ostwin_" + $hex.Substring(0, 32)
 }
 
 function Setup-Env {
@@ -26,7 +27,7 @@ function Setup-Env {
 
         $apiKey = $null
         foreach ($line in (Get-Content -Path $envFile -Encoding UTF8)) {
-            if ($line -match '^OSTWIN_API_KEY=(.+)$') {
+            if ($line -match '^\s*OSTWIN_API_KEY\s*=\s*(.+?)\s*$') {
                 $apiKey = $Matches[1].Trim()
                 break
             }
@@ -41,6 +42,7 @@ function Setup-Env {
 
         $env:OSTWIN_API_KEY = $apiKey
         $script:OstwinApiKey = $apiKey
+        Create-EnvPs1Hook
         return
     }
 

@@ -1,5 +1,20 @@
 import os
 import sys
+
+# ── Fix Windows console encoding for Unicode output ──
+# Guard against None or non-standard streams (test runners, service hosts)
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 import asyncio
 import time
 import json
@@ -17,15 +32,21 @@ from fastapi.staticfiles import StaticFiles
 # NOTE: This is a one-time bootstrap load.  For live hot-reload when the
 # .env file is edited at runtime, see dashboard/env_watcher.py which is
 # started as an async task in startup_all().
-_env_file = Path.home() / ".ostwin" / ".env"
+_ostwin_home = Path(os.environ.get("OSTWIN_HOME") or Path.home() / ".ostwin").expanduser()
+_env_file = _ostwin_home / ".env"
+
+# When OSTWIN_HOME is explicitly set, treat .env as the active install config
+# and override any stale shell-level values. Otherwise, respect existing env.
+_should_override = "OSTWIN_HOME" in os.environ
+
 if _env_file.is_file():
     try:
         from dotenv import load_dotenv
 
-        load_dotenv(_env_file, override=False)
+        load_dotenv(_env_file, override=_should_override)
     except ImportError:
-        # Manual fallback — only set vars not already in the environment
-        with _env_file.open() as _f:
+        # Manual fallback
+        with _env_file.open(encoding="utf-8") as _f:
             for _line in _f:
                 _line = _line.strip()
                 if not _line or _line.startswith("#"):
@@ -34,7 +55,7 @@ if _env_file.is_file():
                     _k, _, _v = _line.partition("=")
                     _k = _k.strip()
                     _v = _v.strip().strip("\"'")
-                    if _k and _k not in os.environ:
+                    if _k and (_should_override or _k not in os.environ):
                         os.environ[_k] = _v
 
 # Add the project root and dashboard dir to sys.path
@@ -66,7 +87,7 @@ from dashboard.routes import (
 # Configure logging — file + console
 # All dashboard logs are written to ~/.ostwin/dashboard/debug.log (DEBUG level)
 # Console output stays at INFO to keep the terminal clean.
-_log_dir = Path.home() / ".ostwin" / "dashboard"
+_log_dir = _ostwin_home / "dashboard"
 _log_dir.mkdir(parents=True, exist_ok=True)
 _log_file = _log_dir / "debug.log"
 

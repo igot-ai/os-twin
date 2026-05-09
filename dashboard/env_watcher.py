@@ -1,5 +1,5 @@
 """
-env_watcher — hot-reload ~/.ostwin/.env into os.environ without restart.
+env_watcher — hot-reload OSTWIN_HOME/.env into os.environ without restart.
 
 Two public entry-points:
 
@@ -26,9 +26,11 @@ import os
 from pathlib import Path
 from typing import Dict, Optional, Set
 
+from dashboard.paths import ostwin_path
+
 logger = logging.getLogger(__name__)
 
-_ENV_FILE = Path.home() / ".ostwin" / ".env"
+_ENV_FILE = ostwin_path(".env")
 _POLL_INTERVAL = 3  # seconds
 
 # Keys we previously loaded from .env — lets us detect removals.

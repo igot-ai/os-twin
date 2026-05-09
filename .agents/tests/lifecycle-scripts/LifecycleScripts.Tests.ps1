@@ -358,48 +358,78 @@ Describe "bin/memory.ps1" {
     }
 }
 
-# ─── ostwin.ps1 dispatcher ──────────────────────────────────────────────────
+# ─── ostwin dispatcher ──────────────────────────────────────────────────────
 
-Describe "ostwin.ps1 — dispatch to .ps1 scripts" {
+Describe "ostwin dispatcher — dispatch to .ps1 scripts" {
+    BeforeAll {
+        $script:OstwinDispatcher = Join-Path $AgentsDir "bin" "ostwin"
+        if (-not (Test-Path $script:OstwinDispatcher)) {
+            $script:OstwinDispatcher = Join-Path $AgentsDir "bin" "ostwin.ps1"
+        }
+    }
+
     It "Should prefer init.ps1 over init.sh when dispatching 'init'" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'initPs1 = Join-Path.*"init\.ps1"'
         $content | Should -Match 'Test-Path \$initPs1'
     }
 
     It "Should prefer sync.ps1 over sync.sh when dispatching 'sync'" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'syncPs1 = Join-Path.*"sync\.ps1"'
     }
 
     It "Should prefer health.ps1 over health.sh when dispatching 'health'" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'healthPs1 = Join-Path.*"health\.ps1"'
     }
 
     It "Should prefer config.ps1 over config.sh when dispatching 'config'" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'configPs1 = Join-Path.*"config\.ps1"'
     }
 
     It "Should prefer logs.ps1 over logs.sh when dispatching 'logs'" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'logsPs1 = Join-Path.*"logs\.ps1"'
     }
 
     It "Should prefer dashboard.ps1 over dashboard.sh when dispatching 'dashboard'" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'dashPs1 = Join-Path.*"dashboard\.ps1"'
     }
 
     It "Should prefer sync-skills.ps1 for skills sync" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'sync-skills\.ps1'
     }
 
     It "Should prefer clawhub-install.ps1 for skills install/search/update/remove" {
-        $content = Get-Content (Join-Path $AgentsDir "bin" "ostwin.ps1") -Raw
+        $content = Get-Content $script:OstwinDispatcher -Raw
         $content | Should -Match 'clawhub-install\.ps1'
+    }
+
+    It "Should bootstrap MCP bash commands with explicit env exports" {
+        $content = Get-Content $script:OstwinDispatcher -Raw
+        $content | Should -Match 'function Invoke-BashScript'
+        $content | Should -Match 'export OSTWIN_HOME='
+        $content | Should -Match 'export AGENT_DIR='
+        $content | Should -Match 'export PROJECT_DIR='
+    }
+
+    It "Should convert path-valued bash arguments on Windows" {
+        $content = Get-Content $script:OstwinDispatcher -Raw
+        $content | Should -Match 'function ConvertTo-BashScriptArgs'
+        $content | Should -Match '--project-dir'
+        $content | Should -Match '--working-dir'
+        $content | Should -Match 'ConvertTo-BashPath'
+    }
+
+    It "Should require pwsh instead of falling back to Windows PowerShell 5.1" {
+        $cmdContent = Get-Content (Join-Path $AgentsDir "bin" "ostwin.cmd") -Raw
+        $cmdContent | Should -Match 'where pwsh'
+        $cmdContent | Should -Not -Match 'where powershell'
+        $cmdContent | Should -Match 'PowerShell 7\+'
     }
 }
 

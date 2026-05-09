@@ -64,6 +64,14 @@ function Install-Files {
             }
     }
 
+    # Seed framework config on first install. Do not overwrite an existing
+    # installed config because users may customize manager/runtime defaults.
+    $srcAgentConfig = Join-Path $script:ScriptDir "config.json"
+    $dstAgentConfig = Join-Path $agentsDir "config.json"
+    if ((Test-Path $srcAgentConfig) -and -not (Test-Path $dstAgentConfig)) {
+        Copy-Item -Path $srcAgentConfig -Destination $dstAgentConfig
+    }
+
     # Seed plans/ on first install — never overwrite
     $plansDir = Join-Path $agentsDir "plans"
     if (-not (Test-Path $plansDir)) {
@@ -202,7 +210,12 @@ function Setup-McpSymlink {
             $currentTarget = $item.Target
             if ($currentTarget -ne $mcpReal) {
                 Remove-Item $mcpLink -Force
-                New-Item -ItemType SymbolicLink -Path $mcpLink -Target $mcpReal -Force | Out-Null
+                try {
+                    New-Item -ItemType SymbolicLink -Path $mcpLink -Target $mcpReal -Force -ErrorAction Stop | Out-Null
+                }
+                catch {
+                    & cmd.exe /c "mklink /J `"$mcpLink`" `"$mcpReal`"" 2>$null | Out-Null
+                }
             }
         }
         elseif ($item.PSIsContainer) {
@@ -216,7 +229,7 @@ function Setup-McpSymlink {
             }
             Remove-Item $mcpLink -Recurse -Force
             try {
-                New-Item -ItemType SymbolicLink -Path $mcpLink -Target $mcpReal -Force | Out-Null
+                New-Item -ItemType SymbolicLink -Path $mcpLink -Target $mcpReal -Force -ErrorAction Stop | Out-Null
                 Write-Ok "Migrated $mcpLink -> .agents\mcp (symlink)"
             }
             catch {
@@ -229,7 +242,7 @@ function Setup-McpSymlink {
     else {
         if (Test-Path $mcpReal) {
             try {
-                New-Item -ItemType SymbolicLink -Path $mcpLink -Target $mcpReal -Force | Out-Null
+                New-Item -ItemType SymbolicLink -Path $mcpLink -Target $mcpReal -Force -ErrorAction Stop | Out-Null
             }
             catch {
                 # Fallback to junction (doesn't require Developer Mode)
