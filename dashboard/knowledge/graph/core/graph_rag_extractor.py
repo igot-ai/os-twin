@@ -182,30 +182,39 @@ class GraphRAGExtractor(TransformComponent):
     # -- Async pipeline (kept for callers that prefer async) ------------
 
     async def acall(self, nodes: List[BaseNode], show_progress: bool = False, **kwargs: Any) -> List[BaseNode]:
-        """Async extraction — delegates to sync ``_extract_single_sync`` via ThreadPoolExecutor."""
+        """Async extraction — runs ``_extract_single_sync`` concurrently.
+
+        Uses ``asyncio.to_thread`` to offload the blocking sync work and
+        ``run_jobs`` to bound concurrency to ``self.num_workers``. Each
+        ``_extract_single_sync`` call already has its own retry logic with
+        linear back-off, so no extra retry layer is needed here.
+
+        NOTE: We deliberately do NOT wrap this in a ThreadPoolExecutor.
+        ``run_jobs`` already manages its own internal pool sized by
+        ``workers``. A second ThreadPoolExecutor + ``run_in_executor``
+        creates double-scheduling: the ``with`` block can close the pool
+        while ``run_jobs`` still holds pending futures, causing
+        ``CancelledError`` or "cannot schedule new futures after shutdown".
+        """
         if not nodes:
             return []
         logger.info("Starting async graph extraction for %d nodes", len(nodes))
         self.metrics = ExtractionMetrics()
 
-        loop = asyncio.get_running_loop()
-        import concurrent.futures
+        async def _process_node(node: BaseNode) -> BaseNode:
+            try:
+                return await asyncio.to_thread(self._extract_single_sync, node)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Async extraction failed for node %s: %s", node.id_, exc)
+                return self._create_empty_extraction_result(node, str(exc))
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_workers) as pool:
-            async def _process_node(node: BaseNode) -> BaseNode:
-                try:
-                    return await loop.run_in_executor(pool, self._extract_single_sync, node)
-                except Exception as exc:  # noqa: BLE001
-                    logger.error("Async extraction failed for node %s: %s", node.id_, exc)
-                    return self._create_empty_extraction_result(node, str(exc))
-
-            jobs = [_process_node(node) for node in nodes]
-            results = await run_jobs(
-                jobs,
-                show_progress=show_progress,
-                workers=self.num_workers,
-            )
-            return list(results)
+        jobs = [_process_node(node) for node in nodes]
+        results = await run_jobs(
+            jobs,
+            show_progress=show_progress,
+            workers=self.num_workers,
+        )
+        return list(results)
 
     # -- Result builders ------------------------------------------------
 

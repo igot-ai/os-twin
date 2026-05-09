@@ -234,6 +234,15 @@ class KnowledgeService:
 
         Effective model resolution (ADR-15): ``MasterSettings.knowledge.embedding_model``
         > ``OSTWIN_KNOWLEDGE_EMBED_MODEL`` env var > hardcoded ``EMBEDDING_MODEL``.
+
+        Provider resolution: ``MasterSettings.knowledge.embedding_backend``
+        > ``OSTWIN_KNOWLEDGE_EMBED_PROVIDER`` env var > ``EMBEDDING_PROVIDER``
+        (default: ``sentence-transformers`` — works offline with no server).
+
+        When provider is ``ollama`` but the server is unreachable, the
+        embedder will return empty vectors and log errors. Users who want
+        a true offline fallback should set
+        ``OSTWIN_KNOWLEDGE_EMBED_PROVIDER=sentence-transformers`` explicitly.
         """
         # Test/programmatic injection takes priority — mirrors the pattern used
         # for _jm_override and _ingestor_override.
@@ -242,8 +251,11 @@ class KnowledgeService:
         if self._embedder is not None:
             return self._embedder
         settings_llm, settings_embed = self._resolve_settings_overrides()
-        effective_model = settings_embed or _DEFAULT_EMBED
-        effective_provider = _DEFAULT_EMBED_PROV
+        effective_model = settings_embed or _DEFAULT_EMBED or None
+        # Let KnowledgeEmbedder resolve the provider from MasterSettings /
+        # env vars / config defaults — don't hardcode it here. Passing
+        # None lets the embedder fall through its own resolution chain.
+        effective_provider = None
         self._embedder = KnowledgeEmbedder(
             model_name=effective_model,
             provider=effective_provider,

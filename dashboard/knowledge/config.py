@@ -39,7 +39,7 @@ LLM_MODEL: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_MODEL", "llama3.2")
 # Valid values mirror MemorySettings: "ollama", "openai-compatible", etc.
 LLM_PROVIDER: str = os.environ.get("OSTWIN_KNOWLEDGE_LLM_PROVIDER", "ollama")
 EMBEDDING_PROVIDER: str = os.environ.get(
-    "OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "ollama"
+    "OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "sentence-transformers"
 )
 
 # --- Retrieval / graph tunables --------------------------------------------

@@ -858,6 +858,12 @@ class OllamaEmbeddingClient(EmbeddingClient):
 
     No litellm dependency.  Output is truncated to the configured dimension
     (default: 1024) for cross-backend consistency.
+
+    When the Ollama server is unreachable (connection refused, timeout),
+    the client falls back to ``SentenceTransformersEmbeddingClient`` with
+    ``all-MiniLM-L6-v2`` so the knowledge pipeline doesn't hard-fail on
+    an offline machine.  The fallback is tried once and cached; subsequent
+    calls reuse the local model.
     """
 
     def __init__(
@@ -868,6 +874,30 @@ class OllamaEmbeddingClient(EmbeddingClient):
     ):
         super().__init__(model, dimension)
         self._base_url = base_url  # None → ollama default (localhost:11434)
+        self._fallback: Any = None
+        self._fallback_attempted = False
+
+    def _try_fallback(self) -> Any:
+        """Return a cached sentence-transformers fallback, or None if already tried."""
+        if self._fallback_attempted:
+            return self._fallback
+        self._fallback_attempted = True
+        try:
+            self._fallback = SentenceTransformersEmbeddingClient(
+                model="all-MiniLM-L6-v2",
+                dimension=self._dimension,
+            )
+            logger.info(
+                "Ollama unavailable; falling back to sentence-transformers "
+                "(all-MiniLM-L6-v2) for embedding. Set "
+                "OSTWIN_KNOWLEDGE_EMBED_PROVIDER=sentence-transformers to "
+                "suppress this fallback."
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Ollama fallback to sentence-transformers also failed: %s", exc
+            )
+        return self._fallback
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         import ollama as _ollama  # noqa: WPS433
@@ -882,6 +912,13 @@ class OllamaEmbeddingClient(EmbeddingClient):
             result = response["embeddings"]
         except Exception as exc:
             logger.error("Ollama embedding failed: %s", exc)
+            # Try sentence-transformers fallback before returning empty
+            fb = self._try_fallback()
+            if fb is not None:
+                try:
+                    return fb.embed(texts)
+                except Exception as fb_exc:  # noqa: BLE001
+                    logger.error("Sentence-transformers fallback also failed: %s", fb_exc)
             return [[] for _ in texts]
 
         target_dim = self._dimension or DEFAULT_EMBEDDING_DIMENSION

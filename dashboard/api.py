@@ -1,5 +1,19 @@
 import os
 import sys
+import multiprocessing
+
+# ── macOS fork safety — MUST run before ANY C extension loads ──
+# Without this, Python's default `fork` start method triggers
+# "MallocStackLogging: can't turn off malloc stack logging" on macOS
+# when multiprocessing spawns child processes after tokenizers/PyTorch
+# have initialised background threads (common during graph extraction).
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+try:
+    multiprocessing.set_start_method("spawn", force=True)
+except RuntimeError:
+    pass  # Already set by another module
+
 import asyncio
 import time
 import json

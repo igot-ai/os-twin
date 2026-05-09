@@ -28,12 +28,14 @@ from __future__ import annotations
 import os
 import multiprocessing
 
-# Address macOS fork safety and multiprocessing issues early
-os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# macOS fork safety — redundancy guard in case this module is imported
+# before api.py (e.g. in tests or standalone scripts). The canonical
+# guard lives in dashboard/api.py at import-line 1.
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 try:
-    multiprocessing.set_start_method('spawn', force=True)
-except Exception:
+    multiprocessing.set_start_method("spawn", force=True)
+except RuntimeError:
     pass
 
 from dashboard.knowledge.config import (
