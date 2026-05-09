@@ -328,9 +328,9 @@ class KnowledgeSettings(BaseModel):
     settings namespace and avoid field-name collisions across namespaces.
 
     Empty strings mean "no override; use the env-var / hardcoded default".
-    ``knowledge_embedding_dimension`` is informational and read-only on the
-    frontend (the actual dim is determined by the embedding model that gets
-    loaded).
+    ``knowledge_embedding_dimension`` is read-only — fixed at startup from
+    ``OSTWIN_EMBEDDING_DIM`` env var.  Changing it dynamically would cause
+    dimension conflicts between memory and knowledge vector collections.
     """
 
     # -- LLM --
@@ -339,23 +339,12 @@ class KnowledgeSettings(BaseModel):
     # -- Embedding --
     knowledge_embedding_backend: str = ""       # empty = use config.EMBEDDING_PROVIDER
     knowledge_embedding_model: str = ""         # empty = use config.EMBEDDING_MODEL
-    knowledge_embedding_dimension: int = 768    # read-only / informational — always 768
+    knowledge_embedding_dimension: int = 1024    # read-only: reflects OSTWIN_EMBEDDING_DIM
 
-
-class AISettings(BaseModel):
-    """AI gateway settings — per-purpose model overrides.
-
-    Read by ``dashboard/ai/config.py``.  Empty strings mean "use the
-    provider's default model".
-    """
-
-    completion_model: str = ""
-    knowledge_model: str = ""
-    memory_model: str = ""
-    cloud_embedding_model: str = ""
-    local_embedding_model: str = ""
-    timeout_seconds: int = 120
-    max_retries: int = 2
+    def model_post_init(self, __context) -> None:
+        """Override embedding dimension with the fixed env-var value."""
+        from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION
+        self.knowledge_embedding_dimension = DEFAULT_EMBEDDING_DIMENSION
 
 
 class MasterSettings(BaseModel):
@@ -367,7 +356,6 @@ class MasterSettings(BaseModel):
     autonomy: AutonomySettings = Field(default_factory=AutonomySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     knowledge: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
-    ai: AISettings = Field(default_factory=AISettings)
 
 
 class EffectiveResolution(BaseModel):

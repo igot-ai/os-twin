@@ -334,8 +334,9 @@ def _init_memory(cfg=None):
             cfg.vector.backend,
         )
         with _memory_lock:
-            # LLM/embedding calls go through dashboard.ai gateway —
-            # no llm_backend/llm_model params needed.
+            # LLM calls go through MemoryLLM → BaseLLMWrapper — auto-resolves
+            # model/provider from MasterSettings. No explicit llm_backend/llm_model
+            # params needed here.
             _memory = AgenticMemorySystem(
                 model_name=cfg.embedding.model,
                 embedding_backend=cfg.embedding.backend,

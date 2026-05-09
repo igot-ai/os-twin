@@ -147,8 +147,9 @@ class MemoryPool:
         cfg = load_config()
         from agentic_memory.memory_system import AgenticMemorySystem
 
-        # LLM/embedding config is handled by dashboard.ai gateway —
-        # no llm_backend/llm_model params needed here.
+        # LLM calls go through MemoryLLM → BaseLLMWrapper — auto-resolves
+        # model/provider from MasterSettings. No explicit llm_backend/llm_model
+        # params needed here.
         return AgenticMemorySystem(
             model_name=cfg.embedding.model,
             embedding_backend=cfg.embedding.backend,

@@ -14,7 +14,6 @@ const NAMESPACE_ITEMS: { id: SettingsNamespace; icon: string; label: string }[] 
   { id: 'memory',        icon: 'storage',              label: 'Memory' },
   { id: 'knowledge',     icon: 'school',               label: 'Knowledge' },
   { id: 'channels',      icon: 'hub',                  label: 'Channels' },
-  { id: 'ai-monitor',    icon: 'monitoring',           label: 'AI Monitor' },
 ];
 
 export function SettingsSidebar({

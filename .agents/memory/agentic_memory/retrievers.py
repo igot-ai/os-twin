@@ -3,11 +3,10 @@
 Provides ChromaDB and Zvec retriever implementations with pluggable
 embedding functions.
 
-Embedding is handled via an injected ``embed_fn`` callable that routes
-through the centralized AI gateway (``dashboard.ai.get_embedding``).
-The legacy embedding classes (SentenceTransformer, Gemini, Ollama, Vertex)
-are no longer used — all AI calls go through the gateway for monitoring
-and configurability.
+Embedding is handled via an injected ``embed_fn`` callable or, when
+no function is injected, via KnowledgeEmbedder which supports multiple
+backends (sentence-transformer, gemini, ollama, vertex).
+The legacy per-class embedding logic has been consolidated.
 
 Memory-management design:
 - Heavy ML imports (nltk, sklearn) are lazy-loaded on first use (F11).
@@ -317,8 +316,8 @@ class ZvecRetriever:
         self._zvec = _zvec
         self._model_name = model_name
         self._embedding_backend = embedding_backend
-        # If an external embed_fn is injected (e.g. from dashboard.ai gateway),
-        # use it directly and skip the 4 embedding classes.
+        # If an external embed_fn is injected (e.g. from memory_system),
+        # use it directly and skip the internal embedding classes.
         self._embedding_function: Optional[Any] = embed_fn
 
         self.persist_dir = persist_dir

@@ -30,14 +30,16 @@ from dashboard.knowledge.llm import KnowledgeLLM
 # ---------------------------------------------------------------------------
 
 
-def _make_fake_embedder(*, dim: int = 768, should_fail: bool = False):
+def _make_fake_embedder(*, dim: int = 1024, should_fail: bool = False):
     """Return a mocked KnowledgeEmbedder with controllable behaviour."""
     embedder = mock.MagicMock(spec=KnowledgeEmbedder)
     embedder.dimension.return_value = dim
     embedder.model_name = "test-model"
     if should_fail:
+        embedder.embed.side_effect = RuntimeError("embedder offline")
         embedder.embed_one.side_effect = RuntimeError("embedder offline")
     else:
+        embedder.embed.return_value = [[0.1] * dim] * 10
         embedder.embed_one.return_value = [0.1] * dim
     return embedder
 
@@ -90,7 +92,7 @@ class TestEmptyExtractionEmbedding:
         assert result.metadata["extraction_status"] == "failed"
         # Embedding generated
         assert result.embedding is not None
-        assert len(result.embedding) == 768
+        assert len(result.embedding) == 1024
         embedder.embed_one.assert_called_once_with("hello world")
 
     def test_empty_extraction_preserves_existing_embedding(self):
@@ -100,13 +102,13 @@ class TestEmptyExtractionEmbedding:
         embedder = _make_fake_embedder()
         extractor = self._make_extractor(embedder=embedder)
 
-        existing_embedding = [0.5] * 768
+        existing_embedding = [0.5] * 1024
         node = TextNode(text="hello", id_="chunk-002")
         node.embedding = existing_embedding
 
         result = extractor._create_empty_extraction_result(node, "llm_crash")
 
-        assert result.embedding is existing_embedding
+        assert result.embedding == existing_embedding
         embedder.embed_one.assert_not_called()
 
     def test_empty_extraction_handles_embedder_failure(self):
@@ -188,11 +190,11 @@ class TestExtractionResultEmbedding:
         node = TextNode(text="Alice works with Bob at Acme Corp.", id_="chunk-010")
 
         # Run the full single-node extraction
-        result = asyncio.run(extractor._aextract_single(node))
+        result = extractor._extract_single_sync(node)
 
         # ChunkNode should have an embedding
         assert result.embedding is not None
-        assert len(result.embedding) == 768
+        assert len(result.embedding) == 1024
 
     def test_successful_extraction_entities_have_embeddings(self):
         """EntityNodes get embeddings during successful extraction."""
@@ -208,14 +210,14 @@ class TestExtractionResultEmbedding:
         extractor = self._make_extractor(embedder=embedder, llm=llm)
 
         node = TextNode(text="Alice works at Acme.", id_="chunk-011")
-        result = asyncio.run(extractor._aextract_single(node))
+        result = extractor._extract_single_sync(node)
 
         # Entity nodes should have embeddings
         entity_nodes = result.metadata[KG_NODES_KEY]
         assert len(entity_nodes) >= 1
         for entity in entity_nodes:
             assert entity.embedding is not None
-            assert len(entity.embedding) == 768
+            assert len(entity.embedding) == 1024
 
 
 # ===========================================================================
@@ -259,7 +261,7 @@ class TestExtractorCallEmbeddingGuarantee:
         assert result[0].metadata[KG_RELATIONS_KEY] == []
         # The node MUST have an embedding despite extraction failure
         assert result[0].embedding is not None
-        assert len(result[0].embedding) == 768
+        assert len(result[0].embedding) == 1024
 
     def test_acall_with_llm_crash_still_embeds_node(self):
         """acall with LLM crash → node has embedding despite extraction failure."""
@@ -327,13 +329,10 @@ class TestKuzuDBNullEmbeddingGuard:
             embedding=None,  # No embedding
         )
 
-        # Create a real-ish instance with mocked internals
         with mock.patch.object(
-            KuzuLabelledPropertyGraph, "__init__", lambda self, **kw: None
+            KuzuLabelledPropertyGraph, "_database", lambda self: None
         ):
-            graph = KuzuLabelledPropertyGraph()
-            graph.index = "test-index"
-            graph.ws_id = "ws-001"
+            graph = KuzuLabelledPropertyGraph(index="test-index", ws_id="ws-001")
 
             # Mock the connection property
             mock_conn = mock.MagicMock()
@@ -373,15 +372,13 @@ class TestKuzuDBNullEmbeddingGuard:
             name="TestEntity",
             label="Person",
             properties={"entity_description": "A test entity"},
-            embedding=[0.1] * 768,  # Has embedding
+            embedding=[0.1] * 1024,  # Has embedding
         )
 
         with mock.patch.object(
-            KuzuLabelledPropertyGraph, "__init__", lambda self, **kw: None
+            KuzuLabelledPropertyGraph, "_database", lambda self: None
         ):
-            graph = KuzuLabelledPropertyGraph()
-            graph.index = "test-index"
-            graph.ws_id = "ws-001"
+            graph = KuzuLabelledPropertyGraph(index="test-index", ws_id="ws-001")
 
             mock_conn = mock.MagicMock()
             mock_result = mock.MagicMock()
@@ -548,7 +545,7 @@ class TestQueryEngineModesNoRegression:
         engine = self._make_engine()
         engine.kg.get_all_nodes.side_effect = RuntimeError("model offline")
 
-        result = engine.query("test query")
+        result = engine.query("test query", mode="raw")
 
         assert result.chunks == []
         assert any("vector_search_failed" in w for w in result.warnings)
@@ -639,7 +636,7 @@ class TestExtractorMetrics:
         extractor(nodes)
 
         metrics = extractor.get_metrics()
-        assert metrics.failed >= 1
+        assert metrics.failed_extractions >= 1
 
     def test_metrics_increment_on_success(self):
         """ExtractionMetrics tracks successful extractions."""
@@ -664,4 +661,4 @@ class TestExtractorMetrics:
         extractor(nodes)
 
         metrics = extractor.get_metrics()
-        assert metrics.succeeded >= 1
+        assert metrics.successful_extractions >= 1

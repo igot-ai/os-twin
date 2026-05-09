@@ -275,7 +275,7 @@ class TestGraphRAGExtractorContract:
 
         # Mock embedder
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768, [0.2] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024, [0.2] * 1024]
 
         extractor = GraphRAGExtractor(
             llm=fake_llm,
@@ -378,7 +378,7 @@ class TestGraphRAGExtractorContract:
         fake_llm.extract_entities.side_effect = _extract
 
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024]
 
         extractor = GraphRAGExtractor(
             llm=fake_llm, embedder=fake_embedder, num_workers=1,
@@ -749,14 +749,14 @@ class TestGraphRAGExtractorDeep:
             [],
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.5] * 768]
+        fake_embedder.embed.return_value = [[0.5] * 1024]
 
         extractor = self._make_extractor(fake_llm, fake_embedder)
         result = extractor([TextNode(text="Alice is here.")])
         node = result[0]
         entities = node.metadata[KG_NODES_KEY]
         assert len(entities) == 1
-        assert len(entities[0].embedding) == 768
+        assert len(entities[0].embedding) == 1024
 
     def test_entity_properties_propagated(self) -> None:
         """entity_description and node_id are set in EntityNode.properties."""
@@ -771,7 +771,7 @@ class TestGraphRAGExtractorDeep:
             [],
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024]
 
         node = TextNode(text="Bob is a developer.")
         extractor = self._make_extractor(fake_llm, fake_embedder)
@@ -796,7 +796,7 @@ class TestGraphRAGExtractorDeep:
             [{"source": "Alice", "target": "Acme", "relation": "works_at", "description": "Alice works at Acme"}],
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768, [0.2] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024, [0.2] * 1024]
 
         node = TextNode(text="Alice works at Acme.")
         extractor = self._make_extractor(fake_llm, fake_embedder)
@@ -818,7 +818,7 @@ class TestGraphRAGExtractorDeep:
             [],
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024]
 
         extractor = self._make_extractor(fake_llm, fake_embedder)
         result = extractor([TextNode(text="Python is a language.")])
@@ -838,7 +838,7 @@ class TestGraphRAGExtractorDeep:
             [],
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024]
 
         extractor = self._make_extractor(fake_llm, fake_embedder)
         result = extractor([TextNode(text="Carol is a researcher.")])
@@ -860,13 +860,13 @@ class TestGraphRAGExtractorDeep:
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
         fake_embedder.embed.side_effect = RuntimeError("batch embed failed")
-        fake_embedder.embed_one.return_value = [0.3] * 768
+        fake_embedder.embed_one.return_value = [0.3] * 1024
 
         extractor = self._make_extractor(fake_llm, fake_embedder)
         result = extractor([TextNode(text="Dave is here.")])
         entities = result[0].metadata[KG_NODES_KEY]
         assert len(entities) == 1
-        assert entities[0].embedding == [0.3] * 768
+        assert entities[0].embedding == [0.3] * 1024
         fake_embedder.embed_one.assert_called_once()
 
     def test_extractor_domain_prompt_passed_to_llm(self) -> None:
@@ -936,7 +936,7 @@ class TestGraphRAGExtractorDeep:
             [{"source": "EntityA", "target": "EntityB", "relation": "connects", "description": ""}],
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768, [0.2] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024, [0.2] * 1024]
 
         from dashboard.knowledge.graph.core.graph_rag_extractor import (
             ExtractionConfig,
@@ -975,7 +975,7 @@ class TestGraphRAGExtractorDeep:
         fake_llm = mock.MagicMock(spec=KnowledgeLLM)
         fake_llm.extract_entities.side_effect = side_effect
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024]
 
         extractor = GraphRAGExtractor(
             llm=fake_llm, embedder=fake_embedder, num_workers=1,
@@ -1004,7 +1004,7 @@ class TestGraphRAGExtractorDeep:
             [{"name": "X", "type": "T", "description": ""}], []
         )
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.embed.return_value = [[0.1] * 768]
+        fake_embedder.embed.return_value = [[0.1] * 1024]
 
         extractor = GraphRAGExtractor(
             llm=fake_llm, embedder=fake_embedder, num_workers=4,
@@ -1263,7 +1263,7 @@ class TestServiceGraphIntegration:
 
         nm = NamespaceManager(base_dir=str(tmp_path))
         fake_embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-        fake_embedder.dimension.return_value = 768
+        fake_embedder.dimension.return_value = 1024
         fake_llm = mock.MagicMock(spec=KnowledgeLLM)
         return KnowledgeService(
             namespace_manager=nm,
@@ -1445,7 +1445,7 @@ def kuzu_graph(tmp_path):
     kg.close_connection()
 
 
-def _make_entity(name: str, label: str = "Person", dim: int = 768) -> "EntityNode":
+def _make_entity(name: str, label: str = "Person", dim: int = 1024) -> "EntityNode":
     """Helper: build an EntityNode with a deterministic unit embedding."""
     from llama_index.core.graph_stores.types import EntityNode
     import hashlib
@@ -1881,8 +1881,8 @@ class TestGraphRAGEngineWiring:
         # graph data the PropertyGraphIndex may or may not construct successfully
         # depending on llama-index internals. The key assertion is no crash.
         fake_embedder = mock.MagicMock()
-        fake_embedder.dimension.return_value = 768
-        fake_embedder.embed_one.return_value = [0.0] * 768
+        fake_embedder.dimension.return_value = 1024
+        fake_embedder.embed_one.return_value = [0.0] * 1024
         fake_embedder.model_name = "test-model"
 
         svc = _make_service(kb_dir, fake_embedder, no_llm)
@@ -1895,8 +1895,8 @@ class TestGraphRAGEngineWiring:
     def test_graph_rag_engine_cached(self, kb_dir, no_llm) -> None:
         """_get_graph_rag_engine returns the same instance on repeat calls."""
         fake_embedder = mock.MagicMock()
-        fake_embedder.dimension.return_value = 768
-        fake_embedder.embed_one.return_value = [0.0] * 768
+        fake_embedder.dimension.return_value = 1024
+        fake_embedder.embed_one.return_value = [0.0] * 1024
         fake_embedder.model_name = "test-model"
 
         svc = _make_service(kb_dir, fake_embedder, no_llm)
@@ -1912,8 +1912,8 @@ class TestGraphRAGEngineWiring:
     def test_invalidate_clears_graph_engines(self, kb_dir, no_llm) -> None:
         """invalidate_model_cache clears the graph engine cache."""
         fake_embedder = mock.MagicMock()
-        fake_embedder.dimension.return_value = 768
-        fake_embedder.embed_one.return_value = [0.0] * 768
+        fake_embedder.dimension.return_value = 1024
+        fake_embedder.embed_one.return_value = [0.0] * 1024
         fake_embedder.model_name = "test-model"
 
         svc = _make_service(kb_dir, fake_embedder, no_llm)
@@ -1930,8 +1930,8 @@ class TestGraphRAGEngineWiring:
     def test_evict_namespace_clears_graph_engine(self, kb_dir, no_llm) -> None:
         """_evict_namespace_caches removes the graph engine for that namespace."""
         fake_embedder = mock.MagicMock()
-        fake_embedder.dimension.return_value = 768
-        fake_embedder.embed_one.return_value = [0.0] * 768
+        fake_embedder.dimension.return_value = 1024
+        fake_embedder.embed_one.return_value = [0.0] * 1024
         fake_embedder.model_name = "test-model"
 
         svc = _make_service(kb_dir, fake_embedder, no_llm)
