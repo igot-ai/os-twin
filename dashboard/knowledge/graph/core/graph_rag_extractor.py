@@ -182,20 +182,30 @@ class GraphRAGExtractor(TransformComponent):
     # -- Async pipeline (kept for callers that prefer async) ------------
 
     async def acall(self, nodes: List[BaseNode], show_progress: bool = False, **kwargs: Any) -> List[BaseNode]:
-        """Async extraction — delegates to sync ``_extract_single_sync`` via to_thread."""
+        """Async extraction — delegates to sync ``_extract_single_sync`` via ThreadPoolExecutor."""
         if not nodes:
             return []
         logger.info("Starting async graph extraction for %d nodes", len(nodes))
         self.metrics = ExtractionMetrics()
-        results: List[BaseNode] = []
-        for node in nodes:
-            try:
-                result = await asyncio.to_thread(self._extract_single_sync, node)
-                results.append(result)
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Async extraction failed for node %s: %s", node.id_, exc)
-                results.append(self._create_empty_extraction_result(node, str(exc)))
-        return results
+
+        loop = asyncio.get_running_loop()
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_workers) as pool:
+            async def _process_node(node: BaseNode) -> BaseNode:
+                try:
+                    return await loop.run_in_executor(pool, self._extract_single_sync, node)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Async extraction failed for node %s: %s", node.id_, exc)
+                    return self._create_empty_extraction_result(node, str(exc))
+
+            jobs = [_process_node(node) for node in nodes]
+            results = await run_jobs(
+                jobs,
+                show_progress=show_progress,
+                workers=self.num_workers,
+            )
+            return list(results)
 
     # -- Result builders ------------------------------------------------
 

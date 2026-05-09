@@ -357,19 +357,18 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
     updateDraft({
       knowledge_embedding_backend: backend as MemoryEmbeddingBackend | '',
       knowledge_embedding_model: model,
-      knowledge_embedding_dimension: 768,
     });
     setEmbedModelInput(model);
   };
 
   const handleEmbedModelSelect = (modelId: string) => {
-    updateDraft({ knowledge_embedding_model: modelId, knowledge_embedding_dimension: 768 });
+    updateDraft({ knowledge_embedding_model: modelId });
     setEmbedModelInput(modelId);
   };
 
   const commitEmbedModelInput = () => {
     if (embedModelInput !== draft.knowledge_embedding_model) {
-      updateDraft({ knowledge_embedding_model: embedModelInput, knowledge_embedding_dimension: 768 });
+      updateDraft({ knowledge_embedding_model: embedModelInput });
     }
   };
 
@@ -400,8 +399,8 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         <p className="text-sm text-on-surface-variant">
           Configure the LLM and embedding backends used by the knowledge service for entity
           extraction, query answering, and document indexing. All embeddings are normalised to{' '}
-          <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">768</code>{' '}
-          dimensions.
+          <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">{effective.knowledge_embedding_dimension || '???'}</code>{' '}
+          dimensions (set via <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">OSTWIN_EMBEDDING_DIMENSION</code>).
         </p>
 
         {renderOllamaBanner()}
@@ -738,8 +737,9 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
             )}
             
             <p className="text-[10px] text-slate-400 mt-3">
-              All vectors are normalised to <strong>768 dimensions</strong>. Changing backend requires a{' '}
-              <strong>fresh namespace</strong>.
+              All vectors are normalised to <strong>{effective.knowledge_embedding_dimension || '???'} dimensions</strong> (via{' '}
+              <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">OSTWIN_EMBEDDING_DIMENSION</code>).
+              Changing backend requires a <strong>fresh namespace</strong>.
             </p>
           </div>
         </div>
@@ -752,17 +752,24 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700">
             Embedding Dimension
           </h3>
-          <span className="text-[9px] text-slate-400 ml-auto font-mono">fixed: 768</span>
+          <span className="text-[9px] text-slate-400 ml-auto font-mono">OSTWIN_EMBEDDING_DIMENSION</span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <p className="text-[10px] text-slate-500 mb-3">
-            All embedding backends produce vectors normalised to <strong>768 dimensions</strong> for
-            consistency. This is enforced globally and cannot be changed.
+            All embedding backends produce vectors normalised to{' '}
+            <strong>{effective.knowledge_embedding_dimension || '???'}</strong> dimensions for
+            consistency. This value is controlled by the{' '}
+            <code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">
+              OSTWIN_EMBEDDING_DIMENSION
+            </code>{' '}
+            environment variable and is read-only in this panel.
           </p>
           <div className="flex items-baseline gap-2">
-            <code className="text-2xl font-extrabold font-mono text-slate-900">768</code>
-            <span className="text-[10px] text-slate-400">dimensions (fixed)</span>
+            <code className="text-2xl font-extrabold font-mono text-slate-900">
+              {effective.knowledge_embedding_dimension || '???'}
+            </code>
+            <span className="text-[10px] text-slate-400">dimensions (from env)</span>
           </div>
         </div>
       </section>
@@ -773,6 +780,7 @@ export function KnowledgePanel({ knowledge, onUpdate, allModels }: KnowledgePane
         llmModel={draft.knowledge_llm_model}
         embeddingBackend={draft.knowledge_embedding_backend}
         embeddingModel={draft.knowledge_embedding_model}
+        embeddingDimension={effective.knowledge_embedding_dimension}
         type="knowledge"
       />
 
