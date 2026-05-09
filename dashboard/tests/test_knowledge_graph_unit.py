@@ -40,8 +40,8 @@ def fake_llm():
 def fake_embedder():
     """Create a mocked KnowledgeEmbedder."""
     embedder = mock.MagicMock(spec=KnowledgeEmbedder)
-    embedder.dimension.return_value = 768
-    embedder.embed_one.return_value = [0.1] * 768
+    embedder.dimension.return_value = 1024
+    embedder.embed_one.return_value = [0.1] * 1024
     embedder.model_name = "test-model"
     return embedder
 
@@ -1116,7 +1116,7 @@ class TestKuzuDbMockedLogic:
         with mock.patch("dashboard.knowledge.graph.index.kuzudb.KuzuLabelledPropertyGraph._database"):
             with mock.patch("dashboard.knowledge.graph.index.kuzudb._get_embedder") as MockGetEmbedder:
                 mock_embedder = MockGetEmbedder.return_value
-                mock_embedder.embed_one.return_value = [0.1] * 768
+                mock_embedder.embed_one.return_value = [0.1] * 1024
                 
                 kg = KuzuLabelledPropertyGraph(index="ns", ws_id="ws")
                 
