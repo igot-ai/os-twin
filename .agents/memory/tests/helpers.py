@@ -207,12 +207,12 @@ class InMemoryRetriever:
 def patched_memory_system(llm: DeterministicLLM | None = None, **kwargs):
     fake_llm = llm or DeterministicLLM()
 
-    def _controller_factory(*args, **inner_kwargs):
+    def _memory_llm_factory(*args, **inner_kwargs):
         del args, inner_kwargs
-        return SimpleNamespace(llm=fake_llm)
+        return fake_llm
 
     with (
-        patch("agentic_memory.memory_system.LLMController", new=_controller_factory),
+        patch("agentic_memory.memory_system.MemoryLLM", new=_memory_llm_factory),
         patch("agentic_memory.memory_system.ZvecRetriever", new=InMemoryRetriever),
     ):
         system = AgenticMemorySystem(**kwargs)

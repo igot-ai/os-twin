@@ -1,11 +1,13 @@
 """Retriever backends for the Agentic Memory vector store.
 
 Provides ChromaDB and Zvec retriever implementations with pluggable
-embedding functions (Ollama, OpenAI-compatible).
+embedding functions backed by the centralized ``dashboard.llm_client``
+embedding abstraction.
 
 Memory-management design:
-- Heavy ML imports (nltk, sklearn, litellm) are lazy-loaded on first use, not at module level (F11).
-- Embedding functions cache the model and defer loading until first call (F1/F9).
+- Heavy ML imports (nltk, sklearn) are lazy-loaded on first use, not at module level (F11).
+- Embedding functions delegate to ``dashboard.llm_client.create_embedding_client``
+  with singleton caching (F1/F9).
 - ZvecRetriever holds a single persistent collection handle; zvec handles concurrency internally.
 - Embedding dimension is cached per model to avoid test-embedding calls (F9).
 """
@@ -30,7 +32,6 @@ BM25Okapi = None
 word_tokenize = None
 cosine_similarity = None
 np = None
-litellm = None
 
 
 def _ensure_tokenizer_imports():
@@ -74,10 +75,103 @@ def simple_tokenize(text):
 
 # --- Global embedding dimension -------------------------------------------
 # All backends MUST produce vectors of this dimension to avoid conflicts
-# when storing / querying a single vector collection.  Backends that natively
-# support output-dimensionality (Vertex, Gemini) pass it explicitly; others
-# (Ollama, SentenceTransformer) truncate after embedding.
-EMBEDDING_DIMENSION: int = 768
+# when storing / querying a single vector collection.  The centralized
+# EmbeddingClient handles truncation/normalisation to this dimension.
+#
+# Single source of truth: OSTWIN_EMBEDDING_DIM env var (default 1024).
+# This cannot be changed dynamically via settings — dimension mismatches
+# between memory and knowledge would corrupt vector collections.
+from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIMENSION
+
+# Native model dimensions (before truncation) — used as a fast path
+# to avoid test-embedding calls (F9).  Also stored centrally in
+# dashboard.llm_client._KNOWN_EMBEDDING_DIMENSIONS; this local copy
+# is kept for the ZvecRetriever._get_dimension() fast path.
+_KNOWN_DIMENSIONS: Dict[str, int] = {
+    "all-MiniLM-L6-v2": 384,
+    "all-MiniLM-L12-v2": 384,
+    "all-mpnet-base-v2": 1024,
+    "paraphrase-MiniLM-L6-v2": 384,
+    "paraphrase-multilingual-MiniLM-L12-v2": 384,
+    "gemini-embedding-001": 1024,
+    "gemini/gemini-embedding-001": 1024,
+    "text-embedding-004": 1024,
+    # Ollama embedding models (native dims — truncated to 1024 at runtime)
+    "leoipulsar/harrier-0.6b": 1024,
+    "embeddinggemma": 1024,
+    "qwen3-embedding:0.6b": 896,
+    # Vertex AI models
+    "text-embedding-005": 1024,
+}
+
+
+# --- CentralizedEmbeddingFunction ----------------------------------------
+# Adapter that wraps the centralized dashboard.llm_client.EmbeddingClient
+# into the EmbeddingFunction protocol expected by the retrievers.
+
+class CentralizedEmbeddingFunction:
+    """Embedding function backed by ``dashboard.llm_client.create_embedding_client``.
+
+    Implements the ``EmbeddingFunction`` protocol (``__call__(input) -> list[list[float]]``).
+    Output is always truncated/padded to ``EMBEDDING_DIMENSION`` (1024) for
+    cross-backend consistency with existing zvec/chroma collections.
+
+    Provider mapping from the memory config's backend name:
+        - ``"ollama"``            → ``OllamaEmbeddingClient``
+        - ``"gemini"`` / ``"google"`` → ``GeminiEmbeddingClient``
+        - ``"openai-compatible"`` → ``OpenAICompatibleEmbeddingClient``
+    """
+
+    def __init__(
+        self,
+        model_name: str = "leoipulsar/harrier-0.6b",
+        embedding_backend: str = "ollama",
+    ):
+        self._model_name = model_name
+        self._embedding_backend = embedding_backend
+        self._client: Any = None  # lazy-created
+
+    def _get_client(self) -> Any:
+        """Lazily create the centralized EmbeddingClient.
+
+        Re-reads ``OSTWIN_EMBEDDING_DIM`` from the environment on every call
+        so that settings changes (e.g. via the dashboard UI) take effect
+        without restarting the memory system.
+        """
+        if self._client is not None:
+            return self._client
+        from dashboard.llm_client import create_embedding_client
+
+        current_dim = int(os.environ.get("OSTWIN_EMBEDDING_DIM", "1024"))
+
+        provider = self._embedding_backend
+        if provider == "gemini":
+            provider = "google"
+
+        self._client = create_embedding_client(
+            model=self._model_name,
+            provider=provider,
+            dimension=current_dim,
+        )
+        return self._client
+
+    def invalidate(self):
+        """Discard the cached client so the next call re-creates it.
+
+        This should be called after settings change (model, backend, or
+        dimension) so the embedding function picks up the new configuration.
+        """
+        self._client = None
+
+    def __call__(self, input: Documents) -> Embeddings:
+        if not input:
+            return []
+        return self._get_client().embed(input)
+
+    @property
+    def dimension(self) -> int:
+        """Return the current embedding dimension from the environment."""
+        return int(os.environ.get("OSTWIN_EMBEDDING_DIM", "1024"))
 
 
 # --- Embedding function singleton cache -----------------------------------
@@ -87,149 +181,39 @@ EMBEDDING_DIMENSION: int = 768
 _embedding_cache: Dict[tuple, Any] = {}
 _embedding_cache_lock = threading.Lock()
 
-# Native model dimensions (before truncation) — avoids a test embedding call (F9).
-# NOTE: at runtime every backend is normalised to EMBEDDING_DIMENSION.
-_KNOWN_DIMENSIONS: Dict[str, int] = {
-    "all-MiniLM-L6-v2": 384,
-    "all-MiniLM-L12-v2": 384,
-    "all-mpnet-base-v2": 768,
-    "paraphrase-MiniLM-L6-v2": 384,
-    "paraphrase-multilingual-MiniLM-L12-v2": 384,
-    "gemini-embedding-001": 768,
-    "gemini/gemini-embedding-001": 768,
-    "text-embedding-004": 768,
-    # Ollama embedding models (native dims — truncated to 768 at runtime)
-    "leoipulsar/harrier-0.6b": 1024,
-    "embeddinggemma": 768,
-    "qwen3-embedding:0.6b": 896,
-    # Vertex AI models
-    "text-embedding-005": 768,
-}
-
-
-def _truncate_to_dim(embeddings: Embeddings, dim: int = EMBEDDING_DIMENSION) -> Embeddings:
-    """Truncate (or zero-pad) each embedding vector to exactly *dim* floats.
-
-    Truncation of MRL (Matryoshka Representation Learning) models is
-    dimension-preserving: the first *dim* components retain full semantic
-    quality.  Zero-padding is a lossy fallback for models whose native
-    dimension is smaller than the target.
-    """
-    out: Embeddings = []
-    for vec in embeddings:
-        if len(vec) >= dim:
-            out.append(vec[:dim])
-        else:
-            out.append(vec + [0.0] * (dim - len(vec)))
-    return out
-
-
-class OllamaEmbeddingFunction(EmbeddingFunction):
-    """Ollama embedding function via the native ``ollama`` Python SDK.
-
-    Output is always truncated to ``EMBEDDING_DIMENSION`` (768) to ensure
-    consistency across all backends.  No litellm dependency.
-    """
-
-    def __init__(
-        self,
-        model_name: str = "leoipulsar/harrier-0.6b",
-        base_url: Optional[str] = None,
-    ):
-        self._model_name = model_name
-        self._base_url = base_url  # None → ollama default (localhost:11434)
-
-    def __call__(self, input: Documents) -> Embeddings:
-        import ollama as _ollama  # noqa: WPS433 — lazy import
-        import httpx
-
-        kwargs: Dict[str, Any] = {"model": self._model_name, "input": input}
-        try:
-            response = _ollama.embed(**kwargs)
-        except httpx.ConnectError as e:
-            raise RuntimeError("Ollama server is unreachable. Please ensure 'ollama serve' is running.") from e
-        except _ollama.ResponseError as e:
-            if e.status_code == 404:
-                raise RuntimeError(f"Model '{self._model_name}' not found. Please pull it using 'ollama pull {self._model_name}'.") from e
-            raise e
-
-        result = response["embeddings"]
-        return _truncate_to_dim(result)
-
-    @property
-    def dimension(self) -> int:
-        """Always returns the global EMBEDDING_DIMENSION (768)."""
-        return EMBEDDING_DIMENSION
-
-
-class OpenAICompatibleEmbeddingFunction(EmbeddingFunction):
-    """OpenAI-compatible embedding function for any API server.
-
-    Connects to any server that implements the OpenAI embeddings API.
-    Uses OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_API_KEY env vars.
-
-    Output is always truncated to ``EMBEDDING_DIMENSION`` (768).
-    """
-
-    def __init__(
-        self,
-        model_name: str = "default",
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
-    ):
-        self._model_name = model_name
-        self._base_url = base_url
-        self._api_key = api_key
-
-    def __call__(self, input: Documents) -> Embeddings:
-        import os as _os
-        import httpx
-
-        base_url = self._base_url or _os.environ.get(
-            "OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8000"
-        )
-        api_key = self._api_key or _os.environ.get("OPENAI_COMPATIBLE_API_KEY", "")
-
-        try:
-            with httpx.Client() as client:
-                response = client.post(
-                    f"{base_url}/v1/embeddings",
-                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
-                    json={"model": self._model_name, "input": input},
-                    timeout=60.0,
-                )
-                response.raise_for_status()
-                data = response.json()
-                result = [item["embedding"] for item in data["data"]]
-                return _truncate_to_dim(result)
-        except Exception as exc:
-            logger.error("OpenAI-compatible embedding failed: %s", exc)
-            return [[0.0] * EMBEDDING_DIMENSION for _ in input]
-
-    @property
-    def dimension(self) -> int:
-        """Always returns the global EMBEDDING_DIMENSION (768)."""
-        return EMBEDDING_DIMENSION
-
 
 def _create_embedding_function(
     embedding_backend: str,
     model_name: str,
     *,
     shared: bool = True,
+    fresh: bool = False,
 ):
     """Create or retrieve a cached embedding function.
 
+    Delegates to ``CentralizedEmbeddingFunction`` which wraps the
+    centralized ``dashboard.llm_client.EmbeddingClient``.
+
     Args:
-        embedding_backend: "ollama" or "openai-compatible"
+        embedding_backend: "ollama", "gemini", "google", or "openai-compatible"
         model_name: Model identifier
         shared: If True (default), return a singleton instance cached by
             (backend, model_name).  Set False to get a private instance.
+        fresh: If True, invalidate the existing cached singleton and create
+            a fresh one.  This forces the embedding client to re-read
+            settings (model, backend, dimension) on next use.  Only
+            meaningful when shared=True.
 
     Returns:
-        An embedding function callable.
+        An ``EmbeddingFunction``-compatible callable.
     """
     cache_key = (embedding_backend, model_name)
+
+    if fresh and shared:
+        with _embedding_cache_lock:
+            old = _embedding_cache.pop(cache_key, None)
+            if old is not None and hasattr(old, "invalidate"):
+                old.invalidate()
 
     if shared:
         with _embedding_cache_lock:
@@ -237,20 +221,15 @@ def _create_embedding_function(
             if cached is not None:
                 return cached
 
-    if embedding_backend == "ollama":
-        fn = OllamaEmbeddingFunction(model_name=model_name)
-    elif embedding_backend == "openai-compatible":
-        fn = OpenAICompatibleEmbeddingFunction(model_name=model_name)
-    else:
-        fn = OllamaEmbeddingFunction(model_name=model_name)
+    fn = CentralizedEmbeddingFunction(
+        model_name=model_name,
+        embedding_backend=embedding_backend,
+    )
 
     if shared:
         with _embedding_cache_lock:
-            # Double-check: another thread may have created it
             existing = _embedding_cache.get(cache_key)
             if existing is not None:
-                if hasattr(fn, "close"):
-                    fn.close()
                 return existing
             _embedding_cache[cache_key] = fn
 
@@ -333,6 +312,8 @@ class ChromaRetriever:
         else:
             self.client = chromadb.Client(Settings(allow_reset=True))
         self.persist_dir = persist_dir
+        self._embedding_backend = embedding_backend
+        self._model_name = model_name
 
         self.embedding_function = _create_embedding_function(
             embedding_backend, model_name
@@ -349,6 +330,27 @@ class ChromaRetriever:
         """
         self.collection = None
         self.client = None
+
+    def reload_embedding(self, backend: Optional[str] = None, model: Optional[str] = None):
+        """Force the embedding function to re-read settings on next use.
+
+        Call this after the user changes embedding settings via the dashboard
+        UI so that subsequent queries use the new model/backend/dimension.
+
+        Args:
+            backend: New embedding backend (e.g. "ollama", "gemini"). If None,
+                keeps the current backend.
+            model: New embedding model name. If None, keeps the current model.
+        """
+        current_backend = backend or getattr(self, "_embedding_backend", "sentence-transformer")
+        current_model = model or getattr(self, "_model_name", "all-MiniLM-L6-v2")
+        if backend is not None:
+            self._embedding_backend = backend
+        if model is not None:
+            self._model_name = model
+        self.embedding_function = _create_embedding_function(
+            current_backend, current_model, fresh=True
+        )
 
     def add_document(self, document: str, metadata: Dict, doc_id: str):
         """Add a document to ChromaDB with enhanced embedding using metadata.
@@ -520,6 +522,27 @@ class ZvecRetriever:
     def embedding_function(self, value):
         """Allow external override (used by tests)."""
         self._embedding_function = value
+
+    def reload_embedding(self, backend: Optional[str] = None, model: Optional[str] = None):
+        """Force the embedding function to re-read settings on next use.
+
+        Call this after the user changes embedding settings via the dashboard
+        UI so that subsequent queries use the new model/backend/dimension.
+
+        Args:
+            backend: New embedding backend (e.g. "ollama", "gemini"). If None,
+                keeps the current backend.
+            model: New embedding model name. If None, keeps the current model.
+        """
+        if backend is not None:
+            self._embedding_backend = backend
+        if model is not None:
+            self._model_name = model
+        self._embedding_function = None
+        self._dimension = None
+        _create_embedding_function(
+            self._embedding_backend, self._model_name, fresh=True
+        )
 
     # --- Dimension detection ------------------------------------------
 

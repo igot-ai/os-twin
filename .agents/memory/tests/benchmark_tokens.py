@@ -67,7 +67,7 @@ def main():
 
     # Monkey-patch LLM to intercept calls and count tokens
     call_log = []
-    original_get_completion = memory.llm_controller.llm.get_completion
+    original_get_completion = memory.llm.get_completion
 
     def intercepted_get_completion(prompt, **kwargs):
         t_start = time.time()
@@ -87,7 +87,7 @@ def main():
         })
         return response
 
-    memory.llm_controller.llm.get_completion = intercepted_get_completion
+    memory.llm.get_completion = intercepted_get_completion
 
     # Also intercept embedding calls
     embed_log = []
