@@ -327,7 +327,43 @@ while (-not $script:shuttingDown) {
             # All non-pending states are handled via lifecycle.json signals
             default {
                 $v2StateDef = if ($lifecycle -and $lifecycle.states -and $lifecycle.states.$status) { $lifecycle.states.$status } else { $null }
-                $v2MaxRetries = if ($lifecycle -and $lifecycle.max_retries) { $lifecycle.max_retries } else { $maxRetries }
+
+                $_homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+                $OstwinHome = if ($env:OSTWIN_HOME) { $env:OSTWIN_HOME } else { Join-Path $_homeDir ".ostwin" }
+                
+                $roleMaxRetries = $maxRetries
+                $planRoleMaxRetries = $null
+                
+                $rcFile = Join-Path $roomDir "config.json"
+                if (Test-Path $rcFile) {
+                    try {
+                        $rcData = Get-Content $rcFile -Raw | ConvertFrom-Json
+                        if ($rcData.plan_id) {
+                            $planRolesFile = Join-Path $OstwinHome ".agents" "plans" "$($rcData.plan_id).roles.json"
+                            if (Test-Path $planRolesFile) {
+                                $planRolesConfig = Get-Content $planRolesFile -Raw | ConvertFrom-Json
+                                if ($planRolesConfig.$baseRole -and $planRolesConfig.$baseRole.max_retries) {
+                                    $planRoleMaxRetries = [int]$planRolesConfig.$baseRole.max_retries
+                                }
+                            }
+                        }
+                    } catch {}
+                }
+
+                if ($planRoleMaxRetries) {
+                    $roleMaxRetries = $planRoleMaxRetries
+                } elseif ($config.$baseRole -and $config.$baseRole.max_retries) {
+                    $roleMaxRetries = [int]$config.$baseRole.max_retries
+                } else {
+                    $roleJsonPath = Join-Path $agentsDir "roles" $baseRole "role.json"
+                    if (Test-Path $roleJsonPath) {
+                        try {
+                            $roleJson = Get-Content $roleJsonPath -Raw | ConvertFrom-Json
+                            if ($roleJson.max_retries) { $roleMaxRetries = [int]$roleJson.max_retries }
+                        } catch {}
+                    }
+                }
+                $v2MaxRetries = if ($lifecycle -and $lifecycle.max_retries) { $lifecycle.max_retries } else { $roleMaxRetries }
 
                 if (-not $v2StateDef) {
                     # Unknown state with no lifecycle definition
