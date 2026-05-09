@@ -24,7 +24,11 @@ KNOWLEDGE_DIR: Path = Path(
 EMBEDDING_MODEL: str = os.environ.get(
     "OSTWIN_KNOWLEDGE_EMBED_MODEL", "BAAI/bge-base-en-v1.5"
 )
-EMBEDDING_DIMENSION: int = int(os.environ.get("OSTWIN_KNOWLEDGE_EMBED_DIM", "768"))
+# Embedding dimension is a system-wide constant fixed at startup.
+# OSTWIN_EMBEDDING_DIM is the single source of truth — shared by both
+# knowledge and memory subsystems.  Cannot be changed dynamically via
+# settings to avoid dimension conflicts in vector stores.
+from dashboard.llm_client import DEFAULT_EMBEDDING_DIMENSION as EMBEDDING_DIMENSION
 
 # LLM_MODEL has no hardcoded default — user must configure via
 # MasterSettings.knowledge.llm_model or OSTWIN_KNOWLEDGE_LLM_MODEL env var.

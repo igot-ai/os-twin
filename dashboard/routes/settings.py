@@ -222,7 +222,11 @@ async def put_knowledge_settings(
     dashboard restart.
     """
     resolver = get_settings_resolver()
-    resolver.patch_namespace("knowledge", payload.model_dump(mode="json"))
+    data = payload.model_dump(mode="json")
+    # knowledge_embedding_dimension is read-only (fixed from OSTWIN_EMBEDDING_DIM).
+    # Strip it from the payload so users cannot persist a conflicting value.
+    data.pop("knowledge_embedding_dimension", None)
+    resolver.patch_namespace("knowledge", data)
 
     # Invalidate cached LLM / embedder so next call picks up new settings.
     # Best-effort: never let invalidation failure break the settings save.

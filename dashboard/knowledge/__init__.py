@@ -25,6 +25,17 @@ methods that need them.
 
 from __future__ import annotations
 
+import os
+import multiprocessing
+
+# Address macOS fork safety and multiprocessing issues early
+os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+try:
+    multiprocessing.set_start_method('spawn', force=True)
+except Exception:
+    pass
+
 from dashboard.knowledge.config import (
     EMBEDDING_DIMENSION,
     EMBEDDING_MODEL,

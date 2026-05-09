@@ -1,8 +1,8 @@
 """Unified AI gateway for the dashboard.
 
 Provides completion via :mod:`dashboard.llm_client` (multi-provider native
-SDK abstraction), and embedding via
-:class:`~dashboard.knowledge.embeddings.KnowledgeEmbedder`.
+SDK abstraction), and embedding via the centralized
+:func:`dashboard.llm_client.create_embedding_client`.
 
 Usage::
 
@@ -28,16 +28,52 @@ from .config import get_config, reset_config, AIConfig
 from .errors import AIError, AIAuthError, AITimeoutError, AIQuotaError
 
 
-# Lazy singleton — avoids circular import with dashboard.knowledge
+# Lazy singleton — delegates to the centralized EmbeddingClient
 _embedder = None
 
 
 def _get_embedder():
     global _embedder
     if _embedder is None:
-        from dashboard.knowledge.embeddings import KnowledgeEmbedder
-        _embedder = KnowledgeEmbedder()
+        from dashboard.llm_client import create_embedding_client
+        _embedder = create_embedding_client(
+            model=_detect_embed_model(),
+            provider=_detect_embed_provider(),
+        )
     return _embedder
+
+
+def _detect_embed_model() -> str:
+    """Resolve embedding model from settings or env var."""
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        if hasattr(master, 'knowledge') and master.knowledge:
+            know_cfg = master.knowledge
+            if hasattr(know_cfg, 'knowledge_embedding_model') and know_cfg.knowledge_embedding_model:
+                return know_cfg.knowledge_embedding_model
+    except Exception:
+        pass
+    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+
+
+def _detect_embed_provider() -> str:
+    """Resolve embedding provider from settings or env var."""
+    try:
+        from dashboard.lib.settings.resolver import get_settings_resolver
+        resolver = get_settings_resolver()
+        master = resolver.get_master_settings()
+        if hasattr(master, 'knowledge') and master.knowledge:
+            know_cfg = master.knowledge
+            if hasattr(know_cfg, 'knowledge_embedding_backend') and know_cfg.knowledge_embedding_backend:
+                return know_cfg.knowledge_embedding_backend
+    except Exception:
+        pass
+    return os.environ.get("OSTWIN_KNOWLEDGE_EMBED_PROVIDER", "ollama")
+
+
+import os
 
 
 def get_completion(
