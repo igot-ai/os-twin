@@ -106,7 +106,7 @@ def _make_system(**overrides):
     mock_llm.llm.get_completion = MagicMock(
         side_effect=[_mock_analysis(), _mock_evolution()] * 50
     )
-    mem.llm_controller = mock_llm
+    mem.llm = mock_llm
 
     return mem, tmpdir
 

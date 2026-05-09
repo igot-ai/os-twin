@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional, Any, Tuple
 import uuid
 from datetime import datetime
-from .llm_controller import LLMController
+from .memory_llm import MemoryLLM
 from .retrievers import ChromaRetriever, ZvecRetriever
 from .memory_note import MemoryNote  # canonical definition lives here now
 import json
@@ -9,35 +9,38 @@ import logging
 import os
 import time
 
-# Lazy imports for heavy ML libraries (torch, transformers, sentence-transformers, litellm)
+# Lazy imports for heavy ML libraries used by the retriever stack.
 # These take 6+ seconds to import and are not all needed for every backend.
+# NOTE: litellm is no longer imported here — LLM calls go through
+# dashboard.llm_client via MemoryLLM.
 SentenceTransformer = None
 AutoModel = None
 AutoTokenizer = None
 word_tokenize = None
 BM25Okapi = None
 cosine_similarity = None
-completion = None
 
 
 def _ensure_ml_imports():
-    """Import heavy ML libraries on first use."""
+    """Import heavy ML libraries on first use.
+
+    Only imports libraries needed by the retriever/embedding stack.
+    LLM completion is handled by ``MemoryLLM`` → ``dashboard.llm_client``.
+    """
     global \
         SentenceTransformer, \
         AutoModel, \
         AutoTokenizer, \
         word_tokenize, \
         BM25Okapi, \
-        cosine_similarity, \
-        completion
-    if completion is not None:
+        cosine_similarity
+    if BM25Okapi is not None:
         return  # already imported
     from sentence_transformers import SentenceTransformer as _ST
     from transformers import AutoModel as _AM, AutoTokenizer as _AT
     from nltk.tokenize import word_tokenize as _wt
     from rank_bm25 import BM25Okapi as _BM
     from sklearn.metrics.pairwise import cosine_similarity as _cs
-    from litellm import completion as _comp
 
     SentenceTransformer = _ST
     AutoModel = _AM
@@ -45,7 +48,6 @@ def _ensure_ml_imports():
     word_tokenize = _wt
     BM25Okapi = _BM
     cosine_similarity = _cs
-    completion = _comp
 
 
 logger = logging.getLogger(__name__)
@@ -67,16 +69,16 @@ class AgenticMemorySystem:
 
     def __init__(
         self,
-        model_name: str = "all-MiniLM-L6-v2",
-        llm_backend: str = "openai",
-        llm_model: str = "gpt-4o-mini",
+        model_name: str = None,
+        llm_backend: str = None,
+        llm_model: str = None,
         evo_threshold: int = 100,
         api_key: Optional[str] = None,
         sglang_host: str = "http://localhost",
         sglang_port: int = 30000,
         persist_dir: Optional[str] = None,
-        embedding_backend: str = "sentence-transformer",
-        vector_backend: str = "zvec",
+        embedding_backend: str = None,
+        vector_backend: str = None,
         context_aware_analysis: bool = False,
         context_aware_tree: bool = False,
         max_links: Optional[int] = None,
@@ -87,16 +89,17 @@ class AgenticMemorySystem:
         """Initialize the memory system.
 
         Args:
-            model_name: Name of the embedding model
-            llm_backend: LLM backend to use (openai/ollama/sglang/gemini)
-            llm_model: Name of the LLM model
+            model_name: Name of the embedding model. If None, loads from dashboard config.
+            llm_backend: LLM provider (openai/ollama/gemini/openai-compatible/etc.). If None, loads from config.
+            llm_model: Name of the LLM model. If None, loads from config.
             evo_threshold: Number of memories before triggering evolution
-            api_key: API key for the LLM service
-            sglang_host: Host URL for SGLang server (default: http://localhost)
-            sglang_port: Port for SGLang server (default: 30000)
+            api_key: API key for the LLM service (deprecated: MemoryLLM resolves
+                keys automatically via MasterSettings/vault/env vars)
+            sglang_host: Host URL for SGLang server (deprecated: unused)
+            sglang_port: Port for SGLang server (deprecated: unused)
             persist_dir: Directory for persistent storage. If None, uses in-memory mode.
-            embedding_backend: Embedding backend ("sentence-transformer" or "gemini")
-            vector_backend: Vector database backend ("chroma" or "zvec")
+            embedding_backend: Embedding backend ("ollama", "gemini", or "openai-compatible"). If None, loads from config.
+            vector_backend: Vector database backend ("chroma" or "zvec"). If None, loads from config.
             context_aware_analysis: When True, analyze_content sees similar memories
                 and directory paths to keep naming/categorization consistent.
             context_aware_tree: When True (requires context_aware_analysis=True),
@@ -110,11 +113,31 @@ class AgenticMemorySystem:
                 After this many days, the recency score drops to 0.5. Default 30.
         """
         _ensure_ml_imports()
+
+        # Load dashboard config first so we use the user's configured defaults
+        # rather than hardcoded fallbacks.
+        from .config import load_config
+        try:
+            cfg = load_config()
+        except Exception:
+            cfg = None
+
+        # Resolve embedding settings: explicit arg > dashboard config > hardcoded default
+        if cfg is not None:
+            self.model_name = model_name if model_name is not None else cfg.embedding.model
+            self.embedding_backend = embedding_backend if embedding_backend is not None else cfg.embedding.backend
+            self.vector_backend = vector_backend if vector_backend is not None else cfg.vector.backend
+            _llm_backend = llm_backend if llm_backend is not None else cfg.llm.backend
+            _llm_model = llm_model if llm_model is not None else cfg.llm.model
+        else:
+            self.model_name = model_name if model_name is not None else "gemini-embedding-001"
+            self.embedding_backend = embedding_backend if embedding_backend is not None else "gemini"
+            self.vector_backend = vector_backend if vector_backend is not None else "zvec"
+            _llm_backend = llm_backend if llm_backend is not None else "gemini"
+            _llm_model = llm_model if llm_model is not None else "gemini-3-flash-preview"
+
         self.memories = {}
-        self.model_name = model_name
         self.persist_dir = persist_dir
-        self.embedding_backend = embedding_backend
-        self.vector_backend = vector_backend
         self.context_aware_analysis = context_aware_analysis
         self.context_aware_tree = context_aware_tree
         self.max_links = max_links
@@ -153,9 +176,12 @@ class AgenticMemorySystem:
         if self.persist_dir:
             self._load_notes()
 
-        # Initialize LLM controller
-        self.llm_controller = LLMController(
-            llm_backend, llm_model, api_key, sglang_host, sglang_port
+        # Initialize LLM via centralized dashboard.llm_client
+        # api_key is optional — MemoryLLM resolves keys automatically
+        self.llm = MemoryLLM(
+            model=_llm_model,
+            provider=_llm_backend,
+            api_key=api_key,
         )
         self.evo_cnt = 0
         self.evo_threshold = evo_threshold
@@ -176,6 +202,37 @@ class AgenticMemorySystem:
                 persist_dir=self._vector_dir,
                 embedding_backend=self.embedding_backend,
             )
+
+    def _reload_embedding_settings(self):
+        """Re-read embedding settings from config and refresh the embedding function.
+
+        This ensures that settings changes made via the dashboard UI take
+        effect immediately without restarting the memory system. Called at
+        the start of every public method that uses embeddings.
+        """
+        from .config import load_config
+
+        try:
+            cfg = load_config()
+        except Exception:
+            return
+
+        new_backend = cfg.embedding.backend
+        new_model = cfg.embedding.model
+
+        if new_backend != self.embedding_backend or new_model != self.model_name:
+            logger.info(
+                "Embedding settings changed: %s/%s → %s/%s, reloading client",
+                self.embedding_backend,
+                self.model_name,
+                new_backend,
+                new_model,
+            )
+            self.embedding_backend = new_backend
+            self.model_name = new_model
+            self.retriever.reload_embedding(backend=new_backend, model=new_model)
+        else:
+            self.retriever.reload_embedding()
 
     # --- Persistence helpers ---
 
@@ -296,7 +353,7 @@ class AgenticMemorySystem:
             f"{note_b.content}\n"
         )
 
-        response = self.llm_controller.llm.get_completion(prompt)
+        response = self.llm.get_completion(prompt)
         merged_content = response.strip() if response else None
         if not merged_content:
             raise ValueError("LLM returned empty merge result")
@@ -525,6 +582,7 @@ class AgenticMemorySystem:
                 - tags: List[str]
                 - summary: Optional[str] (only when content is long)
         """
+        self._reload_embedding_settings()
         needs_summary = len(content.split()) > self.SUMMARY_WORD_THRESHOLD
 
         summary_instruction = ""
@@ -612,7 +670,7 @@ class AgenticMemorySystem:
         schema_properties.update(summary_schema)
 
         try:
-            response = self.llm_controller.llm.get_completion(
+            response = self.llm.get_completion(
                 prompt,
                 response_format={
                     "type": "json_schema",
@@ -669,6 +727,7 @@ class AgenticMemorySystem:
 
     def add_note(self, content: str, time: Optional[str] = None, **kwargs) -> str:
         """Add a new memory note"""
+        self._reload_embedding_settings()
         if time is not None:
             kwargs["timestamp"] = time
         note = MemoryNote(content=content, **kwargs)
@@ -862,6 +921,7 @@ class AgenticMemorySystem:
             Dict with counts: added_from_disk, updated_from_disk,
             updated_from_memory, unchanged, memory_only.
         """
+        self._reload_embedding_settings()
         if not self._notes_dir:
             return {"error": "No persist_dir configured"}
 
@@ -974,6 +1034,7 @@ class AgenticMemorySystem:
         Returns:
             Dict with counts of added, updated, removed notes.
         """
+        self._reload_embedding_settings()
         if not self._notes_dir:
             return {"error": "No persist_dir configured"}
 
@@ -1068,6 +1129,7 @@ class AgenticMemorySystem:
 
     def consolidate_memories(self):
         """Consolidate memories: rebuild the vector index from current in-memory state."""
+        self._reload_embedding_settings()
         self.retriever.clear()
 
         # Re-add all memory documents with their complete metadata
@@ -1094,6 +1156,7 @@ class AgenticMemorySystem:
         Returns:
             Tuple[str, List[str]]: (formatted_memory_string, list_of_memory_ids)
         """
+        self._reload_embedding_settings()
         if not self.memories:
             return "", []
 
@@ -1126,6 +1189,7 @@ class AgenticMemorySystem:
 
     def find_related_memories_raw(self, query: str, k: int = 5) -> str:
         """Find related memories using ChromaDB retrieval in raw format"""
+        self._reload_embedding_settings()
         if not self.memories:
             return ""
 
@@ -1193,6 +1257,7 @@ class AgenticMemorySystem:
         Returns:
             bool: True if update successful
         """
+        self._reload_embedding_settings()
         if memory_id not in self.memories:
             return False
 
@@ -1370,7 +1435,7 @@ class AgenticMemorySystem:
 
         Returns the top-k results sorted by combined score (descending).
         """
-        # Fetch extra candidates to allow re-ranking to surface recent notes
+        self._reload_embedding_settings()
         fetch_k = max(k * 2, 10)
         search_results = self.retriever.search(query, fetch_k)
         memories = []
@@ -1415,6 +1480,7 @@ class AgenticMemorySystem:
 
     def search_agentic(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """Search for memories using vector retrieval with link-following and time-decay."""
+        self._reload_embedding_settings()
         if not self.memories:
             return []
 
@@ -1621,7 +1687,7 @@ class AgenticMemorySystem:
             nearest_neighbors_memories=neighbors_text,
             neighbor_number=len(memory_ids),
         )
-        response = self.llm_controller.llm.get_completion(
+        response = self.llm.get_completion(
             prompt, response_format=self._EVOLUTION_RESPONSE_FORMAT
         )
         return json.loads(response)

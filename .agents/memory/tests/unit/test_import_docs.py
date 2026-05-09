@@ -74,7 +74,7 @@ def _make_system(persist_dir):
         '"keywords": ["k1", "k2"], "context": "Test context", '
         '"tags": ["tag1", "tag2"]}'
     )
-    sys.llm_controller = mock_llm
+    sys.llm = mock_llm
     sys._evolution_system_prompt = ""
     return sys
 
@@ -246,7 +246,7 @@ class TestImportDocs(unittest.TestCase):
 
         # LLM should have been called at least twice (once per doc)
         self.assertGreaterEqual(
-            self.sys.llm_controller.llm.get_completion.call_count, 2
+            self.sys.llm.get_completion.call_count, 2
         )
 
     def test_notes_written_to_disk(self):

@@ -10,6 +10,7 @@ Run: python tests/test_huggingface_integration.py
 
 import json
 import os
+import pytest
 import shutil
 import sys
 import tempfile
@@ -45,7 +46,11 @@ def test_controller_standalone():
     """Test the HuggingFaceController in isolation — does it produce valid JSON?"""
     _print_header("Phase 1: HuggingFaceController Standalone")
 
-    from agentic_memory.llm_controller import HuggingFaceController
+    try:
+        from agentic_memory.llm_controller import HuggingFaceController
+    except ImportError:
+        pytest.skip("HuggingFaceController removed — llm_controller.py deleted")
+        return
 
     print(f"  Loading model: {MODEL_ID}")
     t0 = time.time()

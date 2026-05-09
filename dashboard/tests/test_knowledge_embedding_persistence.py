@@ -30,7 +30,7 @@ from dashboard.knowledge.llm import KnowledgeLLM
 # ---------------------------------------------------------------------------
 
 
-def _make_fake_embedder(*, dim: int = 768, should_fail: bool = False):
+def _make_fake_embedder(*, dim: int = 1024, should_fail: bool = False):
     """Return a mocked KnowledgeEmbedder with controllable behaviour."""
     embedder = mock.MagicMock(spec=KnowledgeEmbedder)
     embedder.dimension.return_value = dim
@@ -90,7 +90,7 @@ class TestEmptyExtractionEmbedding:
         assert result.metadata["extraction_status"] == "failed"
         # Embedding generated
         assert result.embedding is not None
-        assert len(result.embedding) == 768
+        assert len(result.embedding) == 1024
         embedder.embed_one.assert_called_once_with("hello world")
 
     def test_empty_extraction_preserves_existing_embedding(self):
@@ -100,7 +100,7 @@ class TestEmptyExtractionEmbedding:
         embedder = _make_fake_embedder()
         extractor = self._make_extractor(embedder=embedder)
 
-        existing_embedding = [0.5] * 768
+        existing_embedding = [0.5] * 1024
         node = TextNode(text="hello", id_="chunk-002")
         node.embedding = existing_embedding
 
@@ -192,7 +192,7 @@ class TestExtractionResultEmbedding:
 
         # ChunkNode should have an embedding
         assert result.embedding is not None
-        assert len(result.embedding) == 768
+        assert len(result.embedding) == 1024
 
     def test_successful_extraction_entities_have_embeddings(self):
         """EntityNodes get embeddings during successful extraction."""
@@ -215,7 +215,7 @@ class TestExtractionResultEmbedding:
         assert len(entity_nodes) >= 1
         for entity in entity_nodes:
             assert entity.embedding is not None
-            assert len(entity.embedding) == 768
+            assert len(entity.embedding) == 1024
 
 
 # ===========================================================================
@@ -259,7 +259,7 @@ class TestExtractorCallEmbeddingGuarantee:
         assert result[0].metadata[KG_RELATIONS_KEY] == []
         # The node MUST have an embedding despite extraction failure
         assert result[0].embedding is not None
-        assert len(result[0].embedding) == 768
+        assert len(result[0].embedding) == 1024
 
     def test_acall_with_llm_crash_still_embeds_node(self):
         """acall with LLM crash → node has embedding despite extraction failure."""
@@ -373,7 +373,7 @@ class TestKuzuDBNullEmbeddingGuard:
             name="TestEntity",
             label="Person",
             properties={"entity_description": "A test entity"},
-            embedding=[0.1] * 768,  # Has embedding
+            embedding=[0.1] * 1024,  # Has embedding
         )
 
         with mock.patch.object(
