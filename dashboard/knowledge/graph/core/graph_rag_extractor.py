@@ -209,12 +209,16 @@ class GraphRAGExtractor(TransformComponent):
                 return self._create_empty_extraction_result(node, str(exc))
 
         jobs = [_process_node(node) for node in nodes]
-        results = await run_jobs(
-            jobs,
-            show_progress=show_progress,
-            workers=self.num_workers,
-        )
-        return list(results)
+        try:
+            results = await run_jobs(
+                jobs,
+                show_progress=show_progress,
+                workers=self.num_workers,
+            )
+            return list(results)
+        except Exception as exc:
+            logger.error("acall batch extraction failed: %s", exc)
+            return [self._create_empty_extraction_result(node, str(exc)) for node in nodes]
 
     # -- Result builders ------------------------------------------------
 
@@ -288,6 +292,12 @@ class GraphRAGExtractor(TransformComponent):
         node.metadata[KG_NODES_KEY] = existing_nodes
         node.metadata[KG_RELATIONS_KEY] = existing_relations
 
+        if self.metrics is not None:
+            self.metrics.successful_extractions += 1
+            self.metrics.total_nodes += 1
+            self.metrics.total_entities += len(existing_nodes)
+            self.metrics.total_relationships += len(existing_relations)
+
         # Ensure the source node (ChunkNode) also carries an embedding so it
         # can be found via KuzuDB's QUERY_VECTOR_INDEX. If the node already
         # has an embedding (e.g. from the PropertyGraphIndex embed_model) we
@@ -313,6 +323,10 @@ class GraphRAGExtractor(TransformComponent):
         node.metadata[KG_RELATIONS_KEY] = []
         node.metadata["extraction_error"] = error_msg
         node.metadata["extraction_status"] = ExtractionStatus.FAILED.value
+
+        if self.metrics is not None:
+            self.metrics.failed_extractions += 1
+            self.metrics.total_nodes += 1
 
         # Ensure the ChunkNode still gets an embedding even when extraction
         # fails. Without this the node is invisible to KuzuDB's
