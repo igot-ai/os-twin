@@ -7,9 +7,10 @@ import { useEpics, useDAG } from '@/hooks/use-epics';
 import { useWarRoomProgress } from '@/hooks/use-war-room';
 import { usePlanRefine } from '@/hooks/use-plan-refine';
 import { useAssets } from '@/hooks/use-assets';
+import { useDeployStatus } from '@/hooks/use-deploy';
 import { apiPost } from '@/lib/api-client';
 import { useNotificationStore } from '@/lib/stores/notificationStore';
-import { Plan, Epic, EpicStatus, DAGNodeRaw, WarRoomProgress } from '@/types';
+import { Plan, Epic, EpicStatus, DAGNodeRaw, WarRoomProgress, LaunchResponse } from '@/types';
 import { parseEpicMarkdown, serializeEpicMarkdown, EpicDocument } from '@/lib/epic-parser';
 import PlanSidebar from './PlanSidebar';
 import WorkspaceTabs from './WorkspaceTabs';
@@ -37,10 +38,12 @@ interface PlanContextType {
   setPlanContent: (content: string) => void;
   savePlan: () => Promise<void>;
   launchPlan: () => Promise<void>;
+  compilePlan: () => Promise<void>;
   reloadFromDisk: () => Promise<void>;
   syncStatus: { in_sync: boolean; disk_mtime: number; zvec_mtime: number } | undefined;
   isSaving: boolean;
   isLaunching: boolean;
+  isCompiling: boolean;
   isAIChatOpen: boolean;
   setIsAIChatOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   isRefining: boolean;
@@ -59,6 +62,9 @@ interface PlanContextType {
   // Edit Epic Drawer — signal edit mode from context menu / card
   isEditingEpic: boolean;
   setIsEditingEpic: (editing: boolean) => void;
+  // Launch result for deploy panel
+  launchResult: LaunchResponse | null;
+  clearLaunchResult: () => void;
 }
 
 export const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -91,6 +97,7 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const { dag } = useDAG(planId);
   const { progress, isLoading: isProgressLoading, refresh: refreshProgress } = useWarRoomProgress(planId);
   const { uploadAssets, uploading: isUploadingAssets } = useAssets(planId);
+  const { refresh: refreshDeployStatus } = useDeployStatus(planId);
   
   const [selectedEpicRef, setSelectedEpicRef] = useState<string | null>(null);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
@@ -101,10 +108,13 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const [parsedPlan, setParsedPlan] = useState<EpicDocument | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
+  const [isCompiling, setIsCompiling] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   // EPIC-007: Memory-Knowledge Bridge - highlight note on cross-tab navigation
   const [highlightNoteId, setHighlightNoteId] = useState<string | null>(null);
   const [isEditingEpic, setIsEditingEpic] = useState(false);
+  // Launch result for deploy panel
+  const [launchResult, setLaunchResult] = useState<LaunchResponse | null>(null);
 
   // Undo/Redo Stack
   const [undoStack, setUndoStack] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
@@ -254,13 +264,38 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
   const launchPlan = useCallback(async () => {
     setIsLaunching(true);
     try {
-      await apiPost('/run', { plan: planContent, plan_id: planId });
-      addToast({
-        type: 'success',
-        title: 'Plan Launched',
-        message: 'Your plan has been launched successfully.',
-        autoDismiss: true,
-      });
+      const result = await apiPost<LaunchResponse>('/run', { plan: planContent, plan_id: planId });
+      setLaunchResult(result);
+      
+      const warnings = result.runtime_sanity?.warnings ?? [];
+      const errors = result.runtime_sanity?.errors ?? [];
+      const hasWarnings = warnings.length > 0;
+      const hasErrors = errors.length > 0;
+      
+      if (hasErrors) {
+        addToast({
+          type: 'error',
+          title: 'Launch Completed with Errors',
+          message: `Plan launched but ${errors.length} error(s) detected. Check deploy panel for details.`,
+          autoDismiss: false,
+        });
+      } else if (hasWarnings) {
+        addToast({
+          type: 'success',
+          title: 'Plan Launched',
+          message: `Plan launched successfully with ${warnings.length} warning(s). Working dir: ${result.working_dir}`,
+          autoDismiss: true,
+        });
+      } else {
+        addToast({
+          type: 'success',
+          title: 'Plan Launched',
+          message: `Working dir: ${result.working_dir}`,
+          autoDismiss: true,
+        });
+      }
+      
+      refreshDeployStatus();
     } catch (err: unknown) {
       addToast({
         type: 'error',
@@ -271,7 +306,58 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     } finally {
       setIsLaunching(false);
     }
-  }, [planId, planContent, addToast]);
+  }, [planId, planContent, addToast, refreshDeployStatus]);
+
+  const compilePlan = useCallback(async () => {
+    setIsCompiling(true);
+    try {
+      const result = await apiPost<LaunchResponse>('/compile', { plan: planContent, plan_id: planId });
+      setLaunchResult(result);
+      
+      const warnings = result.runtime_sanity?.warnings ?? [];
+      const errors = result.runtime_sanity?.errors ?? [];
+      const hasWarnings = warnings.length > 0;
+      const hasErrors = errors.length > 0;
+      
+      if (hasErrors) {
+        addToast({
+          type: 'error',
+          title: 'Compile Completed with Errors',
+          message: `Plan compiled but ${errors.length} error(s) detected. Check deploy panel for details.`,
+          autoDismiss: false,
+        });
+      } else if (hasWarnings) {
+        addToast({
+          type: 'success',
+          title: 'Plan Compiled',
+          message: `Plan compiled successfully with ${warnings.length} warning(s). Working dir: ${result.working_dir}`,
+          autoDismiss: true,
+        });
+      } else {
+        addToast({
+          type: 'success',
+          title: 'Plan Compiled',
+          message: `Working dir: ${result.working_dir}`,
+          autoDismiss: true,
+        });
+      }
+      
+      refreshDeployStatus();
+    } catch (err: unknown) {
+      addToast({
+        type: 'error',
+        title: 'Compile Failed',
+        message: err instanceof Error ? err.message : 'There was an error compiling your plan. Please try again.',
+        autoDismiss: false,
+      });
+    } finally {
+      setIsCompiling(false);
+    }
+  }, [planId, planContent, addToast, refreshDeployStatus]);
+
+  const clearLaunchResult = useCallback(() => {
+    setLaunchResult(null);
+  }, []);
 
   const handleApplyAI = useCallback((newContent: string) => {
     setPlanContent(newContent);
@@ -378,10 +464,12 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     setPlanContent,
     savePlan,
     launchPlan,
+    compilePlan,
     reloadFromDisk,
     syncStatus,
     isSaving,
     isLaunching,
+    isCompiling,
     isAIChatOpen,
     setIsAIChatOpen,
     isRefining,
@@ -400,6 +488,9 @@ export default function PlanWorkspace({ planId: propId }: { planId: string }) {
     // Edit Epic Drawer
     isEditingEpic,
     setIsEditingEpic,
+    // Launch result
+    launchResult,
+    clearLaunchResult,
   };
 
   if (planLoading && !plan) {

@@ -492,3 +492,98 @@ export interface PlanningMessage {
 // ──────────────────────────────────────────────────
 export * from './settings';
 
+// ──────────────────────────────────────────────────
+// Launch & Deploy
+// ──────────────────────────────────────────────────
+
+export interface PathCheckResult {
+  ok: boolean;
+  exists: boolean;
+  is_file: boolean;
+  writable: boolean;
+  creatable: boolean;
+  resolved_path: string | null;
+  error: string | null;
+}
+
+export interface RuntimeSanityCheck {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  checks: {
+    working_dir?: {
+      ok: boolean;
+      path?: string;
+      exists?: boolean;
+      writable?: boolean;
+      error?: string;
+      skipped?: boolean;
+      note?: string;
+    };
+    ngrok?: {
+      token_configured: boolean;
+      tunnel_active: boolean;
+      url: string | null;
+    };
+    channels?: Record<string, {
+      enabled: boolean;
+      has_credentials: boolean;
+      notification_enabled: boolean;
+      bot_available?: boolean;
+      bot_running?: boolean;
+      status: string;
+      issues: string[];
+    }>;
+    providers?: {
+      configured: boolean;
+      providers?: Record<string, {
+        enabled: boolean;
+        has_key: boolean;
+      }>;
+    };
+    vault?: {
+      backend: string;
+      healthy: boolean;
+      message: string;
+    } | {
+      ok: boolean;
+      error: string;
+    };
+    mcp?: {
+      servers: number;
+      server_names: string[];
+      ok?: boolean;
+      note?: string;
+      error?: string;
+    };
+  };
+}
+
+export interface LaunchResponse {
+  status: 'launched' | 'compiled' | 'error';
+  plan_file: string;
+  plan_id: string;
+  working_dir: string;
+  launch_log: string;
+  preflight: {
+    path_check: PathCheckResult;
+  };
+  runtime_sanity: RuntimeSanityCheck;
+}
+
+export interface DeployStatus {
+  plan_id: string;
+  status: 'running' | 'stopped' | 'not_configured';
+  pid: number | null;
+  port: number | null;
+  local_url: string | null;
+  public_url: string | null;
+  command: string | null;
+  detection_method: string;
+  started_at: string | null;
+  updated_at: string | null;
+  working_dir: string;
+  log_file: string | null;
+  error: string | null;
+}
+

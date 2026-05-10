@@ -3,9 +3,10 @@
 
 import { usePlanContext } from './PlanWorkspace';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import DeployPanel from './DeployPanel';
 
 export default function PlanSidebar() {
-  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, isSaving, launchPlan, isLaunching } = usePlanContext();
+  const { plan, epics, progress, isProgressLoading, activeTab, setActiveTab, savePlan, isSaving, launchPlan, isLaunching, compilePlan, isCompiling, launchResult, clearLaunchResult } = usePlanContext();
 
   const tabs = [
     { id: 'editor', label: 'Planner', icon: 'edit_document' },
@@ -99,6 +100,16 @@ export default function PlanSidebar() {
       {/* Action Buttons */}
       <div className="p-3 border-t border-border space-y-1.5">
         <button
+          onClick={() => compilePlan()}
+          disabled={isCompiling}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold bg-slate-800 text-white hover:bg-slate-900 transition-all disabled:opacity-50"
+        >
+          <span className="material-symbols-outlined text-[18px]">
+            {isCompiling ? 'progress_activity' : 'terminal'}
+          </span>
+          {isCompiling ? 'Compiling...' : 'Compile Code'}
+        </button>
+        <button
           onClick={() => launchPlan()}
           disabled={isLaunching}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-all disabled:opacity-50"
@@ -119,6 +130,9 @@ export default function PlanSidebar() {
           {isSaving ? 'Saving...' : 'Save Plan'}
         </button>
       </div>
+
+      {/* Deploy Panel */}
+      <DeployPanel launchResult={launchResult} onClose={clearLaunchResult} />
 
       {/* Footer Info */}
       <div className="p-4 bg-surface-alt border-t border-border">

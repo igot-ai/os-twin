@@ -66,6 +66,30 @@ def save_channels_config(configs: List[ConnectorConfig]):
     with open(CHANNELS_CONFIG_PATH, "w") as f:
         json.dump([c.model_dump() for c in configs], f, indent=2)
 
+def _mask_credentials(config: Optional[ConnectorConfig]) -> Optional[ConnectorConfig]:
+    """Mask credential values in config to prevent secret exposure."""
+    if config is None:
+        return None
+    
+    masked_creds = {}
+    for key, value in config.credentials.items():
+        if value:
+            masked_creds[key] = "***"
+        else:
+            masked_creds[key] = ""
+    
+    masked_config = ConnectorConfig(
+        platform=config.platform,
+        enabled=config.enabled,
+        credentials=masked_creds,
+        settings=config.settings,
+        authorized_users=config.authorized_users,
+        pairing_code=config.pairing_code,
+        notification_preferences=config.notification_preferences,
+    )
+    return masked_config
+
+
 @router.get("", response_model=List[ChannelStatus])
 async def list_channels(user: dict = Depends(get_current_user)):
     configs = read_channels_config()
@@ -79,7 +103,6 @@ async def list_channels(user: dict = Depends(get_current_user)):
         
         if config:
             if config.enabled:
-                # In a real app, we would check the bot's health or status
                 status = "connected"
             elif not config.credentials:
                 status = "needs_setup"
@@ -89,7 +112,7 @@ async def list_channels(user: dict = Depends(get_current_user)):
         result.append(ChannelStatus(
             platform=p,
             status=status,
-            config=config
+            config=_mask_credentials(config)
         ))
     return result
 
@@ -110,7 +133,7 @@ async def get_channel(platform: str, user: dict = Depends(get_current_user)):
     return ChannelStatus(
         platform=platform,
         status=status,
-        config=config
+        config=_mask_credentials(config)
     )
 
 @router.post("/{platform}/connect")
@@ -149,10 +172,91 @@ async def disconnect_channel(platform: str, user: dict = Depends(get_current_use
     
     raise HTTPException(status_code=404, detail="Channel not found")
 
-@router.post("/{platform}/test")
+class ChannelSanityResult(BaseModel):
+    platform: str
+    enabled: bool
+    has_credentials: bool
+    notification_enabled: bool
+    bot_available: bool
+    bot_running: bool
+    status: str
+    issues: List[str] = Field(default_factory=list)
+
+
+def _check_channel_credentials(platform: str, config: Optional[ConnectorConfig]) -> bool:
+    """Check if required credentials are present for a platform."""
+    if not config or not config.credentials:
+        return False
+    
+    required_keys = {
+        "telegram": ["token"],
+        "discord": ["token"],
+        "slack": ["app_token", "bot_token"],
+    }
+    
+    if platform not in required_keys:
+        logger.warning(f"Unknown platform '{platform}' - cannot verify credentials")
+        return False
+    
+    platform_keys = required_keys[platform]
+    return all(config.credentials.get(k) for k in platform_keys)
+
+
+@router.post("/{platform}/test", response_model=ChannelSanityResult)
 async def test_channel(platform: str, user: dict = Depends(get_current_user)):
-    # In a real app, this would perform a real health check
-    return {"status": "healthy", "message": f"Connection to {platform} is working (mocked)"}
+    """Perform real sanity checks for a notification channel connector.
+    
+    Checks:
+    - Channel enabled in config
+    - Required credentials present (never exposed)
+    - notification_preferences.enabled
+    - Bot manager available/running (for platforms needing bot process)
+    
+    Returns structured sanity result without exposing secret values.
+    """
+    issues: List[str] = []
+    
+    configs = read_channels_config()
+    config = next((c for c in configs if c.platform == platform), None)
+    
+    enabled = config.enabled if config else False
+    has_credentials = _check_channel_credentials(platform, config)
+    notification_enabled = config.notification_preferences.enabled if config else False
+    
+    bot_available = global_state.bot_manager is not None
+    bot_running = global_state.bot_manager.is_running if bot_available else False
+    
+    if not config:
+        status = "not_configured"
+        issues.append("Channel not configured")
+    elif not enabled:
+        status = "disabled"
+        issues.append("Channel is disabled")
+    elif not has_credentials:
+        status = "missing_credentials"
+        issues.append("Required credentials not configured")
+    elif not notification_enabled:
+        status = "notifications_disabled"
+        issues.append("Notification preferences are disabled")
+    elif not bot_available:
+        status = "bot_unavailable"
+        issues.append("Bot manager not initialized")
+    elif not bot_running:
+        status = "bot_not_running"
+        issues.append("Bot process not running")
+    else:
+        status = "healthy"
+    
+    return ChannelSanityResult(
+        platform=platform,
+        enabled=enabled,
+        has_credentials=has_credentials,
+        notification_enabled=notification_enabled,
+        bot_available=bot_available,
+        bot_running=bot_running,
+        status=status,
+        issues=issues,
+    )
 
 @router.put("/{platform}/settings")
 async def update_settings(platform: str, settings: Dict[str, Any], user: dict = Depends(get_current_user)):

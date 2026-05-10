@@ -2087,13 +2087,12 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     - .meta.json is upserted (preserves created_at and custom fields).
     - .roles.json is only seeded from global config when it does not exist yet,
       so user customisations are never overwritten.
+    - Path availability is checked before creating directories or spawning processes.
     """
     plan = request.plan.strip()
     if not plan:
         raise HTTPException(status_code=422, detail="Plan content is empty")
 
-    # Quick pre-flight: must contain a goal (# Plan: title) or at least one EPIC/Task.
-    # Plans without EPICs are allowed — Start-Plan.ps1 will auto-generate them from the goal.
     has_epics = bool(_re_mod.search(r"^#{2,3} (?:EPIC-|Task:|Epic:)", plan, _re_mod.MULTILINE))
     has_goal = bool(_re_mod.search(r"^#\s+(?:Plan|PLAN):\s*.+", plan, _re_mod.MULTILINE))
     if not has_epics and not has_goal:
@@ -2110,11 +2109,9 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     plan_path = plans_dir / f"{plan_id}.md"
     plan_filename = plan_path.name
 
-    # --- .md: only write when content actually changed ---
     existing_content = plan_path.read_text() if plan_path.exists() else None
     store = global_state.store
     if existing_content != plan:
-        # Snapshot old content before overwriting
         if existing_content and existing_content.strip() and store:
             try:
                 old_title_match = _re_mod.search(r"^# (?:Plan|PLAN):\s*(.+)", existing_content, _re_mod.MULTILINE)
@@ -2131,11 +2128,9 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     else:
         logger.debug(f"run_plan: plan content unchanged for {plan_id}, skipping write")
 
-    # Extract title
     title_match = _re_mod.search(r"^# (?:Plan|PLAN):\s*(.+)", plan, _re_mod.MULTILINE)
     title = title_match.group(1).strip() if title_match else plan_id
 
-    # Extract working_dir from plan content (## Config section)
     working_dir = None
     wd_match = _re_mod.search(r"working_dir:\s*(.+)", plan)
     if wd_match:
@@ -2143,15 +2138,26 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     if not working_dir or working_dir == '.':
         working_dir = str(PROJECT_ROOT)
 
-    # If working_dir is relative, resolve under PROJECT_ROOT/projects/
     wd_path = Path(working_dir)
     if not wd_path.is_absolute():
         wd_path = PROJECT_ROOT / "projects" / working_dir
-    # Create the directory if it doesn't exist
+    
+    from dashboard.deploy_preview import check_path_availability
+    path_check = check_path_availability(wd_path)
+    if not path_check["ok"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": path_check.get("error", "Path check failed"),
+                "path": str(wd_path),
+                "exists": path_check.get("exists", False),
+                "is_file": path_check.get("is_file", False),
+            }
+        )
+    
     wd_path.mkdir(parents=True, exist_ok=True)
     working_dir = str(wd_path)
 
-    # --- .meta.json: upsert — merge into existing, preserve created_at ---
     meta_path = plans_dir / f"{plan_id}.meta.json"
     existing_meta = {}
     if meta_path.exists():
@@ -2161,21 +2167,19 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
             pass
 
     meta = {
-        **existing_meta,                           # keep previous fields
+        **existing_meta,
         "plan_id": plan_id,
         "title": title,
         "working_dir": working_dir,
         "warrooms_dir": str(Path(working_dir) / ".war-rooms") if Path(working_dir).is_absolute() else str(PROJECT_ROOT / working_dir / ".war-rooms"),
         "status": "launched",
     }
-    # Preserve original created_at; only set if missing
     if "created_at" not in meta:
         meta["created_at"] = datetime.now(timezone.utc).isoformat()
     meta["launched_at"] = datetime.now(timezone.utc).isoformat()
 
     meta_path.write_text(json.dumps(meta, indent=2))
 
-    # --- .roles.json: seed from engine config + dashboard roles when file does NOT exist ---
     role_config_path = plans_dir / f"{plan_id}.roles.json"
     if not role_config_path.exists():
         global_config_file = AGENTS_DIR / "config.json"
@@ -2185,7 +2189,6 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
                 seed_config = json.loads(global_config_file.read_text())
             except (json.JSONDecodeError, OSError):
                 pass
-        # Merge dashboard roles (which have skill_refs) into the plan config
         from dashboard.routes.roles import load_roles
         for role in load_roles():
             if role.name not in seed_config:
@@ -2200,12 +2203,10 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
     else:
         logger.debug(f"run_plan: roles.json already exists for {plan_id}, preserving user customisations")
 
-    # Sync with zvec store if available
     store = global_state.store
     if store:
         try:
             from dashboard.zvec_store import OSTwinStore
-            # Parse epics
             epics = OSTwinStore._parse_plan_epics(plan, plan_id)
             now = datetime.now(timezone.utc).isoformat()
             store.index_plan(
@@ -2224,7 +2225,6 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         except Exception as e:
             logger.error(f"zvec: plan indexing failed ({e})")
 
-    # Ensure target project is initialized with ostwin
     wd_path = Path(working_dir) if Path(working_dir).is_absolute() else PROJECT_ROOT / working_dir
     if not (wd_path / ".agents").exists():
         logger.info(f"run_plan: target dir {wd_path} not initialized, running ostwin init...")
@@ -2241,16 +2241,11 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         else:
             logger.warning(f"ostwin binary not found at {ostwin_bin}, skipping init")
     
-    # Inject assets into working directory
     try:
         _inject_assets_to_working_directory(plan_id, wd_path)
     except Exception as e:
         logger.warning(f"Failed to inject assets for plan {plan_id}: {e}")
 
-    # --- Sync plan files into the project's local .agents/plans/ ---
-    # opencode's file sandbox blocks reads outside the project directory.
-    # Agents need the plan file within their CWD tree, so copy from the
-    # global store (PLANS_DIR) into {working_dir}/.agents/plans/.
     local_plans_dir = wd_path / ".agents" / "plans"
     local_plans_dir.mkdir(parents=True, exist_ok=True)
     import shutil
@@ -2261,7 +2256,6 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
             shutil.copy2(str(src), str(dst))
             logger.info(f"run_plan: synced {src.name} -> {local_plans_dir}")
 
-    # Bug 4 Fix: Sync assets directory from PLANS_DIR/assets/{plan_id}/ to local .agents/plans/assets/{plan_id}/
     global_assets_dir = plans_dir / "assets" / plan_id
     local_assets_dir = local_plans_dir / "assets" / plan_id
     if global_assets_dir.exists() and global_assets_dir.is_dir():
@@ -2273,17 +2267,13 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
                     shutil.copy2(str(asset_file), str(dst_file))
         logger.info(f"run_plan: synced assets -> {local_assets_dir}")
 
-    # Use the local copy for ostwin run so the path is within the sandbox
     local_plan_path = local_plans_dir / f"{plan_id}.md"
     launch_plan_path = local_plan_path if local_plan_path.exists() else plan_path
 
-    # Log file for debugging ostwin run
     log_file = wd_path / ".agents" / "logs" / f"launch-{plan_id}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     log_handle = open(log_file, 'w')
 
-    # Spawn OS Twin in background (capture output to log file)
-    # Run from working_dir - ostwin will auto-detect project context
     subprocess.Popen(
         [str(ostwin_bin), "run", str(launch_plan_path), "--non-interactive"],
         cwd=str(wd_path),
@@ -2291,8 +2281,213 @@ async def run_plan(request: RunRequest, user: dict = Depends(get_current_user)):
         stderr=subprocess.STDOUT,
     )
     logger.info(f"run_plan: launched ostwin run for {plan_id}, logs: {log_file}")
+    
+    runtime_sanity = _get_runtime_sanity(plan_id)
 
-    return {"status": "launched", "plan_file": plan_filename, "plan_id": plan_id}
+    return {
+        "status": "launched",
+        "plan_file": plan_filename,
+        "plan_id": plan_id,
+        "working_dir": working_dir,
+        "launch_log": str(log_file),
+        "preflight": {
+            "path_check": path_check,
+        },
+        "runtime_sanity": runtime_sanity,
+    }
+
+
+@router.post("/api/compile")
+async def compile_plan(request: RunRequest, user: dict = Depends(get_current_user)):
+    """Compile a plan without spawning AI agents.
+
+    This endpoint prepares a plan for execution:
+    - Validates plan_id and content
+    - Resolves working_dir and checks path availability
+    - Seeds roles.json (if not exists)
+    - Indexes plan/epics in zvec store
+    - Runs runtime sanity checks
+
+    Does NOT spawn the ostwin run subprocess.
+
+    Returns compiled status with working_dir and runtime_sanity for UI refresh.
+    """
+    plan = request.plan.strip()
+    if not plan:
+        raise HTTPException(status_code=422, detail="Plan content is empty")
+
+    has_epics = bool(_re_mod.search(r"^#{2,3} (?:EPIC-|Task:|Epic:)", plan, _re_mod.MULTILINE))
+    has_goal = bool(_re_mod.search(r"^#\s+(?:Plan|PLAN):\s*.+", plan, _re_mod.MULTILINE))
+    if not has_epics and not has_goal:
+        raise HTTPException(status_code=400, detail="Plan must contain a '# Plan: Title' goal or at least one '## EPIC-XXX - Title' section.")
+
+    plans_dir = PLANS_DIR
+    plans_dir.mkdir(exist_ok=True)
+
+    plan_id = request.plan_id
+    plan_path = plans_dir / f"{plan_id}.md"
+    plan_filename = plan_path.name
+
+    existing_content = plan_path.read_text() if plan_path.exists() else None
+    store = global_state.store
+    if existing_content != plan:
+        if existing_content and existing_content.strip() and store:
+            try:
+                old_title_match = _re_mod.search(r"^# (?:Plan|PLAN):\s*(.+)", existing_content, _re_mod.MULTILINE)
+                old_title = old_title_match.group(1).strip() if old_title_match else plan_id
+                old_epics = len(_re_mod.findall(r"^#{2,3} (?:(?:Epic|Task):\s*\S+|EPIC-\d+|TASK-\d+)", existing_content, _re_mod.MULTILINE))
+                store.save_plan_version(
+                    plan_id=plan_id, content=existing_content, title=old_title,
+                    epic_count=old_epics, change_source="compile",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to snapshot plan version before compile {plan_id}: {e}")
+        plan_path.write_text(plan)
+        logger.info(f"compile_plan: wrote updated plan content for {plan_id}")
+    else:
+        logger.debug(f"compile_plan: plan content unchanged for {plan_id}, skipping write")
+
+    title_match = _re_mod.search(r"^# (?:Plan|PLAN):\s*(.+)", plan, _re_mod.MULTILINE)
+    title = title_match.group(1).strip() if title_match else plan_id
+
+    working_dir = None
+    wd_match = _re_mod.search(r"working_dir:\s*(.+)", plan)
+    if wd_match:
+        working_dir = wd_match.group(1).strip()
+    if not working_dir or working_dir == '.':
+        working_dir = str(PROJECT_ROOT)
+
+    wd_path = Path(working_dir)
+    if not wd_path.is_absolute():
+        wd_path = PROJECT_ROOT / "projects" / working_dir
+
+    from dashboard.deploy_preview import check_path_availability
+    path_check = check_path_availability(wd_path)
+    if not path_check["ok"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": path_check.get("error", "Path check failed"),
+                "path": str(wd_path),
+                "exists": path_check.get("exists", False),
+                "is_file": path_check.get("is_file", False),
+            }
+        )
+
+    wd_path.mkdir(parents=True, exist_ok=True)
+    working_dir = str(wd_path)
+
+    meta_path = plans_dir / f"{plan_id}.meta.json"
+    existing_meta = {}
+    if meta_path.exists():
+        try:
+            existing_meta = json.loads(meta_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    meta = {
+        **existing_meta,
+        "plan_id": plan_id,
+        "title": title,
+        "working_dir": working_dir,
+        "warrooms_dir": str(Path(working_dir) / ".war-rooms") if Path(working_dir).is_absolute() else str(PROJECT_ROOT / working_dir / ".war-rooms"),
+        "status": existing_meta.get("status", "draft"),
+    }
+    if "created_at" not in meta:
+        meta["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    meta_path.write_text(json.dumps(meta, indent=2))
+
+    role_config_path = plans_dir / f"{plan_id}.roles.json"
+    if not role_config_path.exists():
+        global_config_file = AGENTS_DIR / "config.json"
+        seed_config = {}
+        if global_config_file.exists():
+            try:
+                seed_config = json.loads(global_config_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        from dashboard.routes.roles import load_roles
+        for role in load_roles():
+            if role.name not in seed_config:
+                seed_config[role.name] = {}
+            rc = seed_config[role.name]
+            rc.setdefault("default_model", role.version)
+            rc.setdefault("timeout_seconds", role.timeout_seconds)
+            if role.skill_refs:
+                rc.setdefault("skill_refs", role.skill_refs)
+        role_config_path.write_text(json.dumps(seed_config, indent=2))
+        logger.info(f"compile_plan: seeded roles.json for {plan_id}")
+    else:
+        logger.debug(f"compile_plan: roles.json already exists for {plan_id}, preserving user customisations")
+
+    store = global_state.store
+    if store:
+        try:
+            from dashboard.zvec_store import OSTwinStore
+            epics = OSTwinStore._parse_plan_epics(plan, plan_id)
+            now = datetime.now(timezone.utc).isoformat()
+            store.index_plan(
+                plan_id=plan_id, title=title, content=plan,
+                epic_count=len(epics), filename=plan_filename,
+                status=meta.get("status", "draft"), created_at=meta.get("created_at", now),
+            )
+            for epic in epics:
+                store.index_epic(
+                    epic_ref=epic["task_ref"], plan_id=plan_id,
+                    title=epic["title"], body=epic["body"],
+                    room_id=epic["room_id"],
+                    working_dir=epic.get("working_dir", "."),
+                    status="pending",
+                )
+            logger.info(f"compile_plan: indexed plan {plan_id} with {len(epics)} epics in zvec")
+        except Exception as e:
+            logger.error(f"zvec: plan indexing failed ({e})")
+
+    try:
+        _inject_assets_to_working_directory(plan_id, wd_path)
+    except Exception as e:
+        logger.warning(f"Failed to inject assets for plan {plan_id}: {e}")
+
+    local_plans_dir = wd_path / ".agents" / "plans"
+    local_plans_dir.mkdir(parents=True, exist_ok=True)
+    import shutil
+    for suffix in (".md", ".meta.json", ".roles.json"):
+        src = plans_dir / f"{plan_id}{suffix}"
+        dst = local_plans_dir / f"{plan_id}{suffix}"
+        if src.exists() and str(src.resolve()) != str(dst.resolve()):
+            shutil.copy2(str(src), str(dst))
+            logger.info(f"compile_plan: synced {src.name} -> {local_plans_dir}")
+
+    global_assets_dir = plans_dir / "assets" / plan_id
+    local_assets_dir = local_plans_dir / "assets" / plan_id
+    if global_assets_dir.exists() and global_assets_dir.is_dir():
+        local_assets_dir.mkdir(parents=True, exist_ok=True)
+        for asset_file in global_assets_dir.iterdir():
+            if asset_file.is_file():
+                dst_file = local_assets_dir / asset_file.name
+                if not dst_file.exists() or str(dst_file.resolve()) != str(asset_file.resolve()):
+                    shutil.copy2(str(asset_file), str(dst_file))
+        logger.info(f"compile_plan: synced assets -> {local_assets_dir}")
+
+    log_file = wd_path / ".agents" / "logs" / f"compile-{plan_id}.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.write_text(f"Compiled at {datetime.now(timezone.utc).isoformat()}\n")
+
+    runtime_sanity = _get_runtime_sanity(plan_id)
+
+    return {
+        "status": "compiled",
+        "plan_file": plan_filename,
+        "plan_id": plan_id,
+        "working_dir": working_dir,
+        "launch_log": str(log_file),
+        "preflight": {
+            "path_check": path_check,
+        },
+        "runtime_sanity": runtime_sanity,
+    }
+
 
 @router.post("/api/plans/{plan_id}/status")
 async def update_plan_status(plan_id: str, request: dict):
@@ -3467,3 +3662,315 @@ async def preview_epic_role_prompt(
         return {"role": role_name, "prompt": prompt}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate prompt: {e}")
+
+
+# ── Deploy Preview Endpoints ────────────────────────────────────────────────────
+
+
+def _resolve_working_dir_for_plan(plan_id: str) -> Path:
+    """Resolve working_dir from plan meta, matching deploy_preview.resolve_working_dir logic."""
+    from dashboard.api_utils import PROJECT_ROOT
+    
+    meta_file = PLANS_DIR / f"{plan_id}.meta.json"
+    if not meta_file.exists():
+        raise HTTPException(status_code=404, detail=f"Plan meta not found: {plan_id}")
+    
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        raise HTTPException(status_code=500, detail=f"Invalid meta.json for plan {plan_id}")
+    
+    working_dir = meta.get("working_dir")
+    if not working_dir:
+        raise HTTPException(status_code=400, detail=f"working_dir not set in plan {plan_id}")
+    
+    wd_path = Path(working_dir)
+    if wd_path.is_absolute():
+        return wd_path.resolve()
+    
+    wd_str = working_dir.replace("\\", "/").strip("./")
+    if not wd_str or wd_str == ".":
+        return PROJECT_ROOT.resolve()
+    if wd_str.startswith("projects/"):
+        return (PROJECT_ROOT / wd_str).resolve()
+    return (PROJECT_ROOT / "projects" / wd_str).resolve()
+
+
+@router.get("/api/plans/{plan_id}/deploy/status")
+async def get_deploy_status(plan_id: str, user: dict = Depends(get_current_user)):
+    """Get preview deploy status for a plan."""
+    from dashboard.deploy_preview import get_preview_status, PreviewConfigError
+    
+    _require_plan_file(plan_id)
+    
+    try:
+        working_dir = _resolve_working_dir_for_plan(plan_id)
+    except HTTPException:
+        return {
+            "plan_id": plan_id,
+            "status": "not_configured",
+            "error": "working_dir not configured",
+        }
+    
+    status = get_preview_status(working_dir)
+    status["plan_id"] = plan_id
+    return status
+
+
+@router.post("/api/plans/{plan_id}/deploy/start")
+async def start_deploy(plan_id: str, user: dict = Depends(get_current_user)):
+    """Start preview deploy for a plan."""
+    from dashboard.deploy_preview import (
+        start_preview, PathCheckError, PreviewConfigError
+    )
+    
+    _require_plan_file(plan_id)
+    working_dir = _resolve_working_dir_for_plan(plan_id)
+    
+    try:
+        status = start_preview(working_dir)
+        status["plan_id"] = plan_id
+        return status
+    except PathCheckError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PreviewConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.post("/api/plans/{plan_id}/deploy/stop")
+async def stop_deploy(plan_id: str, user: dict = Depends(get_current_user)):
+    """Stop preview deploy for a plan."""
+    from dashboard.deploy_preview import stop_preview
+    
+    _require_plan_file(plan_id)
+    working_dir = _resolve_working_dir_for_plan(plan_id)
+    
+    status = stop_preview(working_dir)
+    status["plan_id"] = plan_id
+    return status
+
+
+@router.post("/api/plans/{plan_id}/deploy/restart")
+async def restart_deploy(plan_id: str, user: dict = Depends(get_current_user)):
+    """Restart preview deploy for a plan."""
+    from dashboard.deploy_preview import (
+        restart_preview, PathCheckError, PreviewConfigError
+    )
+    
+    _require_plan_file(plan_id)
+    working_dir = _resolve_working_dir_for_plan(plan_id)
+    
+    try:
+        status = restart_preview(working_dir)
+        status["plan_id"] = plan_id
+        return status
+    except PathCheckError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PreviewConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+class PathCheckRequest(BaseModel):
+    path: str
+
+
+@router.post("/api/plans/path/check")
+async def check_path(request: PathCheckRequest, user: dict = Depends(get_current_user)):
+    """Check if a path is suitable for deployment."""
+    from dashboard.deploy_preview import check_path_availability
+    
+    path = Path(request.path)
+    result = check_path_availability(path)
+    return result
+
+
+def _get_runtime_sanity(plan_id: Optional[str] = None) -> Dict[str, Any]:
+    """Check runtime sanity for ngrok, channels, providers, mcp.
+    
+    Returns warnings (non-blocking) and errors (blocking).
+    Missing ngrok or disabled channels are warnings, not errors.
+    
+    Checks:
+    - ngrok token configured and tunnel active
+    - notification channels: enabled, credentials present, bot running
+    - providers: at least one LLM provider with API key
+    - MCP servers configured
+    - vault health
+    """
+    from dashboard.api_utils import PROJECT_ROOT
+    from dashboard import tunnel
+    from dashboard.routes.channels import read_channels_config, _check_channel_credentials
+    
+    errors: List[str] = []
+    warnings: List[str] = []
+    checks: Dict[str, Dict[str, Any]] = {}
+    
+    if plan_id:
+        try:
+            working_dir = _resolve_working_dir_for_plan(plan_id)
+            from dashboard.deploy_preview import check_path_availability
+            path_result = check_path_availability(working_dir)
+            checks["working_dir"] = {
+                "ok": path_result["ok"],
+                "path": str(working_dir),
+                "exists": path_result["exists"],
+                "writable": path_result["writable"],
+                "error": path_result.get("error"),
+            }
+            if not path_result["ok"]:
+                errors.append(f"working_dir: {path_result.get('error', 'unusable')}")
+        except HTTPException as e:
+            checks["working_dir"] = {"ok": False, "error": str(e.detail)}
+            errors.append(f"working_dir: {e.detail}")
+    else:
+        checks["working_dir"] = {"ok": True, "skipped": True, "note": "no plan_id provided"}
+    
+    ngrok_token = os.environ.get("NGROK_AUTHTOKEN")
+    tunnel_url = tunnel.get_tunnel_url()
+    checks["ngrok"] = {
+        "token_configured": bool(ngrok_token),
+        "tunnel_active": bool(tunnel_url),
+        "url": tunnel_url,
+    }
+    if not ngrok_token:
+        warnings.append("ngrok: NGROK_AUTHTOKEN not configured (optional for local preview)")
+    
+    import dashboard.global_state as gs
+    
+    channel_configs = read_channels_config()
+    channel_checks: Dict[str, Dict[str, Any]] = {}
+    
+    for platform in ["telegram", "discord", "slack"]:
+        config = next((c for c in channel_configs if c.platform == platform), None)
+        
+        enabled = config.enabled if config else False
+        has_credentials = _check_channel_credentials(platform, config)
+        notification_enabled = config.notification_preferences.enabled if config else False
+        bot_available = gs.bot_manager is not None
+        bot_running = gs.bot_manager.is_running if bot_available else False
+        
+        if config and enabled:
+            issues = []
+            if not has_credentials:
+                issues.append("missing_credentials")
+            if not notification_enabled:
+                issues.append("notifications_disabled")
+            if not bot_available:
+                issues.append("bot_unavailable")
+            elif not bot_running:
+                issues.append("bot_not_running")
+            
+            status = "healthy" if not issues else "degraded"
+            channel_checks[platform] = {
+                "enabled": enabled,
+                "has_credentials": has_credentials,
+                "notification_enabled": notification_enabled,
+                "bot_available": bot_available,
+                "bot_running": bot_running,
+                "status": status,
+                "issues": issues,
+            }
+            
+            if issues:
+                warnings.append(f"channels.{platform}: {', '.join(issues)}")
+        elif config and not enabled:
+            channel_checks[platform] = {
+                "enabled": False,
+                "has_credentials": has_credentials,
+                "notification_enabled": notification_enabled,
+                "status": "disabled",
+                "issues": [],
+            }
+        else:
+            channel_checks[platform] = {
+                "enabled": False,
+                "has_credentials": False,
+                "notification_enabled": False,
+                "status": "not_configured",
+                "issues": ["not_configured"],
+            }
+    
+    checks["channels"] = channel_checks
+    
+    any_channel_enabled = any(c.get("enabled") for c in channel_checks.values())
+    if any_channel_enabled:
+        enabled_with_issues = [
+            p for p, c in channel_checks.items() 
+            if c.get("enabled") and c.get("issues")
+        ]
+        if enabled_with_issues:
+            warnings.append(f"channels: enabled channels with issues: {', '.join(enabled_with_issues)}")
+    
+    try:
+        from dashboard.lib.settings import get_settings_resolver
+        resolver = get_settings_resolver()
+        master_settings = resolver.get_master_settings()
+        providers = master_settings.providers.model_dump() if master_settings.providers else {}
+        has_provider = any(
+            p.get("api_key_ref") or os.environ.get(f"{name.upper()}_API_KEY")
+            for name, p in providers.items()
+            if p.get("enabled", True)
+        )
+        checks["providers"] = {
+            "configured": has_provider,
+            "providers": {
+                name: {"enabled": p.get("enabled", True), "has_key": bool(p.get("api_key_ref") or os.environ.get(f"{name.upper()}_API_KEY"))}
+                for name, p in providers.items()
+            }
+        }
+        if not has_provider:
+            errors.append("providers: no LLM provider configured with API key")
+    except Exception as e:
+        checks["providers"] = {"ok": False, "error": str(e)}
+        warnings.append(f"providers: could not check provider config: {e}")
+    
+    try:
+        from dashboard.lib.settings.vault import get_vault
+        vault = get_vault()
+        health = vault.health()
+        checks["vault"] = {
+            "backend": health.backend_type,
+            "healthy": health.healthy,
+            "message": health.message,
+        }
+        if not health.healthy:
+            warnings.append(f"vault: {health.message}")
+    except Exception as e:
+        checks["vault"] = {"ok": False, "error": str(e)}
+        warnings.append(f"vault: could not check vault health: {e}")
+    
+    try:
+        mcp_dir = AGENTS_DIR / "mcp"
+        mcp_servers = list(mcp_dir.glob("*.json")) if mcp_dir.exists() else []
+        checks["mcp"] = {
+            "servers": len(mcp_servers),
+            "server_names": [s.stem for s in mcp_servers],
+        }
+        if mcp_servers:
+            checks["mcp"]["ok"] = True
+        else:
+            checks["mcp"]["ok"] = True
+            checks["mcp"]["note"] = "no MCP servers configured"
+    except Exception as e:
+        checks["mcp"] = {"ok": False, "error": str(e)}
+    
+    ok = len(errors) == 0
+    return {
+        "ok": ok,
+        "errors": errors,
+        "warnings": warnings,
+        "checks": checks,
+    }
+
+
+@router.get("/api/runtime/sanity")
+async def get_runtime_sanity_endpoint(
+    plan_id: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user),
+):
+    """Check runtime sanity for working_dir, ngrok, channels, providers, mcp."""
+    return _get_runtime_sanity(plan_id)

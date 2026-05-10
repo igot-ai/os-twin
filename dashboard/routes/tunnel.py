@@ -18,7 +18,15 @@ async def tunnel_status(_user=Depends(get_current_user)):
 
 @router.post("/restart")
 async def tunnel_restart(_user=Depends(get_current_user)):
-    """Restart the tunnel (disconnect + reconnect) to get a new URL."""
+    """Restart the tunnel (disconnect + reconnect) to get a new URL.
+    
+    Works immediately after env reload - no dashboard restart required
+    when NGROK_AUTHTOKEN becomes available via POST /api/env.
+    """
+    from dashboard.env_watcher import reload_env_file
+    
+    reload_env_file()
+    
     auth_token = os.environ.get("NGROK_AUTHTOKEN")
     if not auth_token:
         raise HTTPException(status_code=400, detail="NGROK_AUTHTOKEN not configured")
